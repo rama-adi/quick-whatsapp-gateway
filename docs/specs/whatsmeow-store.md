@@ -100,7 +100,12 @@ all tables InnoDB/utf8mb4 with `ON DELETE/UPDATE CASCADE` FKs back to
 `(jid, name)` of `wmstore_app_state_version`. `wmstore_lid_map` and
 `wmstore_privacy_tokens` have no device FK (they outlive / are independent of a
 device row), matching the upstream schema. Indexed string columns are
-`VARCHAR(255)` (utf8mb4 bounded-length requirement) rather than unbounded TEXT.
+`VARCHAR(128)` (utf8mb4 bounded-length requirement) rather than unbounded TEXT;
+128 was chosen over 255 so the four-column PK of `wmstore_message_secrets`
+(`4*128*4 = 2048` bytes) stays under InnoDB's 3072-byte index-prefix limit —
+`VARCHAR(255)` overflowed it (`4*255*4 = 4080`). Non-indexed free-text columns
+(`wmstore_device.platform/business_name/push_name`, `wmstore_retry_buffer.format`)
+remain `VARCHAR(255)`.
 
 ## Decisions / deviations
 - `DoDecryptionTxn` runs `fn` inside a `database/sql` transaction but does **not**

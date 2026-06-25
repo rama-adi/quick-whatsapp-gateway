@@ -35,18 +35,25 @@ type roleSpec struct {
 // "user" role gets no admin permissions — tenant isolation is enforced by the
 // app layer via tenant_id, not by an Authula permission. super_admin holds every
 // gate key so admin RouteMappings (any of the keys) all resolve to true.
+//
+// IsSystem MUST be false: Authula's access-control AddPermissionToRole rejects
+// attaching a permission to a role (or attaching a system permission) when
+// either side has IsSystem=true (services/role_permission_service.go returns
+// ErrBadRequest). The "system" flag is reserved for records the library manages
+// internally; our app-defined roles are non-system so SeedRBAC can wire their
+// permissions through the public API.
 func seedPlan() []roleSpec {
 	return []roleSpec{
 		{
 			Name:        RoleSuperAdmin,
 			Description: "Full administrative access to all tenants, sessions and admin routes.",
-			IsSystem:    true,
+			IsSystem:    false,
 			Permissions: allPermissionKeys(),
 		},
 		{
 			Name:        RoleUser,
 			Description: "Self-service tenant: manages own sessions, keys, webhooks and events.",
-			IsSystem:    true,
+			IsSystem:    false,
 			Permissions: nil,
 		},
 	}

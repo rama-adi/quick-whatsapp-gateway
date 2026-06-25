@@ -17,6 +17,7 @@ package auth
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	authula "github.com/Authula/authula"
@@ -25,6 +26,8 @@ import (
 	accesscontrol "github.com/Authula/authula/plugins/access-control"
 	emailpassword "github.com/Authula/authula/plugins/email-password"
 	"github.com/Authula/authula/plugins/session"
+	"github.com/uptrace/bun"
+	"github.com/uptrace/bun/dialect/mysqldialect"
 )
 
 // Auth is the gateway's handle on a constructed Authula instance plus the plugin
@@ -81,8 +84,18 @@ func Build(cfg Config) (*Auth, error) {
 		config.WithRouteMappings(adminRouteMappings(norm.BasePath)),
 	)
 
+	// Open Authula's pool ourselves on the alias-fixing MySQL shim driver (see
+	// mysqldriver.go) and inject it via AuthConfig.DB, so its bun migrator's
+	// `INSERT ... AS schema_migration` records succeed on real MySQL. Provider
+	// stays "mysql" so Authula still selects the MySQL migration set.
+	sqlDB, err := openAuthulaMySQL(norm.MySQLDSN)
+	if err != nil {
+		return nil, fmt.Errorf("auth: open mysql: %w", err)
+	}
+	bunDB := bun.NewDB(sqlDB, mysqldialect.New())
+
 	// authula.New runs migrations + plugin Init synchronously and panics on error.
-	instance := authula.New(&authula.AuthConfig{Config: authCfg, Plugins: plugins})
+	instance := authula.New(&authula.AuthConfig{Config: authCfg, Plugins: plugins, DB: bunDB})
 
 	a := &Auth{
 		cfg:       norm,

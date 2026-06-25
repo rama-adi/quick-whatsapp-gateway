@@ -558,3 +558,43 @@ ChangePassword/RequestEmailChange`). Email sending requires the `email` plugin
   the generic global RBAC.
 </content>
 </invoke>
+
+---
+
+## Boot smoke-test findings (2026-06-26, Authula v1.12.0 + bun v1.2.18 on MySQL 8.4)
+
+Running the full composition root against a live MySQL surfaced three Authula
+MySQL-dialect bugs and one of our own wiring mistakes. All are fixed at our
+boundary (no module edits); see `internal/auth/mysqldriver.go` for the SQL shim
+and `internal/http/router.go` / `internal/auth/{rbac,seed}.go` for the rest.
+
+1. **Migrator INSERT alias (Authula bug).** `migrations.Migrator` records each
+   applied migration via `ModelTableExpr("? AS schema_migration")`; bun renders
+   `INSERT INTO \`auth_schema_migrations\` AS schema_migration (...)`, which is
+   illegal MySQL (no table alias on INSERT) → error 1064, `New()` panics. Fixed
+   by a `database/sql` driver shim that strips the bogus ` AS alias` from INSERTs
+   only (SELECT/DELETE aliases are valid and kept).
+2. **Bare reserved word `key` (Authula bug).** access-control's
+   `access_control_permissions` MySQL DDL declares an unquoted `key VARCHAR(255)`
+   column; `KEY` is reserved → 1064. Shim backticks it.
+3. **`BINARY(16)` id columns (Authula bug).** access-control/admin/totp MySQL
+   migrations type every id/*_id column `BINARY(16)`, but the Go models store
+   36-char UUID *strings* → error 1406 "Data too long". Core tables already use
+   `VARCHAR(255)`; shim rewrites `BINARY(16)` → `VARCHAR(255)` (consistent with
+   the referenced `users(id)` PK).
+   The shim is injected by opening Authula's pool ourselves and passing it via
+   `AuthConfig.DB` (the documented hook).
+4. **RBAC seed used IsSystem=true (our bug).** Authula's `AddPermissionToRole`
+   returns `ErrBadRequest` when the role or permission is `IsSystem`. SeedRBAC
+   now creates app-defined roles/permissions with `IsSystem=false`.
+5. **Authula mount (our bug).** Authula's router self-prefixes BasePath
+   (`/auth`), so its handler must see the full `/auth/...` path. We were using
+   chi `Mount("/auth", …)`, which strips the prefix → 404. Now `Handle("/auth/*",
+   …)` preserves it.
+
+Result: server boots clean; migrations apply (core + access_control + admin +
+totp + our app + 16 wmstore_* keystore tables); admin bootstrap creates
+`admin@example.com`; `POST /auth/email-password/sign-in` with the bootstrapped
+creds returns 200 with a user+session. Probes: /healthz 200, /readyz 200,
+/api/v1/openapi.yaml 200, /api/v1/sessions 401 (no auth and bogus bearer),
+sign-in 422 on bad creds / 200 on valid.

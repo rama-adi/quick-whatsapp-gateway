@@ -62,8 +62,16 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	r.Handle("/metrics", promhttp.Handler())
 
 	// Authula auth surface under /auth (login, registration, admin, etc.).
+	//
+	// Authula's own router already prefixes every route with its BasePath
+	// ("/auth"), so its handler expects to see the full "/auth/..." request path.
+	// chi's Mount strips the matched prefix before delegating, which would feed
+	// Authula "/email-password/sign-in" and 404. We therefore Handle the wildcard
+	// (which preserves the full path) instead of Mount-ing it.
 	if cfg.Auth != nil {
-		r.Mount(cfg.Auth.BasePath(), cfg.Auth.Handler())
+		base := strings.TrimRight(cfg.Auth.BasePath(), "/")
+		r.Handle(base, cfg.Auth.Handler())
+		r.Handle(base+"/*", cfg.Auth.Handler())
 	}
 
 	// JSON API under /api/v1.

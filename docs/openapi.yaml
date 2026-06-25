@@ -1,44 +1,1591 @@
 openapi: 3.1.0
 info:
   title: whatsmeow Gateway API
-  version: 0.1.0
+  version: 1.0.0
   description: >
-    Stub OpenAPI spec for the whatsmeow Gateway. This is the API contract of
-    record (masterplan §11). Only the health probe is described here; the full
-    surface — sessions, messages, chats, contacts, groups, channels, events,
-    keys, webhooks, admin — is expanded in the API & keys milestone (M6).
+    REST API for the multi-tenant WhatsApp gateway (masterplan §11). This file is
+    the contract of record; it is served verbatim at /api/v1/openapi.yaml (no
+    Swagger UI).
+
+
+    Conventions:
+      * Base path /api/v1.
+      * The session is always a path parameter; the API key is account-global.
+      * Authentication: bearer API key (`Authorization: Bearer wak_…`). Each key
+        carries a permission set (read / send / manage / events); routes are gated
+        by the permission they require.
+      * Errors share one envelope: `{ "error": { "code", "message", "details" } }`.
+      * Lists take `?limit=` and an opaque `?cursor=` and return
+        `{ "data": [...], "nextCursor": "…" }`.
+      * Media send types (image/video/audio/document/sticker) and image status
+        return `501 not_implemented` in v1. Channel and group-member-approve live
+        operations likewise return `501` in v1.
 servers:
   - url: /api/v1
+    description: API base
+security:
+  - apiKey: []
+tags:
+  - name: Health
+  - name: Sessions
+  - name: Messages
+  - name: Chats
+  - name: Contacts
+  - name: Groups
+  - name: Channels
+  - name: Status & Presence
+  - name: Events
+  - name: Keys
+  - name: Webhooks
+  - name: Admin
+
 paths:
+  # ----------------------------------------------------------------- Health
   /healthz:
+    servers:
+      - url: /
     get:
+      tags: [Health]
       summary: Liveness probe
-      description: Returns 200 when the process is running.
       operationId: healthz
+      security: []
       responses:
         "200":
-          description: Service is alive.
+          description: Process is running.
           content:
             text/plain:
+              schema: { type: string, example: ok }
+  /readyz:
+    servers:
+      - url: /
+    get:
+      tags: [Health]
+      summary: Readiness probe
+      description: 200 once the database and Redis are reachable.
+      operationId: readyz
+      security: []
+      responses:
+        "200":
+          description: Ready.
+          content:
+            text/plain:
+              schema: { type: string, example: ready }
+        "500":
+          $ref: "#/components/responses/Error"
+
+  /openapi.yaml:
+    get:
+      tags: [Health]
+      summary: This OpenAPI document
+      operationId: openapi
+      security: []
+      responses:
+        "200":
+          description: The OpenAPI spec.
+          content:
+            application/yaml:
+              schema: { type: string }
+
+  # --------------------------------------------------------------- Sessions
+  /sessions:
+    get:
+      tags: [Sessions]
+      summary: List sessions
+      operationId: listSessions
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of sessions.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionPage" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+    post:
+      tags: [Sessions]
+      summary: Create a session
+      operationId: createSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateSessionRequest" }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WASession" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+
+  /sessions/{session}:
+    parameters:
+      - $ref: "#/components/parameters/Session"
+    get:
+      tags: [Sessions]
+      summary: Get a session
+      operationId: getSession
+      responses:
+        "200":
+          description: The session.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WASession" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [Sessions]
+      summary: Delete a session
+      operationId: deleteSession
+      responses:
+        "204": { description: Deleted. }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /sessions/{session}:start:
+    parameters: [ { $ref: "#/components/parameters/Session" } ]
+    post:
+      tags: [Sessions]
+      summary: Start a session
+      operationId: startSession
+      responses:
+        "200":
+          description: Session started.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WASession" }
+        "404": { $ref: "#/components/responses/Error" }
+  /sessions/{session}:stop:
+    parameters: [ { $ref: "#/components/parameters/Session" } ]
+    post:
+      tags: [Sessions]
+      summary: Stop a session
+      operationId: stopSession
+      responses:
+        "200":
+          description: Session stopped.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WASession" }
+        "404": { $ref: "#/components/responses/Error" }
+  /sessions/{session}:restart:
+    parameters: [ { $ref: "#/components/parameters/Session" } ]
+    post:
+      tags: [Sessions]
+      summary: Restart a session
+      operationId: restartSession
+      responses:
+        "200":
+          description: Session restarted.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WASession" }
+        "404": { $ref: "#/components/responses/Error" }
+  /sessions/{session}:logout:
+    parameters: [ { $ref: "#/components/parameters/Session" } ]
+    post:
+      tags: [Sessions]
+      summary: Log out a session (unpair the device)
+      operationId: logoutSession
+      responses:
+        "200":
+          description: Session logged out.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WASession" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /sessions/{session}/me:
+    parameters: [ { $ref: "#/components/parameters/Session" } ]
+    get:
+      tags: [Sessions]
+      summary: Get the connected account's own identity
+      operationId: sessionMe
+      responses:
+        "200":
+          description: Own identity.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionMe" }
+        "404": { $ref: "#/components/responses/Error" }
+        "501": { $ref: "#/components/responses/Error" }
+
+  /sessions/{session}/qr:
+    parameters:
+      - $ref: "#/components/parameters/Session"
+      - name: format
+        in: query
+        required: false
+        schema: { type: string, enum: [image] }
+        description: Return a QR image instead of the raw code string.
+    get:
+      tags: [Sessions]
+      summary: Get the current pairing QR code
+      operationId: sessionQR
+      responses:
+        "200":
+          description: QR code (raw code, or PNG when ?format=image).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QRCode" }
+            image/png:
+              schema: { type: string, format: binary }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /sessions/{session}/pairing-code:
+    parameters: [ { $ref: "#/components/parameters/Session" } ]
+    post:
+      tags: [Sessions]
+      summary: Request a phone pairing code
+      operationId: sessionPairingCode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone]
+              properties:
+                phone: { type: string, example: "628123456789" }
+      responses:
+        "200":
+          description: Pairing code.
+          content:
+            application/json:
               schema:
-                type: string
-                example: ok
+                type: object
+                properties:
+                  code: { type: string, example: "ABCD-1234" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  # --------------------------------------------------------------- Messages
+  /sessions/{session}/messages:
+    parameters: [ { $ref: "#/components/parameters/Session" } ]
+    post:
+      tags: [Messages]
+      summary: Send a message (any supported type)
+      description: >
+        Single send endpoint discriminated on `type`. `text`, `poll`, `location`
+        and `contact` are live in v1; `image`/`video`/`audio`/`document`/`sticker`
+        return 501. Supports `Idempotency-Key` and `?async`.
+      operationId: sendMessage
+      parameters:
+        - name: async
+          in: query
+          required: false
+          schema: { type: boolean }
+          description: Enqueue and return immediately instead of sending inline.
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SendRequest" }
+      responses:
+        "200":
+          description: Sent (or accepted when async).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SendResult" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+        "501": { $ref: "#/components/responses/Error" }
+
+  /sessions/{session}/messages/{mid}:
+    parameters:
+      - $ref: "#/components/parameters/Session"
+      - $ref: "#/components/parameters/MessageID"
+    patch:
+      tags: [Messages]
+      summary: Edit a sent text message
+      operationId: editMessage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text: { type: string }
+      responses:
+        "200": { $ref: "#/components/responses/SendResultOK" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [Messages]
+      summary: Revoke (delete for everyone)
+      operationId: revokeMessage
+      responses:
+        "200": { $ref: "#/components/responses/SendResultOK" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /sessions/{session}/messages/{mid}/reaction:
+    parameters:
+      - $ref: "#/components/parameters/Session"
+      - $ref: "#/components/parameters/MessageID"
+    post:
+      tags: [Messages]
+      summary: Add a reaction
+      operationId: addReaction
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [emoji]
+              properties:
+                emoji: { type: string, example: "👍" }
+      responses:
+        "200": { $ref: "#/components/responses/SendResultOK" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [Messages]
+      summary: Remove a reaction
+      operationId: removeReaction
+      responses:
+        "200": { $ref: "#/components/responses/SendResultOK" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /sessions/{session}/messages/{mid}/forward:
+    parameters:
+      - $ref: "#/components/parameters/Session"
+      - $ref: "#/components/parameters/MessageID"
+    post:
+      tags: [Messages]
+      summary: Forward a message
+      operationId: forwardMessage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [to]
+              properties:
+                to: { type: string, description: Recipient JID }
+      responses:
+        "200": { $ref: "#/components/responses/SendResultOK" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /sessions/{session}/messages/{mid}/vote:
+    parameters:
+      - $ref: "#/components/parameters/Session"
+      - $ref: "#/components/parameters/MessageID"
+    post:
+      tags: [Messages]
+      summary: Vote on a poll message
+      operationId: voteMessage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [options]
+              properties:
+                options:
+                  type: array
+                  items: { type: string }
+      responses:
+        "200": { $ref: "#/components/responses/SendResultOK" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  # ------------------------------------------------------------------ Chats
+  /sessions/{session}/chats:
+    parameters: [ { $ref: "#/components/parameters/Session" } ]
+    get:
+      tags: [Chats]
+      summary: List chats
+      operationId: listChats
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of chats.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChatPage" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /sessions/{session}/chats/{cid}:
+    parameters:
+      - $ref: "#/components/parameters/Session"
+      - $ref: "#/components/parameters/ChatID"
+    get:
+      tags: [Chats]
+      summary: Get a chat
+      operationId: getChat
+      responses:
+        "200":
+          description: The chat.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Chat" }
+        "404": { $ref: "#/components/responses/Error" }
+    patch:
+      tags: [Chats]
+      summary: Update a chat (archive / pin / mute)
+      operationId: updateChat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateChatRequest" }
+      responses:
+        "200":
+          description: Updated chat.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Chat" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [Chats]
+      summary: Delete a chat
+      operationId: deleteChat
+      responses:
+        "204": { description: Deleted. }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /sessions/{session}/chats/{cid}/messages:
+    parameters:
+      - $ref: "#/components/parameters/Session"
+      - $ref: "#/components/parameters/ChatID"
+      - $ref: "#/components/parameters/Limit"
+      - $ref: "#/components/parameters/Cursor"
+    get:
+      tags: [Chats]
+      summary: List messages in a chat
+      operationId: listChatMessages
+      responses:
+        "200":
+          description: A page of messages.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MessagePage" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /sessions/{session}/chats/{cid}/read:
+    parameters:
+      - $ref: "#/components/parameters/Session"
+      - $ref: "#/components/parameters/ChatID"
+    post:
+      tags: [Chats]
+      summary: Mark a chat read
+      operationId: readChat
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                messageIds:
+                  type: array
+                  items: { type: string }
+      responses:
+        "204": { description: Marked read. }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /sessions/{session}/chats/{cid}/presence:
+    parameters:
+      - $ref: "#/components/parameters/Session"
+      - $ref: "#/components/parameters/ChatID"
+    put:
+      tags: [Chats]
+      summary: Send a chat presence (typing / recording)
+      operationId: chatPresence
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [state]
+              properties:
+                state: { type: string, enum: [composing, paused, recording] }
+      responses:
+        "204": { description: Presence sent. }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "501": { $ref: "#/components/responses/Error" }
+
+  # --------------------------------------------------------------- Contacts
+  /sessions/{session}/contacts:
+    parameters: [ { $ref: "#/components/parameters/Session" } ]
+    get:
+      tags: [Contacts]
+      summary: List found-user contacts
+      operationId: listContacts
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: source
+          in: query
+          schema: { type: string, enum: [dm, group] }
+        - name: group
+          in: query
+          schema: { type: string }
+          description: Filter to members of this group JID.
+        - name: q
+          in: query
+          schema: { type: string }
+          description: Free-text search over name/number.
+      responses:
+        "200":
+          description: A page of contacts.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ContactPage" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /sessions/{session}/contacts/check:
+    parameters:
+      - $ref: "#/components/parameters/Session"
+      - name: phone
+        in: query
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Contacts]
+      summary: Check whether a phone number is on WhatsApp
+      operationId: checkContact
+      responses:
+        "200":
+          description: On-WhatsApp result.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OnWhatsApp" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "501": { $ref: "#/components/responses/Error" }
+
+  /sessions/{session}/contacts/{lid}:
+    parameters:
+      - $ref: "#/components/parameters/Session"
+      - name: lid
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Contacts]
+      summary: Get a contact (identity + DM + group memberships)
+      operationId: getContact
+      responses:
+        "200":
+          description: The contact detail.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ContactDetail" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /sessions/{session}/contacts/{jid}/picture:
+    parameters:
+      - $ref: "#/components/parameters/Session"
+      - $ref: "#/components/parameters/JID"
+    get:
+      tags: [Contacts]
+      summary: Get a contact's profile picture
+      operationId: contactPicture
+      responses:
+        "200":
+          description: Profile picture URL/metadata.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProfilePicture" }
+        "404": { $ref: "#/components/responses/Error" }
+        "501": { $ref: "#/components/responses/Error" }
+
+  /sessions/{session}/contacts/{jid}/about:
+    parameters:
+      - $ref: "#/components/parameters/Session"
+      - $ref: "#/components/parameters/JID"
+    get:
+      tags: [Contacts]
+      summary: Get a contact's about/status text
+      operationId: contactAbout
+      responses:
+        "200":
+          description: About text.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  about: { type: string }
+        "404": { $ref: "#/components/responses/Error" }
+        "501": { $ref: "#/components/responses/Error" }
+
+  /sessions/{session}/contacts/{jid}/block:
+    parameters:
+      - $ref: "#/components/parameters/Session"
+      - $ref: "#/components/parameters/JID"
+    post:
+      tags: [Contacts]
+      summary: Block a contact
+      operationId: blockContact
+      responses:
+        "204": { description: Blocked. }
+        "404": { $ref: "#/components/responses/Error" }
+        "501": { $ref: "#/components/responses/Error" }
+  /sessions/{session}/contacts/{jid}/unblock:
+    parameters:
+      - $ref: "#/components/parameters/Session"
+      - $ref: "#/components/parameters/JID"
+    post:
+      tags: [Contacts]
+      summary: Unblock a contact
+      operationId: unblockContact
+      responses:
+        "204": { description: Unblocked. }
+        "404": { $ref: "#/components/responses/Error" }
+        "501": { $ref: "#/components/responses/Error" }
+
+  # ----------------------------------------------------------------- Groups
+  /sessions/{session}/groups:
+    parameters: [ { $ref: "#/components/parameters/Session" } ]
+    get:
+      tags: [Groups]
+      summary: List groups
+      operationId: listGroups
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of groups.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GroupPage" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      tags: [Groups]
+      summary: Create a group
+      operationId: createGroup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subject, participants]
+              properties:
+                subject: { type: string }
+                participants:
+                  type: array
+                  items: { type: string }
+      responses:
+        "201":
+          description: Created group.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GroupInfo" }
+        "400": { $ref: "#/components/responses/Error" }
+        "501": { $ref: "#/components/responses/Error" }
+
+  /sessions/{session}/groups:join:
+    parameters: [ { $ref: "#/components/parameters/Session" } ]
+    post:
+      tags: [Groups]
+      summary: Join a group by invite link/code
+      operationId: joinGroup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [invite]
+              properties:
+                invite: { type: string }
+      responses:
+        "200":
+          description: Joined.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GroupInfo" }
+        "501": { $ref: "#/components/responses/Error" }
+
+  /sessions/{session}/groups/{gid}:
+    parameters:
+      - $ref: "#/components/parameters/Session"
+      - $ref: "#/components/parameters/GroupID"
+    get:
+      tags: [Groups]
+      summary: Get a group
+      operationId: getGroup
+      responses:
+        "200":
+          description: The group.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GroupInfo" }
+        "404": { $ref: "#/components/responses/Error" }
+    patch:
+      tags: [Groups]
+      summary: Update group settings
+      operationId: updateGroup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GroupSettings" }
+      responses:
+        "204": { description: Updated. }
+        "404": { $ref: "#/components/responses/Error" }
+        "501": { $ref: "#/components/responses/Error" }
+
+  /sessions/{session}/groups/{gid}:leave:
+    parameters:
+      - $ref: "#/components/parameters/Session"
+      - $ref: "#/components/parameters/GroupID"
+    post:
+      tags: [Groups]
+      summary: Leave a group
+      operationId: leaveGroup
+      responses:
+        "204": { description: Left. }
+        "404": { $ref: "#/components/responses/Error" }
+        "501": { $ref: "#/components/responses/Error" }
+
+  /sessions/{session}/groups/{gid}/members:
+    parameters:
+      - $ref: "#/components/parameters/Session"
+      - $ref: "#/components/parameters/GroupID"
+    get:
+      tags: [Groups]
+      summary: List group members
+      operationId: listGroupMembers
+      responses:
+        "200":
+          description: Members.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/GroupMember" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      tags: [Groups]
+      summary: Add members
+      operationId: addGroupMembers
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [participants]
+              properties:
+                participants:
+                  type: array
+                  items: { type: string }
+      responses:
+        "204": { description: Added. }
+        "404": { $ref: "#/components/responses/Error" }
+        "501": { $ref: "#/components/responses/Error" }
+
+  /sessions/{session}/groups/{gid}/members:approve:
+    parameters:
+      - $ref: "#/components/parameters/Session"
+      - $ref: "#/components/parameters/GroupID"
+    post:
+      tags: [Groups]
+      summary: Approve pending join requests (not in v1)
+      operationId: approveGroupMembers
+      responses:
+        "501": { $ref: "#/components/responses/Error" }
+
+  /sessions/{session}/groups/{gid}/members/{jid}:
+    parameters:
+      - $ref: "#/components/parameters/Session"
+      - $ref: "#/components/parameters/GroupID"
+      - $ref: "#/components/parameters/JID"
+    delete:
+      tags: [Groups]
+      summary: Remove a member
+      operationId: removeGroupMember
+      responses:
+        "204": { description: Removed. }
+        "404": { $ref: "#/components/responses/Error" }
+        "501": { $ref: "#/components/responses/Error" }
+
+  /sessions/{session}/groups/{gid}/members/{jid}/promote:
+    parameters:
+      - $ref: "#/components/parameters/Session"
+      - $ref: "#/components/parameters/GroupID"
+      - $ref: "#/components/parameters/JID"
+    post:
+      tags: [Groups]
+      summary: Promote a member to admin
+      operationId: promoteGroupMember
+      responses:
+        "204": { description: Promoted. }
+        "404": { $ref: "#/components/responses/Error" }
+        "501": { $ref: "#/components/responses/Error" }
+  /sessions/{session}/groups/{gid}/members/{jid}/demote:
+    parameters:
+      - $ref: "#/components/parameters/Session"
+      - $ref: "#/components/parameters/GroupID"
+      - $ref: "#/components/parameters/JID"
+    post:
+      tags: [Groups]
+      summary: Demote an admin to member
+      operationId: demoteGroupMember
+      responses:
+        "204": { description: Demoted. }
+        "404": { $ref: "#/components/responses/Error" }
+        "501": { $ref: "#/components/responses/Error" }
+
+  /sessions/{session}/groups/{gid}/invite:
+    parameters:
+      - $ref: "#/components/parameters/Session"
+      - $ref: "#/components/parameters/GroupID"
+    get:
+      tags: [Groups]
+      summary: Get the group invite link
+      operationId: getGroupInvite
+      responses:
+        "200":
+          description: Invite link.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  invite: { type: string }
+        "404": { $ref: "#/components/responses/Error" }
+        "501": { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [Groups]
+      summary: Revoke (reset) the group invite link
+      operationId: revokeGroupInvite
+      responses:
+        "200":
+          description: New invite link.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  invite: { type: string }
+        "404": { $ref: "#/components/responses/Error" }
+        "501": { $ref: "#/components/responses/Error" }
+
+  # --------------------------------------------------------------- Channels
+  /sessions/{session}/channels:
+    parameters: [ { $ref: "#/components/parameters/Session" } ]
+    post:
+      tags: [Channels]
+      summary: Create a channel (newsletter) — not in v1
+      operationId: createChannel
+      responses:
+        "501": { $ref: "#/components/responses/Error" }
+  /sessions/{session}/channels/{jid}:follow:
+    parameters:
+      - $ref: "#/components/parameters/Session"
+      - $ref: "#/components/parameters/JID"
+    post:
+      tags: [Channels]
+      summary: Follow a channel — not in v1
+      operationId: followChannel
+      responses:
+        "501": { $ref: "#/components/responses/Error" }
+  /sessions/{session}/channels/{jid}:unfollow:
+    parameters:
+      - $ref: "#/components/parameters/Session"
+      - $ref: "#/components/parameters/JID"
+    post:
+      tags: [Channels]
+      summary: Unfollow a channel — not in v1
+      operationId: unfollowChannel
+      responses:
+        "501": { $ref: "#/components/responses/Error" }
+  /sessions/{session}/channels/{jid}:mute:
+    parameters:
+      - $ref: "#/components/parameters/Session"
+      - $ref: "#/components/parameters/JID"
+    post:
+      tags: [Channels]
+      summary: Mute a channel — not in v1
+      operationId: muteChannel
+      responses:
+        "501": { $ref: "#/components/responses/Error" }
+  /sessions/{session}/channels/{jid}/messages:
+    parameters:
+      - $ref: "#/components/parameters/Session"
+      - $ref: "#/components/parameters/JID"
+      - $ref: "#/components/parameters/Limit"
+      - $ref: "#/components/parameters/Cursor"
+    get:
+      tags: [Channels]
+      summary: List stored channel messages
+      operationId: listChannelMessages
+      responses:
+        "200":
+          description: A page of messages.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MessagePage" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  # ----------------------------------------------------- Status & Presence
+  /sessions/{session}/status:
+    parameters: [ { $ref: "#/components/parameters/Session" } ]
+    post:
+      tags: [Status & Presence]
+      summary: Post a status update (text; media returns 501)
+      operationId: postStatus
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type]
+              properties:
+                type: { type: string, enum: [text, image], example: text }
+                text: { type: string }
+      responses:
+        "200": { $ref: "#/components/responses/SendResultOK" }
+        "400": { $ref: "#/components/responses/Error" }
+        "501": { $ref: "#/components/responses/Error" }
+
+  /sessions/{session}/presence:
+    parameters: [ { $ref: "#/components/parameters/Session" } ]
+    put:
+      tags: [Status & Presence]
+      summary: Set account presence (online / offline)
+      operationId: setPresence
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [state]
+              properties:
+                state: { type: string, enum: [online, offline] }
+      responses:
+        "204": { description: Presence set. }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "501": { $ref: "#/components/responses/Error" }
+
+  # ----------------------------------------------------------------- Events
+  /events:
+    get:
+      tags: [Events]
+      summary: Stream events (NDJSON)
+      description: >
+        Long-lived NDJSON stream of the §9 event envelope. Accepts either an API
+        key with the `events` permission or a dashboard session cookie.
+      operationId: events
+      parameters:
+        - name: types
+          in: query
+          schema: { type: string }
+          description: Comma-separated event type filter.
+        - name: session
+          in: query
+          schema: { type: string }
+          description: Restrict to one session id.
+      responses:
+        "200":
+          description: An NDJSON stream; one Event JSON object per line.
+          content:
+            application/x-ndjson:
+              schema: { $ref: "#/components/schemas/Event" }
+        "401": { $ref: "#/components/responses/Error" }
+
+  # ------------------------------------------------------------------- Keys
+  /keys:
+    get:
+      tags: [Keys]
+      summary: List API keys
+      operationId: listKeys
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of keys.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/APIKeyPage" }
+        "403": { $ref: "#/components/responses/Error" }
+    post:
+      tags: [Keys]
+      summary: Create an API key (full key shown once)
+      operationId: createKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateKeyRequest" }
+      responses:
+        "201":
+          description: The created key, including the full secret (shown once).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CreateKeyResult" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+
+  /keys/{id}:
+    parameters: [ { $ref: "#/components/parameters/ID" } ]
+    get:
+      tags: [Keys]
+      summary: Get an API key
+      operationId: getKey
+      responses:
+        "200":
+          description: The key (no secret).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/APIKey" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [Keys]
+      summary: Revoke an API key
+      operationId: deleteKey
+      responses:
+        "204": { description: Revoked. }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /keys/{id}:rotate:
+    parameters: [ { $ref: "#/components/parameters/ID" } ]
+    post:
+      tags: [Keys]
+      summary: Rotate an API key (new secret shown once)
+      operationId: rotateKey
+      responses:
+        "200":
+          description: The rotated key with its new secret.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CreateKeyResult" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  # --------------------------------------------------------------- Webhooks
+  /webhooks:
+    get:
+      tags: [Webhooks]
+      summary: List webhooks
+      operationId: listWebhooks
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of webhooks.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WebhookPage" }
+        "403": { $ref: "#/components/responses/Error" }
+    post:
+      tags: [Webhooks]
+      summary: Create a webhook
+      operationId: createWebhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WebhookRequest" }
+      responses:
+        "201":
+          description: The created webhook.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Webhook" }
+        "400": { $ref: "#/components/responses/Error" }
+
+  /webhooks/{id}:
+    parameters: [ { $ref: "#/components/parameters/ID" } ]
+    get:
+      tags: [Webhooks]
+      summary: Get a webhook
+      operationId: getWebhook
+      responses:
+        "200":
+          description: The webhook.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Webhook" }
+        "404": { $ref: "#/components/responses/Error" }
+    patch:
+      tags: [Webhooks]
+      summary: Update a webhook
+      operationId: updateWebhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WebhookRequest" }
+      responses:
+        "200":
+          description: The updated webhook.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Webhook" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [Webhooks]
+      summary: Delete a webhook
+      operationId: deleteWebhook
+      responses:
+        "204": { description: Deleted. }
+        "404": { $ref: "#/components/responses/Error" }
+
+  # ------------------------------------------------------------------ Admin
+  /admin/sessions:
+    get:
+      tags: [Admin]
+      summary: Cross-tenant session oversight (super_admin)
+      operationId: adminListSessions
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of sessions across all tenants.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionPage" }
+        "403": { $ref: "#/components/responses/Error" }
+
+# ===================================================================
 components:
+  securitySchemes:
+    apiKey:
+      type: http
+      scheme: bearer
+      description: "Account-global API key, e.g. `Authorization: Bearer wak_…`."
+
+  parameters:
+    Session:
+      name: session
+      in: path
+      required: true
+      description: The WhatsApp session id (sess_…).
+      schema: { type: string }
+    ID:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+    MessageID:
+      name: mid
+      in: path
+      required: true
+      description: WhatsApp message id.
+      schema: { type: string }
+    ChatID:
+      name: cid
+      in: path
+      required: true
+      description: Chat JID.
+      schema: { type: string }
+    GroupID:
+      name: gid
+      in: path
+      required: true
+      description: Group JID.
+      schema: { type: string }
+    JID:
+      name: jid
+      in: path
+      required: true
+      description: A WhatsApp JID.
+      schema: { type: string }
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Max items to return.
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: Opaque pagination cursor from a previous response's nextCursor.
+      schema: { type: string }
+
+  responses:
+    Error:
+      description: Error envelope (§11).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    SendResultOK:
+      description: The send result.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/SendResult" }
+
   schemas:
+    # --- envelopes ---
     Error:
       type: object
-      description: Standard error envelope used across the API (masterplan §11).
+      description: Standard error envelope used across the API (§11).
+      required: [error]
       properties:
         error:
           type: object
+          required: [code, message]
           properties:
             code:
               type: string
-              example: rate_limited
-            message:
-              type: string
+              enum:
+                - rate_limited
+                - not_found
+                - unauthorized
+                - forbidden
+                - validation_error
+                - conflict
+                - not_implemented
+                - internal
+            message: { type: string }
             details:
               type: object
               additionalProperties: true
-          required: [code, message]
-      required: [error]
+
+    PageMeta:
+      type: object
+      properties:
+        nextCursor:
+          type: [string, "null"]
+          description: Pass back as ?cursor to fetch the next page; null/absent at the end.
+
+    # --- sessions ---
+    CreateSessionRequest:
+      type: object
+      properties:
+        label: { type: string }
+        start: { type: boolean, description: Start the session immediately. }
+        autoRead: { type: boolean }
+        presenceTyping: { type: boolean }
+    WASession:
+      type: object
+      required: [id, tenantId, status, isAdminSession, autoRead, presenceTyping, ratePerMin, ratePerHour, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        tenantId: { type: string }
+        label: { type: string }
+        status:
+          type: string
+          enum: [starting, scan_qr_code, working, failed, stopped, logged_out]
+        waJid: { type: string }
+        waLid: { type: string }
+        phoneNumber: { type: string }
+        isAdminSession: { type: boolean }
+        autoRead: { type: boolean }
+        presenceTyping: { type: boolean }
+        ratePerMin: { type: integer }
+        ratePerHour: { type: integer }
+        lastConnectedAt: { type: integer, format: int64 }
+        createdAt: { type: integer, format: int64 }
+        updatedAt: { type: integer, format: int64 }
+    SessionPage:
+      type: object
+      allOf:
+        - $ref: "#/components/schemas/PageMeta"
+        - properties:
+            data:
+              type: array
+              items: { $ref: "#/components/schemas/WASession" }
+    SessionMe:
+      type: object
+      properties:
+        jid: { type: string }
+        lid: { type: string }
+        pushName: { type: string }
+        phoneNumber: { type: string }
+    QRCode:
+      type: object
+      properties:
+        code: { type: string, description: Raw QR code string to render. }
+
+    # --- messages ---
+    SendRequest:
+      type: object
+      required: [type, to]
+      description: Discriminated on `type` (§11).
+      properties:
+        type:
+          type: string
+          enum: [text, poll, location, contact, image, video, audio, document, sticker]
+        to: { type: string, description: Recipient JID. }
+        text: { type: string }
+        replyTo: { type: string, description: Quoted message id. }
+        mentions:
+          type: array
+          items: { type: string }
+        name: { type: string, description: Poll name or location label. }
+        options:
+          type: array
+          items: { type: string }
+        selectableCount: { type: integer }
+        latitude: { type: number }
+        longitude: { type: number }
+        contact: { $ref: "#/components/schemas/ContactCard" }
+    ContactCard:
+      type: object
+      properties:
+        name: { type: string }
+        phone: { type: string }
+        vcard: { type: string }
+    SendResult:
+      type: object
+      properties:
+        messageId: { type: string }
+        status:
+          type: string
+          enum: [pending, sent, delivered, read, played, failed]
+        timestamp: { type: integer, format: int64 }
+    Message:
+      type: object
+      properties:
+        id: { type: string }
+        chatJid: { type: string }
+        senderJid: { type: string }
+        direction: { type: string, enum: [in, out] }
+        type: { type: string }
+        body: { type: string }
+        status:
+          type: string
+          enum: [pending, sent, delivered, read, played, failed]
+        timestamp: { type: integer, format: int64 }
+    MessagePage:
+      type: object
+      allOf:
+        - $ref: "#/components/schemas/PageMeta"
+        - properties:
+            data:
+              type: array
+              items: { $ref: "#/components/schemas/Message" }
+
+    # --- chats ---
+    Chat:
+      type: object
+      properties:
+        jid: { type: string }
+        type: { type: string, enum: [dm, group, newsletter, broadcast, status] }
+        name: { type: string }
+        unreadCount: { type: integer }
+        archived: { type: boolean }
+        pinned: { type: boolean }
+        mutedUntil: { type: integer, format: int64 }
+        lastMessageAt: { type: integer, format: int64 }
+    ChatPage:
+      type: object
+      allOf:
+        - $ref: "#/components/schemas/PageMeta"
+        - properties:
+            data:
+              type: array
+              items: { $ref: "#/components/schemas/Chat" }
+    UpdateChatRequest:
+      type: object
+      properties:
+        archived: { type: boolean }
+        pinned: { type: boolean }
+        mutedUntil: { type: integer, format: int64 }
+        unmute: { type: boolean }
+
+    # --- contacts ---
+    Contact:
+      type: object
+      properties:
+        lid: { type: string }
+        phoneNumber: { type: string }
+        name: { type: string }
+        pushName: { type: string }
+        source: { type: string, enum: [dm, group] }
+    ContactPage:
+      type: object
+      allOf:
+        - $ref: "#/components/schemas/PageMeta"
+        - properties:
+            data:
+              type: array
+              items: { $ref: "#/components/schemas/Contact" }
+    ContactDetail:
+      type: object
+      properties:
+        identity: { $ref: "#/components/schemas/Contact" }
+        dm: { type: boolean, description: Whether a DM chat exists. }
+        groups:
+          type: array
+          items:
+            type: object
+            properties:
+              jid: { type: string }
+              name: { type: string }
+              nickname: { type: string }
+              role: { type: string, enum: [member, admin, superadmin] }
+              lastSeen: { type: integer, format: int64 }
+    OnWhatsApp:
+      type: object
+      properties:
+        query: { type: string }
+        jid: { type: string }
+        isIn: { type: boolean }
+        verifiedName: { type: string }
+    ProfilePicture:
+      type: object
+      properties:
+        url: { type: string }
+        id: { type: string }
+        type: { type: string }
+
+    # --- groups ---
+    GroupInfo:
+      type: object
+      properties:
+        jid: { type: string }
+        subject: { type: string }
+        description: { type: string }
+        owner: { type: string }
+        announce: { type: boolean }
+        locked: { type: boolean }
+        participants:
+          type: array
+          items: { $ref: "#/components/schemas/GroupMember" }
+    GroupMember:
+      type: object
+      properties:
+        jid: { type: string }
+        nickname: { type: string }
+        role: { type: string, enum: [member, admin, superadmin] }
+    GroupSettings:
+      type: object
+      properties:
+        subject: { type: string }
+        description: { type: string }
+        announce: { type: boolean }
+        locked: { type: boolean }
+    GroupPage:
+      type: object
+      allOf:
+        - $ref: "#/components/schemas/PageMeta"
+        - properties:
+            data:
+              type: array
+              items: { $ref: "#/components/schemas/GroupInfo" }
+
+    # --- keys ---
+    Permissions:
+      type: object
+      properties:
+        read: { type: boolean }
+        send: { type: boolean }
+        manage: { type: boolean }
+        events: { type: boolean }
+    CreateKeyRequest:
+      type: object
+      required: [name, permissions]
+      properties:
+        name: { type: string }
+        permissions: { $ref: "#/components/schemas/Permissions" }
+        scope: { type: string, enum: [tenant, global] }
+        expiresAt: { type: integer, format: int64 }
+    APIKey:
+      type: object
+      properties:
+        id: { type: string }
+        tenantId: { type: string }
+        name: { type: string }
+        keyPrefix: { type: string }
+        scope: { type: string, enum: [tenant, global] }
+        permissions: { $ref: "#/components/schemas/Permissions" }
+        lastUsedAt: { type: integer, format: int64 }
+        expiresAt: { type: integer, format: int64 }
+        revokedAt: { type: integer, format: int64 }
+        createdAt: { type: integer, format: int64 }
+    CreateKeyResult:
+      type: object
+      properties:
+        key: { $ref: "#/components/schemas/APIKey" }
+        secret:
+          type: string
+          description: The full API key. Shown once at creation/rotation only.
+    APIKeyPage:
+      type: object
+      allOf:
+        - $ref: "#/components/schemas/PageMeta"
+        - properties:
+            data:
+              type: array
+              items: { $ref: "#/components/schemas/APIKey" }
+
+    # --- webhooks ---
+    RetryPolicy:
+      type: object
+      properties:
+        policy: { type: string, example: exponential }
+        delaySeconds: { type: integer }
+        attempts: { type: integer }
+    WebhookRequest:
+      type: object
+      properties:
+        sessionId: { type: string, description: Null = all tenant sessions. }
+        url: { type: string }
+        events:
+          type: array
+          items: { type: string }
+        secret: { type: string }
+        customHeaders:
+          type: object
+          additionalProperties: { type: string }
+        retryPolicy: { $ref: "#/components/schemas/RetryPolicy" }
+        active: { type: boolean }
+    Webhook:
+      type: object
+      properties:
+        id: { type: string }
+        tenantId: { type: string }
+        sessionId: { type: string }
+        url: { type: string }
+        events:
+          type: array
+          items: { type: string }
+        customHeaders:
+          type: object
+          additionalProperties: { type: string }
+        retryPolicy: { $ref: "#/components/schemas/RetryPolicy" }
+        active: { type: boolean }
+        createdAt: { type: integer, format: int64 }
+        updatedAt: { type: integer, format: int64 }
+    WebhookPage:
+      type: object
+      allOf:
+        - $ref: "#/components/schemas/PageMeta"
+        - properties:
+            data:
+              type: array
+              items: { $ref: "#/components/schemas/Webhook" }
+
+    # --- events ---
+    Event:
+      type: object
+      description: The §9 event envelope, one per NDJSON line.
+      required: [schema, id, event, session, tenant, timestamp, payload]
+      properties:
+        schema: { type: string, example: v1 }
+        id: { type: string, example: "evt_01J9..." }
+        event:
+          type: string
+          description: Event type, e.g. message, message.status, group.update.
+        session: { type: string }
+        tenant: { type: string }
+        timestamp: { type: integer, format: int64 }
+        payload: { type: object, additionalProperties: true }

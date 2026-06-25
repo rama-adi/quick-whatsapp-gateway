@@ -63,7 +63,9 @@ func ensurePermissions(ctx context.Context, store RBACStore, keys []string) (map
 		if _, ok := byKey[key]; ok {
 			continue
 		}
-		p, err := store.CreatePermission(ctx, key, permissionDescription(key), true)
+		// isSystem=false: a system permission cannot be attached to a role via
+		// Authula's AddPermissionToRole (it returns ErrBadRequest). See seedPlan.
+		p, err := store.CreatePermission(ctx, key, permissionDescription(key), false)
 		if err != nil {
 			return nil, fmt.Errorf("create permission %q: %w", key, err)
 		}
