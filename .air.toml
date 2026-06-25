@@ -1,0 +1,14 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  cmd = "CGO_ENABLED=0 go build -o ./tmp/gateway ./cmd/server"
+  bin = "tmp/gateway"
+  include_ext = ["go"]
+  exclude_dir = ["tmp", "web", "deploy", "docs", ".git"]
+  exclude_regex = ["_test.go"]
+  delay = 300
+  stop_on_error = true
+
+[misc]
+  clean_on_exit = true

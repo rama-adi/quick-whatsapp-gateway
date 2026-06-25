@@ -1,0 +1,44 @@
+openapi: 3.1.0
+info:
+  title: whatsmeow Gateway API
+  version: 0.1.0
+  description: >
+    Stub OpenAPI spec for the whatsmeow Gateway. This is the API contract of
+    record (masterplan §11). Only the health probe is described here; the full
+    surface — sessions, messages, chats, contacts, groups, channels, events,
+    keys, webhooks, admin — is expanded in the API & keys milestone (M6).
+servers:
+  - url: /api/v1
+paths:
+  /healthz:
+    get:
+      summary: Liveness probe
+      description: Returns 200 when the process is running.
+      operationId: healthz
+      responses:
+        "200":
+          description: Service is alive.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: ok
+components:
+  schemas:
+    Error:
+      type: object
+      description: Standard error envelope used across the API (masterplan §11).
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              example: rate_limited
+            message:
+              type: string
+            details:
+              type: object
+              additionalProperties: true
+          required: [code, message]
+      required: [error]

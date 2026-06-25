@@ -1,0 +1,16 @@
+# Production: bring-your-own MySQL + Redis. Only the app runs here.
+# The MySQL keystore means prod needs only your shared MySQL + Redis.
+services:
+  gateway:
+    image: ghcr.io/you/whatsmeow-gateway:latest
+    ports: ["8080:8080"]
+    environment:
+      MYSQL_DSN: "${MYSQL_DSN}"
+      WHATSMEOW_STORE_DRIVER: "mysql"
+      WHATSMEOW_STORE_DSN: "${MYSQL_DSN}"
+      REDIS_URL: "${REDIS_URL}"
+      APP_ENCRYPTION_KEY: "${APP_ENCRYPTION_KEY}"
+      ADMIN_EMAIL: "${ADMIN_EMAIL}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD}"
+      WHATSAPP_ADMIN_NUMBER: "${WHATSAPP_ADMIN_NUMBER}"
+      USER_PANEL_ENABLED: "${USER_PANEL_ENABLED:-true}"

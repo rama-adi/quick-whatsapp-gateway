@@ -1,0 +1,28 @@
+# Local, all-in-one stack with the database included.
+# Build context is the repo root, so build from there:
+#   docker compose -f deploy/docker-compose.yml up --build
+services:
+  gateway:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    ports: ["8080:8080"]
+    environment:
+      MYSQL_DSN: "gw:gwpass@tcp(mysql:3306)/gateway?parseTime=true&charset=utf8mb4"
+      WHATSMEOW_STORE_DRIVER: "mysql"
+      WHATSMEOW_STORE_DSN: "gw:gwpass@tcp(mysql:3306)/gateway?parseTime=true&charset=utf8mb4"
+      REDIS_URL: "redis://redis:6379"
+      APP_ENCRYPTION_KEY: "${APP_ENCRYPTION_KEY}"
+      ADMIN_EMAIL: "${ADMIN_EMAIL}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD}"
+      WHATSAPP_ADMIN_NUMBER: "${WHATSAPP_ADMIN_NUMBER}"
+    depends_on: [mysql, redis]
+  mysql:
+    image: mysql:8.4
+    environment: { MYSQL_DATABASE: gateway, MYSQL_USER: gw, MYSQL_PASSWORD: gwpass, MYSQL_ROOT_PASSWORD: rootpass }
+    command: ["--character-set-server=utf8mb4","--collation-server=utf8mb4_unicode_ci"]
+    volumes: ["mysql_data:/var/lib/mysql"]
+  redis:
+    image: redis:7-alpine
+    volumes: ["redis_data:/data"]
+volumes: { mysql_data: {}, redis_data: {} }

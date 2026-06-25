@@ -1,0 +1,14 @@
+# Build output
+tmp/
+/gateway
+
+# Frontend
+web/node_modules/
+web/build/
+
+# Local databases / keystore
+*.db
+store.db
+
+# Environment / secrets
+.env

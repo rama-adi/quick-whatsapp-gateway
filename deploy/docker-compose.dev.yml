@@ -1,0 +1,20 @@
+# Dev infra only (no app): MySQL + Redis with ports bound to localhost.
+# Run the Go backend on the host under `air` and the frontend under Vite.
+#   make infra-up   # docker compose -f deploy/docker-compose.dev.yml up -d
+services:
+  mysql:
+    image: mysql:8.4
+    ports: ["3306:3306"]
+    environment: { MYSQL_DATABASE: gateway, MYSQL_USER: gw, MYSQL_PASSWORD: gwpass, MYSQL_ROOT_PASSWORD: rootpass }
+    command: ["--character-set-server=utf8mb4","--collation-server=utf8mb4_unicode_ci"]
+    volumes: ["mysql_dev:/var/lib/mysql"]
+    healthcheck:
+      test: ["CMD","mysqladmin","ping","-h","localhost","-prootpass"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    volumes: ["redis_dev:/data"]
+volumes: { mysql_dev: {}, redis_dev: {} }
