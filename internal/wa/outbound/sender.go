@@ -83,6 +83,10 @@ func (s *Sender) Send(ctx context.Context, sess domain.WASession, req domain.Sen
 		return SendResult{}, err
 	}
 
+	// Carry the target session id so a session-routing WAClient can resolve the
+	// right per-session whatsmeow client for this request.
+	ctx = WithSessionID(ctx, sess.ID)
+
 	// 2. Idempotency replay (applies to both modes).
 	if opts.IdempotencyKey != "" {
 		if prior, err := s.outbox.GetByIdempotencyKey(ctx, sess.TenantID, opts.IdempotencyKey); err != nil {
@@ -244,6 +248,9 @@ func (s *Sender) SendOp(ctx context.Context, sess domain.WASession, req OpReques
 	if err := validateOp(req); err != nil {
 		return SendResult{}, err
 	}
+
+	// Carry the target session id for the session-routing WAClient.
+	ctx = WithSessionID(ctx, sess.ID)
 
 	ok, retryAfter, err := s.limits.Allow(ctx, sess.ID, sess.RatePerMin, sess.RatePerHour)
 	if err != nil {

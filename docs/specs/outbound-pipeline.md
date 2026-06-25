@@ -74,6 +74,28 @@ does not carry the original message content. The adapter sends a forwarded-tagge
 original body / re-uploading media) is a Phase 3 task once a fetch-message-by-id
 path exists.
 
+## Session routing (the real send path)
+
+The `Sender` is account-global (one instance), but the live whatsmeow clients are
+per-session and owned by `wa.Manager`. The `WAClient` interface methods take no
+session id, so the `Sender` carries the target session on the request context:
+
+- `Send`/`SendOp` stamp `outbound.WithSessionID(ctx, sess.ID)` before any
+  dispatch; the async outbox worker stamps `entry.SessionID` before
+  `Sender.Dispatch`.
+- `service.RoutingWAClient` (the production `WAClient`) reads the session id back
+  with `outbound.SessionIDFromContext`, resolves the live `*whatsmeow.Client` via
+  `wa.Manager.ClientFor(sessionID)`, wraps it with `NewWhatsmeowClient`, and
+  delegates. When the session has no connected client (or no session is on the
+  context) it returns `domain.ErrNotImplemented`, surfaced as the §11
+  `not_implemented` (501) envelope — a send fails loudly rather than panicking on
+  a nil client.
+
+This replaces the earlier `StubWAClient` placeholder; sends now reach WhatsApp for
+any connected session. `wa.Manager.ClientFor` type-asserts the managed session's
+`waClient` to the concrete `*whatsmeow.Client`, so test sessions (which inject a
+fake client) cleanly report "not available".
+
 ## Rate limiter (ratelimit.go)
 
 `NewRedisRateLimiter(rdb, opts...)` — two fixed windows (60s, 3600s) per session,

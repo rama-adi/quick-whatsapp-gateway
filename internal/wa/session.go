@@ -112,6 +112,9 @@ type ManagedSession struct {
 	reconnect bool               // whether the reconnect loop should keep running
 	cancel    context.CancelFunc // cancels the per-session goroutine context
 	handlerID uint32             // whatsmeow event-handler registration id
+
+	lastQR        string // most recent QR code streamed during pairing (for GET /qr)
+	lastQRExpires int64  // epoch-ms when lastQR stops being valid (0 = unknown)
 }
 
 // Status returns the current status under lock.
@@ -119,6 +122,14 @@ func (s *ManagedSession) Status() domain.SessionStatus {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.status
+}
+
+// LatestQR returns the most recently streamed QR code and its expiry (epoch-ms).
+// code is "" when no QR is currently available (the session is not in QR pairing).
+func (s *ManagedSession) LatestQR() (code string, expiresAt int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastQR, s.lastQRExpires
 }
 
 // ----------------------------------------------------------------------------

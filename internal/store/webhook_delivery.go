@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
@@ -103,6 +105,35 @@ WHERE id=?`
 		return fmt.Errorf("store: mark failed: %w", err)
 	}
 	return affectedOrNotFound(res, "webhook delivery")
+}
+
+// Create inserts a pending delivery from a domain.WebhookDelivery, populating
+// the auto-increment id on d. It is the value-shaped sibling of Enqueue used by
+// the webhooks.Enqueuer (which builds the row in memory first).
+func (r *WebhookDeliveryRepo) Create(ctx context.Context, d *domain.WebhookDelivery) error {
+	id, err := r.Enqueue(ctx, d.WebhookID, d.EventID, d.CreatedAt)
+	if err != nil {
+		return err
+	}
+	d.ID = id
+	d.Status = domain.DeliveryPending
+	return nil
+}
+
+// ExistsTerminal reports whether a delivery for (webhookID, eventID) is already
+// in a terminal state (delivered or dead) — the §9 dedup guard.
+func (r *WebhookDeliveryRepo) ExistsTerminal(ctx context.Context, webhookID, eventID string) (bool, error) {
+	const q = `SELECT 1 FROM webhook_deliveries
+WHERE webhook_id=? AND event_id=? AND status IN (?, ?) LIMIT 1`
+	var one int
+	err := r.db.QueryRowContext(ctx, q, webhookID, eventID, domain.DeliveryDelivered, domain.DeliveryDead).Scan(&one)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("store: exists terminal delivery: %w", err)
+	}
+	return true, nil
 }
 
 // MarkDead records retry exhaustion: status dead, attempts++, error stamped,

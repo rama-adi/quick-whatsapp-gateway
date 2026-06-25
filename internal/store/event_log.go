@@ -95,3 +95,21 @@ func (r *EventLogRepo) GetByEventID(ctx context.Context, eventID string) (domain
 	}
 	return e, nil
 }
+
+// GetEvent loads a logged event and projects it onto the wire domain.Event
+// envelope (§9) — used by the webhook dispatcher to reload the body to POST.
+func (r *EventLogRepo) GetEvent(ctx context.Context, eventID string) (domain.Event, error) {
+	e, err := r.GetByEventID(ctx, eventID)
+	if err != nil {
+		return domain.Event{}, err
+	}
+	return domain.Event{
+		Schema:    domain.Schema,
+		ID:        e.EventID,
+		Type:      e.Type,
+		Session:   e.SessionID,
+		Tenant:    e.TenantID,
+		Timestamp: e.CreatedAt,
+		Payload:   e.Payload,
+	}, nil
+}

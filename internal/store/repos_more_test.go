@@ -211,6 +211,30 @@ func TestGroupRepo_Upsert(t *testing.T) {
 	}
 }
 
+func TestGroupRepo_ListBySession(t *testing.T) {
+	db, mock := newMock(t)
+	repo := NewGroupRepo(db)
+	cols := []string{
+		"id", "group_jid", "subject", "description", "owner_jid",
+		"participant_count", "is_announce", "is_locked", "created_at_wa", "first_seen_at", "updated_at",
+	}
+	rows := sqlmock.NewRows(cols).
+		AddRow(uint64(1), "12@g.us", "Lunch", nil, nil, nil, nil, nil, nil, int64(1), int64(2)).
+		AddRow(uint64(2), "34@g.us", "Work", nil, nil, nil, nil, nil, nil, int64(1), int64(2))
+	mock.ExpectQuery("FROM whatsapp_groups g.*whatsapp_group_members WHERE session_id").
+		WithArgs("sess_1").WillReturnRows(rows)
+	got, err := repo.ListBySession(context.Background(), "sess_1")
+	if err != nil {
+		t.Fatalf("ListBySession: %v", err)
+	}
+	if len(got) != 2 || got[0].GroupJID != "12@g.us" {
+		t.Fatalf("unexpected groups: %+v", got)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestGroupMemberRepo_UpsertAndListByContact(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewGroupMemberRepo(db)

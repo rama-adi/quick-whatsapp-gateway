@@ -67,3 +67,29 @@ func (r *GroupRepo) GetByJID(ctx context.Context, groupJID string) (domain.Group
 	}
 	return g, nil
 }
+
+// ListBySession returns the groups a session has membership sightings for (§11
+// GET /groups). whatsapp_groups is global metadata, so this joins through the
+// per-session group_members pivot to scope the result to the session. Ordered by
+// group id for stability.
+func (r *GroupRepo) ListBySession(ctx context.Context, sessionID string) ([]domain.Group, error) {
+	q := "SELECT " + prefixCols("g", groupCols) + ` FROM whatsapp_groups g
+		WHERE g.group_jid IN (
+			SELECT DISTINCT group_jid FROM whatsapp_group_members WHERE session_id = ?
+		)
+		ORDER BY g.id ASC`
+	rows, err := r.db.QueryContext(ctx, q, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("store: list groups: %w", err)
+	}
+	defer rows.Close()
+	var out []domain.Group
+	for rows.Next() {
+		g, err := scanGroup(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, g)
+	}
+	return out, rows.Err()
+}

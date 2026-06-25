@@ -302,6 +302,43 @@ func (m *Manager) Get(id string) *ManagedSession {
 	return m.sessions[id]
 }
 
+// ClientFor returns the live *whatsmeow.Client for a session, or (nil, false)
+// when the session is unknown or its client is not yet constructed/connected.
+// It is the bridge the outbound send path uses to reach the per-session client
+// (the account-global Sender resolves the right client per request via this).
+func (m *Manager) ClientFor(id string) (*whatsmeow.Client, bool) {
+	ms := m.Get(id)
+	if ms == nil {
+		return nil, false
+	}
+	ms.mu.Lock()
+	c := ms.client
+	ms.mu.Unlock()
+	if c == nil {
+		return nil, false
+	}
+	cli, ok := c.(*whatsmeow.Client)
+	if !ok {
+		return nil, false
+	}
+	return cli, true
+}
+
+// Forget tears down a session's runtime (cancelling its goroutine and
+// disconnecting its client) and drops it from the in-memory registry. It does
+// NOT touch the wa_sessions row or the keystore device — the caller (the
+// SessionService delete path) owns those. Safe to call for an unknown id.
+func (m *Manager) Forget(id string) {
+	ms := m.Get(id)
+	if ms == nil {
+		return
+	}
+	m.teardown(ms)
+	m.mu.Lock()
+	delete(m.sessions, id)
+	m.mu.Unlock()
+}
+
 // Start connects an already-paired session and begins the reconnect loop. For
 // unpaired devices use StartQR / StartPairingCode instead.
 func (m *Manager) Start(ctx context.Context, id string) error {
@@ -556,6 +593,10 @@ func (m *Manager) pumpQR(ctx context.Context, ms *ManagedSession, qrChan <-chan 
 			}
 			switch item.Event {
 			case whatsmeow.QRChannelEventCode:
+				ms.mu.Lock()
+				ms.lastQR = item.Code
+				ms.lastQRExpires = m.clock.NowMs() + item.Timeout.Milliseconds()
+				ms.mu.Unlock()
 				m.sink.Publish(ctx, domain.NewEvent(domain.EventAuthQR, ms.SessionID, ms.TenantID, map[string]any{
 					"code":      item.Code,
 					"timeoutMs": item.Timeout.Milliseconds(),
