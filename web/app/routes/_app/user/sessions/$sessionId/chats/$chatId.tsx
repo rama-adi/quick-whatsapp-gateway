@@ -7,23 +7,27 @@
 //     cache by the shared cacheBridge ("message"/"message.from_me"); statuses
 //     patched by "message.status"; reactions/edits patch the body. We read the
 //     cache + re-render.
-//   - Display: flatten pages, sort ascending (oldest→newest), group by day.
-//     Newest sits at the bottom; new arrivals auto-scroll there, and "Load
-//     older" prepends without yanking the viewport.
+//   - Display: flatten pages, sort ascending (oldest→newest), group by day and
+//     into same-sender runs. Newest sits at the bottom; new arrivals auto-scroll
+//     there, and "Load older" prepends without yanking the viewport.
+//   - Components: the timeline is the styled shadcn MessageScroller set; each
+//     message is a Bubble inside a Message; day dividers are a Marker; the
+//     media "not downloaded" placeholder is an Attachment (see -message-bubble).
 //   - Composer: send goes through useSendMessage (optimistic), text only.
-//   - Media is 501 in v1 → "not downloaded" placeholder bubble.
 
-import {
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type FormEvent,
-} from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import type { InfiniteData } from "@tanstack/react-query";
-import { SendHorizonal, MessageSquare } from "lucide-react";
+import { SendHorizonal, MessageSquare, ChevronDown } from "lucide-react";
+import {
+  MessageScroller,
+  MessageScrollerProvider,
+  MessageScrollerViewport,
+  MessageScrollerContent,
+  MessageScrollerItem,
+  MessageScrollerButton,
+  useMessageScrollerScrollable,
+} from "~/components/ui/message-scroller";
 import { useChatMessages, useSendMessage } from "~/lib/api/hooks/messages";
 import { useChat, useMarkChatRead } from "~/lib/api/hooks/chats";
 import { qk } from "~/lib/query";
@@ -33,10 +37,10 @@ import { isApiError } from "~/lib/api/envelope";
 import { usePollingInterval } from "~/lib/events/useEventStream";
 import { Button } from "~/components/ui/button";
 import { Textarea } from "~/components/ui/textarea";
-import { ScrollArea } from "~/components/ui/scroll-area";
-import { Separator } from "~/components/ui/separator";
 import { Spinner } from "~/components/ui/spinner";
 import { TooltipProvider } from "~/components/ui/tooltip";
+import { Marker, MarkerContent } from "~/components/ui/marker";
+import { BubbleGroup } from "~/components/ui/bubble";
 import {
   Empty,
   EmptyDescription,
@@ -78,6 +82,48 @@ export const Route = createFileRoute(
   component: ViewerTimeline,
 });
 
+/** A run of consecutive messages from the same sender within one day. */
+type MessageRun = {
+  /** Stable id for the scroller item + react key (last message's id). */
+  id: string;
+  /** Day-divider label, set on the first run of each calendar day. */
+  dayHeading: string | null;
+  messages: Message[];
+};
+
+function messageId(m: Message): string {
+  return m.id ?? `${m.timestamp}-${m.senderJid}`;
+}
+
+/** Group an ascending message list into same-sender runs, tagging day breaks. */
+function groupRuns(ordered: Message[]): MessageRun[] {
+  const runs: MessageRun[] = [];
+  let lastDay = "";
+  let prevKey: string | null = null;
+
+  for (const m of ordered) {
+    const dk = dayKey(m.timestamp);
+    const dayBreak = dk !== lastDay;
+    lastDay = dk;
+    // Group key: same direction + sender, broken by a day boundary.
+    const runKey = `${dk}|${m.direction}|${m.senderJid ?? ""}`;
+    const last = runs[runs.length - 1];
+
+    if (!dayBreak && last && runKey === prevKey) {
+      last.messages.push(m);
+      last.id = messageId(m);
+    } else {
+      runs.push({
+        id: messageId(m),
+        dayHeading: dayBreak ? formatDayHeading(m.timestamp) : null,
+        messages: [m],
+      });
+    }
+    prevKey = runKey;
+  }
+  return runs;
+}
+
 function ViewerTimeline() {
   const { sessionId, chatId } = Route.useParams();
   const chat = useChat(sessionId, chatId);
@@ -104,35 +150,15 @@ function ViewerTimeline() {
     return [...flat].sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
   }, [messages.data]);
 
-  // Scroll management. Newest sits at the bottom: jump there on new arrivals,
-  // but when "Load older" prepends a page keep the reading position fixed by
-  // restoring the scroll offset from the bottom.
-  const viewportRef = useRef<HTMLDivElement | null>(null);
-  const bottomRef = useRef<HTMLDivElement | null>(null);
-  const prependAnchor = useRef<number | null>(null);
-  const oldestId = ordered.length > 0 ? ordered[0]?.id : undefined;
-  const newestId =
-    ordered.length > 0 ? ordered[ordered.length - 1]?.id : undefined;
+  const runs = useMemo(() => groupRuns(ordered), [ordered]);
 
-  // New message at the bottom → scroll into view.
-  useEffect(() => {
-    if (prependAnchor.current !== null) return; // a prepend is in flight
-    bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [newestId]);
-
-  // Older page prepended → restore distance-from-bottom so the view doesn't jump.
-  useLayoutEffect(() => {
-    const vp = viewportRef.current;
-    if (vp && prependAnchor.current !== null) {
-      vp.scrollTop = vp.scrollHeight - prependAnchor.current;
-      prependAnchor.current = null;
-    }
-  }, [oldestId]);
-
+  // "Load older" feeds the existing infinite-query. MessageScroller's
+  // preserveScrollOnPrepend keeps the reading position fixed when the prepended
+  // page lands, so no manual scroll-offset bookkeeping is needed here.
+  const canLoadOlder = Boolean(messages.hasNextPage);
+  const isFetchingOlder = messages.isFetchingNextPage;
   const loadOlder = () => {
-    const vp = viewportRef.current;
-    if (vp) prependAnchor.current = vp.scrollHeight - vp.scrollTop;
-    void messages.fetchNextPage();
+    if (canLoadOlder && !isFetchingOlder) void messages.fetchNextPage();
   };
 
   const title = chat.data?.name || chat.data?.jid || chatId;
@@ -177,20 +203,43 @@ function ViewerTimeline() {
           </Button>
         </header>
 
-        <ScrollArea viewportRef={viewportRef} className="flex-1">
-          <div className="flex flex-col gap-1 p-4">
-            <TimelineBody
-              ordered={ordered}
-              isLoading={messages.isLoading}
-              isError={messages.isError}
-              error={messages.error}
-              hasOlder={Boolean(messages.hasNextPage)}
-              isFetchingOlder={messages.isFetchingNextPage}
-              onLoadOlder={loadOlder}
-            />
-            <div ref={bottomRef} />
-          </div>
-        </ScrollArea>
+        {/* Styled shadcn MessageScroller. Provider tracks scroll state;
+            autoScroll follows the bottom on new arrivals only while the user is
+            already at the end; defaultScrollPosition="end" opens pinned to the
+            newest message. The Viewport is the scrollable element
+            (preserveScrollOnPrepend keeps the position fixed when "Load older"
+            prepends a page). */}
+        <MessageScrollerProvider autoScroll defaultScrollPosition="end">
+          <MessageScroller className="min-h-0 flex-1">
+            <MessageScrollerViewport
+              preserveScrollOnPrepend
+              role="log"
+              aria-label="Message timeline"
+              aria-live="polite"
+              tabIndex={0}
+              onScroll={(e) => {
+                // Near the top edge → pull the next (older) page. The library
+                // restores the offset afterward via preserveScrollOnPrepend.
+                if (e.currentTarget.scrollTop <= 32) loadOlder();
+              }}
+              className="outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              <MessageScrollerContent className="gap-2 p-4">
+                <TimelineBody
+                  runs={runs}
+                  isLoading={messages.isLoading}
+                  isError={messages.isError}
+                  error={messages.error}
+                  hasOlder={canLoadOlder}
+                  isFetchingOlder={isFetchingOlder}
+                  onLoadOlder={loadOlder}
+                />
+              </MessageScrollerContent>
+            </MessageScrollerViewport>
+
+            <JumpToLatest />
+          </MessageScroller>
+        </MessageScrollerProvider>
 
         <Composer
           disabled={send.isPending}
@@ -210,7 +259,7 @@ function ViewerTimeline() {
 }
 
 function TimelineBody({
-  ordered,
+  runs,
   isLoading,
   isError,
   error,
@@ -218,7 +267,7 @@ function TimelineBody({
   isFetchingOlder,
   onLoadOlder,
 }: {
-  ordered: Message[];
+  runs: MessageRun[];
   isLoading: boolean;
   isError: boolean;
   error: unknown;
@@ -248,7 +297,7 @@ function TimelineBody({
     );
   }
 
-  if (ordered.length === 0) {
+  if (runs.length === 0) {
     return (
       <Empty className="border-0">
         <EmptyHeader>
@@ -264,12 +313,12 @@ function TimelineBody({
     );
   }
 
-  let lastDay = "";
+  const lastIndex = runs.length - 1;
 
   return (
     <>
       {hasOlder ? (
-        <div className="flex justify-center pb-2">
+        <div className="flex justify-center pb-1">
           <Button
             size="sm"
             variant="ghost"
@@ -281,26 +330,57 @@ function TimelineBody({
         </div>
       ) : null}
 
-      {ordered.map((m) => {
-        const dk = dayKey(m.timestamp);
-        const showDay = dk !== lastDay;
-        lastDay = dk;
-        return (
-          <div key={m.id ?? `${m.timestamp}-${m.senderJid}`}>
-            {showDay ? (
-              <div className="my-3 flex items-center gap-3">
-                <Separator className="flex-1" />
-                <span className="shrink-0 rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground">
-                  {formatDayHeading(m.timestamp)}
-                </span>
-                <Separator className="flex-1" />
-              </div>
-            ) : null}
-            <MessageBubble message={m} />
-          </div>
-        );
-      })}
+      {runs.map((run, i) => (
+        // One scroller Item per same-sender run. The scroller anchors and tracks
+        // visibility by messageId; the newest run is the scrollAnchor (where
+        // "end" positioning and autoScroll-follow land).
+        <MessageScrollerItem
+          key={run.id}
+          messageId={run.id}
+          scrollAnchor={i === lastIndex}
+        >
+          {run.dayHeading ? (
+            <Marker variant="separator" className="my-1">
+              <MarkerContent>{run.dayHeading}</MarkerContent>
+            </Marker>
+          ) : null}
+          <BubbleGroup>
+            {run.messages.map((m, j) => (
+              <MessageBubble
+                key={messageId(m)}
+                message={m}
+                showSender={j === 0}
+              />
+            ))}
+          </BubbleGroup>
+        </MessageScrollerItem>
+      ))}
     </>
+  );
+}
+
+// Floating "jump to latest" affordance. MessageScrollerButton(direction="end")
+// is self-hiding: the library marks it inert + tabIndex=-1 and exposes an
+// `active` render-state flag that mirrors useMessageScrollerScrollable().end —
+// true only when there is unseen content below (the user has scrolled up). We
+// hide it entirely when inactive so it doesn't yank focus or clutter the view.
+function JumpToLatest() {
+  const { end } = useMessageScrollerScrollable();
+  if (!end) return null;
+  return (
+    <MessageScrollerButton
+      direction="end"
+      behavior="smooth"
+      aria-label="Jump to latest messages"
+      variant="secondary"
+      size="sm"
+      className="left-1/2 rounded-full px-3 text-xs font-medium shadow-md"
+    >
+      <span className="flex items-center gap-1">
+        <ChevronDown className="size-3.5" aria-hidden />
+        Jump to latest
+      </span>
+    </MessageScrollerButton>
   );
 }
 

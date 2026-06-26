@@ -1,9 +1,10 @@
-// One message in the viewer timeline. Outgoing (from_me) bubbles sit right and
-// tinted with the primary color; incoming bubbles sit left and muted. Renders
-// text/poll/location/contact specially; media types show a "not downloaded"
-// placeholder (download is 501 in the API). Reply previews, reactions, an
-// "edited" mark and the absolute send time (on hover) come from the body JSON
-// via parseExtras — all optional.
+// One message in the viewer timeline, built on the shadcn chat primitives.
+// Outgoing (direction:"out") messages align end with the primary Bubble variant;
+// incoming align start and are tinted. The Message wraps a header (sender name),
+// the Bubble/BubbleContent body (text/poll/location/contact, or an Attachment
+// placeholder for media — download is 501 in v1), a footer (timestamp + ack
+// ticks), and BubbleReactions. Reply previews, reactions and the "edited" mark
+// come from the body JSON via parseExtras — all optional.
 
 import {
   CheckCheck,
@@ -24,6 +25,24 @@ import {
   TooltipTrigger,
 } from "~/components/ui/tooltip";
 import {
+  Message as MessageRow,
+  MessageContent as MessageContentSlot,
+  MessageHeader,
+  MessageFooter,
+} from "~/components/ui/message";
+import {
+  Bubble,
+  BubbleContent,
+  BubbleReactions,
+} from "~/components/ui/bubble";
+import {
+  Attachment,
+  AttachmentMedia,
+  AttachmentContent,
+  AttachmentTitle,
+  AttachmentDescription,
+} from "~/components/ui/attachment";
+import {
   formatTimestamp,
   parseMessage,
   parseExtras,
@@ -39,91 +58,89 @@ const STATUS_LABEL: Record<MessageStatus, string> = {
   failed: "Failed",
 };
 
-export function MessageBubble({ message }: { message: Message }) {
+export function MessageBubble({
+  message,
+  showSender = true,
+}: {
+  message: Message;
+  /** First message of a same-sender run shows the header; later ones don't. */
+  showSender?: boolean;
+}) {
   const outgoing = message.direction === "out";
   const parsed = parseMessage(message);
   const extras = parseExtras(message);
-  const sender = !outgoing ? message.senderJid?.replace(/@.*$/, "") : undefined;
+  const sender =
+    !outgoing && showSender ? message.senderJid?.replace(/@.*$/, "") : undefined;
+  const align = outgoing ? "end" : "start";
+  const hasReactions = extras.reactions.length > 0;
 
   return (
-    <div className={cn("flex w-full", outgoing ? "justify-end" : "justify-start")}>
-      <div className="flex max-w-[78%] flex-col gap-1">
-        <div
-          className={cn(
-            "rounded-2xl px-3 py-2 text-sm shadow-sm",
-            outgoing
-              ? "rounded-br-sm bg-primary text-primary-foreground"
-              : "rounded-bl-sm bg-muted text-foreground",
-          )}
+    <MessageRow align={align}>
+      <MessageContentSlot>
+        {sender ? (
+          <MessageHeader>
+            <span className="truncate">{sender}</span>
+          </MessageHeader>
+        ) : null}
+
+        <Bubble
+          variant={outgoing ? "default" : "tinted"}
+          align={align}
+          className={cn(hasReactions && "mb-3")}
         >
-          {sender ? (
-            <div className="mb-0.5 text-xs font-medium opacity-70">{sender}</div>
+          <BubbleContent>
+            {extras.quoted ? (
+              <QuotedPreview quoted={extras.quoted} outgoing={outgoing} />
+            ) : null}
+
+            <MessageBody parsed={parsed} outgoing={outgoing} />
+          </BubbleContent>
+
+          {hasReactions ? (
+            <BubbleReactions side="bottom" align={align}>
+              {extras.reactions.map((emoji, i) => (
+                <span key={`${i}-${emoji}`} className="leading-none">
+                  {emoji}
+                </span>
+              ))}
+            </BubbleReactions>
           ) : null}
+        </Bubble>
 
-          {extras.quoted ? (
-            <QuotedPreview quoted={extras.quoted} outgoing={outgoing} />
-          ) : null}
-
-          <MessageContent parsed={parsed} outgoing={outgoing} />
-
-          <div
-            className={cn(
-              "mt-1 flex items-center justify-end gap-1 text-[10px]",
-              outgoing ? "text-primary-foreground/70" : "text-muted-foreground",
-            )}
-          >
-            {extras.edited ? <span className="italic">edited</span> : null}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  className="cursor-default rounded-sm outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                  aria-label={
+        <MessageFooter className="gap-1">
+          {extras.edited ? <span className="italic">edited</span> : null}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className="cursor-default rounded-sm outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                aria-label={
+                  message.timestamp
+                    ? `Sent ${new Date(message.timestamp).toLocaleString()}`
+                    : "Send time unknown"
+                }
+              >
+                <time
+                  dateTime={
                     message.timestamp
-                      ? `Sent ${new Date(message.timestamp).toLocaleString()}`
-                      : "Send time unknown"
+                      ? new Date(message.timestamp).toISOString()
+                      : undefined
                   }
                 >
-                  <time
-                    dateTime={
-                      message.timestamp
-                        ? new Date(message.timestamp).toISOString()
-                        : undefined
-                    }
-                  >
-                    {formatTimestamp(message.timestamp)}
-                  </time>
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {message.timestamp
-                  ? new Date(message.timestamp).toLocaleString()
-                  : "Unknown time"}
-              </TooltipContent>
-            </Tooltip>
-            {outgoing ? <StatusIcon status={message.status} /> : null}
-          </div>
-        </div>
-
-        {extras.reactions.length > 0 ? (
-          <div
-            className={cn(
-              "flex flex-wrap gap-1",
-              outgoing ? "justify-end" : "justify-start",
-            )}
-          >
-            {extras.reactions.map((emoji, i) => (
-              <span
-                key={`${i}-${emoji}`}
-                className="rounded-full border bg-background px-1.5 py-0.5 text-xs leading-none shadow-sm"
-              >
-                {emoji}
-              </span>
-            ))}
-          </div>
-        ) : null}
-      </div>
-    </div>
+                  {formatTimestamp(message.timestamp)}
+                </time>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {message.timestamp
+                ? new Date(message.timestamp).toLocaleString()
+                : "Unknown time"}
+            </TooltipContent>
+          </Tooltip>
+          {outgoing ? <StatusIcon status={message.status} /> : null}
+        </MessageFooter>
+      </MessageContentSlot>
+    </MessageRow>
   );
 }
 
@@ -154,7 +171,7 @@ function QuotedPreview({
   );
 }
 
-function MessageContent({
+function MessageBody({
   parsed,
   outgoing,
 }: {
@@ -170,25 +187,30 @@ function MessageContent({
       );
 
     case "media":
+      // Media isn't downloadable in v1 (the API returns 501), so render an
+      // Attachment in its unavailable/placeholder state (state="idle" → dashed
+      // border) rather than an actual media tile.
       return (
-        <div
-          className={cn(
-            "flex items-start gap-2 rounded-md border border-dashed p-2",
-            outgoing ? "border-primary-foreground/30" : "border-border",
-          )}
-        >
-          <FileWarning className="mt-0.5 size-4 shrink-0 opacity-70" aria-hidden />
-          <div className="space-y-0.5">
-            <p className="font-medium capitalize">{parsed.mediaType}</p>
-            <p className="text-xs opacity-70">
-              Media not downloaded — not available in v1.
-            </p>
-            {parsed.caption ? (
-              <p className="whitespace-pre-wrap break-words pt-1">
-                {parsed.caption}
-              </p>
-            ) : null}
-          </div>
+        <div className="space-y-1">
+          <Attachment
+            state="idle"
+            className="border-current/25 bg-transparent text-inherit"
+          >
+            <AttachmentMedia variant="icon" className="bg-current/10">
+              <FileWarning aria-hidden />
+            </AttachmentMedia>
+            <AttachmentContent>
+              <AttachmentTitle className="capitalize">
+                {parsed.mediaType}
+              </AttachmentTitle>
+              <AttachmentDescription className="text-current/70">
+                Media not downloaded — not available in v1.
+              </AttachmentDescription>
+            </AttachmentContent>
+          </Attachment>
+          {parsed.caption ? (
+            <p className="whitespace-pre-wrap break-words">{parsed.caption}</p>
+          ) : null}
         </div>
       );
 
@@ -285,7 +307,7 @@ function StatusIcon({ status }: { status?: MessageStatus }) {
         return <CheckCheck className="size-3" aria-hidden />;
       case "read":
       case "played":
-        return <CheckCheck className="size-3 text-sky-300" aria-hidden />;
+        return <CheckCheck className="size-3 text-sky-500" aria-hidden />;
       case "failed":
         return <AlertCircle className="size-3 text-destructive" aria-hidden />;
     }
