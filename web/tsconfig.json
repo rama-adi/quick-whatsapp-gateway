@@ -9,7 +9,8 @@
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
     "paths": {
-      "~/*": ["./app/*"]
+      "~/*": ["./app/*"],
+      "collections/*": ["./.source/*"]
     },
     "esModuleInterop": true,
     "verbatimModuleSyntax": true,

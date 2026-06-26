@@ -1,0 +1,25 @@
+---
+title: WhatsApp Gateway docs
+description: Run WhatsApp sessions over a REST API — send messages, read chats, manage groups, and receive events through webhooks.
+---
+
+The gateway exposes one WhatsApp account as an organization-scoped REST API. You
+pair a phone once, then send messages, read chats and contacts, manage groups,
+and receive delivery and message events over webhooks.
+
+## Two ways in
+
+<Cards>
+  <Card title="Guides" href="/docs/guides" description="Pair a session, send your first message, and subscribe to events — task by task." />
+  <Card title="API reference" href="/docs/api" description="Every endpoint, generated from the OpenAPI contract, with request and response shapes." />
+</Cards>
+
+## How requests are authenticated
+
+Every call carries one Bearer token, either:
+
+- a **user JWT** (minted by the dashboard, verified against the gateway's JWKS), or
+- an **API key** (prefix `wa_`, for machines) — sent as `Authorization: Bearer …` or in the `x-api-key` header.
+
+Sessions belong to an organization. A token only reaches the sessions its
+organization owns.

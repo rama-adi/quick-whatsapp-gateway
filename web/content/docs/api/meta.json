@@ -1,0 +1,17 @@
+{
+  "title": "API reference",
+  "pages": [
+    "index",
+    "health",
+    "sessions",
+    "messages",
+    "chats",
+    "contacts",
+    "groups",
+    "channels",
+    "status-&-presence",
+    "events",
+    "webhooks",
+    "admin"
+  ]
+}

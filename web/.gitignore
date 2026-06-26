@@ -10,6 +10,9 @@
 /.tanstack/
 /dist/
 
+# fumadocs-mdx generates this (the `collections/*` modules) on dev/build.
+/.source/
+
 # NOTE: app/routeTree.gen.ts is intentionally COMMITTED so `pnpm typecheck`
 # (plain `tsc --noEmit`, no pre-generate step) works on a fresh checkout. The
 # Start vite plugin regenerates it on dev/build.

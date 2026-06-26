@@ -1,0 +1,12 @@
+{
+  "title": "Chats",
+  "pages": [
+    "listChats",
+    "getChat",
+    "updateChat",
+    "deleteChat",
+    "listChatMessages",
+    "readChat",
+    "chatPresence"
+  ]
+}

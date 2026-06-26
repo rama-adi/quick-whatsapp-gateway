@@ -1,0 +1,12 @@
+{
+  "title": "Messages",
+  "pages": [
+    "sendMessage",
+    "editMessage",
+    "revokeMessage",
+    "addReaction",
+    "removeReaction",
+    "forwardMessage",
+    "voteMessage"
+  ]
+}

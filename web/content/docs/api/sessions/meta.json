@@ -1,0 +1,16 @@
+{
+  "title": "Sessions",
+  "pages": [
+    "listSessions",
+    "createSession",
+    "getSession",
+    "deleteSession",
+    "startSession",
+    "stopSession",
+    "restartSession",
+    "logoutSession",
+    "sessionMe",
+    "sessionQR",
+    "sessionPairingCode"
+  ]
+}

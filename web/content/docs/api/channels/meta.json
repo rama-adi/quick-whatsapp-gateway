@@ -1,0 +1,10 @@
+{
+  "title": "Channels",
+  "pages": [
+    "createChannel",
+    "followChannel",
+    "unfollowChannel",
+    "muteChannel",
+    "listChannelMessages"
+  ]
+}

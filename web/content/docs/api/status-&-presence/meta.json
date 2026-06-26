@@ -1,0 +1,7 @@
+{
+  "title": "Status & Presence",
+  "pages": [
+    "postStatus",
+    "setPresence"
+  ]
+}

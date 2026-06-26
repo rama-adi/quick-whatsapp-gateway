@@ -12,6 +12,8 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as AuthRouteImport } from './routes/_auth'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as DocsSplatRouteImport } from './routes/docs/$'
+import { Route as ApiSearchRouteImport } from './routes/api/search'
 import { Route as AuthRegisterRouteImport } from './routes/_auth/register'
 import { Route as AuthLoginRouteImport } from './routes/_auth/login'
 import { Route as Auth2faRouteImport } from './routes/_auth/2fa'
@@ -45,6 +47,16 @@ const AppRoute = AppRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DocsSplatRoute = DocsSplatRouteImport.update({
+  id: '/docs/$',
+  path: '/docs/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiSearchRoute = ApiSearchRouteImport.update({
+  id: '/api/search',
+  path: '/api/search',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthRegisterRoute = AuthRegisterRouteImport.update({
@@ -167,6 +179,8 @@ export interface FileRoutesByFullPath {
   '/2fa': typeof Auth2faRoute
   '/login': typeof AuthLoginRoute
   '/register': typeof AuthRegisterRoute
+  '/api/search': typeof ApiSearchRoute
+  '/docs/$': typeof DocsSplatRoute
   '/admin/monitor': typeof AppAdminMonitorRoute
   '/admin/pairing': typeof AppAdminPairingRoute
   '/admin/sessions': typeof AppAdminSessionsRoute
@@ -190,6 +204,8 @@ export interface FileRoutesByTo {
   '/2fa': typeof Auth2faRoute
   '/login': typeof AuthLoginRoute
   '/register': typeof AuthRegisterRoute
+  '/api/search': typeof ApiSearchRoute
+  '/docs/$': typeof DocsSplatRoute
   '/admin/monitor': typeof AppAdminMonitorRoute
   '/admin/pairing': typeof AppAdminPairingRoute
   '/admin/sessions': typeof AppAdminSessionsRoute
@@ -216,6 +232,8 @@ export interface FileRoutesById {
   '/_auth/2fa': typeof Auth2faRoute
   '/_auth/login': typeof AuthLoginRoute
   '/_auth/register': typeof AuthRegisterRoute
+  '/api/search': typeof ApiSearchRoute
+  '/docs/$': typeof DocsSplatRoute
   '/_app/admin/monitor': typeof AppAdminMonitorRoute
   '/_app/admin/pairing': typeof AppAdminPairingRoute
   '/_app/admin/sessions': typeof AppAdminSessionsRoute
@@ -242,6 +260,8 @@ export interface FileRouteTypes {
     | '/2fa'
     | '/login'
     | '/register'
+    | '/api/search'
+    | '/docs/$'
     | '/admin/monitor'
     | '/admin/pairing'
     | '/admin/sessions'
@@ -265,6 +285,8 @@ export interface FileRouteTypes {
     | '/2fa'
     | '/login'
     | '/register'
+    | '/api/search'
+    | '/docs/$'
     | '/admin/monitor'
     | '/admin/pairing'
     | '/admin/sessions'
@@ -290,6 +312,8 @@ export interface FileRouteTypes {
     | '/_auth/2fa'
     | '/_auth/login'
     | '/_auth/register'
+    | '/api/search'
+    | '/docs/$'
     | '/_app/admin/monitor'
     | '/_app/admin/pairing'
     | '/_app/admin/sessions'
@@ -311,6 +335,8 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRouteWithChildren
   AuthRoute: typeof AuthRouteWithChildren
+  ApiSearchRoute: typeof ApiSearchRoute
+  DocsSplatRoute: typeof DocsSplatRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
@@ -335,6 +361,20 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/docs/$': {
+      id: '/docs/$'
+      path: '/docs/$'
+      fullPath: '/docs/$'
+      preLoaderRoute: typeof DocsSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/search': {
+      id: '/api/search'
+      path: '/api/search'
+      fullPath: '/api/search'
+      preLoaderRoute: typeof ApiSearchRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_auth/register': {
@@ -616,6 +656,8 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
   AuthRoute: AuthRouteWithChildren,
+  ApiSearchRoute: ApiSearchRoute,
+  DocsSplatRoute: DocsSplatRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
 export const routeTree = rootRouteImport

@@ -1,0 +1,19 @@
+{
+  "title": "Groups",
+  "pages": [
+    "listGroups",
+    "createGroup",
+    "joinGroup",
+    "getGroup",
+    "updateGroup",
+    "leaveGroup",
+    "listGroupMembers",
+    "addGroupMembers",
+    "approveGroupMembers",
+    "removeGroupMember",
+    "promoteGroupMember",
+    "demoteGroupMember",
+    "getGroupInvite",
+    "revokeGroupInvite"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "title": "Contacts",
+  "pages": [
+    "listContacts",
+    "checkContact",
+    "getContact",
+    "contactPicture",
+    "contactAbout",
+    "blockContact",
+    "unblockContact"
+  ]
+}
