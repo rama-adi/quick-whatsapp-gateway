@@ -1,6 +1,15 @@
-// Event-stream transport: opens GET /api/v1/events as an NDJSON ReadableStream
-// over the cookie session and dispatches decoded frames.
-// FROZEN — owned by the foundation agent.
+// Event-stream transport: opens GET {GATEWAY_URL}/api/v1/events as an NDJSON
+// ReadableStream against the gateway DIRECTLY (R4) and dispatches decoded frames.
+//
+// v2 shape (§4, §12): the browser connects to the gateway with a Bearer JWT (NOT
+// the cookie session — the gateway is cross-origin). The existing fetch +
+// ReadableStream logic is preserved; only the URL + auth changed:
+//   - apiUrl() now points at VITE_GATEWAY_URL/api/v1.
+//   - we attach `Authorization: Bearer <jwt>` from the token provider; no
+//     credentials:"include".
+//   - the JWT is short-lived (5 min); the consumer (useEventStream) refreshes it
+//     and reconnects via since={lastEventId} (§4.7) so a token roll never tears
+//     the view.
 //
 // Verified against internal/stream/handler.go:
 //   - the filter param is `events` (NOT `types`); default "*".
@@ -10,6 +19,7 @@
 //   - an in-band {"event":"error"} line signals replay/stream failure.
 
 import { apiUrl } from "../api/client";
+import { getGatewayToken } from "../api/token-provider";
 import type { EventEnvelope } from "../api/types";
 import { parseNdjson, isPingFrame, isErrorFrame } from "./ndjson";
 
@@ -43,12 +53,15 @@ export async function openEventStream(o: OpenEventStreamOptions): Promise<void> 
   if (o.session) qs.set("session", o.session);
   if (o.since) qs.set("since", o.since);
 
+  const headers: Record<string, string> = { Accept: "application/x-ndjson" };
+  const token = await getGatewayToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
   let res: Response;
   try {
     res = await fetch(apiUrl(`/events?${qs.toString()}`), {
       method: "GET",
-      credentials: "include",
-      headers: { Accept: "application/x-ndjson" },
+      headers,
       signal: o.signal,
     });
   } catch (err) {

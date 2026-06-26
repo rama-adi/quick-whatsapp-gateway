@@ -8,13 +8,14 @@
     "start": "node .output/server/index.mjs",
     "typecheck": "tsc --noEmit",
     "gen:api": "openapi-typescript ../docs/openapi.yaml -o app/lib/api/schema.d.ts",
-    "auth:generate": "pnpm dlx @better-auth/cli@latest generate --config app/lib/auth/server.ts --output app/lib/db/auth-schema.ts -y",
+    "auth:generate": "pnpm dlx @better-auth/cli@^1.6 generate --config app/lib/auth/server.ts --output app/lib/db/auth-schema.ts -y",
     "db:introspect": "drizzle-kit introspect",
     "db:migrate": "drizzle-kit migrate",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@better-auth/api-key": "^1.6.22",
     "@hookform/resolvers": "^5.4.0",
     "@radix-ui/react-avatar": "^1.1.10",
     "@radix-ui/react-dialog": "^1.1.15",
@@ -32,6 +33,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.2",
+    "ioredis": "^5.11.1",
     "isbot": "^5.1.36",
     "lucide-react": "^0.545.0",
     "mysql2": "^3.15.4",

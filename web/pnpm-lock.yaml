@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@better-auth/api-key':
+        specifier: ^1.6.22
+        version: 1.6.22(@better-auth/core@1.6.22(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.3.7(zod@4.4.3))(jose@6.2.3)(kysely@0.29.2)(nanostores@1.3.0))(@better-auth/utils@0.4.2)(better-auth@1.6.22(@tanstack/react-start@1.168.26(crossws@0.4.6(srvx@0.11.17))(esbuild@0.28.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(rolldown@1.1.3)(rollup@4.62.2)(vite@8.1.0(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)))(drizzle-kit@0.31.10)(drizzle-orm@0.45.2(kysely@0.29.2)(mysql2@3.22.5(@types/node@22.20.0)))(mysql2@3.22.5(@types/node@22.20.0))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(solid-js@1.9.13)(vitest@3.2.6(@types/node@22.20.0)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.22.4)))(better-call@1.3.7(zod@4.4.3))
       '@hookform/resolvers':
         specifier: ^5.4.0
         version: 5.4.0(react-hook-form@7.80.0(react@19.2.7))
@@ -59,6 +62,9 @@ importers:
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(kysely@0.29.2)(mysql2@3.22.5(@types/node@22.20.0))
+      ioredis:
+        specifier: ^5.11.1
+        version: 5.11.1
       isbot:
         specifier: ^5.1.36
         version: 5.1.44
@@ -73,7 +79,7 @@ importers:
         version: 0.4.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       nitro:
         specifier: npm:nitro-nightly@latest
-        version: nitro-nightly@3.0.1-20260626-071224-83acc441(chokidar@5.0.0)(drizzle-orm@0.45.2(kysely@0.29.2)(mysql2@3.22.5(@types/node@22.20.0)))(jiti@2.7.0)(mysql2@3.22.5(@types/node@22.20.0))(rollup@4.62.2)(vite@8.1.0(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4))
+        version: nitro-nightly@3.0.1-20260626-071224-83acc441(chokidar@5.0.0)(drizzle-orm@0.45.2(kysely@0.29.2)(mysql2@3.22.5(@types/node@22.20.0)))(ioredis@5.11.1)(jiti@2.7.0)(mysql2@3.22.5(@types/node@22.20.0))(rollup@4.62.2)(vite@8.1.0(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4))
       radix-ui:
         specifier: ^1.6.0
         version: 1.6.0(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -220,6 +226,14 @@ packages:
   '@babel/types@7.29.7':
     resolution: {integrity: sha512-4zBIxpPzowiZpusoFkyGVwakdRJUyuH5PxQ/PrqghfdFWWasvnCdPfQXHrenDai+gyLARulZjZowCOj6fjT4pA==}
     engines: {node: '>=6.9.0'}
+
+  '@better-auth/api-key@1.6.22':
+    resolution: {integrity: sha512-HDiiLYF0ov0zqhKv4CMTyLwpjTZ3UWl2dug451uTw40VM9zGxWSNxwILDcMDZ6hS5evaTHmmk7R5gciskEk2nQ==}
+    peerDependencies:
+      '@better-auth/core': ^1.6.22
+      '@better-auth/utils': 0.4.2
+      better-auth: ^1.6.22
+      better-call: 1.3.7
 
   '@better-auth/core@1.6.22':
     resolution: {integrity: sha512-aFH/5nzmR501jAJPKjJfiVg4BrkcjVCqq9WS9JnhTruE/2PIWopv1QGMiRIRqxXaPbHczri7cqRdhep3Lg5PMw==}
@@ -783,6 +797,9 @@ packages:
     resolution: {integrity: sha512-EIsqr/t/qbinPIhGjMdtvutIN1Kk4uwbROE9/UQ93CAVGR7GkA7Y92+fX80OzXi/OB67jVFYwKGO1WzkxmkFZw==}
     peerDependencies:
       react-hook-form: ^7.55.0
+
+  '@ioredis/commands@1.10.0':
+    resolution: {integrity: sha512-UmeW7z4LfctwoQ5wkhVzgq8tXkreED2xZGpX+Bg+zA+WJFZCT6c062AfCK/Dfk81xZnnwdhJCUMkitihRaoC2Q==}
 
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
@@ -2472,6 +2489,10 @@ packages:
     resolution: {integrity: sha512-eYm0QWBtUrBWZWG0d386OGAw16Z995PiOVo2B7bjWSbHedGl5e0ZWaq65kOGgUSNesEIDkB9ISbTg/JK9dhCZA==}
     engines: {node: '>=6'}
 
+  cluster-key-slot@1.1.1:
+    resolution: {integrity: sha512-rwHwUfXL40Chm1r08yrhU3qpUvdVlgkKNeyeGPOxnW8/SyVDvgRaed/Uz54AqWNaTCAThlj6QAs3TZcKI0xDEw==}
+    engines: {node: '>=0.10.0'}
+
   colorette@1.4.0:
     resolution: {integrity: sha512-Y2oEozpomLn7Q3HFP7dpww7AtMJplbM9lGZP6RDfHqmbeRjiwRg4n6VM6j4KLmRke85uWEI7JqF17f3pqdRA0g==}
 
@@ -2788,6 +2809,10 @@ packages:
   index-to-position@1.2.0:
     resolution: {integrity: sha512-Yg7+ztRkqslMAS2iFaU+Oa4KTSidr63OsFGlOrJoW981kIYO3CGCS3wA95P1mUi/IVSJkn0D479KTJpVpvFNuw==}
     engines: {node: '>=18'}
+
+  ioredis@5.11.1:
+    resolution: {integrity: sha512-ehuGcf94bQXhfagULNXrJdfnWO38v070jxSx/qE87Kjzmu2fU7ro5EFAb+OPituLqgfyuQaym5DlrNydW2sJ9A==}
+    engines: {node: '>=12.22.0'}
 
   is-property@1.0.2:
     resolution: {integrity: sha512-Ks/IoX00TtClbGQr4TWXemAnktAQvYB7HzcCxDGqEZU6oCmb2INHuOoKxbtR+HFkmYWBKv/dOZtGRiAjDhj92g==}
@@ -3114,6 +3139,14 @@ packages:
     resolution: {integrity: sha512-9u/XQ1pvrQtYyMpZe7DXKv2p5CNvyVwzUB6uhLAnQwHMSgKMBR62lc7AHljaeteeHXn11XTAaLLUVZYVZyuRBQ==}
     engines: {node: '>= 20.19.0'}
 
+  redis-errors@1.2.0:
+    resolution: {integrity: sha512-1qny3OExCf0UvUV/5wpYKf2YwPcOqXzkwKKSmKHiE6ZMQs5heeE/c8eXK+PNllPvmjgAbfnsbpkGZWy8cBpn9w==}
+    engines: {node: '>=4'}
+
+  redis-parser@3.0.0:
+    resolution: {integrity: sha512-DJnGAeenTdpMEH6uAJRK/uiyEIH9WVsUmoLwzudwGJUwZPp80PDBWPHXSAGNPwNvIXAbe7MSUB1zQFugFml66A==}
+    engines: {node: '>=4'}
+
   require-from-string@2.0.2:
     resolution: {integrity: sha512-Xf0nWe6RseziFMu+Ap9biiUbmplq6S9/p+7w7YXP/JBHhrUDDUhwa+vANyubuqfZWTveU//DYVGsDG7RKL/vEw==}
     engines: {node: '>=0.10.0'}
@@ -3202,6 +3235,9 @@ packages:
 
   stackback@0.0.2:
     resolution: {integrity: sha512-1XMJE5fQo1jGH6Y/7ebnwPOBEkIEnT4QF32d5R1+VXdXveM0IBMJt8zfaxX1P3QhVwrYe+576+jkANtSS2mBbw==}
+
+  standard-as-callback@2.1.0:
+    resolution: {integrity: sha512-qoRRSyROncaz1z0mvYqIE4lCd9p2R90i6GxW3uZv5ucSu8tU7B5HXUP1gG8pVZsYNVaXjk8ClXHPttLyxAL48A==}
 
   std-env@3.10.0:
     resolution: {integrity: sha512-5GS12FdOZNliM5mAOxFRg7Ir0pWz8MdpYm6AY6VPkGpbA7ZzmbzNcBJQ0GPvvyWgcY7QAhCgf9Uy89I03faLkg==}
@@ -3703,6 +3739,14 @@ snapshots:
       '@babel/helper-string-parser': 7.29.7
       '@babel/helper-validator-identifier': 7.29.7
 
+  '@better-auth/api-key@1.6.22(@better-auth/core@1.6.22(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.3.7(zod@4.4.3))(jose@6.2.3)(kysely@0.29.2)(nanostores@1.3.0))(@better-auth/utils@0.4.2)(better-auth@1.6.22(@tanstack/react-start@1.168.26(crossws@0.4.6(srvx@0.11.17))(esbuild@0.28.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(rolldown@1.1.3)(rollup@4.62.2)(vite@8.1.0(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)))(drizzle-kit@0.31.10)(drizzle-orm@0.45.2(kysely@0.29.2)(mysql2@3.22.5(@types/node@22.20.0)))(mysql2@3.22.5(@types/node@22.20.0))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(solid-js@1.9.13)(vitest@3.2.6(@types/node@22.20.0)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.22.4)))(better-call@1.3.7(zod@4.4.3))':
+    dependencies:
+      '@better-auth/core': 1.6.22(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.3.7(zod@4.4.3))(jose@6.2.3)(kysely@0.29.2)(nanostores@1.3.0)
+      '@better-auth/utils': 0.4.2
+      better-auth: 1.6.22(@tanstack/react-start@1.168.26(crossws@0.4.6(srvx@0.11.17))(esbuild@0.28.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(rolldown@1.1.3)(rollup@4.62.2)(vite@8.1.0(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)))(drizzle-kit@0.31.10)(drizzle-orm@0.45.2(kysely@0.29.2)(mysql2@3.22.5(@types/node@22.20.0)))(mysql2@3.22.5(@types/node@22.20.0))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(solid-js@1.9.13)(vitest@3.2.6(@types/node@22.20.0)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.22.4))
+      better-call: 1.3.7(zod@4.4.3)
+      zod: 4.4.3
+
   '@better-auth/core@1.6.22(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.3.7(zod@4.4.3))(jose@6.2.3)(kysely@0.29.2)(nanostores@1.3.0)':
     dependencies:
       '@better-auth/utils': 0.4.2
@@ -4027,6 +4071,8 @@ snapshots:
     dependencies:
       '@standard-schema/utils': 0.3.0
       react-hook-form: 7.80.0(react@19.2.7)
+
+  '@ioredis/commands@1.10.0': {}
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
@@ -5655,6 +5701,8 @@ snapshots:
 
   clsx@2.1.1: {}
 
+  cluster-key-slot@1.1.1: {}
+
   colorette@1.4.0: {}
 
   consola@3.4.2: {}
@@ -5877,6 +5925,18 @@ snapshots:
 
   index-to-position@1.2.0: {}
 
+  ioredis@5.11.1:
+    dependencies:
+      '@ioredis/commands': 1.10.0
+      cluster-key-slot: 1.1.1
+      debug: 4.4.3(supports-color@10.2.2)
+      denque: 2.1.0
+      redis-errors: 1.2.0
+      redis-parser: 3.0.0
+      standard-as-callback: 2.1.0
+    transitivePeerDependencies:
+      - supports-color
+
   is-property@1.0.2: {}
 
   isbot@5.1.44: {}
@@ -6008,7 +6068,7 @@ snapshots:
 
   nf3@0.3.17: {}
 
-  nitro-nightly@3.0.1-20260626-071224-83acc441(chokidar@5.0.0)(drizzle-orm@0.45.2(kysely@0.29.2)(mysql2@3.22.5(@types/node@22.20.0)))(jiti@2.7.0)(mysql2@3.22.5(@types/node@22.20.0))(rollup@4.62.2)(vite@8.1.0(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)):
+  nitro-nightly@3.0.1-20260626-071224-83acc441(chokidar@5.0.0)(drizzle-orm@0.45.2(kysely@0.29.2)(mysql2@3.22.5(@types/node@22.20.0)))(ioredis@5.11.1)(jiti@2.7.0)(mysql2@3.22.5(@types/node@22.20.0))(rollup@4.62.2)(vite@8.1.0(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)):
     dependencies:
       consola: 3.4.2
       crossws: 0.4.6(srvx@0.11.17)
@@ -6023,7 +6083,7 @@ snapshots:
       rolldown: 1.1.3
       srvx: 0.11.17
       unenv: 2.0.0-rc.24
-      unstorage: 2.0.0-alpha.7(chokidar@5.0.0)(db0@0.3.4(drizzle-orm@0.45.2(kysely@0.29.2)(mysql2@3.22.5(@types/node@22.20.0)))(mysql2@3.22.5(@types/node@22.20.0)))(ofetch@2.0.0-alpha.3)
+      unstorage: 2.0.0-alpha.7(chokidar@5.0.0)(db0@0.3.4(drizzle-orm@0.45.2(kysely@0.29.2)(mysql2@3.22.5(@types/node@22.20.0)))(mysql2@3.22.5(@types/node@22.20.0)))(ioredis@5.11.1)(ofetch@2.0.0-alpha.3)
     optionalDependencies:
       jiti: 2.7.0
       rollup: 4.62.2
@@ -6235,6 +6295,12 @@ snapshots:
 
   readdirp@5.0.0: {}
 
+  redis-errors@1.2.0: {}
+
+  redis-parser@3.0.0:
+    dependencies:
+      redis-errors: 1.2.0
+
   require-from-string@2.0.2: {}
 
   resolve-pkg-maps@1.0.0: {}
@@ -6341,6 +6407,8 @@ snapshots:
 
   stackback@0.0.2: {}
 
+  standard-as-callback@2.1.0: {}
+
   std-env@3.10.0: {}
 
   strip-literal@3.1.0:
@@ -6407,10 +6475,11 @@ snapshots:
       rollup: 4.62.2
       vite: 8.1.0(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)
 
-  unstorage@2.0.0-alpha.7(chokidar@5.0.0)(db0@0.3.4(drizzle-orm@0.45.2(kysely@0.29.2)(mysql2@3.22.5(@types/node@22.20.0)))(mysql2@3.22.5(@types/node@22.20.0)))(ofetch@2.0.0-alpha.3):
+  unstorage@2.0.0-alpha.7(chokidar@5.0.0)(db0@0.3.4(drizzle-orm@0.45.2(kysely@0.29.2)(mysql2@3.22.5(@types/node@22.20.0)))(mysql2@3.22.5(@types/node@22.20.0)))(ioredis@5.11.1)(ofetch@2.0.0-alpha.3):
     optionalDependencies:
       chokidar: 5.0.0
       db0: 0.3.4(drizzle-orm@0.45.2(kysely@0.29.2)(mysql2@3.22.5(@types/node@22.20.0)))(mysql2@3.22.5(@types/node@22.20.0))
+      ioredis: 5.11.1
       ofetch: 2.0.0-alpha.3
 
   update-browserslist-db@1.2.3(browserslist@4.28.4):
