@@ -67,6 +67,13 @@ const serverLoader = createServerFn({ method: "GET" })
     // of the client bundle.
     const { source } = await import("~/lib/source");
     const { openapi } = await import("~/lib/openapi");
+
+    // SHOW_CONTRIB_WIKI gates the developer ("Contributing") docs under
+    // /docs/dev. Default: shown. Set SHOW_CONTRIB_WIKI=false in prod to hide
+    // the section from the nav AND 404 its pages.
+    const showContrib = process.env.SHOW_CONTRIB_WIKI !== "false";
+    if (!showContrib && slugs[0] === "dev") throw notFound();
+
     const page = source.getPage(slugs);
     if (!page) throw notFound();
 
@@ -77,14 +84,34 @@ const serverLoader = createServerFn({ method: "GET" })
       ? (await openapi.preloadOpenAPIPage(page)).preloaded
       : null;
 
+    const tree = source.getPageTree();
+    const visibleTree = showContrib
+      ? tree
+      : { ...tree, children: tree.children.filter((n) => !isContribNode(n)) };
+
     return {
       path: page.path,
       preloaded,
-      pageTree: await source.serializePageTree(source.getPageTree()),
+      pageTree: await source.serializePageTree(visibleTree),
       // The Document JSON is serializable at runtime; only the compile-time
       // serializer check is over-strict, so we assert the wire shape here.
     } as LoaderData;
   });
+
+// A page-tree node belongs to the developer wiki if it (or any descendant)
+// lives under /docs/dev. Used to drop that folder from the nav when
+// SHOW_CONTRIB_WIKI=false.
+function isContribNode(node: unknown): boolean {
+  const n = node as {
+    url?: string;
+    index?: { url?: string };
+    children?: unknown[];
+  };
+  const underDev = (url?: string) =>
+    url === "/docs/dev" || (url?.startsWith("/docs/dev/") ?? false);
+  if (underDev(n.url) || underDev(n.index?.url)) return true;
+  return Array.isArray(n.children) && n.children.some(isContribNode);
+}
 
 const clientLoader = browserCollections.docs.createClientLoader({
   component(

@@ -133,11 +133,12 @@ Both reach the host frontend's JWKS through `host.docker.internal` (already
 allowed in `vite.config.ts`) and apply the WA migrations on boot. Run only one
 at a time — both bind port 8080.
 
-To add or override gateway env vars for these profiles, create
-`deploy/gateway.dev.env` (one `KEY=value` per line; gitignored). Values already
-set in the compose `environment:` block — `MYSQL_DSN`, `REDIS_URL`,
-`BETTER_AUTH_URL`, and the rest — take precedence over the file, so change those
-by editing the compose block. See `deploy/gateway.dev.env.example`.
+Both profiles read the **same** gateway env file the host gateway uses,
+`deploy/.env` (copy it from `deploy/.env.example`). So there is one place to set
+gateway config. The compose `environment:` block overrides only the vars that
+must differ inside a container — `MYSQL_DSN` and `REDIS_URL` (the service
+hostnames), `BETTER_AUTH_JWKS_URL` (the frontend is on the host), and
+`WHATSMEOW_STORE_DSN` (a named volume). Change anything else in `deploy/.env`.
 
 ## Pairing a WhatsApp number
 

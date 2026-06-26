@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "web-dev",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["-C", "web", "dev", "--port", "3210"],
+      "port": 3210
+    },
+    {
+      "name": "web-prod",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["-C", "web", "start"],
+      "port": 3000
+    }
+  ]
+}

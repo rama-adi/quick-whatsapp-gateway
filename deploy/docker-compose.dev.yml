@@ -11,31 +11,25 @@
 #                          the container rebuilds. Same OS/toolchain as prod, no host Go needed.
 #     docker compose -f deploy/docker-compose.dev.yml --profile gateway-dev up -d --build
 # Use only one gateway profile at a time (both publish :8080).
+#
+# ONE env source: both gateway profiles read deploy/.env — the SAME file the
+# host gateway loads via `make dev`. The `environment:` block below overrides
+# only the vars that must differ inside a container: the MySQL/Redis service
+# hostnames, the JWKS host (the frontend is on the host), and the keystore path
+# (a named volume). Everything else — secrets, GATEWAY_ID, BETTER_AUTH_URL,
+# FRONTEND_ORIGINS, rate limits, … — comes from deploy/.env. Edit it there.
 services:
   gateway:
     profiles: ["gateway"]
     build: { context: .., dockerfile: deploy/Dockerfile }
     image: whatsmeow-gateway:dev
     ports: ["8080:8080"]
-    env_file:
-      - path: ./gateway.dev.env
-        required: false
-    environment:
-      HTTP_ADDR: ":8080"
-      GATEWAY_ID: "gw-1"
-      PUBLIC_URL: "http://localhost:8080"
-      # iss/aud the gateway enforces = the frontend URL the browser uses.
-      BETTER_AUTH_URL: "http://localhost:3000"
-      # The frontend runs on the HOST under Vite; fetch its JWKS via the host bridge.
-      BETTER_AUTH_JWKS_URL: "http://host.docker.internal:3000/api/auth/jwks"
-      FRONTEND_ORIGINS: "http://localhost:3000"
-      # Dev-only default; prod injects a real key (openssl rand -base64 32).
-      APP_ENCRYPTION_KEY: "${APP_ENCRYPTION_KEY:-dfl4geX4BAZs8deD1U2SV6hydCaZUqCnb6ZHMuYPJ0c=}"
+    env_file: [.env]
+    environment: &gateway_container_overrides
       MYSQL_DSN: "gw:gwpass@tcp(mysql:3306)/gateway?parseTime=true&charset=utf8mb4"
-      WHATSMEOW_STORE_DSN: "file:/data/keystore/store.db?_pragma=foreign_keys(on)&_pragma=journal_mode(WAL)"
       REDIS_URL: "redis://redis:6379"
-      REDIS_PREFIX: "gw"
-      LOG_LEVEL: "info"
+      WHATSMEOW_STORE_DSN: "file:/data/keystore/store.db?_pragma=foreign_keys(on)&_pragma=journal_mode(WAL)"
+      BETTER_AUTH_JWKS_URL: "http://host.docker.internal:3000/api/auth/jwks"
     extra_hosts: ["host.docker.internal:host-gateway"]
     volumes: ["keystore_dev:/data/keystore"]
     depends_on: [mysql, redis]
@@ -44,25 +38,8 @@ services:
     build: { context: .., dockerfile: deploy/Dockerfile.gateway-dev }
     image: whatsmeow-gateway:airdev
     ports: ["8080:8080"]
-    # Add or override gateway env vars by creating deploy/gateway.dev.env
-    # (KEY=value per line, gitignored). It's optional. Values in `environment:`
-    # below win over the file, so override those by editing them here instead.
-    env_file:
-      - path: ./gateway.dev.env
-        required: false
-    environment:
-      HTTP_ADDR: ":8080"
-      GATEWAY_ID: "gw-1"
-      PUBLIC_URL: "http://localhost:8080"
-      BETTER_AUTH_URL: "http://localhost:3000"
-      BETTER_AUTH_JWKS_URL: "http://host.docker.internal:3000/api/auth/jwks"
-      FRONTEND_ORIGINS: "http://localhost:3000"
-      APP_ENCRYPTION_KEY: "${APP_ENCRYPTION_KEY:-dfl4geX4BAZs8deD1U2SV6hydCaZUqCnb6ZHMuYPJ0c=}"
-      MYSQL_DSN: "gw:gwpass@tcp(mysql:3306)/gateway?parseTime=true&charset=utf8mb4"
-      WHATSMEOW_STORE_DSN: "file:/data/keystore/store.db?_pragma=foreign_keys(on)&_pragma=journal_mode(WAL)"
-      REDIS_URL: "redis://redis:6379"
-      REDIS_PREFIX: "gw"
-      LOG_LEVEL: "debug"
+    env_file: [.env]
+    environment: *gateway_container_overrides
     extra_hosts: ["host.docker.internal:host-gateway"]
     volumes:
       # Mount the repo so host edits trigger an in-container `air` rebuild.

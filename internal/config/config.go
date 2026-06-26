@@ -81,8 +81,12 @@ type Config struct {
 // masterplan §12. It loads a .env file first if one exists in the working
 // directory (a no-op when absent, so production can inject real env vars).
 func Load() (*Config, error) {
-	// Best-effort .env load; ignore "not found" so prod is unaffected.
-	_ = godotenv.Load()
+	// Best-effort .env load; ignore "not found" so prod is unaffected. The
+	// gateway env file lives at deploy/.env (the same file the Docker dev
+	// profiles read); ".env" at the repo root is kept as a fallback. godotenv
+	// does not override vars already set in the environment, so a container's
+	// injected env always wins over these files.
+	_ = godotenv.Load("deploy/.env", ".env")
 
 	cfg := &Config{
 		HTTPAddr:               getString("HTTP_ADDR", ":8080"),

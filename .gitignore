@@ -14,9 +14,9 @@ web/dist/
 *.db
 store.db
 
-# Environment / secrets
+# Environment / secrets (gateway env lives at deploy/.env; the `.env` glob below
+# matches it in any directory)
 .env
-deploy/gateway.dev.env
 
 # Local dev scratch (gateway build, logs, keystore) — never committed
 .dev/
