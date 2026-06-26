@@ -15,6 +15,7 @@ const (
 	ctxKeyOrganizationID ctxKey = iota
 	ctxKeyAPIKey
 	ctxKeyRequestID
+	ctxKeyPrincipal
 )
 
 // SetOrganizationID returns a child context carrying the resolved organization id
@@ -44,6 +45,20 @@ func APIKeyCtx(ctx context.Context) *domain.APIKey {
 		return v
 	}
 	return nil
+}
+
+// SetPrincipalValue stores the verified caller on the context as an opaque
+// value. The authz package wraps this with a typed SetPrincipal/Principal pair
+// (the value is an *authz.Principal); keeping the slot untyped here avoids an
+// import cycle between httpx and authz while still sharing one context key.
+func SetPrincipalValue(ctx context.Context, p any) context.Context {
+	return context.WithValue(ctx, ctxKeyPrincipal, p)
+}
+
+// PrincipalValue returns the opaque principal value, or nil if none was set. Use
+// authz.Principal(ctx) for the typed accessor.
+func PrincipalValue(ctx context.Context) any {
+	return ctx.Value(ctxKeyPrincipal)
 }
 
 // SetRequestID returns a child context carrying the request id. Set by the

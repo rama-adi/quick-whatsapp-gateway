@@ -11,7 +11,9 @@ import (
 func clearEnv(t *testing.T) {
 	t.Helper()
 	keys := []string{
-		"HTTP_ADDR", "PUBLIC_URL", "APP_ENCRYPTION_KEY", "MYSQL_DSN",
+		"HTTP_ADDR", "PUBLIC_URL", "GATEWAY_ID",
+		"BETTER_AUTH_URL", "BETTER_AUTH_JWKS_URL", "FRONTEND_ORIGINS",
+		"APP_ENCRYPTION_KEY", "MYSQL_DSN",
 		"WHATSMEOW_STORE_DRIVER", "WHATSMEOW_STORE_DSN", "REDIS_URL",
 		"ADMIN_EMAIL", "ADMIN_PASSWORD", "WHATSAPP_ADMIN_NUMBER",
 		"WHATSAPP_ADMIN_CMD_PREFIX", "USER_PANEL_ENABLED",
@@ -39,6 +41,10 @@ func TestLoad_Defaults(t *testing.T) {
 	want := &Config{
 		HTTPAddr:               ":8080",
 		PublicURL:              "",
+		GatewayID:              "gw-1",
+		BetterAuthURL:          "",
+		BetterAuthJWKSURL:      "",
+		FrontendOrigins:        nil,
 		AppEncryptionKey:       "",
 		MySQLDSN:               "",
 		WhatsmeowStoreDriver:   "sqlite",
@@ -75,6 +81,9 @@ func TestLoad_EnvOverride(t *testing.T) {
 
 	t.Setenv("HTTP_ADDR", ":9090")
 	t.Setenv("PUBLIC_URL", "https://gw.example.com")
+	t.Setenv("GATEWAY_ID", "gw-east-1")
+	t.Setenv("BETTER_AUTH_URL", "https://auth.example.com")
+	t.Setenv("FRONTEND_ORIGINS", "https://app.example.com, https://admin.example.com")
 	t.Setenv("APP_ENCRYPTION_KEY", "deadbeef")
 	t.Setenv("MYSQL_DSN", "user:pw@tcp(db:3306)/gw")
 	t.Setenv("WHATSMEOW_STORE_DRIVER", "mysql")
@@ -104,6 +113,10 @@ func TestLoad_EnvOverride(t *testing.T) {
 	}{
 		{"HTTPAddr", cfg.HTTPAddr, ":9090"},
 		{"PublicURL", cfg.PublicURL, "https://gw.example.com"},
+		{"GatewayID", cfg.GatewayID, "gw-east-1"},
+		{"BetterAuthURL", cfg.BetterAuthURL, "https://auth.example.com"},
+		// BETTER_AUTH_JWKS_URL unset → derived from BETTER_AUTH_URL.
+		{"BetterAuthJWKSURL", cfg.BetterAuthJWKSURL, "https://auth.example.com/api/auth/jwks"},
 		{"AppEncryptionKey", cfg.AppEncryptionKey, "deadbeef"},
 		{"MySQLDSN", cfg.MySQLDSN, "user:pw@tcp(db:3306)/gw"},
 		{"WhatsmeowStoreDriver", cfg.WhatsmeowStoreDriver, "mysql"},
@@ -129,6 +142,11 @@ func TestLoad_EnvOverride(t *testing.T) {
 	wantEvents := []string{"message", "poll.vote", "group.update"}
 	if !reflect.DeepEqual(cfg.WebhookEvents, wantEvents) {
 		t.Errorf("WebhookEvents = %v, want %v", cfg.WebhookEvents, wantEvents)
+	}
+
+	wantOrigins := []string{"https://app.example.com", "https://admin.example.com"}
+	if !reflect.DeepEqual(cfg.FrontendOrigins, wantOrigins) {
+		t.Errorf("FrontendOrigins = %v, want %v", cfg.FrontendOrigins, wantOrigins)
 	}
 }
 

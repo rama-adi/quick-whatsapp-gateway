@@ -22,6 +22,14 @@ type Config struct {
 	// Secrets
 	AppEncryptionKey string // APP_ENCRYPTION_KEY (base64 32-byte AES-GCM key)
 
+	// Gateway identity (session pinning, gateways registry — §4.5)
+	GatewayID string // GATEWAY_ID
+
+	// Trust model (§4.1/§4.4) — the gateway VERIFIES callers, it does not log them in.
+	BetterAuthURL     string   // BETTER_AUTH_URL: frontend base URL; the JWT iss/aud to enforce
+	BetterAuthJWKSURL string   // BETTER_AUTH_JWKS_URL: defaults to ${BETTER_AUTH_URL}/api/auth/jwks
+	FrontendOrigins   []string // FRONTEND_ORIGINS: comma-list of allowed CORS origins
+
 	// App data store
 	MySQLDSN string // MYSQL_DSN
 
@@ -78,6 +86,10 @@ func Load() (*Config, error) {
 	cfg := &Config{
 		HTTPAddr:               getString("HTTP_ADDR", ":8080"),
 		PublicURL:              getString("PUBLIC_URL", ""),
+		GatewayID:              getString("GATEWAY_ID", "gw-1"),
+		BetterAuthURL:          getString("BETTER_AUTH_URL", ""),
+		BetterAuthJWKSURL:      getString("BETTER_AUTH_JWKS_URL", ""),
+		FrontendOrigins:        getCSV("FRONTEND_ORIGINS"),
 		AppEncryptionKey:       getString("APP_ENCRYPTION_KEY", ""),
 		MySQLDSN:               getString("MYSQL_DSN", ""),
 		WhatsmeowStoreDriver:   getString("WHATSMEOW_STORE_DRIVER", "sqlite"),
@@ -102,6 +114,11 @@ func Load() (*Config, error) {
 		WebhookRetryAttempts:   getInt("WEBHOOK_RETRIES_ATTEMPTS", 15),
 		RetentionDays:          getInt("RETENTION_DAYS", 0),
 		LogLevel:               getString("LOG_LEVEL", "info"),
+	}
+
+	// BETTER_AUTH_JWKS_URL defaults to ${BETTER_AUTH_URL}/api/auth/jwks (§4.1, §14).
+	if cfg.BetterAuthJWKSURL == "" && cfg.BetterAuthURL != "" {
+		cfg.BetterAuthJWKSURL = strings.TrimRight(cfg.BetterAuthURL, "/") + "/api/auth/jwks"
 	}
 
 	return cfg, nil
