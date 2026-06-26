@@ -55,5 +55,9 @@ export default defineConfig({
     // by the browser via GATEWAY_URL (CORS + Bearer JWT), so it is NOT proxied
     // here either. This block is intentionally empty of route proxies.
     port: 3000,
+    // Allow a Dockerized gateway (compose "gateway" profile) to fetch the JWKS
+    // from this host-run dev server via host.docker.internal. Vite blocks
+    // unknown Host headers by default (DNS-rebind guard); dev-only allowance.
+    allowedHosts: ["host.docker.internal", "localhost"],
   },
 });

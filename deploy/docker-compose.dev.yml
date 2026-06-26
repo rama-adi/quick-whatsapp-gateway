@@ -1,7 +1,38 @@
-# Dev infra only (no app): MySQL + Redis with ports bound to localhost.
-# Run the Go backend on the host under `air` and the frontend under Vite.
+# Dev infra: MySQL + Redis with ports bound to localhost.
+# Default (`make infra-up`) starts infra only; run the gateway on the host under
+# `air` and the frontend under Vite (fast inner loop).
 #   make infra-up   # docker compose -f deploy/docker-compose.dev.yml up -d
+#
+# To run the GATEWAY in Docker instead (against this same dev MySQL/Redis, with
+# the frontend still on the host under Vite), enable the "gateway" profile:
+#   docker compose -f deploy/docker-compose.dev.yml --profile gateway up -d --build
+# The containerized gateway reaches the host frontend's JWKS via
+# host.docker.internal and auto-applies the WA migrations on boot.
 services:
+  gateway:
+    profiles: ["gateway"]
+    build: { context: .., dockerfile: deploy/Dockerfile }
+    image: whatsmeow-gateway:dev
+    ports: ["8080:8080"]
+    environment:
+      HTTP_ADDR: ":8080"
+      GATEWAY_ID: "gw-1"
+      PUBLIC_URL: "http://localhost:8080"
+      # iss/aud the gateway enforces = the frontend URL the browser uses.
+      BETTER_AUTH_URL: "http://localhost:3000"
+      # The frontend runs on the HOST under Vite; fetch its JWKS via the host bridge.
+      BETTER_AUTH_JWKS_URL: "http://host.docker.internal:3000/api/auth/jwks"
+      FRONTEND_ORIGINS: "http://localhost:3000"
+      # Dev-only default; prod injects a real key (openssl rand -base64 32).
+      APP_ENCRYPTION_KEY: "${APP_ENCRYPTION_KEY:-dfl4geX4BAZs8deD1U2SV6hydCaZUqCnb6ZHMuYPJ0c=}"
+      MYSQL_DSN: "gw:gwpass@tcp(mysql:3306)/gateway?parseTime=true&charset=utf8mb4"
+      WHATSMEOW_STORE_DSN: "file:/data/keystore/store.db?_pragma=foreign_keys(on)&_pragma=journal_mode(WAL)"
+      REDIS_URL: "redis://redis:6379"
+      REDIS_PREFIX: "gw"
+      LOG_LEVEL: "info"
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    volumes: ["keystore_dev:/data/keystore"]
+    depends_on: [mysql, redis]
   mysql:
     image: mysql:8.4
     ports: ["3306:3306"]
@@ -17,4 +48,4 @@ services:
     image: redis:7-alpine
     ports: ["6379:6379"]
     volumes: ["redis_dev:/data"]
-volumes: { mysql_dev: {}, redis_dev: {} }
+volumes: { mysql_dev: {}, redis_dev: {}, keystore_dev: {} }
