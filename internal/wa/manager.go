@@ -30,6 +30,9 @@ type Config struct {
 	AdminNumber string
 	// AdminOrganizationID is the organization the bootstrapped admin session belongs to.
 	AdminOrganizationID string
+	// GatewayID is this gateway's id (GATEWAY_ID). Sessions this gateway adopts on
+	// boot are pinned to it (§4.5). Empty leaves the row's gateway_id untouched.
+	GatewayID string
 	// DefaultRatePerMin / DefaultRatePerHour seed new sessions' rate limits.
 	DefaultRatePerMin  int
 	DefaultRatePerHour int
@@ -56,6 +59,12 @@ type Manager struct {
 	log      *slog.Logger
 	cfg      Config
 	waLogger waLog.Logger
+
+	// orgExists is the boot orphan-guard predicate (§4.6 boot reconciliation,
+	// §17 R2): it reports whether a session's owning organization still exists.
+	// Injected so the better-auth `organization` lookup is swappable and testable;
+	// nil disables the guard (every session resumes per shouldResume).
+	orgExists func(ctx context.Context, orgID string) (bool, error)
 
 	newClient clientFactory
 
@@ -108,6 +117,14 @@ func (m *Manager) SetClientFactory(f clientFactory) { m.newClient = f }
 // SetWALogger sets the whatsmeow logger used for newly built clients.
 func (m *Manager) SetWALogger(l waLog.Logger) { m.waLogger = l }
 
+// SetOrgExists installs the boot orphan-guard predicate (§4.6 boot
+// reconciliation). pred reports whether a session's owning organization still
+// exists in the shared better-auth `organization` table; Boot skips and marks
+// STOPPED any session whose org is gone. A nil pred disables the guard.
+func (m *Manager) SetOrgExists(pred func(ctx context.Context, orgID string) (bool, error)) {
+	m.orgExists = pred
+}
+
 // ----------------------------------------------------------------------------
 // Boot
 // ----------------------------------------------------------------------------
@@ -136,8 +153,26 @@ func (m *Manager) Boot(ctx context.Context) (adminPairingCode string, err error)
 			m.log.Error("boot: adopt session failed", "session", sess.ID, "err", err)
 			continue
 		}
-		// Resume sessions that were meant to be live.
-		if shouldResume(sess.Status) {
+		// Pin adopted sessions to this gateway (§4.5): record gateway_id so future
+		// boots and the gateways registry agree on who holds this keystore.
+		m.pinGateway(ctx, sess)
+
+		// Orphan-guard (§4.6 boot reconciliation, §17 R2): before resuming, confirm
+		// the owning org still exists. If it was deleted while we were down, mark
+		// the session STOPPED and do NOT reconnect.
+		if !shouldResume(sess.Status) {
+			continue
+		}
+		resume, stop := m.bootResumeDecision(ctx, sess)
+		if stop {
+			m.log.Warn("boot: owning organization gone, stopping orphaned session",
+				"session", sess.ID, "organization", sess.OrganizationID)
+			if err := m.repo.UpdateStatus(ctx, sess.ID, domain.SessionStopped); err != nil {
+				m.log.Warn("boot: mark orphan stopped failed", "session", sess.ID, "err", err)
+			}
+			continue
+		}
+		if resume {
 			m.startManaged(ctx, sess.ID)
 		}
 	}
@@ -159,6 +194,42 @@ func shouldResume(status domain.SessionStatus) bool {
 		return false
 	default:
 		return true
+	}
+}
+
+// bootResumeDecision applies the orphan-guard to a session that shouldResume.
+// It returns (resume, stop): resume=true means start the session; stop=true means
+// the owning org is gone, so mark it STOPPED and skip. With no guard installed
+// the session resumes. A predicate ERROR fails SAFE (resume): a transient DB blip
+// must not tear down live sessions — the live control bus + cache TTL still cover
+// a genuine revocation.
+func (m *Manager) bootResumeDecision(ctx context.Context, sess *domain.WASession) (resume, stop bool) {
+	if m.orgExists == nil {
+		return true, false
+	}
+	exists, err := m.orgExists(ctx, sess.OrganizationID)
+	if err != nil {
+		m.log.Warn("boot: org existence check failed, resuming session (fail-safe)",
+			"session", sess.ID, "organization", sess.OrganizationID, "err", err)
+		return true, false
+	}
+	if !exists {
+		return false, true
+	}
+	return true, false
+}
+
+// pinGateway records this gateway's id on a session it adopts (§4.5) when a
+// GatewayID is configured and the row isn't already pinned to it. Best-effort:
+// a write failure is logged, not fatal.
+func (m *Manager) pinGateway(ctx context.Context, sess *domain.WASession) {
+	if m.cfg.GatewayID == "" || sess.GatewayID == m.cfg.GatewayID {
+		return
+	}
+	sess.GatewayID = m.cfg.GatewayID
+	sess.UpdatedAt = m.clock.NowMs()
+	if err := m.repo.Update(ctx, sess); err != nil {
+		m.log.Warn("boot: pin session to gateway failed", "session", sess.ID, "gateway", m.cfg.GatewayID, "err", err)
 	}
 }
 

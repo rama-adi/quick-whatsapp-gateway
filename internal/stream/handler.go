@@ -39,10 +39,12 @@ const resumeReplayLimit = 1000
 type HandlerConfig struct {
 	Redis        RedisClient
 	Organization OrganizationAccessor
-	LogReader    EventLogReader // optional; nil => ?since= tails live only
-	Clock        Clock          // optional; nil => SystemClock
-	Heartbeat    int            // optional heartbeat seconds; <=0 => 20s
-	Log          *slog.Logger   // optional; nil => discard
+	LogReader    EventLogReader    // optional; nil => ?since= tails live only
+	Principals   PrincipalAccessor // optional; nil => connections register with org id only
+	Registry     *ConnRegistry     // optional; nil => streams are not droppable by the control bus
+	Clock        Clock             // optional; nil => SystemClock
+	Heartbeat    int               // optional heartbeat seconds; <=0 => 20s
+	Log          *slog.Logger      // optional; nil => discard
 }
 
 // Handler serves GET /api/v1/events as a chunked application/x-ndjson stream
@@ -51,6 +53,8 @@ type Handler struct {
 	redis        RedisClient
 	organization OrganizationAccessor
 	logReader    EventLogReader
+	principals   PrincipalAccessor
+	registry     *ConnRegistry
 	clock        Clock
 	heartbeat    int
 	log          *slog.Logger
@@ -82,6 +86,8 @@ func NewHandler(cfg HandlerConfig) *Handler {
 		redis:        cfg.Redis,
 		organization: cfg.Organization,
 		logReader:    cfg.LogReader,
+		principals:   cfg.Principals,
+		registry:     cfg.Registry,
 		clock:        clock,
 		heartbeat:    hb,
 		log:          log,
@@ -103,6 +109,26 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !ok || organization == "" {
 		writeError(w, http.StatusUnauthorized, domain.ErrUnauthorized("authentication required"))
 		return
+	}
+
+	// Register this live connection so the control bus can drop it on revocation
+	// (§4.6). Cancelling the derived context makes the tail loop return and the
+	// stream close; a reconnect re-validates against MySQL and fails closed.
+	if h.registry != nil {
+		id := ConnIdentity{OrganizationID: organization}
+		if h.principals != nil {
+			if pid, pok := h.principals.IdentityFromContext(ctx); pok {
+				id = pid
+				if id.OrganizationID == "" {
+					id.OrganizationID = organization
+				}
+			}
+		}
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithCancel(ctx)
+		defer cancel()
+		deregister := h.registry.register(id, cancel)
+		defer deregister()
 	}
 
 	q := r.URL.Query()

@@ -31,7 +31,9 @@ import (
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/authz"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/config"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/controlbus"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/crypto"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 	gwhttp "github.com/ramaadi/quick-whatsapp-gateway/internal/http"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/http/handlers"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/httpx"
@@ -108,10 +110,14 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("build jwt verifier: %w", err)
 	}
-	keyVerifier, err := authz.NewAPIKeyVerifier(st.APIKeys, authz.DefaultHasher())
+	baseKeyVerifier, err := authz.NewAPIKeyVerifier(st.APIKeys, authz.DefaultHasher())
 	if err != nil {
 		return fmt.Errorf("build api-key verifier: %w", err)
 	}
+	// Positive cache in front of the api-key verifier (§4.6): a busy client costs
+	// at most one MySQL lookup per ~60s, and the control bus evicts on revocation.
+	// FAIL-CLOSED — only successes are cached, and the TTL is the backstop.
+	keyVerifier := authz.NewCachingKeyVerifier(baseKeyVerifier, authz.DefaultKeyCacheTTL)
 
 	// --- whatsmeow keystore (gateway-local SQLite, §6.1) ---
 	keystore, err := wastore.Open(ctx, cfg.WhatsmeowStoreDSN, nil)
@@ -142,15 +148,28 @@ func run() error {
 	inboundHandler := service.NewInboundLogHandler(log)
 	manager := wa.NewManager(keystore, managerRepo, managerSink, inboundHandler, nil, log, wa.Config{
 		AdminNumber:        cfg.WhatsAppAdminNumber,
+		GatewayID:          cfg.GatewayID,
 		DefaultRatePerMin:  cfg.DefaultRatePerMin,
 		DefaultRatePerHour: cfg.DefaultRatePerHour,
 		DefaultAutoRead:    cfg.DefaultAutoRead,
 	})
+	// Boot orphan-guard (§4.6 boot reconciliation, §17 R2): before resuming a
+	// session, confirm its owning org still exists in better-auth's shared
+	// `organization` table; orphaned sessions are marked STOPPED and not resumed.
+	orgReader := store.NewOrganizationReader(db)
+	manager.SetOrgExists(orgReader.Exists)
 
 	// Real send path: the Sender routes each request to the live per-session
 	// whatsmeow client resolved from the manager (via outbound.WithSessionID on
 	// the context). Sessions without a connected client return not_implemented.
 	sender := outbound.NewSender(service.NewRoutingWAClient(manager), outboxAdapter, limiter, outbound.SystemClock())
+
+	// Register this gateway's self-row in the gateways registry (§4.5/§7) before
+	// the manager adopts sessions. Best-effort: a write failure is logged, not
+	// fatal — the HTTP surface should still come up.
+	if err := upsertGatewaySelfRow(ctx, st.Gateways, cfg); err != nil {
+		log.Error("upsert gateway self-row failed", "gateway", cfg.GatewayID, "err", err)
+	}
 
 	adminCode, err := manager.Boot(ctx)
 	if err != nil {
@@ -200,12 +219,24 @@ func run() error {
 		Log:                  log,
 	})
 
+	// Live-connection registry: lets the control bus drop NDJSON streams by
+	// key/user/org on revocation (§4.6).
+	streamRegistry := stream.NewConnRegistry()
 	streamHandler := stream.NewHandler(stream.HandlerConfig{
 		Redis:        rdb,
 		Organization: stream.OrganizationAccessorFunc(organizationFromContext),
 		LogReader:    service.NewEventLogReaderAdapter(st.EventLog),
+		Principals:   stream.PrincipalAccessorFunc(streamIdentityFromContext),
+		Registry:     streamRegistry,
 		Log:          log,
 	})
+
+	// Control bus subscriber (§4.6): connects to PUBSUB_REDIS_URL (defaults to
+	// REDIS_URL via config) and reacts to ctrl:* revocation messages by evicting
+	// the api-key cache and dropping live streams. If both URLs are empty, skip
+	// gracefully — the cache TTL remains the revocation backstop.
+	controlStop := startControlBus(ctx, cfg.PubSubRedisURL, keyVerifier, streamRegistry, log)
+	defer controlStop()
 
 	h := handlers.New(services, streamHandler, log)
 	router := gwhttp.NewRouter(gwhttp.RouterConfig{
@@ -254,6 +285,65 @@ func run() error {
 func organizationFromContext(ctx context.Context) (string, bool) {
 	id := httpx.OrganizationID(ctx)
 	return id, id != ""
+}
+
+// streamIdentityFromContext is the stream.PrincipalAccessor: it lifts the
+// verified caller's identity off the context so the control bus can drop a live
+// stream by its api-key id / user id / org (§4.6).
+func streamIdentityFromContext(ctx context.Context) (stream.ConnIdentity, bool) {
+	p := authz.FromContext(ctx)
+	if p == nil {
+		return stream.ConnIdentity{}, false
+	}
+	return stream.ConnIdentity{
+		KeyID:          p.KeyID,
+		UserID:         p.UserID,
+		OrganizationID: p.OrganizationID,
+	}, true
+}
+
+// upsertGatewaySelfRow registers this gateway in the gateways registry (§4.5/§7):
+// id=GATEWAY_ID, base_url=PUBLIC_URL, timestamps = epoch-ms now. created_at is
+// preserved on update by the repo.
+func upsertGatewaySelfRow(ctx context.Context, repo *store.GatewayRepo, cfg *config.Config) error {
+	now := domain.NowMs()
+	g := domain.Gateway{
+		ID:         cfg.GatewayID,
+		LastSeenAt: &now,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}
+	if cfg.PublicURL != "" {
+		base := cfg.PublicURL
+		g.BaseURL = &base
+	}
+	return repo.Upsert(ctx, g)
+}
+
+// startControlBus connects to the control-bus Redis (§4.6) and starts the ctrl:*
+// subscriber, returning a stop func for the shutdown sequence. When the URL is
+// empty (no PUBSUB_REDIS_URL or REDIS_URL) it logs a warning and returns a no-op
+// stop — the api-key cache TTL is the revocation backstop.
+func startControlBus(ctx context.Context, pubsubURL string, cache controlbus.KeyCache, dropper controlbus.StreamDropper, log *slog.Logger) func() {
+	if pubsubURL == "" {
+		log.Warn("control bus disabled: PUBSUB_REDIS_URL/REDIS_URL empty; relying on api-key cache TTL for revocation")
+		return func() {}
+	}
+	crdb, err := openRedis(pubsubURL)
+	if err != nil {
+		log.Error("control bus disabled: open pubsub redis failed", "err", err)
+		return func() {}
+	}
+	sub := controlbus.New(crdb, cache, dropper, log)
+	if err := sub.Start(ctx); err != nil {
+		log.Error("control bus disabled: subscribe failed", "err", err)
+		_ = crdb.Close()
+		return func() {}
+	}
+	return func() {
+		sub.Stop()
+		_ = crdb.Close()
+	}
 }
 
 // startDispatchLoop runs the webhook dispatcher on a ticker until ctx is done.
