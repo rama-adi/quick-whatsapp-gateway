@@ -12,3 +12,6 @@ store.db
 
 # Environment / secrets
 .env
+
+# Claude Code local (personal) settings — shared config goes in .claude/settings.json
+.claude/settings.local.json
