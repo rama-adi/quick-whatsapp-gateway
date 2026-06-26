@@ -16,6 +16,7 @@ store.db
 
 # Environment / secrets
 .env
+deploy/gateway.dev.env
 
 # Local dev scratch (gateway build, logs, keystore) — never committed
 .dev/
