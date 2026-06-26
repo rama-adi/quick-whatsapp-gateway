@@ -1,16 +1,9 @@
 // Admin: platform users + organizations management.
 //
-// v2 replacement for the v1 admin/tenants.tsx (which hit the Authula admin
-// plugin via the removed ~/lib/auth/admin). Now backed by the better-auth ADMIN
-// client (list/ban/unban/impersonate/setRole) and ORGANIZATION client (org
-// list) through the colocated ./-admin-client hooks.
-//
-// Route note: the FROZEN app shell nav (app/components/shell/nav.ts) links the
-// admin "Tenants" item at /admin/tenants and has no separate /admin/users or
-// /admin/orgs entries. The masterplan §-Stage-3 brief names those two surfaces;
-// to satisfy both without editing the frozen nav, this single /admin/tenants
-// page hosts BOTH as tabs (Users + Organizations). See sharedGaps in the return
-// notes if the Verify stage prefers to split them into two routes + nav items.
+// Backed by the better-auth ADMIN client (list/ban/unban/impersonate/setRole)
+// and ORGANIZATION client (org list) through the colocated ./-admin-client
+// hooks. The app shell nav links one "Tenants" item at /admin/tenants, so this
+// single page hosts both Users and Organizations as tabs.
 //
 // Guard: the parent /admin route's beforeLoad already gates super_admin.
 

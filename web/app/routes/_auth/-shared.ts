@@ -2,20 +2,17 @@
 // Colocated and surface-private (the leading "-" keeps this file OUT of the
 // TanStack Router route tree — it is not a route, just a helper module).
 //
-// Ported from the v1 routes/auth/_shared.ts, re-fitted to better-auth +
-// TanStack Start idioms:
-//   - The v1 Authula authFetch wrappers (signInRequest/signUpRequest/
-//     verifyTotpRequest) are REPLACED by direct better-auth client calls in the
+// What lives here:
+//   - Sign-in / sign-up / 2fa go straight through the better-auth client in the
 //     route components (authClient.signIn.email / signUp.email /
-//     twoFactor.verifyTotp / verifyBackupCode) — better-auth's React client
-//     already returns a typed { data, error } envelope, so the hand-rolled
-//     typed wrappers are no longer needed.
-//   - resolvePostAuthRedirect becomes a SERVER FN (it needs the better-auth
-//     session cookie + a Drizzle member-role read), reusing getServerSession
-//     from ~/lib/auth/session rather than the v1 client probe.
-//   - safeNext (open-redirect guard) is kept verbatim — pure + client-safe.
-//   - registrationEnabled is a server fn reading USER_REGISTRATION_ENABLED,
-//     replacing the v1 OPTIONS-probe of the sign-up endpoint (§12 gate).
+//     twoFactor.verifyTotp / verifyBackupCode) — its React client already
+//     returns a typed { data, error } envelope, so no wrapper is needed here.
+//   - resolvePostAuthRedirect is a SERVER FN (it needs the better-auth session
+//     cookie + a Drizzle member-role read), reusing getServerSession from
+//     ~/lib/auth/session.
+//   - safeNext is the open-redirect guard — pure + client-safe.
+//   - registrationEnabled is a server fn reading USER_REGISTRATION_ENABLED
+//     (§12 gate).
 
 import { createServerFn } from "@tanstack/react-start";
 import { getServerSession } from "~/lib/auth/session";

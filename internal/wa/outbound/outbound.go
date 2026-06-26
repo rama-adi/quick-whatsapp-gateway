@@ -5,7 +5,7 @@
 // The pipeline never imports sibling internal packages. Every collaborator (the
 // whatsmeow client, the outbox repo, the rate limiter, the clock) is a small
 // CONSUMER INTERFACE defined here and satisfied by concrete types wired in by
-// Phase 3 (Go convention: interfaces are defined by the consumer). The real
+// the composition root (Go convention: interfaces are defined by the consumer). The real
 // whatsmeow adapter lives in waclient.go and is the one place allowed to import
 // whatsmeow.
 package outbound
@@ -93,8 +93,8 @@ type WAClient interface {
 	Forward(ctx context.Context, to, sourceChat, sourceSender, sourceMsgID string) (waMessageID string, ts int64, err error)
 }
 
-// OutboxRepo is the persistence boundary for the async outbox table (§5). Phase 3
-// wires the MySQL implementation from the store package.
+// OutboxRepo is the persistence boundary for the async outbox table (§5). The
+// MySQL implementation in the store package satisfies it.
 type OutboxRepo interface {
 	// Insert persists a queued outbox row. Implementations MUST enforce the
 	// (organization_id, idempotency_key) uniqueness constraint and return an error

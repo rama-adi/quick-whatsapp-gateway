@@ -1,6 +1,6 @@
-// Admin (api/v1) hooks: cross-tenant session oversight.
-// FROZEN — owned by the foundation agent. Authula tenant admin lives in
-// ~/lib/auth/admin instead.
+// Admin (api/v1) hooks: cross-org WhatsApp-session oversight against the gateway.
+// User/org administration (list/ban/impersonate/roles) is not here — it goes
+// through the better-auth admin client (authClient.admin, ~/lib/auth/client.ts).
 
 import {
   useInfiniteQuery,

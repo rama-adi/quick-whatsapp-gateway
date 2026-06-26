@@ -1,0 +1,11 @@
+{
+  "title": "Contributing",
+  "pages": [
+    "index",
+    "data-planes",
+    "local-development",
+    "build-and-test",
+    "repo-layout",
+    "regenerating-code"
+  ]
+}

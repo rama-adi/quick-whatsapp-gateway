@@ -9,8 +9,8 @@ import (
 // This file declares the CONSUMER INTERFACES the inbound pipeline depends on.
 // Per the parallel-build rules and the Go "interfaces defined by the consumer"
 // convention, inbound never imports sibling packages (store, wa client, stream,
-// webhooks); it depends only on these small interfaces, which Phase 3 satisfies
-// with concrete types.
+// webhooks); it depends only on these small interfaces, which the composition
+// root satisfies with concrete types.
 
 // Normalizer maps a raw whatsmeow event onto the decoupled domain envelope
 // (domain.Event) plus the pipeline's working view (NormalizedMessage).
@@ -38,7 +38,7 @@ type CommandRegistry interface {
 }
 
 // EventSink publishes the versioned envelope to live stream subscribers
-// (Redis pub/sub fan-out in Phase 3).
+// (Redis pub/sub fan-out).
 type EventSink interface {
 	Publish(ctx context.Context, evt domain.Event) error
 }

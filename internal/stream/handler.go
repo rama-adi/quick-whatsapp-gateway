@@ -13,9 +13,9 @@ import (
 )
 
 // OrganizationAccessor extracts the authenticated organization id from the request context.
-// Auth is applied by upstream middleware (Phase 3); this handler only reads the
-// result. Defining it as a consumer interface keeps the auth package out of our
-// imports — Phase 3 supplies a func adapter.
+// Auth is applied by upstream middleware; this handler only reads the result.
+// Defining it as a consumer interface keeps the auth package out of our imports —
+// the composition root supplies a func adapter.
 type OrganizationAccessor interface {
 	OrganizationFromContext(ctx context.Context) (organizationID string, ok bool)
 }

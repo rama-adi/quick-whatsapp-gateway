@@ -1,14 +1,13 @@
 // Admin-surface local hooks backed by the better-auth ADMIN + ORGANIZATION
-// clients (replaces the v1 Authula `~/lib/auth/admin` module, which no longer
-// exists in v2). Colocated under the admin route dir; the `-` prefix keeps
-// TanStack Start from treating it as a route.
+// clients. Colocated under the admin route dir; the `-` prefix keeps TanStack
+// Start from treating it as a route.
 //
 // These call authClient.admin.* / authClient.organization.* (see
 // app/lib/auth/client.ts). The better-auth client returns `{ data, error }`;
-// we unwrap into TanStack Query so the v1 page components keep their
-// query/mutation ergonomics. Identity-changing actions (ban/impersonate/role)
-// also fan out a control-bus publish on the SERVER via better-auth hooks — the
-// frontend client just calls the endpoint; the gateway reacts to Redis (R4).
+// we unwrap into TanStack Query for the page components' query/mutation
+// ergonomics. Identity-changing actions (ban/impersonate/role) also fan out a
+// control-bus publish on the SERVER via better-auth hooks — the frontend client
+// just calls the endpoint; the gateway reacts to Redis.
 
 import {
   useMutation,

@@ -1,0 +1,95 @@
+---
+title: How the two services fit together
+description: The gateway and the frontend, what each owns, and the trust seam between them — the orientation a contributor needs before changing code.
+---
+
+The project is two services that deploy independently and share one MySQL
+database:
+
+- **Gateway** (`/` repo root, Go) — the WhatsApp engine. It holds the live
+  whatsmeow connections and exposes a JSON REST API, an NDJSON event stream, and
+  outbound webhooks. It has **no human login** and serves no UI.
+- **Frontend** (`web/`, TanStack Start + better-auth) — the dashboard and the
+  identity service. It runs login, registration, 2FA, organizations, and api-key
+  management, and it renders the dashboard, viewer, and contacts UI.
+
+The split lets the frontend run on serverless while the gateway runs near
+WhatsApp. They need not be co-located.
+
+## What talks to what
+
+```
+              better-auth JWT / api-key (Bearer)
+  Browser ──────────────────────────────────────────►  Gateway (Go, whatsmeow)
+     │  ▲                                                 │  ├─ REST API   /api/v1
+     │  │ session cookie + mint JWT (/api/auth/token)     │  ├─ NDJSON     /events
+     ▼  │                                                 │  └─ webhooks (outbound)  ──ws──► WhatsApp
+  Frontend (TanStack Start + better-auth)                 │
+     ├─ /api/auth/* (JWKS, token, admin, api-keys, orgs)  │  keystore → SQLite (gateway-local volume)
+     └─ direct read-only Drizzle reads ──┐                │
+                                         ▼                ▼
+                              MySQL  (auth tables ⇄ WA app-data tables)
+                                         ▲                │
+   control bus: frontend PUBLISH ctrl:*  └── Redis ───────┘  work: queue / rate-limit / stream fan-out
+```
+
+The browser calls the gateway **directly** with a Bearer token — for both
+actions and the NDJSON stream. The frontend server does not proxy gateway
+traffic. Its only server-side work is the better-auth endpoints, minting
+short-lived gateway JWTs, and reading MySQL for SSR.
+
+## The trust seam
+
+The frontend is the **issuer** of identity; the gateway is a **verifier**. The
+gateway never calls the frontend on the request hot path — it caches the JWKS
+and reads the shared database directly. There are exactly two caller identities,
+both resolved by one middleware (`internal/authz/middleware.go`, two acceptors
+in order):
+
+| Caller | Credential | Gateway verifies by | Resolves to |
+|---|---|---|---|
+| **Human** (browser) | `Authorization: Bearer <JWT>` | JWKS signature + `iss`/`aud`/`exp`, all local and cached | user id, active org, org role, platform role |
+| **Machine** (programmatic) | `Bearer <api-key>` or `x-api-key` (prefix `wa_`) | SHA-256 hash → row in the shared `apikey` table | org id, key id, key permissions (no user) |
+
+Neither acceptor matching is a `401`. The resolved identity rides the request
+context; handlers then scope every query to the caller's organization and gate
+the action by capability (`read` / `send` / `manage` / `events`).
+
+Two details a contributor will hit:
+
+- **JWTs are short (~5 min) EdDSA tokens** minted from the long-lived better-auth
+  session. The browser holds the session cookie on the frontend's domain, calls
+  `/api/auth/token` to mint a JWT, and attaches it to gateway calls. There is no
+  separate refresh token — the session is the revocable credential.
+- **The api-key path replicates better-auth's hash.** The `apikey.key` column is
+  `base64url(SHA-256(rawKey))`, unpadded — not hex, not padded. `reference_id`
+  holds the owning org id. The hash and column layout are pinned by contract
+  tests in `internal/authz/` that mint a real better-auth credential and verify
+  it in the gateway. A better-auth major-version bump must re-run those tests.
+
+Revocation is instant via a Redis **control bus**: the frontend publishes
+`ctrl:apikey.revoked` / `ctrl:user.banned` / `ctrl:member.removed`; every gateway
+subscribes and drops the cached key plus any live streams. A ~60 s positive-cache
+TTL plus a boot reconciliation sweep cover any message missed while a gateway was
+down. Full detail: the [trust model spec](https://github.com/ramaadi/quick-whatsapp-gateway/blob/main/docs/specs/trust-model.md).
+
+## Ownership by organization
+
+Resources are owned by a better-auth **`organization_id`**, never a user id. Every
+user gets a personal organization on signup, so solo use is a one-member org and
+"sharing a WhatsApp connection" means inviting someone into the org. A user
+reaches a resource through org membership; the gateway authorizes from the JWT's
+`activeOrganizationId` + `orgRole` claims (or the api-key's `reference_id`) without
+joining the `member` table on the hot path.
+
+## Where to read next
+
+- [Data planes and the single-writer rule](/docs/dev/data-planes) — who writes which tables, and why cross-writes are banned.
+- [Local development](/docs/dev/local-development) — infra in Docker, both apps on the host.
+- [Build and test gates](/docs/dev/build-and-test) — the two commands each half must pass.
+- [Repo layout](/docs/dev/repo-layout) — the gateway packages and the `web/app` tree.
+- [Regenerating code](/docs/dev/regenerating-code) — the typed client, auth schema, WA read-models, and these API docs.
+
+The masterplan (`masterplan-mvp.md` at the repo root) is the full design; the
+per-subsystem specs under `docs/specs/` are the detail; `docs/openapi.yaml` is
+the API contract of record.

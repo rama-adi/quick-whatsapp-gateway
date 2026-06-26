@@ -1,13 +1,38 @@
 ---
 title: Guides
-description: Task-based walkthroughs — from pairing a phone to handling webhook events.
+description: What the gateway is, how to run it, and how to send and receive messages.
 ---
 
-These walkthroughs take you from an empty workspace to a running integration.
-Start with pairing; the rest assume you have a connected session.
+This gateway turns a WhatsApp number into a REST API. You pair a phone once, then
+send and receive messages over HTTP — from your own code or from the dashboard.
+It has two parts:
+
+- a **gateway** (Go) that holds the WhatsApp connection and serves the REST API and the event stream, and
+- a **dashboard** (the web frontend) where people sign in, pair numbers, create API keys, and watch messages.
+
+Both share one database. You can run them on one machine for yourself, or deploy
+them on separate hosts.
+
+<Callout type="warn" title="This can get your number banned">
+The gateway talks to WhatsApp through an **unofficial client**. WhatsApp prohibits
+bots and unofficial clients; automated use may violate its Terms and get the
+number **banned**. The built-in rate limiting and human-mimicry (read receipts,
+typing presence) reduce that risk but do not remove it. Use a number you can
+afford to lose, and use it at your own risk.
+</Callout>
+
+## Start here
 
 <Cards>
-  <Card title="Pair a session" href="/docs/guides/pairing" description="Scan a QR code (or use a pairing code) to connect a WhatsApp account." />
-  <Card title="Send a message" href="/docs/guides/sending" description="Make your first authenticated send call against a live session." />
-  <Card title="Receive events" href="/docs/guides/webhooks" description="Register a webhook and handle delivery and inbound-message events." />
+  <Card title="Getting started" href="/docs/guides/getting-started" description="Run the database, start both apps, sign up, and find your organization." />
+  <Card title="Connect a number" href="/docs/guides/connect-a-number" description="Create a session and link a phone with a QR code or pairing code." />
+  <Card title="Send messages" href="/docs/guides/sending" description="Send text, polls, locations, and contact cards." />
+  <Card title="Receive events" href="/docs/guides/receiving" description="Stream events over NDJSON or push them to a webhook." />
+  <Card title="API keys" href="/docs/guides/api-keys" description="Create org-scoped keys for programmatic access." />
+  <Card title="Organizations" href="/docs/guides/organizations" description="Share a connection by inviting collaborators into an org." />
+  <Card title="The dashboard" href="/docs/guides/dashboard" description="Admin and user surfaces, the viewer, and contacts." />
 </Cards>
+
+Each page assumes you have read the one before it, so top to bottom works the
+first time through. For exact request and response shapes, follow the links into
+the [API reference](/docs/api).

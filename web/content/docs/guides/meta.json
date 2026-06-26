@@ -1,4 +1,13 @@
 {
   "title": "Guides",
-  "pages": ["index", "pairing", "sending", "webhooks"]
+  "pages": [
+    "index",
+    "getting-started",
+    "connect-a-number",
+    "sending",
+    "receiving",
+    "api-keys",
+    "organizations",
+    "dashboard"
+  ]
 }

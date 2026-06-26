@@ -1,0 +1,80 @@
+---
+title: Data planes and the single-writer rule
+description: The three storage planes, who is allowed to write each, and the two Redis roles.
+---
+
+There are three storage planes. Two share one MySQL instance; the third lives
+with the gateway.
+
+| Plane | Contents | Backend | Writer | Readers |
+|---|---|---|---|---|
+| **Auth** | `user`, `session`, `account`, `verification`, `jwks`, `apikey`, `organization`, `member`, `invitation`, 2FA + admin tables | MySQL | Frontend (better-auth) | Frontend (rw); gateway reads `apikey` to verify keys |
+| **WA app data** | `wa_sessions`, `gateways`, `messages`, `chats`, contacts/identities, groups, `webhooks`, `webhook_deliveries`, `outbox`, `event_log` | MySQL | Gateway | Gateway (rw); frontend (read-only, for dashboards) |
+| **whatsmeow keystore** | device identities, Signal sessions, prekeys, sender keys, app-state, LID map | SQLite (gateway-local, persistent volume) | Gateway | Gateway only |
+
+## The single-writer rule
+
+Each plane has exactly **one** writer. The frontend writes the auth tables; the
+gateway writes the WA app-data tables. Cross-**reads** are allowed; cross-**writes**
+are not.
+
+```
+  Frontend ──write──► auth tables ◄──read── Gateway   (gateway reads `apikey` only)
+  Gateway  ──write──► WA tables   ◄──read── Frontend   (frontend reads for dashboards)
+```
+
+This is what keeps the two services from racing on the same rows and keeps caches
+coherent. When you add a column or table, it belongs to whichever service is its
+writer, and the other service only ever reads it.
+
+## Hybrid reads from the frontend
+
+The frontend has direct, read-only access to the WA app-data tables and uses it
+for fast dashboard, viewer, and contacts rendering (TanStack Start loaders
+querying MySQL through Drizzle). It does not write them. So:
+
+- **Display data** → frontend reads MySQL directly (no extra hop).
+- **Actions / mutations** (send, start/stop a session, fetch a QR, register a webhook) → frontend → gateway REST API.
+- **Realtime** → frontend → gateway NDJSON stream.
+
+The frontend models the WA tables as **read-only** Drizzle definitions
+(`web/app/lib/db/wa.ts`) that mirror the gateway-owned schema. Generate them with
+`drizzle-kit introspect` against the gateway-migrated database so they can't
+drift — see [regenerating code](/docs/dev/regenerating-code).
+
+## Migrations: two owners, two tools
+
+| Tables | Migrated by | Command |
+|---|---|---|
+| WA app-data (gateway-owned) | golang-migrate, embedded in the gateway binary | `go run ./cmd/server migrate up` (`make migrate`) |
+| Auth (frontend-owned) | drizzle-kit | `cd web && pnpm db:migrate` |
+
+The gateway runs golang-migrate itself — there is **no standalone migrate CLI**.
+`drizzle.config.ts` points only at `app/lib/db/auth-schema.ts` and filters to the
+auth tables, so a drizzle migration can never emit a statement against a
+gateway-owned table. Keep it that way: review the generated diff before applying.
+
+## The keystore is gateway-local
+
+The SQLite keystore holds device crypto material. Losing the file means
+re-pairing every number, so it lives on a persistent volume (`/data/keystore` in
+containers). It uses the pure-Go `modernc.org/sqlite` driver, which is why the
+whole gateway builds with `CGO_ENABLED=0` and ships as a small static image.
+Because it is gateway-local, it is also what pins a session to a specific gateway
+(`gateways` / `wa_sessions.gateway_id`).
+
+## Two Redis roles
+
+v2 splits Redis into two roles. They collapse to one instance in dev.
+
+| Role | Env | Carries | Who connects |
+|---|---|---|---|
+| **Work** | `REDIS_URL` | asynq job queue, rate-limit buckets, idempotency, NDJSON stream fan-out, api-key cache | gateways only |
+| **Control bus** | `PUBSUB_REDIS_URL` (defaults to `REDIS_URL`) | low-volume `ctrl:*` pub/sub for revocation | frontend (publish) + every gateway (subscribe) |
+
+- **Single instance** (dev / one server): leave `PUBSUB_REDIS_URL` unset; one Redis does everything.
+- **Split** (prod / multi-gateway): point `PUBSUB_REDIS_URL` at a shared, possibly managed Redis the frontend and every gateway can reach; keep the high-volume work Redis local to each gateway. The control bus is the frontend's **only** Redis dependency, and it is publish-only.
+
+Detail: [`docs/specs/store.md`](https://github.com/ramaadi/quick-whatsapp-gateway/blob/main/docs/specs/store.md),
+[`docs/specs/whatsmeow-store.md`](https://github.com/ramaadi/quick-whatsapp-gateway/blob/main/docs/specs/whatsmeow-store.md),
+[`docs/specs/queue.md`](https://github.com/ramaadi/quick-whatsapp-gateway/blob/main/docs/specs/queue.md).

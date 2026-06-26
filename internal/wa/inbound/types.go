@@ -12,8 +12,8 @@ import (
 // WHY this lives here (and not in internal/wa/events): the inbound package is the
 // CONSUMER of normalization. Per the Go "interfaces defined by the consumer"
 // convention and the parallel-build import rules, inbound owns the contract it
-// needs and the Normalizer implementation (Phase 3) maps a raw whatsmeow event
-// onto this struct. The pipeline never touches raw protobufs.
+// needs and the Normalizer implementation (in internal/wa/events) maps a raw
+// whatsmeow event onto this struct. The pipeline never touches raw protobufs.
 //
 // A NormalizedMessage describes WHAT happened (Kind) and carries only the fields
 // relevant to that kind; irrelevant fields are zero/nil. The matching

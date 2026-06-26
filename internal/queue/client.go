@@ -60,8 +60,8 @@ func (c *Client) EnqueueWebhookDeliver(ctx context.Context, deliveryID uint64, o
 }
 
 // EnqueueRetentionPrune queues a one-off prune with the given epoch-ms cutoff.
-// Routed to QueueRetention. For the recurring daily prune (§5), Phase 3 registers
-// this type with asynq's PeriodicTaskManager / Scheduler.
+// Routed to QueueRetention. The recurring daily prune (§5) registers this type
+// with asynq's PeriodicTaskManager / Scheduler.
 func (c *Client) EnqueueRetentionPrune(ctx context.Context, cutoffMs int64, opts ...asynq.Option) (*asynq.TaskInfo, error) {
 	task, err := NewRetentionPruneTask(cutoffMs)
 	if err != nil {

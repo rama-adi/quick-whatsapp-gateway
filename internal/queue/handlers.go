@@ -7,8 +7,9 @@ import (
 	"github.com/hibiken/asynq"
 )
 
-// Consumer interfaces (defined here, implemented in Phase 3). The handlers in
-// this package are thin: decode the payload, then delegate to one of these. This
+// Consumer interfaces (defined here, implemented by sibling packages). The
+// handlers in this package are thin: decode the payload, then delegate to one of
+// these. This
 // keeps queue free of sibling-package imports and makes handler dispatch trivial
 // to test with fakes.
 
@@ -88,7 +89,7 @@ func (h Handlers) handleRetentionPrune(ctx context.Context, t *asynq.Task) error
 }
 
 // Mux builds an *asynq.ServeMux that registers each handler whose corresponding
-// consumer is non-nil. Exposed so tests (and Phase 3) can dispatch tasks without
+// consumer is non-nil. Exposed so callers and tests can dispatch tasks without
 // a running server: mux.Handler(task) resolves the registered HandlerFunc.
 func (h Handlers) Mux() *asynq.ServeMux {
 	mux := asynq.NewServeMux()

@@ -16,7 +16,7 @@
 // Per the parallel-build rules this package imports only the stdlib, go-redis
 // (already a dependency), and internal/domain. Every other collaborator (the
 // event-log reader, the clock/ticker, the organization accessor) is a small consumer
-// interface defined here and wired to a concrete type in Phase 3.
+// interface defined here and wired to a concrete type by the composition root.
 package stream
 
 import (

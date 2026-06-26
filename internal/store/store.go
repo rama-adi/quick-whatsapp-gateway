@@ -4,8 +4,8 @@
 // queries use ? placeholders, timestamps are epoch-ms BIGINT, and list endpoints
 // use opaque cursor pagination over the surrogate id column.
 //
-// This package owns the concrete repo implementations and (per the build's
-// import rules) is imported by no one during this phase — Phase 3 wires it in.
+// This package owns the concrete repo implementations; the composition root
+// wires them into the services and the WhatsApp engine.
 package store
 
 import (

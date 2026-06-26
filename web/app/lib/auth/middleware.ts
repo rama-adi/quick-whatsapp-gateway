@@ -1,7 +1,7 @@
 // Server middleware for authed server functions (§12). Resolves the better-auth
 // session once and attaches a typed {user, activeOrg, role} context, redirecting
 // to /login when unauthenticated. Compose onto any createServerFn that needs the
-// caller's identity (e.g. hybrid direct-MySQL read loaders in Stage 3).
+// caller's identity (e.g. hybrid direct-MySQL read loaders).
 //
 // Route-level gating (beforeLoad) uses getServerSession + requireSession/
 // requireRole from ./session; this middleware is the server-function equivalent

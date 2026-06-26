@@ -15,15 +15,15 @@ import (
 )
 
 // ----------------------------------------------------------------------------
-// Consumer interfaces (Go convention: defined by the consumer). Phase 3 wires
-// concrete types in. We depend on these small surfaces, never on sibling
-// internal packages.
+// Consumer interfaces (Go convention: defined by the consumer). The composition
+// root wires concrete types in. We depend on these small surfaces, never on
+// sibling internal packages.
 // ----------------------------------------------------------------------------
 
 // Keystore is the slice of the whatsmeow device container the manager needs. It
-// is satisfied by *sqlstore.Container (SQLite/Postgres) and by the hand-built
-// MySQL container. The whatsmeow store.Device type is an external type and is
-// allowed here. See recon §4a.
+// is satisfied by the gateway-local SQLite keystore (internal/wa/store). The
+// whatsmeow store.Device type is an external type and is allowed here. See recon
+// §4a.
 type Keystore interface {
 	// GetAllDevices loads every persisted device on boot.
 	GetAllDevices(ctx context.Context) ([]*store.Device, error)
@@ -39,7 +39,7 @@ type Keystore interface {
 }
 
 // SessionRepo is the slice of the wa_sessions repository the manager calls. It
-// is satisfied by the MySQL repo in internal/store (wired in Phase 3).
+// is satisfied by the MySQL repo in internal/store.
 type SessionRepo interface {
 	Get(ctx context.Context, id string) (*domain.WASession, error)
 	GetByJID(ctx context.Context, jid string) (*domain.WASession, error)

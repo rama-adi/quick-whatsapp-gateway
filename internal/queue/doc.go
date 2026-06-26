@@ -7,6 +7,6 @@
 // It owns the typed task constructors + JSON payloads, a thin Client wrapper for
 // enqueueing, a Server/mux wrapper for processing, and a REDIS_URL parser. The
 // actual work is delegated to consumer interfaces (OutboxProcessor,
-// WebhookDeliverer, RetentionPruner) defined here and wired to concrete types in
-// Phase 3 — this package imports no sibling internal packages.
+// WebhookDeliverer, RetentionPruner) defined here and wired to concrete types by
+// the composition root — this package imports no sibling internal packages.
 package queue

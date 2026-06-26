@@ -12,8 +12,8 @@ import (
 
 // whatsmeowAdapter implements WAClient over a real *whatsmeow.Client, translating
 // domain-level send calls into the recon §7 Build* helpers + SendMessage. This is
-// the single file in the package that imports whatsmeow; Phase 3 constructs it
-// per managed session and injects it into the Sender.
+// the single file in the package that imports whatsmeow; the manager constructs
+// it per managed session and injects it into the Sender.
 type whatsmeowAdapter struct {
 	cli *whatsmeow.Client
 }
@@ -188,8 +188,8 @@ func (a *whatsmeowAdapter) Forward(ctx context.Context, to, sourceChat, sourceSe
 	// whatsmeow has no Build-forward helper; forwarding requires the original
 	// message content, which the send pipeline does not carry. We send an
 	// extended-text message tagged as forwarded that references the source. A
-	// richer forward (re-uploading media, copying the original body) belongs to
-	// Phase 3 once a fetch-message-by-id path exists — see outbound-pipeline.md.
+	// richer forward (re-uploading media, copying the original body) is future
+	// work, once a fetch-message-by-id path exists — see outbound-pipeline.md.
 	return a.send(ctx, toJID, &waE2E.Message{
 		ExtendedTextMessage: &waE2E.ExtendedTextMessage{
 			Text: proto.String(""),

@@ -1,0 +1,53 @@
+---
+title: Organizations
+description: How resources are owned, and how to share a connection with others.
+---
+
+Every WhatsApp number, API key, and webhook belongs to an **organization** — not
+to a person directly. People reach a resource through their **membership** in the
+org that owns it. This is what lets several people co-manage the same WhatsApp
+connection.
+
+## Your personal organization
+
+When you sign up, you get a personal organization automatically, and you are its
+owner. For solo use it is invisible: everything you create goes into it, and you
+never have to think about orgs at all.
+
+It becomes useful the moment you want a second person on a connection.
+
+## Sharing a connection
+
+To let a teammate manage one of your numbers, you don't hand over your login or
+copy an API key — you **invite them into the organization** that owns the number.
+Once they accept, they are a member and see that org's sessions, keys, and events.
+
+Members have a role that sets what they can do:
+
+| Role | Can do |
+|---|---|
+| `owner` | Everything, including managing members and deleting the org. |
+| `admin` | Manage the org's sessions, keys, and webhooks, and invite people. |
+| `member` | Read and send, but not change settings or membership. |
+
+A person can belong to more than one organization. The dashboard has an **org
+switcher** to choose which one you're acting in; whatever org is active is the one
+your tokens and new resources belong to.
+
+<Callout type="info">
+**Inviting from the UI is a fast-follow.** The underlying support for members,
+roles, and email invitations is in place, but the dashboard screens for sending
+and accepting invitations land in a follow-up release. Until then, organizations
+work for solo use out of the box, and the invitation flow becomes available
+through the dashboard once that ships.
+</Callout>
+
+## Platform admin vs org roles
+
+Two different kinds of "admin" exist, and they don't overlap:
+
+- **Org roles** (`owner`, `admin`, `member`) decide what you can do *inside one
+  organization*.
+- The **platform super admin** — the first account created — sits above all orgs:
+  it manages users and can see every organization's sessions for oversight. See
+  [the dashboard](/docs/guides/dashboard).

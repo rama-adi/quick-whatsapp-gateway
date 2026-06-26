@@ -1,11 +1,74 @@
 ---
-title: Send a message
-description: Make your first authenticated send call against a live session.
+title: Send messages
+description: Send text, polls, locations, and contact cards over the REST API.
 ---
 
-Once a session is paired, sending is a single `POST` to its messages endpoint
-with a Bearer token. Text, polls, locations, and contacts are live; media
-types arrive in a later release.
+With a session `working`, sending is one `POST` to its messages endpoint. The
+body always has a `type` and a `to` (the recipient's JID — a phone JID like
+`628123456789@s.whatsapp.net` for a DM, or a group JID); the rest of the fields
+depend on the type.
 
-The full walkthrough — the request shape, idempotency, and async sends — is
-covered here.
+```bash
+curl -X POST https://your-gateway/api/v1/sessions/{id}/messages \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"text","to":"628123456789@s.whatsapp.net","text":"Hello"}'
+```
+
+The reply tells you the WhatsApp message id and its delivery status. Full request
+and response shapes are in [send a message](/docs/api/messages/sendMessage).
+
+## Supported types
+
+| `type` | Required fields | Notes |
+|---|---|---|
+| `text` | `text` | Add `mentions` (a list of JIDs) and `replyTo` (a message id to quote). |
+| `poll` | `name`, `options` | `selectableCount` sets how many options a voter may pick. Votes arrive as `poll.vote` events. |
+| `location` | `latitude`, `longitude` | `name` labels the pin. |
+| `contact` | `contact` | A contact card: `{ name, phone }`, or supply a raw `vcard`. |
+| `image`, `video`, `audio`, `document`, `sticker` | — | **Not supported in this release.** A media send returns `501`. |
+
+A poll, for example:
+
+```json
+{
+  "type": "poll",
+  "to": "628123456789@s.whatsapp.net",
+  "name": "Lunch?",
+  "options": ["Pizza", "Sushi", "Salad"],
+  "selectableCount": 1
+}
+```
+
+## Acting on a sent message
+
+Once a message exists, you can change or reference it through sub-resources of the
+same endpoint:
+
+| Action | Call |
+|---|---|
+| Edit the text | [edit a message](/docs/api/messages/editMessage) |
+| Delete for everyone | [revoke a message](/docs/api/messages/revokeMessage) |
+| React with an emoji | [add](/docs/api/messages/addReaction) / [remove](/docs/api/messages/removeReaction) a reaction |
+| Forward it elsewhere | [forward a message](/docs/api/messages/forwardMessage) |
+| Vote on a poll | [vote](/docs/api/messages/voteMessage) |
+
+## Delivery, retries, and limits
+
+A few behaviors apply to every send:
+
+- **Sync by default.** The call blocks until WhatsApp acknowledges the message,
+  then returns its id and status. Add `?async=true` to enqueue instead — you get a
+  `202` immediately and the final status arrives as a `message.status`
+  [event](/docs/guides/receiving).
+- **Idempotency.** Pass an `Idempotency-Key` header and a retried request returns
+  the original result instead of sending twice — safe to retry on a network error.
+- **Rate limits.** Each session has a per-minute and per-hour cap. Over the limit,
+  a sync send returns `429`; an async send waits and goes out later. The caps default
+  to 20/minute and 200/hour and are set per session.
+
+<Callout type="warn">
+Sending fast or in bulk is exactly the behavior WhatsApp bans numbers for. The
+limits and the typing/read-receipt mimicry exist to look human — keep volume low
+and the pacing natural.
+</Callout>

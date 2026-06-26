@@ -1,6 +1,4 @@
-// Minimal "coming soon" placeholder so the build is green before surface agents
-// expand each route. FROZEN — owned by the foundation agent. Surface agents
-// REPLACE the route module body; this component is only the initial filler.
+// Minimal "coming soon" card for routes whose surface isn't built yet.
 
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
 

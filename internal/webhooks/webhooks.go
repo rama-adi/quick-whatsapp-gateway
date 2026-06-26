@@ -6,8 +6,9 @@
 // dead-letters exhausted deliveries.
 //
 // Collaborators are expressed as small CONSUMER interfaces defined here (Go
-// convention: interfaces defined by the consumer). Phase 3 wires concrete
-// MySQL repos, an *http.Client, a real clock, and the AES-GCM decryptor in.
+// convention: interfaces defined by the consumer). The composition root wires in
+// the concrete MySQL repos, an *http.Client, a real clock, and the AES-GCM
+// decryptor.
 package webhooks
 
 import (
@@ -27,7 +28,7 @@ const (
 )
 
 // WebhookRepo reads the configured webhooks that match an incoming event. The
-// implementation (Phase 3) applies organization/session scoping and the active flag in
+// implementation applies organization/session scoping and the active flag in
 // SQL; ListMatching returns only webhooks whose events list matches eventType
 // (the dispatcher re-checks with EventMatches as a defensive guard, but the repo
 // is the primary filter so we don't load every webhook into memory).
@@ -82,7 +83,7 @@ type WebhookDeliveryRepo interface {
 }
 
 // HTTPDoer is the minimal HTTP client surface the dispatcher needs. *http.Client
-// satisfies it; Phase 3 injects one configured with the per-request timeout.
+// satisfies it; the composition root injects one configured with the per-request timeout.
 type HTTPDoer interface {
 	Do(req *http.Request) (*http.Response, error)
 }

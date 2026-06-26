@@ -1,9 +1,8 @@
-// Package wastore is the entrypoint for the whatsmeow device keystore. In v2 the
-// keystore is always gateway-local SQLite (masterplan §6.1): a pure-Go
-// modernc.org/sqlite database driven by whatsmeow's own sqlstore. The custom
-// MySQL keystore from v1 is gone. The package exposes the sqlstore container
-// behind one Keystore interface so the session manager never has to know which
-// backend is in use.
+// Package wastore is the entrypoint for the whatsmeow device keystore: a
+// gateway-local, pure-Go modernc.org/sqlite database driven by whatsmeow's own
+// sqlstore (masterplan §6.1). It exposes the sqlstore container behind one
+// Keystore interface so the session manager depends on the device surface, not
+// the concrete sqlstore type.
 package wastore
 
 import (

@@ -23,7 +23,7 @@ import (
 // codes; the server 400s on a malformed value (recon §3).
 const pairDisplayName = "Chrome (Linux)"
 
-// Config holds the manager's tunables, populated from ENV by Phase 3.
+// Config holds the manager's tunables, populated from ENV by the composition root.
 type Config struct {
 	// AdminNumber is WHATSAPP_ADMIN_NUMBER (digits only, no '+'). Empty disables
 	// admin-number bootstrap (§6).
@@ -323,7 +323,7 @@ func (m *Manager) bootstrapAdmin(ctx context.Context, devices []*store.Device) (
 	if err != nil {
 		return "", fmt.Errorf("admin pairing: %w", err)
 	}
-	// Surface the code: console + (Phase 3) admin panel via the persisted/emitted
+	// Surface the code: logged here, and to the dashboard via the persisted/emitted
 	// auth.code event already published by startPairingCode.
 	m.log.Info("ADMIN NUMBER PAIRING CODE — link in WhatsApp > Linked Devices > Link with phone number",
 		"number", m.cfg.AdminNumber, "code", code)

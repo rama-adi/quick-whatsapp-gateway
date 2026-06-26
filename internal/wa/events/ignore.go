@@ -6,8 +6,8 @@ import "go.mau.fi/whatsmeow/types"
 // (IGNORE_STATUS / IGNORE_GROUPS / IGNORE_CHANNELS / IGNORE_BROADCAST).
 //
 // It is a small consumer-defined struct intentionally NOT imported from
-// internal/config: this package depends only on the booleans it needs, and
-// Phase 3 wires the real config in. Each flag, when true, makes the inbound
+// internal/config: this package depends only on the booleans it needs, and the
+// composition root wires the real config in. Each flag, when true, makes the inbound
 // pipeline skip persistence + fan-out for that source class (§7).
 type IgnoreConfig struct {
 	IgnoreStatus    bool // status@broadcast (the "stories" feed)

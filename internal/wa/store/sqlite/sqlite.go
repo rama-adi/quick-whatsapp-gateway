@@ -1,11 +1,10 @@
-// Package sqlitestore is the zero-config WhatsApp keystore fallback. It is a thin
-// wrapper around go.mau.fi/whatsmeow/store/sqlstore backed by the pure-Go
+// Package sqlitestore is the gateway's WhatsApp device keystore: a thin wrapper
+// around go.mau.fi/whatsmeow/store/sqlstore backed by the pure-Go
 // modernc.org/sqlite driver (CGO_ENABLED=0).
 //
-// WHY a wrapper and not the MySQL hand-rolled store: for single-process,
-// self-host deployments sqlstore already implements every store interface over
-// SQLite, so there is nothing to re-implement. We only have to (a) make sure the
-// modernc driver is registered and (b) hand dbutil a dialect string it accepts.
+// sqlstore already implements every whatsmeow store interface over SQLite, so
+// this package re-implements nothing. It only has to (a) register the modernc
+// driver and (b) hand dbutil a dialect string it accepts.
 //
 // Driver/dialect note: modernc registers under the name "sqlite". dbutil's
 // ParseDialect accepts any engine string with the "sqlite" prefix (so "sqlite"

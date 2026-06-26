@@ -18,7 +18,7 @@ const (
 
 // Queue names. asynq routes tasks to named queues which the Server processes
 // with configurable priority. Keeping outbox sends and webhook deliveries on
-// separate queues lets Phase 3 tune their relative weight independently.
+// separate queues lets the Server tune their relative weight independently.
 const (
 	QueueOutbox    = "outbox"
 	QueueWebhooks  = "webhooks"

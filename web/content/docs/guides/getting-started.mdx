@@ -1,0 +1,121 @@
+---
+title: Getting started
+description: Run the database, start the gateway and dashboard, and sign up.
+---
+
+This gets you from an empty checkout to a running gateway with an account you can
+sign in to. The fast inner loop runs the database and Redis in Docker and both
+apps on your host.
+
+## What you need
+
+- Go 1.26+ (the toolchain switches automatically to match `go.mod`)
+- Node 22+ with pnpm (`corepack enable`)
+- Docker, for the database and Redis
+- `air` for the gateway's hot reload
+
+No C compiler is needed — the gateway uses a pure-Go SQLite driver for its
+keystore.
+
+## 1. Start the database and Redis
+
+From the repo root:
+
+```bash
+make infra-up
+```
+
+This brings up MySQL and Redis with their ports bound to localhost. Run it once;
+use `make infra-reset` later if you want a clean database.
+
+## 2. Start the gateway
+
+The gateway holds the WhatsApp connection and serves the REST API. Run it under
+`air` so it reloads on change:
+
+```bash
+air
+```
+
+It listens on `:8080` by default. The settings it reads from the environment are
+listed under [configuration](#configuration) below; the defaults work for local
+development.
+
+## 3. Start the dashboard
+
+In another terminal, in `web/`:
+
+```bash
+pnpm install   # first time only
+pnpm dev
+```
+
+The dashboard runs on `http://localhost:3000` and points at the gateway through
+`GATEWAY_URL`. The gateway already allows `http://localhost:3000` as a browser
+origin, so the two talk to each other out of the box.
+
+## 4. Sign up
+
+Open `http://localhost:3000` and create an account with an email and password.
+The first account you create becomes the platform **super admin** — it can see
+every organization and manage other users. Later signups are normal users.
+
+<Callout type="info">
+Self-registration is on by default. To lock it down (so only the admin can add
+people), set `USER_REGISTRATION_ENABLED=false` on the dashboard and create users
+from the admin surface instead.
+</Callout>
+
+## Your personal organization
+
+Every resource in the gateway — a WhatsApp number, an API key, a webhook —
+belongs to an **organization**, not directly to you. So when you sign up, the
+dashboard creates a **personal organization** for you automatically and makes you
+its owner.
+
+For solo use you never think about this: your personal org is just "your stuff",
+and every number and key you create lands in it. It matters once you want to
+**share** a connection — sharing means inviting someone into the org that owns it.
+See [organizations](/docs/guides/organizations).
+
+## Next
+
+Your account exists but no phone is connected yet.
+[Connect a number](/docs/guides/connect-a-number) is next.
+
+## Configuration
+
+The settings each app reads from the environment. Local defaults work as-is;
+you set these for real deployments.
+
+### Gateway
+
+| Variable | Default | What it does |
+|---|---|---|
+| `HTTP_ADDR` | `:8080` | Address the gateway listens on. |
+| `GATEWAY_ID` | `gw-1` | This gateway's id, stamped on the sessions it holds. |
+| `PUBLIC_URL` | — | External base URL clients use to reach this gateway. |
+| `BETTER_AUTH_URL` | — | The dashboard's base URL. The gateway only trusts tokens issued by it. |
+| `FRONTEND_ORIGINS` | — | Comma-separated browser origins allowed to call the gateway (CORS). |
+| `MYSQL_DSN` | — | Shared database. The gateway writes WhatsApp data and reads auth data. |
+| `WHATSMEOW_STORE_DSN` | `file:/data/keystore/store.db?…` | SQLite file holding the WhatsApp device keys. Keep it on a persistent volume. |
+| `REDIS_URL` | — | Redis for the send queue, rate limiting, and event fan-out. |
+| `WHATSAPP_ADMIN_NUMBER` | — | A number the gateway pairs automatically on boot (see [connect a number](/docs/guides/connect-a-number)). |
+| `DEFAULT_RATE_PER_MIN` / `DEFAULT_RATE_PER_HOUR` | `20` / `200` | Default send limits per session. |
+| `DEFAULT_AUTO_READ` | `true` | Mark incoming messages read before replying. |
+
+### Dashboard
+
+| Variable | What it does |
+|---|---|
+| `BETTER_AUTH_SECRET` | Secret used to sign sessions and tokens. |
+| `BETTER_AUTH_URL` | The dashboard's own base URL. |
+| `DATABASE_URL` | The shared database (same one the gateway uses). |
+| `GATEWAY_URL` | Base URL the dashboard calls for actions and the event stream. |
+| `USER_REGISTRATION_ENABLED` | Whether people can sign themselves up. |
+
+<Callout type="warn">
+The SQLite keystore holds the device crypto material. **Lose that file and every
+number has to be re-paired.** In production, mount it on a named volume and back
+it up.
+</Callout>

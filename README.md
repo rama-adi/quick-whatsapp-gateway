@@ -1,142 +1,173 @@
-# whatsmeow Gateway (v2)
+# whatsmeow Gateway
 
-A self-hostable, multi-tenant WhatsApp gateway built on
-[whatsmeow](https://github.com/tulir/whatsmeow), split into **two independently deployable
-services**:
+Run a WhatsApp account as an HTTP API. You pair a phone once from a web dashboard, then send
+messages, read chats and contacts, manage groups, and receive events over a stream or webhooks —
+all over JSON with a Bearer token. Built on [whatsmeow](https://github.com/tulir/whatsmeow);
+multi-tenant, self-hostable, free.
 
-- **Gateway** (Go) — the WhatsApp engine. Holds the live whatsmeow sessions, exposes a clean JSON
-  REST API + an NDJSON event stream + webhooks. **No human login**: it verifies caller identity
-  minted by the frontend (better-auth JWTs via JWKS, and better-auth api-keys). Pure-Go,
-  `CGO_ENABLED=0`, static image.
-- **Frontend** (`web/`) — a fullstack **TanStack Start** dashboard with **better-auth** for
-  identity (email/password, 2FA, admin, api-keys, JWT, organizations). Serverless-hostable; the
-  browser talks to the gateway directly.
-
-WAHA-class capability, cleaner API, free — plus a first-class **Contacts** feature (who each
-account has encountered, and where).
-
-> **Legal / risk notice:** This uses an unofficial WhatsApp client. WhatsApp prohibits
-> bots/unofficial clients; automated use may violate its Terms and get numbers **banned**.
-> Built-in rate limiting and human-mimicry reduce but don't remove the risk. **Use at your own
+> **Legal / ban risk:** This drives WhatsApp through an unofficial client. WhatsApp prohibits
+> bots and unofficial clients; automated use may break its Terms and get your number **banned**.
+> Built-in rate limiting and human-mimicry lower the risk but do not remove it. **Use at your own
 > risk.**
 
-## Why the split
+## Quick start
 
-v1 was a single Go binary with embedded auth (Authula), an embedded React SPA, and the whatsmeow
-keystore in MySQL. v2 separates concerns so the frontend can run on serverless and the gateway can
-run near WhatsApp:
+Infra (MySQL + Redis) runs in Docker; both apps run on the host for a fast edit loop.
 
-- **Identity is the frontend's job.** better-auth mints short-lived (~5 min) EdDSA JWTs and issues
-  org-scoped api-keys. The gateway **verifies** them locally — JWTs against the cached JWKS,
-  api-keys against the shared `apikey` table — with **no per-request callback**. See
-  [`docs/specs/trust-model.md`](docs/specs/trust-model.md).
-- **Ownership is by organization.** Resources are owned by a better-auth `organization_id`; every
-  user gets a personal org on signup, so "sharing a connection" = inviting someone into the org.
-- **Three storage planes.** Auth tables (frontend, Drizzle) + WA app-data (gateway-written, MySQL)
-  share one MySQL; the whatsmeow keystore is **gateway-local SQLite** on a persistent volume
-  ([`docs/specs/whatsmeow-store.md`](docs/specs/whatsmeow-store.md)).
-- **Hybrid reads.** The frontend reads WA tables directly (Drizzle) for fast dashboards, **acts**
-  via the gateway REST API, and gets **realtime** from the gateway NDJSON stream.
-- **Instant revocation** rides a cross-service Redis **control bus** (`ctrl:*`): revoke a key /
-  ban a user in the dashboard and every gateway drops it within ~60 s (cache TTL backstop).
+You need: Go 1.26+, Node 22+ with pnpm (`corepack enable`), Docker, and
+[`air`](https://github.com/air-verse/air). No C compiler — the keystore uses a pure-Go SQLite
+driver, so everything builds with `CGO_ENABLED=0`.
+
+```sh
+cp deploy/.env.example .env     # then set APP_ENCRYPTION_KEY, BETTER_AUTH_SECRET, …
+make infra-up                   # start MySQL + Redis (bound to localhost)
+make migrate                    # create the WhatsApp data tables
+cd web && pnpm install && pnpm drizzle-kit migrate && cd ..   # create the auth tables
+
+make dev      # terminal 1: gateway on :8080 (hot reload)
+make web      # terminal 2: frontend on :3000 (HMR)
+```
+
+Then, in the browser:
+
+1. Open **http://localhost:3000** and sign up. Your account gets its own organization; everything
+   you create belongs to it.
+2. Create a session and scan the QR code with WhatsApp on your phone
+   (**Settings → Linked devices → Link a device**).
+3. Once it shows **connected**, send a test message from the dashboard.
+
+`make infra-reset` wipes the dev database when you want a clean slate.
+
+## Common tasks
+
+The dashboard is for humans. For scripts and integrations, mint an **API key** in the dashboard
+(**Settings → API keys**) and call the gateway directly. Keys start with `wa_` and go in the
+`Authorization` header. The API base is `http://localhost:8080/api/v1`; `{session}` is the session
+id from the dashboard.
+
+**Send a message**
+
+```sh
+curl -X POST http://localhost:8080/api/v1/sessions/{session}/messages \
+  -H "Authorization: Bearer wa_your_api_key" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"text","to":"6281234567890@s.whatsapp.net","text":"Hello from the gateway"}'
+```
+
+`type` also accepts `poll`, `location`, and `contact`. Add `?async` to enqueue instead of sending
+inline, or an `Idempotency-Key` header to make retries safe.
+
+**Subscribe to the event stream**
+
+A long-lived NDJSON stream — one JSON event per line — for incoming messages, delivery and read
+receipts, and connection changes. The key needs the `events` permission.
+
+```sh
+curl -N http://localhost:8080/api/v1/events \
+  -H "Authorization: Bearer wa_your_api_key"
+# add ?types=message,message.status   to filter (incoming messages + receipts)
+# add ?session={session}              to watch one session
+```
+
+**Register a webhook**
+
+Have the gateway POST events to your URL instead of (or as well as) the stream. Omit `sessionId`
+to receive from every session in your organization.
+
+```sh
+curl -X POST http://localhost:8080/api/v1/webhooks \
+  -H "Authorization: Bearer wa_your_api_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://example.com/wa-hook",
+    "events": ["message", "message.status"],
+    "secret": "shared-signing-secret"
+  }'
+```
+
+Every endpoint — messages, chats, contacts, groups, channels, presence — is documented at
+**http://localhost:3000/docs** once the frontend is running, with task guides under `/docs/guides`
+and the full API reference under `/docs/api`.
 
 ## Architecture
 
+Two services that deploy independently. The dashboard mints identity; the gateway only verifies it
+and does the WhatsApp work, so the two never have to sit on the same machine.
+
 ```
-            better-auth JWT / api-key (Bearer)
+            Bearer token (better-auth JWT or wa_ api-key)
   Browser ───────────────────────────────────────────►  Gateway (Go, whatsmeow)
-     │  ▲                                                   │   ├─ JSON REST API  /api/v1
-     │  │ session cookie + mint JWT (/api/auth/token)       │   ├─ NDJSON stream  /events
+     │  ▲                                                   │   ├─ REST API     /api/v1
+     │  │ session cookie + mint JWT (/api/auth/token)       │   ├─ event stream /events
      ▼  │                                                   │   └─ webhooks (out)
   Frontend (TanStack Start + better-auth)                   │
      ├─ /api/auth/* (JWKS, token, admin, api-keys, orgs)    │  keystore → SQLite (volume)
      └─ direct read-only Drizzle reads ──┐                  │
                                          ▼                  ▼
-                              MySQL  (auth tables ⇄ WA app-data tables)
+                              MySQL  (auth tables ⇄ WhatsApp data tables)
                                          ▲                  │
-   control bus: frontend PUBLISH ctrl:*  └── Redis ─────────┘  work: queue/rate-limit/stream
+   revoke a key / ban a user PUBLISH ──► └── Redis ─────────┘  queue / rate-limit / stream
 ```
 
-Full design: [`masterplan-mvp.md`](./masterplan-mvp.md). Per-subsystem specs:
-[`docs/specs/`](./docs/specs/) (start with [`_V2-STATUS.md`](./docs/specs/_V2-STATUS.md)). API
-contract of record: [`docs/openapi.yaml`](./docs/openapi.yaml).
+| Service | Job | Stack |
+| --- | --- | --- |
+| **Gateway** (Go) | Holds the live WhatsApp sessions; serves the REST API, event stream, and webhooks. No human login — it verifies the frontend's JWTs (against the cached JWKS) and `wa_` api-keys locally, with no per-request callback. | whatsmeow, `CGO_ENABLED=0` |
+| **Frontend** (`web/`) | The dashboard and the only place humans log in. Owns identity: email/password, 2FA, api-keys, organizations. Reads WhatsApp data straight from MySQL for fast pages; acts through the gateway API. | TanStack Start, better-auth, Drizzle |
 
-## Quick start (local development)
+Resources are owned by an organization, not a user, so sharing a connection means inviting someone
+into your org. Revoking a key or banning a user in the dashboard reaches every gateway within about
+a minute over a Redis control channel.
 
-Infra in Docker; both apps on the host for a fast edit loop.
+## Deploying
+
+Two images, built and shipped on their own:
 
 ```sh
-cp deploy/.env.example .env     # then edit secrets (APP_ENCRYPTION_KEY, BETTER_AUTH_SECRET, …)
-make infra-up                   # start MySQL + Redis (ports bound to localhost)
-make migrate                    # apply WA-data migrations (the gateway binary: server migrate up)
-
-make dev                        # terminal 1: gateway hot-reload via air (CGO_ENABLED=0)
-make web                        # terminal 2: frontend dev server (pnpm dev, HMR)
-# terminal 3 as needed: cd web && pnpm drizzle-kit migrate  (better-auth tables)
+make build                                                      # gateway (deploy/Dockerfile)
+docker build -f deploy/Dockerfile.web -t whatsmeow-frontend .   # frontend
 ```
 
-Open the frontend dev URL (`http://localhost:3000`). The browser calls the gateway directly on
-`:8080` (CORS allows `http://localhost:3000`). `make infra-reset` wipes the dev database.
+- `deploy/docker-compose.yml` — everything in one place (both services + MySQL + Redis).
+- `deploy/docker-compose.external.yml` — bring your own MySQL + Redis.
+- `deploy/docker-compose.dev.yml` — infra only, for the host dev loop above.
 
-**Host prerequisites:** Go 1.26+ (`GOTOOLCHAIN=auto` fetches it), Node 22+ with pnpm
-(`corepack enable`), [`air`](https://github.com/air-verse/air), `golangci-lint`, Docker. **No C
-compiler** — the SQLite keystore uses the pure-Go `modernc.org/sqlite` driver, so the whole
-project builds with `CGO_ENABLED=0`.
-
-## Production
-
-Two images, deployed independently:
-
-```sh
-make build                                   # gateway image (deploy/Dockerfile)
-docker build -f deploy/Dockerfile.web -t whatsmeow-frontend .   # frontend image (.output)
-```
-
-- `deploy/docker-compose.yml` — local all-in-one (gateway + frontend + MySQL + Redis).
-- `deploy/docker-compose.external.yml` — bring-your-own MySQL + Redis.
-- `deploy/docker-compose.dev.yml` — infra only (MySQL + Redis) for the host dev loop.
-
-The frontend can run anywhere (Vercel/Node/container) as long as it reaches MySQL and the gateway;
-the gateway runs near WhatsApp with its `/data/keystore` volume. They need not be co-located —
-that's the point of v2.
-
-## Configuration
-
-Gateway env (selected): `HTTP_ADDR`, `GATEWAY_ID`, `PUBLIC_URL`, `BETTER_AUTH_URL`,
-`BETTER_AUTH_JWKS_URL`, `FRONTEND_ORIGINS`, `APP_ENCRYPTION_KEY`, `MYSQL_DSN`,
-`WHATSMEOW_STORE_DSN`, `REDIS_URL`, `PUBSUB_REDIS_URL`, `WHATSAPP_ADMIN_NUMBER`. Frontend env:
-`BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `DATABASE_URL`, `GATEWAY_URL` (+ `VITE_GATEWAY_URL`),
-`PUBSUB_REDIS_URL`, `USER_REGISTRATION_ENABLED`. Full table + defaults: masterplan §14;
-`deploy/.env.example`.
-
-## Smoke test
-
-`scripts/smoke.sh` drives the automatable slice of the trust seam against a running stack
-(register a user → mint a JWT from better-auth → call the gateway with `Bearer` → create a session
-→ fetch its pairing QR), failing loudly on any unexpected HTTP status. The WhatsApp pair → send →
-stream steps need a real phone and are printed as manual instructions at the end.
-
-```sh
-BETTER_AUTH_URL=http://localhost:3000 GATEWAY_URL=http://localhost:8080 \
-  scripts/smoke.sh
-```
-
-The byte-level halves of that seam — better-auth's api-key hash + permissions JSON, and the EdDSA
-JWT shape — are pinned as Go contract tests in `internal/authz/` (`contract_test.go`,
-`jwt_test.go`); regenerate the fixtures if the pinned better-auth version changes.
+The frontend runs anywhere it can reach MySQL and the gateway. The gateway runs near WhatsApp with
+its `/data/keystore` volume. Gateway config is set through env vars (`HTTP_ADDR`, `MYSQL_DSN`,
+`WHATSMEOW_STORE_DSN`, `BETTER_AUTH_URL`, `FRONTEND_ORIGINS`, `APP_ENCRYPTION_KEY`, …); the full
+list with defaults lives in `deploy/.env.example`.
 
 ## Repo layout
 
 ```
-cmd/server/        gateway entrypoint (also: server migrate up|down)
-internal/          gateway: authz/ (JWKS+JWT+api-key verify) · controlbus/ · http/ · wa/
-                   (manager, session, store/sqlite) · store/ (MySQL repos, org-keyed) ·
-                   webhooks/ · stream/ · queue/
-migrations/        golang-migrate, WA app-data only (no wmstore_* in MySQL)
-web/               frontend: TanStack Start + better-auth + Drizzle + ported shadcn
-deploy/            Dockerfile · Dockerfile.web · compose files · .env.example
-docs/              openapi.yaml · specs/*.md · mvp-progress.md
+cmd/server/    gateway entrypoint (also: server migrate up|down)
+internal/      gateway: authz/ · controlbus/ · http/ · wa/ · store/ · webhooks/ · stream/ · queue/
+migrations/    WhatsApp data tables (golang-migrate)
+web/           frontend: TanStack Start + better-auth + Drizzle + shadcn; docs site under /docs
+deploy/        Dockerfiles · compose files · .env.example
+docs/          openapi.yaml (the API contract) · specs/*.md (per-subsystem design)
 ```
 
-The v1 single-binary MVP is preserved at git tag `mvp-v1` (check it out to read the v1 code,
-specs, and progress tracker). Full v2 layout: masterplan §16.
+## For contributors
+
+Start with the design spec in [`masterplan-mvp.md`](./masterplan-mvp.md), then the per-subsystem
+specs in [`docs/specs/`](./docs/specs/) — [`_V2-STATUS.md`](./docs/specs/_V2-STATUS.md) maps them
+out. The API contract of record is [`docs/openapi.yaml`](./docs/openapi.yaml).
+
+Keep both halves green:
+
+```sh
+go build ./... && go test ./...                    # gateway
+cd web && pnpm build && pnpm typecheck && pnpm test # frontend
+```
+
+`scripts/smoke.sh` drives the trust seam end to end against a running stack — register a user, mint
+a JWT, call the gateway with a Bearer token, create a session, fetch its pairing QR — and fails
+loudly on any unexpected status. The pair → send → stream steps need a real phone and print as
+manual instructions at the end.
+
+```sh
+BETTER_AUTH_URL=http://localhost:3000 GATEWAY_URL=http://localhost:8080 scripts/smoke.sh
+```
+
+The v1 single-binary version (embedded auth, React SPA, MySQL keystore) is preserved at git tag
+`mvp-v1`.

@@ -1,16 +1,16 @@
-// App session resolution + route guards (§12) — better-auth edition.
+// App session resolution + route guards (§12).
 //
-// Replaces the v1 Authula capability-probe. The session is resolved SERVER-SIDE
-// from the better-auth cookie via auth.api.getSession(headers), exposed to
-// routes through a server function (getServerSession) so route beforeLoad guards
-// run on the server. Client-side route guards from v1 are gone (§12).
+// The session is resolved SERVER-SIDE from the better-auth cookie via
+// auth.api.getSession(headers), exposed to routes through a server function
+// (getServerSession) so route beforeLoad guards run on the server, not the client.
 //
-// AppSession keeps the v1 SHAPE the shell already consumes (user.roles[],
-// userPanelEnabled, impersonating) so AppShell/nav/UserMenu need no changes:
+// getServerSession maps the better-auth session onto the AppSession the shell
+// (AppShell/nav/UserMenu) consumes:
 //   - platform role super_admin -> roles ["super_admin","user"] (admins can also
 //     use the user panel); everyone else -> ["user"].
-//   - activeOrg + orgRole are added for the org-aware surfaces.
+//   - activeOrg carries the active org id + the caller's role in it.
 //   - userPanelEnabled comes from USER_REGISTRATION_ENABLED (matches the §12 gate).
+//   - impersonating reflects an admin-plugin impersonated session.
 
 import { redirect } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";

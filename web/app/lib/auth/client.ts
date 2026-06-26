@@ -1,4 +1,4 @@
-// better-auth REACT client (browser) — replaces the v1 Authula client.
+// better-auth REACT client (browser).
 //
 // Talks to THIS frontend's better-auth API at /api/auth/* (same origin, cookie
 // session). Plugin clients mirror the server plugins so the typed methods exist:
@@ -33,7 +33,7 @@ export const authClient = createAuthClient({
   ],
 });
 
-// Convenience re-exports matching common call sites (Stage 3 wires the forms).
+// Convenience re-exports matching common call sites (the auth forms).
 export const {
   signIn,
   signUp,

@@ -25,5 +25,5 @@ test:
 	go test ./...
 tidy:
 	go mod tidy && cd web && pnpm install
-gen:         ## regen typed API client from openapi.yaml
-	cd web && pnpm openapi
+gen:         ## regen typed API client + docs pages from openapi.yaml
+	cd web && pnpm gen:api && pnpm docs:openapi

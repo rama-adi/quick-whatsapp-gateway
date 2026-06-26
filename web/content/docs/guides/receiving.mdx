@@ -1,0 +1,112 @@
+---
+title: Receive events
+description: Stream events over NDJSON, or have the gateway push them to a webhook.
+---
+
+The gateway emits an event for everything that happens on your sessions — a
+message arrives, a delivery receipt comes back, a poll gets a vote, a session
+changes status. You read those events one of two ways:
+
+- **Stream** them over a long-lived HTTP connection. Best when your code can hold a connection open — a worker, a script, the dashboard.
+- **Webhooks** — the gateway `POST`s each event to a URL you run. Best when you have a public endpoint and would rather not hold a connection.
+
+Both carry the **same event envelope**, so the payload is identical whichever you
+pick.
+
+## The event envelope
+
+One JSON object per event:
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9...",
+  "event": "message",
+  "session": "sess_01J8...",
+  "organization": "org_abc",
+  "timestamp": 1719400000000,
+  "payload": { }
+}
+```
+
+`event` names the type (see the catalog below); `payload` carries the
+type-specific data; `timestamp` is epoch milliseconds.
+
+## Stream the events
+
+Open a `GET` to the events endpoint with your Bearer token. The response is
+`application/x-ndjson` — a connection that stays open with one JSON event per
+line:
+
+```bash
+curl -N https://your-gateway/api/v1/events?events=* \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+- `events=*` subscribes to everything; pass a comma list (`events=message,poll.vote`) to narrow it.
+- Add `session={id}` to follow one session; omit it to receive every session your organization owns.
+- A `ping` event arrives about every 20 seconds so you can tell the connection is alive.
+- After a drop, reconnect with `since={lastEventId}` and the gateway replays what you missed, then keeps tailing.
+
+Because it is a plain HTTP stream (not Server-Sent Events), you read it with
+`fetch` and a `ReadableStream` and attach the `Authorization` header the same as
+any other call. See [stream events](/docs/api/events/events).
+
+## Use webhooks instead
+
+Register a webhook and the gateway delivers each event to your URL, retrying until
+it succeeds. You create and manage webhooks through the gateway API
+([create a webhook](/docs/api/webhooks/createWebhook)); the dashboard surfaces the
+same config.
+
+A webhook has:
+
+- a **URL** to `POST` to,
+- the **events** it wants (`["*"]` for all, or a list like `["message","poll.vote"]`),
+- an optional **session** filter (leave it off to cover all the org's sessions),
+- optional **custom headers** and a **retry policy**.
+
+Each delivery carries these headers:
+
+| Header | Purpose |
+|---|---|
+| `X-Webhook-Request-Id` | Unique per delivery. |
+| `X-Webhook-Timestamp` | When it was sent. |
+| `X-Webhook-Hmac` | Signature of the body, present when the webhook has a secret. |
+| `X-Webhook-Hmac-Algorithm` | The signature algorithm (`sha512`). |
+
+**Verify the signature** before trusting a delivery: recompute the HMAC of the raw
+body with your secret and compare it to `X-Webhook-Hmac`. **Dedupe on the
+envelope `id`** — a retried delivery repeats the same event id, and retries that
+keep failing are eventually marked dead.
+
+## Event catalog
+
+What the gateway emits. Subscribe with `events=*` for all of them, or name the
+ones you want.
+
+| Event | Fires when |
+|---|---|
+| `session.status` | A session changes status (e.g. `working`, `logged_out`). |
+| `auth.qr` | A new QR code is available to scan. |
+| `auth.code` | A pairing code is available. |
+| `message` | A message comes in. |
+| `message.from_me` | A message was sent from this number (including from another linked device). |
+| `message.status` | A delivery receipt updates a sent message (sent → delivered → read). |
+| `message.reaction` | Someone reacts to a message. |
+| `message.edited` | A message is edited. |
+| `message.revoked` | A message is deleted for everyone. |
+| `poll.vote` | Someone votes on a poll. |
+| `presence.update` | A contact goes online/offline or starts typing. |
+| `group.update` | A group's metadata changes (name, settings). |
+| `group.participant` | Someone joins, leaves, or changes role in a group. |
+| `chat.update` | A chat changes (archived, pinned, read state). |
+| `contact.update` | A contact's name or details change. |
+| `call.incoming` | An incoming call. |
+| `newsletter.update` | A followed channel updates. |
+
+<Callout type="info">
+**Media is metadata only.** A message with an attachment arrives with
+`hasMedia: true` and `media: null` — you see that it has media and its type, but
+this release does not download the file.
+</Callout>
