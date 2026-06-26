@@ -1,0 +1,26 @@
+# Build context hygiene for deploy/Dockerfile (gateway) — it does `COPY . .`.
+# Keep host-built artifacts, deps, and the SQLite keystore out of the image.
+.git
+.gitignore
+
+# Frontend deps + build output (the gateway image never needs these; the web
+# image — deploy/Dockerfile.web — installs deps itself from web/).
+web/node_modules
+web/.output
+web/.nitro
+web/.tanstack
+web/dist
+node_modules
+
+# Local data / keystore (must never be baked into an image)
+data/
+**/*.db
+**/*.db-shm
+**/*.db-wal
+
+# Env + editor noise
+.env
+.env.*
+!.env.example
+.DS_Store
+*.log

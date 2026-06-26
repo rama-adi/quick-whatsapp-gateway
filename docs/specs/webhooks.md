@@ -2,22 +2,26 @@
 
 Status: implemented (`internal/webhooks`).
 
-The webhook dispatcher (masterplan §9, webhooks half). It turns a normalized
+The webhook dispatcher (masterplan §11, webhooks half). It turns a normalized
 `domain.Event` into HMAC-signed, retried HTTP POSTs to each configured endpoint,
 tracking every attempt in `webhook_deliveries` and dead-lettering exhausted
-deliveries.
+deliveries. The dispatch / HMAC / retry mechanics are **unchanged from v1**; what
+changed in v2 is **ownership**: webhook config rows are **org-owned**
+(`organization_id`), mutated only through the gateway's `/webhooks` API
+(`RequireManage`, §13), and surfaced read-only in the frontend dashboard (§6.2). The
+gateway remains the single writer.
 
 ## Scope
 
-- **Enqueue** (`Enqueuer`): the `WebhookEnqueuer` the inbound fan-out stage (§7)
+- **Enqueue** (`Enqueuer`): the `WebhookEnqueuer` the inbound fan-out stage (§9)
   calls per event. Persists one pending `webhook_deliveries` row per matching,
-  non-deduped webhook. No HTTP happens here.
+  non-deduped webhook (matched by `organization`/session/type). No HTTP happens here.
 - **Dispatch** (`Dispatcher`): claims due deliveries and sends them. Exposes
   `DeliverDue(ctx, limit)` (one claim+send pass) and `Deliver(ctx, delivery)`
   (a single delivery) so both are testable; the loop cadence is driven
   externally (an injected scheduler or asynq, wired in Phase 3).
 
-## Request shape (§9)
+## Request shape (§11)
 
 `POST` the JSON-marshaled `domain.Event` envelope with headers:
 
@@ -34,7 +38,9 @@ deliveries.
 All collaborators are **consumer interfaces** defined in `webhooks.go`; Phase 3
 injects concrete types.
 
-- `WebhookRepo{ ListMatching(ctx, tenant, session, eventType), Get(ctx, id) }`
+- `WebhookRepo{ ListMatching(ctx, organization, session, eventType), Get(ctx, id) }`
+  — scoping is by `organization_id`; `ListMatching` returns only the active webhooks
+  owned by the event's org whose session scope and events list match.
 - `WebhookDeliveryRepo{ Create, ClaimDue, MarkDelivered, MarkFailed, MarkDead, ExistsTerminal }`
 - `EventStore{ GetEvent(ctx, eventID) }` — reloads the envelope to POST (the
   delivery row only carries `webhook_id` + `event_id`, not the body)

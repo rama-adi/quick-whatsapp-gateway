@@ -3,14 +3,22 @@
 The eventing subsystem has two halves that share one envelope:
 
 1. **Normalization** (`internal/wa/events`) — translate raw whatsmeow events into the
-   versioned domain event catalog (§9), classify chats, and apply source-level ignore
+   versioned domain event catalog (§11), classify chats, and apply source-level ignore
    rules. Documented here.
 2. **Transport** (`internal/stream`, `internal/webhooks`) — the NDJSON stream and the
    webhook dispatcher that carry the envelope. Documented in their own specs and the
    transport section below (owned by another subsystem).
 
 The shared envelope is `domain.Event` (schema `v1`): `{schema, id (evt_<ulid>), event,
-session, tenant, timestamp (epoch-ms), payload}` — see `internal/domain/event.go`.
+session, organization, timestamp (epoch-ms), payload}` — see `internal/domain/event.go`.
+The envelope carries the **owning organization** (`organization`, a better-auth org id)
+so every transport can scope delivery by org. The catalog itself is **unchanged from
+v1**; only the ownership tag changed (`tenant` → `organization`).
+
+**Auth (per §4).** Both transports authenticate with the gateway's single two-acceptor
+middleware — a JWKS-verified better-auth **JWT** (human) or a better-auth **api-key**
+(machine). There is no event-specific auth path; the resolved org scopes what a caller
+sees.
 
 ---
 
@@ -26,17 +34,17 @@ no IO and no live client, so it is trivially unit-testable and parallel-safe. Co
 ### Key entry point
 
 ```go
-func Normalize(evt any, sessionID, tenantID string) (domain.Event, PersistResult, bool)
+func Normalize(evt any, sessionID, organizationID string) (domain.Event, PersistResult, bool)
 ```
 
 - Switches over the handled whatsmeow event types and returns:
   - a `domain.Event` envelope whose `Payload` is a **wire-safe, camelCase struct** — never
     a raw protobuf;
   - a `PersistResult`, the structured, protobuf-free handoff the inbound pipeline consumes
-    (capture → persist → fan-out, §7), so downstream stages never re-parse the raw event;
+    (capture → persist → fan-out, §9), so downstream stages never re-parse the raw event;
   - `ok=false` for events the catalog does not represent (the caller drops them).
 
-### Event mapping (§9 catalog)
+### Event mapping (§11 catalog)
 
 | whatsmeow event | catalog `event` | `PersistKind` |
 |---|---|---|
@@ -89,7 +97,7 @@ server), `FromMe`, push name, epoch-ms timestamp, body/caption, quoted stanza id
 JIDs, media flag + `MediaMeta` (mimetype/size/filename), reaction/edit/revoke target id,
 and structured `Location`/`Contact`/`Poll` bodies.
 
-### Media policy (§9)
+### Media policy (§11)
 
 Media is **never downloaded** in v1. For media messages `HasMedia=true` and `MediaInfo`
 carries the metadata for the `messages.media_meta` column, but the **wire** `payload.media`
@@ -129,7 +137,7 @@ unclassifiable data is worse than persisting an odd JID downstream can still rec
 Table-driven unit tests synthesize `*events.Message` values for each sub-type (text, text
 from-me, group text, quoted+mentions, reaction, edit, revoke, location, contact, poll,
 poll-vote, image/document media) and assert the mapped catalog `event`, `PersistKind`,
-sub-type, persisted `type` string, and extracted fields (incl. the §9 media-null
+sub-type, persisted `type` string, and extracted fields (incl. the §11 media-null
 invariant). Separate tables cover receipts→status, session-status events, QR/pair, presence
 + chat-presence, group update vs participant, push-name/contact, call offer, newsletter, the
 sender-LID-vs-PN rule, and the unknown-event drop. Ignore rules and `ClassifyChat` have
@@ -140,5 +148,5 @@ their own JID-classification tables. ~85% statement coverage; `go test` and `go 
 ## Transport (NDJSON stream + webhooks) — owned by another subsystem
 
 Status: see `internal/stream` and `internal/webhooks` specs. Both carry the same
-`domain.Event` envelope produced here; the fan-out stage (§7) appends to `event_log`,
+`domain.Event` envelope produced here; the fan-out stage (§9) appends to `event_log`,
 publishes to Redis pub/sub for stream subscribers, and enqueues webhook deliveries.

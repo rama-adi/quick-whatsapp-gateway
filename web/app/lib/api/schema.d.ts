@@ -1007,68 +1007,11 @@ export interface paths {
         };
         /**
          * Stream events (NDJSON)
-         * @description Long-lived NDJSON stream of the §9 event envelope. Accepts either an API key with the `events` permission or a dashboard session cookie.
+         * @description Long-lived NDJSON stream of the §9 event envelope. Requires the `events` capability: an api-key with the `events` permission, or a JWT (any role). Scoped to the caller's organization.
          */
         get: operations["events"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/keys": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List API keys */
-        get: operations["listKeys"];
-        put?: never;
-        /** Create an API key (full key shown once) */
-        post: operations["createKey"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/keys/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["parameters"]["ID"];
-            };
-            cookie?: never;
-        };
-        /** Get an API key */
-        get: operations["getKey"];
-        put?: never;
-        post?: never;
-        /** Revoke an API key */
-        delete: operations["deleteKey"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/keys/{id}:rotate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["parameters"]["ID"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Rotate an API key (new secret shown once) */
-        post: operations["rotateKey"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1121,7 +1064,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Cross-tenant session oversight (super_admin) */
+        /** Cross-organization session oversight (super_admin) */
         get: operations["adminListSessions"];
         put?: never;
         post?: never;
@@ -1157,15 +1100,27 @@ export interface components {
             autoRead?: boolean;
             presenceTyping?: boolean;
         };
+        /** @description An attached WhatsApp number (mirrors the wa_sessions table). Owned by an organization (`organizationId`); `gatewayId` names which gateway holds this session's keystore. Per §13 the response also carries the owning gateway's `label`/`status`/`baseUrl` from the `gateways` registry (the optional `gateway` object) so the dashboard can show where each session lives once there is more than one gateway. */
         WASession: {
+            /** @description App session id (ULID). */
             id: string;
-            tenantId: string;
+            /** @description Owning better-auth organization id. */
+            organizationId: string;
+            /** @description better-auth user that created the session (audit). */
+            createdByUserId?: string;
+            /** @description Gateway holding this session's keystore (= GATEWAY_ID). */
+            gatewayId: string;
+            /** @description The owning gateway's registry row (label/status/baseUrl), per §13. */
+            gateway?: components["schemas"]["Gateway"];
             label?: string;
             /** @enum {string} */
             status: "starting" | "scan_qr_code" | "working" | "failed" | "stopped" | "logged_out";
+            /** @description Phone JID once paired. */
             waJid?: string;
+            /** @description Linked-device id. */
             waLid?: string;
             phoneNumber?: string;
+            /** @description The WHATSAPP_ADMIN_NUMBER session. */
             isAdminSession: boolean;
             autoRead: boolean;
             presenceTyping: boolean;
@@ -1177,6 +1132,21 @@ export interface components {
             createdAt: number;
             /** Format: int64 */
             updatedAt: number;
+        };
+        /** @description A row in the `gateways` registry (§7) — one self-row in v2, more when sharding. Surfaced on session responses so the dashboard knows where a session lives. */
+        Gateway: {
+            /** @description Gateway id (= GATEWAY_ID). */
+            id: string;
+            label?: string;
+            /**
+             * @description Gateway liveness derived from the registry heartbeat.
+             * @enum {string}
+             */
+            status: "online" | "offline";
+            /** @description External base URL of this gateway (PUBLIC_URL). */
+            baseUrl?: string;
+            /** Format: int64 */
+            lastSeenAt?: number;
         };
         SessionPage: components["schemas"]["PageMeta"] & {
             data?: components["schemas"]["WASession"][];
@@ -1320,45 +1290,6 @@ export interface components {
         GroupPage: components["schemas"]["PageMeta"] & {
             data?: components["schemas"]["GroupInfo"][];
         };
-        Permissions: {
-            read?: boolean;
-            send?: boolean;
-            manage?: boolean;
-            events?: boolean;
-        };
-        CreateKeyRequest: {
-            name: string;
-            permissions: components["schemas"]["Permissions"];
-            /** @enum {string} */
-            scope?: "tenant" | "global";
-            /** Format: int64 */
-            expiresAt?: number;
-        };
-        APIKey: {
-            id?: string;
-            tenantId?: string;
-            name?: string;
-            keyPrefix?: string;
-            /** @enum {string} */
-            scope?: "tenant" | "global";
-            permissions?: components["schemas"]["Permissions"];
-            /** Format: int64 */
-            lastUsedAt?: number;
-            /** Format: int64 */
-            expiresAt?: number;
-            /** Format: int64 */
-            revokedAt?: number;
-            /** Format: int64 */
-            createdAt?: number;
-        };
-        CreateKeyResult: {
-            key?: components["schemas"]["APIKey"];
-            /** @description The full API key. Shown once at creation/rotation only. */
-            secret?: string;
-        };
-        APIKeyPage: components["schemas"]["PageMeta"] & {
-            data?: components["schemas"]["APIKey"][];
-        };
         RetryPolicy: {
             /** @example exponential */
             policy?: string;
@@ -1366,7 +1297,7 @@ export interface components {
             attempts?: number;
         };
         WebhookRequest: {
-            /** @description Null = all tenant sessions. */
+            /** @description Null = all of the organization's sessions. */
             sessionId?: string;
             url?: string;
             events?: string[];
@@ -1379,7 +1310,7 @@ export interface components {
         };
         Webhook: {
             id?: string;
-            tenantId?: string;
+            organizationId?: string;
             sessionId?: string;
             url?: string;
             events?: string[];
@@ -1402,11 +1333,15 @@ export interface components {
             schema: string;
             /** @example evt_01J9... */
             id: string;
-            /** @description Event type, e.g. message, message.status, group.update. */
+            /** @description Event type, e.g. message, session.status, group.update. */
             event: string;
             session: string;
-            tenant: string;
-            /** Format: int64 */
+            /** @description Owning organization id. */
+            organization: string;
+            /**
+             * Format: int64
+             * @description Epoch milliseconds.
+             */
             timestamp: number;
             payload: {
                 [key: string]: unknown;
@@ -2933,125 +2868,6 @@ export interface operations {
             401: components["responses"]["Error"];
         };
     };
-    listKeys: {
-        parameters: {
-            query?: {
-                /** @description Max items to return. */
-                limit?: components["parameters"]["Limit"];
-                /** @description Opaque pagination cursor from a previous response's nextCursor. */
-                cursor?: components["parameters"]["Cursor"];
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description A page of keys. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["APIKeyPage"];
-                };
-            };
-            403: components["responses"]["Error"];
-        };
-    };
-    createKey: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateKeyRequest"];
-            };
-        };
-        responses: {
-            /** @description The created key, including the full secret (shown once). */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CreateKeyResult"];
-                };
-            };
-            400: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-        };
-    };
-    getKey: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["parameters"]["ID"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The key (no secret). */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["APIKey"];
-                };
-            };
-            404: components["responses"]["Error"];
-        };
-    };
-    deleteKey: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["parameters"]["ID"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Revoked. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            404: components["responses"]["Error"];
-        };
-    };
-    rotateKey: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["parameters"]["ID"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The rotated key with its new secret. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CreateKeyResult"];
-                };
-            };
-            404: components["responses"]["Error"];
-        };
-    };
     listWebhooks: {
         parameters: {
             query?: {
@@ -3188,7 +3004,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description A page of sessions across all tenants. */
+            /** @description A page of sessions across all organizations. */
             200: {
                 headers: {
                     [name: string]: unknown;

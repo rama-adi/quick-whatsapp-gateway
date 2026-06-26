@@ -154,7 +154,7 @@ function SessionPicker({
             <span className="truncate">
               <span className="font-medium">{s.label || s.id}</span>
               <span className="block font-mono text-xs text-muted-foreground">
-                {s.tenantId}
+                {s.organizationId}
               </span>
             </span>
             <SessionStatusBadge status={withLiveStatus(s, overrides)} />

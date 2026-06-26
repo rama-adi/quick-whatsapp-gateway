@@ -1,6 +1,6 @@
 # Outbound Pipeline
 
-Package: `internal/wa/outbound` · Masterplan §8 + §11 send bodies.
+Package: `internal/wa/outbound` · Masterplan §10 + §13 send bodies.
 
 The unified send pipeline. Translates a `domain.SendRequest` (the single
 discriminated send body) into WhatsApp sends, with idempotency, per-session rate
@@ -9,7 +9,7 @@ limiting, optional jittered pacing, and a sync/async split.
 ## Scope
 
 - Unified typed send: `text`, `poll`, `location`, `contact`.
-- Message sub-resource ops (§11): `reaction`, `edit`, `revoke`, `vote`, `forward`.
+- Message sub-resource ops (§13): `reaction`, `edit`, `revoke`, `vote`, `forward`.
 - Media types (`image|video|audio|document|sticker`) → `not_implemented` (501),
   rejected before any WhatsApp call.
 - Sync mode (default): block on the whatsmeow ack, return
@@ -17,7 +17,7 @@ limiting, optional jittered pacing, and a sync/async split.
 - Async mode (`?async=true`): persist a queued `outbox` row, return its id; the
   final status arrives later via a `message.status` event when the async worker
   drains the row.
-- Idempotency: a tenant-scoped `Idempotency-Key`; a replay returns the original
+- Idempotency: an **organization-scoped** `Idempotency-Key` (keyed by `organization_id`, §7/§10); a replay returns the original
   result with `replayed:true` and makes no new WhatsApp call.
 - Rate limiting: per-session token budget in Redis (`rate_per_min` /
   `rate_per_hour`); sync over-limit → `rate_limited` error; async over-limit →
@@ -47,7 +47,7 @@ All collaborators are small interfaces owned by this package — no sibling
   `SendContact`, `React`, `Edit`, `Revoke`, `Vote`, `Forward`. Each returns
   `(waMessageID string, ts int64, err error)`, `ts` in epoch-ms.
 - `OutboxRepo` — `Insert`, `GetByIdempotencyKey`, `UpdateStatus`, `ClaimQueued`.
-  `Insert` MUST enforce `(tenant_id, idempotency_key)` uniqueness and return a
+  `Insert` MUST enforce `(organization_id, idempotency_key)` uniqueness and return a
   conflict-coded error on duplicates (the pipeline falls back to a replay).
 - `RateLimiter` — `Allow(ctx, sessionID, perMin, perHour) (ok, retryAfter, err)`.
 - `Clock` — `NowMs() int64`. `SystemClock()` is the production impl.
@@ -87,11 +87,11 @@ session id, so the `Sender` carries the target session on the request context:
   with `outbound.SessionIDFromContext`, resolves the live `*whatsmeow.Client` via
   `wa.Manager.ClientFor(sessionID)`, wraps it with `NewWhatsmeowClient`, and
   delegates. When the session has no connected client (or no session is on the
-  context) it returns `domain.ErrNotImplemented`, surfaced as the §11
+  context) it returns `domain.ErrNotImplemented`, surfaced as the §13
   `not_implemented` (501) envelope — a send fails loudly rather than panicking on
   a nil client.
 
-This replaces the earlier `StubWAClient` placeholder; sends now reach WhatsApp for
+The production `WAClient` replaces the earlier `StubWAClient` placeholder; sends reach WhatsApp for
 any connected session. `wa.Manager.ClientFor` type-asserts the managed session's
 `waClient` to the concrete `*whatsmeow.Client`, so test sessions (which inject a
 fake client) cleanly report "not available".

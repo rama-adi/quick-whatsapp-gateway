@@ -14,8 +14,8 @@ dev:         ## backend hot-reload (run infra-up first)
 web:         ## frontend dev server (HMR)
 	cd web && pnpm dev
 
-migrate:     ## apply DB migrations
-	migrate -path migrations -database "$$MYSQL_DSN" up   # or: go run ./cmd/server migrate up
+migrate:     ## apply DB migrations (the gateway binary embeds golang-migrate; no standalone CLI)
+	go run ./cmd/server migrate up
 
 build:       ## production image
 	docker build -t whatsmeow-gateway -f deploy/Dockerfile .

@@ -1,30 +1,23 @@
 # syntax=docker/dockerfile:1
+# GATEWAY image (Go / whatsmeow). Build context is the repo root:
+#   docker build -t whatsmeow-gateway -f deploy/Dockerfile .
 
-# --- Stage 1: build the React Router SPA to static assets ---
-FROM node:22-alpine AS web
-WORKDIR /web
-RUN corepack enable
-COPY web/package.json web/pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
-COPY web/ ./
-RUN pnpm build                       # SPA -> /web/build/client
-
-# --- Stage 2: build the Go binary (pure-Go, no CGO) ---
-# Pinned to golang:1.26-alpine to match go.mod's "go 1.26.4" (required by Authula).
-# Both the SQLite keystore fallback (pure-Go modernc.org/sqlite) and Authula's
-# imported packages build with CGO_ENABLED=0, so the binary is fully static with
-# no gcc/musl-dev needed.
-FROM golang:1.26-alpine AS api
+# --- Stage 1: build the Go binary (pure-Go, no CGO) ---
+# Pinned to golang:1.26-alpine to match go.mod. The SQLite keystore uses the
+# pure-Go modernc.org/sqlite driver, so CGO_ENABLED=0 yields a fully static
+# binary with no gcc/musl-dev needed. The gateway no longer embeds the SPA —
+# the frontend ships as a separate image (deploy/Dockerfile.web).
+FROM golang:1.26-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-COPY --from=web /web/build/client ./internal/http/static/dist
 RUN CGO_ENABLED=0 go build -o /out/gateway ./cmd/server
 
-# --- Stage 3: minimal runtime ---
+# --- Stage 2: minimal runtime ---
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates tzdata
-COPY --from=api /out/gateway /usr/local/bin/gateway
+COPY --from=build /out/gateway /usr/local/bin/gateway
+VOLUME ["/data/keystore"]            # SQLite whatsmeow keystore persists here
 EXPOSE 8080
 ENTRYPOINT ["gateway"]

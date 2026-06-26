@@ -3,17 +3,22 @@ info:
   title: whatsmeow Gateway API
   version: 1.0.0
   description: >
-    REST API for the multi-tenant WhatsApp gateway (masterplan §11). This file is
-    the contract of record; it is served verbatim at /api/v1/openapi.yaml (no
-    Swagger UI).
+    REST API for the organization-scoped WhatsApp gateway (masterplan §13). This
+    file is the contract of record; it is served verbatim at /api/v1/openapi.yaml
+    (no Swagger UI).
 
 
     Conventions:
       * Base path /api/v1.
-      * The session is always a path parameter; the API key is account-global.
-      * Authentication: bearer API key (`Authorization: Bearer wak_…`). Each key
-        carries a permission set (read / send / manage / events); routes are gated
-        by the permission they require.
+      * The session is always a path parameter; sessions are owned by an
+        organization (the active org on the JWT, or the api-key's owning org).
+      * Authentication: a single Bearer token that is EITHER a better-auth JWT
+        (humans, verified against the JWKS) OR a better-auth api-key (machines,
+        prefix `wa_`); api-keys may also be sent in the `x-api-key` header. JWTs
+        carry an org role + platform role; api-keys carry a `gateway` permission
+        set (read / send / manage / events). Routes are gated by the capability
+        they require. Auth, user, and api-key MANAGEMENT live in better-auth on
+        the frontend — the gateway only verifies tokens (see "Removed vs v1").
       * Errors share one envelope: `{ "error": { "code", "message", "details" } }`.
       * Lists take `?limit=` and an opaque `?cursor=` and return
         `{ "data": [...], "nextCursor": "…" }`.
@@ -24,7 +29,8 @@ servers:
   - url: /api/v1
     description: API base
 security:
-  - apiKey: []
+  - bearerAuth: []
+  - apiKeyHeader: []
 tags:
   - name: Health
   - name: Sessions
@@ -35,7 +41,6 @@ tags:
   - name: Channels
   - name: Status & Presence
   - name: Events
-  - name: Keys
   - name: Webhooks
   - name: Admin
 
@@ -986,8 +991,9 @@ paths:
       tags: [Events]
       summary: Stream events (NDJSON)
       description: >
-        Long-lived NDJSON stream of the §9 event envelope. Accepts either an API
-        key with the `events` permission or a dashboard session cookie.
+        Long-lived NDJSON stream of the §9 event envelope. Requires the `events`
+        capability: an api-key with the `events` permission, or a JWT (any role).
+        Scoped to the caller's organization.
       operationId: events
       parameters:
         - name: types
@@ -1005,75 +1011,6 @@ paths:
             application/x-ndjson:
               schema: { $ref: "#/components/schemas/Event" }
         "401": { $ref: "#/components/responses/Error" }
-
-  # ------------------------------------------------------------------- Keys
-  /keys:
-    get:
-      tags: [Keys]
-      summary: List API keys
-      operationId: listKeys
-      parameters:
-        - $ref: "#/components/parameters/Limit"
-        - $ref: "#/components/parameters/Cursor"
-      responses:
-        "200":
-          description: A page of keys.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/APIKeyPage" }
-        "403": { $ref: "#/components/responses/Error" }
-    post:
-      tags: [Keys]
-      summary: Create an API key (full key shown once)
-      operationId: createKey
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/CreateKeyRequest" }
-      responses:
-        "201":
-          description: The created key, including the full secret (shown once).
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/CreateKeyResult" }
-        "400": { $ref: "#/components/responses/Error" }
-        "403": { $ref: "#/components/responses/Error" }
-
-  /keys/{id}:
-    parameters: [ { $ref: "#/components/parameters/ID" } ]
-    get:
-      tags: [Keys]
-      summary: Get an API key
-      operationId: getKey
-      responses:
-        "200":
-          description: The key (no secret).
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/APIKey" }
-        "404": { $ref: "#/components/responses/Error" }
-    delete:
-      tags: [Keys]
-      summary: Revoke an API key
-      operationId: deleteKey
-      responses:
-        "204": { description: Revoked. }
-        "404": { $ref: "#/components/responses/Error" }
-
-  /keys/{id}:rotate:
-    parameters: [ { $ref: "#/components/parameters/ID" } ]
-    post:
-      tags: [Keys]
-      summary: Rotate an API key (new secret shown once)
-      operationId: rotateKey
-      responses:
-        "200":
-          description: The rotated key with its new secret.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/CreateKeyResult" }
-        "404": { $ref: "#/components/responses/Error" }
 
   # --------------------------------------------------------------- Webhooks
   /webhooks:
@@ -1149,14 +1086,14 @@ paths:
   /admin/sessions:
     get:
       tags: [Admin]
-      summary: Cross-tenant session oversight (super_admin)
+      summary: Cross-organization session oversight (super_admin)
       operationId: adminListSessions
       parameters:
         - $ref: "#/components/parameters/Limit"
         - $ref: "#/components/parameters/Cursor"
       responses:
         "200":
-          description: A page of sessions across all tenants.
+          description: A page of sessions across all organizations.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/SessionPage" }
@@ -1165,10 +1102,25 @@ paths:
 # ===================================================================
 components:
   securitySchemes:
-    apiKey:
+    bearerAuth:
       type: http
       scheme: bearer
-      description: "Account-global API key, e.g. `Authorization: Bearer wak_…`."
+      bearerFormat: JWT
+      description: >
+        `Authorization: Bearer <token>`. The SAME bearer accepts EITHER a
+        better-auth JWT (EdDSA; humans, verified against the JWKS — carries
+        the active org + org/platform role) OR a better-auth api-key (machines;
+        prefix `wa_`, carries a `gateway` permission set). The gateway tries
+        both acceptors. `bearerFormat: JWT` documents the human path; api-keys
+        are also accepted on this header.
+    apiKeyHeader:
+      type: apiKey
+      in: header
+      name: x-api-key
+      description: >
+        Alternative transport for a better-auth api-key (prefix `wa_`), for
+        clients that cannot set an `Authorization` header. Equivalent to
+        sending the api-key as a Bearer token.
 
   parameters:
     Session:
@@ -1275,18 +1227,30 @@ components:
         presenceTyping: { type: boolean }
     WASession:
       type: object
-      required: [id, tenantId, status, isAdminSession, autoRead, presenceTyping, ratePerMin, ratePerHour, createdAt, updatedAt]
+      description: >
+        An attached WhatsApp number (mirrors the wa_sessions table). Owned by an
+        organization (`organizationId`); `gatewayId` names which gateway holds
+        this session's keystore. Per §13 the response also carries the owning
+        gateway's `label`/`status`/`baseUrl` from the `gateways` registry (the
+        optional `gateway` object) so the dashboard can show where each session
+        lives once there is more than one gateway.
+      required: [id, organizationId, gatewayId, status, isAdminSession, autoRead, presenceTyping, ratePerMin, ratePerHour, createdAt, updatedAt]
       properties:
-        id: { type: string }
-        tenantId: { type: string }
+        id: { type: string, description: App session id (ULID). }
+        organizationId: { type: string, description: Owning better-auth organization id. }
+        createdByUserId: { type: string, description: better-auth user that created the session (audit). }
+        gatewayId: { type: string, description: Gateway holding this session's keystore (= GATEWAY_ID). }
+        gateway:
+          $ref: "#/components/schemas/Gateway"
+          description: The owning gateway's registry row (label/status/baseUrl), per §13.
         label: { type: string }
         status:
           type: string
           enum: [starting, scan_qr_code, working, failed, stopped, logged_out]
-        waJid: { type: string }
-        waLid: { type: string }
+        waJid: { type: string, description: Phone JID once paired. }
+        waLid: { type: string, description: Linked-device id. }
         phoneNumber: { type: string }
-        isAdminSession: { type: boolean }
+        isAdminSession: { type: boolean, description: The WHATSAPP_ADMIN_NUMBER session. }
         autoRead: { type: boolean }
         presenceTyping: { type: boolean }
         ratePerMin: { type: integer }
@@ -1294,6 +1258,22 @@ components:
         lastConnectedAt: { type: integer, format: int64 }
         createdAt: { type: integer, format: int64 }
         updatedAt: { type: integer, format: int64 }
+    Gateway:
+      type: object
+      description: >
+        A row in the `gateways` registry (§7) — one self-row in v2, more when
+        sharding. Surfaced on session responses so the dashboard knows where a
+        session lives.
+      required: [id, status]
+      properties:
+        id: { type: string, description: Gateway id (= GATEWAY_ID). }
+        label: { type: string }
+        status:
+          type: string
+          description: Gateway liveness derived from the registry heartbeat.
+          enum: [online, offline]
+        baseUrl: { type: string, description: External base URL of this gateway (PUBLIC_URL). }
+        lastSeenAt: { type: integer, format: int64 }
     SessionPage:
       type: object
       allOf:
@@ -1482,51 +1462,6 @@ components:
               type: array
               items: { $ref: "#/components/schemas/GroupInfo" }
 
-    # --- keys ---
-    Permissions:
-      type: object
-      properties:
-        read: { type: boolean }
-        send: { type: boolean }
-        manage: { type: boolean }
-        events: { type: boolean }
-    CreateKeyRequest:
-      type: object
-      required: [name, permissions]
-      properties:
-        name: { type: string }
-        permissions: { $ref: "#/components/schemas/Permissions" }
-        scope: { type: string, enum: [tenant, global] }
-        expiresAt: { type: integer, format: int64 }
-    APIKey:
-      type: object
-      properties:
-        id: { type: string }
-        tenantId: { type: string }
-        name: { type: string }
-        keyPrefix: { type: string }
-        scope: { type: string, enum: [tenant, global] }
-        permissions: { $ref: "#/components/schemas/Permissions" }
-        lastUsedAt: { type: integer, format: int64 }
-        expiresAt: { type: integer, format: int64 }
-        revokedAt: { type: integer, format: int64 }
-        createdAt: { type: integer, format: int64 }
-    CreateKeyResult:
-      type: object
-      properties:
-        key: { $ref: "#/components/schemas/APIKey" }
-        secret:
-          type: string
-          description: The full API key. Shown once at creation/rotation only.
-    APIKeyPage:
-      type: object
-      allOf:
-        - $ref: "#/components/schemas/PageMeta"
-        - properties:
-            data:
-              type: array
-              items: { $ref: "#/components/schemas/APIKey" }
-
     # --- webhooks ---
     RetryPolicy:
       type: object
@@ -1537,7 +1472,7 @@ components:
     WebhookRequest:
       type: object
       properties:
-        sessionId: { type: string, description: Null = all tenant sessions. }
+        sessionId: { type: string, description: "Null = all of the organization's sessions." }
         url: { type: string }
         events:
           type: array
@@ -1552,7 +1487,7 @@ components:
       type: object
       properties:
         id: { type: string }
-        tenantId: { type: string }
+        organizationId: { type: string }
         sessionId: { type: string }
         url: { type: string }
         events:
@@ -1578,14 +1513,14 @@ components:
     Event:
       type: object
       description: The §9 event envelope, one per NDJSON line.
-      required: [schema, id, event, session, tenant, timestamp, payload]
+      required: [schema, id, event, session, organization, timestamp, payload]
       properties:
         schema: { type: string, example: v1 }
         id: { type: string, example: "evt_01J9..." }
         event:
           type: string
-          description: Event type, e.g. message, message.status, group.update.
+          description: Event type, e.g. message, session.status, group.update.
         session: { type: string }
-        tenant: { type: string }
-        timestamp: { type: integer, format: int64 }
+        organization: { type: string, description: Owning organization id. }
+        timestamp: { type: integer, format: int64, description: Epoch milliseconds. }
         payload: { type: object, additionalProperties: true }

@@ -1,16 +1,41 @@
-# Production: bring-your-own MySQL + Redis. Only the app runs here.
-# The MySQL keystore means prod needs only your shared MySQL + Redis.
+# Production / split hosting: bring-your-own MySQL + Redis; only the app images
+# run here. The gateway runs near WhatsApp with its keystore volume; the
+# frontend can run anywhere that reaches MySQL and the gateway. All connection
+# strings + secrets come from the environment (see deploy/.env.example for the
+# gateway vars and web/.env.example for the frontend vars).
+#   docker compose -f deploy/docker-compose.external.yml up -d
 services:
   gateway:
     image: ghcr.io/you/whatsmeow-gateway:latest
     ports: ["8080:8080"]
     environment:
-      MYSQL_DSN: "${MYSQL_DSN}"
-      WHATSMEOW_STORE_DRIVER: "mysql"
-      WHATSMEOW_STORE_DSN: "${MYSQL_DSN}"
-      REDIS_URL: "${REDIS_URL}"
+      HTTP_ADDR: ":8080"
+      GATEWAY_ID: "${GATEWAY_ID:-gw-1}"
+      PUBLIC_URL: "${PUBLIC_URL}"
+      BETTER_AUTH_URL: "${BETTER_AUTH_URL}"
+      # Defaults to ${BETTER_AUTH_URL}/api/auth/jwks if omitted.
+      BETTER_AUTH_JWKS_URL: "${BETTER_AUTH_JWKS_URL:-}"
+      FRONTEND_ORIGINS: "${FRONTEND_ORIGINS}"
       APP_ENCRYPTION_KEY: "${APP_ENCRYPTION_KEY}"
-      ADMIN_EMAIL: "${ADMIN_EMAIL}"
-      ADMIN_PASSWORD: "${ADMIN_PASSWORD}"
+      MYSQL_DSN: "${MYSQL_DSN}"
+      # SQLite keystore on the mounted volume (pure-Go modernc driver).
+      WHATSMEOW_STORE_DSN: "${WHATSMEOW_STORE_DSN:-file:/data/keystore/store.db?_pragma=foreign_keys(on)&_pragma=journal_mode(WAL)}"
+      REDIS_URL: "${REDIS_URL}"
+      # Control bus; defaults to REDIS_URL (single instance) inside the gateway.
+      PUBSUB_REDIS_URL: "${PUBSUB_REDIS_URL:-}"
+      REDIS_PREFIX: "${REDIS_PREFIX:-gw}"
       WHATSAPP_ADMIN_NUMBER: "${WHATSAPP_ADMIN_NUMBER}"
-      USER_PANEL_ENABLED: "${USER_PANEL_ENABLED:-true}"
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+    volumes: ["keystore_data:/data/keystore"]
+  frontend:
+    image: ghcr.io/you/whatsmeow-gateway-web:latest
+    ports: ["3000:3000"]
+    environment:
+      BETTER_AUTH_SECRET: "${BETTER_AUTH_SECRET}"
+      BETTER_AUTH_URL: "${BETTER_AUTH_URL}"
+      DATABASE_URL: "${DATABASE_URL}"
+      GATEWAY_URL: "${GATEWAY_URL}"
+      VITE_GATEWAY_URL: "${VITE_GATEWAY_URL:-${GATEWAY_URL}}"
+      PUBSUB_REDIS_URL: "${PUBSUB_REDIS_URL}"
+      USER_REGISTRATION_ENABLED: "${USER_REGISTRATION_ENABLED:-true}"
+volumes: { keystore_data: {} }

@@ -26,10 +26,8 @@ export type Group = components["schemas"]["GroupInfo"];
 export type GroupMember = components["schemas"]["GroupMember"];
 export type GroupSettings = components["schemas"]["GroupSettings"];
 
-export type Permissions = components["schemas"]["Permissions"];
-export type ApiKey = components["schemas"]["APIKey"];
-export type CreateKeyRequest = components["schemas"]["CreateKeyRequest"];
-export type CreateKeyResult = components["schemas"]["CreateKeyResult"];
+// API-key management moved to better-auth on the frontend (the gateway only
+// *verifies* keys). No gateway /keys schemas remain — see app/routes/_app/user/keys.tsx.
 
 export type Webhook = components["schemas"]["Webhook"];
 export type WebhookRequest = components["schemas"]["WebhookRequest"];

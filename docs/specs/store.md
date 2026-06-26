@@ -1,121 +1,112 @@
-# Store — MySQL app-data repositories
+# Store — MySQL app-data repositories (`internal/store`)
 
-Package: `internal/store` · module `github.com/ramaadi/quick-whatsapp-gateway/internal/store`
+Status: implemented (R1).
 
-## Scope
+The app-data persistence layer for the WA-domain plane. Plain `database/sql` (no ORM), one repo
+type per aggregate, each method returning `internal/domain` types. The gateway is the **sole
+writer** of these tables; the frontend reads them read-only via Drizzle ([`frontend.md`](frontend.md)
+§ hybrid reads). Masterplan §6, §7.
 
-The app-data persistence layer for every table in masterplan §5. Plain
-`database/sql` (no ORM), one repo type per aggregate, each method returning
-`internal/domain` types. This package **owns** the concrete MySQL repo
-implementations; per the build's import rules it is imported by no one during the
-parallel phase and is wired in by Phase 3.
+## Ownership — `organization_id`, not `tenant_id`
 
-Tables covered (one repo each unless noted):
+Every owned resource is keyed by **`organization_id`** (a better-auth organization id), reached
+through org membership — the v1 `tenant_id` / `tenants` mirror and the custom `api_keys` table are
+**gone**. `created_by_user_id` is retained for audit. A personal org is auto-created per user on
+signup, so solo use is a one-member org. The gateway authorizes from JWT claims /
+api-key `reference_id`, never by joining `member` on the hot path ([`trust-model.md`](trust-model.md)).
 
-| Table | Repo |
-|---|---|
-| `tenants` | `TenantRepo` |
-| `wa_sessions` | `SessionRepo` |
-| `api_keys` | `APIKeyRepo` |
-| `webhooks` | `WebhookRepo` |
-| `webhook_deliveries` | `WebhookDeliveryRepo` |
-| `whatsapp_identities` | `IdentityRepo` |
-| `whatsapp_contacts` | `ContactRepo` |
-| `whatsapp_groups` | `GroupRepo` |
-| `whatsapp_group_members` | `GroupMemberRepo` |
-| `chats` | `ChatRepo` |
-| `messages` | `MessageRepo` |
-| `poll_votes` | `PollVoteRepo` |
-| `outbox` | `OutboxRepo` |
-| `event_log` | `EventLogRepo` |
+## Tables & repos
 
-`Store` (in `store.go`) aggregates all repos for convenient wiring; `New(db
-*sql.DB)` builds the full set. Each repo is also independently constructable via
-its `New<Repo>(db)`.
+| Table | Repo | Owning key |
+|---|---|---|
+| `gateways` | `GatewayRepo` | (registry; one self-row in v2) |
+| `wa_sessions` | `SessionRepo` | `organization_id` (+ `gateway_id` pin) |
+| `webhooks` | `WebhookRepo` | `organization_id` |
+| `webhook_deliveries` | `WebhookDeliveryRepo` | via `webhook_id` |
+| `whatsapp_identities` | `IdentityRepo` | global |
+| `whatsapp_contacts` | `ContactRepo` | via `session_id` |
+| `whatsapp_groups` | `GroupRepo` | global |
+| `whatsapp_group_members` | `GroupMemberRepo` | via `session_id` |
+| `chats` | `ChatRepo` | via `session_id` |
+| `messages` | `MessageRepo` | via `session_id` |
+| `poll_votes` | `PollVoteRepo` | via `session_id` |
+| `outbox` | `OutboxRepo` | `organization_id` (idempotency) |
+| `event_log` | `EventLogRepo` | `organization_id` |
 
-## Key types & interfaces
+`apikey` and the other better-auth tables are **not** in this repo set — they are frontend-owned
+(Drizzle). `APIKeyRepo` here is **read-only** (`GetByHash`) and used solely by `internal/authz`
+to verify keys ([`api-keys.md`](api-keys.md)); it is not a key-management repo.
 
-- **`dbExecQuerier`** (consumer interface) — the `ExecContext` /
-  `QueryContext` / `QueryRowContext` subset of `*sql.DB` and `*sql.Tx`. Every
-  `New<Repo>` takes this, so a repo runs against a raw DB or inside a
-  transaction, and is trivially satisfied by `go-sqlmock`'s `*sql.DB`.
-- **`Page[T]`** — `{ Items []T; NextCursor string }`, the result of every
-  cursor-paginated list (`ListByChat`, `ChatRepo.ListBySession`,
-  `ContactRepo.List`).
-- **Method shapes** (representative):
-  - `SessionRepo`: `Create, Get, GetByJID, ListByTenant, ListAll, Update, UpdateStatus, Delete`
-  - `MessageRepo`: `Upsert` (by `session_id+wa_message_id`), `GetByWAID, UpdateStatus, MarkEdited, MarkDeleted, ListByChat`
-  - `ChatRepo`: `Upsert, Get, ListBySession, UpdateFlags, Delete`
-  - `IdentityRepo`: `Upsert` (by `lid`), `GetByLID`
-  - `ContactRepo`: `Upsert` (by `session_id+lid`), `BumpSeen, Get, List(ContactFilter, cursor, limit)`
-  - `GroupRepo`: `Upsert, GetByJID`; `GroupMemberRepo`: `Upsert, ListByGroup, ListByContact, Remove`
-  - `APIKeyRepo`: `Create, Get, GetByPrefix, ListByTenant, UpdateLastUsed, Revoke, Rotate`
-  - `WebhookRepo`: `Create, Get, ListByTenant, ListActiveForEvent, Update, Delete`
-  - `WebhookDeliveryRepo`: `Enqueue, ClaimDue, MarkDelivered, MarkFailed, MarkDead`
-  - `OutboxRepo`: `Insert, Get, GetByIdempotency, UpdateStatus, ClaimQueued`
-  - `EventLogRepo`: `Append, ListSince(tenant, session, afterID, limit), GetByEventID`
-  - `TenantRepo`: `Upsert, GetByID, GetByEmail`
-  - `PollVoteRepo`: `Insert, ListByPoll`
+`Store` (`store.go`) aggregates the repos; `New(db *sql.DB)` builds the set. Org-scoped lists are
+`ListByOrg(ctx, organizationID)` (sessions, webhooks); session-scoped tables resolve their owning
+org via `wa_sessions`.
 
-## Decisions
+## v2 DDL highlights (`migrations/0001_init.up.sql`)
 
-- **Upserts** use MySQL `ON DUPLICATE KEY UPDATE` keyed on the table's natural
-  unique key (e.g. `messages` on `(session_id, wa_message_id)`, `whatsapp_contacts`
-  on `(session_id, lid)`). Capture upserts use `COALESCE(VALUES(col), col)` so a
-  sparse later sighting never wipes a previously-known value (push name, phone,
-  group subject). `whatsapp_contacts.seen_in_dm` is OR-ed in; `chats.last_message_at`
-  only moves forward via `GREATEST`.
-- **Field ownership / no clobber.** Content upserts deliberately omit fields that
-  have dedicated mutators: `MessageRepo.Upsert` does not touch
-  `status/ack_level/edited/deleted` (owned by `UpdateStatus/MarkEdited/MarkDeleted`),
-  so a redelivered capture event can't regress a delivery receipt. `ChatRepo.Upsert`
-  leaves the user flags (`archived/pinned/muted_until`) to `UpdateFlags`.
-- **Timestamps** are epoch-ms `int64` supplied by the caller
-  (`domain.NowMs()`); the repos never call the clock, keeping them deterministic
-  and testable.
-- **NULL handling.** Nullable columns are `*T` in `domain`; nullable JSON columns
-  bind through `nullableJSON` (`nil`/empty → SQL `NULL`). JSON columns are read as
-  `[]byte` and unmarshalled into `json.RawMessage` (opaque: `mentions`, `payload`,
-  `selected_options`, `raw_json`) or typed structs (`permissions`, `retry_policy`,
-  `media_meta`, `custom_headers`, `events`).
-- **Cursor pagination** is opaque over the surrogate `id` column: the cursor is
-  the decimal id (callers must not parse it). `parseCursor`/`encodeCursor` are the
-  only places that know the encoding; `pageFrom` sets `NextCursor` to the last
-  id only when the page filled to `limit`. Limits clamp to `[1, 200]` (default 50).
-  A malformed cursor is a `validation_error` `domain.APIError`.
-- **Error mapping.** `sql.ErrNoRows` from a single-row lookup maps to
-  `domain.ErrNotFound` (`not_found` APIError). An `UPDATE`/`DELETE` that matches
-  zero rows likewise maps to `not_found` (`affectedOrNotFound`); when the driver
-  doesn't report affected rows the exec is treated as succeeded. All other DB
-  errors are wrapped with `%w` and a `store: <op>` prefix.
-- **Concurrency.** v1 is single-instance (§3), so the work-claim queries
-  (`OutboxRepo.ClaimQueued`, `WebhookDeliveryRepo.ClaimDue`) use plain
-  UPDATE-then-SELECT / SELECT rather than `FOR UPDATE SKIP LOCKED`. `ClaimQueued`
-  tags the batch via the claim `updated_at` to read back exactly the rows it just
-  transitioned. This is documented in the code as the v2 multi-instance upgrade
-  point.
+The v1 `0001_init` + `0002_wmstore` migrations were **dropped** and replaced by a single fresh v2
+`0001_init` (pre-release DB reset, no backfill). Conventions: `utf8mb4`/`utf8mb4_unicode_ci`,
+epoch-ms `BIGINT` timestamps, `VARCHAR(64)` ULID PKs (or surrogate `BIGINT UNSIGNED AUTO_INCREMENT`).
 
-## Consumer interface for wiring (Phase 3)
+```sql
+CREATE TABLE gateways (            -- registry; one self-row in v2, rows added when sharding
+  id VARCHAR(64) PRIMARY KEY,      -- = GATEWAY_ID
+  label VARCHAR(255) NULL, base_url TEXT NULL, last_seen_at BIGINT NULL,
+  created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL
+);
 
-Each `New<Repo>` accepts the local `dbExecQuerier`. Phase 3 passes the concrete
-`*sql.DB` (or a `*sql.Tx`); both satisfy it. The convenience entrypoint is
-`store.New(db *sql.DB) *Store`. Service-layer packages should depend on their own
-narrow interfaces (Go consumer-interface convention) and accept the concrete
-repos as implementations.
+CREATE TABLE wa_sessions (
+  id VARCHAR(64) PRIMARY KEY,
+  organization_id    VARCHAR(64) NOT NULL,   -- better-auth org id (owner)
+  created_by_user_id VARCHAR(64) NULL,       -- audit
+  gateway_id         VARCHAR(64) NOT NULL,   -- which gateway holds this session's keystore
+  ... status / wa_jid / is_admin_session / rate_per_min / ...
+  KEY idx_sessions_org (organization_id),
+  KEY idx_sessions_gateway (gateway_id),
+  UNIQUE KEY uq_sessions_jid (wa_jid)
+);
+-- webhooks/webhook_deliveries/whatsapp_*/chats/messages/poll_votes/outbox/event_log follow §7
+```
+
+- **`organization_id`** replaces v1 `tenant_id` on every owned table; `webhooks`, `event_log`,
+  `outbox` carry it directly.
+- **`gateways` + `wa_sessions.gateway_id`** are new in v2 — the session-pinning seam
+  ([`whatsmeow-store.md`](whatsmeow-store.md), masterplan §4.5).
+- **No `wmstore_*` in MySQL.** The whatsmeow keystore is gateway-local SQLite, auto-migrated by
+  `sqlstore` — it is no longer part of this migration set.
+- better-auth's own tables (`user`/`session`/`apikey`/`organization`/`member`/…) are **not**
+  defined here; they are frontend-owned (drizzle-kit). Match `organization_id`/`user_id` lengths
+  to better-auth ids (`VARCHAR(64)`).
+
+## Migrations tooling — the binary applies them
+
+The gateway **binary** owns the WA-data plane migrations via **golang-migrate** embedded over
+`migrations/` (`source/iofs`, `database/mysql`). There is **no standalone migrate CLI**: run
+`server migrate up` / `server migrate down` (`cmd/server/main.go`). The Makefile `migrate` target
+invokes the binary. The auth plane is migrated separately by drizzle-kit in the frontend
+(masterplan §19 #5).
+
+## Decisions (carried from v1, still apply)
+
+- **Upserts** via `ON DUPLICATE KEY UPDATE` on the natural unique key; capture upserts use
+  `COALESCE(VALUES(col), col)` so a sparse later sighting never wipes a known value; `seen_in_dm`
+  is OR-ed; `chats.last_message_at` only moves forward via `GREATEST`.
+- **Field ownership / no clobber.** Content upserts omit fields with dedicated mutators
+  (`messages.status/edited/deleted`, `chats` user flags), so a redelivered capture can't regress a
+  receipt.
+- **Timestamps** are caller-supplied epoch-ms `int64` (`domain.NowMs()`) — repos never call the
+  clock, staying deterministic/testable.
+- **NULL/JSON.** Nullable columns are `*T`; nullable JSON binds through `nullableJSON`; JSON reads
+  as opaque `json.RawMessage` or typed structs (`permissions`, `retry_policy`, `media_meta`,
+  `custom_headers`, `events`).
+- **Cursor pagination** opaque over the surrogate `id` (`Page[T]{Items, NextCursor}`); limits
+  clamp to `[1,200]` (default 50); bad cursor → `validation_error`.
+- **Error mapping.** `sql.ErrNoRows` and zero-rows-affected updates/deletes → `domain.ErrNotFound`;
+  other DB errors wrapped with `%w` + a `store: <op>` prefix.
+- **Concurrency.** Work-claim queries (`OutboxRepo.ClaimQueued`, `WebhookDeliveryRepo.ClaimDue`)
+  are documented as the multi-instance upgrade point (`FOR UPDATE SKIP LOCKED`).
 
 ## How it's tested
 
-`go-sqlmock` with the regexp query matcher drives every repo test (no live DB).
-Tests assert on: SQL construction (the meaningful fragments — `ON DUPLICATE KEY
-UPDATE`, `COALESCE`, `GREATEST`, join shapes, `ORDER BY id ASC LIMIT`), argument
-binding order, row scanning into `domain` structs (including `*T` nullables, JSON
-columns, and typed JSON like `permissions`/`media_meta`/`retry_policy`), cursor
-pagination (full page → next cursor = last id; partial page → empty; bad cursor →
-`validation_error`), and `ErrNoRows`/zero-rows-affected → `not_found` mapping.
-Pure helpers (`normLimit`, `parseCursor`/`encodeCursor`, `pageFrom`,
-`nullableJSON`, `prefixCols`) have direct table-driven tests. Representative repos
-required by the task — sessions, messages, contacts, api_keys, event_log, outbox —
-are covered in depth; the rest (tenant, webhook, webhook_delivery, identity,
-group, group_member, chat, poll_vote) have create/upsert + scan + not-found
-coverage. `CGO_ENABLED=0 go test ./internal/store/...` passes; ~64% statement
-coverage.
+`go-sqlmock` (regexp matcher) drives every repo — SQL construction, arg binding, row scanning into
+`domain` (incl. `*T` nullables + typed JSON), cursor pagination, and `ErrNoRows`/zero-rows →
+`not_found` mapping. `CGO_ENABLED=0 go test ./internal/store/...`.

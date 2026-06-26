@@ -1,6 +1,12 @@
-# Local, all-in-one stack with the database included.
-# Build context is the repo root, so build from there:
+# Local, all-in-one v2 stack: gateway + frontend + MySQL + Redis.
+# Build context is the repo root (one level up from this file), so run:
 #   docker compose -f deploy/docker-compose.yml up --build
+#
+# Single-instance topology: one shared MySQL (WA tables rw + better-auth tables)
+# and one shared Redis used as BOTH the work bus (gateway REDIS_URL) and the
+# control bus (gateway PUBSUB_REDIS_URL defaults to REDIS_URL; the frontend
+# publishes ctrl:* revocations to the same Redis via PUBSUB_REDIS_URL).
+# Secrets come from a sibling .env (see deploy/.env.example).
 services:
   gateway:
     build:
@@ -8,14 +14,40 @@ services:
       dockerfile: deploy/Dockerfile
     ports: ["8080:8080"]
     environment:
-      MYSQL_DSN: "gw:gwpass@tcp(mysql:3306)/gateway?parseTime=true&charset=utf8mb4"
-      WHATSMEOW_STORE_DRIVER: "mysql"
-      WHATSMEOW_STORE_DSN: "gw:gwpass@tcp(mysql:3306)/gateway?parseTime=true&charset=utf8mb4"
-      REDIS_URL: "redis://redis:6379"
+      HTTP_ADDR: ":8080"
+      GATEWAY_ID: "gw-1"
+      PUBLIC_URL: "http://localhost:8080"
+      # The frontend's base URL = JWT iss/aud the gateway enforces. The browser
+      # reaches the frontend at localhost:3000, so iss/aud must match that.
+      BETTER_AUTH_URL: "http://localhost:3000"
+      BETTER_AUTH_JWKS_URL: "http://frontend:3000/api/auth/jwks"
+      FRONTEND_ORIGINS: "http://localhost:3000"
       APP_ENCRYPTION_KEY: "${APP_ENCRYPTION_KEY}"
-      ADMIN_EMAIL: "${ADMIN_EMAIL}"
-      ADMIN_PASSWORD: "${ADMIN_PASSWORD}"
+      MYSQL_DSN: "gw:gwpass@tcp(mysql:3306)/gateway?parseTime=true&charset=utf8mb4"
+      WHATSMEOW_STORE_DSN: "file:/data/keystore/store.db?_pragma=foreign_keys(on)&_pragma=journal_mode(WAL)"
+      REDIS_URL: "redis://redis:6379"
+      REDIS_PREFIX: "gw"
       WHATSAPP_ADMIN_NUMBER: "${WHATSAPP_ADMIN_NUMBER}"
+      LOG_LEVEL: "info"
+    volumes: ["keystore_data:/data/keystore"]
+    depends_on: [mysql, redis]
+  frontend:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
+    ports: ["3000:3000"]
+    environment:
+      BETTER_AUTH_SECRET: "${BETTER_AUTH_SECRET}"
+      BETTER_AUTH_URL: "http://localhost:3000"
+      DATABASE_URL: "mysql://gw:gwpass@mysql:3306/gateway"
+      # Server-side base URL for the gateway (action proxying, server fns).
+      GATEWAY_URL: "http://gateway:8080"
+      # Browser-facing gateway URL (Vite inlines VITE_*); the browser calls the
+      # gateway directly with a Bearer JWT for actions + the NDJSON stream.
+      VITE_GATEWAY_URL: "http://localhost:8080"
+      # Publish-only control bus: the same Redis the gateway subscribes to.
+      PUBSUB_REDIS_URL: "redis://redis:6379"
+      USER_REGISTRATION_ENABLED: "true"
     depends_on: [mysql, redis]
   mysql:
     image: mysql:8.4
@@ -25,4 +57,4 @@ services:
   redis:
     image: redis:7-alpine
     volumes: ["redis_data:/data"]
-volumes: { mysql_data: {}, redis_data: {} }
+volumes: { mysql_data: {}, redis_data: {}, keystore_data: {} }

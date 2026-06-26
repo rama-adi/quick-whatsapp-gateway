@@ -13,7 +13,7 @@ function evt(event: string, payload: Record<string, unknown>, id = "evt_x"): Eve
     id,
     event,
     session: SESSION,
-    tenant: "t1",
+    organization: "org_1",
     timestamp: 1000,
     payload,
   };
@@ -32,7 +32,8 @@ describe("applyEvent", () => {
   it("session.status patches the single session + list rows", () => {
     const base: WASession = {
       id: SESSION,
-      tenantId: "t1",
+      organizationId: "org_1",
+      gatewayId: "gw_1",
       status: "starting",
       isAdminSession: false,
       autoRead: false,

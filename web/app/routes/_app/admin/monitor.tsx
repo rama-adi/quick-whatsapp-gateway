@@ -54,7 +54,7 @@ function AdminMonitor() {
       return (
         e.event?.toLowerCase().includes(needle) ||
         e.session?.toLowerCase().includes(needle) ||
-        e.tenant?.toLowerCase().includes(needle) ||
+        e.organization?.toLowerCase().includes(needle) ||
         e.id?.toLowerCase().includes(needle)
       );
     });
@@ -140,7 +140,7 @@ function AdminMonitor() {
                         {e.event}
                       </Badge>
                       <span className="truncate font-mono text-xs text-muted-foreground">
-                        {e.session || e.tenant || e.id}
+                        {e.session || e.organization || e.id}
                       </span>
                     </button>
                   </li>
@@ -172,7 +172,7 @@ function EventDetail({ event, onClose }: { event: EventEnvelope; onClose: () => 
         <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm sm:grid-cols-4">
           <Meta label="schema" value={event.schema} />
           <Meta label="session" value={event.session} mono />
-          <Meta label="org" value={event.tenant} mono />
+          <Meta label="org" value={event.organization} mono />
           <Meta label="time" value={fmtTime(event.timestamp)} />
         </dl>
         <div>

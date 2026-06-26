@@ -4,7 +4,14 @@ Status: implemented (Phase 3, stage "resource handlers").
 
 Scope: the found-users feature: identity resolution, per-account contacts, group membership with per-group nicknames, where-found queries, plus the live on-WhatsApp / picture / about / block sub-resources.
 
-## Endpoints (§11)
+The capture/resolution logic is **stable** (unchanged from v1); only ownership moved
+from `tenant_id` to **`organization_id`**. Contacts/identities are reached through a
+session that belongs to the caller's active org. The frontend renders the contacts
+surface by reading these WA tables **directly and read-only via Drizzle** (§6.2) for
+fast listing; all live sub-resources (check / picture / about / block) still go through
+the gateway API, which is the single writer.
+
+## Endpoints (§13)
 
 | Method | Path | Backed by |
 |---|---|---|
@@ -19,7 +26,7 @@ Scope: the found-users feature: identity resolution, per-account contacts, group
 
 `service.ContactService` over `*store.Store` + a `ContactDirectory` live port (nil
 => live sub-resources return `not_implemented`). Every method first verifies the
-session exists and belongs to the caller's tenant (foreign tenant => `not_found`).
+session exists and belongs to the caller's organization (foreign org => `not_found`).
 
 `GET /contacts/{lid}` returns `service.ContactDetail`:
 

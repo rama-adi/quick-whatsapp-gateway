@@ -1,7 +1,7 @@
 # MVP Progress Tracker
 
 Tracks implementation status against [`masterplan-mvp.md`](../masterplan-mvp.md).
-Last updated: 2026-06-26.
+Last updated: 2026-06-27.
 
 > **Pivot to v2 (split architecture).** The single-binary v1 MVP (Go + Authula + embedded
 > React Router SPA + MySQL keystore) is **code-complete (M0–M8)** and **archived**: see
@@ -13,13 +13,13 @@ Last updated: 2026-06-26.
 
 | Milestone | Status | Notes |
 |---|---|---|
-| **R0** — Snapshot & specs | 🟡 In progress | v1 archived + tagged `mvp-v1`; masterplan rewritten to v2. **TODO:** update `docs/specs/*` (`auth-tenancy.md`→trust-model, `whatsmeow-store.md`→SQLite, `frontend.md`→TanStack Start). |
-| **R1** — Gateway de-auth | ⬜ Planned | Rip out `internal/auth` (Authula); add `internal/authz` (JWKS+JWT verify, api-key verify vs `apikey`); `tenant_id`→`user_id`; drop `tenants`/`api_keys`; remove `/auth`+`/keys` routes; add CORS. |
-| **R2** — Keystore → SQLite | ⬜ Planned | whatsmeow `sqlstore` on `modernc.org/sqlite`; persistent volume; add `gateways` + `wa_sessions.gateway_id`; re-pair admin number. |
-| **R3** — Frontend scaffold | ⬜ Planned | TanStack Start app; better-auth (email/password, twoFactor, admin, apiKey, jwt, **organization**) on MySQL + migrations; `definePayload` → `activeOrganizationId`+role in JWT; **personal-org-on-signup** hook; copy shadcn `components/ui`; **re-fit SPA logic to TanStack Start idioms** (loaders/`createServerFn`, `createMiddleware`/`beforeLoad`, file-based routing); port login/register/TOTP/admin/keys; **org switcher**. |
-| **R4** — Frontend ↔ gateway | ⬜ Planned | Direct browser→gateway (actions + stream) with `Bearer` JWT; server mints JWT + does direct-MySQL reads; webhook config via gateway API; publish `ctrl:apikey.revoked`/`user.banned`/`member.removed` on revoke/ban/remove. |
-| **R5** — Packaging & docs | ⬜ Planned | Two Dockerfiles + split compose; `.env.example`; `openapi.yaml` (drop auth/keys); README; contract tests (JWT + api-key); e2e smoke. |
-| **R6** — Collaboration | ⬜ Planned (fast-follow) | Members & invitations UI on the org plugin (invite by email, accept/reject, role change, remove); additive — ownership/org plumbing landed in R1/R3. |
+| **R0** — Snapshot & specs | ✅ Done | v1 archived + tagged `mvp-v1`; masterplan rewritten to v2; `docs/specs/*` carried superseded banners + the `_V2-STATUS.md` index (full rewrites landed with each R-milestone, finalized in R5). |
+| **R1** — Gateway de-auth | ✅ Done | `internal/auth` (Authula) removed; `internal/authz` added (JWKS+JWT verify via `jwx/v3`, api-key verify vs shared `apikey`); ownership `tenant_id`→`organization_id`; `tenants`/`api_keys` dropped; `/auth`+`/keys` routes gone; CORS for `FRONTEND_ORIGINS`; per-gateway key cache + `ctrl:*` control-bus subscriber + boot reconcile. Fresh v2 `migrations/0001_init`. |
+| **R2** — Keystore → SQLite | ✅ Done | whatsmeow `sqlstore` on `modernc.org/sqlite` (CGO=0); persistent `/data/keystore` volume; `gateways` self-row + `wa_sessions.gateway_id` pinning; boot orphan-guard (skip+`STOPPED` sessions whose org is gone); admin number re-paired against SQLite. |
+| **R3** — Frontend scaffold | ✅ Done | TanStack Start app; better-auth (email/password, twoFactor, admin, apiKey, jwt, **organization**) on MySQL via `drizzleAdapter`; auth tables via drizzle-kit; WA tables read-only Drizzle models; `definePayload` → `activeOrganizationId`+`orgRole`+`role`; **personal-org-on-signup** hook; shadcn `components/ui` ported; SPA logic re-fit to TanStack Start idioms (loaders/`createServerFn`, `createMiddleware`/`beforeLoad`, file-based routing); login/register/TOTP/admin/keys + **org switcher**. |
+| **R4** — Frontend ↔ gateway | ✅ Done | Browser→gateway direct (actions + NDJSON stream) with `Bearer` JWT; server mints JWT (`mintGatewayToken`) + direct-MySQL reads for dashboards/viewer/contacts; webhook config via gateway API; control bus publishes `ctrl:apikey.revoked`/`user.banned`/`member.removed` from better-auth `after` hooks. **Trust seam validated LIVE** against better-auth 1.6.22. |
+| **R5** — Packaging & docs | ✅ Done | Two Dockerfiles + split compose + `.env.example`; `openapi.yaml` (auth/keys paths dropped); README rewritten to the v2 split; **all `docs/specs/*` rewritten to v2** (`_V2-STATUS.md` all-green); contract tests (better-auth JWT ↔ gateway verify; better-auth api-key ↔ gateway verify); e2e smoke (login → mint JWT → start session → pair → send → stream). |
+| **R6** — Collaboration | ⬜ Remaining (fast-follow) | Members & invitations UI on the org plugin (invite by email, accept/reject, role change, remove member); publish `ctrl:member.removed` on removal. Additive — ownership/org plumbing already shipped in R1/R3. |
 
 ## v1 milestones (archived — code complete)
 
@@ -73,9 +73,11 @@ e2e smoke against a live WhatsApp number.
 
 ## Open risks / follow-ups
 
-- **better-auth api-key hash replicability** — the gateway validating keys by direct DB
-  lookup depends on better-auth's deterministic hashing. Pin the better-auth version + add a
-  contract test; fallback is `/api/auth/api-key/verify`. (Masterplan §4.2, §19.)
-- **`docs/specs/*` rewrite in progress** — superseded banners + [`specs/_V2-STATUS.md`](specs/_V2-STATUS.md)
-  index landed (R0); each spec is fully rewritten with its owning R-milestone. Until then, the
-  masterplan is the source of truth.
+- **better-auth api-key hash replicability** — RESOLVED for the pinned version: better-auth
+  1.6.22's default hash is `base64url(SHA-256(rawKey))` unpadded, replicated in
+  `internal/authz` and locked by the R5 contract test. A major-version bump must re-run that
+  test; the `/api/auth/api-key/verify` remote fallback stays available. (Masterplan §4.2, §19.)
+- **`docs/specs/*` rewrite** — COMPLETE at R5: every spec is v2, [`specs/_V2-STATUS.md`](specs/_V2-STATUS.md)
+  is all-green.
+- **R6 collaboration UI** — members/invitations UI is the remaining fast-follow; org plumbing
+  already shipped.

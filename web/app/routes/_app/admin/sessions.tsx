@@ -5,11 +5,10 @@
 // Ported from v1 admin/sessions.tsx: clientLoader=requireAdmin -> the parent
 // /admin route's super_admin beforeLoad; imports repointed to ./-shared.
 //
-// NOTE (R5): the masterplan §12 asks each row to show its gatewayId. The FROZEN
-// generated OpenAPI schema (app/lib/api/schema.d.ts) still exposes only
-// `tenantId` on WASession (no gatewayId field yet). We render `tenantId` (the
-// owning org id in v2) under an "Org" column; once the gateway's OpenAPI is
-// regenerated with `gatewayId`, swap the column to `s.gatewayId`.
+// NOTE (R5): WASession (app/lib/api/schema.d.ts) now exposes `organizationId`
+// (owning org) and `gatewayId` (where the session lives). We render
+// `organizationId` under the "Org" column; the masterplan §12 also allows
+// surfacing `s.gatewayId` here once a multi-gateway registry is in play.
 
 import { useMemo } from "react";
 import { createFileRoute } from "@tanstack/react-router";
@@ -111,7 +110,7 @@ function AdminSessions() {
                         <div className="font-mono text-xs text-muted-foreground">{s.id}</div>
                       </TableCell>
                       <TableCell className="font-mono text-xs text-muted-foreground">
-                        {s.tenantId}
+                        {s.organizationId}
                       </TableCell>
                       <TableCell>
                         <SessionStatusBadge status={withLiveStatus(s, overrides)} />
