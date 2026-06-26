@@ -1,11 +1,12 @@
 ---
 title: Event shape
-description: The event envelope, the full catalog with payload fields, and concrete examples — the same shape on the stream and on webhooks.
+description: The event envelope plus a full, copy-pasteable JSON example for every event type and every state — the same shape on the stream and on webhooks.
 ---
 
 Every event the gateway emits — on the NDJSON stream and on webhooks — is the same
 JSON object: a versioned **envelope** that wraps a type-specific **payload**. This
-page is the reference for that shape. For how to subscribe, see
+page is the reference for that shape, with a fully-populated example for every
+event type and every state it can take. For how to subscribe, see
 [Receive events](/docs/guides/receiving); for the endpoint contract, see the
 [stream events API](/docs/api/events/events).
 
@@ -14,12 +15,12 @@ page is the reference for that shape. For how to subscribe, see
 ```json
 {
   "schema": "v1",
-  "id": "evt_01J9XYZ...",
+  "id": "evt_01J9XYZABCDEF0123456789",
   "event": "message",
-  "session": "sess_01J8...",
+  "session": "sess_01J8ABCDEF0123456789",
   "organization": "org_abc",
   "timestamp": 1719400000000,
-  "payload": { }
+  "payload": {}
 }
 ```
 
@@ -44,7 +45,7 @@ The same envelope rides both transports, so your handler can be written once:
 ## Subscribe to the stream
 
 ```bash
-curl -N "https://your-gateway/api/v1/events?events=*&session=sess_01J8..." \
+curl -N "https://your-gateway/api/v1/events?events=*&session=sess_01J8ABCDEF0123456789" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -57,28 +58,29 @@ See the [stream events API](/docs/api/events/events) for the full endpoint detai
 
 ## Event catalog
 
-The `payload` columns list the fields you can rely on. Fields shown with no value may
-be absent when empty (the gateway omits empty optional fields).
+Seventeen event types, grouped below. Every example is a complete envelope you can
+copy. Optional fields are omitted from the wire when empty; each example calls out
+which fields are optional or nullable.
 
-| Event | Fires when | Key payload fields |
-|---|---|---|
-| `session.status` | A session changes connection state. | `status` (`working`, `starting`, `logged_out`, `failed`) |
-| `auth.qr` | A new QR code is ready to scan. | `code` (the QR string) |
-| `auth.code` | Pairing succeeded. | `jid`, `lid`, `businessName`, `platform` |
-| `message` | An inbound message arrives. | `waMessageId`, `chatJid`, `senderJid`, `type`, `body`, `timestamp`, `hasMedia`, `media` (+ type-specific: `location`, `contact`, `poll`, `mentions`, `quotedMessageId`) |
-| `message.from_me` | A message is sent from this number (incl. another linked device). | Same shape as `message`, with `fromMe: true` |
-| `message.status` | A receipt updates a sent message. | `chatJid`, `messageIds`, `status` (`sent` → `delivered` → `read` / `played`), `timestamp` |
-| `message.reaction` | Someone reacts to a message. | `chatJid`, `targetId`, `reaction` (emoji; `""` = removed), `senderJid` |
-| `message.edited` | A message is edited. | `chatJid`, `targetId`, `body` (new text), `senderJid` |
-| `message.revoked` | A message is deleted for everyone. | `chatJid`, `targetId`, `senderJid` |
-| `poll.vote` | Someone votes on a poll. | `chatJid`, `targetId` (the poll message), `selectedHashes` (encrypted option hashes), `senderJid` |
-| `presence.update` | A contact goes online/offline or starts typing. | `chatJid`, `from`, `state` (`available`, `unavailable`, `composing`, `paused`), `media`, `lastSeen` |
-| `group.update` | A group's metadata changes. | `groupJid`, `subject`, `description`, `sender`, `isAnnounce`, `isLocked`, `newInviteLink` |
-| `group.participant` | Someone joins, leaves, or changes role. | `groupJid`, `sender`, `join`, `leave`, `promote`, `demote` (each a JID list) |
-| `chat.update` | A chat changes (currently profile-picture changes). | `chatJid`, `change` (e.g. `picture`), `pictureId`, `removed` |
-| `contact.update` | A contact's name or details change. | `jid`, `pushName`, `fullName`, `firstName` |
-| `call.incoming` | An incoming call. | `callId`, `from`, `timestamp`, `isGroup`, `groupJid` |
-| `newsletter.update` | A followed channel updates. | `jid`, `action` (`join`, `leave`, `mute`) |
+| Event | Fires when |
+|---|---|
+| [`session.status`](#sessionstatus) | A session changes connection state. |
+| [`auth.qr`](#authqr) | A new QR code is ready to scan. |
+| [`auth.code`](#authcode) | Pairing succeeded. |
+| [`message`](#message) | An inbound message arrives. |
+| [`message.from_me`](#messagefrom_me) | A message is sent from this number (incl. another linked device). |
+| [`message.status`](#messagestatus) | A receipt updates a sent message. |
+| [`message.reaction`](#messagereaction) | Someone reacts to a message. |
+| [`message.edited`](#messageedited) | A message is edited. |
+| [`message.revoked`](#messagerevoked) | A message is deleted for everyone. |
+| [`poll.vote`](#pollvote) | Someone votes on a poll. |
+| [`presence.update`](#presenceupdate) | A contact goes online/offline or starts typing. |
+| [`group.update`](#groupupdate) | A group's metadata changes. |
+| [`group.participant`](#groupparticipant) | Someone joins, leaves, or changes role. |
+| [`chat.update`](#chatupdate) | A chat changes (currently profile-picture changes). |
+| [`contact.update`](#contactupdate) | A contact's name or details change. |
+| [`call.incoming`](#callincoming) | An incoming call. |
+| [`newsletter.update`](#newsletterupdate) | A followed channel updates. |
 
 <Callout type="info">
 **Media is metadata only.** A message with an attachment arrives with `hasMedia: true`
@@ -86,83 +88,1396 @@ and `media: null`. You learn that the message has media (and, internally, its ty
 this release never downloads the file.
 </Callout>
 
-## Examples
+## Session & Auth
 
-### Inbound text message (`message`)
+<Accordions type="single">
+
+<Accordion title="session.status — connection state changed" id="sessionstatus">
+
+`payload.status` is one of six values. Pick a tab to see each.
+
+<Tabs items={["starting", "scan_qr_code", "working", "failed", "stopped", "logged_out"]}>
+
+<Tab value="starting">
+
+The session is connecting (or reconnecting after a transient disconnect).
 
 ```json
 {
   "schema": "v1",
-  "id": "evt_01J9XYZ...",
-  "event": "message",
-  "session": "sess_01J8...",
+  "id": "evt_01J9STARTING0000000000001",
+  "event": "session.status",
+  "session": "sess_01J8ABCDEF0123456789",
   "organization": "org_abc",
   "timestamp": 1719400000000,
   "payload": {
-    "waMessageId": "3EB0...",
-    "chatJid": "6281234567890@s.whatsapp.net",
+    "status": "starting"
+  }
+}
+```
+
+</Tab>
+
+<Tab value="scan_qr_code">
+
+The session is waiting for a QR scan to link a device. An [`auth.qr`](#authqr) event
+carries the actual code to render.
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9SCANQR00000000000001",
+  "event": "session.status",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400001000,
+  "payload": {
+    "status": "scan_qr_code"
+  }
+}
+```
+
+</Tab>
+
+<Tab value="working">
+
+The session is connected and authenticated — ready to send and receive.
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9WORKING0000000000001",
+  "event": "session.status",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400002000,
+  "payload": {
+    "status": "working"
+  }
+}
+```
+
+</Tab>
+
+<Tab value="failed">
+
+The session failed — e.g. the stream was replaced by a newer connection elsewhere.
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9FAILED00000000000001",
+  "event": "session.status",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400003000,
+  "payload": {
+    "status": "failed"
+  }
+}
+```
+
+</Tab>
+
+<Tab value="stopped">
+
+The session was stopped (e.g. via `:stop`). It will not reconnect until started again.
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9STOPPED0000000000001",
+  "event": "session.status",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400004000,
+  "payload": {
+    "status": "stopped"
+  }
+}
+```
+
+</Tab>
+
+<Tab value="logged_out">
+
+The device was unlinked (logged out from the phone or via `:logout`). Re-linking needs
+a fresh QR/pairing.
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9LOGGEDOUT00000000001",
+  "event": "session.status",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400005000,
+  "payload": {
+    "status": "logged_out"
+  }
+}
+```
+
+</Tab>
+
+</Tabs>
+
+**Fields**
+
+- `status` (string, required) — one of `starting`, `scan_qr_code`, `working`, `failed`, `stopped`, `logged_out`.
+
+</Accordion>
+
+<Accordion title="auth.qr — QR code ready to scan" id="authqr">
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9QRCODE00000000000001",
+  "event": "auth.qr",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400000500,
+  "payload": {
+    "code": "2@aBcDeF1234567890==,XyZ.../9876543210=="
+  }
+}
+```
+
+**Fields**
+
+- `code` (string, required) — the raw QR string. Render it as a QR image for the user to scan.
+
+</Accordion>
+
+<Accordion title="auth.code — pairing succeeded" id="authcode">
+
+Emitted on a successful pair (after a QR scan or pairing code).
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9PAIRED00000000000001",
+  "event": "auth.code",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400006000,
+  "payload": {
+    "jid": "6281234567890@s.whatsapp.net",
+    "lid": "123456789012345@lid",
+    "businessName": "Acme Support",
+    "platform": "android"
+  }
+}
+```
+
+**Fields** (all optional — omitted when empty)
+
+- `jid` — the linked account's phone-number JID.
+- `lid` — the linked account's LID (hidden-address) identity, when present.
+- `businessName` — set only for WhatsApp Business accounts.
+- `platform` — the device platform string reported at pair time (e.g. `android`, `iphone`).
+
+</Accordion>
+
+</Accordions>
+
+## Messages
+
+The `message` and `message.from_me` events share one flat payload, discriminated by
+`type`. `media` is **always `null`** on the wire; `hasMedia` tells you whether an
+attachment exists.
+
+### `message`
+
+An inbound message. Pick a tab per content type.
+
+<Tabs items={["text", "media", "location", "contact", "poll"]}>
+
+<Tab value="text">
+
+A plain text message. A reply also carries `quotedMessageId`; a message with mentions
+carries a `mentions` JID list (both shown here).
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9MSGTEXT0000000000001",
+  "event": "message",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400010000,
+  "payload": {
+    "waMessageId": "3EB0A1B2C3D4E5F6A7B8",
+    "chatJid": "120363012345678901@g.us",
     "senderJid": "6281234567890@s.whatsapp.net",
+    "senderLid": "123456789012345@lid",
     "fromMe": false,
     "type": "text",
-    "body": "hey, are we still on for tomorrow?",
+    "body": "@628999 are we still on for tomorrow?",
+    "quotedMessageId": "3EB0FEDCBA9876543210",
+    "mentions": ["628999@s.whatsapp.net"],
     "hasMedia": false,
     "media": null,
-    "timestamp": 1719400000000,
+    "timestamp": 1719400010000,
     "pushName": "Alex"
   }
 }
 ```
 
-A reply carries `quotedMessageId`; a message with `@mentions` carries a `mentions` JID
-list. A media message keeps the same shape with `type` set to the media kind (e.g.
-`image`), `hasMedia: true`, and `media: null`.
+</Tab>
 
-### Delivery receipt (`message.status`)
+<Tab value="media">
+
+Image / video / audio / document / sticker. `type` is the specific media kind,
+`hasMedia` is `true`, and `media` is still `null` (metadata only in v1). A caption,
+when present, rides in `body`.
 
 ```json
 {
   "schema": "v1",
-  "id": "evt_01J9ABC...",
-  "event": "message.status",
-  "session": "sess_01J8...",
+  "id": "evt_01J9MSGMEDIA000000000001",
+  "event": "message",
+  "session": "sess_01J8ABCDEF0123456789",
   "organization": "org_abc",
-  "timestamp": 1719400005000,
+  "timestamp": 1719400011000,
   "payload": {
+    "waMessageId": "3EB0A1B2C3D4E5F6A7B9",
     "chatJid": "6281234567890@s.whatsapp.net",
-    "messageIds": ["3EB0..."],
-    "status": "delivered",
-    "timestamp": 1719400005000
+    "senderJid": "6281234567890@s.whatsapp.net",
+    "fromMe": false,
+    "type": "image",
+    "body": "here's the receipt",
+    "hasMedia": true,
+    "media": null,
+    "timestamp": 1719400011000,
+    "pushName": "Alex"
   }
 }
 ```
 
-One receipt can update several messages at once, so `messageIds` is a list. `status`
-moves `sent` → `delivered` → `read` (voice notes can also reach `played`).
+<Callout type="info">
+`type` is one of `image`, `video`, `audio`, `document`, `sticker`. The file is never
+downloaded — `media` stays `null` even though `hasMedia` is `true`.
+</Callout>
 
-### Poll vote (`poll.vote`)
+</Tab>
+
+<Tab value="location">
+
+A shared location. The coordinates ride in a `location` object.
 
 ```json
 {
   "schema": "v1",
-  "id": "evt_01J9DEF...",
-  "event": "poll.vote",
-  "session": "sess_01J8...",
+  "id": "evt_01J9MSGLOC00000000000001",
+  "event": "message",
+  "session": "sess_01J8ABCDEF0123456789",
   "organization": "org_abc",
-  "timestamp": 1719400010000,
+  "timestamp": 1719400012000,
   "payload": {
-    "waMessageId": "3EB1...",
-    "chatJid": "120363...@g.us",
+    "waMessageId": "3EB0A1B2C3D4E5F6A7BA",
+    "chatJid": "6281234567890@s.whatsapp.net",
+    "senderJid": "6281234567890@s.whatsapp.net",
+    "fromMe": false,
+    "type": "location",
+    "hasMedia": false,
+    "media": null,
+    "location": {
+      "latitude": -6.200000,
+      "longitude": 106.816666,
+      "name": "Monas",
+      "address": "Gambir, Jakarta Pusat"
+    },
+    "timestamp": 1719400012000,
+    "pushName": "Alex"
+  }
+}
+```
+
+`location.name` and `location.address` are optional; `latitude`/`longitude` are always present.
+
+</Tab>
+
+<Tab value="contact">
+
+A shared contact card. The raw vCard is kept verbatim in `contact.vcard`.
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9MSGCONTACT00000000001",
+  "event": "message",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400013000,
+  "payload": {
+    "waMessageId": "3EB0A1B2C3D4E5F6A7BB",
+    "chatJid": "6281234567890@s.whatsapp.net",
+    "senderJid": "6281234567890@s.whatsapp.net",
+    "fromMe": false,
+    "type": "contact",
+    "body": "Jamie Rivera",
+    "hasMedia": false,
+    "media": null,
+    "contact": {
+      "displayName": "Jamie Rivera",
+      "vcard": "BEGIN:VCARD\nVERSION:3.0\nFN:Jamie Rivera\nTEL;type=CELL;waid=628111222333:+62 811-222-333\nEND:VCARD"
+    },
+    "timestamp": 1719400013000,
+    "pushName": "Alex"
+  }
+}
+```
+
+`contact.displayName` and `contact.vcard` are both optional. `body` mirrors the display name.
+
+</Tab>
+
+<Tab value="poll">
+
+A poll-creation message. The poll definition rides in a `poll` object. Votes arrive
+separately as [`poll.vote`](#pollvote).
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9MSGPOLL0000000000001",
+  "event": "message",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400014000,
+  "payload": {
+    "waMessageId": "3EB0A1B2C3D4E5F6A7BC",
+    "chatJid": "120363012345678901@g.us",
+    "senderJid": "6281234567890@s.whatsapp.net",
+    "fromMe": false,
+    "type": "poll",
+    "body": "Lunch on Friday?",
+    "hasMedia": false,
+    "media": null,
+    "poll": {
+      "name": "Lunch on Friday?",
+      "options": ["Pizza", "Sushi", "Salad"],
+      "selectableCount": 1
+    },
+    "timestamp": 1719400014000,
+    "pushName": "Alex"
+  }
+}
+```
+
+`poll.selectableCount` is the max number of options a voter may pick. `body` mirrors `poll.name`.
+
+</Tab>
+
+</Tabs>
+
+**Common fields** (every `message` / `message.from_me` payload)
+
+- `waMessageId` (string, required) — the WhatsApp message id; the target other events reference.
+- `chatJid` (string, required) — the chat (DM `@s.whatsapp.net`, group `@g.us`, etc.).
+- `senderJid` (string, optional) — phone-number JID of the sender.
+- `senderLid` (string, optional) — sender's LID identity, when the addressing uses it.
+- `fromMe` (boolean, required) — `false` for `message`; `true` for `message.from_me`.
+- `type` (string, required) — `text`, `image`, `video`, `audio`, `document`, `sticker`, `location`, `contact`, `poll`.
+- `body` (string, optional) — text / caption / poll name / contact display name.
+- `quotedMessageId` (string, optional) — set when the message is a reply.
+- `mentions` (string[], optional) — mentioned JIDs.
+- `hasMedia` (boolean, required) — `true` when an attachment exists; `media` is still `null`.
+- `media` (object|null) — always `null` in v1.
+- `timestamp` (integer, required) — epoch-ms.
+- `pushName` (string, optional) — the sender's display name.
+
+### `message.from_me`
+
+Identical shape to [`message`](#message), emitted when the message was sent from this
+number — including from another linked device. The only difference is `fromMe: true`.
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9MSGFROMME00000000001",
+  "event": "message.from_me",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400015000,
+  "payload": {
+    "waMessageId": "3EB0A1B2C3D4E5F6A7BD",
+    "chatJid": "6281234567890@s.whatsapp.net",
+    "senderJid": "6289876543210@s.whatsapp.net",
+    "fromMe": true,
+    "type": "text",
+    "body": "yes, see you at noon",
+    "hasMedia": false,
+    "media": null,
+    "timestamp": 1719400015000,
+    "pushName": "You"
+  }
+}
+```
+
+### `message.status`
+
+A receipt updates one or more sent messages. One receipt can cover several messages,
+so `messageIds` is a list.
+
+<Callout type="info">
+Receipts from WhatsApp only ever raise the status to `delivered`, `read`, or `played`.
+The earlier lifecycle values — `pending`, `sent`, `failed` — are set internally when
+the gateway accepts and dispatches your outbound send; they describe the same
+`status` field but are not driven by an inbound receipt.
+</Callout>
+
+<Tabs items={["pending", "sent", "delivered", "read", "played", "failed"]}>
+
+<Tab value="pending">
+
+Queued by the gateway, not yet acknowledged by WhatsApp (ack level 0). Set on send, not from a receipt.
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9STPENDING00000000001",
+  "event": "message.status",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400016000,
+  "payload": {
+    "chatJid": "6281234567890@s.whatsapp.net",
+    "messageIds": ["3EB0A1B2C3D4E5F6A7BD"],
+    "status": "pending",
+    "timestamp": 1719400016000
+  }
+}
+```
+
+</Tab>
+
+<Tab value="sent">
+
+Accepted by the WhatsApp server (ack level 1). Set on send, not from a receipt.
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9STSENT000000000000001",
+  "event": "message.status",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400016500,
+  "payload": {
+    "chatJid": "6281234567890@s.whatsapp.net",
+    "messageIds": ["3EB0A1B2C3D4E5F6A7BD"],
+    "status": "sent",
+    "timestamp": 1719400016500
+  }
+}
+```
+
+</Tab>
+
+<Tab value="delivered">
+
+Delivered to the recipient's device (ack level 2). Driven by a delivery receipt.
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9STDELIVERED000000001",
+  "event": "message.status",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400017000,
+  "payload": {
+    "chatJid": "6281234567890@s.whatsapp.net",
+    "senderJid": "6281234567890@s.whatsapp.net",
+    "messageIds": ["3EB0A1B2C3D4E5F6A7BD"],
+    "status": "delivered",
+    "timestamp": 1719400017000
+  }
+}
+```
+
+</Tab>
+
+<Tab value="read">
+
+Read by the recipient (ack level 3, the blue ticks). Driven by a read receipt.
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9STREAD0000000000001",
+  "event": "message.status",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400018000,
+  "payload": {
+    "chatJid": "6281234567890@s.whatsapp.net",
+    "senderJid": "6281234567890@s.whatsapp.net",
+    "messageIds": ["3EB0A1B2C3D4E5F6A7BD", "3EB0A1B2C3D4E5F6A7BE"],
+    "status": "read",
+    "timestamp": 1719400018000
+  }
+}
+```
+
+</Tab>
+
+<Tab value="played">
+
+A voice note / view-once media was played (ack level 4). Driven by a played receipt.
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9STPLAYED000000000001",
+  "event": "message.status",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400019000,
+  "payload": {
+    "chatJid": "6281234567890@s.whatsapp.net",
+    "senderJid": "6281234567890@s.whatsapp.net",
+    "messageIds": ["3EB0A1B2C3D4E5F6A7BF"],
+    "status": "played",
+    "timestamp": 1719400019000
+  }
+}
+```
+
+</Tab>
+
+<Tab value="failed">
+
+The message failed to send. Set internally, not from a receipt.
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9STFAILED00000000001",
+  "event": "message.status",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400019500,
+  "payload": {
+    "chatJid": "6281234567890@s.whatsapp.net",
+    "messageIds": ["3EB0A1B2C3D4E5F6A7C0"],
+    "status": "failed",
+    "timestamp": 1719400019500
+  }
+}
+```
+
+</Tab>
+
+</Tabs>
+
+**Fields**
+
+- `chatJid` (string, required) — the chat the message belongs to.
+- `senderJid` (string, optional) — the JID the receipt came from (set on receipt-driven updates).
+- `messageIds` (string[], required) — the `waMessageId`s this receipt updates.
+- `status` (string, required) — `pending`, `sent`, `delivered`, `read`, `played`, `failed`.
+- `timestamp` (integer, required) — epoch-ms.
+
+## Reactions, edits & revokes
+
+These three share the message payload shape but are emitted as their own event types.
+`targetId` is the `waMessageId` of the message being acted on.
+
+<Accordions type="single">
+
+<Accordion title="message.reaction — add or remove a reaction" id="messagereaction">
+
+`reaction` carries the emoji; an empty string means the reaction was **removed**.
+
+<Tabs items={["add", "remove"]}>
+
+<Tab value="add">
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9REACTADD00000000001",
+  "event": "message.reaction",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400020000,
+  "payload": {
+    "waMessageId": "3EB0A1B2C3D4E5F6A7C1",
+    "chatJid": "120363012345678901@g.us",
+    "senderJid": "6281234567890@s.whatsapp.net",
+    "fromMe": false,
+    "type": "reaction",
+    "targetId": "3EB0A1B2C3D4E5F6A7B8",
+    "reaction": "👍",
+    "hasMedia": false,
+    "media": null,
+    "timestamp": 1719400020000,
+    "pushName": "Alex"
+  }
+}
+```
+
+</Tab>
+
+<Tab value="remove">
+
+The same shape with `reaction` set to `""` — the sender removed their earlier reaction.
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9REACTDEL00000000001",
+  "event": "message.reaction",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400021000,
+  "payload": {
+    "waMessageId": "3EB0A1B2C3D4E5F6A7C2",
+    "chatJid": "120363012345678901@g.us",
+    "senderJid": "6281234567890@s.whatsapp.net",
+    "fromMe": false,
+    "type": "reaction",
+    "targetId": "3EB0A1B2C3D4E5F6A7B8",
+    "reaction": "",
+    "hasMedia": false,
+    "media": null,
+    "timestamp": 1719400021000,
+    "pushName": "Alex"
+  }
+}
+```
+
+</Tab>
+
+</Tabs>
+
+**Fields**
+
+- `targetId` (string) — the reacted-to message's `waMessageId`.
+- `reaction` (string) — the emoji, or `""` when the reaction is removed.
+- Plus the common message fields (`waMessageId`, `chatJid`, `senderJid`, `fromMe`, `timestamp`, `pushName`).
+
+</Accordion>
+
+<Accordion title="message.edited — a message was edited" id="messageedited">
+
+`body` is the new text; `targetId` is the edited message's id.
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9EDITED00000000000001",
+  "event": "message.edited",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400022000,
+  "payload": {
+    "waMessageId": "3EB0A1B2C3D4E5F6A7C3",
+    "chatJid": "6281234567890@s.whatsapp.net",
+    "senderJid": "6281234567890@s.whatsapp.net",
+    "fromMe": false,
+    "type": "text",
+    "body": "actually, let's make it 1pm",
+    "targetId": "3EB0A1B2C3D4E5F6A7B8",
+    "hasMedia": false,
+    "media": null,
+    "timestamp": 1719400022000,
+    "pushName": "Alex"
+  }
+}
+```
+
+**Fields**
+
+- `targetId` (string) — the edited message's `waMessageId`.
+- `body` (string) — the new text.
+- An edited reply also carries `quotedMessageId`/`mentions` from the new content.
+
+</Accordion>
+
+<Accordion title="message.revoked — deleted for everyone" id="messagerevoked">
+
+A delete-for-everyone. There is no body — only the target id.
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9REVOKED0000000000001",
+  "event": "message.revoked",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400023000,
+  "payload": {
+    "waMessageId": "3EB0A1B2C3D4E5F6A7C4",
+    "chatJid": "6281234567890@s.whatsapp.net",
+    "senderJid": "6281234567890@s.whatsapp.net",
+    "fromMe": false,
+    "type": "revoke",
+    "targetId": "3EB0A1B2C3D4E5F6A7B8",
+    "hasMedia": false,
+    "media": null,
+    "timestamp": 1719400023000,
+    "pushName": "Alex"
+  }
+}
+```
+
+**Fields**
+
+- `targetId` (string) — the revoked message's `waMessageId`.
+
+</Accordion>
+
+</Accordions>
+
+## Polls
+
+### `poll.vote`
+
+Someone voted on a poll. `targetId` is the poll-creation message being voted on. The
+selected options arrive as **encrypted** `selectedHashes` rather than plaintext labels.
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9POLLVOTE0000000000001",
+  "event": "poll.vote",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400024000,
+  "payload": {
+    "waMessageId": "3EB0A1B2C3D4E5F6A7C5",
+    "chatJid": "120363012345678901@g.us",
     "senderJid": "6281234567890@s.whatsapp.net",
     "fromMe": false,
     "type": "poll_vote",
-    "targetId": "3EB0...",
-    "selectedHashes": ["a1b2c3...", "d4e5f6..."],
+    "targetId": "3EB0A1B2C3D4E5F6A7BC",
+    "selectedHashes": ["a1b2c3d4e5f6a7b8", "d4e5f6a7b8c9d0e1"],
     "hasMedia": false,
     "media": null,
-    "timestamp": 1719400010000
+    "timestamp": 1719400024000,
+    "pushName": "Alex"
   }
 }
 ```
 
-`targetId` is the poll-creation message being voted on. The selected options arrive as
-encrypted `selectedHashes` rather than plaintext labels.
+**Fields**
+
+- `targetId` (string) — the poll-creation message's `waMessageId`.
+- `selectedHashes` (string[]) — encrypted hashes of the chosen options (not plaintext labels).
+- Plus the common message fields (`waMessageId`, `chatJid`, `senderJid`, `fromMe`, `timestamp`, `pushName`).
+
+## Presence, chats & contacts
+
+<Accordions type="single">
+
+<Accordion title="presence.update — online/offline or typing" id="presenceupdate">
+
+Two source shapes share this event. **Account presence** reports online/offline for a
+contact (no `chatJid`); **chat presence** reports typing/recording within a chat
+(carries `chatJid` and `media`).
+
+<Tabs items={["available", "unavailable", "composing", "paused"]}>
+
+<Tab value="available">
+
+A contact came online. Account presence — no `chatJid`.
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9PRESAVAIL00000000001",
+  "event": "presence.update",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400025000,
+  "payload": {
+    "from": "6281234567890@s.whatsapp.net",
+    "state": "available"
+  }
+}
+```
+
+</Tab>
+
+<Tab value="unavailable">
+
+A contact went offline. `lastSeen` (epoch-ms) is present when WhatsApp shares it.
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9PRESUNAVAIL000000001",
+  "event": "presence.update",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400026000,
+  "payload": {
+    "from": "6281234567890@s.whatsapp.net",
+    "state": "unavailable",
+    "unavailable": true,
+    "lastSeen": 1719400025000
+  }
+}
+```
+
+</Tab>
+
+<Tab value="composing">
+
+The contact is typing (chat presence). `media` is `text` while typing, `audio` while
+recording a voice note.
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9PRESCOMPOSING0000001",
+  "event": "presence.update",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400027000,
+  "payload": {
+    "chatJid": "6281234567890@s.whatsapp.net",
+    "from": "6281234567890@s.whatsapp.net",
+    "state": "composing",
+    "media": "text"
+  }
+}
+```
+
+</Tab>
+
+<Tab value="paused">
+
+The contact stopped typing (chat presence).
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9PRESPAUSED00000000001",
+  "event": "presence.update",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400028000,
+  "payload": {
+    "chatJid": "6281234567890@s.whatsapp.net",
+    "from": "6281234567890@s.whatsapp.net",
+    "state": "paused"
+  }
+}
+```
+
+</Tab>
+
+</Tabs>
+
+**Fields**
+
+- `from` (string, required) — the contact whose presence changed.
+- `state` (string, required) — `available`, `unavailable`, `composing`, `paused`.
+- `chatJid` (string, optional) — set for chat presence (typing/recording), absent for account presence.
+- `media` (string, optional) — `text` or `audio` (typing vs recording), set with `composing`.
+- `unavailable` (boolean, optional) — `true` alongside the `unavailable` state.
+- `lastSeen` (integer, optional) — epoch-ms; present when WhatsApp shares last-seen.
+
+</Accordion>
+
+<Accordion title="chat.update — profile-picture change" id="chatupdate">
+
+Currently only profile-picture changes. `removed: true` means the picture was cleared.
+
+<Tabs items={["changed", "removed"]}>
+
+<Tab value="changed">
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9CHATPIC0000000000001",
+  "event": "chat.update",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400029000,
+  "payload": {
+    "chatJid": "6281234567890@s.whatsapp.net",
+    "change": "picture",
+    "pictureId": "1719400029"
+  }
+}
+```
+
+</Tab>
+
+<Tab value="removed">
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9CHATPICDEL000000001",
+  "event": "chat.update",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400030000,
+  "payload": {
+    "chatJid": "6281234567890@s.whatsapp.net",
+    "change": "picture",
+    "removed": true
+  }
+}
+```
+
+</Tab>
+
+</Tabs>
+
+**Fields**
+
+- `chatJid` (string, required) — the chat whose picture changed.
+- `change` (string, required) — currently always `picture`.
+- `pictureId` (string, optional) — the new picture id; absent when removed.
+- `removed` (boolean, optional) — `true` when the picture was cleared.
+
+</Accordion>
+
+<Accordion title="contact.update — name or details changed" id="contactupdate">
+
+Two source shapes: a push-name change carries `pushName`; an address-book contact
+action carries `fullName`/`firstName`.
+
+<Tabs items={["pushName", "contact"]}>
+
+<Tab value="pushName">
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9CONTACTPN0000000001",
+  "event": "contact.update",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400031000,
+  "payload": {
+    "jid": "6281234567890@s.whatsapp.net",
+    "pushName": "Alex R."
+  }
+}
+```
+
+</Tab>
+
+<Tab value="contact">
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9CONTACTFULL00000001",
+  "event": "contact.update",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400032000,
+  "payload": {
+    "jid": "6281234567890@s.whatsapp.net",
+    "fullName": "Alex Rivera",
+    "firstName": "Alex"
+  }
+}
+```
+
+</Tab>
+
+</Tabs>
+
+**Fields**
+
+- `jid` (string, required) — the contact.
+- `pushName` (string, optional) — set on a push-name change.
+- `fullName` / `firstName` (string, optional) — set on an address-book contact action.
+
+</Accordion>
+
+</Accordions>
+
+## Groups
+
+<Accordions type="single">
+
+<Accordion title="group.update — metadata changed" id="groupupdate">
+
+Pure metadata changes (subject, description, announce/locked flags, invite link). A
+freshly-joined group also arrives as `group.update` with a `reason`.
+
+<Tabs items={["subject", "description", "settings", "inviteLink", "joined"]}>
+
+<Tab value="subject">
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9GRPSUBJECT00000000001",
+  "event": "group.update",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400033000,
+  "payload": {
+    "groupJid": "120363012345678901@g.us",
+    "subject": "Weekend Trip Planning",
+    "sender": "6281234567890@s.whatsapp.net",
+    "timestamp": 1719400033000
+  }
+}
+```
+
+</Tab>
+
+<Tab value="description">
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9GRPDESC00000000000001",
+  "event": "group.update",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400034000,
+  "payload": {
+    "groupJid": "120363012345678901@g.us",
+    "description": "Pin the itinerary here.",
+    "sender": "6281234567890@s.whatsapp.net",
+    "timestamp": 1719400034000
+  }
+}
+```
+
+</Tab>
+
+<Tab value="settings">
+
+`isAnnounce` (only admins can post) and `isLocked` (only admins can edit info) are
+nullable booleans — present only when that setting changed.
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9GRPSETTINGS000000001",
+  "event": "group.update",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400035000,
+  "payload": {
+    "groupJid": "120363012345678901@g.us",
+    "isAnnounce": true,
+    "isLocked": false,
+    "sender": "6281234567890@s.whatsapp.net",
+    "timestamp": 1719400035000
+  }
+}
+```
+
+</Tab>
+
+<Tab value="inviteLink">
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9GRPINVITE0000000001",
+  "event": "group.update",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400036000,
+  "payload": {
+    "groupJid": "120363012345678901@g.us",
+    "newInviteLink": "https://chat.whatsapp.com/AbCdEf1234567890",
+    "sender": "6281234567890@s.whatsapp.net",
+    "timestamp": 1719400036000
+  }
+}
+```
+
+</Tab>
+
+<Tab value="joined">
+
+The session itself just joined a group. `reason` describes how (e.g. `invite`); `subject` is the group name.
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9GRPJOINED0000000001",
+  "event": "group.update",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400037000,
+  "payload": {
+    "groupJid": "120363012345678901@g.us",
+    "subject": "Weekend Trip Planning",
+    "reason": "invite"
+  }
+}
+```
+
+</Tab>
+
+</Tabs>
+
+**Fields**
+
+- `groupJid` (string, required) — the group.
+- `subject` / `description` (string, optional) — set when that field changed.
+- `isAnnounce` / `isLocked` (boolean, nullable, optional) — group settings; present only on change.
+- `newInviteLink` (string, optional) — set when the invite link was reset.
+- `sender` (string, optional) — who made the change.
+- `reason` (string, optional) — set on a self-join.
+- `timestamp` (integer, optional) — epoch-ms of the change.
+
+</Accordion>
+
+<Accordion title="group.participant — join / leave / promote / demote" id="groupparticipant">
+
+A participant delta. Each of `join`, `leave`, `promote`, `demote` is a JID list,
+present only for the action that occurred.
+
+<Tabs items={["join", "leave", "promote", "demote"]}>
+
+<Tab value="join">
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9GPJOIN0000000000001",
+  "event": "group.participant",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400038000,
+  "payload": {
+    "groupJid": "120363012345678901@g.us",
+    "sender": "6281234567890@s.whatsapp.net",
+    "join": ["628111222333@s.whatsapp.net", "628444555666@s.whatsapp.net"],
+    "timestamp": 1719400038000
+  }
+}
+```
+
+</Tab>
+
+<Tab value="leave">
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9GPLEAVE000000000001",
+  "event": "group.participant",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400039000,
+  "payload": {
+    "groupJid": "120363012345678901@g.us",
+    "sender": "6281234567890@s.whatsapp.net",
+    "leave": ["628444555666@s.whatsapp.net"],
+    "timestamp": 1719400039000
+  }
+}
+```
+
+</Tab>
+
+<Tab value="promote">
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9GPPROMOTE00000000001",
+  "event": "group.participant",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400040000,
+  "payload": {
+    "groupJid": "120363012345678901@g.us",
+    "sender": "6281234567890@s.whatsapp.net",
+    "promote": ["628111222333@s.whatsapp.net"],
+    "timestamp": 1719400040000
+  }
+}
+```
+
+</Tab>
+
+<Tab value="demote">
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9GPDEMOTE000000000001",
+  "event": "group.participant",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400041000,
+  "payload": {
+    "groupJid": "120363012345678901@g.us",
+    "sender": "6281234567890@s.whatsapp.net",
+    "demote": ["628111222333@s.whatsapp.net"],
+    "timestamp": 1719400041000
+  }
+}
+```
+
+</Tab>
+
+</Tabs>
+
+**Fields**
+
+- `groupJid` (string, required) — the group.
+- `sender` (string, optional) — who performed the change.
+- `join` / `leave` / `promote` / `demote` (string[], optional) — the affected JIDs; only the relevant one is present.
+- `timestamp` (integer, optional) — epoch-ms.
+
+</Accordion>
+
+</Accordions>
+
+## Calls & newsletters
+
+<Accordions type="single">
+
+<Accordion title="call.incoming — an incoming call" id="callincoming">
+
+`isGroup` distinguishes a 1:1 call from a group call (which also carries `groupJid`).
+
+<Tabs items={["direct", "group"]}>
+
+<Tab value="direct">
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9CALLDIRECT0000000001",
+  "event": "call.incoming",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400042000,
+  "payload": {
+    "callId": "CALL_A1B2C3D4E5F6",
+    "from": "6281234567890@s.whatsapp.net",
+    "timestamp": 1719400042000,
+    "isGroup": false
+  }
+}
+```
+
+</Tab>
+
+<Tab value="group">
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9CALLGROUP00000000001",
+  "event": "call.incoming",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400043000,
+  "payload": {
+    "callId": "CALL_F6E5D4C3B2A1",
+    "from": "6281234567890@s.whatsapp.net",
+    "timestamp": 1719400043000,
+    "isGroup": true,
+    "groupJid": "120363012345678901@g.us"
+  }
+}
+```
+
+</Tab>
+
+</Tabs>
+
+**Fields**
+
+- `callId` (string, required) — the call id.
+- `from` (string, required) — the caller.
+- `timestamp` (integer, required) — epoch-ms of the offer.
+- `isGroup` (boolean, required) — `true` for a group call.
+- `groupJid` (string, optional) — set when `isGroup` is `true`.
+
+</Accordion>
+
+<Accordion title="newsletter.update — a followed channel changed" id="newsletterupdate">
+
+`action` is `join`, `leave`, or `mute`.
+
+<Tabs items={["join", "leave", "mute"]}>
+
+<Tab value="join">
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9NLJOIN0000000000001",
+  "event": "newsletter.update",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400044000,
+  "payload": {
+    "jid": "120363098765432109@newsletter",
+    "action": "join"
+  }
+}
+```
+
+</Tab>
+
+<Tab value="leave">
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9NLLEAVE000000000001",
+  "event": "newsletter.update",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400045000,
+  "payload": {
+    "jid": "120363098765432109@newsletter",
+    "action": "leave"
+  }
+}
+```
+
+</Tab>
+
+<Tab value="mute">
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9NLMUTE0000000000001",
+  "event": "newsletter.update",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400046000,
+  "payload": {
+    "jid": "120363098765432109@newsletter",
+    "action": "mute"
+  }
+}
+```
+
+</Tab>
+
+</Tabs>
+
+**Fields**
+
+- `jid` (string, required) — the newsletter/channel.
+- `action` (string, required) — `join`, `leave`, or `mute`.
+
+</Accordion>
+
+</Accordions>
+
+For the endpoints that produce and consume these events, see the
+[API reference](/docs/api).
