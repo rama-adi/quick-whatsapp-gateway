@@ -10,8 +10,12 @@
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import { DocsLayout } from "fumadocs-ui/layouts/docs";
 import { createServerFn } from "@tanstack/react-start";
-import { source } from "~/lib/source";
-import { openapi } from "~/lib/openapi";
+// `~/lib/source` and `~/lib/openapi` pull in the fumadocs-mdx server runtime
+// (which uses node:path). They are imported for VALUES only inside the server
+// handler below (via dynamic import) so they never enter the client bundle —
+// a top-level value import here leaks node:path into the browser and breaks
+// hydration app-wide. The type-only import is erased at build, so it is safe.
+import type * as SourceModule from "~/lib/source";
 import browserCollections from "collections/browser";
 import {
   DocsBody,
@@ -37,7 +41,7 @@ type PreloadedDocs = OpenAPIPageProps_Preloaded["preloaded"];
 type GeneratedAPIPageProps = Omit<OpenAPIPageProps_Preloaded, "preloaded">;
 
 type SerializedPageTree = Awaited<
-  ReturnType<typeof source.serializePageTree>
+  ReturnType<typeof SourceModule.source.serializePageTree>
 >;
 
 type LoaderData = {
@@ -59,6 +63,10 @@ export const Route = createFileRoute("/docs/$")({
 const serverLoader = createServerFn({ method: "GET" })
   .validator((slugs: string[]) => slugs)
   .handler(async ({ data: slugs }): Promise<LoaderData> => {
+    // Server-only: imported here (not at module scope) so node:path stays out
+    // of the client bundle.
+    const { source } = await import("~/lib/source");
+    const { openapi } = await import("~/lib/openapi");
     const page = source.getPage(slugs);
     if (!page) throw notFound();
 
