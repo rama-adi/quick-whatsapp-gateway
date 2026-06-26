@@ -28,6 +28,8 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
+import { createServerFn } from "@tanstack/react-start";
+import { getRequest } from "@tanstack/react-start/server";
 import { authClient } from "~/lib/auth/client";
 import { useAppSession } from "~/lib/auth/context";
 import { Button } from "~/components/ui/button";
@@ -61,9 +63,12 @@ export const Route = createFileRoute("/_app/user/keys")({
   component: Keys,
 });
 
-// The gateway's capability model (§4.2). Stored under a single "wa" resource:
-//   permissions: { wa: ["read","send",...] }
-const GATEWAY_RESOURCE = "wa";
+// The gateway's capability model (§4.2). Stored under a single "gateway"
+// resource: permissions: { gateway: ["read","send",...] }. This bucket name is
+// load-bearing — the gateway parses scopes from the "gateway" key
+// (internal/store/apikey.go parseAPIKeyPermissions), matching the api-key
+// plugin's own defaultPermissions ({ gateway: ["read"] }) in app/lib/auth/server.ts.
+const GATEWAY_RESOURCE = "gateway";
 const PERMISSION_KEYS = ["read", "send", "manage", "events"] as const;
 type PermissionKey = (typeof PERMISSION_KEYS)[number];
 
@@ -92,6 +97,44 @@ type CreatedKey = ApiKeyRow & { key: string };
 const keysQueryKey = (orgId: string | undefined) =>
   ["auth", "api-keys", orgId] as const;
 
+// CREATE runs SERVER-SIDE. The api-key plugin treats `permissions` (and the org
+// reference) as SERVER_ONLY_PROPERTY: a create that carries `permissions` is
+// rejected as privilege escalation whenever the call looks like a *client*
+// request. Crucially, the plugin flags a call as a client request when it is
+// given `headers` OR `request` (api-key plugin: `isClientRequest = ctx.request ||
+// ctx.headers`). So we MUST NOT forward the incoming headers into createApiKey —
+// doing so re-trips the guard. Instead we:
+//   1. resolve the session ourselves from the request headers (to learn the
+//      acting user + prove they're signed in), then
+//   2. call createApiKey WITHOUT headers (a true server call) and pass `userId`
+//      so the plugin can authorize the org membership and set referenceId = org.
+// The auth server module is imported lazily inside the handler so its
+// drizzle/mysql2/node deps never leak into the client bundle.
+const createApiKeyFn = createServerFn({ method: "POST" })
+  .validator(
+    (input: { name: string; organizationId: string; permissions: string[] }) =>
+      input,
+  )
+  .handler(async ({ data }): Promise<CreatedKey> => {
+    const { auth } = await import("~/lib/auth/server");
+    const request = getRequest();
+    const session = await auth.api.getSession({ headers: request.headers });
+    if (!session?.user) {
+      throw new Error("Not authenticated");
+    }
+    const created = await auth.api.createApiKey({
+      // No `headers`/`request` here -> server call -> server-only `permissions`
+      // is allowed. `userId` lets the plugin authorize the org membership.
+      body: {
+        name: data.name,
+        organizationId: data.organizationId,
+        userId: session.user.id,
+        permissions: { [GATEWAY_RESOURCE]: data.permissions },
+      },
+    });
+    return created as unknown as CreatedKey;
+  });
+
 function toMs(d: string | Date | null | undefined): number | undefined {
   if (!d) return undefined;
   const t = typeof d === "string" ? Date.parse(d) : d.getTime();
@@ -111,7 +154,9 @@ function Keys() {
         orgId ? { query: { organizationId: orgId } } : undefined,
       );
       if (error) throw new Error(error.message ?? "Failed to load keys");
-      return (data ?? []) as unknown as ApiKeyRow[];
+      // The api-key plugin returns { apiKeys, total }, not a bare array.
+      const rows = (data as { apiKeys?: ApiKeyRow[] } | null)?.apiKeys;
+      return Array.isArray(rows) ? rows : [];
     },
   });
 
@@ -292,13 +337,15 @@ function CreateKeyDialog({
   const create = useMutation({
     mutationFn: async (): Promise<CreatedKey> => {
       const selected = PERMISSION_KEYS.filter((p) => perms[p]);
-      const { data, error } = await authClient.apiKey.create({
-        name: name.trim(),
-        organizationId: orgId,
-        permissions: { [GATEWAY_RESOURCE]: selected },
+      // CREATE goes through the server fn: permissions are server-only on the
+      // api-key plugin, so a client-side create is rejected (privilege guard).
+      return createApiKeyFn({
+        data: {
+          name: name.trim(),
+          organizationId: orgId,
+          permissions: selected,
+        },
       });
-      if (error || !data) throw new Error(error?.message ?? "Failed to create key");
-      return data as unknown as CreatedKey;
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: keysQueryKey(orgId) });
