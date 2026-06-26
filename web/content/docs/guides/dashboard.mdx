@@ -1,49 +1,59 @@
 ---
 title: The dashboard
-description: Admin and user surfaces, the read-only viewer, and contacts.
+description: What you can do in the dashboard, the extra pages a super admin sees, the read-only viewer, and contacts.
 ---
 
-The dashboard is where people sign in to pair numbers, create keys and webhooks,
-and watch what's happening. What you see depends on who you are: a normal user
-works inside their organizations; the platform super admin also gets
-oversight across all of them.
+The dashboard is the web app where you sign in to pair WhatsApp numbers, create
+API keys and webhooks, and watch messages arrive. What you see depends on your
+role:
 
-## User surface
+- A **user** works inside their own **organizations** — the groups that own
+  numbers, keys, and webhooks.
+- A **super admin** (the platform-wide role) sees everything a user sees, plus
+  extra pages that look across every organization.
 
-What every signed-in user gets, scoped to their **active organization** (switch
-orgs from the org switcher):
+## What a user can do
 
-- **Sessions** — the org's WhatsApp numbers. Create them, start/stop them, fetch a
-  QR or pairing code, and watch status change live. See
-  [connect a number](/docs/guides/connect-a-number).
-- **API keys** — create and revoke the org's keys. See
-  [API keys](/docs/guides/api-keys).
-- **Webhooks** — register and edit where the org's events get pushed. See
-  [receive events](/docs/guides/receiving).
-- **Viewer** and **Contacts** — below.
+Everything a user does is scoped to one **active organization** at a time. Switch
+which one is active with the org switcher.
 
-## Admin surface
+| Page | What you do there | More |
+|---|---|---|
+| **Sessions** | The org's WhatsApp numbers. Create one, start or stop it, get a QR or pairing code to link a phone, and watch its status change live. | [Connect a number](/docs/guides/connect-a-number) |
+| **API keys** | Create and revoke the org's keys. A key lets code call the gateway without a browser login. | [API keys](/docs/guides/api-keys) |
+| **Webhooks** | Set and edit the URLs where the org's events get sent. | [Receive events](/docs/guides/receiving) |
+| **Viewer** | Read-only window into a session's chats. | [Below](#the-viewer) |
+| **Contacts** | Searchable list of people and groups a session has seen. | [Below](#contacts) |
 
-The platform super admin (the first account created) gets everything a user gets,
-plus oversight that crosses organizations:
+## Extra pages a super admin sees
 
-- **Users** — list people, change roles, ban or unban, and impersonate for support.
-- **All sessions** — every WhatsApp session across **all** organizations and their
-  status, each labeled with the gateway it lives on.
-- **The admin number** — the pairing code for the deployment's
-  [admin number](/docs/guides/connect-a-number#the-admin-number), so it can be linked
-  without console access.
+The super admin role spans the whole platform, not one organization. On top of
+the user pages above, a super admin gets:
+
+| Page | What you do there |
+|---|---|
+| **Users** | List every account, change a person's role, ban or unban them, and impersonate one to help with support. |
+| **All sessions** | Every WhatsApp session across **all** organizations, with its live status. Each row shows which gateway (the Go service running the connection) the session lives on. |
+| **Admin number** | The pairing code for the deployment's [admin number](/docs/dev/deploying#create-the-first-admin), so it can be linked without console access. |
+| **Event monitor** | A live feed of events flowing through the platform. |
 
 ## The viewer
 
-A **read-only** window into a session's WhatsApp: its chats and the message
-timeline, updating live as messages arrive. It is for watching, not replying —
-sending happens through the [API](/docs/guides/sending). Messages with attachments
-show a placeholder rather than the file, since this release does not download media.
+The viewer is a **read-only** window into one session's WhatsApp. It shows the
+session's chats and the message timeline, and updates live as new messages
+arrive.
+
+It is for watching, not replying — you send messages through the
+[API](/docs/guides/sending), not here. A message with an attachment shows a
+placeholder instead of the file, because this release does not download media.
 
 ## Contacts
 
-A searchable list of the people and groups a session has seen, built from incoming
-messages. Open a contact to see their direct chat and the groups you share with
-them, including the name they use per group. It's a way to find a recipient's JID
-and confirm who you're talking to before you send.
+Contacts is a searchable list of the people and groups a session has seen, built
+up from the messages it receives. Open a contact to see:
+
+- Their direct chat with the session.
+- The groups you and they share, including the name they use in each group.
+
+Use it to find a recipient's **JID** — the WhatsApp address you send a message to
+— and to confirm who you are talking to before you send.

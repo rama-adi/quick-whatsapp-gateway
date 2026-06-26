@@ -1,12 +1,18 @@
 ---
 title: Send messages
-description: Send text, polls, locations, and contact cards over the REST API.
+description: Send text, polls, locations, and contact cards through one REST endpoint, with idempotent retries and per-session rate limits.
 ---
 
-With a session `working`, sending is one `POST` to its messages endpoint. The
-body always has a `type` and a `to` (the recipient's JID — a phone JID like
-`628123456789@s.whatsapp.net` for a DM, or a group JID); the rest of the fields
-depend on the type.
+Sending is one `POST` to a session's messages endpoint. You need a session that is
+already connected (its status is `working`). Every request body has two required
+fields:
+
+- `type` — what kind of message to send.
+- `to` — the recipient's JID. A JID is WhatsApp's address for a chat: a phone JID
+  like `628123456789@s.whatsapp.net` for a one-to-one chat, or a group JID for a
+  group.
+
+The other fields depend on `type`.
 
 ```bash
 curl -X POST https://your-gateway/api/v1/sessions/{id}/messages \
@@ -15,20 +21,27 @@ curl -X POST https://your-gateway/api/v1/sessions/{id}/messages \
   -d '{"type":"text","to":"628123456789@s.whatsapp.net","text":"Hello"}'
 ```
 
-The reply tells you the WhatsApp message id and its delivery status. Full request
-and response shapes are in [send a message](/docs/api/messages/sendMessage).
+The reply is a `SendResult`: the WhatsApp message id (`messageId`), the delivery
+`status`, and a `timestamp`. The full request and response shapes are in
+[send a message](/docs/api/messages/sendMessage).
 
-## Supported types
+## Message types
 
-| `type` | Required fields | Notes |
+| `type` | Required fields | Optional fields |
 |---|---|---|
-| `text` | `text` | Add `mentions` (a list of JIDs) and `replyTo` (a message id to quote). |
-| `poll` | `name`, `options` | `selectableCount` sets how many options a voter may pick. Votes arrive as `poll.vote` events. |
-| `location` | `latitude`, `longitude` | `name` labels the pin. |
-| `contact` | `contact` | A contact card: `{ name, phone }`, or supply a raw `vcard`. |
-| `image`, `video`, `audio`, `document`, `sticker` | — | **Not supported in this release.** A media send returns `501`. |
+| `text` | `text` | `mentions` (a list of JIDs to tag), `replyTo` (a message id to quote) |
+| `poll` | `name`, `options` | `selectableCount` — how many options one voter may pick. Votes come back as `poll.vote` [events](/docs/guides/receiving). |
+| `location` | `latitude`, `longitude` | `name` — a label for the pin |
+| `contact` | `contact` | — |
 
-A poll, for example:
+A `contact` is a card. Give it `{ name, phone }`, or supply a raw `vcard` string
+instead.
+
+`image`, `video`, `audio`, `document`, and `sticker` are valid `type` values in
+the schema but **are not implemented in this release**. Sending one returns `501`
+before any WhatsApp call is made.
+
+A poll request looks like this:
 
 ```json
 {
@@ -40,35 +53,53 @@ A poll, for example:
 }
 ```
 
-## Acting on a sent message
+## Change or reference a sent message
 
-Once a message exists, you can change or reference it through sub-resources of the
-same endpoint:
+Once a message exists, these endpoints act on it by its message id:
 
-| Action | Call |
+| Action | Endpoint |
 |---|---|
 | Edit the text | [edit a message](/docs/api/messages/editMessage) |
 | Delete for everyone | [revoke a message](/docs/api/messages/revokeMessage) |
 | React with an emoji | [add](/docs/api/messages/addReaction) / [remove](/docs/api/messages/removeReaction) a reaction |
-| Forward it elsewhere | [forward a message](/docs/api/messages/forwardMessage) |
+| Forward it to another chat | [forward a message](/docs/api/messages/forwardMessage) |
 | Vote on a poll | [vote](/docs/api/messages/voteMessage) |
 
-## Delivery, retries, and limits
+## Sync vs. async
 
-A few behaviors apply to every send:
+By default the send is **synchronous**: the call blocks until WhatsApp
+acknowledges the message, then returns `200` with the `messageId` and `status`.
 
-- **Sync by default.** The call blocks until WhatsApp acknowledges the message,
-  then returns its id and status. Add `?async=true` to enqueue instead — you get a
-  `202` immediately and the final status arrives as a `message.status`
-  [event](/docs/guides/receiving).
-- **Idempotency.** Pass an `Idempotency-Key` header and a retried request returns
-  the original result instead of sending twice — safe to retry on a network error.
-- **Rate limits.** Each session has a per-minute and per-hour cap. Over the limit,
-  a sync send returns `429`; an async send waits and goes out later. The caps default
-  to 20/minute and 200/hour and are set per session.
+Add `?async=true` to enqueue the send instead. You get `202` right away, and the
+final delivery status arrives later as a `message.status`
+[event](/docs/guides/receiving).
+
+## Retrying safely (idempotency)
+
+Send the same request twice — say, after a network timeout — and you risk sending
+the message twice. To prevent that, pass an `Idempotency-Key` header with a value
+you choose. If a request with the same key has already run, the gateway returns
+the original result instead of sending again.
+
+The key is scoped to your organization, so the same key reused across sessions in
+the same org counts as the same request.
+
+## Rate limits
+
+Each session has two send budgets: a per-minute cap and a per-hour cap. The
+defaults are **20 per minute** and **200 per hour** (configurable per session; the
+server-wide defaults come from `DEFAULT_RATE_PER_MIN` and
+`DEFAULT_RATE_PER_HOUR`).
+
+What happens when you go over depends on the mode:
+
+| Mode | Over the limit |
+|---|---|
+| Sync (default) | Returns `429`. The error includes `retryAfterSeconds`. |
+| Async (`?async=true`) | The message stays queued and goes out once the budget refills. |
 
 <Callout type="warn">
 Sending fast or in bulk is exactly the behavior WhatsApp bans numbers for. The
-limits and the typing/read-receipt mimicry exist to look human — keep volume low
-and the pacing natural.
+rate limits, plus the typing and read-receipt simulation, exist to keep traffic
+looking human. Keep volume low and pacing natural.
 </Callout>

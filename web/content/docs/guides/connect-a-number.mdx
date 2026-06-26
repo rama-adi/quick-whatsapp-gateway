@@ -1,39 +1,52 @@
 ---
 title: Connect a number
-description: Create a session and link a phone with a QR code or pairing code.
+description: Create a session and link a phone with a QR code or a pairing code.
 ---
 
-A **session** is one linked WhatsApp number. You pair it once — by scanning a QR
-code or entering a pairing code on the phone — and the gateway keeps the
-connection alive after that, reconnecting on its own if it drops.
+A **session** is one linked WhatsApp number. You link the phone once — by scanning
+a QR code or entering a pairing code — and the gateway keeps the connection alive
+after that, reconnecting on its own if it drops.
+
+Linking takes three steps:
+
+1. Create the session.
+2. Link your phone with a QR code or a pairing code.
+3. Confirm the session reached the `working` status.
 
 ## 1. Create the session
 
-In the dashboard, on your organization's sessions page, create a session and give
-it a label. Programmatically it is a `POST /sessions` with an optional label and a
-`start` flag — see [create a session](/docs/api/sessions/createSession).
+In the dashboard, open your organization's sessions page, create a session, and
+give it a label.
 
-A fresh session starts in status `scan_qr_code`: it is waiting for a phone.
+To do it from code, send `POST /sessions` with an optional label and a `start`
+flag. See [create a session](/docs/api/sessions/createSession).
+
+A new session starts in the `scan_qr_code` status, meaning it is waiting for a
+phone to link.
 
 ## 2. Link the phone
 
-Pick whichever the phone makes easier. Both link the same way WhatsApp's own
+Pick whichever is easier on the phone. Both link the same way WhatsApp's own
 "Linked devices" feature does.
 
-### Scan a QR code
+### Option A: Scan a QR code
 
-The session exposes a QR string that refreshes about every 20 seconds. The
-dashboard renders it for you and swaps it as it rotates. On the phone: **WhatsApp
-→ Linked devices → Link a device**, then scan.
+The session produces a QR code string that refreshes about every 20 seconds. The
+dashboard draws the QR image for you and swaps it each time it refreshes.
 
-Fetch the current code yourself with [get the QR code](/docs/api/sessions/sessionQR)
-(`?format=image` returns a PNG instead of the raw string).
+On the phone, open **WhatsApp → Linked devices → Link a device**, then scan the
+code shown in the dashboard.
 
-### Use a pairing code
+To fetch the current code from code instead, call
+[get the QR code](/docs/api/sessions/sessionQR). Add `?format=image` to get a PNG
+image instead of the raw string.
 
-If scanning is awkward, ask for an 8-character pairing code tied to the phone
-number, then type it into the phone under **Link a device → Link with phone number
-instead**:
+### Option B: Enter a pairing code
+
+If scanning is awkward, request a pairing code tied to the phone number. WhatsApp
+returns a short code (for example `ABCD-1234`) that you type into the phone.
+
+Request the code:
 
 ```bash
 curl -X POST https://your-gateway/api/v1/sessions/{id}/pairing-code \
@@ -42,41 +55,33 @@ curl -X POST https://your-gateway/api/v1/sessions/{id}/pairing-code \
   -d '{"phone":"628123456789"}'
 ```
 
-See [request a pairing code](/docs/api/sessions/sessionPairingCode). The number is
-in international format with no `+` or spaces.
+The `phone` value is the number in international format — digits only, no `+` and
+no spaces.
+
+On the phone, open **WhatsApp → Linked devices → Link a device → Link with phone
+number instead**, then enter the code.
+
+See [request a pairing code](/docs/api/sessions/sessionPairingCode).
 
 ## 3. Confirm it linked
 
-Once the phone accepts, the session moves to status `working`. These are all the
-statuses a session moves through:
+Once the phone accepts, the session moves to the `working` status. A session can
+be in any of these statuses:
 
 | Status | Meaning |
 |---|---|
 | `starting` | Connecting to WhatsApp. |
-| `scan_qr_code` | Waiting for you to scan the QR or enter the pairing code. |
+| `scan_qr_code` | Waiting for you to scan the QR code or enter the pairing code. |
 | `working` | Linked and live — ready to send and receive. |
 | `stopped` | Stopped on purpose; reconnects when you start it. |
 | `failed` | Connection failed; the gateway stopped retrying. |
-| `logged_out` | The link was removed (from the phone or by a ban); needs re-pairing. |
+| `logged_out` | The link was removed (from the phone or by a ban); needs re-linking. |
 
-The dashboard updates these live. Over the API you can [poll the session](/docs/api/sessions/getSession),
-or subscribe to `session.status` on the [event stream](/docs/guides/receiving).
-
-## The admin number
-
-A deployment can name one number as its **admin number** through the gateway's
-`WHATSAPP_ADMIN_NUMBER` setting. On boot, if that number is not already linked,
-the gateway creates its session, prints a pairing code to its console, and shows
-the same code on the admin surface — so the operator can pair it without a browser.
-
-The admin number is otherwise an ordinary session: it sends and receives like any
-other. It also reserves a private command channel — messages it receives that
-start with the admin command prefix (`am` by default) are handled internally and
-are **not** stored, emitted as events, or counted against rate limits. In this
-release that channel is reserved but does nothing; commands arrive in a later
-version.
+The dashboard updates the status live. From code, you can
+[poll the session](/docs/api/sessions/getSession) or subscribe to `session.status`
+on the [event stream](/docs/guides/receiving).
 
 ## Next
 
-With a session `working`, you can [send messages](/docs/guides/sending) and
-[receive events](/docs/guides/receiving).
+With a session in the `working` status, you can
+[send messages](/docs/guides/sending) and [receive events](/docs/guides/receiving).

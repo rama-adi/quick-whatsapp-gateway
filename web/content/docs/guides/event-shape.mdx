@@ -1,16 +1,19 @@
 ---
 title: Event shape
-description: The event envelope plus a full, copy-pasteable JSON example for every event type and every state — the same shape on the stream and on webhooks.
+description: The fields in every gateway event, plus a copy-pasteable JSON example for each event type and state. The same shape arrives on the stream and on webhooks.
 ---
 
-Every event the gateway emits — on the NDJSON stream and on webhooks — is the same
-JSON object: a versioned **envelope** that wraps a type-specific **payload**. This
-page is the reference for that shape, with a fully-populated example for every
-event type and every state it can take. For how to subscribe, see
-[Receive events](/docs/guides/receiving); for the endpoint contract, see the
+Every event the gateway emits is one JSON object with the same outer fields. Those
+outer fields are the **envelope**; the part that changes per event type sits in one
+of them, `payload`. The gateway sends this same object two ways: on the event stream
+and on webhooks (more on both below).
+
+This page lists the envelope fields, then gives a complete, copy-pasteable example for
+every event type and every state it can be in. To set up a subscription, see
+[Receive events](/docs/guides/receiving); for the full endpoint contract, see the
 [stream events API](/docs/api/events/events).
 
-## The envelope
+## Envelope fields
 
 ```json
 {
@@ -26,21 +29,25 @@ event type and every state it can take. For how to subscribe, see
 
 | Field | Type | What it is |
 |---|---|---|
-| `schema` | string | Envelope version. Currently `v1`. Branch on this if it ever changes. |
-| `id` | string | The event id, a ULID with an `evt_` prefix. Stable and unique. Use it to dedupe and to resume the stream. |
-| `event` | string | The event type — one of the [catalog](#event-catalog) below. Tells you how to read `payload`. |
-| `session` | string | The session the event belongs to (`sess_…`). |
-| `organization` | string | The organization that owns the session. Every event is scoped to one org. |
-| `timestamp` | integer | When the gateway emitted it, in **epoch milliseconds**. |
-| `payload` | object | Type-specific data. Its shape depends on `event` — see each entry below. |
+| `schema` | string | Envelope version. Always `v1` today. If this ever changes, check it before reading the rest. |
+| `id` | string | The event id: a ULID (a sortable unique id) prefixed with `evt_`. Use it to skip duplicates and to resume the stream where you left off. |
+| `event` | string | The event type, one of the values in the [catalog](#event-catalog) below. It tells you how to read `payload`. |
+| `session` | string | The session the event belongs to (`sess_…`). A session is one linked WhatsApp number. |
+| `organization` | string | The organization that owns the session. Every event belongs to exactly one organization. |
+| `timestamp` | integer | When the gateway emitted the event, in milliseconds since the Unix epoch. |
+| `payload` | object | The event-specific data. Its fields depend on `event` — see each entry below. |
 
-The same envelope rides both transports, so your handler can be written once:
+You get the same object whether you read the stream or receive a webhook, so you only
+write your handler once. The two delivery methods differ only in how the bytes reach you:
 
-- **Stream** — `GET /api/v1/events`, `application/x-ndjson`, one envelope per line. A
-  `ping` event arrives about every 20s; resume after a drop with `since={lastEventId}`.
-- **Webhooks** — the gateway `POST`s the envelope as JSON. The envelope `id` is also
-  sent as `X-Webhook-Request-Id`; dedupe on it. Deliveries are HMAC-signed
-  (`X-Webhook-Hmac`, `X-Webhook-Hmac-Algorithm: sha512`) and retried.
+| | Stream | Webhook |
+|---|---|---|
+| How it arrives | You hold open `GET /api/v1/events` and read lines as they come | The gateway sends an HTTP `POST` to your URL |
+| Format | `application/x-ndjson` — one envelope per line | The envelope as a JSON request body |
+| Keepalive | A `ping` event arrives about every 20 seconds | n/a |
+| Dropped connection | Reconnect with `since={lastEventId}` to replay what you missed | The gateway retries the delivery |
+| How to skip duplicates | Track the envelope `id` | The envelope `id` is also in the `X-Webhook-Request-Id` header |
+| Authenticity | The connection itself is authenticated | Each `POST` is signed: `X-Webhook-Hmac`, with `X-Webhook-Hmac-Algorithm: sha512` |
 
 ## Subscribe to the stream
 
@@ -49,18 +56,22 @@ curl -N "https://your-gateway/api/v1/events?events=*&session=sess_01J8ABCDEF0123
   -H "Authorization: Bearer $TOKEN"
 ```
 
-- `events=*` is every type; pass a comma list (`events=message,poll.vote`) to narrow.
-- `session=` filters to one session; omit it to receive every session your org owns.
-- After a disconnect, reconnect with `since={lastEventId}` — the gateway replays what
-  you missed from the event log, then tails live.
+- `events=*` means every type. To narrow, pass a comma-separated list, e.g.
+  `events=message,poll.vote`.
+- `session=` filters to one session. Omit it to receive events from every session your
+  organization owns.
+- If the connection drops, reconnect with `since={lastEventId}`, where `lastEventId` is
+  the `id` of the last event you processed. The gateway replays the events you missed
+  from its event log, then continues with live events.
 
 See the [stream events API](/docs/api/events/events) for the full endpoint detail.
 
 ## Event catalog
 
-Seventeen event types, grouped below. Every example is a complete envelope you can
-copy. Optional fields are omitted from the wire when empty; each example calls out
-which fields are optional or nullable.
+There are 17 event types, grouped below. Every example is a complete envelope you can
+copy. A field that is empty is left out of the JSON entirely rather than sent as `null`
+(except `media`, which is explained below). Each entry lists which of its fields are
+optional or nullable.
 
 | Event | Fires when |
 |---|---|
@@ -68,7 +79,7 @@ which fields are optional or nullable.
 | [`auth.qr`](#authqr) | A new QR code is ready to scan. |
 | [`auth.code`](#authcode) | Pairing succeeded. |
 | [`message`](#message) | An inbound message arrives. |
-| [`message.from_me`](#messagefrom_me) | A message is sent from this number (incl. another linked device). |
+| [`message.from_me`](#messagefrom_me) | A message is sent from this number, including from another device linked to it. |
 | [`message.status`](#messagestatus) | A receipt updates a sent message. |
 | [`message.reaction`](#messagereaction) | Someone reacts to a message. |
 | [`message.edited`](#messageedited) | A message is edited. |
@@ -83,9 +94,9 @@ which fields are optional or nullable.
 | [`newsletter.update`](#newsletterupdate) | A followed channel updates. |
 
 <Callout type="info">
-**Media is metadata only.** A message with an attachment arrives with `hasMedia: true`
-and `media: null`. You learn that the message has media (and, internally, its type) but
-this release never downloads the file.
+**Attachments are never downloaded.** When a message has an attachment, you get
+`hasMedia: true` and `media: null`. So you know an attachment exists and what kind it is
+(from `type`), but this release never downloads the file itself.
 </Callout>
 
 ## Session & Auth
@@ -252,7 +263,11 @@ a fresh QR/pairing.
 
 <Accordion title="auth.code — pairing succeeded" id="authcode">
 
-Emitted on a successful pair (after a QR scan or pairing code).
+Sent when a device links successfully, after a QR scan or a pairing code.
+
+Throughout these events, a **JID** is WhatsApp's address for an account or chat — for
+example `6281234567890@s.whatsapp.net` for a phone number or `…@g.us` for a group. A
+**LID** is an alternate, privacy-preserving address WhatsApp may use for the same account.
 
 ```json
 {
@@ -271,12 +286,12 @@ Emitted on a successful pair (after a QR scan or pairing code).
 }
 ```
 
-**Fields** (all optional — omitted when empty)
+**Fields** (all optional — left out when empty)
 
-- `jid` — the linked account's phone-number JID.
-- `lid` — the linked account's LID (hidden-address) identity, when present.
+- `jid` — the linked account's phone-number address.
+- `lid` — the linked account's LID, when there is one.
 - `businessName` — set only for WhatsApp Business accounts.
-- `platform` — the device platform string reported at pair time (e.g. `android`, `iphone`).
+- `platform` — the device's platform, e.g. `android` or `iphone`.
 
 </Accordion>
 
@@ -284,9 +299,9 @@ Emitted on a successful pair (after a QR scan or pairing code).
 
 ## Messages
 
-The `message` and `message.from_me` events share one flat payload, discriminated by
-`type`. `media` is **always `null`** on the wire; `hasMedia` tells you whether an
-attachment exists.
+The `message` and `message.from_me` events use the same payload fields; the `type`
+field tells you what kind of content it holds. `media` is **always `null`**; use
+`hasMedia` to tell whether an attachment exists.
 
 ### `message`
 
@@ -329,9 +344,9 @@ carries a `mentions` JID list (both shown here).
 
 <Tab value="media">
 
-Image / video / audio / document / sticker. `type` is the specific media kind,
-`hasMedia` is `true`, and `media` is still `null` (metadata only in v1). A caption,
-when present, rides in `body`.
+An image, video, audio clip, document, or sticker. `type` says which one, `hasMedia` is
+`true`, and `media` is still `null` (the file is not downloaded). If the message has a
+caption, it is in `body`.
 
 ```json
 {
@@ -491,8 +506,9 @@ separately as [`poll.vote`](#pollvote).
 
 ### `message.from_me`
 
-Identical shape to [`message`](#message), emitted when the message was sent from this
-number — including from another linked device. The only difference is `fromMe: true`.
+Same fields as [`message`](#message). You get this when a message was sent from your own
+number, including from another device linked to it. The only difference is that `fromMe`
+is `true`.
 
 ```json
 {
@@ -519,15 +535,15 @@ number — including from another linked device. The only difference is `fromMe:
 
 ### `message.status`
 
-A receipt updates one or more sent messages. One receipt can cover several messages,
-so `messageIds` is a list.
+The status of one or more sent messages changed. A single update can cover several
+messages at once, so `messageIds` is a list.
 
-<Callout type="info">
-Receipts from WhatsApp only ever raise the status to `delivered`, `read`, or `played`.
-The earlier lifecycle values — `pending`, `sent`, `failed` — are set internally when
-the gateway accepts and dispatches your outbound send; they describe the same
-`status` field but are not driven by an inbound receipt.
-</Callout>
+The `status` value comes from one of two places:
+
+| Status | Set by |
+|---|---|
+| `pending`, `sent`, `failed` | The gateway, as it accepts and sends your outbound message. Not from WhatsApp. |
+| `delivered`, `read`, `played` | A receipt from WhatsApp. |
 
 <Tabs items={["pending", "sent", "delivered", "read", "played", "failed"]}>
 
@@ -682,10 +698,10 @@ The message failed to send. Set internally, not from a receipt.
 - `status` (string, required) — `pending`, `sent`, `delivered`, `read`, `played`, `failed`.
 - `timestamp` (integer, required) — epoch-ms.
 
-## Reactions, edits & revokes
+## Reactions, edits, and deletes
 
-These three share the message payload shape but are emitted as their own event types.
-`targetId` is the `waMessageId` of the message being acted on.
+These three are their own event types, but they reuse the message payload fields. In all
+three, `targetId` is the `waMessageId` of the message being acted on.
 
 <Accordions type="single">
 
@@ -838,8 +854,9 @@ A delete-for-everyone. There is no body — only the target id.
 
 ### `poll.vote`
 
-Someone voted on a poll. `targetId` is the poll-creation message being voted on. The
-selected options arrive as **encrypted** `selectedHashes` rather than plaintext labels.
+Someone voted on a poll. `targetId` is the original poll message they voted on. You do
+not get the chosen option labels in plain text — `selectedHashes` holds encrypted hashes
+of the options instead.
 
 ```json
 {
@@ -877,9 +894,9 @@ selected options arrive as **encrypted** `selectedHashes` rather than plaintext 
 
 <Accordion title="presence.update — online/offline or typing" id="presenceupdate">
 
-Two source shapes share this event. **Account presence** reports online/offline for a
-contact (no `chatJid`); **chat presence** reports typing/recording within a chat
-(carries `chatJid` and `media`).
+This event covers two things. Online/offline for a contact comes with no `chatJid`.
+Typing or recording inside a chat comes with a `chatJid` (and a `media` field saying
+which).
 
 <Tabs items={["available", "unavailable", "composing", "paused"]}>
 
@@ -1045,8 +1062,9 @@ Currently only profile-picture changes. `removed: true` means the picture was cl
 
 <Accordion title="contact.update — name or details changed" id="contactupdate">
 
-Two source shapes: a push-name change carries `pushName`; an address-book contact
-action carries `fullName`/`firstName`.
+This event covers two things. A change to the name a contact set for themselves carries
+`pushName`. A change you make to a contact in your own address book carries `fullName`
+and `firstName`.
 
 <Tabs items={["pushName", "contact"]}>
 
@@ -1107,8 +1125,8 @@ action carries `fullName`/`firstName`.
 
 <Accordion title="group.update — metadata changed" id="groupupdate">
 
-Pure metadata changes (subject, description, announce/locked flags, invite link). A
-freshly-joined group also arrives as `group.update` with a `reason`.
+A group's details changed: its subject (name), description, settings, or invite link.
+When the session itself joins a group, that also arrives here, with a `reason` field.
 
 <Tabs items={["subject", "description", "settings", "inviteLink", "joined"]}>
 
@@ -1238,8 +1256,9 @@ The session itself just joined a group. `reason` describes how (e.g. `invite`); 
 
 <Accordion title="group.participant — join / leave / promote / demote" id="groupparticipant">
 
-A participant delta. Each of `join`, `leave`, `promote`, `demote` is a JID list,
-present only for the action that occurred.
+A group's membership changed. The fields `join`, `leave`, `promote`, and `demote` are
+each a list of the affected people. Only the field for the action that happened is
+present.
 
 <Tabs items={["join", "leave", "promote", "demote"]}>
 
@@ -1346,7 +1365,8 @@ present only for the action that occurred.
 
 <Accordion title="call.incoming — an incoming call" id="callincoming">
 
-`isGroup` distinguishes a 1:1 call from a group call (which also carries `groupJid`).
+`isGroup` is `false` for a one-to-one call and `true` for a group call. A group call also
+carries `groupJid`.
 
 <Tabs items={["direct", "group"]}>
 
@@ -1479,5 +1499,5 @@ present only for the action that occurred.
 
 </Accordions>
 
-For the endpoints that produce and consume these events, see the
+For the endpoints that produce and receive these events, see the
 [API reference](/docs/api).

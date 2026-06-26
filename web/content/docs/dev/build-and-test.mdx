@@ -1,44 +1,72 @@
 ---
 title: Build and test gates
-description: The commands each half of the repo must pass before a change lands.
+description: The build, vet, and test commands each half of the repo must pass before you commit.
 ---
 
-Each half has its own gate, and **both must stay green at every committed step**.
+The repo holds two services: the Go gateway and the `web/` frontend. Each has its own set
+of commands that must succeed before a change lands. Both halves must pass at every commit,
+not just at the end of a branch.
 
 ## Gateway (Go)
 
-From the repo root:
+Run all three from the repo root:
 
 ```sh
-go build ./... && go test ./...
+go build ./...
+go vet ./...
+go test ./...
 ```
 
-The build and tests run with `CGO_ENABLED=0` (the pure-Go SQLite driver). The
-trust seam is locked by contract tests in `internal/authz/` that mint a real
-better-auth JWT and api-key and verify them in the gateway — run those alone with:
+| Command | What it checks |
+|---|---|
+| `go build ./...` | Everything compiles. |
+| `go vet ./...` | Static checks for common mistakes (bad format strings, unreachable code, and similar). |
+| `go test ./...` | The full test suite. |
+
+The build and tests run with `CGO_ENABLED=0` because the gateway uses a pure-Go SQLite
+driver (no C compiler needed).
+
+### Contract tests for the trust seam
+
+The gateway trusts two things minted by the frontend: better-auth api-keys, and EdDSA
+JWTs (signed JSON tokens that carry the caller's identity). If better-auth changes how it
+stores an api-key hash or shapes a JWT, the gateway would silently stop accepting valid
+callers. Tests in `internal/authz/` pin those formats so that drift fails a test instead.
+
+Run just those packages with:
 
 ```sh
 CGO_ENABLED=0 go test ./internal/authz/... ./internal/controlbus/...
 ```
 
-Lint with `make lint` (`golangci-lint run`).
+If you bump the pinned better-auth version, regenerate the fixtures these tests assert
+against (see `contract_test.go` and `jwt_test.go` in `internal/authz/`).
+
+### Lint
+
+```sh
+make lint   # runs golangci-lint run
+```
 
 ## Frontend (`web/`)
 
-From `web/`:
+Run all three from `web/`:
 
 ```sh
-pnpm build && pnpm typecheck && pnpm test
+pnpm build
+pnpm typecheck
+pnpm test
 ```
 
 | Command | What it does |
 |---|---|
-| `pnpm build` | Vite build → `.output` (the Nitro server bundle). Also runs the TanStack Router code generator, which produces `app/routeTree.gen.ts`. |
-| `pnpm typecheck` | `tsc --noEmit`. It consumes the generated route tree, so run a build (or `pnpm dev`) once on a fresh checkout before typechecking. |
-| `pnpm test` | Vitest — covers the NDJSON parser and the `cacheBridge` event reducer. |
+| `pnpm build` | Vite build into `.output` (the Nitro server bundle). This also runs the TanStack Router code generator, which writes `app/routeTree.gen.ts`. |
+| `pnpm typecheck` | `tsc --noEmit`. It reads the generated `app/routeTree.gen.ts`, so the route tree must exist first (see below). |
+| `pnpm test` | Vitest. Covers the NDJSON parser (`app/lib/events/ndjson.test.ts`) and the `cacheBridge` event reducer (`app/lib/events/cacheBridge.test.ts`). |
 
-## Order matters on a fresh checkout
-
-`tsc` depends on the generated `app/routeTree.gen.ts`, so on a clean clone run
-`pnpm build` (or start `pnpm dev`) **before** `pnpm typecheck` — otherwise the
-typecheck fails on a missing route tree, not on a real type error.
+<Callout type="warn">
+On a fresh checkout, run `pnpm build` (or start `pnpm dev`) **before** `pnpm typecheck`.
+The typecheck reads the generated `app/routeTree.gen.ts`; without it, the typecheck fails
+on a missing route tree rather than on any real type error. The build (and the dev server)
+both generate that file.
+</Callout>

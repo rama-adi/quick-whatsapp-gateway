@@ -1,21 +1,23 @@
 ---
 title: Receive events
-description: Stream events over NDJSON, or have the gateway push them to a webhook.
+description: Read gateway events by holding open an HTTP stream, or have the gateway POST each one to a URL you run.
 ---
 
-The gateway emits an event for everything that happens on your sessions — a
-message arrives, a delivery receipt comes back, a poll gets a vote, a session
-changes status. You read those events one of two ways:
+Whenever something happens on one of your sessions — a message arrives, a delivery
+receipt comes back, someone votes on a poll, a session changes status — the gateway
+produces an **event**. You read those events in one of two ways:
 
-- **Stream** them over a long-lived HTTP connection. Best when your code can hold a connection open — a worker, a script, the dashboard.
-- **Webhooks** — the gateway `POST`s each event to a URL you run. Best when you have a public endpoint and would rather not hold a connection.
+| Way | How it works | Use it when |
+|---|---|---|
+| **Stream** | You open one long-lived HTTP connection and the gateway writes events to it as they happen. | Your code can hold a connection open — a worker, a script, the dashboard. |
+| **Webhooks** | The gateway sends an HTTP `POST` to a URL you run, once per event, and retries until it succeeds. | You have a public URL and would rather not hold a connection open. |
 
-Both carry the **same event envelope**, so the payload is identical whichever you
-pick.
+Both carry the **same event envelope** (the JSON wrapper described below), so the data
+you receive is identical whichever you pick.
 
 ## The event envelope
 
-One JSON object per event:
+Every event is one JSON object with the same outer fields:
 
 ```json
 {
@@ -29,86 +31,130 @@ One JSON object per event:
 }
 ```
 
-`event` names the type (see the catalog below); `payload` carries the
-type-specific data; `timestamp` is epoch milliseconds. For a field-by-field
-reference of the envelope, the full payload-field catalog, and concrete examples,
-see [Event shape](/docs/guides/event-shape).
+| Field | What it is |
+|---|---|
+| `schema` | Envelope version. Currently `v1`. |
+| `id` | Unique id for this event. Use it to drop duplicates (see webhooks below). |
+| `event` | The event type — one of the names in the [catalog](#event-catalog) below. |
+| `session` | The session the event belongs to. |
+| `organization` | The organization that owns the session. |
+| `timestamp` | When it happened, in epoch milliseconds (milliseconds since 1 Jan 1970). |
+| `payload` | The type-specific data. Its shape depends on `event`. |
+
+For every field of every payload type, with concrete examples, see
+[Event shape](/docs/guides/event-shape).
 
 ## Stream the events
 
 Open a `GET` to the events endpoint with your Bearer token. The response is
-`application/x-ndjson` — a connection that stays open with one JSON event per
-line:
+`application/x-ndjson` — NDJSON means newline-delimited JSON: the connection stays
+open and the gateway writes one event per line, each line a single JSON object ending
+in `\n`.
 
 ```bash
 curl -N https://your-gateway/api/v1/events?events=* \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-- `events=*` subscribes to everything; pass a comma list (`events=message,poll.vote`) to narrow it.
-- Add `session={id}` to follow one session; omit it to receive every session your organization owns.
-- A `ping` event arrives about every 20 seconds so you can tell the connection is alive.
-- After a drop, reconnect with `since={lastEventId}` and the gateway replays what you missed, then keeps tailing.
+Control what you receive with query parameters:
 
-Because it is a plain HTTP stream (not Server-Sent Events), you read it with
-`fetch` and a `ReadableStream` and attach the `Authorization` header the same as
-any other call. See [stream events](/docs/api/events/events).
+| Parameter | Effect |
+|---|---|
+| `events=*` | Subscribe to every event type. |
+| `events=message,poll.vote` | Subscribe to only the named types (comma-separated). |
+| `session={id}` | Follow one session. Omit it to receive events for every session your organization owns. |
+| `since={lastEventId}` | Replay the events you missed since that id, then keep tailing live events. |
+
+Two things to know about a live stream:
+
+- **Heartbeat.** A `ping` event arrives about every 20 seconds. If you stop seeing
+  pings, the connection is dead and you should reconnect.
+- **Reconnecting after a drop.** Reconnect with `since={lastEventId}` set to the `id`
+  of the last event you processed. The gateway replays everything after that id from
+  its durable log, then resumes tailing. Replayed events look identical to live ones,
+  so you cannot tell them apart — which is why deduping on `id` matters.
+
+This is a plain chunked HTTP stream, **not** Server-Sent Events: there is no
+`text/event-stream` content type and no `data:` framing. Read it with `fetch` and a
+`ReadableStream`, and set the `Authorization` header the same way as any other call.
+See [stream events](/docs/api/events/events).
+
+<Callout type="info">
+A dashboard JWT expires after about 5 minutes, but the stream only checks your token
+when you connect. To keep going past expiry, refresh your token and reconnect with
+`since={lastEventId}` — the replay stitches the gap so your view is never torn.
+</Callout>
 
 ## Use webhooks instead
 
-Register a webhook and the gateway delivers each event to your URL, retrying until
-it succeeds. You create and manage webhooks through the gateway API
-([create a webhook](/docs/api/webhooks/createWebhook)); the dashboard surfaces the
-same config.
+Register a webhook and the gateway delivers each matching event to your URL as a JSON
+`POST`. You create and manage webhooks through the gateway API
+([create a webhook](/docs/api/webhooks/createWebhook)); the dashboard shows the same
+config read-only.
 
-A webhook has:
+A webhook is configured with:
 
-- a **URL** to `POST` to,
-- the **events** it wants (`["*"]` for all, or a list like `["message","poll.vote"]`),
-- an optional **session** filter (leave it off to cover all the org's sessions),
-- optional **custom headers** and a **retry policy**.
+| Setting | What it does |
+|---|---|
+| URL | Where to send the `POST`. |
+| events | Which event types to send: `["*"]` for all, or a list like `["message","poll.vote"]`. An empty list matches nothing. |
+| session | Optional. Limit to one session. Leave it off to cover all the organization's sessions. |
+| custom headers | Optional. Extra headers added to every delivery (applied last, so they can override the defaults below). |
+| retry policy | Optional. How many times and how often to retry a failed delivery. |
 
-Each delivery carries these headers:
+### Delivery headers
+
+Every `POST` carries these headers:
 
 | Header | Purpose |
 |---|---|
-| `X-Webhook-Request-Id` | Unique per delivery. |
-| `X-Webhook-Timestamp` | When it was sent. |
-| `X-Webhook-Hmac` | Signature of the body, present when the webhook has a secret. |
-| `X-Webhook-Hmac-Algorithm` | The signature algorithm (`sha512`). |
+| `Content-Type: application/json` | The body is the JSON event envelope. |
+| `X-Webhook-Request-Id` | The event `id`. Use it to drop duplicate deliveries. |
+| `X-Webhook-Timestamp` | When the gateway sent this delivery (epoch milliseconds). |
+| `X-Webhook-Hmac` | Signature of the body. Present only when the webhook has a secret. |
+| `X-Webhook-Hmac-Algorithm` | The signature algorithm. Always `sha512`. |
 
-**Verify the signature** before trusting a delivery: recompute the HMAC of the raw
-body with your secret and compare it to `X-Webhook-Hmac`. **Dedupe on the
-envelope `id`** — a retried delivery repeats the same event id, and retries that
-keep failing are eventually marked dead.
+### Before you trust a delivery
+
+- **Check the signature.** When the webhook has a secret, compute the HMAC-SHA512 of
+  the exact raw request body using your secret, encode it as lowercase hex, and compare
+  it to `X-Webhook-Hmac`. If they differ, reject the request. (HMAC is a keyed hash:
+  only someone holding the secret can produce a matching value, so a match proves the
+  body came from the gateway and was not altered.)
+- **Drop duplicates.** A retried delivery repeats the same event `id`
+  (`X-Webhook-Request-Id`). Keep track of ids you have already handled and skip repeats.
+
+The gateway retries a failed delivery with growing gaps between attempts. Once a
+delivery is accepted (a 2xx response) it stops; once it runs out of retry attempts it
+is marked **dead** and not tried again.
 
 ## Event catalog
 
-What the gateway emits. Subscribe with `events=*` for all of them, or name the
-ones you want.
+Every event type the gateway emits. Subscribe with `events=*` for all of them, or name
+the ones you want.
 
 | Event | Fires when |
 |---|---|
-| `session.status` | A session changes status (e.g. `working`, `logged_out`). |
+| `session.status` | A session changes status (for example `working`, `logged_out`). |
 | `auth.qr` | A new QR code is available to scan. |
 | `auth.code` | A pairing code is available. |
 | `message` | A message comes in. |
-| `message.from_me` | A message was sent from this number (including from another linked device). |
-| `message.status` | A delivery receipt updates a sent message (sent → delivered → read). |
+| `message.from_me` | A message was sent from this number, including from another linked device. |
+| `message.status` | A delivery receipt updates a sent message (sent, then delivered, then read). |
 | `message.reaction` | Someone reacts to a message. |
 | `message.edited` | A message is edited. |
 | `message.revoked` | A message is deleted for everyone. |
 | `poll.vote` | Someone votes on a poll. |
-| `presence.update` | A contact goes online/offline or starts typing. |
+| `presence.update` | A contact goes online or offline, or starts typing. |
 | `group.update` | A group's metadata changes (name, settings). |
 | `group.participant` | Someone joins, leaves, or changes role in a group. |
 | `chat.update` | A chat changes (archived, pinned, read state). |
 | `contact.update` | A contact's name or details change. |
-| `call.incoming` | An incoming call. |
+| `call.incoming` | A call comes in. |
 | `newsletter.update` | A followed channel updates. |
 
 <Callout type="info">
-**Media is metadata only.** A message with an attachment arrives with
-`hasMedia: true` and `media: null` — you see that it has media and its type, but
-this release does not download the file.
+**Media is metadata only.** A message with an attachment arrives with `hasMedia: true`
+and `media: null` — you see that it has media and what type it is, but this release
+does not download the file.
 </Callout>

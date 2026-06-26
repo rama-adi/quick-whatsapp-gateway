@@ -1,79 +1,139 @@
 ---
 title: Local development
-description: Run the infra in Docker and both apps on the host for a fast edit loop.
+description: Run MySQL and Redis in Docker, run the gateway and frontend on your machine, and get a fast edit-reload loop.
 ---
 
-The fast inner loop is **infra in Docker, both apps on the host**. The gateway
-hot-reloads under `air`; the frontend runs the Vite dev server with HMR.
+The setup that gives the fastest edit loop is: run MySQL and Redis in Docker, and
+run both apps directly on your machine. The gateway reloads on file change with
+[`air`](https://github.com/air-verse/air); the frontend runs the Vite dev server,
+which hot-reloads in the browser.
 
 ## Prerequisites
 
-- **Go 1.26+** — `GOTOOLCHAIN=auto` fetches the pinned toolchain from `go.mod`.
-- **Node 22+ with pnpm** — `corepack enable`.
-- [`air`](https://github.com/air-verse/air) for gateway hot reload, `golangci-lint` for the linter.
-- **Docker** for the MySQL + Redis infra.
-- **No C compiler** — the SQLite keystore uses the pure-Go driver, so everything builds with `CGO_ENABLED=0`.
+| Tool | Why | Notes |
+|---|---|---|
+| Go 1.26+ | Build and run the gateway | The Go toolchain auto-switches to the version pinned in `go.mod` (`GOTOOLCHAIN=auto`). |
+| Node 22+ with pnpm | Build and run the frontend | Run `corepack enable` once to get pnpm. |
+| Docker | Run MySQL and Redis | Used for local infrastructure only; both apps run on the host. |
+| `air` | Gateway hot reload | Watches Go files and rebuilds on change. |
+| `golangci-lint` | Gateway linter | Run with `make lint`. |
+
+You do **not** need a C compiler. The gateway's WhatsApp keystore uses a pure-Go
+SQLite driver, so everything builds with `CGO_ENABLED=0`.
 
 ## First run
 
+Run these once, from the repo root, to set up config, start infrastructure, and
+create the database tables:
+
 ```sh
-cp deploy/.env.example .env          # gateway env — fill APP_ENCRYPTION_KEY, WHATSAPP_ADMIN_NUMBER, …
-cp web/.env.example web/.env         # frontend env — fill BETTER_AUTH_SECRET, …
-make infra-up                        # MySQL + Redis, ports bound to localhost
-make migrate                         # WA app-data tables (gateway binary: server migrate up)
-cd web && pnpm install && pnpm db:migrate && cd ..   # auth tables (drizzle-kit)
+cp deploy/.env.example deploy/.env    # gateway env — fill APP_ENCRYPTION_KEY, WHATSAPP_ADMIN_NUMBER, …
+cp web/.env.example web/.env          # frontend env — fill BETTER_AUTH_SECRET, …
+make infra-up                         # start MySQL + Redis (ports bound to localhost)
+make migrate                          # create WA app-data tables (runs `server migrate up`)
+cd web && pnpm install && pnpm db:migrate && cd ..   # create the auth tables (drizzle-kit)
 ```
 
-Generate the two secrets with `openssl rand -base64 32` (`APP_ENCRYPTION_KEY` is
-a base64 32-byte AES-GCM key; `BETTER_AUTH_SECRET` is the better-auth signing
-secret).
+Two values have no usable default and must be filled in before the apps start:
+
+| Variable | File | What to set |
+|---|---|---|
+| `APP_ENCRYPTION_KEY` | `deploy/.env` | A base64-encoded 32-byte AES-GCM key. Generate with `openssl rand -base64 32`. Encrypts webhook secrets at rest. |
+| `BETTER_AUTH_SECRET` | `web/.env` | The better-auth signing secret (32+ chars). Generate with `openssl rand -base64 32`. |
+
+There are two separate migration tools, one per set of tables — don't mix them up:
+
+- `make migrate` creates the WhatsApp app-data tables (gateways, sessions,
+  contacts, …). The gateway binary owns these and embeds golang-migrate.
+- `pnpm db:migrate` (run in `web/`) creates the better-auth tables (user,
+  session, apikey, organization, …) with drizzle-kit.
 
 ## Day to day
 
-`make infra-up` once, then two terminals (a third as you need it):
+After the first run, start the infrastructure once, then run each app in its own
+terminal:
 
 ```sh
-make dev    # terminal 1: gateway under air (CGO_ENABLED=0, SQLite keystore at a local file)
-make web    # terminal 2: frontend dev server (pnpm dev) on :3000 with HMR
+make infra-up    # MySQL + Redis (skip if already running)
+make dev         # terminal 1: gateway under air; reloads on change
+make web         # terminal 2: frontend dev server (pnpm dev) on :3000
 ```
 
-Open `http://localhost:3000`. The browser calls the gateway directly on `:8080`;
-CORS allows `http://localhost:3000` via `FRONTEND_ORIGINS`. Run `make infra-reset`
-to wipe the dev database (and re-run the two migrate steps after).
+The gateway listens on `:8080` by default. Open `http://localhost:3000` for the
+frontend. The browser calls the gateway directly on `:8080`; the gateway's CORS
+config already allows `http://localhost:3000` (via `FRONTEND_ORIGINS`), so the
+two work together with no extra setup.
+
+To wipe the dev database and start clean, run `make infra-reset` (this removes the
+Docker volumes), then re-run the two migrate steps from the [first run](#first-run).
+
+## Running the gateway in Docker instead
+
+By default the gateway runs on your host under `air`. If you want it to run inside
+a container instead — for example to match the production OS and Go toolchain
+without installing Go locally — the dev compose file has two profiles. The
+frontend still runs on your host under Vite in both cases.
+
+| Command | What it does |
+|---|---|
+| `docker compose -f deploy/docker-compose.dev.yml --profile gateway up -d --build` | Runs the gateway from the production image (`deploy/Dockerfile`). Rebuild to pick up code changes. |
+| `docker compose -f deploy/docker-compose.dev.yml --profile gateway-dev up -d --build` | Runs the gateway under `air` with the repo source mounted. Edit Go on the host; the container rebuilds. |
+
+Both profiles publish `:8080`, so run only one at a time. Both reach the
+host-side frontend's JWKS endpoint through `host.docker.internal` and apply the
+WA migrations automatically on start. They read the same `deploy/.env` as the
+host gateway; the compose file overrides only the values that must differ inside
+a container (the MySQL and Redis hostnames, the JWKS host, and the keystore
+path on a named volume).
 
 ## Environment variables
 
-Gateway env lives in `.env` at the repo root (`deploy/.env.example`); frontend env
-lives in `web/.env` (`web/.env.example`). The ones a contributor sets first:
+Gateway settings live in `deploy/.env` (template: `deploy/.env.example`).
+Frontend settings live in `web/.env` (template: `web/.env.example`). Both
+templates document every variable with its default. The ones a contributor
+usually cares about first:
 
-| Service | Var | Purpose |
+### Gateway (`deploy/.env`)
+
+| Variable | Default | What it does |
 |---|---|---|
-| Gateway | `HTTP_ADDR` | listen address (default `:8080`) |
-| Gateway | `BETTER_AUTH_URL` | the frontend's base URL — the JWT `iss`/`aud` the gateway enforces |
-| Gateway | `FRONTEND_ORIGINS` | comma-list of browser origins allowed by CORS |
-| Gateway | `APP_ENCRYPTION_KEY` | base64 32-byte AES-GCM key (webhook secrets at rest) |
-| Gateway | `MYSQL_DSN` | shared MySQL — WA tables rw, `apikey`/`user` ro |
-| Gateway | `WHATSMEOW_STORE_DSN` | SQLite keystore file (a local file in dev, the `/data/keystore` volume in Docker) |
-| Gateway | `REDIS_URL` | the work Redis |
-| Gateway | `PUBSUB_REDIS_URL` | the control bus (defaults to `REDIS_URL`) |
-| Gateway | `WHATSAPP_ADMIN_NUMBER` | admin number to provision/pair on boot |
-| Frontend | `BETTER_AUTH_SECRET` | better-auth signing/encryption secret |
-| Frontend | `BETTER_AUTH_URL` | the frontend's own base URL (issuer/audience) |
-| Frontend | `DATABASE_URL` | MySQL DSN for the Drizzle client (auth tables + read-only WA queries) |
-| Frontend | `GATEWAY_URL` / `VITE_GATEWAY_URL` | gateway base URL for the server / the browser |
-| Frontend | `PUBSUB_REDIS_URL` | the control bus the frontend publishes revocations to |
-| Frontend | `USER_REGISTRATION_ENABLED` | gate self-registration |
+| `HTTP_ADDR` | `:8080` | Address the gateway listens on. |
+| `GATEWAY_ID` | `gw-1` | This gateway's id, stamped on the sessions it owns. |
+| `PUBLIC_URL` | `http://localhost:8080` | External base URL clients use to reach this gateway. |
+| `BETTER_AUTH_URL` | `http://localhost:3000` | The frontend's base URL. The gateway only trusts JWTs whose issuer and audience match it. No trailing slash. |
+| `FRONTEND_ORIGINS` | `http://localhost:3000` | Comma-separated list of browser origins the gateway allows (CORS). |
+| `APP_ENCRYPTION_KEY` | — | Base64 32-byte AES-GCM key; encrypts webhook secrets at rest. Required. |
+| `MYSQL_DSN` | `gw:gwpass@tcp(127.0.0.1:3306)/gateway?…` | Shared MySQL. The gateway reads/writes the WA tables and reads the `apikey`/`user` tables. |
+| `WHATSMEOW_STORE_DSN` | `file:store.db?…` | SQLite file holding the WhatsApp device keys. A local file in dev; the `/data/keystore` volume in Docker. |
+| `REDIS_URL` | `redis://127.0.0.1:6379` | Redis for the work queue, rate limiting, idempotency, and event fan-out. |
+| `PUBSUB_REDIS_URL` | falls back to `REDIS_URL` | Redis channel the gateway listens on for key/user revocations from the frontend. |
+| `WHATSAPP_ADMIN_NUMBER` | — | Admin number the gateway pairs on boot. |
 
-Both `.env.example` files document every variable with defaults; the full table
-is masterplan §14.
+### Frontend (`web/.env`)
+
+| Variable | Default | What it does |
+|---|---|---|
+| `BETTER_AUTH_SECRET` | — | better-auth signing/encryption secret (32+ chars). Required. |
+| `BETTER_AUTH_URL` | `http://localhost:3000` | The frontend's own base URL, used as the JWT issuer and audience. |
+| `DATABASE_URL` | `mysql://…@localhost:3306/wa_gateway` | MySQL connection for the frontend's Drizzle client: better-auth tables (read/write) plus read-only WA queries. |
+| `GATEWAY_URL` | `http://localhost:8080` | Gateway base URL the frontend server calls. |
+| `VITE_GATEWAY_URL` | `http://localhost:8080` | Same gateway URL exposed to the browser (Vite inlines `VITE_*` vars). |
+| `PUBSUB_REDIS_URL` | `redis://localhost:6379` | Redis the frontend publishes revocations to (must match the gateway's `PUBSUB_REDIS_URL`). |
+| `USER_REGISTRATION_ENABLED` | `true` | Whether people can sign themselves up. Set `false` to lock it down. |
+
+<Callout type="warn">
+The SQLite keystore (`WHATSMEOW_STORE_DSN`) holds each connected number's device
+keys. If you lose that file, every number has to be paired again. It's a local
+file in dev; in production keep it on a persistent named volume and back it up.
+</Callout>
 
 ## Smoke test
 
-`scripts/smoke.sh` drives the automatable slice of the trust seam against a
-running stack: register a user, mint a JWT from better-auth, call the gateway
-with `Bearer`, create a session, fetch its pairing QR. It fails loudly on any
-unexpected HTTP status. The pair → send → stream steps need a real phone and are
-printed as manual instructions at the end.
+`scripts/smoke.sh` runs the automatable part of the auth flow against a running
+stack: it registers a user, gets a JWT from better-auth, calls the gateway with
+that token, creates a session, and fetches the session's pairing QR code. It
+stops with an error on any unexpected HTTP status. The steps that need a real
+phone (pair, send, stream) are printed as manual instructions at the end.
 
 ```sh
 BETTER_AUTH_URL=http://localhost:3000 GATEWAY_URL=http://localhost:8080 scripts/smoke.sh

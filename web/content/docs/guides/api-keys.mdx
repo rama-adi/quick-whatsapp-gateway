@@ -1,27 +1,31 @@
 ---
 title: API keys
-description: Create org-scoped keys so your code can call the gateway.
+description: Create an API key scoped to one organization so your own code can call the gateway.
 ---
 
-The dashboard signs people in with a session cookie, but your own code needs a
-credential it can carry on every request. That's an **API key**. You create keys
-in the dashboard; the gateway checks them on each call.
+The dashboard signs people in with a session cookie. Your own code can't use a
+cookie, so it needs a credential it can send on every request: an **API key** (a
+long secret string that identifies the caller). You create keys in the dashboard,
+and the gateway checks the key on each call.
 
-## Create one
+## Create a key
 
-In the dashboard, on your organization's API keys page, create a key. You can set:
+1. Open the dashboard and go to your organization's **API Keys** page.
+2. Click **New key**.
+3. Give it a **name** — this is how you tell keys apart and revoke the right one
+   later.
+4. Tick the **permissions** the key needs (see [Permissions](#permissions) below).
+5. Click **Create key**.
 
-- a **name**, so you can tell keys apart and revoke the right one later,
-- an optional **expiry**,
-- an optional **rate limit**, and
-- the **permissions** it carries (below).
+The full secret is shown **once**, right after you create it. Copy it then. You
+can't read it again — if you lose it, revoke the key and make a new one.
 
-The full key is shown **once**, at creation. Copy it then — you cannot read it
-again, only revoke it and make a new one.
+Keys start with the prefix `wa_`.
 
-## Use it
+## Use a key
 
-Send the key as a Bearer token, or in the `x-api-key` header:
+Send the key on each request, either as a Bearer token in the `Authorization`
+header or in the `x-api-key` header. Both work:
 
 ```bash
 curl https://your-gateway/api/v1/sessions \
@@ -31,35 +35,42 @@ curl https://your-gateway/api/v1/sessions \
   -H "x-api-key: wa_..."
 ```
 
-The same endpoints accept either an API key (for your code) or a user token (for
-the dashboard) — you don't need different URLs.
+The gateway's endpoints accept either an API key (for your code) or a user token
+(for the dashboard). You don't need different URLs for the two.
 
-## Keys are scoped to one organization
+## One key, one organization
 
-A key belongs to exactly **one** organization — the one it was created in — and it
-can only touch that org's sessions, messages, webhooks, and events. There is no
-account-wide key. If you work across several organizations, you create a separate
-key in each.
+A key belongs to exactly **one** organization — the one that was active when you
+created it. It can only touch that org's sessions, messages, webhooks, and events.
 
-This is the same boundary the dashboard enforces for people: a credential only
-ever sees the resources of the org it belongs to.
+There is no account-wide key. To work across several organizations, create a
+separate key in each one. This matches how the dashboard treats people: a
+credential only ever sees the resources of the org it belongs to.
 
 ## Permissions
 
-A key carries a set of permissions, and the gateway checks them per action:
+A key carries a set of permissions. The gateway checks them on every action and
+rejects anything the key isn't allowed to do.
 
-| Permission | Lets the key |
+| Permission | What it allows |
 |---|---|
-| `read` | List and read sessions, chats, contacts, messages. |
+| `read` | List and read sessions, chats, contacts, and messages. |
 | `send` | Send messages and message actions (react, edit, revoke, forward). |
 | `manage` | Create and change sessions and webhooks. |
 | `events` | Open the [event stream](/docs/guides/receiving) and receive events. |
 
-Give each key the least it needs — a key that only pushes notifications wants
-`send`, not `manage`.
+Give each key only the permissions it needs. A key that only pushes notifications
+needs `send`, not `manage`.
 
 <Callout type="warn">
-A key is a bearer credential: anyone who has it can act as that org until you
-revoke it. Keep keys out of source control and client-side code, and revoke a
-key the moment it might be exposed.
+Anyone who has the key can act as that organization until you revoke it. Keep keys
+out of source control and out of client-side code, and revoke a key the moment you
+think it might be exposed. Revoking takes effect right away — apps using that key
+stop working.
 </Callout>
+
+## Revoke a key
+
+On the **API Keys** page, find the key by its name and click **Revoke**. The key
+stops working immediately. Anything still using it will start getting rejected, so
+swap in a new key first if the old one is in use.

@@ -1,9 +1,9 @@
 ---
 title: Repo layout
-description: Where the gateway packages and the frontend app live, and what each is responsible for.
+description: Where the gateway packages and the frontend app live, and what each directory is responsible for.
 ---
 
-The repo is a monorepo: the gateway is at the root, the frontend is under `web/`.
+This is one repo holding two services. The gateway (Go) lives at the root. The frontend (TanStack Start) lives under `web/`.
 
 ```
 .
@@ -18,23 +18,23 @@ The repo is a monorepo: the gateway is at the root, the frontend is under `web/`
 
 ## Gateway packages (`internal/`)
 
-| Package | Responsibility |
+| Package | What it does |
 |---|---|
-| `config/` | env parsing and defaults |
-| `authz/` | the trust seam — JWKS+JWT verify, api-key verify, the two-acceptor middleware, capability gates, CORS |
-| `controlbus/` | subscribes to `ctrl:*`; evicts the api-key cache and drops live streams on revocation |
-| `domain/` | core entities, enums, IDs, errors — no I/O |
-| `http/` | chi router, middleware, and the REST handlers (no embedded SPA) |
-| `httpx/` | request decode, JSON responses, pagination helpers |
-| `wa/` | the WhatsApp engine — `manager`, `session`, the SQLite keystore, and `inbound/` · `outbound/` · `events/` pipelines |
-| `store/` | MySQL repositories, all keyed by `organization_id` |
-| `stream/` | the NDJSON event stream — registry, filter, publisher |
-| `queue/` | asynq job queue on the work Redis (outbound send, webhook delivery, retention) |
-| `service/` | wires the pieces together — the application layer between handlers and stores |
-| `crypto/` | AES-GCM for webhook secrets at rest, api-key hashing |
+| `config/` | Reads configuration from environment variables and applies defaults. |
+| `domain/` | Core entities, enums, IDs, and errors. No I/O. |
+| `authz/` | Verifies who is calling. Checks better-auth JWTs against the JWKS, checks better-auth api-keys, runs the request middleware that accepts either one, enforces capability checks, and sets CORS. (A JWT is a signed token proving identity; JWKS is the public-key set used to verify its signature.) |
+| `controlbus/` | Subscribes to the Redis `ctrl:*` channels. On a revocation message, evicts the api-key from the cache and drops any live event streams for that caller. |
+| `http/` | The chi router, middleware, and REST handlers. No embedded frontend. |
+| `httpx/` | HTTP helpers: request decoding, JSON responses, pagination. |
+| `wa/` | The WhatsApp engine. Holds the `manager` and `session` lifecycle, the SQLite keystore (`store/`), and the `inbound/`, `outbound/`, and `events/` pipelines. |
+| `store/` | MySQL repositories. Every query is keyed by `organization_id`. |
+| `stream/` | The NDJSON event stream — its client registry, filtering, and publisher. (NDJSON is newline-delimited JSON: one JSON event per line.) |
+| `queue/` | The asynq job queue on the work Redis. Runs outbound sends, webhook delivery, and retention jobs. |
+| `webhooks/` | Outbound webhooks: matches events to configured endpoints, persists a pending delivery, then POSTs it with HMAC-signed headers, retries, and dead-letters exhausted deliveries. |
+| `crypto/` | AES-GCM encryption for webhook secrets at rest, plus api-key hashing. |
+| `service/` | The layer between handlers and stores. Wires the pieces together and holds the application logic. |
 
-`internal/` from v1 is gone: the embedded auth (`internal/auth`), the embedded
-SPA, and the custom MySQL whatsmeow store. `internal/authz` replaced them.
+What was removed from v1: the embedded auth package, the embedded React SPA, and the custom MySQL whatsmeow keystore. `internal/authz` and the gateway-local SQLite keystore replaced them.
 
 ## Frontend (`web/app/`)
 
@@ -42,15 +42,15 @@ SPA, and the custom MySQL whatsmeow store. `internal/authz` replaced them.
 web/app/
 ├── routes/                file-based route tree
 │   ├── __root.tsx         root document + providers
-│   ├── index.tsx          role-routed entry (→ login / admin / user)
-│   ├── _auth.tsx + _auth/*    public auth surface (login, register, 2fa)
+│   ├── index.tsx          entry route; redirects by role (login / admin / user)
+│   ├── _auth.tsx + _auth/*    public auth pages (login, register, 2fa)
 │   ├── _app.tsx + _app/*      authenticated shell; resolves the session in beforeLoad
-│   │   ├── admin/*         super_admin surface (sessions, tenants, monitor, pairing)
-│   │   └── user/*          user workspace (sessions, keys, webhooks) + org switcher,
-│   │                        plus the chat viewer and contacts routes
+│   │   ├── admin/*         super_admin pages (sessions, tenants, monitor, pairing)
+│   │   └── user/*          user workspace (sessions, keys, webhooks, org switcher,
+│   │                        chat viewer, contacts)
 │   ├── api/auth.$.ts       better-auth catch-all (mounts /api/auth/*)
 │   ├── api/search.ts       docs search endpoint
-│   └── docs/$.tsx          the Fumadocs catch-all that renders these pages
+│   └── docs/$.tsx          Fumadocs catch-all that renders the docs pages
 ├── components/
 │   ├── ui/                 ported shadcn primitives
 │   └── shell/              app chrome
@@ -59,20 +59,20 @@ web/app/
     ├── api/                gateway client, generated OpenAPI types, React Query hooks, query keys
     ├── db/                 Drizzle: auth-schema.ts (generated) + wa.ts (read-only WA mirror)
     ├── events/             NDJSON stream consumer, eventBus, cacheBridge reducer
-    ├── server/             control-bus publisher (publish-only ctrl:*)
+    ├── server/             control-bus publisher (publishes ctrl:* only)
     ├── source.ts           Fumadocs content loader
     └── openapi.ts          OpenAPI page config for the reference docs
 ```
 
-Conventions in the route tree:
+How the route tree works:
 
-- Files prefixed `-` are colocated helpers **excluded** from the route tree (e.g. `-viewer-data.ts`, `-message-bubble.tsx`).
-- `_auth` and `_app` are pathless layout routes — `_app.tsx` resolves the session server-side in `beforeLoad` and puts it on the route context.
-- `app/lib/**` and `app/components/{ui,shell}/**` are the shared boundary reused across routes.
+- A `-` prefix marks a colocated helper that is **excluded** from the route tree (for example `-contacts-data.ts`, `-message-bubble.tsx`).
+- `_auth` and `_app` are pathless layout routes — they add no URL segment. `_app.tsx` resolves the session on the server in `beforeLoad` and puts it on the route context.
+- `app/lib/**` and `app/components/{ui,shell}/**` are the shared code reused across routes.
 
 ## Docs content (`web/content/docs/`)
 
-The Fumadocs MDX site lives here, served by the `docs/$.tsx` route:
+The Fumadocs MDX site lives here. The `docs/$.tsx` route serves it.
 
 ```
 web/content/docs/
@@ -83,4 +83,4 @@ web/content/docs/
 ```
 
 The `api/` tree is regenerated from the OpenAPI contract — see
-[regenerating code](/docs/dev/regenerating-code). Full v2 layout: masterplan §16.
+[regenerating code](/docs/dev/regenerating-code). The full v2 layout is in masterplan §16.
