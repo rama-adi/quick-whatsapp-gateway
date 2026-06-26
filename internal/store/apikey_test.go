@@ -3,15 +3,20 @@ package store
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 )
 
+// apiKeyColRow mirrors better-auth's ACTUAL apikey columns the gateway reads
+// (verified against a live better-auth 1.6.x Drizzle/MySQL schema): snake_case,
+// org id in reference_id, TIMESTAMP(3) expires_at/created_at, and permissions as
+// the resource->actions map better-auth writes.
 func apiKeyColRow() []string {
 	return []string{
-		"id", "name", "key", "userId", "organizationId", "enabled", "expiresAt",
-		"permissions", "createdAt",
+		"id", "name", "key", "reference_id", "enabled", "expires_at",
+		"permissions", "created_at",
 	}
 }
 
@@ -19,10 +24,12 @@ func TestAPIKeyRepo_GetByHash(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewAPIKeyRepo(db)
 
+	created := time.UnixMilli(100).UTC()
+	expires := time.UnixMilli(900).UTC()
 	rows := sqlmock.NewRows(apiKeyColRow()).
-		AddRow("key_1", "ci", "ba-hash", "user_1", "org_1", true, int64(900),
-			[]byte(`{"read":true,"send":false,"manage":true,"events":false}`),
-			int64(100))
+		AddRow("key_1", "ci", "ba-hash", "org_1", true, expires,
+			[]byte(`{"gateway":["read","manage"]}`),
+			created)
 	mock.ExpectQuery("SELECT .* FROM apikey WHERE .key. = .").
 		WithArgs("ba-hash").WillReturnRows(rows)
 
@@ -33,14 +40,15 @@ func TestAPIKeyRepo_GetByHash(t *testing.T) {
 	if got.ID != "key_1" || got.OrganizationID != "org_1" || !got.Enabled {
 		t.Fatalf("unexpected key: %+v", got)
 	}
-	if got.UserID == nil || *got.UserID != "user_1" {
-		t.Fatalf("userId not scanned: %+v", got.UserID)
-	}
+	// reference_id is the owning org; better-auth stores no user column on the row.
 	if !got.Permissions.Read || got.Permissions.Send || !got.Permissions.Manage {
 		t.Fatalf("permissions not scanned: %+v", got.Permissions)
 	}
 	if got.ExpiresAt == nil || *got.ExpiresAt != 900 {
-		t.Fatalf("expiresAt not scanned")
+		t.Fatalf("expiresAt not scanned (epoch-ms from TIMESTAMP): %+v", got.ExpiresAt)
+	}
+	if got.CreatedAt != 100 {
+		t.Fatalf("createdAt not scanned: %d", got.CreatedAt)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
@@ -52,9 +60,9 @@ func TestAPIKeyRepo_GetByHash_NullOrg(t *testing.T) {
 	repo := NewAPIKeyRepo(db)
 
 	rows := sqlmock.NewRows(apiKeyColRow()).
-		AddRow("key_2", "ci", "ba-hash2", "user_2", nil, true, nil,
-			[]byte(`{"read":true,"send":true,"manage":false,"events":true}`),
-			int64(100))
+		AddRow("key_2", "ci", "ba-hash2", nil, true, nil,
+			[]byte(`{"gateway":["read","send","events"]}`),
+			time.UnixMilli(100).UTC())
 	mock.ExpectQuery("SELECT .* FROM apikey WHERE .key. = .").
 		WithArgs("ba-hash2").WillReturnRows(rows)
 
@@ -63,7 +71,10 @@ func TestAPIKeyRepo_GetByHash_NullOrg(t *testing.T) {
 		t.Fatalf("GetByHash: %v", err)
 	}
 	if got.OrganizationID != "" {
-		t.Fatalf("expected empty org for null organizationId, got %q", got.OrganizationID)
+		t.Fatalf("expected empty org for null reference_id, got %q", got.OrganizationID)
+	}
+	if !got.Permissions.Read || !got.Permissions.Send || !got.Permissions.Events || got.Permissions.Manage {
+		t.Fatalf("permissions not scanned: %+v", got.Permissions)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
@@ -83,8 +94,8 @@ func TestAPIKeyRepo_GetByID(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewAPIKeyRepo(db)
 	rows := sqlmock.NewRows(apiKeyColRow()).
-		AddRow("key_1", "ci", "ba-hash", nil, "org_1", true, nil,
-			[]byte(`{"read":true}`), int64(100))
+		AddRow("key_1", "ci", "ba-hash", "org_1", true, nil,
+			[]byte(`{"gateway":["read"]}`), time.UnixMilli(100).UTC())
 	mock.ExpectQuery("SELECT .* FROM apikey WHERE id = .").
 		WithArgs("key_1").WillReturnRows(rows)
 	got, err := repo.GetByID(context.Background(), "key_1")
@@ -102,8 +113,8 @@ func TestAPIKeyRepo_GetByID(t *testing.T) {
 func TestAPIKeyRepo_TouchLastRequest(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewAPIKeyRepo(db)
-	mock.ExpectExec("UPDATE apikey SET lastRequest=. WHERE id=.").
-		WithArgs(int64(123), "key_1").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE apikey SET last_request=. WHERE id=.").
+		WithArgs(time.UnixMilli(123).UTC(), "key_1").WillReturnResult(sqlmock.NewResult(0, 1))
 	if err := repo.TouchLastRequest(context.Background(), "key_1", 123); err != nil {
 		t.Fatalf("TouchLastRequest: %v", err)
 	}

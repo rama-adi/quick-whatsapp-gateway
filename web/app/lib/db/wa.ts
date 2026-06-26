@@ -14,15 +14,16 @@
 //   - JSON columns -> json()
 //   - ownership by organization_id (a better-auth organization id)
 //
-// drizzle-kit introspect needs a live DB; that regenerate step is DEFERRED to
-// the R5 live smoke. Until then this hand-written mirror must match the SQL
-// exactly. If you change 0001_init.up.sql, re-mirror here.
+// Verified by drizzle-kit introspect against the live gateway-migrated DB (R5
+// smoke): this mirror matches the introspected truth column-for-column. If you
+// change 0001_init.up.sql, re-introspect and re-mirror here.
 
 import {
   bigint,
   index,
   int,
   json,
+  mediumtext,
   mysqlEnum,
   mysqlTable,
   text,
@@ -247,7 +248,7 @@ export const messages = mysqlTable(
     fromMe: tinyint("from_me").notNull().default(0),
     direction: mysqlEnum("direction", ["in", "out"]).notNull(),
     type: varchar("type", { length: 32 }).notNull(),
-    body: text("body"), // MEDIUMTEXT — drizzle text() maps; introspect will refine
+    body: mediumtext("body"), // MEDIUMTEXT (confirmed by drizzle-kit introspect)
     quotedMessageId: varchar("quoted_message_id", { length: 255 }),
     mentions: json("mentions"),
     hasMedia: tinyint("has_media").notNull().default(0),

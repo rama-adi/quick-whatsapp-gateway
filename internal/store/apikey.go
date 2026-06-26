@@ -2,8 +2,10 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 )
@@ -26,33 +28,82 @@ type APIKeyRepo struct {
 // NewAPIKeyRepo constructs an APIKeyRepo.
 func NewAPIKeyRepo(db dbExecQuerier) *APIKeyRepo { return &APIKeyRepo{db: db} }
 
-// apiKeyCols maps better-auth's apikey columns onto domain.APIKey. The `key`
-// column holds the stored hash (KeyHash); refillInterval/rateLimit/metadata are
-// ignored for now (§4.2). organizationId is nullable in better-auth (a key may be
-// user-scoped); scanAPIKey falls back to userId-derived ownership upstream.
-const apiKeyCols = "id, name, `key`, userId, organizationId, enabled, expiresAt, permissions, createdAt"
+// apiKeyCols maps better-auth's ACTUAL apikey columns (better-auth 1.6.x, Drizzle
+// MySQL adapter — verified live, see contract test) onto domain.APIKey. The `key`
+// column holds the stored hash (KeyHash). Column names are snake_case and there is
+// NO `organizationId`/`userId` column: because the api-key plugin is configured
+// with `references: "organization"`, the OWNING ORG id lives in `reference_id`.
+// `expires_at`/`created_at` are MySQL TIMESTAMP(3) (DATETIME), NOT epoch-ms BIGINT,
+// so they scan as time and convert to epoch-ms for the domain. refill/rateLimit/
+// metadata columns are ignored for now (§4.2).
+const apiKeyCols = "id, name, `key`, reference_id, enabled, expires_at, permissions, created_at"
 
 func scanAPIKey(s rowScanner) (domain.APIKey, error) {
 	var (
-		k     domain.APIKey
-		orgID *string
-		perms []byte
+		k         domain.APIKey
+		refID     sql.NullString
+		enabled   sql.NullBool
+		expiresAt sql.NullTime
+		createdAt sql.NullTime
+		perms     []byte
 	)
 	err := s.Scan(
-		&k.ID, &k.Name, &k.KeyHash, &k.UserID, &orgID, &k.Enabled, &k.ExpiresAt, &perms, &k.CreatedAt,
+		&k.ID, &k.Name, &k.KeyHash, &refID, &enabled, &expiresAt, &perms, &createdAt,
 	)
 	if err != nil {
 		return domain.APIKey{}, err
 	}
-	if orgID != nil {
-		k.OrganizationID = *orgID
+	// reference_id == the owning organization id (plugin `references:"organization"`).
+	if refID.Valid {
+		k.OrganizationID = refID.String
+	}
+	// better-auth's `enabled` is nullable with default true; treat NULL as enabled.
+	k.Enabled = !enabled.Valid || enabled.Bool
+	if expiresAt.Valid {
+		ms := expiresAt.Time.UnixMilli()
+		k.ExpiresAt = &ms
+	}
+	if createdAt.Valid {
+		k.CreatedAt = createdAt.Time.UnixMilli()
 	}
 	if len(perms) > 0 {
-		if err := json.Unmarshal(perms, &k.Permissions); err != nil {
+		p, err := parseAPIKeyPermissions(perms)
+		if err != nil {
 			return domain.APIKey{}, scanErr("apikey.permissions", err)
 		}
+		k.Permissions = p
 	}
 	return k, nil
+}
+
+// parseAPIKeyPermissions decodes better-auth's api-key `permissions` JSON into the
+// gateway's flag set. better-auth stores a resource->actions map, e.g.
+//
+//	{"gateway":["read","send","manage","events"]}
+//
+// (see the apiKey plugin `permissions` config in web/app/lib/auth/server.ts: the
+// {read,send,manage,events} scopes hang off a single "gateway" resource bucket).
+// Actions are matched case-insensitively under the "gateway" key; unknown
+// resources/actions are ignored.
+func parseAPIKeyPermissions(raw []byte) (domain.Permissions, error) {
+	var m map[string][]string
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return domain.Permissions{}, err
+	}
+	var p domain.Permissions
+	for _, action := range m["gateway"] {
+		switch action {
+		case "read":
+			p.Read = true
+		case "send":
+			p.Send = true
+		case "manage":
+			p.Manage = true
+		case "events":
+			p.Events = true
+		}
+	}
+	return p, nil
 }
 
 // GetByHash fetches a key by its stored hash (better-auth's `key` column) — the
@@ -77,13 +128,14 @@ func (r *APIKeyRepo) GetByID(ctx context.Context, id string) (domain.APIKey, err
 	return k, nil
 }
 
-// TouchLastRequest best-effort stamps better-auth's `lastRequest` column on use.
+// TouchLastRequest best-effort stamps better-auth's `last_request` column on use.
+// `at` is epoch-ms; the column is a MySQL TIMESTAMP(3), so we pass a time.Time.
 // A missing row is not an error here. The frontend owns the column; this is a
 // courtesy write so the dashboard's "last used" reflects gateway traffic.
 func (r *APIKeyRepo) TouchLastRequest(ctx context.Context, id string, at int64) error {
-	const q = "UPDATE apikey SET lastRequest=? WHERE id=?"
-	if _, err := r.db.ExecContext(ctx, q, at, id); err != nil {
-		return fmt.Errorf("store: touch apikey lastRequest: %w", err)
+	const q = "UPDATE apikey SET last_request=? WHERE id=?"
+	if _, err := r.db.ExecContext(ctx, q, time.UnixMilli(at).UTC(), id); err != nil {
+		return fmt.Errorf("store: touch apikey last_request: %w", err)
 	}
 	return nil
 }
