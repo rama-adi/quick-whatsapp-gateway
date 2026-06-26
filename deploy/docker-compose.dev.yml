@@ -3,11 +3,14 @@
 # `air` and the frontend under Vite (fast inner loop).
 #   make infra-up   # docker compose -f deploy/docker-compose.dev.yml up -d
 #
-# To run the GATEWAY in Docker instead (against this same dev MySQL/Redis, with
-# the frontend still on the host under Vite), enable the "gateway" profile:
-#   docker compose -f deploy/docker-compose.dev.yml --profile gateway up -d --build
-# The containerized gateway reaches the host frontend's JWKS via
-# host.docker.internal and auto-applies the WA migrations on boot.
+# To run the GATEWAY in Docker (against this same dev MySQL/Redis, frontend still
+# on the host under Vite), use one of two profiles — both reach the host
+# frontend's JWKS via host.docker.internal and auto-apply the WA migrations:
+#   --profile gateway      prod image (deploy/Dockerfile); rebuild to pick up code changes
+#   --profile gateway-dev  hot reload via air, source mounted — edit Go on the host,
+#                          the container rebuilds. Same OS/toolchain as prod, no host Go needed.
+#     docker compose -f deploy/docker-compose.dev.yml --profile gateway-dev up -d --build
+# Use only one gateway profile at a time (both publish :8080).
 services:
   gateway:
     profiles: ["gateway"]
@@ -33,6 +36,33 @@ services:
     extra_hosts: ["host.docker.internal:host-gateway"]
     volumes: ["keystore_dev:/data/keystore"]
     depends_on: [mysql, redis]
+  gateway-dev:
+    profiles: ["gateway-dev"]
+    build: { context: .., dockerfile: deploy/Dockerfile.gateway-dev }
+    image: whatsmeow-gateway:airdev
+    ports: ["8080:8080"]
+    environment:
+      HTTP_ADDR: ":8080"
+      GATEWAY_ID: "gw-1"
+      PUBLIC_URL: "http://localhost:8080"
+      BETTER_AUTH_URL: "http://localhost:3000"
+      BETTER_AUTH_JWKS_URL: "http://host.docker.internal:3000/api/auth/jwks"
+      FRONTEND_ORIGINS: "http://localhost:3000"
+      APP_ENCRYPTION_KEY: "${APP_ENCRYPTION_KEY:-dfl4geX4BAZs8deD1U2SV6hydCaZUqCnb6ZHMuYPJ0c=}"
+      MYSQL_DSN: "gw:gwpass@tcp(mysql:3306)/gateway?parseTime=true&charset=utf8mb4"
+      WHATSMEOW_STORE_DSN: "file:/data/keystore/store.db?_pragma=foreign_keys(on)&_pragma=journal_mode(WAL)"
+      REDIS_URL: "redis://redis:6379"
+      REDIS_PREFIX: "gw"
+      LOG_LEVEL: "debug"
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    volumes:
+      # Mount the repo so host edits trigger an in-container `air` rebuild.
+      - ..:/src
+      # Persist the Go module + build caches so reloads are fast across restarts.
+      - gomod_cache:/go/pkg/mod
+      - gobuild_cache:/root/.cache/go-build
+      - keystore_dev:/data/keystore
+    depends_on: [mysql, redis]
   mysql:
     image: mysql:8.4
     ports: ["3306:3306"]
@@ -48,4 +78,4 @@ services:
     image: redis:7-alpine
     ports: ["6379:6379"]
     volumes: ["redis_dev:/data"]
-volumes: { mysql_dev: {}, redis_dev: {}, keystore_dev: {} }
+volumes: { mysql_dev: {}, redis_dev: {}, keystore_dev: {}, gomod_cache: {}, gobuild_cache: {} }

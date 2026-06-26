@@ -167,3 +167,27 @@ func TestRateLimitKeyByOrganization(t *testing.T) {
 		t.Fatalf("key = %q, want organization:tnt_9", lim.gotKey)
 	}
 }
+
+// The Logger wraps the ResponseWriter in statusRecorder to capture the status
+// code. That wrapper MUST still expose http.Flusher, or the NDJSON event stream
+// (which type-asserts w.(http.Flusher)) breaks with "streaming unsupported".
+func TestLoggerPreservesFlusher(t *testing.T) {
+	var sawFlusher bool
+	h := Logger(discardLogger())(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		f, ok := w.(http.Flusher)
+		sawFlusher = ok
+		if ok {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("x"))
+			f.Flush()
+		}
+	}))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/api/v1/events", nil))
+	if !sawFlusher {
+		t.Fatal("Logger-wrapped ResponseWriter must implement http.Flusher (NDJSON stream needs it)")
+	}
+	if !rec.Flushed {
+		t.Fatal("Flush did not forward to the underlying ResponseWriter")
+	}
+}

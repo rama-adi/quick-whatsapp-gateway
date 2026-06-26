@@ -38,6 +38,22 @@ func (s *statusRecorder) Write(b []byte) (int, error) {
 	return s.ResponseWriter.Write(b)
 }
 
+// Flush forwards to the underlying ResponseWriter's Flusher so wrapping this
+// recorder around a handler does not disable HTTP streaming. Embedding the
+// http.ResponseWriter interface does NOT promote Flush (it lives on the
+// separate http.Flusher interface), so the NDJSON stream handler's
+// w.(http.Flusher) assertion would otherwise fail with "streaming unsupported".
+func (s *statusRecorder) Flush() {
+	if f, ok := s.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// Unwrap exposes the wrapped writer to net/http's ResponseController, so any
+// optional interface (Flusher, Hijacker, …) on the original writer stays
+// reachable through this recorder.
+func (s *statusRecorder) Unwrap() http.ResponseWriter { return s.ResponseWriter }
+
 // Recover converts a panic in a downstream handler into a logged 500 JSON error
 // (via httpx), so a single bad request can never crash the server. It must be the
 // outermost middleware so it also catches panics in inner middleware.
