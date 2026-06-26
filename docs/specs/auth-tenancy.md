@@ -1,5 +1,10 @@
 # Auth & Tenancy (`internal/auth`)
 
+> ⚠️ **SUPERSEDED (v1).** This describes the removed **Authula** auth. v2 replaces it with
+> better-auth on the frontend (JWKS-verified JWTs + api-keys + org ownership). See
+> [`../../masterplan-mvp.md`](../../masterplan-mvp.md) §4 and [`_V2-STATUS.md`](_V2-STATUS.md).
+> To be rewritten as `trust-model.md` in **R1**. Do not follow this for v2.
+
 Status: implemented (M1).
 
 Wires [Authula](https://github.com/Authula/authula) `v1.12.0` as an embedded Go

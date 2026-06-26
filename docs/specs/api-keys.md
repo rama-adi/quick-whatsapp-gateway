@@ -1,5 +1,10 @@
 # API Keys
 
+> ⚠️ **SUPERSEDED (v1).** This describes custom Go argon2id keys. v2 uses better-auth's
+> **api-key** plugin (org-scoped); the gateway *verifies* keys against the shared `apikey`
+> table. See [`../../masterplan-mvp.md`](../../masterplan-mvp.md) §4.2 and
+> [`_V2-STATUS.md`](_V2-STATUS.md). To be rewritten in **R1/R3**.
+
 Status: stub — filled in with the implementation.
 
 Scope: account-global API keys with {read,send,manage,events} permissions, argon2id hashing, prefixes, rotation, expiry, last-used tracking.

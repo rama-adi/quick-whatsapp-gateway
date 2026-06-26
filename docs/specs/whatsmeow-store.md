@@ -1,5 +1,11 @@
 # whatsmeow Store
 
+> ⚠️ **SUPERSEDED (v1).** This describes the custom **MySQL** whatsmeow store. v2 uses
+> **SQLite** via whatsmeow's `sqlstore` (`modernc.org/sqlite`, gateway-local persistent
+> volume) — the custom MySQL adapter is dropped. See
+> [`../../masterplan-mvp.md`](../../masterplan-mvp.md) §6.1 and [`_V2-STATUS.md`](_V2-STATUS.md).
+> To be rewritten/retired in **R2**.
+
 Status: implemented.
 
 The whatsmeow device keystore with two interchangeable backends behind one
