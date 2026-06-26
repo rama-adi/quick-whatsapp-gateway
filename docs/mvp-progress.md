@@ -4,8 +4,8 @@ Tracks implementation status against [`masterplan-mvp.md`](../masterplan-mvp.md)
 Last updated: 2026-06-27.
 
 > **Pivot to v2 (split architecture).** The single-binary v1 MVP (Go + Authula + embedded
-> React Router SPA + MySQL keystore) is **code-complete (M0–M8)** and **archived**: see
-> [`archive/`](archive/README.md) and git tag `mvp-v1`. The project is now revamping to a
+> React Router SPA + MySQL keystore) was **code-complete (M0–M8)** and is preserved at git
+> tag `mvp-v1`. The project is now revamping to a
 > **gateway (Go) + fullstack frontend (TanStack Start + better-auth)** split. v2 milestones
 > (R0–R5, masterplan §17) below.
 

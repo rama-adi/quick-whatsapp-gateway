@@ -1,8 +1,8 @@
 // User-panel layout route (§12 "User" surface). Nests /user/sessions,
 // /user/keys, /user/webhooks under one org-aware shell.
 //
-// Porting note: replaces the v1 app/_v1-surfaces/user/_guard.ts +
-// _v1-surfaces/user/_ui.tsx layout. The v1 client-side `requireUserPanel`
+// Porting note: replaces the v1 user/_guard.ts + user/_ui.tsx layout (tag
+// mvp-v1). The v1 client-side `requireUserPanel`
 // clientLoader becomes a server-resolved `beforeLoad` gate: the parent _app
 // route already resolved the better-auth session into AppSession (server-side,
 // §12) and put it on the route context, so we gate from context with zero

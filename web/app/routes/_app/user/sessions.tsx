@@ -1,6 +1,6 @@
 // User: my sessions — list + create. §12 user surface, scoped to the active org.
 //
-// Ported from v1 app/_v1-surfaces/user/sessions.list.tsx. Reshape notes:
+// Ported from v1 user/sessions.list.tsx (tag mvp-v1). Reshape notes:
 //   - Route object -> TanStack file-based route (/user/sessions). The v1
 //     `clientLoader = requireUserPanel` guard moved up to the _app/user.tsx
 //     layout's server `beforeLoad` (§12), so this route just renders.

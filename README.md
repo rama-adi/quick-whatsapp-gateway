@@ -135,8 +135,8 @@ internal/          gateway: authz/ (JWKS+JWT+api-key verify) · controlbus/ · h
 migrations/        golang-migrate, WA app-data only (no wmstore_* in MySQL)
 web/               frontend: TanStack Start + better-auth + Drizzle + ported shadcn
 deploy/            Dockerfile · Dockerfile.web · compose files · .env.example
-docs/              openapi.yaml · specs/*.md · mvp-progress.md · archive/ (v1 snapshot)
+docs/              openapi.yaml · specs/*.md · mvp-progress.md
 ```
 
-The v1 single-binary MVP is archived at git tag `mvp-v1` and under `docs/archive/`. Full layout:
-masterplan §16.
+The v1 single-binary MVP is preserved at git tag `mvp-v1` (check it out to read the v1 code,
+specs, and progress tracker). Full v2 layout: masterplan §16.

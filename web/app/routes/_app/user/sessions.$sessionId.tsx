@@ -2,8 +2,8 @@
 // §12 user surface. Renders a back link + a tab strip (Overview / Chats /
 // Contacts) and an <Outlet/> for the active sub-surface.
 //
-// Ported from v1 app/_v1-surfaces/user/session.detail.tsx (the detail shell with
-// sub-navigation). Reshape notes:
+// Ported from v1 user/session.detail.tsx (tag mvp-v1) — the detail shell with
+// sub-navigation. Reshape notes:
 //   - /user/sessions/:id (shell + nested) -> TanStack file-based LAYOUT route
 //     /user/sessions/$sessionId rendering the tabs + <Outlet/>.
 //   - The OVERVIEW (status/QR/pairing) lives in the index child

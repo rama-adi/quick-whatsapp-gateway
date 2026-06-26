@@ -19,8 +19,8 @@ The two share one MySQL database for application data and trust each other throu
 > remove the risk. Use at your own risk.
 
 > **History:** This supersedes the v1 single-binary design (Go + embedded Authula + embedded
-> React Router SPA). The v1 spec and progress tracker are archived under
-> [`docs/archive/`](docs/archive/README.md) and tagged `mvp-v1` in git.
+> React Router SPA). The v1 code, spec, and progress tracker are preserved at git tag `mvp-v1`
+> — check it out to read them.
 
 ---
 
@@ -999,7 +999,7 @@ volumes: { mysql_data: {}, redis_data: {}, keystore_data: {} }
 │   ├── src/server/schema/          # Drizzle: auth tables (generated) + WA read-models (introspected)
 │   └── drizzle.config.ts           # drizzle-kit config
 ├── deploy/                         # Dockerfile (gateway) · Dockerfile.web · compose files · .env.example
-├── docs/  (openapi.yaml · specs/*.md · archive/ [v1 snapshot])
+├── docs/  (openapi.yaml · specs/*.md · mvp-progress.md)
 ├── .air.toml · Makefile · README.md
 ```
 
@@ -1014,7 +1014,7 @@ static`), the custom MySQL whatsmeow store (`wa/store/mysql` → `wa/store/sqlit
 The v1 code (tagged `mvp-v1`) is functionally complete; v2 is a **re-wiring**, not a rewrite
 of the WhatsApp engine. Milestones, each leaving the tree green:
 
-- **R0 — Snapshot & v2 specs (this change):** archive v1 docs + tag `mvp-v1`; rewrite this
+- **R0 — Snapshot & v2 specs (this change):** tag the v1 tree `mvp-v1` (its only home); rewrite this
   masterplan to v2. **Refreshing `docs/specs/*` for v2 is a tracked requirement, not optional**
   — they currently describe removed v1 behavior (Authula, MySQL keystore, `tenant_id`, the SPA).
   First step (now): every stale spec gets a *superseded* banner pointing at the masterplan + its

@@ -1,7 +1,7 @@
 // User: session OVERVIEW (the index of /user/sessions/$sessionId) — live status,
 // lifecycle actions, identity, QR display, and phone pairing-code entry. §12.
 //
-// Ported from v1 app/_v1-surfaces/user/session.overview.tsx. This is the index
+// Ported from v1 user/session.overview.tsx (tag mvp-v1). This is the index
 // child of the sessions.$sessionId layout (which renders the Overview/Chats/
 // Contacts tab strip + <Outlet/>). Chats/Contacts are sibling-owned surfaces
 // (viewer/contacts) that mount as the layout's other children.

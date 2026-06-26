@@ -1,6 +1,6 @@
 // Placeholder authed surface so the _app layout route has a child and renders
-// inside the AppShell. Stage 3 ports the real role-routed surfaces (admin/*,
-// user/*, viewer/*, contacts/*) — their v1 sources live in app/_v1-surfaces/.
+// inside the AppShell. The real role-routed surfaces live under user/* (and the
+// other _app children); this index stays a minimal landing page.
 
 import { createFileRoute } from "@tanstack/react-router";
 

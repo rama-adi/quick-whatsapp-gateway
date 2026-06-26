@@ -1,7 +1,7 @@
 // User: webhooks CRUD — list, create, edit (PATCH), delete. §12 user surface,
 // scoped to the active org (the gateway filters by the JWT's activeOrganizationId).
 //
-// Ported from v1 app/_v1-surfaces/user/webhooks.tsx. Reshape notes:
+// Ported from v1 user/webhooks.tsx (tag mvp-v1). Reshape notes:
 //   - Route object -> TanStack file-based route (/user/webhooks); the v1
 //     `clientLoader = requireUserPanel` guard moved to the _app/user.tsx layout
 //     beforeLoad (§12).

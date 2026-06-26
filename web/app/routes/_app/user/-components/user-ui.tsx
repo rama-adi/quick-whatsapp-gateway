@@ -1,5 +1,5 @@
 // Surface-local UI helpers for the user panel (sessions / keys / webhooks).
-// Ported from the v1 app/_v1-surfaces/user/_ui.tsx and re-fitted to TanStack
+// Ported from the v1 user/_ui.tsx (tag mvp-v1) and re-fitted to TanStack
 // Start. Colocated under -components/ (the leading "-" excludes it from
 // file-based route generation) on purpose — the Verify stage may hoist these
 // into a shared module if the admin/viewer/contacts surfaces need them too.

@@ -26,8 +26,6 @@ R-milestone that re-implements its subsystem.
 | `resources.md` | ✅ v2 | R1 | Resources org-owned; session responses expose `gatewayId` (§13). |
 | `contacts.md` | ✅ v2 | R3 | Logic stable; ownership via org; frontend reads (§6.2). |
 | `frontend.md` | ✅ v2 (replaced React Router SPA) | R3/R4 | TanStack Start + better-auth (6 plugins, drizzleAdapter, definePayload, personal-org); browser→gateway direct (CORS+Bearer); org switcher (§12). |
-| `_recon-whatsmeow.md` | **Keep** | — | whatsmeow recon still valid (whatsmeow stays). |
-| `_recon-authula.md` | **Obsolete (historical)** | — | Authula removed; retain only as history — do **not** follow. |
 
 > All subsystem specs are now v2. The masterplan is the overview; these specs are the detail;
 > `../openapi.yaml` is the API contract of record.
