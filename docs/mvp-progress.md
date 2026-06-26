@@ -14,7 +14,7 @@ Last updated: 2026-06-26.
 | **M4** — Outbound | ✅ Done | unified send + message ops, idempotency, sync + async outbox, per-session rate limiting |
 | **M5** — Eventing | ✅ Done | NDJSON stream (`events=*`, heartbeat, cursor resume) + webhooks (HMAC-SHA512, retries, dedup, dead-letter) + catalog |
 | **M6** — API & keys | ✅ Done | account-global keys (permissions/rotation), all §11 endpoints wired, OpenAPI 3.1 spec |
-| **M7** — Frontend | 🚧 In progress | React Router + shadcn SPA: admin + user panels, viewer, Contacts, realtime stream wiring, QR/pairing UX, key/webhook management |
+| **M7** — Frontend | ✅ Done | React Router + shadcn SPA: auth (login/register/TOTP), admin + user panels, viewer, Contacts, realtime NDJSON stream wiring, QR/pairing UX, key/webhook management. tsc clean, build green, 13/13 vitest, Go embed proven |
 | **M8** — Hardening | ✅ Done | AES-GCM at-rest encryption, retention/prune, metrics/health, structured logs, ToS disclaimer. **E2E smoke vs live number: pending** |
 
 ## Verified this session
@@ -35,13 +35,8 @@ Live Docker-backed boot smoke test against real MySQL (commit `2d94cfb`):
 
 ## Remaining work
 
-1. **M7 Frontend** — build the `web/` SPA per §13. The Go side already serves the
-   embedded `dist/` with index.html fallback ([`router.go`](../internal/http/router.go) `spaHandler`);
-   `web/` is currently empty. Surfaces: Admin (tenants/sessions/admin-number/event monitor),
-   User (sessions/keys/webhooks + QR/pairing UX), Viewer (chats + timeline, media placeholder),
-   Contacts (searchable found-users, drill into DM + groups). Realtime via the NDJSON event
-   stream using the cookie session, auto-reconnect with `since={lastEventId}`.
-2. **M8 E2E smoke** — end-to-end test against a real WhatsApp test number (manual; needs a phone).
+1. **M8 E2E smoke** — end-to-end test against a real WhatsApp test number (manual; needs a phone).
+   This is the only remaining MVP item; all 8 build milestones (M0–M8 code) are complete.
 
 ## Known risks / follow-ups
 
