@@ -7,7 +7,9 @@ package migrations
 import "embed"
 
 // FS holds every *.sql migration in lexical (version) order:
-// 0001_init.{up,down}.sql, 0002_wmstore.{up,down}.sql.
+// 0001_init.{up,down}.sql (the v2 WA app-data schema). The whatsmeow keystore
+// lives in gateway-local SQLite and is auto-migrated by whatsmeow's sqlstore, so
+// there are no wmstore_* migrations here.
 //
 //go:embed *.sql
 var FS embed.FS

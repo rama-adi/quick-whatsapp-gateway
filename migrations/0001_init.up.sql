@@ -1,62 +1,61 @@
-CREATE TABLE tenants (
-  id           VARCHAR(64) PRIMARY KEY,            -- = authula user id
-  email        VARCHAR(255) NOT NULL,
-  display_name VARCHAR(255) NULL,
-  created_at   BIGINT NOT NULL,
-  updated_at   BIGINT NOT NULL,
-  UNIQUE KEY uq_tenants_email (email)
+-- v2 WhatsApp app-data plane (masterplan §7).
+--
+-- Conventions: utf8mb4 / utf8mb4_unicode_ci; timestamps are epoch-ms BIGINT;
+-- surrogate BIGINT UNSIGNED AUTO_INCREMENT PKs where shown, VARCHAR(64) ULID PKs
+-- where shown. Ownership is by `organization_id` (a better-auth organization id);
+-- `created_by_user_id` is kept for audit. No v1 `tenants`/`api_keys` mirror.
+--
+-- better-auth's own tables (user/session/account/verification/jwks/apikey/
+-- organization/member/invitation/...) are owned by the frontend (drizzle) and are
+-- NOT defined here. The whatsmeow keystore (wmstore_*) lives in gateway-local
+-- SQLite and is auto-migrated by whatsmeow's sqlstore — it is NOT in MySQL in v2.
+
+-- Registry of gateways. One self-row in v2; rows added when sharding (forward-compat).
+CREATE TABLE gateways (
+  id            VARCHAR(64) PRIMARY KEY,            -- = GATEWAY_ID
+  label         VARCHAR(255) NULL,
+  base_url      TEXT NULL,                          -- where the frontend reaches this gateway
+  last_seen_at  BIGINT NULL,
+  created_at    BIGINT NOT NULL,
+  updated_at    BIGINT NOT NULL
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 CREATE TABLE wa_sessions (
-  id                VARCHAR(64) PRIMARY KEY,        -- app session id (ULID)
-  tenant_id         VARCHAR(64) NOT NULL,
+  id                 VARCHAR(64) PRIMARY KEY,       -- app session id (ULID)
+  organization_id    VARCHAR(64) NOT NULL,          -- = better-auth organization id (owner)
+  created_by_user_id VARCHAR(64) NULL,              -- better-auth user id (audit: who created it)
+  gateway_id         VARCHAR(64) NOT NULL,          -- which gateway holds this session's keystore
   label             VARCHAR(255) NULL,
   status            ENUM('starting','scan_qr_code','working','failed','stopped','logged_out') NOT NULL DEFAULT 'stopped',
-  wa_jid            VARCHAR(255) NULL,              -- phone JID once paired
+  wa_jid            VARCHAR(255) NULL,
   wa_lid            VARCHAR(255) NULL,
   phone_number      VARCHAR(64) NULL,
   is_admin_session  TINYINT(1) NOT NULL DEFAULT 0,  -- the WHATSAPP_ADMIN_NUMBER session
-  auto_read         TINYINT(1) NOT NULL DEFAULT 1,  -- mark inbound read before acting
+  auto_read         TINYINT(1) NOT NULL DEFAULT 1,
   presence_typing   TINYINT(1) NOT NULL DEFAULT 0,
   rate_per_min      INT NOT NULL DEFAULT 20,
   rate_per_hour     INT NOT NULL DEFAULT 200,
   last_connected_at BIGINT NULL,
   created_at        BIGINT NOT NULL,
   updated_at        BIGINT NOT NULL,
-  KEY idx_sessions_tenant (tenant_id),
+  KEY idx_sessions_org (organization_id),
+  KEY idx_sessions_gateway (gateway_id),
   UNIQUE KEY uq_sessions_jid (wa_jid)
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
--- Account-global API keys (NOT bound to a session; session targeted by route)
-CREATE TABLE api_keys (
-  id          VARCHAR(64) PRIMARY KEY,
-  tenant_id   VARCHAR(64) NOT NULL,
-  name        VARCHAR(255) NOT NULL,
-  key_prefix  VARCHAR(16) NOT NULL,                -- shown in UI, e.g. "wak_ab12"
-  key_hash    VARCHAR(255) NOT NULL,               -- argon2id of full key
-  scope       ENUM('tenant','global') NOT NULL DEFAULT 'tenant', -- 'global' = super_admin only
-  permissions JSON NOT NULL,                       -- {"read":bool,"send":bool,"manage":bool,"events":bool}
-  last_used_at BIGINT NULL,
-  expires_at  BIGINT NULL,
-  revoked_at  BIGINT NULL,
-  created_at  BIGINT NOT NULL,
-  KEY idx_keys_tenant (tenant_id),
-  UNIQUE KEY uq_keys_prefix (key_prefix)
-) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-
 CREATE TABLE webhooks (
-  id            VARCHAR(64) PRIMARY KEY,
-  tenant_id     VARCHAR(64) NOT NULL,
-  session_id    VARCHAR(64) NULL,                  -- null = all tenant sessions
-  url           TEXT NOT NULL,
-  events        JSON NOT NULL,                     -- ["message","poll.vote"] or ["*"]
-  hmac_secret   VARBINARY(512) NULL,               -- AES-GCM encrypted at rest
+  id              VARCHAR(64) PRIMARY KEY,
+  organization_id VARCHAR(64) NOT NULL,
+  session_id      VARCHAR(64) NULL,                 -- null = all the org's sessions
+  url            TEXT NOT NULL,
+  events         JSON NOT NULL,                     -- ["message","poll.vote"] or ["*"]
+  hmac_secret    VARBINARY(512) NULL,               -- AES-GCM encrypted at rest
   custom_headers JSON NULL,
-  retry_policy  JSON NOT NULL,                     -- {"policy":"exponential","delaySeconds":2,"attempts":15}
-  active        TINYINT(1) NOT NULL DEFAULT 1,
-  created_at    BIGINT NOT NULL,
-  updated_at    BIGINT NOT NULL,
-  KEY idx_webhooks_tenant (tenant_id)
+  retry_policy   JSON NOT NULL,                     -- {"policy":"exponential","delaySeconds":2,"attempts":15}
+  active         TINYINT(1) NOT NULL DEFAULT 1,
+  created_at     BIGINT NOT NULL,
+  updated_at     BIGINT NOT NULL,
+  KEY idx_webhooks_org (organization_id)
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 CREATE TABLE webhook_deliveries (
@@ -72,9 +71,8 @@ CREATE TABLE webhook_deliveries (
   KEY idx_deliv_retry (status, next_retry_at)
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
--- ===== Identity / Contacts model =====
+-- ===== Identity / Contacts model (global; not user-scoped) =====
 
--- Global identity resolution (LID -> phone/name). Push name lives here; NO nickname (nickname is group-specific).
 CREATE TABLE whatsapp_identities (
   id            BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   lid           VARCHAR(255) NOT NULL,
@@ -88,7 +86,6 @@ CREATE TABLE whatsapp_identities (
   KEY idx_identity_phone (phone_jid)
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
--- Per-account "found user" record — powers the Contacts feature (where we found them)
 CREATE TABLE whatsapp_contacts (
   id            BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   session_id    VARCHAR(64) NOT NULL,               -- the account that encountered them
@@ -118,13 +115,12 @@ CREATE TABLE whatsapp_groups (
   UNIQUE KEY uq_group_jid (group_jid)
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
--- Pivot: user <-> group. group_nickname is group-specific and lives here.
 CREATE TABLE whatsapp_group_members (
   id             BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   session_id     VARCHAR(64) NOT NULL,
   group_jid      VARCHAR(255) NOT NULL,
   lid            VARCHAR(255) NOT NULL,
-  group_nickname TEXT NULL,                          -- display name within this group
+  group_nickname TEXT NULL,
   role           ENUM('member','admin','superadmin') NOT NULL DEFAULT 'member',
   first_seen_at  BIGINT NOT NULL,
   last_seen_at   BIGINT NOT NULL,
@@ -159,19 +155,19 @@ CREATE TABLE messages (
   sender_jid        VARCHAR(255) NULL,
   from_me           TINYINT(1) NOT NULL DEFAULT 0,
   direction         ENUM('in','out') NOT NULL,
-  type              VARCHAR(32) NOT NULL,           -- text,poll,location,contact,reaction,system,image,...
+  type              VARCHAR(32) NOT NULL,
   body              MEDIUMTEXT NULL,
   quoted_message_id VARCHAR(255) NULL,
   mentions          JSON NULL,
   has_media         TINYINT(1) NOT NULL DEFAULT 0,
-  media_meta        JSON NULL,                       -- {mimetype,size,filename}; NOT downloaded in v1
+  media_meta        JSON NULL,                       -- NOT downloaded in v2
   status            ENUM('pending','sent','delivered','read','played','failed') NULL,
   ack_level         INT NULL,
   error             TEXT NULL,
   edited            TINYINT(1) NOT NULL DEFAULT 0,
   deleted           TINYINT(1) NOT NULL DEFAULT 0,
   timestamp         BIGINT NOT NULL,
-  raw_json          JSON NULL,                        -- normalized event payload
+  raw_json          JSON NULL,
   created_at        BIGINT NOT NULL,
   UNIQUE KEY uq_msg (session_id, wa_message_id),
   KEY idx_msg_chat (session_id, chat_jid, timestamp),
@@ -191,7 +187,7 @@ CREATE TABLE poll_votes (
 
 CREATE TABLE outbox (
   id              VARCHAR(64) PRIMARY KEY,            -- ULID
-  tenant_id       VARCHAR(64) NOT NULL,
+  organization_id VARCHAR(64) NOT NULL,
   session_id      VARCHAR(64) NOT NULL,
   idempotency_key VARCHAR(255) NULL,
   payload         JSON NOT NULL,
@@ -201,17 +197,17 @@ CREATE TABLE outbox (
   error           TEXT NULL,
   created_at      BIGINT NOT NULL,
   updated_at      BIGINT NOT NULL,
-  UNIQUE KEY uq_idem (tenant_id, idempotency_key)
+  UNIQUE KEY uq_idem (organization_id, idempotency_key)
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 CREATE TABLE event_log (
   id          BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,  -- monotonic cursor
   event_id    VARCHAR(64) NOT NULL,                         -- ULID, exposed to clients
-  tenant_id   VARCHAR(64) NOT NULL,
+  organization_id VARCHAR(64) NOT NULL,
   session_id  VARCHAR(64) NOT NULL,
   type        VARCHAR(64) NOT NULL,
   payload     JSON NOT NULL,
   created_at  BIGINT NOT NULL,
-  KEY idx_event_cursor (tenant_id, session_id, id),
+  KEY idx_event_cursor (organization_id, session_id, id),
   UNIQUE KEY uq_event_id (event_id)
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
