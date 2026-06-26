@@ -1,0 +1,168 @@
+---
+title: Event shape
+description: The event envelope, the full catalog with payload fields, and concrete examples — the same shape on the stream and on webhooks.
+---
+
+Every event the gateway emits — on the NDJSON stream and on webhooks — is the same
+JSON object: a versioned **envelope** that wraps a type-specific **payload**. This
+page is the reference for that shape. For how to subscribe, see
+[Receive events](/docs/guides/receiving); for the endpoint contract, see the
+[stream events API](/docs/api/events/events).
+
+## The envelope
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9XYZ...",
+  "event": "message",
+  "session": "sess_01J8...",
+  "organization": "org_abc",
+  "timestamp": 1719400000000,
+  "payload": { }
+}
+```
+
+| Field | Type | What it is |
+|---|---|---|
+| `schema` | string | Envelope version. Currently `v1`. Branch on this if it ever changes. |
+| `id` | string | The event id, a ULID with an `evt_` prefix. Stable and unique. Use it to dedupe and to resume the stream. |
+| `event` | string | The event type — one of the [catalog](#event-catalog) below. Tells you how to read `payload`. |
+| `session` | string | The session the event belongs to (`sess_…`). |
+| `organization` | string | The organization that owns the session. Every event is scoped to one org. |
+| `timestamp` | integer | When the gateway emitted it, in **epoch milliseconds**. |
+| `payload` | object | Type-specific data. Its shape depends on `event` — see each entry below. |
+
+The same envelope rides both transports, so your handler can be written once:
+
+- **Stream** — `GET /api/v1/events`, `application/x-ndjson`, one envelope per line. A
+  `ping` event arrives about every 20s; resume after a drop with `since={lastEventId}`.
+- **Webhooks** — the gateway `POST`s the envelope as JSON. The envelope `id` is also
+  sent as `X-Webhook-Request-Id`; dedupe on it. Deliveries are HMAC-signed
+  (`X-Webhook-Hmac`, `X-Webhook-Hmac-Algorithm: sha512`) and retried.
+
+## Subscribe to the stream
+
+```bash
+curl -N "https://your-gateway/api/v1/events?events=*&session=sess_01J8..." \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+- `events=*` is every type; pass a comma list (`events=message,poll.vote`) to narrow.
+- `session=` filters to one session; omit it to receive every session your org owns.
+- After a disconnect, reconnect with `since={lastEventId}` — the gateway replays what
+  you missed from the event log, then tails live.
+
+See the [stream events API](/docs/api/events/events) for the full endpoint detail.
+
+## Event catalog
+
+The `payload` columns list the fields you can rely on. Fields shown with no value may
+be absent when empty (the gateway omits empty optional fields).
+
+| Event | Fires when | Key payload fields |
+|---|---|---|
+| `session.status` | A session changes connection state. | `status` (`working`, `starting`, `logged_out`, `failed`) |
+| `auth.qr` | A new QR code is ready to scan. | `code` (the QR string) |
+| `auth.code` | Pairing succeeded. | `jid`, `lid`, `businessName`, `platform` |
+| `message` | An inbound message arrives. | `waMessageId`, `chatJid`, `senderJid`, `type`, `body`, `timestamp`, `hasMedia`, `media` (+ type-specific: `location`, `contact`, `poll`, `mentions`, `quotedMessageId`) |
+| `message.from_me` | A message is sent from this number (incl. another linked device). | Same shape as `message`, with `fromMe: true` |
+| `message.status` | A receipt updates a sent message. | `chatJid`, `messageIds`, `status` (`sent` → `delivered` → `read` / `played`), `timestamp` |
+| `message.reaction` | Someone reacts to a message. | `chatJid`, `targetId`, `reaction` (emoji; `""` = removed), `senderJid` |
+| `message.edited` | A message is edited. | `chatJid`, `targetId`, `body` (new text), `senderJid` |
+| `message.revoked` | A message is deleted for everyone. | `chatJid`, `targetId`, `senderJid` |
+| `poll.vote` | Someone votes on a poll. | `chatJid`, `targetId` (the poll message), `selectedHashes` (encrypted option hashes), `senderJid` |
+| `presence.update` | A contact goes online/offline or starts typing. | `chatJid`, `from`, `state` (`available`, `unavailable`, `composing`, `paused`), `media`, `lastSeen` |
+| `group.update` | A group's metadata changes. | `groupJid`, `subject`, `description`, `sender`, `isAnnounce`, `isLocked`, `newInviteLink` |
+| `group.participant` | Someone joins, leaves, or changes role. | `groupJid`, `sender`, `join`, `leave`, `promote`, `demote` (each a JID list) |
+| `chat.update` | A chat changes (currently profile-picture changes). | `chatJid`, `change` (e.g. `picture`), `pictureId`, `removed` |
+| `contact.update` | A contact's name or details change. | `jid`, `pushName`, `fullName`, `firstName` |
+| `call.incoming` | An incoming call. | `callId`, `from`, `timestamp`, `isGroup`, `groupJid` |
+| `newsletter.update` | A followed channel updates. | `jid`, `action` (`join`, `leave`, `mute`) |
+
+<Callout type="info">
+**Media is metadata only.** A message with an attachment arrives with `hasMedia: true`
+and `media: null`. You learn that the message has media (and, internally, its type) but
+this release never downloads the file.
+</Callout>
+
+## Examples
+
+### Inbound text message (`message`)
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9XYZ...",
+  "event": "message",
+  "session": "sess_01J8...",
+  "organization": "org_abc",
+  "timestamp": 1719400000000,
+  "payload": {
+    "waMessageId": "3EB0...",
+    "chatJid": "6281234567890@s.whatsapp.net",
+    "senderJid": "6281234567890@s.whatsapp.net",
+    "fromMe": false,
+    "type": "text",
+    "body": "hey, are we still on for tomorrow?",
+    "hasMedia": false,
+    "media": null,
+    "timestamp": 1719400000000,
+    "pushName": "Alex"
+  }
+}
+```
+
+A reply carries `quotedMessageId`; a message with `@mentions` carries a `mentions` JID
+list. A media message keeps the same shape with `type` set to the media kind (e.g.
+`image`), `hasMedia: true`, and `media: null`.
+
+### Delivery receipt (`message.status`)
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9ABC...",
+  "event": "message.status",
+  "session": "sess_01J8...",
+  "organization": "org_abc",
+  "timestamp": 1719400005000,
+  "payload": {
+    "chatJid": "6281234567890@s.whatsapp.net",
+    "messageIds": ["3EB0..."],
+    "status": "delivered",
+    "timestamp": 1719400005000
+  }
+}
+```
+
+One receipt can update several messages at once, so `messageIds` is a list. `status`
+moves `sent` → `delivered` → `read` (voice notes can also reach `played`).
+
+### Poll vote (`poll.vote`)
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9DEF...",
+  "event": "poll.vote",
+  "session": "sess_01J8...",
+  "organization": "org_abc",
+  "timestamp": 1719400010000,
+  "payload": {
+    "waMessageId": "3EB1...",
+    "chatJid": "120363...@g.us",
+    "senderJid": "6281234567890@s.whatsapp.net",
+    "fromMe": false,
+    "type": "poll_vote",
+    "targetId": "3EB0...",
+    "selectedHashes": ["a1b2c3...", "d4e5f6..."],
+    "hasMedia": false,
+    "media": null,
+    "timestamp": 1719400010000
+  }
+}
+```
+
+`targetId` is the poll-creation message being voted on. The selected options arrive as
+encrypted `selectedHashes` rather than plaintext labels.
