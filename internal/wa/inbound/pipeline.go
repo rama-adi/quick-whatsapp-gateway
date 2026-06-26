@@ -9,7 +9,7 @@ import (
 )
 
 // Pipeline runs the ordered inbound stages from masterplan §7 for every
-// whatsmeow event, tagged with its session/tenant:
+// whatsmeow event, tagged with its session/organization:
 //
 //  1. normalize        -> versioned envelope + NormalizedMessage
 //  2. command intercept -> admin-session prefix commands are dropped
@@ -20,7 +20,7 @@ import (
 //
 // All collaborators are CONSUMER INTERFACES (see ports.go) injected via the
 // constructor — no globals, no sibling-package imports. The pipeline is
-// stateless and safe to share across sessions; per-event session/tenant come in
+// stateless and safe to share across sessions; per-event session/organization come in
 // on Process.
 type Pipeline struct {
 	normalizer Normalizer
@@ -113,16 +113,16 @@ func NewPipeline(
 // Ordering guarantee: capture and persist happen before auto-read, and auto-read
 // happens strictly before fan-out, so a reply consumer that reacts to the fanned
 // event never races the read receipt (§7.5).
-func (p *Pipeline) Process(ctx context.Context, sessionID, tenantID string, isAdminSession bool, evt any) error {
+func (p *Pipeline) Process(ctx context.Context, sessionID, organizationID string, isAdminSession bool, evt any) error {
 	// Stage 1: normalize.
-	envelope, nm, ok := p.normalizer.Normalize(evt, sessionID, tenantID)
+	envelope, nm, ok := p.normalizer.Normalize(evt, sessionID, organizationID)
 	if !ok {
 		// Filtered/unrecognized event — nothing to do.
 		return nil
 	}
 	// Defensive: keep the working view's tags authoritative.
 	nm.SessionID = sessionID
-	nm.TenantID = tenantID
+	nm.OrganizationID = organizationID
 
 	// Stage 2: command interceptor (admin session, prefixed text → drop).
 	res, err := p.runInterceptor(ctx, isAdminSession, nm)

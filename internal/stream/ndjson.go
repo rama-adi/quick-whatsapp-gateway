@@ -59,18 +59,18 @@ func pingEnvelope() map[string]any {
 
 // logEntryEnvelope renders a replayed event-log entry into the §9 envelope shape,
 // matching what the live publisher emits for the same event. EventLogEntry's JSON
-// tags already map id/event/session/tenant/payload, but it has no "schema" and
+// tags already map id/event/session/organization/payload, but it has no "schema" and
 // uses createdAt rather than timestamp, so we build the envelope explicitly to
 // keep replayed and live lines byte-compatible in shape.
 func logEntryEnvelope(e *domain.EventLogEntry) domain.Event {
 	return domain.Event{
-		Schema:    domain.Schema,
-		ID:        e.EventID,
-		Type:      e.Type,
-		Session:   e.SessionID,
-		Tenant:    e.TenantID,
-		Timestamp: e.CreatedAt,
-		Payload:   json.RawMessage(e.Payload),
+		Schema:       domain.Schema,
+		ID:           e.EventID,
+		Type:         e.Type,
+		Session:      e.SessionID,
+		Organization: e.OrganizationID,
+		Timestamp:    e.CreatedAt,
+		Payload:      json.RawMessage(e.Payload),
 	}
 }
 

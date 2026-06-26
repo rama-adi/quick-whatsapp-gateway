@@ -35,9 +35,9 @@ type CreateInput struct {
 	PresenceTyping *bool
 }
 
-// Create provisions a new session for the tenant. The manager mints the row
+// Create provisions a new session for the organization. The manager mints the row
 // (id + defaults), then we optionally start QR pairing when Start is requested.
-func (s *SessionService) Create(ctx context.Context, tenantID string, in CreateInput) (domain.WASession, error) {
+func (s *SessionService) Create(ctx context.Context, organizationID string, in CreateInput) (domain.WASession, error) {
 	autoRead := true
 	if in.AutoRead != nil {
 		autoRead = *in.AutoRead
@@ -46,7 +46,7 @@ func (s *SessionService) Create(ctx context.Context, tenantID string, in CreateI
 	if in.PresenceTyping != nil {
 		presence = *in.PresenceTyping
 	}
-	sess, err := s.manager.CreateSession(ctx, tenantID, in.Label, autoRead, presence)
+	sess, err := s.manager.CreateSession(ctx, organizationID, in.Label, autoRead, presence)
 	if err != nil {
 		return domain.WASession{}, err
 	}
@@ -59,42 +59,42 @@ func (s *SessionService) Create(ctx context.Context, tenantID string, in CreateI
 	return *sess, nil
 }
 
-// List returns all sessions owned by the tenant.
-func (s *SessionService) List(ctx context.Context, tenantID string) ([]domain.WASession, error) {
-	return s.repo.ListByTenant(ctx, tenantID)
+// List returns all sessions owned by the organization.
+func (s *SessionService) List(ctx context.Context, organizationID string) ([]domain.WASession, error) {
+	return s.repo.ListByOrg(ctx, organizationID)
 }
 
-// Get loads a single session, enforcing tenant ownership.
-func (s *SessionService) Get(ctx context.Context, tenantID, id string) (domain.WASession, error) {
+// Get loads a single session, enforcing organization ownership.
+func (s *SessionService) Get(ctx context.Context, organizationID, id string) (domain.WASession, error) {
 	sess, err := s.repo.Get(ctx, id)
 	if err != nil {
 		return domain.WASession{}, err
 	}
-	if sess.TenantID != tenantID {
+	if sess.OrganizationID != organizationID {
 		return domain.WASession{}, domain.ErrNotFound("session not found")
 	}
 	return sess, nil
 }
 
 // Start connects an already-paired session.
-func (s *SessionService) Start(ctx context.Context, tenantID, id string) error {
-	if _, err := s.Get(ctx, tenantID, id); err != nil {
+func (s *SessionService) Start(ctx context.Context, organizationID, id string) error {
+	if _, err := s.Get(ctx, organizationID, id); err != nil {
 		return err
 	}
 	return s.manager.Start(ctx, id)
 }
 
 // Stop disconnects a session and marks it stopped.
-func (s *SessionService) Stop(ctx context.Context, tenantID, id string) error {
-	if _, err := s.Get(ctx, tenantID, id); err != nil {
+func (s *SessionService) Stop(ctx context.Context, organizationID, id string) error {
+	if _, err := s.Get(ctx, organizationID, id); err != nil {
 		return err
 	}
 	return s.manager.Stop(ctx, id)
 }
 
 // Restart stops then starts a session.
-func (s *SessionService) Restart(ctx context.Context, tenantID, id string) error {
-	if _, err := s.Get(ctx, tenantID, id); err != nil {
+func (s *SessionService) Restart(ctx context.Context, organizationID, id string) error {
+	if _, err := s.Get(ctx, organizationID, id); err != nil {
 		return err
 	}
 	return s.manager.Restart(ctx, id)
@@ -102,16 +102,16 @@ func (s *SessionService) Restart(ctx context.Context, tenantID, id string) error
 
 // Logout unlinks the device server-side, deletes its keystore device, and marks
 // the session logged out.
-func (s *SessionService) Logout(ctx context.Context, tenantID, id string) error {
-	if _, err := s.Get(ctx, tenantID, id); err != nil {
+func (s *SessionService) Logout(ctx context.Context, organizationID, id string) error {
+	if _, err := s.Get(ctx, organizationID, id); err != nil {
 		return err
 	}
 	return s.manager.Logout(ctx, id)
 }
 
 // Delete tears down the live session and removes its persisted row.
-func (s *SessionService) Delete(ctx context.Context, tenantID, id string) error {
-	if _, err := s.Get(ctx, tenantID, id); err != nil {
+func (s *SessionService) Delete(ctx context.Context, organizationID, id string) error {
+	if _, err := s.Get(ctx, organizationID, id); err != nil {
 		return err
 	}
 	s.manager.Forget(id)
@@ -129,8 +129,8 @@ type Me struct {
 }
 
 // Me returns the attached identity for a session.
-func (s *SessionService) Me(ctx context.Context, tenantID, id string) (Me, error) {
-	sess, err := s.Get(ctx, tenantID, id)
+func (s *SessionService) Me(ctx context.Context, organizationID, id string) (Me, error) {
+	sess, err := s.Get(ctx, organizationID, id)
 	if err != nil {
 		return Me{}, err
 	}
@@ -157,8 +157,8 @@ type QR struct {
 // QR returns the current pairing QR code for a session, starting QR pairing if
 // the session is not already streaming codes. Codes also stream live over the
 // events channel (auth.qr); this is the snapshot for a one-shot poll.
-func (s *SessionService) QR(ctx context.Context, tenantID, id string) (QR, error) {
-	sess, err := s.Get(ctx, tenantID, id)
+func (s *SessionService) QR(ctx context.Context, organizationID, id string) (QR, error) {
+	sess, err := s.Get(ctx, organizationID, id)
 	if err != nil {
 		return QR{}, err
 	}
@@ -185,11 +185,11 @@ func (s *SessionService) QR(ctx context.Context, tenantID, id string) (QR, error
 }
 
 // PairingCode requests a phone-number pairing code for a session.
-func (s *SessionService) PairingCode(ctx context.Context, tenantID, id, phone string) (string, error) {
+func (s *SessionService) PairingCode(ctx context.Context, organizationID, id, phone string) (string, error) {
 	if phone == "" {
 		return "", domain.ErrValidation("phone is required")
 	}
-	sess, err := s.Get(ctx, tenantID, id)
+	sess, err := s.Get(ctx, organizationID, id)
 	if err != nil {
 		return "", err
 	}

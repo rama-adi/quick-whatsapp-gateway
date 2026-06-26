@@ -26,37 +26,37 @@ func NewChatService(s *store.Store, presence PresenceController, log *slog.Logge
 	return &ChatService{store: s, presence: presence, log: log}
 }
 
-// requireSession verifies the session exists and belongs to the tenant.
-func (s *ChatService) requireSession(ctx context.Context, tenantID, sessionID string) error {
+// requireSession verifies the session exists and belongs to the organization.
+func (s *ChatService) requireSession(ctx context.Context, organizationID, sessionID string) error {
 	sess, err := s.store.Sessions.Get(ctx, sessionID)
 	if err != nil {
 		return err
 	}
-	if sess.TenantID != tenantID {
+	if sess.OrganizationID != organizationID {
 		return domain.ErrNotFound("session not found")
 	}
 	return nil
 }
 
 // List returns a page of the session's chats.
-func (s *ChatService) List(ctx context.Context, tenantID, sessionID, cursor string, limit int) (store.Page[domain.Chat], error) {
-	if err := s.requireSession(ctx, tenantID, sessionID); err != nil {
+func (s *ChatService) List(ctx context.Context, organizationID, sessionID, cursor string, limit int) (store.Page[domain.Chat], error) {
+	if err := s.requireSession(ctx, organizationID, sessionID); err != nil {
 		return store.Page[domain.Chat]{}, err
 	}
 	return s.store.Chats.ListBySession(ctx, sessionID, cursor, limit)
 }
 
 // Get returns a single chat.
-func (s *ChatService) Get(ctx context.Context, tenantID, sessionID, chatJID string) (domain.Chat, error) {
-	if err := s.requireSession(ctx, tenantID, sessionID); err != nil {
+func (s *ChatService) Get(ctx context.Context, organizationID, sessionID, chatJID string) (domain.Chat, error) {
+	if err := s.requireSession(ctx, organizationID, sessionID); err != nil {
 		return domain.Chat{}, err
 	}
 	return s.store.Chats.Get(ctx, sessionID, chatJID)
 }
 
 // ListMessages returns a page of a chat's messages.
-func (s *ChatService) ListMessages(ctx context.Context, tenantID, sessionID, chatJID, cursor string, limit int) (store.Page[domain.Message], error) {
-	if err := s.requireSession(ctx, tenantID, sessionID); err != nil {
+func (s *ChatService) ListMessages(ctx context.Context, organizationID, sessionID, chatJID, cursor string, limit int) (store.Page[domain.Message], error) {
+	if err := s.requireSession(ctx, organizationID, sessionID); err != nil {
 		return store.Page[domain.Message]{}, err
 	}
 	return s.store.Messages.ListByChat(ctx, sessionID, chatJID, cursor, limit)
@@ -65,8 +65,8 @@ func (s *ChatService) ListMessages(ctx context.Context, tenantID, sessionID, cha
 // Read marks a chat read by zeroing its unread counter (§11 POST /chats/{cid}/read).
 // Per-message read receipts to WhatsApp are out of scope for v1; the local
 // unread state is the source of truth for the viewer.
-func (s *ChatService) Read(ctx context.Context, tenantID, sessionID, chatJID string) (domain.Chat, error) {
-	if err := s.requireSession(ctx, tenantID, sessionID); err != nil {
+func (s *ChatService) Read(ctx context.Context, organizationID, sessionID, chatJID string) (domain.Chat, error) {
+	if err := s.requireSession(ctx, organizationID, sessionID); err != nil {
 		return domain.Chat{}, err
 	}
 	chat, err := s.store.Chats.Get(ctx, sessionID, chatJID)
@@ -89,8 +89,8 @@ type ChatUpdate struct {
 }
 
 // Update applies the user-managed chat flags (archive/pin/mute).
-func (s *ChatService) Update(ctx context.Context, tenantID, sessionID, chatJID string, in ChatUpdate) (domain.Chat, error) {
-	if err := s.requireSession(ctx, tenantID, sessionID); err != nil {
+func (s *ChatService) Update(ctx context.Context, organizationID, sessionID, chatJID string, in ChatUpdate) (domain.Chat, error) {
+	if err := s.requireSession(ctx, organizationID, sessionID); err != nil {
 		return domain.Chat{}, err
 	}
 	chat, err := s.store.Chats.Get(ctx, sessionID, chatJID)
@@ -115,16 +115,16 @@ func (s *ChatService) Update(ctx context.Context, tenantID, sessionID, chatJID s
 }
 
 // Delete removes a chat locally (§11 DELETE /chats/{cid}).
-func (s *ChatService) Delete(ctx context.Context, tenantID, sessionID, chatJID string) error {
-	if err := s.requireSession(ctx, tenantID, sessionID); err != nil {
+func (s *ChatService) Delete(ctx context.Context, organizationID, sessionID, chatJID string) error {
+	if err := s.requireSession(ctx, organizationID, sessionID); err != nil {
 		return err
 	}
 	return s.store.Chats.Delete(ctx, sessionID, chatJID)
 }
 
 // SetPresence sets the per-chat typing state (§11 PUT /chats/{cid}/presence).
-func (s *ChatService) SetPresence(ctx context.Context, tenantID, sessionID, chatJID, state string) error {
-	if err := s.requireSession(ctx, tenantID, sessionID); err != nil {
+func (s *ChatService) SetPresence(ctx context.Context, organizationID, sessionID, chatJID, state string) error {
+	if err := s.requireSession(ctx, organizationID, sessionID); err != nil {
 		return err
 	}
 	switch state {

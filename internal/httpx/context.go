@@ -12,20 +12,20 @@ import (
 type ctxKey int
 
 const (
-	ctxKeyTenantID ctxKey = iota
+	ctxKeyOrganizationID ctxKey = iota
 	ctxKeyAPIKey
 	ctxKeyRequestID
 )
 
-// SetTenantID returns a child context carrying the resolved tenant id. Set by the
-// auth middleware (API key or cookie session).
-func SetTenantID(ctx context.Context, tenantID string) context.Context {
-	return context.WithValue(ctx, ctxKeyTenantID, tenantID)
+// SetOrganizationID returns a child context carrying the resolved organization id
+// (a better-auth organization id). Set by the auth middleware (JWT or api-key).
+func SetOrganizationID(ctx context.Context, organizationID string) context.Context {
+	return context.WithValue(ctx, ctxKeyOrganizationID, organizationID)
 }
 
-// TenantID returns the request's tenant id, or "" if none was set.
-func TenantID(ctx context.Context) string {
-	if v, ok := ctx.Value(ctxKeyTenantID).(string); ok {
+// OrganizationID returns the request's organization id, or "" if none was set.
+func OrganizationID(ctx context.Context) string {
+	if v, ok := ctx.Value(ctxKeyOrganizationID).(string); ok {
 		return v
 	}
 	return ""

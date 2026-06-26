@@ -47,7 +47,7 @@ type fakeNormalizer struct {
 	ok  bool
 }
 
-func (f *fakeNormalizer) Normalize(evt any, sessionID, tenantID string) (domain.Event, *NormalizedMessage, bool) {
+func (f *fakeNormalizer) Normalize(evt any, sessionID, organizationID string) (domain.Event, *NormalizedMessage, bool) {
 	return f.evt, f.nm, f.ok
 }
 

@@ -8,7 +8,17 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 )
 
-// APIKeyRepo is the repository for api_keys (account-global keys, §5/§10).
+// APIKeyRepo is a READ-ONLY view of better-auth's `apikey` table (§4.2/§7). The
+// frontend's better-auth api-key plugin is the sole writer; the gateway only ever
+// reads a row to verify a presented key and resolve its owning organization. There
+// is intentionally no Create/Update/Revoke/Rotate here — those live in the
+// frontend.
+//
+// Hashing note: better-auth stores keys hashed (column `key`) and hashes presented
+// keys deterministically by default, so a key is verified by hashing the presented
+// secret and looking the row up by that hash. This repo does NOT hash — the
+// authz package (Stage 3) supplies the hash and calls GetByHash. That keeps the
+// hashing scheme (which must match better-auth's pinned version) in one place.
 type APIKeyRepo struct {
 	db dbExecQuerier
 }
@@ -16,52 +26,50 @@ type APIKeyRepo struct {
 // NewAPIKeyRepo constructs an APIKeyRepo.
 func NewAPIKeyRepo(db dbExecQuerier) *APIKeyRepo { return &APIKeyRepo{db: db} }
 
-const apiKeyCols = `id, tenant_id, name, key_prefix, key_hash, scope, permissions,
-	last_used_at, expires_at, revoked_at, created_at`
+// apiKeyCols maps better-auth's apikey columns onto domain.APIKey. The `key`
+// column holds the stored hash (KeyHash); refillInterval/rateLimit/metadata are
+// ignored for now (§4.2). organizationId is nullable in better-auth (a key may be
+// user-scoped); scanAPIKey falls back to userId-derived ownership upstream.
+const apiKeyCols = "id, name, `key`, userId, organizationId, enabled, expiresAt, permissions, createdAt"
 
 func scanAPIKey(s rowScanner) (domain.APIKey, error) {
 	var (
 		k     domain.APIKey
+		orgID *string
 		perms []byte
 	)
 	err := s.Scan(
-		&k.ID, &k.TenantID, &k.Name, &k.KeyPrefix, &k.KeyHash, &k.Scope, &perms,
-		&k.LastUsedAt, &k.ExpiresAt, &k.RevokedAt, &k.CreatedAt,
+		&k.ID, &k.Name, &k.KeyHash, &k.UserID, &orgID, &k.Enabled, &k.ExpiresAt, &perms, &k.CreatedAt,
 	)
 	if err != nil {
 		return domain.APIKey{}, err
 	}
+	if orgID != nil {
+		k.OrganizationID = *orgID
+	}
 	if len(perms) > 0 {
 		if err := json.Unmarshal(perms, &k.Permissions); err != nil {
-			return domain.APIKey{}, scanErr("api_keys.permissions", err)
+			return domain.APIKey{}, scanErr("apikey.permissions", err)
 		}
 	}
 	return k, nil
 }
 
-// Create inserts a new API key. The full key is never stored — only the prefix
-// (for UI display) and the argon2id hash (in KeyHash) computed by the caller.
-func (r *APIKeyRepo) Create(ctx context.Context, k domain.APIKey) error {
-	perms, err := json.Marshal(k.Permissions)
+// GetByHash fetches a key by its stored hash (better-auth's `key` column) — the
+// auth hot path. The caller (authz) hashes the presented secret with better-auth's
+// scheme and passes the digest here. Maps no-rows to not_found.
+func (r *APIKeyRepo) GetByHash(ctx context.Context, keyHash string) (domain.APIKey, error) {
+	q := "SELECT " + apiKeyCols + " FROM apikey WHERE `key` = ?"
+	k, err := scanAPIKey(r.db.QueryRowContext(ctx, q, keyHash))
 	if err != nil {
-		return fmt.Errorf("store: marshal permissions: %w", err)
+		return domain.APIKey{}, notFound(err, "api key")
 	}
-	const q = `INSERT INTO api_keys
-(id, tenant_id, name, key_prefix, key_hash, scope, permissions, last_used_at,
- expires_at, revoked_at, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-	if _, err := r.db.ExecContext(ctx, q,
-		k.ID, k.TenantID, k.Name, k.KeyPrefix, k.KeyHash, k.Scope, perms,
-		k.LastUsedAt, k.ExpiresAt, k.RevokedAt, k.CreatedAt,
-	); err != nil {
-		return fmt.Errorf("store: create api key: %w", err)
-	}
-	return nil
+	return k, nil
 }
 
-// Get fetches a key by id. Maps no-rows to not_found.
-func (r *APIKeyRepo) Get(ctx context.Context, id string) (domain.APIKey, error) {
-	q := "SELECT " + apiKeyCols + " FROM api_keys WHERE id = ?"
+// GetByID fetches a key by id. Maps no-rows to not_found.
+func (r *APIKeyRepo) GetByID(ctx context.Context, id string) (domain.APIKey, error) {
+	q := "SELECT " + apiKeyCols + " FROM apikey WHERE id = ?"
 	k, err := scanAPIKey(r.db.QueryRowContext(ctx, q, id))
 	if err != nil {
 		return domain.APIKey{}, notFound(err, "api key")
@@ -69,65 +77,13 @@ func (r *APIKeyRepo) Get(ctx context.Context, id string) (domain.APIKey, error) 
 	return k, nil
 }
 
-// GetByPrefix fetches a key by its unique prefix — the auth hot path: the prefix
-// is parsed from the presented key, then KeyHash is verified by the caller.
-func (r *APIKeyRepo) GetByPrefix(ctx context.Context, prefix string) (domain.APIKey, error) {
-	q := "SELECT " + apiKeyCols + " FROM api_keys WHERE key_prefix = ?"
-	k, err := scanAPIKey(r.db.QueryRowContext(ctx, q, prefix))
-	if err != nil {
-		return domain.APIKey{}, notFound(err, "api key")
-	}
-	return k, nil
-}
-
-// ListByTenant returns all keys for a tenant ordered by created_at desc.
-func (r *APIKeyRepo) ListByTenant(ctx context.Context, tenantID string) ([]domain.APIKey, error) {
-	q := "SELECT " + apiKeyCols + " FROM api_keys WHERE tenant_id = ? ORDER BY created_at DESC"
-	rows, err := r.db.QueryContext(ctx, q, tenantID)
-	if err != nil {
-		return nil, fmt.Errorf("store: list api keys: %w", err)
-	}
-	defer rows.Close()
-	var out []domain.APIKey
-	for rows.Next() {
-		k, err := scanAPIKey(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, k)
-	}
-	return out, rows.Err()
-}
-
-// UpdateLastUsed stamps last_used_at on a key (recorded on each authenticated
-// request). Best-effort: a missing key is not an error here.
-func (r *APIKeyRepo) UpdateLastUsed(ctx context.Context, id string, at int64) error {
-	const q = "UPDATE api_keys SET last_used_at=? WHERE id=?"
+// TouchLastRequest best-effort stamps better-auth's `lastRequest` column on use.
+// A missing row is not an error here. The frontend owns the column; this is a
+// courtesy write so the dashboard's "last used" reflects gateway traffic.
+func (r *APIKeyRepo) TouchLastRequest(ctx context.Context, id string, at int64) error {
+	const q = "UPDATE apikey SET lastRequest=? WHERE id=?"
 	if _, err := r.db.ExecContext(ctx, q, at, id); err != nil {
-		return fmt.Errorf("store: update api key last_used: %w", err)
+		return fmt.Errorf("store: touch apikey lastRequest: %w", err)
 	}
 	return nil
-}
-
-// Revoke marks a key revoked at the given time. Idempotent-friendly: re-revoking
-// just overwrites revoked_at.
-func (r *APIKeyRepo) Revoke(ctx context.Context, id string, at int64) error {
-	const q = "UPDATE api_keys SET revoked_at=? WHERE id=?"
-	res, err := r.db.ExecContext(ctx, q, at, id)
-	if err != nil {
-		return fmt.Errorf("store: revoke api key: %w", err)
-	}
-	return affectedOrNotFound(res, "api key")
-}
-
-// Rotate replaces a key's secret in place: new prefix + new argon2id hash,
-// clearing any prior revocation and refreshing last_used_at to NULL. The id is
-// preserved so references (and the UI row) stay stable (§10 "rotatable").
-func (r *APIKeyRepo) Rotate(ctx context.Context, id, newPrefix, newHash string) error {
-	const q = `UPDATE api_keys SET key_prefix=?, key_hash=?, revoked_at=NULL, last_used_at=NULL WHERE id=?`
-	res, err := r.db.ExecContext(ctx, q, newPrefix, newHash, id)
-	if err != nil {
-		return fmt.Errorf("store: rotate api key: %w", err)
-	}
-	return affectedOrNotFound(res, "api key")
 }

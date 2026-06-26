@@ -8,7 +8,7 @@ import (
 )
 
 // OutboxRepo is the repository for outbox (async send queue, §5/§8). Idempotency
-// is enforced by the unique (tenant_id, idempotency_key).
+// is enforced by the unique (organization_id, idempotency_key).
 type OutboxRepo struct {
 	db dbExecQuerier
 }
@@ -16,7 +16,7 @@ type OutboxRepo struct {
 // NewOutboxRepo constructs an OutboxRepo.
 func NewOutboxRepo(db dbExecQuerier) *OutboxRepo { return &OutboxRepo{db: db} }
 
-const outboxCols = `id, tenant_id, session_id, idempotency_key, payload, status,
+const outboxCols = `id, organization_id, session_id, idempotency_key, payload, status,
 	attempts, wa_message_id, error, created_at, updated_at`
 
 func scanOutbox(s rowScanner) (domain.OutboxEntry, error) {
@@ -25,7 +25,7 @@ func scanOutbox(s rowScanner) (domain.OutboxEntry, error) {
 		payload []byte
 	)
 	err := s.Scan(
-		&o.ID, &o.TenantID, &o.SessionID, &o.IdempotencyKey, &payload, &o.Status,
+		&o.ID, &o.OrganizationID, &o.SessionID, &o.IdempotencyKey, &payload, &o.Status,
 		&o.Attempts, &o.WAMessageID, &o.Error, &o.CreatedAt, &o.UpdatedAt,
 	)
 	if err != nil {
@@ -37,16 +37,16 @@ func scanOutbox(s rowScanner) (domain.OutboxEntry, error) {
 	return o, nil
 }
 
-// Insert appends a queued outbox entry. The unique (tenant_id, idempotency_key)
+// Insert appends a queued outbox entry. The unique (organization_id, idempotency_key)
 // makes a duplicate idempotency key a conflict the caller resolves via
 // GetByIdempotency (§8 replay semantics).
 func (r *OutboxRepo) Insert(ctx context.Context, o domain.OutboxEntry) error {
 	const q = `INSERT INTO outbox
-(id, tenant_id, session_id, idempotency_key, payload, status, attempts,
+(id, organization_id, session_id, idempotency_key, payload, status, attempts,
  wa_message_id, error, created_at, updated_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	if _, err := r.db.ExecContext(ctx, q,
-		o.ID, o.TenantID, o.SessionID, o.IdempotencyKey, []byte(o.Payload), o.Status,
+		o.ID, o.OrganizationID, o.SessionID, o.IdempotencyKey, []byte(o.Payload), o.Status,
 		o.Attempts, o.WAMessageID, o.Error, o.CreatedAt, o.UpdatedAt,
 	); err != nil {
 		return fmt.Errorf("store: insert outbox: %w", err)
@@ -64,12 +64,12 @@ func (r *OutboxRepo) Get(ctx context.Context, id string) (domain.OutboxEntry, er
 	return o, nil
 }
 
-// GetByIdempotency returns the prior entry for (tenant_id, idempotency_key) — the
+// GetByIdempotency returns the prior entry for (organization_id, idempotency_key) — the
 // §8 idempotent replay lookup. Maps no-rows to not_found so the caller knows to
 // proceed with a fresh send.
-func (r *OutboxRepo) GetByIdempotency(ctx context.Context, tenantID, idempotencyKey string) (domain.OutboxEntry, error) {
-	q := "SELECT " + outboxCols + " FROM outbox WHERE tenant_id = ? AND idempotency_key = ?"
-	o, err := scanOutbox(r.db.QueryRowContext(ctx, q, tenantID, idempotencyKey))
+func (r *OutboxRepo) GetByIdempotency(ctx context.Context, organizationID, idempotencyKey string) (domain.OutboxEntry, error) {
+	q := "SELECT " + outboxCols + " FROM outbox WHERE organization_id = ? AND idempotency_key = ?"
+	o, err := scanOutbox(r.db.QueryRowContext(ctx, q, organizationID, idempotencyKey))
 	if err != nil {
 		return domain.OutboxEntry{}, notFound(err, "outbox entry")
 	}

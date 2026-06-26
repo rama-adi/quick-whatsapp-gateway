@@ -78,8 +78,8 @@ func RequestID() func(http.Handler) http.Handler {
 }
 
 // Logger emits one structured slog line per request after it completes, with the
-// method, path, status, duration, request id, and resolved tenant. Pair it after
-// RequestID (and the auth middleware, so tenant is populated).
+// method, path, status, duration, request id, and resolved organization. Pair it after
+// RequestID (and the auth middleware, so organization is populated).
 func Logger(log *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -92,7 +92,7 @@ func Logger(log *slog.Logger) func(http.Handler) http.Handler {
 				"status", rec.status,
 				"dur", time.Since(start),
 				"reqid", httpx.RequestID(r.Context()),
-				"tenant", httpx.TenantID(r.Context()),
+				"organization", httpx.OrganizationID(r.Context()),
 			)
 		})
 	}

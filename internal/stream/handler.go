@@ -12,18 +12,18 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 )
 
-// TenantAccessor extracts the authenticated tenant id from the request context.
+// OrganizationAccessor extracts the authenticated organization id from the request context.
 // Auth is applied by upstream middleware (Phase 3); this handler only reads the
 // result. Defining it as a consumer interface keeps the auth package out of our
 // imports — Phase 3 supplies a func adapter.
-type TenantAccessor interface {
-	TenantFromContext(ctx context.Context) (tenantID string, ok bool)
+type OrganizationAccessor interface {
+	OrganizationFromContext(ctx context.Context) (organizationID string, ok bool)
 }
 
-// TenantAccessorFunc adapts a plain function to TenantAccessor.
-type TenantAccessorFunc func(ctx context.Context) (string, bool)
+// OrganizationAccessorFunc adapts a plain function to OrganizationAccessor.
+type OrganizationAccessorFunc func(ctx context.Context) (string, bool)
 
-func (f TenantAccessorFunc) TenantFromContext(ctx context.Context) (string, bool) {
+func (f OrganizationAccessorFunc) OrganizationFromContext(ctx context.Context) (string, bool) {
 	return f(ctx)
 }
 
@@ -33,38 +33,38 @@ func (f TenantAccessorFunc) TenantFromContext(ctx context.Context) (string, bool
 // concern of the REST event-log endpoints, not the live stream.
 const resumeReplayLimit = 1000
 
-// HandlerConfig groups the handler's injected collaborators. Redis, Tenant, and
+// HandlerConfig groups the handler's injected collaborators. Redis, Organization, and
 // Log are required; LogReader is optional (nil disables ?since= replay — the
 // stream still tails live); Clock and Heartbeat default to system time / 20s.
 type HandlerConfig struct {
-	Redis     RedisClient
-	Tenant    TenantAccessor
-	LogReader EventLogReader // optional; nil => ?since= tails live only
-	Clock     Clock          // optional; nil => SystemClock
-	Heartbeat int            // optional heartbeat seconds; <=0 => 20s
-	Log       *slog.Logger   // optional; nil => discard
+	Redis        RedisClient
+	Organization OrganizationAccessor
+	LogReader    EventLogReader // optional; nil => ?since= tails live only
+	Clock        Clock          // optional; nil => SystemClock
+	Heartbeat    int            // optional heartbeat seconds; <=0 => 20s
+	Log          *slog.Logger   // optional; nil => discard
 }
 
 // Handler serves GET /api/v1/events as a chunked application/x-ndjson stream
 // (§9). One Handler is shared across all connections; per-request state is local.
 type Handler struct {
-	redis     RedisClient
-	tenant    TenantAccessor
-	logReader EventLogReader
-	clock     Clock
-	heartbeat int
-	log       *slog.Logger
+	redis        RedisClient
+	organization OrganizationAccessor
+	logReader    EventLogReader
+	clock        Clock
+	heartbeat    int
+	log          *slog.Logger
 }
 
 // NewHandler builds a stream Handler from cfg, applying defaults for the optional
-// fields. It panics if a required collaborator (Redis or Tenant) is missing —
+// fields. It panics if a required collaborator (Redis or Organization) is missing —
 // that is a wiring bug, not a runtime condition.
 func NewHandler(cfg HandlerConfig) *Handler {
 	if cfg.Redis == nil {
 		panic("stream: HandlerConfig.Redis is required")
 	}
-	if cfg.Tenant == nil {
-		panic("stream: HandlerConfig.Tenant is required")
+	if cfg.Organization == nil {
+		panic("stream: HandlerConfig.Organization is required")
 	}
 	clock := cfg.Clock
 	if clock == nil {
@@ -79,17 +79,17 @@ func NewHandler(cfg HandlerConfig) *Handler {
 		log = slog.New(slog.DiscardHandler)
 	}
 	return &Handler{
-		redis:     cfg.Redis,
-		tenant:    cfg.Tenant,
-		logReader: cfg.LogReader,
-		clock:     clock,
-		heartbeat: hb,
-		log:       log,
+		redis:        cfg.Redis,
+		organization: cfg.Organization,
+		logReader:    cfg.LogReader,
+		clock:        clock,
+		heartbeat:    hb,
+		log:          log,
 	}
 }
 
 // ServeHTTP implements the NDJSON stream. Lifecycle:
-//  1. authorize (tenant from context) and parse query (session, events, since);
+//  1. authorize (organization from context) and parse query (session, events, since);
 //  2. open the Redis subscription FIRST so no live event is missed between the
 //     replay and the tail;
 //  3. on ?since=, replay matching event_log entries oldest-first, remembering the
@@ -99,8 +99,8 @@ func NewHandler(cfg HandlerConfig) *Handler {
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	tenant, ok := h.tenant.TenantFromContext(ctx)
-	if !ok || tenant == "" {
+	organization, ok := h.organization.OrganizationFromContext(ctx)
+	if !ok || organization == "" {
 		writeError(w, http.StatusUnauthorized, domain.ErrUnauthorized("authentication required"))
 		return
 	}
@@ -124,7 +124,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Subscribe before any replay so the gap between "end of replay" and "start
 	// of tail" carries no lost events — anything published during replay is
 	// buffered on the subscription channel.
-	pubsub := h.subscribe(ctx, tenant, session)
+	pubsub := h.subscribe(ctx, organization, session)
 	defer func() { _ = pubsub.Close() }()
 	msgs := pubsub.Channel()
 
@@ -138,11 +138,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	lastReplayed := ""
 	if since != "" && h.logReader != nil {
 		var err error
-		lastReplayed, err = h.replaySince(ctx, enc, tenant, session, since, filter)
+		lastReplayed, err = h.replaySince(ctx, enc, organization, session, since, filter)
 		if err != nil {
 			// The headers are already sent, so we cannot change the status code.
 			// Surface the failure as a final stream line and stop.
-			h.log.Error("stream replay failed", "tenant", tenant, "session", session, "since", since, "err", err)
+			h.log.Error("stream replay failed", "organization", organization, "session", session, "since", since, "err", err)
 			_ = enc.writeJSON(map[string]any{"event": "error", "error": "replay_failed"})
 			return
 		}
@@ -155,19 +155,19 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // subscribe opens the right subscription: an exact per-session channel when a
-// session filter is given, otherwise a tenant-wide pattern across all sessions.
-func (h *Handler) subscribe(ctx context.Context, tenant, session string) *redis.PubSub {
+// session filter is given, otherwise a organization-wide pattern across all sessions.
+func (h *Handler) subscribe(ctx context.Context, organization, session string) *redis.PubSub {
 	if session != "" {
-		return h.redis.Subscribe(ctx, sessionChannel(tenant, session))
+		return h.redis.Subscribe(ctx, sessionChannel(organization, session))
 	}
-	return h.redis.PSubscribe(ctx, tenantPattern(tenant))
+	return h.redis.PSubscribe(ctx, organizationPattern(organization))
 }
 
 // replaySince streams persisted events strictly after `since`, in order, that
 // pass the filter. It returns the event id of the last entry it READ from the log
 // (whether or not it passed the filter) so the live tail can dedup the boundary.
-func (h *Handler) replaySince(ctx context.Context, enc *lineWriter, tenant, session, since string, filter eventFilter) (string, error) {
-	entries, err := h.logReader.ListSince(ctx, tenant, session, since, resumeReplayLimit)
+func (h *Handler) replaySince(ctx context.Context, enc *lineWriter, organization, session, since string, filter eventFilter) (string, error) {
+	entries, err := h.logReader.ListSince(ctx, organization, session, since, resumeReplayLimit)
 	if err != nil {
 		return "", fmt.Errorf("list since %q: %w", since, err)
 	}

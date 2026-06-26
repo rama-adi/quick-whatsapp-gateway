@@ -17,7 +17,7 @@ type WebhookRepo struct {
 // NewWebhookRepo constructs a WebhookRepo.
 func NewWebhookRepo(db dbExecQuerier) *WebhookRepo { return &WebhookRepo{db: db} }
 
-const webhookCols = `id, tenant_id, session_id, url, events, hmac_secret,
+const webhookCols = `id, organization_id, session_id, url, events, hmac_secret,
 	custom_headers, retry_policy, active, created_at, updated_at`
 
 func scanWebhook(s rowScanner) (domain.Webhook, error) {
@@ -28,7 +28,7 @@ func scanWebhook(s rowScanner) (domain.Webhook, error) {
 		retryPolicy  []byte
 	)
 	err := s.Scan(
-		&w.ID, &w.TenantID, &w.SessionID, &w.URL, &events, &w.HMACSecret,
+		&w.ID, &w.OrganizationID, &w.SessionID, &w.URL, &events, &w.HMACSecret,
 		&customHeader, &retryPolicy, &w.Active, &w.CreatedAt, &w.UpdatedAt,
 	)
 	if err != nil {
@@ -76,11 +76,11 @@ func (r *WebhookRepo) Create(ctx context.Context, w domain.Webhook) error {
 		return err
 	}
 	const q = `INSERT INTO webhooks
-(id, tenant_id, session_id, url, events, hmac_secret, custom_headers,
+(id, organization_id, session_id, url, events, hmac_secret, custom_headers,
  retry_policy, active, created_at, updated_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	if _, err := r.db.ExecContext(ctx, q,
-		w.ID, w.TenantID, w.SessionID, w.URL, events, w.HMACSecret, nullableJSON(customHeaders),
+		w.ID, w.OrganizationID, w.SessionID, w.URL, events, w.HMACSecret, nullableJSON(customHeaders),
 		retryPolicy, w.Active, w.CreatedAt, w.UpdatedAt,
 	); err != nil {
 		return fmt.Errorf("store: create webhook: %w", err)
@@ -98,10 +98,10 @@ func (r *WebhookRepo) Get(ctx context.Context, id string) (domain.Webhook, error
 	return w, nil
 }
 
-// ListByTenant returns all webhooks for a tenant ordered by created_at desc.
-func (r *WebhookRepo) ListByTenant(ctx context.Context, tenantID string) ([]domain.Webhook, error) {
-	q := "SELECT " + webhookCols + " FROM webhooks WHERE tenant_id = ? ORDER BY created_at DESC"
-	rows, err := r.db.QueryContext(ctx, q, tenantID)
+// ListByOrg returns all webhooks for a organization ordered by created_at desc.
+func (r *WebhookRepo) ListByOrg(ctx context.Context, organizationID string) ([]domain.Webhook, error) {
+	q := "SELECT " + webhookCols + " FROM webhooks WHERE organization_id = ? ORDER BY created_at DESC"
+	rows, err := r.db.QueryContext(ctx, q, organizationID)
 	if err != nil {
 		return nil, fmt.Errorf("store: list webhooks: %w", err)
 	}
@@ -117,15 +117,15 @@ func (r *WebhookRepo) ListByTenant(ctx context.Context, tenantID string) ([]doma
 	return out, rows.Err()
 }
 
-// ListActiveForEvent returns active webhooks for a tenant whose session scope
-// matches (session_id IS NULL = all tenant sessions, or equals sessionID). The
+// ListActiveForEvent returns active webhooks for a organization whose session scope
+// matches (session_id IS NULL = all organization sessions, or equals sessionID). The
 // dispatcher filters the `events` JSON in-process (it may contain "*"), so this
 // returns the candidate set rather than doing JSON matching in SQL.
-func (r *WebhookRepo) ListActiveForEvent(ctx context.Context, tenantID, sessionID string) ([]domain.Webhook, error) {
+func (r *WebhookRepo) ListActiveForEvent(ctx context.Context, organizationID, sessionID string) ([]domain.Webhook, error) {
 	const q = `SELECT ` + webhookCols + ` FROM webhooks
-WHERE tenant_id = ? AND active = 1 AND (session_id IS NULL OR session_id = ?)
+WHERE organization_id = ? AND active = 1 AND (session_id IS NULL OR session_id = ?)
 ORDER BY created_at DESC`
-	rows, err := r.db.QueryContext(ctx, q, tenantID, sessionID)
+	rows, err := r.db.QueryContext(ctx, q, organizationID, sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("store: list active webhooks: %w", err)
 	}

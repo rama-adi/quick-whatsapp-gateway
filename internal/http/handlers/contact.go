@@ -10,7 +10,7 @@ import (
 // ListContacts handles GET /sessions/{session}/contacts (the "found users"
 // feature). Filters: ?source=dm|group, ?group={jid}, ?q=.
 func (h *Handlers) ListContacts(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
@@ -21,7 +21,7 @@ func (h *Handlers) ListContacts(w http.ResponseWriter, r *http.Request) {
 		GroupJID: q.Get("group"),
 		Q:        q.Get("q"),
 	}
-	page, err := h.Contacts.List(r.Context(), tenantID, param(r, "session"), f, cursor, limit)
+	page, err := h.Contacts.List(r.Context(), organizationID, param(r, "session"), f, cursor, limit)
 	if err != nil {
 		httpx.WriteError(w, err)
 		return
@@ -32,11 +32,11 @@ func (h *Handlers) ListContacts(w http.ResponseWriter, r *http.Request) {
 // GetContact handles GET /sessions/{session}/contacts/{lid} — identity + DM +
 // per-group memberships.
 func (h *Handlers) GetContact(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
-	detail, err := h.Contacts.Get(r.Context(), tenantID, param(r, "session"), param(r, "lid"))
+	detail, err := h.Contacts.Get(r.Context(), organizationID, param(r, "session"), param(r, "lid"))
 	if err != nil {
 		httpx.WriteError(w, err)
 		return
@@ -46,11 +46,11 @@ func (h *Handlers) GetContact(w http.ResponseWriter, r *http.Request) {
 
 // CheckContact handles GET /sessions/{session}/contacts/check?phone=.
 func (h *Handlers) CheckContact(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
-	res, err := h.Contacts.Check(r.Context(), tenantID, param(r, "session"), r.URL.Query().Get("phone"))
+	res, err := h.Contacts.Check(r.Context(), organizationID, param(r, "session"), r.URL.Query().Get("phone"))
 	if err != nil {
 		httpx.WriteError(w, err)
 		return
@@ -60,11 +60,11 @@ func (h *Handlers) CheckContact(w http.ResponseWriter, r *http.Request) {
 
 // ContactPicture handles GET /sessions/{session}/contacts/{jid}/picture.
 func (h *Handlers) ContactPicture(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
-	pic, err := h.Contacts.Picture(r.Context(), tenantID, param(r, "session"), param(r, "jid"))
+	pic, err := h.Contacts.Picture(r.Context(), organizationID, param(r, "session"), param(r, "jid"))
 	if err != nil {
 		httpx.WriteError(w, err)
 		return
@@ -74,11 +74,11 @@ func (h *Handlers) ContactPicture(w http.ResponseWriter, r *http.Request) {
 
 // ContactAbout handles GET /sessions/{session}/contacts/{jid}/about.
 func (h *Handlers) ContactAbout(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
-	about, err := h.Contacts.About(r.Context(), tenantID, param(r, "session"), param(r, "jid"))
+	about, err := h.Contacts.About(r.Context(), organizationID, param(r, "session"), param(r, "jid"))
 	if err != nil {
 		httpx.WriteError(w, err)
 		return
@@ -97,11 +97,11 @@ func (h *Handlers) UnblockContact(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) setBlocked(w http.ResponseWriter, r *http.Request, blocked bool) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
-	if err := h.Contacts.SetBlocked(r.Context(), tenantID, param(r, "session"), param(r, "jid"), blocked); err != nil {
+	if err := h.Contacts.SetBlocked(r.Context(), organizationID, param(r, "session"), param(r, "jid"), blocked); err != nil {
 		httpx.WriteError(w, err)
 		return
 	}

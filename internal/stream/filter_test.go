@@ -72,11 +72,11 @@ func TestChannelNaming(t *testing.T) {
 	if got := sessionChannel("ten_a", "sess_1"); got != "evt:ten_a:sess_1" {
 		t.Errorf("sessionChannel = %q", got)
 	}
-	if got := tenantPattern("ten_a"); got != "evt:ten_a:*" {
-		t.Errorf("tenantPattern = %q", got)
+	if got := organizationPattern("ten_a"); got != "evt:ten_a:*" {
+		t.Errorf("organizationPattern = %q", got)
 	}
-	// A tenant pattern must not match another tenant's channel.
+	// A organization pattern must not match another organization's channel.
 	if got := channelFor("ten_b", "sess_1"); got == "evt:ten_a:sess_1" {
-		t.Errorf("channelFor leaked across tenants: %q", got)
+		t.Errorf("channelFor leaked across organizations: %q", got)
 	}
 }

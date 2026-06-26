@@ -45,21 +45,21 @@ type fakeLogReader struct {
 	entries []domain.EventLogEntry
 	err     error
 	// captured args from the last ListSince call
-	gotTenant, gotSession, gotAfter string
-	gotLimit                        int
+	gotOrganization, gotSession, gotAfter string
+	gotLimit                              int
 }
 
-func (r *fakeLogReader) ListSince(_ context.Context, tenant, session, after string, limit int) ([]domain.EventLogEntry, error) {
-	r.gotTenant, r.gotSession, r.gotAfter, r.gotLimit = tenant, session, after, limit
+func (r *fakeLogReader) ListSince(_ context.Context, organization, session, after string, limit int) ([]domain.EventLogEntry, error) {
+	r.gotOrganization, r.gotSession, r.gotAfter, r.gotLimit = organization, session, after, limit
 	if r.err != nil {
 		return nil, r.err
 	}
 	return r.entries, nil
 }
 
-// staticTenant always reports the same tenant id.
-func staticTenant(id string) TenantAccessor {
-	return TenantAccessorFunc(func(context.Context) (string, bool) {
+// staticOrganization always reports the same organization id.
+func staticOrganization(id string) OrganizationAccessor {
+	return OrganizationAccessorFunc(func(context.Context) (string, bool) {
 		if id == "" {
 			return "", false
 		}
@@ -155,7 +155,7 @@ func publishEvent(t *testing.T, rc *redis.Client, e domain.Event) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	if err := rc.Publish(context.Background(), channelFor(e.Tenant, e.Session), data).Err(); err != nil {
+	if err := rc.Publish(context.Background(), channelFor(e.Organization, e.Session), data).Err(); err != nil {
 		t.Fatalf("publish: %v", err)
 	}
 }

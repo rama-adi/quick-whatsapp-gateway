@@ -25,10 +25,10 @@ func NewWebhookRepoAdapter(repo *store.WebhookRepo) *WebhookRepoAdapter {
 
 var _ webhooks.WebhookRepo = (*WebhookRepoAdapter)(nil)
 
-// ListMatching returns the candidate webhooks for (tenant, session); the events
+// ListMatching returns the candidate webhooks for (organization, session); the events
 // filter is applied by the dispatcher/enqueuer via webhooks.EventMatches.
-func (a *WebhookRepoAdapter) ListMatching(ctx context.Context, tenant, session, eventType string) ([]domain.Webhook, error) {
-	hooks, err := a.repo.ListActiveForEvent(ctx, tenant, session)
+func (a *WebhookRepoAdapter) ListMatching(ctx context.Context, organization, session, eventType string) ([]domain.Webhook, error) {
+	hooks, err := a.repo.ListActiveForEvent(ctx, organization, session)
 	if err != nil {
 		return nil, err
 	}

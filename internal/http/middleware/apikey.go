@@ -9,20 +9,20 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/httpx"
 )
 
-// APIKeyVerifier resolves a presented raw bearer key to its API key and owning
-// tenant. Implemented by the api-key service in a later stage; the middleware
-// depends only on this interface. A nil/zero error with non-nil results means the
-// key is valid; return a *domain.APIError (unauthorized) to reject. Any other
-// error is treated as a 401 too (the middleware never leaks internal detail on
-// the auth path) but is logged by the caller's verifier as appropriate.
+// APIKeyVerifier resolves a presented raw bearer key to its API key and the owning
+// organization id (§4.2). Implemented by the read-only key verifier service; the
+// middleware depends only on this interface. A nil error with a non-nil key and a
+// non-empty org id means the key is valid; return a *domain.APIError (unauthorized)
+// to reject. Any other error is treated as a 401 too (the middleware never leaks
+// internal detail on the auth path) but is logged by the verifier as appropriate.
 type APIKeyVerifier interface {
-	Verify(ctx context.Context, rawKey string) (*domain.APIKey, *domain.Tenant, error)
+	Verify(ctx context.Context, rawKey string) (*domain.APIKey, string, error)
 }
 
 // APIKeyAuth authenticates requests via "Authorization: Bearer <key>". On success
-// it stores the API key and tenant id in the context (httpx.SetAPIKey /
-// httpx.SetTenantID) and calls next. On a missing/malformed header or a verifier
-// rejection it writes a 401 envelope and stops.
+// it stores the API key and organization id in the context (httpx.SetAPIKey /
+// httpx.SetOrganizationID) and calls next. On a missing/malformed header or a
+// verifier rejection it writes a 401 envelope and stops.
 func APIKeyAuth(verifier APIKeyVerifier) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -31,13 +31,13 @@ func APIKeyAuth(verifier APIKeyVerifier) func(http.Handler) http.Handler {
 				httpx.WriteError(w, domain.ErrUnauthorized("missing or malformed Authorization header"))
 				return
 			}
-			key, tenant, err := verifier.Verify(r.Context(), raw)
-			if err != nil || key == nil || tenant == nil {
+			key, orgID, err := verifier.Verify(r.Context(), raw)
+			if err != nil || key == nil || orgID == "" {
 				httpx.WriteError(w, domain.ErrUnauthorized("invalid API key"))
 				return
 			}
 			ctx := httpx.SetAPIKey(r.Context(), key)
-			ctx = httpx.SetTenantID(ctx, tenant.ID)
+			ctx = httpx.SetOrganizationID(ctx, orgID)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

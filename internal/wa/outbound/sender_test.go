@@ -82,7 +82,7 @@ func (f *fakeWA) callCount() int {
 type fakeOutbox struct {
 	mu       sync.Mutex
 	byID     map[string]*domain.OutboxEntry
-	byIdem   map[string]string // "tenant\x00key" -> id
+	byIdem   map[string]string // "organization\x00key" -> id
 	inserts  int
 	insertFn func(e *domain.OutboxEntry) error // optional override
 }
@@ -91,7 +91,7 @@ func newFakeOutbox() *fakeOutbox {
 	return &fakeOutbox{byID: map[string]*domain.OutboxEntry{}, byIdem: map[string]string{}}
 }
 
-func idemKey(tenant, key string) string { return tenant + "\x00" + key }
+func idemKey(organization, key string) string { return organization + "\x00" + key }
 
 func (f *fakeOutbox) Insert(_ context.Context, e *domain.OutboxEntry) error {
 	f.mu.Lock()
@@ -101,7 +101,7 @@ func (f *fakeOutbox) Insert(_ context.Context, e *domain.OutboxEntry) error {
 	}
 	f.inserts++
 	if e.IdempotencyKey != nil {
-		k := idemKey(e.TenantID, *e.IdempotencyKey)
+		k := idemKey(e.OrganizationID, *e.IdempotencyKey)
 		if _, dup := f.byIdem[k]; dup {
 			return domain.ErrConflict("duplicate idempotency key")
 		}
@@ -112,10 +112,10 @@ func (f *fakeOutbox) Insert(_ context.Context, e *domain.OutboxEntry) error {
 	return nil
 }
 
-func (f *fakeOutbox) GetByIdempotencyKey(_ context.Context, tenantID, key string) (*domain.OutboxEntry, error) {
+func (f *fakeOutbox) GetByIdempotencyKey(_ context.Context, organizationID, key string) (*domain.OutboxEntry, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	id, ok := f.byIdem[idemKey(tenantID, key)]
+	id, ok := f.byIdem[idemKey(organizationID, key)]
 	if !ok {
 		return nil, nil
 	}
@@ -177,7 +177,7 @@ type fixedClock struct{ ms int64 }
 func (c fixedClock) NowMs() int64 { return c.ms }
 
 func testSession() domain.WASession {
-	return domain.WASession{ID: "sess_1", TenantID: "ten_1", RatePerMin: 20, RatePerHour: 200}
+	return domain.WASession{ID: "sess_1", OrganizationID: "ten_1", RatePerMin: 20, RatePerHour: 200}
 }
 
 // ---------------------------------------------------------------------------

@@ -34,7 +34,7 @@ func (b webhookBody) toInput() service.WebhookInput {
 
 // CreateWebhook handles POST /webhooks.
 func (h *Handlers) CreateWebhook(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
@@ -43,7 +43,7 @@ func (h *Handlers) CreateWebhook(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, err)
 		return
 	}
-	hook, err := h.Webhooks.Create(r.Context(), tenantID, body.toInput())
+	hook, err := h.Webhooks.Create(r.Context(), organizationID, body.toInput())
 	if err != nil {
 		httpx.WriteError(w, err)
 		return
@@ -53,11 +53,11 @@ func (h *Handlers) CreateWebhook(w http.ResponseWriter, r *http.Request) {
 
 // ListWebhooks handles GET /webhooks.
 func (h *Handlers) ListWebhooks(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
-	hooks, err := h.Webhooks.List(r.Context(), tenantID)
+	hooks, err := h.Webhooks.List(r.Context(), organizationID)
 	if err != nil {
 		httpx.WriteError(w, err)
 		return
@@ -67,11 +67,11 @@ func (h *Handlers) ListWebhooks(w http.ResponseWriter, r *http.Request) {
 
 // GetWebhook handles GET /webhooks/{id}.
 func (h *Handlers) GetWebhook(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
-	hook, err := h.Webhooks.Get(r.Context(), tenantID, param(r, "id"))
+	hook, err := h.Webhooks.Get(r.Context(), organizationID, param(r, "id"))
 	if err != nil {
 		httpx.WriteError(w, err)
 		return
@@ -81,7 +81,7 @@ func (h *Handlers) GetWebhook(w http.ResponseWriter, r *http.Request) {
 
 // UpdateWebhook handles PATCH /webhooks/{id}.
 func (h *Handlers) UpdateWebhook(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
@@ -90,7 +90,7 @@ func (h *Handlers) UpdateWebhook(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, err)
 		return
 	}
-	hook, err := h.Webhooks.Update(r.Context(), tenantID, param(r, "id"), body.toInput())
+	hook, err := h.Webhooks.Update(r.Context(), organizationID, param(r, "id"), body.toInput())
 	if err != nil {
 		httpx.WriteError(w, err)
 		return
@@ -100,11 +100,11 @@ func (h *Handlers) UpdateWebhook(w http.ResponseWriter, r *http.Request) {
 
 // DeleteWebhook handles DELETE /webhooks/{id}.
 func (h *Handlers) DeleteWebhook(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
-	if err := h.Webhooks.Delete(r.Context(), tenantID, param(r, "id")); err != nil {
+	if err := h.Webhooks.Delete(r.Context(), organizationID, param(r, "id")); err != nil {
 		httpx.WriteError(w, err)
 		return
 	}

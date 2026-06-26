@@ -49,7 +49,7 @@ type SendOptions struct {
 	// Async, when true, persists the request to the outbox and returns an
 	// outbox id immediately instead of blocking on the WhatsApp ack (§8).
 	Async bool
-	// IdempotencyKey is the tenant-scoped Idempotency-Key header value. When
+	// IdempotencyKey is the organization-scoped Idempotency-Key header value. When
 	// non-empty, a replay with the same key returns the original result without
 	// re-sending (§8).
 	IdempotencyKey string
@@ -97,13 +97,13 @@ type WAClient interface {
 // wires the MySQL implementation from the store package.
 type OutboxRepo interface {
 	// Insert persists a queued outbox row. Implementations MUST enforce the
-	// (tenant_id, idempotency_key) uniqueness constraint and return an error
+	// (organization_id, idempotency_key) uniqueness constraint and return an error
 	// wrapping domain.CodeConflict (or *domain.APIError with that code) on a
 	// duplicate so the caller can fall back to GetByIdempotencyKey.
 	Insert(ctx context.Context, e *domain.OutboxEntry) error
-	// GetByIdempotencyKey returns the existing outbox row for (tenantID, key),
+	// GetByIdempotencyKey returns the existing outbox row for (organizationID, key),
 	// or (nil, nil) when none exists.
-	GetByIdempotencyKey(ctx context.Context, tenantID, key string) (*domain.OutboxEntry, error)
+	GetByIdempotencyKey(ctx context.Context, organizationID, key string) (*domain.OutboxEntry, error)
 	// UpdateStatus transitions an outbox row and records the wa_message_id and
 	// error (both optional). It bumps updated_at.
 	UpdateStatus(ctx context.Context, id string, status domain.OutboxStatus, waMessageID, errMsg string) error

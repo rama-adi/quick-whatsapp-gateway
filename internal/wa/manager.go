@@ -28,8 +28,8 @@ type Config struct {
 	// AdminNumber is WHATSAPP_ADMIN_NUMBER (digits only, no '+'). Empty disables
 	// admin-number bootstrap (§6).
 	AdminNumber string
-	// AdminTenantID is the tenant the bootstrapped admin session belongs to.
-	AdminTenantID string
+	// AdminOrganizationID is the organization the bootstrapped admin session belongs to.
+	AdminOrganizationID string
 	// DefaultRatePerMin / DefaultRatePerHour seed new sessions' rate limits.
 	DefaultRatePerMin  int
 	DefaultRatePerHour int
@@ -171,11 +171,11 @@ func (m *Manager) adopt(ctx context.Context, sess *domain.WASession, dev *store.
 		return nil
 	}
 	ms := &ManagedSession{
-		SessionID: sess.ID,
-		TenantID:  sess.TenantID,
-		IsAdmin:   sess.IsAdminSession,
-		device:    dev,
-		status:    sess.Status,
+		SessionID:      sess.ID,
+		OrganizationID: sess.OrganizationID,
+		IsAdmin:        sess.IsAdminSession,
+		device:         dev,
+		status:         sess.Status,
 	}
 	m.sessions[sess.ID] = ms
 	return nil
@@ -232,7 +232,7 @@ func (m *Manager) bootstrapAdmin(ctx context.Context, devices []*store.Device) (
 		phone := m.cfg.AdminNumber
 		sess = &domain.WASession{
 			ID:             domain.NewSessionID(),
-			TenantID:       m.cfg.AdminTenantID,
+			OrganizationID: m.cfg.AdminOrganizationID,
 			Status:         domain.SessionStarting,
 			PhoneNumber:    &phone,
 			IsAdminSession: true,
@@ -266,11 +266,11 @@ func (m *Manager) bootstrapAdmin(ctx context.Context, devices []*store.Device) (
 // CreateSession persists a new (unpaired) app session row and registers a
 // ManagedSession against a fresh device. It does not connect; call StartQR or
 // StartPairingCode to pair.
-func (m *Manager) CreateSession(ctx context.Context, tenantID string, label *string, autoRead, presenceTyping bool) (*domain.WASession, error) {
+func (m *Manager) CreateSession(ctx context.Context, organizationID string, label *string, autoRead, presenceTyping bool) (*domain.WASession, error) {
 	now := m.clock.NowMs()
 	sess := &domain.WASession{
 		ID:             domain.NewSessionID(),
-		TenantID:       tenantID,
+		OrganizationID: organizationID,
 		Label:          label,
 		Status:         domain.SessionStopped,
 		AutoRead:       autoRead,
@@ -285,11 +285,11 @@ func (m *Manager) CreateSession(ctx context.Context, tenantID string, label *str
 	}
 	m.mu.Lock()
 	m.sessions[sess.ID] = &ManagedSession{
-		SessionID: sess.ID,
-		TenantID:  sess.TenantID,
-		IsAdmin:   sess.IsAdminSession,
-		device:    m.keystore.NewDevice(),
-		status:    domain.SessionStopped,
+		SessionID:      sess.ID,
+		OrganizationID: sess.OrganizationID,
+		IsAdmin:        sess.IsAdminSession,
+		device:         m.keystore.NewDevice(),
+		status:         domain.SessionStopped,
 	}
 	m.mu.Unlock()
 	return sess, nil
@@ -597,7 +597,7 @@ func (m *Manager) pumpQR(ctx context.Context, ms *ManagedSession, qrChan <-chan 
 				ms.lastQR = item.Code
 				ms.lastQRExpires = m.clock.NowMs() + item.Timeout.Milliseconds()
 				ms.mu.Unlock()
-				m.sink.Publish(ctx, domain.NewEvent(domain.EventAuthQR, ms.SessionID, ms.TenantID, map[string]any{
+				m.sink.Publish(ctx, domain.NewEvent(domain.EventAuthQR, ms.SessionID, ms.OrganizationID, map[string]any{
 					"code":      item.Code,
 					"timeoutMs": item.Timeout.Milliseconds(),
 				}))
@@ -630,7 +630,7 @@ func (m *Manager) StartPairingCode(ctx context.Context, id, phone string) (strin
 
 // sessionRow projects the minimal session identity startPairingCode needs.
 func sessionRow(ms *ManagedSession) *domain.WASession {
-	return &domain.WASession{ID: ms.SessionID, TenantID: ms.TenantID, IsAdminSession: ms.IsAdmin}
+	return &domain.WASession{ID: ms.SessionID, OrganizationID: ms.OrganizationID, IsAdminSession: ms.IsAdmin}
 }
 
 // startPairingCode is the shared pairing-code path used by both the public API
@@ -640,11 +640,11 @@ func (m *Manager) startPairingCode(ctx context.Context, sess *domain.WASession, 
 	if ms == nil {
 		// Admin bootstrap path: register a managed session with a fresh device.
 		ms = &ManagedSession{
-			SessionID: sess.ID,
-			TenantID:  sess.TenantID,
-			IsAdmin:   sess.IsAdminSession,
-			device:    m.keystore.NewDevice(),
-			status:    domain.SessionStarting,
+			SessionID:      sess.ID,
+			OrganizationID: sess.OrganizationID,
+			IsAdmin:        sess.IsAdminSession,
+			device:         m.keystore.NewDevice(),
+			status:         domain.SessionStarting,
 		}
 		m.mu.Lock()
 		m.sessions[sess.ID] = ms
@@ -677,7 +677,7 @@ func (m *Manager) startPairingCode(ctx context.Context, sess *domain.WASession, 
 		m.setStatus(loopCtx, ms, domain.SessionFailed)
 		return "", fmt.Errorf("pair phone: %w", err)
 	}
-	m.sink.Publish(loopCtx, domain.NewEvent(domain.EventAuthCode, ms.SessionID, ms.TenantID, map[string]any{
+	m.sink.Publish(loopCtx, domain.NewEvent(domain.EventAuthCode, ms.SessionID, ms.OrganizationID, map[string]any{
 		"code":  code,
 		"phone": phone,
 	}))
@@ -707,7 +707,7 @@ func (m *Manager) eventHandlerFor(ms *ManagedSession) whatsmeow.EventHandler {
 		ctx := context.Background()
 		m.applyEvent(ctx, ms, evt)
 		if m.inbound != nil {
-			m.inbound.Handle(ctx, ms.SessionID, ms.TenantID, ms.IsAdmin, evt)
+			m.inbound.Handle(ctx, ms.SessionID, ms.OrganizationID, ms.IsAdmin, evt)
 		}
 	}
 }
@@ -775,7 +775,7 @@ func (m *Manager) setStatus(ctx context.Context, ms *ManagedSession, status doma
 		m.log.Warn("persist status failed", "session", ms.SessionID, "status", status, "err", err)
 	}
 	if m.sink != nil {
-		m.sink.Publish(ctx, domain.NewEvent(domain.EventSessionStatus, ms.SessionID, ms.TenantID, map[string]any{
+		m.sink.Publish(ctx, domain.NewEvent(domain.EventSessionStatus, ms.SessionID, ms.OrganizationID, map[string]any{
 			"status": string(status),
 		}))
 	}

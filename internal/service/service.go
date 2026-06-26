@@ -42,7 +42,6 @@ type Deps struct {
 type Services struct {
 	Sessions *SessionService
 	Messages *MessageService
-	Keys     *KeyService
 	Webhooks *WebhookService
 	Chats    *ChatService
 	Contacts *ContactService
@@ -71,7 +70,6 @@ func New(d Deps) *Services {
 	return &Services{
 		Sessions: NewSessionService(d.Store.Sessions, d.Manager, d.Log),
 		Messages: NewMessageService(d.Store.Sessions, d.Sender, d.Log),
-		Keys:     NewKeyService(d.Store.APIKeys, d.Store.Tenants, d.Log),
 		Webhooks: NewWebhookService(d.Store.Webhooks, d.Crypto, d.DefaultRetryDelay, d.DefaultRetryAttempts, d.Log),
 		Chats:    NewChatService(d.Store, liveOrNilPresence(live), d.Log),
 		Contacts: NewContactService(d.Store, liveOrNilDirectory(live), d.Log),

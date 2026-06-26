@@ -17,14 +17,14 @@ type EventLogRepo struct {
 // NewEventLogRepo constructs an EventLogRepo.
 func NewEventLogRepo(db dbExecQuerier) *EventLogRepo { return &EventLogRepo{db: db} }
 
-const eventLogCols = `id, event_id, tenant_id, session_id, type, payload, created_at`
+const eventLogCols = `id, event_id, organization_id, session_id, type, payload, created_at`
 
 func scanEventLog(s rowScanner) (domain.EventLogEntry, error) {
 	var (
 		e       domain.EventLogEntry
 		payload []byte
 	)
-	err := s.Scan(&e.ID, &e.EventID, &e.TenantID, &e.SessionID, &e.Type, &payload, &e.CreatedAt)
+	err := s.Scan(&e.ID, &e.EventID, &e.OrganizationID, &e.SessionID, &e.Type, &payload, &e.CreatedAt)
 	if err != nil {
 		return domain.EventLogEntry{}, err
 	}
@@ -37,9 +37,9 @@ func scanEventLog(s rowScanner) (domain.EventLogEntry, error) {
 // Append writes an event to the log. event_id is unique (dedup); the surrogate
 // id is assigned by MySQL and returned for use as a resume cursor.
 func (r *EventLogRepo) Append(ctx context.Context, e domain.EventLogEntry) (uint64, error) {
-	const q = `INSERT INTO event_log (event_id, tenant_id, session_id, type, payload, created_at)
+	const q = `INSERT INTO event_log (event_id, organization_id, session_id, type, payload, created_at)
 VALUES (?, ?, ?, ?, ?, ?)`
-	res, err := r.db.ExecContext(ctx, q, e.EventID, e.TenantID, e.SessionID, e.Type, []byte(e.Payload), e.CreatedAt)
+	res, err := r.db.ExecContext(ctx, q, e.EventID, e.OrganizationID, e.SessionID, e.Type, []byte(e.Payload), e.CreatedAt)
 	if err != nil {
 		return 0, fmt.Errorf("store: append event: %w", err)
 	}
@@ -50,11 +50,11 @@ VALUES (?, ?, ?, ?, ?, ?)`
 	return uint64(id), nil
 }
 
-// ListSince returns up to limit events for a tenant after the given cursor id,
-// optionally filtered to one session (sessionID == "" = all the tenant's
+// ListSince returns up to limit events for a organization after the given cursor id,
+// optionally filtered to one session (sessionID == "" = all the organization's
 // sessions). Ordered by id ASC — the monotonic cursor — so the stream replays in
 // order and the next cursor is the last returned id. This backs §9 ?since=.
-func (r *EventLogRepo) ListSince(ctx context.Context, tenantID, sessionID string, afterID uint64, limit int) ([]domain.EventLogEntry, error) {
+func (r *EventLogRepo) ListSince(ctx context.Context, organizationID, sessionID string, afterID uint64, limit int) ([]domain.EventLogEntry, error) {
 	limit = normLimit(limit)
 
 	var (
@@ -62,11 +62,11 @@ func (r *EventLogRepo) ListSince(ctx context.Context, tenantID, sessionID string
 		args []any
 	)
 	if sessionID == "" {
-		q = "SELECT " + eventLogCols + " FROM event_log WHERE tenant_id = ? AND id > ? ORDER BY id ASC LIMIT ?"
-		args = []any{tenantID, afterID, limit}
+		q = "SELECT " + eventLogCols + " FROM event_log WHERE organization_id = ? AND id > ? ORDER BY id ASC LIMIT ?"
+		args = []any{organizationID, afterID, limit}
 	} else {
-		q = "SELECT " + eventLogCols + " FROM event_log WHERE tenant_id = ? AND session_id = ? AND id > ? ORDER BY id ASC LIMIT ?"
-		args = []any{tenantID, sessionID, afterID, limit}
+		q = "SELECT " + eventLogCols + " FROM event_log WHERE organization_id = ? AND session_id = ? AND id > ? ORDER BY id ASC LIMIT ?"
+		args = []any{organizationID, sessionID, afterID, limit}
 	}
 
 	rows, err := r.db.QueryContext(ctx, q, args...)
@@ -104,12 +104,12 @@ func (r *EventLogRepo) GetEvent(ctx context.Context, eventID string) (domain.Eve
 		return domain.Event{}, err
 	}
 	return domain.Event{
-		Schema:    domain.Schema,
-		ID:        e.EventID,
-		Type:      e.Type,
-		Session:   e.SessionID,
-		Tenant:    e.TenantID,
-		Timestamp: e.CreatedAt,
-		Payload:   e.Payload,
+		Schema:       domain.Schema,
+		ID:           e.EventID,
+		Type:         e.Type,
+		Session:      e.SessionID,
+		Organization: e.OrganizationID,
+		Timestamp:    e.CreatedAt,
+		Payload:      e.Payload,
 	}, nil
 }

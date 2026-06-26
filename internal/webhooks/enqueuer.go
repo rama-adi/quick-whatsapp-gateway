@@ -10,7 +10,7 @@ import (
 
 // Enqueuer is the WebhookEnqueuer the inbound pipeline (fan-out stage, §7) calls
 // for every produced domain.Event. It looks up the webhooks matching the event's
-// tenant/session/type and persists one pending delivery row per webhook (skipping
+// organization/session/type and persists one pending delivery row per webhook (skipping
 // any that already have a terminal delivery for this event_id, for dedup). The
 // actual HTTP send happens later in the Dispatcher worker loop.
 type Enqueuer struct {
@@ -38,7 +38,7 @@ func NewEnqueuer(webhooks WebhookRepo, deliveries WebhookDeliveryRepo, clock Clo
 // others from being scheduled. Only an upstream lookup failure (ListMatching) is
 // returned as an error.
 func (e *Enqueuer) Enqueue(ctx context.Context, evt domain.Event) (int, error) {
-	hooks, err := e.webhooks.ListMatching(ctx, evt.Tenant, evt.Session, evt.Type)
+	hooks, err := e.webhooks.ListMatching(ctx, evt.Organization, evt.Session, evt.Type)
 	if err != nil {
 		return 0, fmt.Errorf("list matching webhooks: %w", err)
 	}

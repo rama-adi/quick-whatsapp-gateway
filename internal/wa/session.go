@@ -43,7 +43,7 @@ type Keystore interface {
 type SessionRepo interface {
 	Get(ctx context.Context, id string) (*domain.WASession, error)
 	GetByJID(ctx context.Context, jid string) (*domain.WASession, error)
-	ListByTenant(ctx context.Context, tenantID string) ([]*domain.WASession, error)
+	ListByOrg(ctx context.Context, organizationID string) ([]*domain.WASession, error)
 	Create(ctx context.Context, s *domain.WASession) error
 	Update(ctx context.Context, s *domain.WASession) error
 	// UpdateStatus is a narrow fast-path used on every status transition; it also
@@ -59,10 +59,10 @@ type EventSink interface {
 }
 
 // InboundHandler receives every raw whatsmeow event for a session, tagged with
-// the app session/tenant ids and whether this is the admin session. The inbound
+// the app session/organization ids and whether this is the admin session. The inbound
 // pipeline (internal/wa/inbound) implements it; the manager only forwards.
 type InboundHandler interface {
-	Handle(ctx context.Context, sessionID, tenantID string, isAdmin bool, evt any)
+	Handle(ctx context.Context, sessionID, organizationID string, isAdmin bool, evt any)
 }
 
 // Clock abstracts time for deterministic tests.
@@ -99,9 +99,9 @@ var _ waClient = (*whatsmeow.Client)(nil)
 // ManagedSession wraps a single whatsmeow client with its app-level identity,
 // current status, reconnect bookkeeping and a cancellable goroutine context.
 type ManagedSession struct {
-	SessionID string
-	TenantID  string
-	IsAdmin   bool
+	SessionID      string
+	OrganizationID string
+	IsAdmin        bool
 
 	device *store.Device
 	client waClient

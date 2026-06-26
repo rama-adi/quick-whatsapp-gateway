@@ -11,19 +11,23 @@ import "encoding/json"
 //   - JSON tags use the API's camelCase conventions (§11) for fields that are
 //     serialized over the wire.
 
-// Tenant mirrors the tenants table — a thin app-side mirror of an Authula user.
-type Tenant struct {
-	ID          string  `json:"id"` // = Authula user id
-	Email       string  `json:"email"`
-	DisplayName *string `json:"displayName,omitempty"`
-	CreatedAt   int64   `json:"createdAt"`
-	UpdatedAt   int64   `json:"updatedAt"`
+// Gateway mirrors the gateways registry table (§7). One self-row in v2; more rows
+// appear when sharding (forward-compat session pinning by gateway_id).
+type Gateway struct {
+	ID         string  `json:"id"` // = GATEWAY_ID
+	Label      *string `json:"label,omitempty"`
+	BaseURL    *string `json:"baseUrl,omitempty"`
+	LastSeenAt *int64  `json:"lastSeenAt,omitempty"`
+	CreatedAt  int64   `json:"createdAt"`
+	UpdatedAt  int64   `json:"updatedAt"`
 }
 
 // WASession mirrors the wa_sessions table (an attached WhatsApp number).
 type WASession struct {
-	ID              string        `json:"id"` // app session id (ULID)
-	TenantID        string        `json:"tenantId"`
+	ID              string        `json:"id"`             // app session id (ULID)
+	OrganizationID  string        `json:"organizationId"` // better-auth organization id (owner)
+	CreatedByUserID *string       `json:"createdByUserId,omitempty"`
+	GatewayID       string        `json:"gatewayId"` // which gateway holds this session's keystore
 	Label           *string       `json:"label,omitempty"`
 	Status          SessionStatus `json:"status"`
 	WAJID           *string       `json:"waJid,omitempty"` // phone JID once paired
@@ -47,22 +51,25 @@ type Permissions struct {
 	Events bool `json:"events"`
 }
 
-// APIKey mirrors the api_keys table. Account-global: belongs to a tenant, valid
-// across all that tenant's sessions; the session is targeted by route, not key.
-// KeyHash is never serialized (argon2id of the full key); the full key is shown
-// once at creation only (see CreateAPIKeyResult).
+// APIKey is the gateway's read-only view of a row in better-auth's `apikey` table
+// (§4.2/§7). The frontend's better-auth api-key plugin is the sole writer; the
+// gateway only verifies presented keys against this row and resolves the owning
+// organization. Keys are org-scoped: a key acts within exactly one organization.
+//
+// KeyHash holds better-auth's stored hash of the key (column `key`) and is never
+// serialized. The full key is shown once at creation time by the frontend, never
+// by the gateway. Permissions are decoded from better-auth's `permissions` JSON.
 type APIKey struct {
-	ID          string      `json:"id"`
-	TenantID    string      `json:"tenantId"`
-	Name        string      `json:"name"`
-	KeyPrefix   string      `json:"keyPrefix"` // shown in UI, e.g. "wak_ab12"
-	KeyHash     string      `json:"-"`         // argon2id of full key; never exposed
-	Scope       APIKeyScope `json:"scope"`
-	Permissions Permissions `json:"permissions"`
-	LastUsedAt  *int64      `json:"lastUsedAt,omitempty"`
-	ExpiresAt   *int64      `json:"expiresAt,omitempty"`
-	RevokedAt   *int64      `json:"revokedAt,omitempty"`
-	CreatedAt   int64       `json:"createdAt"`
+	ID             string      `json:"id"`
+	Name           string      `json:"name"`
+	KeyHash        string      `json:"-"`                // better-auth stored hash (column `key`); never exposed
+	UserID         *string     `json:"userId,omitempty"` // better-auth user that owns the key (audit)
+	OrganizationID string      `json:"organizationId"`   // owning org (resolved on verify)
+	Enabled        bool        `json:"enabled"`
+	Permissions    Permissions `json:"permissions"`
+	LastUsedAt     *int64      `json:"lastUsedAt,omitempty"`
+	ExpiresAt      *int64      `json:"expiresAt,omitempty"`
+	CreatedAt      int64       `json:"createdAt"`
 }
 
 // RetryPolicy is the typed shape of webhooks.retry_policy JSON.
@@ -75,17 +82,17 @@ type RetryPolicy struct {
 // Webhook mirrors the webhooks table. HMACSecret is stored AES-GCM encrypted at
 // rest and never serialized.
 type Webhook struct {
-	ID            string            `json:"id"`
-	TenantID      string            `json:"tenantId"`
-	SessionID     *string           `json:"sessionId,omitempty"` // null = all tenant sessions
-	URL           string            `json:"url"`
-	Events        []string          `json:"events"` // ["message","poll.vote"] or ["*"]
-	HMACSecret    []byte            `json:"-"`      // AES-GCM encrypted at rest
-	CustomHeaders map[string]string `json:"customHeaders,omitempty"`
-	RetryPolicy   RetryPolicy       `json:"retryPolicy"`
-	Active        bool              `json:"active"`
-	CreatedAt     int64             `json:"createdAt"`
-	UpdatedAt     int64             `json:"updatedAt"`
+	ID             string            `json:"id"`
+	OrganizationID string            `json:"organizationId"`
+	SessionID      *string           `json:"sessionId,omitempty"` // null = all the org's sessions
+	URL            string            `json:"url"`
+	Events         []string          `json:"events"` // ["message","poll.vote"] or ["*"]
+	HMACSecret     []byte            `json:"-"`      // AES-GCM encrypted at rest
+	CustomHeaders  map[string]string `json:"customHeaders,omitempty"`
+	RetryPolicy    RetryPolicy       `json:"retryPolicy"`
+	Active         bool              `json:"active"`
+	CreatedAt      int64             `json:"createdAt"`
+	UpdatedAt      int64             `json:"updatedAt"`
 }
 
 // WebhookDelivery mirrors the webhook_deliveries table.
@@ -218,7 +225,7 @@ type PollVote struct {
 // OutboxEntry mirrors the outbox table (async send queue).
 type OutboxEntry struct {
 	ID             string          `json:"id"` // ULID
-	TenantID       string          `json:"tenantId"`
+	OrganizationID string          `json:"organizationId"`
 	SessionID      string          `json:"sessionId"`
 	IdempotencyKey *string         `json:"idempotencyKey,omitempty"`
 	Payload        json.RawMessage `json:"payload"`
@@ -233,11 +240,11 @@ type OutboxEntry struct {
 // EventLogEntry mirrors the event_log table. ID is the monotonic DB cursor used
 // for stream resume (?since=); EventID is the ULID exposed to clients.
 type EventLogEntry struct {
-	ID        uint64          `json:"-"` // monotonic cursor (internal)
-	EventID   string          `json:"id"`
-	TenantID  string          `json:"tenant"`
-	SessionID string          `json:"session"`
-	Type      string          `json:"event"`
-	Payload   json.RawMessage `json:"payload"`
-	CreatedAt int64           `json:"createdAt"`
+	ID             uint64          `json:"-"` // monotonic cursor (internal)
+	EventID        string          `json:"id"`
+	OrganizationID string          `json:"organization"`
+	SessionID      string          `json:"session"`
+	Type           string          `json:"event"`
+	Payload        json.RawMessage `json:"payload"`
+	CreatedAt      int64           `json:"createdAt"`
 }

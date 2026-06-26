@@ -26,7 +26,7 @@ type RouterConfig struct {
 
 	// Verifier authenticates API keys (the KeyService satisfies it).
 	Verifier middleware.APIKeyVerifier
-	// Limiter is the per-session/tenant send limiter for API routes (optional;
+	// Limiter is the per-session/organization send limiter for API routes (optional;
 	// nil disables HTTP-edge rate limiting — the outbound pipeline still limits).
 	Limiter middleware.RateLimiter
 
@@ -81,9 +81,12 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		}
 
 		// The live event stream accepts EITHER an API key OR a dashboard cookie.
-		// Enrich with both (cookie first, then api-key), then require a tenant.
+		// Enrich with both (cookie first, then api-key), then require a organization.
 		api.Group(func(ev chi.Router) {
 			if cfg.Auth != nil {
+				// internal/auth (Authula) still exposes CurrentTenantID; it resolves
+				// the same owner id the cookie enricher lifts as the organization id.
+				// internal/auth is removed in a later stage.
 				ev.Use(middleware.CookieSession(cfg.Auth.OptionalCookieAuth(), cfg.Auth.CurrentTenantID))
 			}
 			ev.Use(optionalAPIKey(cfg.Verifier))
@@ -110,15 +113,9 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 // mountAPIRoutes wires every §11 resource onto the API-key-authenticated group.
 func mountAPIRoutes(r chi.Router, h *handlers.Handlers) {
-	// --- Keys (manage) ---
-	r.Group(func(g chi.Router) {
-		g.Use(middleware.RequireManage())
-		g.Post("/keys", h.CreateKey)
-		g.Get("/keys", h.ListKeys)
-		g.Get("/keys/{id}", h.GetKey)
-		g.Delete("/keys/{id}", h.DeleteKey)
-		g.Post("/keys/{id}:rotate", h.RotateKey)
-	})
+	// API-key management (create/list/revoke/rotate) lives in the frontend's
+	// better-auth api-key plugin (§6); the gateway only verifies keys. No /keys
+	// routes here.
 
 	// --- Webhooks (manage) ---
 	r.Group(func(g chi.Router) {
@@ -130,7 +127,7 @@ func mountAPIRoutes(r chi.Router, h *handlers.Handlers) {
 		g.Delete("/webhooks/{id}", h.DeleteWebhook)
 	})
 
-	// --- Admin (manage; cross-tenant oversight) ---
+	// --- Admin (manage; cross-organization oversight) ---
 	r.Group(func(g chi.Router) {
 		g.Use(middleware.RequireManage())
 		g.Get("/admin/sessions", h.AdminListSessions)
@@ -236,7 +233,7 @@ func mountAPIRoutes(r chi.Router, h *handlers.Handlers) {
 
 // optionalAPIKey is a non-rejecting API-key enricher used on the events route
 // (which also accepts a cookie). It runs the verifier when a bearer key is
-// present and, on success, lifts the api-key + tenant into context; any failure
+// present and, on success, lifts the api-key + organization into context; any failure
 // or absence is ignored (the cookie enricher and RequireEvents gate decide).
 func optionalAPIKey(verifier middleware.APIKeyVerifier) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
@@ -250,11 +247,11 @@ func optionalAPIKey(verifier middleware.APIKeyVerifier) func(http.Handler) http.
 				next.ServeHTTP(w, r)
 				return
 			}
-			key, tenant, err := verifier.Verify(r.Context(), raw)
+			key, orgID, err := verifier.Verify(r.Context(), raw)
 			if err == nil && key != nil {
 				ctx := shttpx.SetAPIKey(r.Context(), key)
-				if tenant != nil && tenant.ID != "" {
-					ctx = shttpx.SetTenantID(ctx, tenant.ID)
+				if orgID != "" {
+					ctx = shttpx.SetOrganizationID(ctx, orgID)
 				}
 				r = r.WithContext(ctx)
 			}

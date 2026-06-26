@@ -16,7 +16,7 @@ import (
 //
 // e.Message is the unwrapped content (the lib already strips Ephemeral/ViewOnce/
 // DeviceSent/Edited wrappers), so we read from it directly per recon §5.
-func normalizeMessage(e *events.Message, sessionID, tenantID string) (domain.Event, PersistResult, bool) {
+func normalizeMessage(e *events.Message, sessionID, organizationID string) (domain.Event, PersistResult, bool) {
 	info := e.Info
 	nm := &NormalizedMessage{
 		WAMessageID: info.ID,
@@ -39,7 +39,7 @@ func normalizeMessage(e *events.Message, sessionID, tenantID string) (domain.Eve
 
 	eventType, kind := catalogForSubtype(nm.Subtype, nm.FromMe)
 	payload := messagePayload(nm)
-	ev := domain.NewEvent(eventType, sessionID, tenantID, payload)
+	ev := domain.NewEvent(eventType, sessionID, organizationID, payload)
 	pr := PersistResult{
 		Kind:    kind,
 		Message: nm,

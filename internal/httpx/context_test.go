@@ -7,14 +7,14 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 )
 
-func TestTenantIDCtx(t *testing.T) {
+func TestOrganizationIDCtx(t *testing.T) {
 	ctx := context.Background()
-	if TenantID(ctx) != "" {
-		t.Fatal("empty ctx should yield empty tenant")
+	if OrganizationID(ctx) != "" {
+		t.Fatal("empty ctx should yield empty organization")
 	}
-	ctx = SetTenantID(ctx, "tnt_123")
-	if got := TenantID(ctx); got != "tnt_123" {
-		t.Fatalf("TenantID = %q", got)
+	ctx = SetOrganizationID(ctx, "tnt_123")
+	if got := OrganizationID(ctx); got != "tnt_123" {
+		t.Fatalf("OrganizationID = %q", got)
 	}
 }
 
@@ -23,7 +23,7 @@ func TestAPIKeyCtx(t *testing.T) {
 	if APIKeyCtx(ctx) != nil {
 		t.Fatal("empty ctx should yield nil key")
 	}
-	key := &domain.APIKey{ID: "key_1", TenantID: "tnt_123"}
+	key := &domain.APIKey{ID: "key_1", OrganizationID: "tnt_123"}
 	ctx = SetAPIKey(ctx, key)
 	if got := APIKeyCtx(ctx); got == nil || got.ID != "key_1" {
 		t.Fatalf("APIKeyCtx = %+v", got)

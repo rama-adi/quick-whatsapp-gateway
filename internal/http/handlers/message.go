@@ -14,7 +14,7 @@ const idempotencyHeader = "Idempotency-Key"
 // SendMessage handles POST /sessions/{id}/messages. The body is the discriminated
 // domain.SendRequest; Idempotency-Key (header) and ?async (query) tune delivery.
 func (h *Handlers) SendMessage(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
@@ -27,7 +27,7 @@ func (h *Handlers) SendMessage(w http.ResponseWriter, r *http.Request) {
 		Async:          r.URL.Query().Has("async"),
 		IdempotencyKey: r.Header.Get(idempotencyHeader),
 	}
-	res, err := h.Messages.Send(r.Context(), tenantID, param(r, "session"), req, opts)
+	res, err := h.Messages.Send(r.Context(), organizationID, param(r, "session"), req, opts)
 	if err != nil {
 		httpx.WriteError(w, err)
 		return
@@ -48,7 +48,7 @@ type editMessageBody struct {
 
 // EditMessage handles PATCH /sessions/{id}/messages/{mid}.
 func (h *Handlers) EditMessage(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
@@ -57,7 +57,7 @@ func (h *Handlers) EditMessage(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, err)
 		return
 	}
-	res, err := h.Messages.Edit(r.Context(), tenantID, param(r, "session"), body.Chat, param(r, "mid"), body.Text)
+	res, err := h.Messages.Edit(r.Context(), organizationID, param(r, "session"), body.Chat, param(r, "mid"), body.Text)
 	if err != nil {
 		httpx.WriteError(w, err)
 		return
@@ -74,7 +74,7 @@ type revokeMessageBody struct {
 
 // RevokeMessage handles DELETE /sessions/{id}/messages/{mid}.
 func (h *Handlers) RevokeMessage(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
@@ -83,7 +83,7 @@ func (h *Handlers) RevokeMessage(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, err)
 		return
 	}
-	res, err := h.Messages.Revoke(r.Context(), tenantID, param(r, "session"), body.Chat, body.Sender, param(r, "mid"))
+	res, err := h.Messages.Revoke(r.Context(), organizationID, param(r, "session"), body.Chat, body.Sender, param(r, "mid"))
 	if err != nil {
 		httpx.WriteError(w, err)
 		return
@@ -109,7 +109,7 @@ func (h *Handlers) RemoveReaction(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) reaction(w http.ResponseWriter, r *http.Request, remove bool) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
@@ -122,7 +122,7 @@ func (h *Handlers) reaction(w http.ResponseWriter, r *http.Request, remove bool)
 	if remove {
 		emoji = "" // empty emoji removes the reaction
 	}
-	res, err := h.Messages.React(r.Context(), tenantID, param(r, "session"), body.Chat, body.Sender, param(r, "mid"), emoji)
+	res, err := h.Messages.React(r.Context(), organizationID, param(r, "session"), body.Chat, body.Sender, param(r, "mid"), emoji)
 	if err != nil {
 		httpx.WriteError(w, err)
 		return
@@ -139,7 +139,7 @@ type forwardBody struct {
 
 // ForwardMessage handles POST /sessions/{id}/messages/{mid}/forward.
 func (h *Handlers) ForwardMessage(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
@@ -148,7 +148,7 @@ func (h *Handlers) ForwardMessage(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, err)
 		return
 	}
-	res, err := h.Messages.Forward(r.Context(), tenantID, param(r, "session"), body.Chat, body.Sender, param(r, "mid"), body.To)
+	res, err := h.Messages.Forward(r.Context(), organizationID, param(r, "session"), body.Chat, body.Sender, param(r, "mid"), body.To)
 	if err != nil {
 		httpx.WriteError(w, err)
 		return
@@ -165,7 +165,7 @@ type voteBody struct {
 
 // VoteMessage handles POST /sessions/{id}/messages/{mid}/vote.
 func (h *Handlers) VoteMessage(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
@@ -174,7 +174,7 @@ func (h *Handlers) VoteMessage(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, err)
 		return
 	}
-	res, err := h.Messages.Vote(r.Context(), tenantID, param(r, "session"), body.Chat, body.Sender, param(r, "mid"), body.Options)
+	res, err := h.Messages.Vote(r.Context(), organizationID, param(r, "session"), body.Chat, body.Sender, param(r, "mid"), body.Options)
 	if err != nil {
 		httpx.WriteError(w, err)
 		return

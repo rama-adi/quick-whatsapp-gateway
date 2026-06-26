@@ -21,17 +21,17 @@ type testRig struct {
 	rc     *redis.Client
 }
 
-// newTestHandler builds a Handler with the supplied tenant, log reader, and a
+// newTestHandler builds a Handler with the supplied organization, log reader, and a
 // fake clock whose single ticker is exposed for manual heartbeat control.
-func newTestHandler(t *testing.T, tenant TenantAccessor, lr EventLogReader) testRig {
+func newTestHandler(t *testing.T, organization OrganizationAccessor, lr EventLogReader) testRig {
 	t.Helper()
 	mr, rc := newMiniRedis(t)
 	tk := newFakeTicker()
 	h := NewHandler(HandlerConfig{
-		Redis:     rc,
-		Tenant:    tenant,
-		LogReader: lr,
-		Clock:     &fakeClock{ticker: tk},
+		Redis:        rc,
+		Organization: organization,
+		LogReader:    lr,
+		Clock:        &fakeClock{ticker: tk},
 	})
 	return testRig{h: h, ticker: tk, mr: mr, rc: rc}
 }
@@ -64,7 +64,7 @@ func waitForPatternSub(t *testing.T, mr *miniredis.Miniredis) {
 }
 
 func TestHandler_Unauthorized(t *testing.T) {
-	rig := newTestHandler(t, staticTenant(""), nil)
+	rig := newTestHandler(t, staticOrganization(""), nil)
 	resp, _, _ := startStream(t, rig.h, "?events=*")
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", resp.StatusCode)
@@ -72,7 +72,7 @@ func TestHandler_Unauthorized(t *testing.T) {
 }
 
 func TestHandler_EmptyFilterRejected(t *testing.T) {
-	rig := newTestHandler(t, staticTenant("ten_a"), nil)
+	rig := newTestHandler(t, staticOrganization("ten_a"), nil)
 	resp, _, _ := startStream(t, rig.h, "?events=%20,%20") // events=" , "
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", resp.StatusCode)
@@ -80,7 +80,7 @@ func TestHandler_EmptyFilterRejected(t *testing.T) {
 }
 
 func TestHandler_NDJSONEncodingAndTail(t *testing.T) {
-	rig := newTestHandler(t, staticTenant("ten_a"), nil)
+	rig := newTestHandler(t, staticOrganization("ten_a"), nil)
 
 	resp, cancel, lines := startStream(t, rig.h, "?events=*")
 	defer cancel()
@@ -112,7 +112,7 @@ func TestHandler_NDJSONEncodingAndTail(t *testing.T) {
 }
 
 func TestHandler_EventTypeFiltering(t *testing.T) {
-	rig := newTestHandler(t, staticTenant("ten_a"), nil)
+	rig := newTestHandler(t, staticOrganization("ten_a"), nil)
 
 	// Only subscribe to message + poll.vote.
 	_, cancel, lines := startStream(t, rig.h, "?events=message,poll.vote")
@@ -135,7 +135,7 @@ func TestHandler_EventTypeFiltering(t *testing.T) {
 }
 
 func TestHandler_SessionFilter(t *testing.T) {
-	rig := newTestHandler(t, staticTenant("ten_a"), nil)
+	rig := newTestHandler(t, staticOrganization("ten_a"), nil)
 
 	_, cancel, lines := startStream(t, rig.h, "?events=*&session=sess_1")
 	defer cancel()
@@ -153,7 +153,7 @@ func TestHandler_SessionFilter(t *testing.T) {
 }
 
 func TestHandler_Heartbeat(t *testing.T) {
-	rig := newTestHandler(t, staticTenant("ten_a"), nil)
+	rig := newTestHandler(t, staticOrganization("ten_a"), nil)
 
 	_, cancel, lines := startStream(t, rig.h, "?events=*")
 	defer cancel()
@@ -173,11 +173,11 @@ func TestHandler_Heartbeat(t *testing.T) {
 
 func TestHandler_SinceResumeThenTail(t *testing.T) {
 	// Two persisted entries to replay, then a live one to tail.
-	e1 := domain.EventLogEntry{EventID: "evt_1", TenantID: "ten_a", SessionID: "sess_1", Type: domain.EventMessage, Payload: json.RawMessage(`{"n":1}`), CreatedAt: 100}
-	e2 := domain.EventLogEntry{EventID: "evt_2", TenantID: "ten_a", SessionID: "sess_1", Type: domain.EventChatUpdate, Payload: json.RawMessage(`{"n":2}`), CreatedAt: 200}
+	e1 := domain.EventLogEntry{EventID: "evt_1", OrganizationID: "ten_a", SessionID: "sess_1", Type: domain.EventMessage, Payload: json.RawMessage(`{"n":1}`), CreatedAt: 100}
+	e2 := domain.EventLogEntry{EventID: "evt_2", OrganizationID: "ten_a", SessionID: "sess_1", Type: domain.EventChatUpdate, Payload: json.RawMessage(`{"n":2}`), CreatedAt: 200}
 	lr := &fakeLogReader{entries: []domain.EventLogEntry{e1, e2}}
 
-	rig := newTestHandler(t, staticTenant("ten_a"), lr)
+	rig := newTestHandler(t, staticOrganization("ten_a"), lr)
 
 	_, cancel, lines := startStream(t, rig.h, "?events=*&since=evt_0")
 	defer cancel()
@@ -196,8 +196,8 @@ func TestHandler_SinceResumeThenTail(t *testing.T) {
 	}
 
 	// ListSince must have been called with the resume cursor.
-	if lr.gotAfter != "evt_0" || lr.gotTenant != "ten_a" {
-		t.Errorf("ListSince args: tenant=%q after=%q", lr.gotTenant, lr.gotAfter)
+	if lr.gotAfter != "evt_0" || lr.gotOrganization != "ten_a" {
+		t.Errorf("ListSince args: organization=%q after=%q", lr.gotOrganization, lr.gotAfter)
 	}
 
 	// Now a live event tails after replay.
@@ -216,12 +216,12 @@ func TestHandler_SinceDedupBoundary(t *testing.T) {
 	// of the same event). The live tail must drop that one duplicate.
 	boundary := domain.NewEvent(domain.EventMessage, "sess_1", "ten_a", map[string]any{"k": "v"})
 	entry := domain.EventLogEntry{
-		EventID: boundary.ID, TenantID: "ten_a", SessionID: "sess_1",
+		EventID: boundary.ID, OrganizationID: "ten_a", SessionID: "sess_1",
 		Type: domain.EventMessage, Payload: json.RawMessage(`{"k":"v"}`), CreatedAt: 100,
 	}
 	lr := &fakeLogReader{entries: []domain.EventLogEntry{entry}}
 
-	rig := newTestHandler(t, staticTenant("ten_a"), lr)
+	rig := newTestHandler(t, staticOrganization("ten_a"), lr)
 
 	_, cancel, lines := startStream(t, rig.h, "?events=*&since=evt_prev")
 	defer cancel()
@@ -250,7 +250,7 @@ func TestHandler_SinceDedupBoundary(t *testing.T) {
 
 func TestHandler_ReplayError(t *testing.T) {
 	lr := &fakeLogReader{err: errors.New("db down")}
-	rig := newTestHandler(t, staticTenant("ten_a"), lr)
+	rig := newTestHandler(t, staticOrganization("ten_a"), lr)
 
 	_, cancel, lines := startStream(t, rig.h, "?events=*&since=evt_0")
 	defer cancel()
@@ -262,7 +262,7 @@ func TestHandler_ReplayError(t *testing.T) {
 }
 
 func TestHandler_ClientCancelStopsStream(t *testing.T) {
-	rig := newTestHandler(t, staticTenant("ten_a"), nil)
+	rig := newTestHandler(t, staticOrganization("ten_a"), nil)
 
 	_, cancel, lines := startStream(t, rig.h, "?events=*")
 	waitForPatternSub(t, rig.mr)

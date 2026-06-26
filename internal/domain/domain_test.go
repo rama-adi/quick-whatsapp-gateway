@@ -70,8 +70,6 @@ func TestNewPrefixedIDs(t *testing.T) {
 	}{
 		{NewEventID, PrefixEvent},
 		{NewSessionID, PrefixSession},
-		{NewTenantID, PrefixTenant},
-		{NewAPIKeyID, PrefixAPIKey},
 		{NewWebhookID, PrefixWebhook},
 		{NewOutboxID, PrefixOutbox},
 	}
@@ -123,7 +121,7 @@ func TestSessionStatusFromName(t *testing.T) {
 func TestNewEvent_ShapeAndJSONTags(t *testing.T) {
 	payload := map[string]any{"foo": "bar"}
 	before := NowMs()
-	ev := NewEvent(EventMessage, "sess_123", "ten_abc", payload)
+	ev := NewEvent(EventMessage, "sess_123", "org_abc", payload)
 	after := NowMs()
 
 	if ev.Schema != Schema {
@@ -135,8 +133,8 @@ func TestNewEvent_ShapeAndJSONTags(t *testing.T) {
 	if ev.Type != EventMessage {
 		t.Errorf("Type = %q, want %q", ev.Type, EventMessage)
 	}
-	if ev.Session != "sess_123" || ev.Tenant != "ten_abc" {
-		t.Errorf("Session/Tenant = %q/%q", ev.Session, ev.Tenant)
+	if ev.Session != "sess_123" || ev.Organization != "org_abc" {
+		t.Errorf("Session/Organization = %q/%q", ev.Session, ev.Organization)
 	}
 	if ev.Timestamp < before || ev.Timestamp > after {
 		t.Errorf("Timestamp = %d, want within [%d, %d]", ev.Timestamp, before, after)
@@ -151,7 +149,7 @@ func TestNewEvent_ShapeAndJSONTags(t *testing.T) {
 		t.Fatalf("unmarshal event: %v", err)
 	}
 	// The wire keys per §9 — note "event" maps to the Go Type field.
-	for _, key := range []string{"schema", "id", "event", "session", "tenant", "timestamp", "payload"} {
+	for _, key := range []string{"schema", "id", "event", "session", "organization", "timestamp", "payload"} {
 		if _, ok := raw[key]; !ok {
 			t.Errorf("event JSON missing key %q (have %v)", key, raw)
 		}

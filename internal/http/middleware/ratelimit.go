@@ -21,31 +21,31 @@ type RateLimiter interface {
 }
 
 // RateLimitKeyFunc derives the bucket key for a request. The default
-// (SessionOrTenantKey) keys by the :session path param when present, else by the
-// resolved tenant — so per-number send limits apply on session routes while
-// tenant-wide limits cover the rest.
+// (SessionOrOrganizationKey) keys by the :session path param when present, else by the
+// resolved organization — so per-number send limits apply on session routes while
+// organization-wide limits cover the rest.
 type RateLimitKeyFunc func(r *http.Request) string
 
-// SessionOrTenantKey keys by the chi :session URL param when it is present on the
-// route, otherwise by the context tenant id. This is the documented default: send
+// SessionOrOrganizationKey keys by the chi :session URL param when it is present on the
+// route, otherwise by the context organization id. This is the documented default: send
 // endpoints (which always carry :session) are limited per WhatsApp number, while
-// other endpoints fall back to a tenant-wide bucket.
-func SessionOrTenantKey(r *http.Request) string {
+// other endpoints fall back to a organization-wide bucket.
+func SessionOrOrganizationKey(r *http.Request) string {
 	if s := chi.URLParam(r, "session"); s != "" {
 		return "session:" + s
 	}
-	if t := httpx.TenantID(r.Context()); t != "" {
-		return "tenant:" + t
+	if t := httpx.OrganizationID(r.Context()); t != "" {
+		return "organization:" + t
 	}
 	return "anon"
 }
 
-// RateLimit enforces `limiter` using keyFn (defaults to SessionOrTenantKey when
+// RateLimit enforces `limiter` using keyFn (defaults to SessionOrOrganizationKey when
 // nil). On deny it writes a 429 envelope; on a limiter backend error it fails
 // open (allows the request).
 func RateLimit(limiter RateLimiter, keyFn RateLimitKeyFunc) func(http.Handler) http.Handler {
 	if keyFn == nil {
-		keyFn = SessionOrTenantKey
+		keyFn = SessionOrOrganizationKey
 	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -20,7 +20,7 @@ func TestListChats_HappyPath(t *testing.T) {
 		NextCursor: "42",
 	}}
 	h := &Handlers{Chats: svc}
-	r := withTenant(chiReq(http.MethodGet, "/x?limit=2", "", map[string]string{"session": "sess_1"}), testTenant)
+	r := withOrganization(chiReq(http.MethodGet, "/x?limit=2", "", map[string]string{"session": "sess_1"}), testOrganization)
 	w := httptest.NewRecorder()
 	h.ListChats(w, r)
 	if w.Code != http.StatusOK {
@@ -38,7 +38,7 @@ func TestListChats_HappyPath(t *testing.T) {
 	}
 }
 
-func TestListChats_NoTenant401(t *testing.T) {
+func TestListChats_NoOrganization401(t *testing.T) {
 	h := &Handlers{Chats: &fakeChatSvc{}}
 	r := chiReq(http.MethodGet, "/x", "", map[string]string{"session": "sess_1"})
 	w := httptest.NewRecorder()
@@ -51,8 +51,8 @@ func TestListChats_NoTenant401(t *testing.T) {
 func TestUpdateChat_ThreadsFlags(t *testing.T) {
 	svc := &fakeChatSvc{one: domain.Chat{ChatJID: "1@s.whatsapp.net", Pinned: true}}
 	h := &Handlers{Chats: svc}
-	r := withTenant(chiReq(http.MethodPatch, "/x", `{"pinned":true,"archived":false}`,
-		map[string]string{"session": "sess_1", "cid": "1@s.whatsapp.net"}), testTenant)
+	r := withOrganization(chiReq(http.MethodPatch, "/x", `{"pinned":true,"archived":false}`,
+		map[string]string{"session": "sess_1", "cid": "1@s.whatsapp.net"}), testOrganization)
 	w := httptest.NewRecorder()
 	h.UpdateChat(w, r)
 	if w.Code != http.StatusOK {
@@ -68,7 +68,7 @@ func TestUpdateChat_ThreadsFlags(t *testing.T) {
 
 func TestUpdateChat_BadJSON400(t *testing.T) {
 	h := &Handlers{Chats: &fakeChatSvc{}}
-	r := withTenant(chiReq(http.MethodPatch, "/x", `{"pinned":`, map[string]string{"session": "s", "cid": "c"}), testTenant)
+	r := withOrganization(chiReq(http.MethodPatch, "/x", `{"pinned":`, map[string]string{"session": "s", "cid": "c"}), testOrganization)
 	w := httptest.NewRecorder()
 	h.UpdateChat(w, r)
 	if w.Code != http.StatusBadRequest {
@@ -78,7 +78,7 @@ func TestUpdateChat_BadJSON400(t *testing.T) {
 
 func TestDeleteChat_NoContent(t *testing.T) {
 	h := &Handlers{Chats: &fakeChatSvc{}}
-	r := withTenant(chiReq(http.MethodDelete, "/x", "", map[string]string{"session": "s", "cid": "c"}), testTenant)
+	r := withOrganization(chiReq(http.MethodDelete, "/x", "", map[string]string{"session": "s", "cid": "c"}), testOrganization)
 	w := httptest.NewRecorder()
 	h.DeleteChat(w, r)
 	if w.Code != http.StatusNoContent {
@@ -91,8 +91,8 @@ func TestChatPresence_NotImplementedPropagates(t *testing.T) {
 	// the handler must surface it as 501.
 	svc := &fakeChatSvc{err: domain.ErrNotImplemented("live WhatsApp client is not available for this session")}
 	h := &Handlers{Chats: svc}
-	r := withTenant(chiReq(http.MethodPut, "/x", `{"state":"composing"}`,
-		map[string]string{"session": "s", "cid": "c"}), testTenant)
+	r := withOrganization(chiReq(http.MethodPut, "/x", `{"state":"composing"}`,
+		map[string]string{"session": "s", "cid": "c"}), testOrganization)
 	w := httptest.NewRecorder()
 	h.ChatPresence(w, r)
 	if w.Code != http.StatusNotImplemented {
@@ -107,8 +107,8 @@ func TestChatPresence_NotImplementedPropagates(t *testing.T) {
 func TestListContacts_FiltersThreaded(t *testing.T) {
 	svc := &fakeContactSvc{contacts: store.Page[domain.Contact]{Items: []domain.Contact{{LID: "x"}}}}
 	h := &Handlers{Contacts: svc}
-	r := withTenant(chiReq(http.MethodGet, "/x?source=dm&group=g@g.us&q=ali", "",
-		map[string]string{"session": "sess_1"}), testTenant)
+	r := withOrganization(chiReq(http.MethodGet, "/x?source=dm&group=g@g.us&q=ali", "",
+		map[string]string{"session": "sess_1"}), testOrganization)
 	w := httptest.NewRecorder()
 	h.ListContacts(w, r)
 	if w.Code != http.StatusOK {
@@ -122,7 +122,7 @@ func TestListContacts_FiltersThreaded(t *testing.T) {
 func TestListContacts_ValidationPropagates(t *testing.T) {
 	svc := &fakeContactSvc{err: domain.ErrValidation("source must be dm or group")}
 	h := &Handlers{Contacts: svc}
-	r := withTenant(chiReq(http.MethodGet, "/x?source=bogus", "", map[string]string{"session": "s"}), testTenant)
+	r := withOrganization(chiReq(http.MethodGet, "/x?source=bogus", "", map[string]string{"session": "s"}), testOrganization)
 	w := httptest.NewRecorder()
 	h.ListContacts(w, r)
 	if w.Code != http.StatusBadRequest {
@@ -133,7 +133,7 @@ func TestListContacts_ValidationPropagates(t *testing.T) {
 func TestCheckContact_HappyPath(t *testing.T) {
 	svc := &fakeContactSvc{check: domain.OnWhatsApp{Query: "+628", JID: "628@s.whatsapp.net", IsIn: true}}
 	h := &Handlers{Contacts: svc}
-	r := withTenant(chiReq(http.MethodGet, "/x?phone=%2B628", "", map[string]string{"session": "s"}), testTenant)
+	r := withOrganization(chiReq(http.MethodGet, "/x?phone=%2B628", "", map[string]string{"session": "s"}), testOrganization)
 	w := httptest.NewRecorder()
 	h.CheckContact(w, r)
 	if w.Code != http.StatusOK {
@@ -149,7 +149,7 @@ func TestCheckContact_HappyPath(t *testing.T) {
 func TestBlockContact_ThreadsTrue(t *testing.T) {
 	svc := &fakeContactSvc{}
 	h := &Handlers{Contacts: svc}
-	r := withTenant(chiReq(http.MethodPost, "/x", "", map[string]string{"session": "s", "jid": "628@s.whatsapp.net"}), testTenant)
+	r := withOrganization(chiReq(http.MethodPost, "/x", "", map[string]string{"session": "s", "jid": "628@s.whatsapp.net"}), testOrganization)
 	w := httptest.NewRecorder()
 	h.BlockContact(w, r)
 	if w.Code != http.StatusNoContent {
@@ -163,7 +163,7 @@ func TestBlockContact_ThreadsTrue(t *testing.T) {
 func TestUnblockContact_ThreadsFalse(t *testing.T) {
 	svc := &fakeContactSvc{}
 	h := &Handlers{Contacts: svc}
-	r := withTenant(chiReq(http.MethodPost, "/x", "", map[string]string{"session": "s", "jid": "628@s.whatsapp.net"}), testTenant)
+	r := withOrganization(chiReq(http.MethodPost, "/x", "", map[string]string{"session": "s", "jid": "628@s.whatsapp.net"}), testOrganization)
 	w := httptest.NewRecorder()
 	h.UnblockContact(w, r)
 	if w.Code != http.StatusNoContent {
@@ -181,8 +181,8 @@ func TestUnblockContact_ThreadsFalse(t *testing.T) {
 func TestCreateGroup_HappyPath(t *testing.T) {
 	svc := &fakeGroupSvc{info: domain.GroupInfo{GroupJID: "123@g.us", Subject: "Team"}}
 	h := &Handlers{Groups: svc}
-	r := withTenant(chiReq(http.MethodPost, "/x", `{"name":"Team","participants":["628@s.whatsapp.net"]}`,
-		map[string]string{"session": "s"}), testTenant)
+	r := withOrganization(chiReq(http.MethodPost, "/x", `{"name":"Team","participants":["628@s.whatsapp.net"]}`,
+		map[string]string{"session": "s"}), testOrganization)
 	w := httptest.NewRecorder()
 	h.CreateGroup(w, r)
 	if w.Code != http.StatusCreated {
@@ -196,7 +196,7 @@ func TestCreateGroup_HappyPath(t *testing.T) {
 func TestCreateGroup_ValidationPropagates(t *testing.T) {
 	svc := &fakeGroupSvc{err: domain.ErrValidation("name is required")}
 	h := &Handlers{Groups: svc}
-	r := withTenant(chiReq(http.MethodPost, "/x", `{}`, map[string]string{"session": "s"}), testTenant)
+	r := withOrganization(chiReq(http.MethodPost, "/x", `{}`, map[string]string{"session": "s"}), testOrganization)
 	w := httptest.NewRecorder()
 	h.CreateGroup(w, r)
 	if w.Code != http.StatusBadRequest {
@@ -204,7 +204,7 @@ func TestCreateGroup_ValidationPropagates(t *testing.T) {
 	}
 }
 
-func TestCreateGroup_NoTenant401(t *testing.T) {
+func TestCreateGroup_NoOrganization401(t *testing.T) {
 	h := &Handlers{Groups: &fakeGroupSvc{}}
 	r := chiReq(http.MethodPost, "/x", `{"name":"t"}`, map[string]string{"session": "s"})
 	w := httptest.NewRecorder()
@@ -230,8 +230,8 @@ func TestGroupParticipantActions(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			svc := &fakeGroupSvc{}
 			h := &Handlers{Groups: svc}
-			r := withTenant(chiReq(http.MethodPost, "/x", c.body,
-				map[string]string{"session": "s", "gid": "g@g.us", "jid": "a@s.whatsapp.net"}), testTenant)
+			r := withOrganization(chiReq(http.MethodPost, "/x", c.body,
+				map[string]string{"session": "s", "gid": "g@g.us", "jid": "a@s.whatsapp.net"}), testOrganization)
 			w := httptest.NewRecorder()
 			c.fn(h, w, r)
 			if w.Code != http.StatusNoContent {
@@ -247,8 +247,8 @@ func TestGroupParticipantActions(t *testing.T) {
 func TestUpdateGroup_ThreadsSettings(t *testing.T) {
 	svc := &fakeGroupSvc{}
 	h := &Handlers{Groups: svc}
-	r := withTenant(chiReq(http.MethodPatch, "/x", `{"subject":"New","announce":true}`,
-		map[string]string{"session": "s", "gid": "g@g.us"}), testTenant)
+	r := withOrganization(chiReq(http.MethodPatch, "/x", `{"subject":"New","announce":true}`,
+		map[string]string{"session": "s", "gid": "g@g.us"}), testOrganization)
 	w := httptest.NewRecorder()
 	h.UpdateGroup(w, r)
 	if w.Code != http.StatusNoContent {
@@ -265,7 +265,7 @@ func TestUpdateGroup_ThreadsSettings(t *testing.T) {
 func TestJoinGroup_HappyPath(t *testing.T) {
 	svc := &fakeGroupSvc{joinJID: "999@g.us"}
 	h := &Handlers{Groups: svc}
-	r := withTenant(chiReq(http.MethodPost, "/x", `{"invite":"abc"}`, map[string]string{"session": "s"}), testTenant)
+	r := withOrganization(chiReq(http.MethodPost, "/x", `{"invite":"abc"}`, map[string]string{"session": "s"}), testOrganization)
 	w := httptest.NewRecorder()
 	h.JoinGroup(w, r)
 	if w.Code != http.StatusOK {
@@ -276,8 +276,8 @@ func TestJoinGroup_HappyPath(t *testing.T) {
 func TestApproveGroupMembers_NotImplementedPropagates(t *testing.T) {
 	svc := &fakeGroupSvc{err: domain.ErrNotImplemented("group membership approval is not implemented yet")}
 	h := &Handlers{Groups: svc}
-	r := withTenant(chiReq(http.MethodPost, "/x", `{"participants":["a@s.whatsapp.net"]}`,
-		map[string]string{"session": "s", "gid": "g@g.us"}), testTenant)
+	r := withOrganization(chiReq(http.MethodPost, "/x", `{"participants":["a@s.whatsapp.net"]}`,
+		map[string]string{"session": "s", "gid": "g@g.us"}), testOrganization)
 	w := httptest.NewRecorder()
 	h.ApproveGroupMembers(w, r)
 	if w.Code != http.StatusNotImplemented {
@@ -292,7 +292,7 @@ func TestApproveGroupMembers_NotImplementedPropagates(t *testing.T) {
 func TestCreateChannel_HappyPath(t *testing.T) {
 	svc := &fakeChannelSvc{jid: "123@newsletter"}
 	h := &Handlers{Channels: svc}
-	r := withTenant(chiReq(http.MethodPost, "/x", `{"name":"News"}`, map[string]string{"session": "s"}), testTenant)
+	r := withOrganization(chiReq(http.MethodPost, "/x", `{"name":"News"}`, map[string]string{"session": "s"}), testOrganization)
 	w := httptest.NewRecorder()
 	h.CreateChannel(w, r)
 	if w.Code != http.StatusCreated {
@@ -303,7 +303,7 @@ func TestCreateChannel_HappyPath(t *testing.T) {
 func TestCreateChannel_NotImplementedPropagates(t *testing.T) {
 	svc := &fakeChannelSvc{err: domain.ErrNotImplemented("channel create is not implemented yet")}
 	h := &Handlers{Channels: svc}
-	r := withTenant(chiReq(http.MethodPost, "/x", `{"name":"News"}`, map[string]string{"session": "s"}), testTenant)
+	r := withOrganization(chiReq(http.MethodPost, "/x", `{"name":"News"}`, map[string]string{"session": "s"}), testOrganization)
 	w := httptest.NewRecorder()
 	h.CreateChannel(w, r)
 	if w.Code != http.StatusNotImplemented {
@@ -314,7 +314,7 @@ func TestCreateChannel_NotImplementedPropagates(t *testing.T) {
 func TestMuteChannel_DefaultsToMute(t *testing.T) {
 	svc := &fakeChannelSvc{}
 	h := &Handlers{Channels: svc}
-	r := withTenant(chiReq(http.MethodPost, "/x", `{}`, map[string]string{"session": "s", "jid": "c@newsletter"}), testTenant)
+	r := withOrganization(chiReq(http.MethodPost, "/x", `{}`, map[string]string{"session": "s", "jid": "c@newsletter"}), testOrganization)
 	w := httptest.NewRecorder()
 	h.MuteChannel(w, r)
 	if w.Code != http.StatusNoContent {
@@ -332,7 +332,7 @@ func TestMuteChannel_DefaultsToMute(t *testing.T) {
 func TestPostStatus_TextHappyPath(t *testing.T) {
 	svc := &fakeStatusSvc{id: "WAMSG1"}
 	h := &Handlers{Status: svc}
-	r := withTenant(chiReq(http.MethodPost, "/x", `{"type":"text","text":"hi"}`, map[string]string{"session": "s"}), testTenant)
+	r := withOrganization(chiReq(http.MethodPost, "/x", `{"type":"text","text":"hi"}`, map[string]string{"session": "s"}), testOrganization)
 	w := httptest.NewRecorder()
 	h.PostStatus(w, r)
 	if w.Code != http.StatusOK {
@@ -342,7 +342,7 @@ func TestPostStatus_TextHappyPath(t *testing.T) {
 
 func TestPostStatus_Image501(t *testing.T) {
 	h := &Handlers{Status: &fakeStatusSvc{}}
-	r := withTenant(chiReq(http.MethodPost, "/x", `{"type":"image"}`, map[string]string{"session": "s"}), testTenant)
+	r := withOrganization(chiReq(http.MethodPost, "/x", `{"type":"image"}`, map[string]string{"session": "s"}), testOrganization)
 	w := httptest.NewRecorder()
 	h.PostStatus(w, r)
 	if w.Code != http.StatusNotImplemented {
@@ -353,7 +353,7 @@ func TestPostStatus_Image501(t *testing.T) {
 	}
 }
 
-func TestPostStatus_NoTenant401(t *testing.T) {
+func TestPostStatus_NoOrganization401(t *testing.T) {
 	h := &Handlers{Status: &fakeStatusSvc{}}
 	r := chiReq(http.MethodPost, "/x", `{"type":"text","text":"hi"}`, map[string]string{"session": "s"})
 	w := httptest.NewRecorder()
@@ -370,7 +370,7 @@ func TestPostStatus_NoTenant401(t *testing.T) {
 func TestSetPresence_HappyPath(t *testing.T) {
 	svc := &fakePresenceSvc{}
 	h := &Handlers{Presence: svc}
-	r := withTenant(chiReq(http.MethodPut, "/x", `{"state":"online"}`, map[string]string{"session": "sess_1"}), testTenant)
+	r := withOrganization(chiReq(http.MethodPut, "/x", `{"state":"online"}`, map[string]string{"session": "sess_1"}), testOrganization)
 	w := httptest.NewRecorder()
 	h.SetPresence(w, r)
 	if w.Code != http.StatusNoContent {
@@ -384,7 +384,7 @@ func TestSetPresence_HappyPath(t *testing.T) {
 func TestSetPresence_ValidationPropagates(t *testing.T) {
 	svc := &fakePresenceSvc{err: domain.ErrValidation("state must be online or offline")}
 	h := &Handlers{Presence: svc}
-	r := withTenant(chiReq(http.MethodPut, "/x", `{"state":"bogus"}`, map[string]string{"session": "s"}), testTenant)
+	r := withOrganization(chiReq(http.MethodPut, "/x", `{"state":"bogus"}`, map[string]string{"session": "s"}), testOrganization)
 	w := httptest.NewRecorder()
 	h.SetPresence(w, r)
 	if w.Code != http.StatusBadRequest {

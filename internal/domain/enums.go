@@ -76,15 +76,6 @@ const (
 	RoleSuperAdmin GroupRole = "superadmin"
 )
 
-// APIKeyScope mirrors api_keys.scope. "global" is super_admin only and spans
-// all tenants.
-type APIKeyScope string
-
-const (
-	ScopeTenant APIKeyScope = "tenant"
-	ScopeGlobal APIKeyScope = "global"
-)
-
 // WebhookDeliveryStatus mirrors webhook_deliveries.status. "dead" = retries
 // exhausted.
 type WebhookDeliveryStatus string

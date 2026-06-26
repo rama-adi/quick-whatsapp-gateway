@@ -56,8 +56,8 @@ func (a *ManagerSessionRepo) GetByJID(ctx context.Context, jid string) (*domain.
 	return &s, nil
 }
 
-func (a *ManagerSessionRepo) ListByTenant(ctx context.Context, tenantID string) ([]*domain.WASession, error) {
-	rows, err := a.repo.ListByTenant(ctx, tenantID)
+func (a *ManagerSessionRepo) ListByOrg(ctx context.Context, organizationID string) ([]*domain.WASession, error) {
+	rows, err := a.repo.ListByOrg(ctx, organizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -158,9 +158,9 @@ func NewInboundLogHandler(log *slog.Logger) *InboundLogHandler {
 
 var _ wa.InboundHandler = (*InboundLogHandler)(nil)
 
-func (h *InboundLogHandler) Handle(ctx context.Context, sessionID, tenantID string, isAdmin bool, evt any) {
+func (h *InboundLogHandler) Handle(ctx context.Context, sessionID, organizationID string, isAdmin bool, evt any) {
 	h.log.DebugContext(ctx, "inbound event (pipeline not yet wired)",
-		"session", sessionID, "tenant", tenantID, "type", typeName(evt))
+		"session", sessionID, "organization", organizationID, "type", typeName(evt))
 }
 
 func typeName(v any) string {

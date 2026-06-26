@@ -24,9 +24,9 @@ func NewEventLogReaderAdapter(repo *store.EventLogRepo) *EventLogReaderAdapter {
 var _ stream.EventLogReader = (*EventLogReaderAdapter)(nil)
 
 // ListSince resolves afterEventID to the monotonic cursor and returns the next
-// page of entries for the tenant/session. An empty/unknown afterEventID replays
+// page of entries for the organization/session. An empty/unknown afterEventID replays
 // from the start.
-func (a *EventLogReaderAdapter) ListSince(ctx context.Context, tenant, session, afterEventID string, limit int) ([]domain.EventLogEntry, error) {
+func (a *EventLogReaderAdapter) ListSince(ctx context.Context, organization, session, afterEventID string, limit int) ([]domain.EventLogEntry, error) {
 	var afterID uint64
 	if afterEventID != "" {
 		entry, err := a.repo.GetByEventID(ctx, afterEventID)
@@ -35,5 +35,5 @@ func (a *EventLogReaderAdapter) ListSince(ctx context.Context, tenant, session, 
 		}
 		// Unknown event id -> replay from start (afterID stays 0).
 	}
-	return a.repo.ListSince(ctx, tenant, session, afterID, limit)
+	return a.repo.ListSince(ctx, organization, session, afterID, limit)
 }

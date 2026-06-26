@@ -20,7 +20,7 @@ import (
 // event type we don't model). When ok is true, both the Event and the
 // *NormalizedMessage are non-nil and consistent.
 type Normalizer interface {
-	Normalize(evt any, sessionID, tenantID string) (domain.Event, *NormalizedMessage, bool)
+	Normalize(evt any, sessionID, organizationID string) (domain.Event, *NormalizedMessage, bool)
 }
 
 // CommandRegistry handles admin-session private commands (§6/§7). On the admin

@@ -11,7 +11,7 @@ import (
 
 // Publisher is the EventSink the inbound pipeline (and anything else producing
 // events) writes to. It serializes each domain.Event to its canonical JSON
-// envelope and publishes it to the per-(tenant, session) Redis channel, where
+// envelope and publishes it to the per-(organization, session) Redis channel, where
 // live NDJSON connections pick it up.
 //
 // Note: the Publisher only fans out over pub/sub. Durable persistence to
@@ -31,21 +31,21 @@ func NewPublisher(rc RedisClient, log *slog.Logger) *Publisher {
 	return &Publisher{redis: rc, log: log}
 }
 
-// Publish marshals the event and posts it to its tenant+session channel. It is
+// Publish marshals the event and posts it to its organization+session channel. It is
 // the method the EventSink consumer interface (defined by event producers)
 // expects, so *Publisher satisfies that interface directly.
 //
-// An empty Tenant is a programming error — without it the event cannot be
+// An empty Organization is a programming error — without it the event cannot be
 // addressed to any subscriber — so we reject it rather than silently dropping.
 func (p *Publisher) Publish(ctx context.Context, e domain.Event) error {
-	if e.Tenant == "" {
-		return fmt.Errorf("stream: cannot publish event %q with empty tenant", e.ID)
+	if e.Organization == "" {
+		return fmt.Errorf("stream: cannot publish event %q with empty organization", e.ID)
 	}
 	data, err := json.Marshal(e)
 	if err != nil {
 		return fmt.Errorf("stream: marshal event %q: %w", e.ID, err)
 	}
-	ch := channelFor(e.Tenant, e.Session)
+	ch := channelFor(e.Organization, e.Session)
 	if err := p.redis.Publish(ctx, ch, data).Err(); err != nil {
 		return fmt.Errorf("stream: publish event %q to %q: %w", e.ID, ch, err)
 	}

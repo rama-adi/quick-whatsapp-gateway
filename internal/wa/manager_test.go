@@ -81,7 +81,7 @@ func (f *fakeRepo) GetByJID(_ context.Context, jid string) (*domain.WASession, e
 	}
 	return s, nil
 }
-func (f *fakeRepo) ListByTenant(context.Context, string) ([]*domain.WASession, error) {
+func (f *fakeRepo) ListByOrg(context.Context, string) ([]*domain.WASession, error) {
 	return nil, nil
 }
 func (f *fakeRepo) Create(_ context.Context, s *domain.WASession) error {
@@ -259,7 +259,7 @@ func TestDeviceJIDs_SkipsUnpaired(t *testing.T) {
 
 func TestBootstrapAdmin_AlreadyPaired_NoCode(t *testing.T) {
 	jid := types.NewJID("628111", types.DefaultUserServer)
-	m, _, _, _, _ := newTestManager(t, Config{AdminNumber: "628111", AdminTenantID: "ten_admin"})
+	m, _, _, _, _ := newTestManager(t, Config{AdminNumber: "628111", AdminOrganizationID: "ten_admin"})
 	code, err := m.bootstrapAdmin(context.Background(), []*store.Device{{ID: &jid}})
 	if err != nil {
 		t.Fatal(err)
@@ -270,7 +270,7 @@ func TestBootstrapAdmin_AlreadyPaired_NoCode(t *testing.T) {
 }
 
 func TestBootstrapAdmin_NeedsPairing_ReturnsCode(t *testing.T) {
-	m, repo, sink, _, _ := newTestManager(t, Config{AdminNumber: "628111", AdminTenantID: "ten_admin"})
+	m, repo, sink, _, _ := newTestManager(t, Config{AdminNumber: "628111", AdminOrganizationID: "ten_admin"})
 	code, err := m.bootstrapAdmin(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -330,8 +330,8 @@ func TestShouldResume(t *testing.T) {
 
 func TestSetStatus_EmitsOnChangeOnly(t *testing.T) {
 	m, repo, sink, _, _ := newTestManager(t, Config{})
-	repo.byID["sess_1"] = &domain.WASession{ID: "sess_1", TenantID: "ten_1", Status: domain.SessionStopped}
-	ms := &ManagedSession{SessionID: "sess_1", TenantID: "ten_1", status: domain.SessionStopped}
+	repo.byID["sess_1"] = &domain.WASession{ID: "sess_1", OrganizationID: "ten_1", Status: domain.SessionStopped}
+	ms := &ManagedSession{SessionID: "sess_1", OrganizationID: "ten_1", status: domain.SessionStopped}
 	m.mu.Lock()
 	m.sessions["sess_1"] = ms
 	m.mu.Unlock()
@@ -350,14 +350,14 @@ func TestSetStatus_EmitsOnChangeOnly(t *testing.T) {
 
 func TestEventHandler_TerminalEventStopsReconnect(t *testing.T) {
 	m, repo, sink, inbound, fc := newTestManager(t, Config{})
-	repo.byID["sess_1"] = &domain.WASession{ID: "sess_1", TenantID: "ten_1", Status: domain.SessionWorking}
+	repo.byID["sess_1"] = &domain.WASession{ID: "sess_1", OrganizationID: "ten_1", Status: domain.SessionWorking}
 	ms := &ManagedSession{
-		SessionID: "sess_1",
-		TenantID:  "ten_1",
-		status:    domain.SessionWorking,
-		reconnect: true,
-		client:    fc,
-		cancel:    func() {},
+		SessionID:      "sess_1",
+		OrganizationID: "ten_1",
+		status:         domain.SessionWorking,
+		reconnect:      true,
+		client:         fc,
+		cancel:         func() {},
 	}
 	m.mu.Lock()
 	m.sessions["sess_1"] = ms
@@ -393,8 +393,8 @@ func TestEventHandler_TerminalEventStopsReconnect(t *testing.T) {
 
 func TestEventHandler_ConnectedResetsBackoff(t *testing.T) {
 	m, repo, _, _, fc := newTestManager(t, Config{})
-	repo.byID["sess_1"] = &domain.WASession{ID: "sess_1", TenantID: "ten_1", Status: domain.SessionStarting}
-	ms := &ManagedSession{SessionID: "sess_1", TenantID: "ten_1", status: domain.SessionStarting, attempt: 5, client: fc}
+	repo.byID["sess_1"] = &domain.WASession{ID: "sess_1", OrganizationID: "ten_1", Status: domain.SessionStarting}
+	ms := &ManagedSession{SessionID: "sess_1", OrganizationID: "ten_1", status: domain.SessionStarting, attempt: 5, client: fc}
 	m.mu.Lock()
 	m.sessions["sess_1"] = ms
 	m.mu.Unlock()
@@ -413,8 +413,8 @@ func TestEventHandler_ConnectedResetsBackoff(t *testing.T) {
 
 func TestEventHandler_PairSuccessRecordsJID(t *testing.T) {
 	m, repo, _, _, _ := newTestManager(t, Config{})
-	repo.byID["sess_1"] = &domain.WASession{ID: "sess_1", TenantID: "ten_1", Status: domain.SessionScanQR}
-	ms := &ManagedSession{SessionID: "sess_1", TenantID: "ten_1", status: domain.SessionScanQR}
+	repo.byID["sess_1"] = &domain.WASession{ID: "sess_1", OrganizationID: "ten_1", Status: domain.SessionScanQR}
+	ms := &ManagedSession{SessionID: "sess_1", OrganizationID: "ten_1", status: domain.SessionScanQR}
 	m.mu.Lock()
 	m.sessions["sess_1"] = ms
 	m.mu.Unlock()
@@ -473,9 +473,9 @@ func TestStart_UnpairedRejected(t *testing.T) {
 
 func TestStop_TearsDownAndMarksStopped(t *testing.T) {
 	m, repo, sink, _, fc := newTestManager(t, Config{})
-	repo.byID["sess_1"] = &domain.WASession{ID: "sess_1", TenantID: "ten_1", Status: domain.SessionWorking}
+	repo.byID["sess_1"] = &domain.WASession{ID: "sess_1", OrganizationID: "ten_1", Status: domain.SessionWorking}
 	ms := &ManagedSession{
-		SessionID: "sess_1", TenantID: "ten_1", status: domain.SessionWorking,
+		SessionID: "sess_1", OrganizationID: "ten_1", status: domain.SessionWorking,
 		reconnect: true, client: fc, cancel: func() {},
 	}
 	m.mu.Lock()
@@ -501,9 +501,9 @@ func TestLogout_DeletesDeviceAndMarksLoggedOut(t *testing.T) {
 	dev := &store.Device{ID: &jid}
 	m, repo, _, _, fc := newTestManager(t, Config{})
 	ks := m.keystore.(*fakeKeystore)
-	repo.byID["sess_1"] = &domain.WASession{ID: "sess_1", TenantID: "ten_1", Status: domain.SessionWorking}
+	repo.byID["sess_1"] = &domain.WASession{ID: "sess_1", OrganizationID: "ten_1", Status: domain.SessionWorking}
 	ms := &ManagedSession{
-		SessionID: "sess_1", TenantID: "ten_1", status: domain.SessionWorking,
+		SessionID: "sess_1", OrganizationID: "ten_1", status: domain.SessionWorking,
 		reconnect: true, client: fc, device: dev, cancel: func() {},
 	}
 	m.mu.Lock()
@@ -547,7 +547,7 @@ func TestBoot_AdoptsPairedDevices(t *testing.T) {
 	ks := m.keystore.(*fakeKeystore)
 	ks.devices = []*store.Device{dev}
 	// Stopped session: adopted but not resumed.
-	repo.byJID[jid.String()] = &domain.WASession{ID: "sess_1", TenantID: "ten_1", Status: domain.SessionStopped}
+	repo.byJID[jid.String()] = &domain.WASession{ID: "sess_1", OrganizationID: "ten_1", Status: domain.SessionStopped}
 	repo.byID["sess_1"] = repo.byJID[jid.String()]
 
 	if _, err := m.Boot(context.Background()); err != nil {

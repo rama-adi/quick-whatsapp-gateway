@@ -10,9 +10,9 @@ import (
 
 func sessionColRow() []string {
 	return []string{
-		"id", "tenant_id", "label", "status", "wa_jid", "wa_lid", "phone_number",
-		"is_admin_session", "auto_read", "presence_typing", "rate_per_min", "rate_per_hour",
-		"last_connected_at", "created_at", "updated_at",
+		"id", "organization_id", "created_by_user_id", "gateway_id", "label", "status",
+		"wa_jid", "wa_lid", "phone_number", "is_admin_session", "auto_read", "presence_typing",
+		"rate_per_min", "rate_per_hour", "last_connected_at", "created_at", "updated_at",
 	}
 }
 
@@ -21,12 +21,14 @@ func TestSessionRepo_Create(t *testing.T) {
 	repo := NewSessionRepo(db)
 
 	s := domain.WASession{
-		ID: "sess_1", TenantID: "ten_1", Label: strptr("phone"), Status: domain.SessionStopped,
+		ID: "sess_1", OrganizationID: "org_1", CreatedByUserID: strptr("user_1"), GatewayID: "gw_1",
+		Label: strptr("phone"), Status: domain.SessionStopped,
 		AutoRead: true, RatePerMin: 20, RatePerHour: 200, CreatedAt: 100, UpdatedAt: 100,
 	}
 	mock.ExpectExec("INSERT INTO wa_sessions").
-		WithArgs(s.ID, s.TenantID, s.Label, s.Status, s.WAJID, s.WALID, s.PhoneNumber, s.IsAdminSession,
-			s.AutoRead, s.PresenceTyping, s.RatePerMin, s.RatePerHour, s.LastConnectedAt, s.CreatedAt, s.UpdatedAt).
+		WithArgs(s.ID, s.OrganizationID, s.CreatedByUserID, s.GatewayID, s.Label, s.Status, s.WAJID, s.WALID,
+			s.PhoneNumber, s.IsAdminSession, s.AutoRead, s.PresenceTyping, s.RatePerMin, s.RatePerHour,
+			s.LastConnectedAt, s.CreatedAt, s.UpdatedAt).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	if err := repo.Create(context.Background(), s); err != nil {
@@ -42,7 +44,7 @@ func TestSessionRepo_Get(t *testing.T) {
 	repo := NewSessionRepo(db)
 
 	rows := sqlmock.NewRows(sessionColRow()).
-		AddRow("sess_1", "ten_1", "phone", "working", "628@s.whatsapp.net", nil, "628",
+		AddRow("sess_1", "org_1", "user_1", "gw_1", "phone", "working", "628@s.whatsapp.net", nil, "628",
 			false, true, false, 20, 200, int64(500), int64(100), int64(200))
 	mock.ExpectQuery("SELECT .* FROM wa_sessions WHERE id = .").
 		WithArgs("sess_1").WillReturnRows(rows)
@@ -104,19 +106,19 @@ func TestSessionRepo_UpdateStatus_NotFound(t *testing.T) {
 	assertNotFound(t, err)
 }
 
-func TestSessionRepo_ListByTenant(t *testing.T) {
+func TestSessionRepo_ListByOrg(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewSessionRepo(db)
 
 	rows := sqlmock.NewRows(sessionColRow()).
-		AddRow("sess_1", "ten_1", nil, "working", nil, nil, nil, false, true, false, 20, 200, nil, int64(100), int64(100)).
-		AddRow("sess_2", "ten_1", nil, "stopped", nil, nil, nil, false, true, false, 20, 200, nil, int64(90), int64(90))
-	mock.ExpectQuery("SELECT .* FROM wa_sessions WHERE tenant_id = . ORDER BY created_at DESC").
-		WithArgs("ten_1").WillReturnRows(rows)
+		AddRow("sess_1", "org_1", nil, "gw_1", nil, "working", nil, nil, nil, false, true, false, 20, 200, nil, int64(100), int64(100)).
+		AddRow("sess_2", "org_1", nil, "gw_1", nil, "stopped", nil, nil, nil, false, true, false, 20, 200, nil, int64(90), int64(90))
+	mock.ExpectQuery("SELECT .* FROM wa_sessions WHERE organization_id = . ORDER BY created_at DESC").
+		WithArgs("org_1").WillReturnRows(rows)
 
-	got, err := repo.ListByTenant(context.Background(), "ten_1")
+	got, err := repo.ListByOrg(context.Background(), "org_1")
 	if err != nil {
-		t.Fatalf("ListByTenant: %v", err)
+		t.Fatalf("ListByOrg: %v", err)
 	}
 	if len(got) != 2 {
 		t.Fatalf("want 2 rows, got %d", len(got))

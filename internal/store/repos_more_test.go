@@ -9,40 +9,40 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 )
 
-func TestTenantRepo_UpsertAndGet(t *testing.T) {
+func TestGatewayRepo_UpsertAndGet(t *testing.T) {
 	db, mock := newMock(t)
-	repo := NewTenantRepo(db)
+	repo := NewGatewayRepo(db)
 
-	tn := domain.Tenant{ID: "ten_1", Email: "a@b.c", DisplayName: strptr("A"), CreatedAt: 1, UpdatedAt: 2}
-	mock.ExpectExec("INSERT INTO tenants.*ON DUPLICATE KEY UPDATE").
-		WithArgs(tn.ID, tn.Email, tn.DisplayName, tn.CreatedAt, tn.UpdatedAt).
+	g := domain.Gateway{ID: "gw_1", Label: strptr("primary"), BaseURL: strptr("https://gw"), CreatedAt: 1, UpdatedAt: 2}
+	mock.ExpectExec("INSERT INTO gateways.*ON DUPLICATE KEY UPDATE").
+		WithArgs(g.ID, g.Label, g.BaseURL, g.LastSeenAt, g.CreatedAt, g.UpdatedAt).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	if err := repo.Upsert(context.Background(), tn); err != nil {
+	if err := repo.Upsert(context.Background(), g); err != nil {
 		t.Fatalf("Upsert: %v", err)
 	}
 
-	rows := sqlmock.NewRows([]string{"id", "email", "display_name", "created_at", "updated_at"}).
-		AddRow("ten_1", "a@b.c", "A", int64(1), int64(2))
-	mock.ExpectQuery("SELECT .* FROM tenants WHERE email = .").
-		WithArgs("a@b.c").WillReturnRows(rows)
-	got, err := repo.GetByEmail(context.Background(), "a@b.c")
+	rows := sqlmock.NewRows([]string{"id", "label", "base_url", "last_seen_at", "created_at", "updated_at"}).
+		AddRow("gw_1", "primary", "https://gw", nil, int64(1), int64(2))
+	mock.ExpectQuery("SELECT .* FROM gateways WHERE id = .").
+		WithArgs("gw_1").WillReturnRows(rows)
+	got, err := repo.Get(context.Background(), "gw_1")
 	if err != nil {
-		t.Fatalf("GetByEmail: %v", err)
+		t.Fatalf("Get: %v", err)
 	}
-	if got.ID != "ten_1" {
-		t.Fatalf("unexpected tenant: %+v", got)
+	if got.ID != "gw_1" {
+		t.Fatalf("unexpected gateway: %+v", got)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestTenantRepo_GetByID_NotFound(t *testing.T) {
+func TestGatewayRepo_Get_NotFound(t *testing.T) {
 	db, mock := newMock(t)
-	repo := NewTenantRepo(db)
-	mock.ExpectQuery("SELECT .* FROM tenants WHERE id = .").
+	repo := NewGatewayRepo(db)
+	mock.ExpectQuery("SELECT .* FROM gateways WHERE id = .").
 		WithArgs("x").WillReturnError(noRows())
-	_, err := repo.GetByID(context.Background(), "x")
+	_, err := repo.Get(context.Background(), "x")
 	assertNotFound(t, err)
 }
 
@@ -51,7 +51,7 @@ func TestWebhookRepo_CreateAndScanJSON(t *testing.T) {
 	repo := NewWebhookRepo(db)
 
 	w := domain.Webhook{
-		ID: "wh_1", TenantID: "ten_1", URL: "https://x", Events: []string{"message", "*"},
+		ID: "wh_1", OrganizationID: "ten_1", URL: "https://x", Events: []string{"message", "*"},
 		HMACSecret: []byte{1, 2, 3}, CustomHeaders: map[string]string{"X": "Y"},
 		RetryPolicy: domain.RetryPolicy{Policy: "exponential", DelaySeconds: 2, Attempts: 15},
 		Active:      true, CreatedAt: 1, UpdatedAt: 1,
@@ -60,14 +60,14 @@ func TestWebhookRepo_CreateAndScanJSON(t *testing.T) {
 	headers, _ := json.Marshal(w.CustomHeaders)
 	retry, _ := json.Marshal(w.RetryPolicy)
 	mock.ExpectExec("INSERT INTO webhooks").
-		WithArgs(w.ID, w.TenantID, w.SessionID, w.URL, events, w.HMACSecret, headers, retry, w.Active, w.CreatedAt, w.UpdatedAt).
+		WithArgs(w.ID, w.OrganizationID, w.SessionID, w.URL, events, w.HMACSecret, headers, retry, w.Active, w.CreatedAt, w.UpdatedAt).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	if err := repo.Create(context.Background(), w); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
 	rows := sqlmock.NewRows([]string{
-		"id", "tenant_id", "session_id", "url", "events", "hmac_secret",
+		"id", "organization_id", "session_id", "url", "events", "hmac_secret",
 		"custom_headers", "retry_policy", "active", "created_at", "updated_at",
 	}).AddRow("wh_1", "ten_1", nil, "https://x", events, []byte{1, 2, 3}, headers, retry, true, int64(1), int64(1))
 	mock.ExpectQuery("SELECT .* FROM webhooks WHERE id = .").
@@ -94,14 +94,14 @@ func TestWebhookRepo_Create_NilHeaders(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewWebhookRepo(db)
 	w := domain.Webhook{
-		ID: "wh_2", TenantID: "ten_1", URL: "https://x", Events: []string{"*"},
+		ID: "wh_2", OrganizationID: "ten_1", URL: "https://x", Events: []string{"*"},
 		RetryPolicy: domain.RetryPolicy{Policy: "exponential"}, Active: true,
 	}
 	events, _ := json.Marshal(w.Events)
 	retry, _ := json.Marshal(w.RetryPolicy)
 	// nil custom headers must bind as SQL NULL.
 	mock.ExpectExec("INSERT INTO webhooks").
-		WithArgs(w.ID, w.TenantID, w.SessionID, w.URL, events, w.HMACSecret, nil, retry, w.Active, w.CreatedAt, w.UpdatedAt).
+		WithArgs(w.ID, w.OrganizationID, w.SessionID, w.URL, events, w.HMACSecret, nil, retry, w.Active, w.CreatedAt, w.UpdatedAt).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	if err := repo.Create(context.Background(), w); err != nil {
 		t.Fatalf("Create: %v", err)

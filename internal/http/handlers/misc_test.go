@@ -14,7 +14,7 @@ func TestEvents_DelegatesToStreamHandler(t *testing.T) {
 		called = true
 		w.WriteHeader(http.StatusOK)
 	})}
-	r := withTenant(chiReq(http.MethodGet, "/api/v1/events", "", nil), testTenant)
+	r := withOrganization(chiReq(http.MethodGet, "/api/v1/events", "", nil), testOrganization)
 	w := httptest.NewRecorder()
 	h.Events(w, r)
 	if !called {
@@ -24,7 +24,7 @@ func TestEvents_DelegatesToStreamHandler(t *testing.T) {
 
 func TestEvents_NilStream500(t *testing.T) {
 	h := &Handlers{}
-	r := withTenant(chiReq(http.MethodGet, "/api/v1/events", "", nil), testTenant)
+	r := withOrganization(chiReq(http.MethodGet, "/api/v1/events", "", nil), testOrganization)
 	w := httptest.NewRecorder()
 	h.Events(w, r)
 	if w.Code != http.StatusInternalServerError {

@@ -26,12 +26,12 @@ func NewContactService(s *store.Store, directory ContactDirectory, log *slog.Log
 	return &ContactService{store: s, directory: directory, log: log}
 }
 
-func (s *ContactService) requireSession(ctx context.Context, tenantID, sessionID string) error {
+func (s *ContactService) requireSession(ctx context.Context, organizationID, sessionID string) error {
 	sess, err := s.store.Sessions.Get(ctx, sessionID)
 	if err != nil {
 		return err
 	}
-	if sess.TenantID != tenantID {
+	if sess.OrganizationID != organizationID {
 		return domain.ErrNotFound("session not found")
 	}
 	return nil
@@ -39,8 +39,8 @@ func (s *ContactService) requireSession(ctx context.Context, tenantID, sessionID
 
 // List returns a page of found-user contacts, applying the §11 filters
 // (?source=dm|group, ?group=, ?q=).
-func (s *ContactService) List(ctx context.Context, tenantID, sessionID string, f store.ContactFilter, cursor string, limit int) (store.Page[domain.Contact], error) {
-	if err := s.requireSession(ctx, tenantID, sessionID); err != nil {
+func (s *ContactService) List(ctx context.Context, organizationID, sessionID string, f store.ContactFilter, cursor string, limit int) (store.Page[domain.Contact], error) {
+	if err := s.requireSession(ctx, organizationID, sessionID); err != nil {
 		return store.Page[domain.Contact]{}, err
 	}
 	if f.Source != "" && f.Source != "dm" && f.Source != "group" {
@@ -69,8 +69,8 @@ type ContactDetail struct {
 
 // Get returns a contact's identity + DM + group memberships. Prefers the push
 // name from the global identity; nickname is per-group from the membership pivot.
-func (s *ContactService) Get(ctx context.Context, tenantID, sessionID, lid string) (ContactDetail, error) {
-	if err := s.requireSession(ctx, tenantID, sessionID); err != nil {
+func (s *ContactService) Get(ctx context.Context, organizationID, sessionID, lid string) (ContactDetail, error) {
+	if err := s.requireSession(ctx, organizationID, sessionID); err != nil {
 		return ContactDetail{}, err
 	}
 	contact, err := s.store.Contacts.Get(ctx, sessionID, lid)
@@ -105,8 +105,8 @@ func (s *ContactService) Get(ctx context.Context, tenantID, sessionID, lid strin
 }
 
 // Check reports whether a phone number is on WhatsApp (§11 contacts/check).
-func (s *ContactService) Check(ctx context.Context, tenantID, sessionID, phone string) (OnWhatsApp, error) {
-	if err := s.requireSession(ctx, tenantID, sessionID); err != nil {
+func (s *ContactService) Check(ctx context.Context, organizationID, sessionID, phone string) (OnWhatsApp, error) {
+	if err := s.requireSession(ctx, organizationID, sessionID); err != nil {
 		return OnWhatsApp{}, err
 	}
 	if phone == "" {
@@ -126,8 +126,8 @@ func (s *ContactService) Check(ctx context.Context, tenantID, sessionID, phone s
 }
 
 // Picture returns a contact's profile picture (§11 contacts/{jid}/picture).
-func (s *ContactService) Picture(ctx context.Context, tenantID, sessionID, jid string) (ProfilePicture, error) {
-	if err := s.requireSession(ctx, tenantID, sessionID); err != nil {
+func (s *ContactService) Picture(ctx context.Context, organizationID, sessionID, jid string) (ProfilePicture, error) {
+	if err := s.requireSession(ctx, organizationID, sessionID); err != nil {
 		return ProfilePicture{}, err
 	}
 	if s.directory == nil {
@@ -137,8 +137,8 @@ func (s *ContactService) Picture(ctx context.Context, tenantID, sessionID, jid s
 }
 
 // About returns a contact's status text (§11 contacts/{jid}/about).
-func (s *ContactService) About(ctx context.Context, tenantID, sessionID, jid string) (string, error) {
-	if err := s.requireSession(ctx, tenantID, sessionID); err != nil {
+func (s *ContactService) About(ctx context.Context, organizationID, sessionID, jid string) (string, error) {
+	if err := s.requireSession(ctx, organizationID, sessionID); err != nil {
 		return "", err
 	}
 	if s.directory == nil {
@@ -148,8 +148,8 @@ func (s *ContactService) About(ctx context.Context, tenantID, sessionID, jid str
 }
 
 // SetBlocked blocks or unblocks a contact (§11 contacts/{jid}/block|unblock).
-func (s *ContactService) SetBlocked(ctx context.Context, tenantID, sessionID, jid string, blocked bool) error {
-	if err := s.requireSession(ctx, tenantID, sessionID); err != nil {
+func (s *ContactService) SetBlocked(ctx context.Context, organizationID, sessionID, jid string, blocked bool) error {
+	if err := s.requireSession(ctx, organizationID, sessionID); err != nil {
 		return err
 	}
 	if s.directory == nil {

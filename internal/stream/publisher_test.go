@@ -13,7 +13,7 @@ func TestPublisher_PublishFanOut(t *testing.T) {
 	_, rc := newMiniRedis(t)
 	pub := NewPublisher(rc, nil)
 
-	// Subscriber on the exact tenant+session channel.
+	// Subscriber on the exact organization+session channel.
 	sub := rc.Subscribe(context.Background(), channelFor("ten_a", "sess_1"))
 	defer sub.Close()
 	if _, err := sub.Receive(context.Background()); err != nil { // wait for subscription
@@ -32,7 +32,7 @@ func TestPublisher_PublishFanOut(t *testing.T) {
 		if err := json.Unmarshal([]byte(msg.Payload), &got); err != nil {
 			t.Fatalf("unmarshal delivered: %v", err)
 		}
-		if got.ID != e.ID || got.Type != domain.EventMessage || got.Tenant != "ten_a" {
+		if got.ID != e.ID || got.Type != domain.EventMessage || got.Organization != "ten_a" {
 			t.Errorf("delivered event mismatch: %+v", got)
 		}
 		if got.Schema != domain.Schema {
@@ -43,12 +43,12 @@ func TestPublisher_PublishFanOut(t *testing.T) {
 	}
 }
 
-func TestPublisher_EmptyTenantRejected(t *testing.T) {
+func TestPublisher_EmptyOrganizationRejected(t *testing.T) {
 	_, rc := newMiniRedis(t)
 	pub := NewPublisher(rc, nil)
 
 	e := domain.NewEvent(domain.EventMessage, "sess_1", "", nil)
 	if err := pub.Publish(context.Background(), e); err == nil {
-		t.Fatal("expected error publishing event with empty tenant")
+		t.Fatal("expected error publishing event with empty organization")
 	}
 }

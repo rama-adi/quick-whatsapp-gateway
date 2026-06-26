@@ -16,13 +16,13 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa/outbound"
 )
 
-// testTenant is the tenant id injected into request contexts by withTenant.
-const testTenant = "ten_test"
+// testOrganization is the organization id injected into request contexts by withOrganization.
+const testOrganization = "ten_test"
 
-// withTenant returns r with the tenant id set on its context, mirroring what the
+// withOrganization returns r with the organization id set on its context, mirroring what the
 // auth middleware does in production.
-func withTenant(r *http.Request, tenantID string) *http.Request {
-	return r.WithContext(httpx.SetTenantID(r.Context(), tenantID))
+func withOrganization(r *http.Request, organizationID string) *http.Request {
+	return r.WithContext(httpx.SetOrganizationID(r.Context(), organizationID))
 }
 
 // chiReq builds a request whose chi RouteContext carries the given URL params,
@@ -140,28 +140,6 @@ func (f *fakeMessageSvc) Forward(_ context.Context, _, _, _, _, _, _ string) (ou
 func (f *fakeMessageSvc) Vote(_ context.Context, _, _, _, _, _ string, _ []string) (outbound.SendResult, error) {
 	f.lastOp = "vote"
 	return f.result, f.err
-}
-
-// --- Fake KeySvc ---
-
-type fakeKeySvc struct {
-	createRes service.CreateKeyResult
-	list      []domain.APIKey
-	one       domain.APIKey
-	rotateRes service.CreateKeyResult
-	err       error
-}
-
-func (f *fakeKeySvc) Create(context.Context, string, service.CreateKeyInput) (service.CreateKeyResult, error) {
-	return f.createRes, f.err
-}
-func (f *fakeKeySvc) List(context.Context, string) ([]domain.APIKey, error) { return f.list, f.err }
-func (f *fakeKeySvc) Get(context.Context, string, string) (domain.APIKey, error) {
-	return f.one, f.err
-}
-func (f *fakeKeySvc) Delete(context.Context, string, string) error { return f.err }
-func (f *fakeKeySvc) Rotate(context.Context, string, string) (service.CreateKeyResult, error) {
-	return f.rotateRes, f.err
 }
 
 // --- Fake WebhookSvc ---

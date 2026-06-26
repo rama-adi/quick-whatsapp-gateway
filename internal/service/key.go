@@ -2,167 +2,81 @@ package service
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/crypto"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
 )
 
-// KeyService owns the account-global API key lifecycle (§10): create (full key
-// shown once), list, get, delete (revoke), and rotate. It also implements the
-// middleware APIKeyVerifier used on the authenticated /api/v1 surface.
-type KeyService struct {
-	keys    *store.APIKeyRepo
-	tenants *store.TenantRepo
-	log     *slog.Logger
+// KeyHasher hashes a presented raw api-key into the digest stored in better-auth's
+// `apikey.key` column, so the gateway can look the row up. better-auth hashes keys
+// deterministically by default; the concrete implementation (which MUST match the
+// pinned better-auth version's scheme) is supplied by the authz package in a later
+// stage. Defining it as an interface here keeps the hashing scheme in one place and
+// lets the verifier be unit-tested with a fake hasher.
+type KeyHasher interface {
+	HashKey(rawKey string) (string, error)
 }
 
-// compile-time proof KeyService implements the middleware verifier contract
-// (the same shape as middleware.APIKeyVerifier, redeclared here to avoid an
-// import cycle through the http middleware package).
-var _ interface {
-	Verify(ctx context.Context, rawKey string) (*domain.APIKey, *domain.Tenant, error)
-} = (*KeyService)(nil)
+// KeyVerifier is the gateway's READ-ONLY better-auth api-key verifier (§4.2). It
+// no longer owns any key lifecycle (create/list/revoke/rotate moved to the
+// frontend's better-auth api-key plugin, §6). Given a presented raw key it hashes
+// it, looks up the row in the shared `apikey` table, checks enabled/expiry, and
+// resolves the owning organization id. It implements middleware.APIKeyVerifier.
+type KeyVerifier struct {
+	keys   *store.APIKeyRepo
+	hasher KeyHasher
+	log    *slog.Logger
+}
 
-// NewKeyService constructs a KeyService.
-func NewKeyService(keys *store.APIKeyRepo, tenants *store.TenantRepo, log *slog.Logger) *KeyService {
+// compile-time proof KeyVerifier implements the middleware verifier contract (the
+// same shape as middleware.APIKeyVerifier, redeclared here to avoid an import
+// cycle through the http middleware package).
+var _ interface {
+	Verify(ctx context.Context, rawKey string) (*domain.APIKey, string, error)
+} = (*KeyVerifier)(nil)
+
+// NewKeyVerifier constructs a KeyVerifier over the read-only apikey repo and the
+// better-auth key hasher. hasher may be nil only in tests that never call Verify.
+func NewKeyVerifier(keys *store.APIKeyRepo, hasher KeyHasher, log *slog.Logger) *KeyVerifier {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &KeyService{keys: keys, tenants: tenants, log: log}
+	return &KeyVerifier{keys: keys, hasher: hasher, log: log}
 }
 
-// CreateKeyInput is the body of POST /keys.
-type CreateKeyInput struct {
-	Name        string
-	Permissions domain.Permissions
-	Scope       domain.APIKeyScope
-	ExpiresAt   *int64
-}
-
-// CreateKeyResult carries the freshly-minted key. FullKey is the only time the
-// secret is ever exposed; only its prefix + argon2id hash are persisted.
-type CreateKeyResult struct {
-	Key     domain.APIKey `json:"key"`
-	FullKey string        `json:"fullKey"`
-}
-
-// Create mints a new API key for the tenant. The full key is returned once.
-func (s *KeyService) Create(ctx context.Context, tenantID string, in CreateKeyInput) (CreateKeyResult, error) {
-	if in.Name == "" {
-		return CreateKeyResult{}, domain.ErrValidation("name is required")
+// Verify implements middleware.APIKeyVerifier: it hashes the presented key with
+// better-auth's scheme, loads the `apikey` row by that hash, rejects
+// disabled/expired keys, and returns the key plus its owning organization id. Any
+// failure returns an error (the middleware maps every failure to a 401 without
+// leaking which check failed).
+func (v *KeyVerifier) Verify(ctx context.Context, rawKey string) (*domain.APIKey, string, error) {
+	if v.hasher == nil {
+		return nil, "", domain.ErrInternal("api key hasher not configured")
 	}
-	scope := in.Scope
-	if scope == "" {
-		scope = domain.ScopeTenant
-	}
-	full, prefix, hash, err := crypto.GenerateAPIKey()
+	hash, err := v.hasher.HashKey(rawKey)
 	if err != nil {
-		return CreateKeyResult{}, domain.ErrInternal("failed to generate api key")
+		return nil, "", domain.ErrUnauthorized("invalid api key")
+	}
+	k, err := v.keys.GetByHash(ctx, hash)
+	if err != nil {
+		return nil, "", domain.ErrUnauthorized("invalid api key")
+	}
+	if !k.Enabled {
+		return nil, "", domain.ErrUnauthorized("api key disabled")
 	}
 	now := domain.NowMs()
-	k := domain.APIKey{
-		ID:          domain.NewAPIKeyID(),
-		TenantID:    tenantID,
-		Name:        in.Name,
-		KeyPrefix:   prefix,
-		KeyHash:     hash,
-		Scope:       scope,
-		Permissions: in.Permissions,
-		ExpiresAt:   in.ExpiresAt,
-		CreatedAt:   now,
-	}
-	if err := s.keys.Create(ctx, k); err != nil {
-		return CreateKeyResult{}, err
-	}
-	return CreateKeyResult{Key: k, FullKey: full}, nil
-}
-
-// List returns the tenant's keys.
-func (s *KeyService) List(ctx context.Context, tenantID string) ([]domain.APIKey, error) {
-	return s.keys.ListByTenant(ctx, tenantID)
-}
-
-// Get loads one key, enforcing tenant ownership.
-func (s *KeyService) Get(ctx context.Context, tenantID, id string) (domain.APIKey, error) {
-	k, err := s.keys.Get(ctx, id)
-	if err != nil {
-		return domain.APIKey{}, err
-	}
-	if k.TenantID != tenantID {
-		return domain.APIKey{}, domain.ErrNotFound("api key not found")
-	}
-	return k, nil
-}
-
-// Delete revokes a key (soft-delete: revoked_at stamped).
-func (s *KeyService) Delete(ctx context.Context, tenantID, id string) error {
-	if _, err := s.Get(ctx, tenantID, id); err != nil {
-		return err
-	}
-	return s.keys.Revoke(ctx, id, domain.NowMs())
-}
-
-// Rotate replaces a key's secret in place, returning the new full key once.
-func (s *KeyService) Rotate(ctx context.Context, tenantID, id string) (CreateKeyResult, error) {
-	k, err := s.Get(ctx, tenantID, id)
-	if err != nil {
-		return CreateKeyResult{}, err
-	}
-	full, prefix, hash, err := crypto.GenerateAPIKey()
-	if err != nil {
-		return CreateKeyResult{}, domain.ErrInternal("failed to generate api key")
-	}
-	if err := s.keys.Rotate(ctx, id, prefix, hash); err != nil {
-		return CreateKeyResult{}, err
-	}
-	k.KeyPrefix = prefix
-	k.RevokedAt = nil
-	k.LastUsedAt = nil
-	return CreateKeyResult{Key: k, FullKey: full}, nil
-}
-
-// Verify implements middleware.APIKeyVerifier: it parses the lookup prefix from
-// the presented key, loads the row, verifies the argon2id hash in constant time,
-// rejects revoked/expired keys, loads the owning tenant, and best-effort bumps
-// last_used_at. Any failure returns an error (the middleware maps every failure
-// to a 401 without leaking which check failed).
-func (s *KeyService) Verify(ctx context.Context, rawKey string) (*domain.APIKey, *domain.Tenant, error) {
-	prefix, err := crypto.PrefixOf(rawKey)
-	if err != nil {
-		return nil, nil, domain.ErrUnauthorized("invalid api key")
-	}
-	k, err := s.keys.GetByPrefix(ctx, prefix)
-	if err != nil {
-		return nil, nil, domain.ErrUnauthorized("invalid api key")
-	}
-	if !crypto.VerifyAPIKey(rawKey, k.KeyHash) {
-		return nil, nil, domain.ErrUnauthorized("invalid api key")
-	}
-	now := domain.NowMs()
-	if k.RevokedAt != nil {
-		return nil, nil, domain.ErrUnauthorized("api key revoked")
-	}
 	if k.ExpiresAt != nil && *k.ExpiresAt <= now {
-		return nil, nil, domain.ErrUnauthorized("api key expired")
+		return nil, "", domain.ErrUnauthorized("api key expired")
 	}
-	tenant, err := s.tenants.GetByID(ctx, k.TenantID)
-	if err != nil {
-		// A global-scope key may not have a tenant mirror row; tolerate that by
-		// synthesizing a minimal tenant from the key.
-		var apiErr *domain.APIError
-		if errors.As(err, &apiErr) && apiErr.Code == domain.CodeNotFound {
-			tenant = domain.Tenant{ID: k.TenantID}
-		} else {
-			return nil, nil, domain.ErrUnauthorized("invalid api key")
-		}
+	if k.OrganizationID == "" {
+		// A key with no organizationId cannot own org-scoped resources (§4.2).
+		return nil, "", domain.ErrUnauthorized("api key not bound to an organization")
 	}
-	// Best-effort last-used stamp; a failure must not reject the request.
-	if err := s.keys.UpdateLastUsed(ctx, k.ID, now); err != nil {
-		s.log.WarnContext(ctx, "update api key last_used failed", "key_id", k.ID, "err", err)
+	// Best-effort last-request stamp; a failure must not reject the request.
+	if err := v.keys.TouchLastRequest(ctx, k.ID, now); err != nil {
+		v.log.WarnContext(ctx, "touch api key lastRequest failed", "key_id", k.ID, "err", err)
 	}
 	k.LastUsedAt = &now
-	return &k, &tenant, nil
+	return &k, k.OrganizationID, nil
 }

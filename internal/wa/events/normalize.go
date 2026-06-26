@@ -21,83 +21,83 @@ import (
 // Media is always metadata-only in v1 — HasMedia is set with mimetype/size/
 // filename, but the media body is never downloaded and Media stays null on the
 // wire (§9).
-func Normalize(evt any, sessionID, tenantID string) (domain.Event, PersistResult, bool) {
+func Normalize(evt any, sessionID, organizationID string) (domain.Event, PersistResult, bool) {
 	switch e := evt.(type) {
 	case *events.Message:
-		return normalizeMessage(e, sessionID, tenantID)
+		return normalizeMessage(e, sessionID, organizationID)
 	case *events.Receipt:
-		return normalizeReceipt(e, sessionID, tenantID)
+		return normalizeReceipt(e, sessionID, organizationID)
 	case *events.Connected:
-		return sessionStatus(domain.SessionWorking, sessionID, tenantID)
+		return sessionStatus(domain.SessionWorking, sessionID, organizationID)
 	case *events.Disconnected:
 		// A plain disconnect is transient (the manager reconnects); report it as a
 		// status change so dashboards can reflect it, but it's not terminal.
-		return sessionStatus(domain.SessionStarting, sessionID, tenantID)
+		return sessionStatus(domain.SessionStarting, sessionID, organizationID)
 	case *events.LoggedOut:
-		return sessionStatus(domain.SessionLoggedOut, sessionID, tenantID)
+		return sessionStatus(domain.SessionLoggedOut, sessionID, organizationID)
 	case *events.StreamReplaced:
-		return sessionStatus(domain.SessionFailed, sessionID, tenantID)
+		return sessionStatus(domain.SessionFailed, sessionID, organizationID)
 	case *events.QR:
-		return normalizeQR(e, sessionID, tenantID)
+		return normalizeQR(e, sessionID, organizationID)
 	case *events.PairSuccess:
-		return normalizePairSuccess(e, sessionID, tenantID)
+		return normalizePairSuccess(e, sessionID, organizationID)
 	case *events.Presence:
-		return normalizePresence(e, sessionID, tenantID)
+		return normalizePresence(e, sessionID, organizationID)
 	case *events.ChatPresence:
-		return normalizeChatPresence(e, sessionID, tenantID)
+		return normalizeChatPresence(e, sessionID, organizationID)
 	case *events.GroupInfo:
-		return normalizeGroupInfo(e, sessionID, tenantID)
+		return normalizeGroupInfo(e, sessionID, organizationID)
 	case *events.JoinedGroup:
-		return normalizeJoinedGroup(e, sessionID, tenantID)
+		return normalizeJoinedGroup(e, sessionID, organizationID)
 	case *events.Picture:
-		return normalizePicture(e, sessionID, tenantID)
+		return normalizePicture(e, sessionID, organizationID)
 	case *events.Contact:
-		return normalizeContact(e, sessionID, tenantID)
+		return normalizeContact(e, sessionID, organizationID)
 	case *events.PushName:
-		return normalizePushName(e, sessionID, tenantID)
+		return normalizePushName(e, sessionID, organizationID)
 	case *events.CallOffer:
-		return normalizeCallOffer(e, sessionID, tenantID)
+		return normalizeCallOffer(e, sessionID, organizationID)
 	case *events.NewsletterJoin:
-		return normalizeNewsletter(e.ID, "join", sessionID, tenantID)
+		return normalizeNewsletter(e.ID, "join", sessionID, organizationID)
 	case *events.NewsletterLeave:
-		return normalizeNewsletter(e.ID, "leave", sessionID, tenantID)
+		return normalizeNewsletter(e.ID, "leave", sessionID, organizationID)
 	case *events.NewsletterMuteChange:
-		return normalizeNewsletter(e.ID, "mute", sessionID, tenantID)
+		return normalizeNewsletter(e.ID, "mute", sessionID, organizationID)
 	default:
 		return domain.Event{}, PersistResult{}, false
 	}
 }
 
 // sessionStatus is the shared builder for the session.status events.
-func sessionStatus(status domain.SessionStatus, sessionID, tenantID string) (domain.Event, PersistResult, bool) {
+func sessionStatus(status domain.SessionStatus, sessionID, organizationID string) (domain.Event, PersistResult, bool) {
 	payload := SessionStatusPayload{Status: string(status)}
-	ev := domain.NewEvent(domain.EventSessionStatus, sessionID, tenantID, payload)
+	ev := domain.NewEvent(domain.EventSessionStatus, sessionID, organizationID, payload)
 	return ev, PersistResult{Kind: PersistSessionStatus, SessionStatus: status}, true
 }
 
-func normalizeQR(e *events.QR, sessionID, tenantID string) (domain.Event, PersistResult, bool) {
+func normalizeQR(e *events.QR, sessionID, organizationID string) (domain.Event, PersistResult, bool) {
 	var code string
 	if len(e.Codes) > 0 {
 		code = e.Codes[0]
 	}
 	payload := AuthQRPayload{Code: code}
-	ev := domain.NewEvent(domain.EventAuthQR, sessionID, tenantID, payload)
+	ev := domain.NewEvent(domain.EventAuthQR, sessionID, organizationID, payload)
 	// QR/pair are transient auth signals, not persisted rows.
 	return ev, PersistResult{Kind: PersistNone}, true
 }
 
-func normalizePairSuccess(e *events.PairSuccess, sessionID, tenantID string) (domain.Event, PersistResult, bool) {
+func normalizePairSuccess(e *events.PairSuccess, sessionID, organizationID string) (domain.Event, PersistResult, bool) {
 	payload := AuthCodePayload{
 		JID:          jidString(e.ID),
 		LID:          jidString(e.LID),
 		BusinessName: e.BusinessName,
 		Platform:     e.Platform,
 	}
-	ev := domain.NewEvent(domain.EventAuthCode, sessionID, tenantID, payload)
+	ev := domain.NewEvent(domain.EventAuthCode, sessionID, organizationID, payload)
 	return ev, PersistResult{Kind: PersistNone}, true
 }
 
-func normalizeReceipt(e *events.Receipt, sessionID, tenantID string) (domain.Event, PersistResult, bool) {
+func normalizeReceipt(e *events.Receipt, sessionID, organizationID string) (domain.Event, PersistResult, bool) {
 	status, ok := receiptStatus(e.Type)
 	if !ok {
 		// Non-status receipts (sender/retry/server-error/etc.) don't update the
@@ -111,7 +111,7 @@ func normalizeReceipt(e *events.Receipt, sessionID, tenantID string) (domain.Eve
 		Status:     string(status),
 		Timestamp:  msFromTime(e.Timestamp),
 	}
-	ev := domain.NewEvent(domain.EventMessageStatus, sessionID, tenantID, payload)
+	ev := domain.NewEvent(domain.EventMessageStatus, sessionID, organizationID, payload)
 	pr := PersistResult{
 		Kind:          PersistMessageStatus,
 		ChatJID:       payload.ChatJID,
@@ -137,7 +137,7 @@ func receiptStatus(t types.ReceiptType) (domain.MessageStatus, bool) {
 	}
 }
 
-func normalizePresence(e *events.Presence, sessionID, tenantID string) (domain.Event, PersistResult, bool) {
+func normalizePresence(e *events.Presence, sessionID, organizationID string) (domain.Event, PersistResult, bool) {
 	state := "available"
 	if e.Unavailable {
 		state = "unavailable"
@@ -148,35 +148,35 @@ func normalizePresence(e *events.Presence, sessionID, tenantID string) (domain.E
 		Unavailable: e.Unavailable,
 		LastSeen:    msFromTime(e.LastSeen),
 	}
-	ev := domain.NewEvent(domain.EventPresenceUpdate, sessionID, tenantID, payload)
+	ev := domain.NewEvent(domain.EventPresenceUpdate, sessionID, organizationID, payload)
 	// Presence is ephemeral; not a persisted row.
 	return ev, PersistResult{Kind: PersistNone}, true
 }
 
-func normalizeChatPresence(e *events.ChatPresence, sessionID, tenantID string) (domain.Event, PersistResult, bool) {
+func normalizeChatPresence(e *events.ChatPresence, sessionID, organizationID string) (domain.Event, PersistResult, bool) {
 	payload := PresencePayload{
 		ChatJID: jidString(e.Chat),
 		From:    jidString(e.Sender),
 		State:   string(e.State),
 		Media:   string(e.Media),
 	}
-	ev := domain.NewEvent(domain.EventPresenceUpdate, sessionID, tenantID, payload)
+	ev := domain.NewEvent(domain.EventPresenceUpdate, sessionID, organizationID, payload)
 	return ev, PersistResult{Kind: PersistNone}, true
 }
 
-func normalizeGroupInfo(e *events.GroupInfo, sessionID, tenantID string) (domain.Event, PersistResult, bool) {
+func normalizeGroupInfo(e *events.GroupInfo, sessionID, organizationID string) (domain.Event, PersistResult, bool) {
 	payload := groupPayloadFromInfo(e)
 	// A participant delta (join/leave/promote/demote) is a group.participant
 	// event; pure metadata changes are group.update.
 	if len(e.Join)+len(e.Leave)+len(e.Promote)+len(e.Demote) > 0 {
-		ev := domain.NewEvent(domain.EventGroupParticipant, sessionID, tenantID, payload)
+		ev := domain.NewEvent(domain.EventGroupParticipant, sessionID, organizationID, payload)
 		return ev, PersistResult{Kind: PersistGroupParticipant, ChatJID: payload.GroupJID}, true
 	}
-	ev := domain.NewEvent(domain.EventGroupUpdate, sessionID, tenantID, payload)
+	ev := domain.NewEvent(domain.EventGroupUpdate, sessionID, organizationID, payload)
 	return ev, PersistResult{Kind: PersistGroupUpdate, ChatJID: payload.GroupJID}, true
 }
 
-func normalizeJoinedGroup(e *events.JoinedGroup, sessionID, tenantID string) (domain.Event, PersistResult, bool) {
+func normalizeJoinedGroup(e *events.JoinedGroup, sessionID, organizationID string) (domain.Event, PersistResult, bool) {
 	// JoinedGroup embeds types.GroupInfo (not the events.GroupInfo struct), so
 	// build the payload from the embedded metadata.
 	payload := GroupPayload{
@@ -186,43 +186,43 @@ func normalizeJoinedGroup(e *events.JoinedGroup, sessionID, tenantID string) (do
 	if e.Name != "" {
 		payload.Subject = e.Name
 	}
-	ev := domain.NewEvent(domain.EventGroupUpdate, sessionID, tenantID, payload)
+	ev := domain.NewEvent(domain.EventGroupUpdate, sessionID, organizationID, payload)
 	return ev, PersistResult{Kind: PersistGroupUpdate, ChatJID: payload.GroupJID}, true
 }
 
-func normalizePicture(e *events.Picture, sessionID, tenantID string) (domain.Event, PersistResult, bool) {
+func normalizePicture(e *events.Picture, sessionID, organizationID string) (domain.Event, PersistResult, bool) {
 	payload := ChatUpdatePayload{
 		ChatJID:   jidString(e.JID),
 		Change:    "picture",
 		PictureID: e.PictureID,
 		Removed:   e.Remove,
 	}
-	ev := domain.NewEvent(domain.EventChatUpdate, sessionID, tenantID, payload)
+	ev := domain.NewEvent(domain.EventChatUpdate, sessionID, organizationID, payload)
 	return ev, PersistResult{Kind: PersistNone, ChatJID: payload.ChatJID}, true
 }
 
-func normalizeContact(e *events.Contact, sessionID, tenantID string) (domain.Event, PersistResult, bool) {
+func normalizeContact(e *events.Contact, sessionID, organizationID string) (domain.Event, PersistResult, bool) {
 	payload := ContactUpdatePayload{JID: jidString(e.JID)}
 	if a := e.Action; a != nil {
 		payload.FullName = a.GetFullName()
 		payload.FirstName = a.GetFirstName()
 	}
-	ev := domain.NewEvent(domain.EventContactUpdate, sessionID, tenantID, payload)
+	ev := domain.NewEvent(domain.EventContactUpdate, sessionID, organizationID, payload)
 	pr := PersistResult{Kind: PersistContactUpdate, ContactJID: payload.JID, ContactName: payload.FullName}
 	return ev, pr, true
 }
 
-func normalizePushName(e *events.PushName, sessionID, tenantID string) (domain.Event, PersistResult, bool) {
+func normalizePushName(e *events.PushName, sessionID, organizationID string) (domain.Event, PersistResult, bool) {
 	payload := ContactUpdatePayload{
 		JID:      jidString(e.JID),
 		PushName: e.NewPushName,
 	}
-	ev := domain.NewEvent(domain.EventContactUpdate, sessionID, tenantID, payload)
+	ev := domain.NewEvent(domain.EventContactUpdate, sessionID, organizationID, payload)
 	pr := PersistResult{Kind: PersistContactUpdate, ContactJID: payload.JID, PushName: payload.PushName}
 	return ev, pr, true
 }
 
-func normalizeCallOffer(e *events.CallOffer, sessionID, tenantID string) (domain.Event, PersistResult, bool) {
+func normalizeCallOffer(e *events.CallOffer, sessionID, organizationID string) (domain.Event, PersistResult, bool) {
 	payload := CallPayload{
 		CallID:    e.CallID,
 		From:      jidString(e.From),
@@ -230,13 +230,13 @@ func normalizeCallOffer(e *events.CallOffer, sessionID, tenantID string) (domain
 		IsGroup:   !e.GroupJID.IsEmpty(),
 		GroupJID:  jidString(e.GroupJID),
 	}
-	ev := domain.NewEvent(domain.EventCallIncoming, sessionID, tenantID, payload)
+	ev := domain.NewEvent(domain.EventCallIncoming, sessionID, organizationID, payload)
 	return ev, PersistResult{Kind: PersistNone}, true
 }
 
-func normalizeNewsletter(id types.JID, action, sessionID, tenantID string) (domain.Event, PersistResult, bool) {
+func normalizeNewsletter(id types.JID, action, sessionID, organizationID string) (domain.Event, PersistResult, bool) {
 	payload := NewsletterPayload{JID: jidString(id), Action: action}
-	ev := domain.NewEvent(domain.EventNewsletterUpdate, sessionID, tenantID, payload)
+	ev := domain.NewEvent(domain.EventNewsletterUpdate, sessionID, organizationID, payload)
 	return ev, PersistResult{Kind: PersistNone, ChatJID: payload.JID}, true
 }
 

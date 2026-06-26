@@ -202,7 +202,10 @@ func run() error {
 	defer dispatchStop()
 
 	// --- Services + handlers + router ---
-	keyService := service.NewKeyService(st.APIKeys, st.Tenants, log)
+	// Read-only better-auth api-key verifier (§4.2). The key hasher (which must
+	// match the pinned better-auth scheme) is supplied by the authz package in a
+	// later stage; nil here means Verify returns an internal error until wired.
+	keyVerifier := service.NewKeyVerifier(st.APIKeys, nil, log)
 	services := service.New(service.Deps{
 		Store:                st,
 		Manager:              manager,
@@ -213,21 +216,19 @@ func run() error {
 		DefaultRetryAttempts: cfg.WebhookRetryAttempts,
 		Log:                  log,
 	})
-	// Share one KeyService instance between the verifier and the /keys handlers.
-	services.Keys = keyService
 
 	streamHandler := stream.NewHandler(stream.HandlerConfig{
-		Redis:     rdb,
-		Tenant:    stream.TenantAccessorFunc(tenantFromContext),
-		LogReader: service.NewEventLogReaderAdapter(st.EventLog),
-		Log:       log,
+		Redis:        rdb,
+		Organization: stream.OrganizationAccessorFunc(organizationFromContext),
+		LogReader:    service.NewEventLogReaderAdapter(st.EventLog),
+		Log:          log,
 	})
 
 	h := handlers.New(services, streamHandler, log)
 	router := gwhttp.NewRouter(gwhttp.RouterConfig{
 		Handlers:    h,
 		Auth:        authInst,
-		Verifier:    keyService,
+		Verifier:    keyVerifier,
 		Limiter:     nil, // HTTP-edge rate limiting optional; outbound limits sends.
 		Readiness:   readiness(db, rdb),
 		OpenAPIPath: "docs/openapi.yaml",
@@ -264,10 +265,10 @@ func run() error {
 	return nil
 }
 
-// tenantFromContext is the stream.TenantAccessor: it reads the tenant id the
-// auth middleware lifted onto the request context.
-func tenantFromContext(ctx context.Context) (string, bool) {
-	id := httpx.TenantID(ctx)
+// organizationFromContext is the stream.OrganizationAccessor: it reads the
+// organization id the auth middleware lifted onto the request context.
+func organizationFromContext(ctx context.Context) (string, bool) {
+	id := httpx.OrganizationID(ctx)
 	return id, id != ""
 }
 

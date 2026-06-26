@@ -18,7 +18,7 @@ func TestSendMessage_SyncHappyPath(t *testing.T) {
 	svc := &fakeMessageSvc{result: outbound.SendResult{Mode: outbound.ModeSync, WAMessageID: "WA1", Status: domain.MessageSent}}
 	h := newMessageHandlers(svc)
 	body := `{"type":"text","to":"628@s.whatsapp.net","text":"hi"}`
-	r := withTenant(chiReq(http.MethodPost, "/api/v1/sessions/s1/messages", body, map[string]string{"session": "s1"}), testTenant)
+	r := withOrganization(chiReq(http.MethodPost, "/api/v1/sessions/s1/messages", body, map[string]string{"session": "s1"}), testOrganization)
 	w := httptest.NewRecorder()
 	h.SendMessage(w, r)
 	if w.Code != http.StatusOK {
@@ -40,7 +40,7 @@ func TestSendMessage_AsyncIs202_AndOptionsThreaded(t *testing.T) {
 	body := `{"type":"text","to":"628@s.whatsapp.net","text":"hi"}`
 	r := chiReq(http.MethodPost, "/api/v1/sessions/s1/messages?async", body, map[string]string{"session": "s1"})
 	r.Header.Set("Idempotency-Key", "key-1")
-	r = withTenant(r, testTenant)
+	r = withOrganization(r, testOrganization)
 	w := httptest.NewRecorder()
 	h.SendMessage(w, r)
 	if w.Code != http.StatusAccepted {
@@ -54,7 +54,7 @@ func TestSendMessage_AsyncIs202_AndOptionsThreaded(t *testing.T) {
 	}
 }
 
-func TestSendMessage_NoTenant401(t *testing.T) {
+func TestSendMessage_NoOrganization401(t *testing.T) {
 	h := newMessageHandlers(&fakeMessageSvc{})
 	r := chiReq(http.MethodPost, "/api/v1/sessions/s1/messages", `{"type":"text"}`, map[string]string{"session": "s1"})
 	w := httptest.NewRecorder()
@@ -67,7 +67,7 @@ func TestSendMessage_NoTenant401(t *testing.T) {
 func TestSendMessage_ServiceValidationError(t *testing.T) {
 	svc := &fakeMessageSvc{err: domain.ErrValidation("text is required")}
 	h := newMessageHandlers(svc)
-	r := withTenant(chiReq(http.MethodPost, "/api/v1/sessions/s1/messages", `{"type":"text","to":"x"}`, map[string]string{"session": "s1"}), testTenant)
+	r := withOrganization(chiReq(http.MethodPost, "/api/v1/sessions/s1/messages", `{"type":"text","to":"x"}`, map[string]string{"session": "s1"}), testOrganization)
 	w := httptest.NewRecorder()
 	h.SendMessage(w, r)
 	if w.Code != http.StatusBadRequest {
@@ -81,7 +81,7 @@ func TestSendMessage_ServiceValidationError(t *testing.T) {
 func TestSendMessage_RateLimited429(t *testing.T) {
 	svc := &fakeMessageSvc{err: domain.ErrRateLimited("slow down")}
 	h := newMessageHandlers(svc)
-	r := withTenant(chiReq(http.MethodPost, "/api/v1/sessions/s1/messages", `{"type":"text","to":"x","text":"y"}`, map[string]string{"session": "s1"}), testTenant)
+	r := withOrganization(chiReq(http.MethodPost, "/api/v1/sessions/s1/messages", `{"type":"text","to":"x","text":"y"}`, map[string]string{"session": "s1"}), testOrganization)
 	w := httptest.NewRecorder()
 	h.SendMessage(w, r)
 	if w.Code != http.StatusTooManyRequests {
@@ -92,7 +92,7 @@ func TestSendMessage_RateLimited429(t *testing.T) {
 func TestAddReaction_PassesEmoji(t *testing.T) {
 	svc := &fakeMessageSvc{result: outbound.SendResult{Mode: outbound.ModeSync}}
 	h := newMessageHandlers(svc)
-	r := withTenant(chiReq(http.MethodPost, "/api/v1/sessions/s1/messages/m1/reaction", `{"chat":"c1","emoji":"👍"}`, map[string]string{"session": "s1", "mid": "m1"}), testTenant)
+	r := withOrganization(chiReq(http.MethodPost, "/api/v1/sessions/s1/messages/m1/reaction", `{"chat":"c1","emoji":"👍"}`, map[string]string{"session": "s1", "mid": "m1"}), testOrganization)
 	w := httptest.NewRecorder()
 	h.AddReaction(w, r)
 	if w.Code != http.StatusOK {
@@ -106,7 +106,7 @@ func TestAddReaction_PassesEmoji(t *testing.T) {
 func TestRemoveReaction_ClearsEmoji(t *testing.T) {
 	svc := &fakeMessageSvc{result: outbound.SendResult{Mode: outbound.ModeSync}}
 	h := newMessageHandlers(svc)
-	r := withTenant(chiReq(http.MethodDelete, "/api/v1/sessions/s1/messages/m1/reaction", `{"chat":"c1","emoji":"👍"}`, map[string]string{"session": "s1", "mid": "m1"}), testTenant)
+	r := withOrganization(chiReq(http.MethodDelete, "/api/v1/sessions/s1/messages/m1/reaction", `{"chat":"c1","emoji":"👍"}`, map[string]string{"session": "s1", "mid": "m1"}), testOrganization)
 	w := httptest.NewRecorder()
 	h.RemoveReaction(w, r)
 	if w.Code != http.StatusOK {
@@ -120,7 +120,7 @@ func TestRemoveReaction_ClearsEmoji(t *testing.T) {
 func TestVoteMessage_Routes(t *testing.T) {
 	svc := &fakeMessageSvc{result: outbound.SendResult{Mode: outbound.ModeSync}}
 	h := newMessageHandlers(svc)
-	r := withTenant(chiReq(http.MethodPost, "/api/v1/sessions/s1/messages/m1/vote", `{"chat":"c1","options":["A"]}`, map[string]string{"session": "s1", "mid": "m1"}), testTenant)
+	r := withOrganization(chiReq(http.MethodPost, "/api/v1/sessions/s1/messages/m1/vote", `{"chat":"c1","options":["A"]}`, map[string]string{"session": "s1", "mid": "m1"}), testOrganization)
 	w := httptest.NewRecorder()
 	h.VoteMessage(w, r)
 	if w.Code != http.StatusOK {

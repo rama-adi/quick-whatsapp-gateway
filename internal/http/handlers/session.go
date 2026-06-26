@@ -18,7 +18,7 @@ type createSessionBody struct {
 
 // CreateSession handles POST /sessions.
 func (h *Handlers) CreateSession(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
@@ -27,7 +27,7 @@ func (h *Handlers) CreateSession(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, err)
 		return
 	}
-	sess, err := h.Sessions.Create(r.Context(), tenantID, service.CreateInput{
+	sess, err := h.Sessions.Create(r.Context(), organizationID, service.CreateInput{
 		Label:          body.Label,
 		Start:          body.Start,
 		AutoRead:       body.AutoRead,
@@ -42,11 +42,11 @@ func (h *Handlers) CreateSession(w http.ResponseWriter, r *http.Request) {
 
 // ListSessions handles GET /sessions.
 func (h *Handlers) ListSessions(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
-	sessions, err := h.Sessions.List(r.Context(), tenantID)
+	sessions, err := h.Sessions.List(r.Context(), organizationID)
 	if err != nil {
 		httpx.WriteError(w, err)
 		return
@@ -56,11 +56,11 @@ func (h *Handlers) ListSessions(w http.ResponseWriter, r *http.Request) {
 
 // GetSession handles GET /sessions/{id}.
 func (h *Handlers) GetSession(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
-	sess, err := h.Sessions.Get(r.Context(), tenantID, param(r, "session"))
+	sess, err := h.Sessions.Get(r.Context(), organizationID, param(r, "session"))
 	if err != nil {
 		httpx.WriteError(w, err)
 		return
@@ -91,17 +91,17 @@ func (h *Handlers) LogoutSession(w http.ResponseWriter, r *http.Request) {
 // sessionAction is the shared body for the no-payload lifecycle actions
 // (:start, :stop, :restart, :logout). On success it returns the refreshed
 // session row so the client sees the new status.
-func (h *Handlers) sessionAction(w http.ResponseWriter, r *http.Request, fn func(ctx context.Context, tenantID, id string) error) {
-	tenantID, ok := tenant(w, r)
+func (h *Handlers) sessionAction(w http.ResponseWriter, r *http.Request, fn func(ctx context.Context, organizationID, id string) error) {
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
 	id := param(r, "session")
-	if err := fn(r.Context(), tenantID, id); err != nil {
+	if err := fn(r.Context(), organizationID, id); err != nil {
 		httpx.WriteError(w, err)
 		return
 	}
-	sess, err := h.Sessions.Get(r.Context(), tenantID, id)
+	sess, err := h.Sessions.Get(r.Context(), organizationID, id)
 	if err != nil {
 		httpx.WriteError(w, err)
 		return
@@ -111,11 +111,11 @@ func (h *Handlers) sessionAction(w http.ResponseWriter, r *http.Request, fn func
 
 // DeleteSession handles DELETE /sessions/{id}.
 func (h *Handlers) DeleteSession(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
-	if err := h.Sessions.Delete(r.Context(), tenantID, param(r, "session")); err != nil {
+	if err := h.Sessions.Delete(r.Context(), organizationID, param(r, "session")); err != nil {
 		httpx.WriteError(w, err)
 		return
 	}
@@ -124,11 +124,11 @@ func (h *Handlers) DeleteSession(w http.ResponseWriter, r *http.Request) {
 
 // SessionMe handles GET /sessions/{id}/me.
 func (h *Handlers) SessionMe(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
-	me, err := h.Sessions.Me(r.Context(), tenantID, param(r, "session"))
+	me, err := h.Sessions.Me(r.Context(), organizationID, param(r, "session"))
 	if err != nil {
 		httpx.WriteError(w, err)
 		return
@@ -138,11 +138,11 @@ func (h *Handlers) SessionMe(w http.ResponseWriter, r *http.Request) {
 
 // SessionQR handles GET /sessions/{id}/qr.
 func (h *Handlers) SessionQR(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
-	qr, err := h.Sessions.QR(r.Context(), tenantID, param(r, "session"))
+	qr, err := h.Sessions.QR(r.Context(), organizationID, param(r, "session"))
 	if err != nil {
 		httpx.WriteError(w, err)
 		return
@@ -157,7 +157,7 @@ type pairingCodeBody struct {
 
 // SessionPairingCode handles POST /sessions/{id}/pairing-code.
 func (h *Handlers) SessionPairingCode(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
@@ -166,7 +166,7 @@ func (h *Handlers) SessionPairingCode(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, err)
 		return
 	}
-	code, err := h.Sessions.PairingCode(r.Context(), tenantID, param(r, "session"), body.Phone)
+	code, err := h.Sessions.PairingCode(r.Context(), organizationID, param(r, "session"), body.Phone)
 	if err != nil {
 		httpx.WriteError(w, err)
 		return

@@ -24,15 +24,15 @@ func newStore(t *testing.T) (*store.Store, sqlmock.Sqlmock) {
 }
 
 // expectSession primes a SELECT … FROM wa_sessions returning a row owned by
-// tenantID (or a different tenant when owner != tenantID).
+// organizationID (or a different organization when owner != organizationID).
 func expectSession(mock sqlmock.Sqlmock, sessionID, owner string) {
 	cols := []string{
-		"id", "tenant_id", "label", "status", "wa_jid", "wa_lid", "phone_number",
-		"is_admin_session", "auto_read", "presence_typing", "rate_per_min", "rate_per_hour",
-		"last_connected_at", "created_at", "updated_at",
+		"id", "organization_id", "created_by_user_id", "gateway_id", "label", "status",
+		"wa_jid", "wa_lid", "phone_number", "is_admin_session", "auto_read", "presence_typing",
+		"rate_per_min", "rate_per_hour", "last_connected_at", "created_at", "updated_at",
 	}
 	rows := sqlmock.NewRows(cols).AddRow(
-		sessionID, owner, nil, domain.SessionWorking, nil, nil, nil,
+		sessionID, owner, nil, "gw_1", nil, domain.SessionWorking, nil, nil, nil,
 		false, false, false, 20, 200, nil, int64(1), int64(1),
 	)
 	mock.ExpectQuery("FROM wa_sessions").WithArgs(sessionID).WillReturnRows(rows)
@@ -92,12 +92,12 @@ func (f *fakeGroupOps) JoinWithLink(context.Context, string, string) (string, er
 func (f *fakeGroupOps) Leave(context.Context, string, string) error { return f.err }
 
 // ---------------------------------------------------------------------------
-// Tenant ownership
+// Organization ownership
 // ---------------------------------------------------------------------------
 
-func TestPresenceService_RejectsForeignTenant(t *testing.T) {
+func TestPresenceService_RejectsForeignOrganization(t *testing.T) {
 	st, mock := newStore(t)
-	expectSession(mock, "sess_1", "other_tenant")
+	expectSession(mock, "sess_1", "other_organization")
 	svc := NewPresenceService(st, &fakePresenceController{}, nil)
 	err := svc.Set(context.Background(), "ten_1", "sess_1", "online")
 	var apiErr *domain.APIError

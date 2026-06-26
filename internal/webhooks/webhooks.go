@@ -27,15 +27,15 @@ const (
 )
 
 // WebhookRepo reads the configured webhooks that match an incoming event. The
-// implementation (Phase 3) applies tenant/session scoping and the active flag in
+// implementation (Phase 3) applies organization/session scoping and the active flag in
 // SQL; ListMatching returns only webhooks whose events list matches eventType
 // (the dispatcher re-checks with EventMatches as a defensive guard, but the repo
 // is the primary filter so we don't load every webhook into memory).
 type WebhookRepo interface {
-	// ListMatching returns active webhooks for the tenant whose session scope
+	// ListMatching returns active webhooks for the organization whose session scope
 	// covers session (session_id == session OR session_id IS NULL) and whose
 	// events list matches eventType ("*" or contains eventType).
-	ListMatching(ctx context.Context, tenant, session, eventType string) ([]domain.Webhook, error)
+	ListMatching(ctx context.Context, organization, session, eventType string) ([]domain.Webhook, error)
 	// Get loads a single webhook by id. The dispatcher needs the URL, custom
 	// headers, hmac secret and retry policy when sending a claimed delivery
 	// (the delivery row only carries webhook_id + event_id). Implementations

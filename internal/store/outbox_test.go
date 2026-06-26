@@ -11,7 +11,7 @@ import (
 
 func outboxColRow() []string {
 	return []string{
-		"id", "tenant_id", "session_id", "idempotency_key", "payload", "status",
+		"id", "organization_id", "session_id", "idempotency_key", "payload", "status",
 		"attempts", "wa_message_id", "error", "created_at", "updated_at",
 	}
 }
@@ -21,12 +21,12 @@ func TestOutboxRepo_Insert(t *testing.T) {
 	repo := NewOutboxRepo(db)
 
 	o := domain.OutboxEntry{
-		ID: "out_1", TenantID: "ten_1", SessionID: "sess_1",
+		ID: "out_1", OrganizationID: "ten_1", SessionID: "sess_1",
 		IdempotencyKey: strptr("idem-1"), Payload: json.RawMessage(`{"type":"text"}`),
 		Status: domain.OutboxQueued, CreatedAt: 100, UpdatedAt: 100,
 	}
 	mock.ExpectExec("INSERT INTO outbox").
-		WithArgs(o.ID, o.TenantID, o.SessionID, o.IdempotencyKey, []byte(o.Payload),
+		WithArgs(o.ID, o.OrganizationID, o.SessionID, o.IdempotencyKey, []byte(o.Payload),
 			o.Status, o.Attempts, o.WAMessageID, o.Error, o.CreatedAt, o.UpdatedAt).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -45,7 +45,7 @@ func TestOutboxRepo_GetByIdempotency(t *testing.T) {
 	rows := sqlmock.NewRows(outboxColRow()).
 		AddRow("out_1", "ten_1", "sess_1", "idem-1", []byte(`{"type":"text"}`),
 			"sent", 1, "wamid_1", nil, int64(100), int64(200))
-	mock.ExpectQuery("SELECT .* FROM outbox WHERE tenant_id = . AND idempotency_key = .").
+	mock.ExpectQuery("SELECT .* FROM outbox WHERE organization_id = . AND idempotency_key = .").
 		WithArgs("ten_1", "idem-1").WillReturnRows(rows)
 
 	got, err := repo.GetByIdempotency(context.Background(), "ten_1", "idem-1")
@@ -69,7 +69,7 @@ func TestOutboxRepo_GetByIdempotency(t *testing.T) {
 func TestOutboxRepo_GetByIdempotency_NotFound(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewOutboxRepo(db)
-	mock.ExpectQuery("SELECT .* FROM outbox WHERE tenant_id = . AND idempotency_key = .").
+	mock.ExpectQuery("SELECT .* FROM outbox WHERE organization_id = . AND idempotency_key = .").
 		WithArgs("ten_1", "none").WillReturnError(noRows())
 	_, err := repo.GetByIdempotency(context.Background(), "ten_1", "none")
 	assertNotFound(t, err)

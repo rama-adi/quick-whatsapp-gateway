@@ -24,7 +24,7 @@ func TestNormalizeSessionStatusEvents(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ev, pr, ok := Normalize(tt.evt, testSession, testTenant)
+			ev, pr, ok := Normalize(tt.evt, testSession, testOrganization)
 			if !ok {
 				t.Fatalf("ok=false")
 			}
@@ -70,7 +70,7 @@ func TestNormalizeReceipt(t *testing.T) {
 				Type:       tt.rtype,
 				Timestamp:  time.UnixMilli(123),
 			}
-			ev, pr, ok := Normalize(e, testSession, testTenant)
+			ev, pr, ok := Normalize(e, testSession, testOrganization)
 			if ok != tt.wantOK {
 				t.Fatalf("ok = %v, want %v", ok, tt.wantOK)
 			}
@@ -99,7 +99,7 @@ func TestNormalizeReceipt(t *testing.T) {
 
 func TestNormalizeQRAndPair(t *testing.T) {
 	qr := &events.QR{Codes: []string{"qr-code-1", "qr-code-2"}}
-	ev, pr, ok := Normalize(qr, testSession, testTenant)
+	ev, pr, ok := Normalize(qr, testSession, testOrganization)
 	if !ok || ev.Type != domain.EventAuthQR {
 		t.Fatalf("qr event wrong: %v %q", ok, ev.Type)
 	}
@@ -116,7 +116,7 @@ func TestNormalizeQRAndPair(t *testing.T) {
 		BusinessName: "Biz",
 		Platform:     "android",
 	}
-	ev, _, ok = Normalize(pair, testSession, testTenant)
+	ev, _, ok = Normalize(pair, testSession, testOrganization)
 	if !ok || ev.Type != domain.EventAuthCode {
 		t.Fatalf("pair event wrong")
 	}
@@ -132,7 +132,7 @@ func TestNormalizePresence(t *testing.T) {
 		Unavailable: true,
 		LastSeen:    time.UnixMilli(5000),
 	}
-	ev, pr, ok := Normalize(pres, testSession, testTenant)
+	ev, pr, ok := Normalize(pres, testSession, testOrganization)
 	if !ok || ev.Type != domain.EventPresenceUpdate {
 		t.Fatalf("presence wrong")
 	}
@@ -151,7 +151,7 @@ func TestNormalizePresence(t *testing.T) {
 		},
 		State: types.ChatPresenceComposing,
 	}
-	ev, _, ok = Normalize(chatPres, testSession, testTenant)
+	ev, _, ok = Normalize(chatPres, testSession, testOrganization)
 	if !ok {
 		t.Fatalf("chat presence not ok")
 	}
@@ -167,7 +167,7 @@ func TestNormalizeGroupInfo(t *testing.T) {
 		JID:  mustJID(t, "12036@g.us"),
 		Name: &types.GroupName{Name: "New Name"},
 	}
-	ev, pr, ok := Normalize(gi, testSession, testTenant)
+	ev, pr, ok := Normalize(gi, testSession, testOrganization)
 	if !ok || ev.Type != domain.EventGroupUpdate {
 		t.Fatalf("group update wrong: %q", ev.Type)
 	}
@@ -183,7 +183,7 @@ func TestNormalizeGroupInfo(t *testing.T) {
 		JID:  mustJID(t, "12036@g.us"),
 		Join: []types.JID{mustJID(t, "628999@s.whatsapp.net")},
 	}
-	ev2, pr2, _ := Normalize(gi2, testSession, testTenant)
+	ev2, pr2, _ := Normalize(gi2, testSession, testOrganization)
 	if ev2.Type != domain.EventGroupParticipant {
 		t.Errorf("participant type = %q", ev2.Type)
 	}
@@ -201,7 +201,7 @@ func TestNormalizeContactAndPushName(t *testing.T) {
 		JID:         mustJID(t, "628111@s.whatsapp.net"),
 		NewPushName: "Charlie",
 	}
-	ev, pr, ok := Normalize(pn, testSession, testTenant)
+	ev, pr, ok := Normalize(pn, testSession, testOrganization)
 	if !ok || ev.Type != domain.EventContactUpdate {
 		t.Fatalf("pushname wrong")
 	}
@@ -213,7 +213,7 @@ func TestNormalizeContactAndPushName(t *testing.T) {
 	}
 
 	c := &events.Contact{JID: mustJID(t, "628111@s.whatsapp.net")}
-	ev2, pr2, ok := Normalize(c, testSession, testTenant)
+	ev2, pr2, ok := Normalize(c, testSession, testOrganization)
 	if !ok || ev2.Type != domain.EventContactUpdate {
 		t.Fatalf("contact wrong")
 	}
@@ -227,7 +227,7 @@ func TestNormalizeCallOffer(t *testing.T) {
 	co.CallID = "call-123"
 	co.From = mustJID(t, "628111@s.whatsapp.net")
 	co.Timestamp = time.UnixMilli(9999)
-	ev, pr, ok := Normalize(co, testSession, testTenant)
+	ev, pr, ok := Normalize(co, testSession, testOrganization)
 	if !ok || ev.Type != domain.EventCallIncoming {
 		t.Fatalf("call wrong")
 	}
@@ -243,7 +243,7 @@ func TestNormalizeCallOffer(t *testing.T) {
 func TestNormalizeNewsletter(t *testing.T) {
 	nj := &events.NewsletterJoin{}
 	nj.ID = mustJID(t, "12345@newsletter")
-	ev, _, ok := Normalize(nj, testSession, testTenant)
+	ev, _, ok := Normalize(nj, testSession, testOrganization)
 	if !ok || ev.Type != domain.EventNewsletterUpdate {
 		t.Fatalf("newsletter join wrong")
 	}
@@ -253,18 +253,18 @@ func TestNormalizeNewsletter(t *testing.T) {
 	}
 
 	nl := &events.NewsletterLeave{ID: mustJID(t, "12345@newsletter")}
-	ev2, _, _ := Normalize(nl, testSession, testTenant)
+	ev2, _, _ := Normalize(nl, testSession, testOrganization)
 	if ev2.Payload.(NewsletterPayload).Action != "leave" {
 		t.Errorf("leave action wrong")
 	}
 }
 
 func TestNormalizeUnknownEvent(t *testing.T) {
-	_, _, ok := Normalize(&events.KeepAliveTimeout{}, testSession, testTenant)
+	_, _, ok := Normalize(&events.KeepAliveTimeout{}, testSession, testOrganization)
 	if ok {
 		t.Errorf("expected ok=false for unhandled event")
 	}
-	_, _, ok = Normalize("not an event", testSession, testTenant)
+	_, _, ok = Normalize("not an event", testSession, testOrganization)
 	if ok {
 		t.Errorf("expected ok=false for non-event")
 	}

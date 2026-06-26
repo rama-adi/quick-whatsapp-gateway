@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
@@ -15,7 +16,7 @@ func TestCreateWebhook_HappyPath_SecretThreadedNotReturned(t *testing.T) {
 	svc := &fakeWebhookSvc{created: domain.Webhook{ID: "wh_1", URL: "https://x", Events: []string{"message"}, HMACSecret: []byte("encrypted")}}
 	h := newWebhookHandlers(svc)
 	body := `{"url":"https://x","events":["message"],"secret":"shh"}`
-	r := withTenant(chiReq(http.MethodPost, "/api/v1/webhooks", body, nil), testTenant)
+	r := withOrganization(chiReq(http.MethodPost, "/api/v1/webhooks", body, nil), testOrganization)
 	w := httptest.NewRecorder()
 	h.CreateWebhook(w, r)
 	if w.Code != http.StatusCreated {
@@ -25,12 +26,12 @@ func TestCreateWebhook_HappyPath_SecretThreadedNotReturned(t *testing.T) {
 		t.Errorf("secret not threaded: %+v", svc.lastIn.Secret)
 	}
 	// HMACSecret has json:"-": must not leak in the response.
-	if contains(w.Body.String(), "encrypted") {
+	if strings.Contains(w.Body.String(), "encrypted") {
 		t.Errorf("response leaked hmac secret: %s", w.Body.String())
 	}
 }
 
-func TestCreateWebhook_NoTenant401(t *testing.T) {
+func TestCreateWebhook_NoOrganization401(t *testing.T) {
 	h := newWebhookHandlers(&fakeWebhookSvc{})
 	r := chiReq(http.MethodPost, "/api/v1/webhooks", `{"url":"x"}`, nil)
 	w := httptest.NewRecorder()
@@ -43,7 +44,7 @@ func TestCreateWebhook_NoTenant401(t *testing.T) {
 func TestCreateWebhook_ServiceValidation(t *testing.T) {
 	svc := &fakeWebhookSvc{err: domain.ErrValidation("url is required")}
 	h := newWebhookHandlers(svc)
-	r := withTenant(chiReq(http.MethodPost, "/api/v1/webhooks", `{"events":["message"]}`, nil), testTenant)
+	r := withOrganization(chiReq(http.MethodPost, "/api/v1/webhooks", `{"events":["message"]}`, nil), testOrganization)
 	w := httptest.NewRecorder()
 	h.CreateWebhook(w, r)
 	if w.Code != http.StatusBadRequest {
@@ -54,7 +55,7 @@ func TestCreateWebhook_ServiceValidation(t *testing.T) {
 func TestListWebhooks_Envelope(t *testing.T) {
 	svc := &fakeWebhookSvc{list: []domain.Webhook{{ID: "wh_1"}}}
 	h := newWebhookHandlers(svc)
-	r := withTenant(chiReq(http.MethodGet, "/api/v1/webhooks", "", nil), testTenant)
+	r := withOrganization(chiReq(http.MethodGet, "/api/v1/webhooks", "", nil), testOrganization)
 	w := httptest.NewRecorder()
 	h.ListWebhooks(w, r)
 	if w.Code != http.StatusOK {
@@ -72,7 +73,7 @@ func TestListWebhooks_Envelope(t *testing.T) {
 func TestUpdateWebhook_HappyPath(t *testing.T) {
 	svc := &fakeWebhookSvc{updated: domain.Webhook{ID: "wh_1", URL: "https://y"}}
 	h := newWebhookHandlers(svc)
-	r := withTenant(chiReq(http.MethodPatch, "/api/v1/webhooks/wh_1", `{"url":"https://y"}`, map[string]string{"id": "wh_1"}), testTenant)
+	r := withOrganization(chiReq(http.MethodPatch, "/api/v1/webhooks/wh_1", `{"url":"https://y"}`, map[string]string{"id": "wh_1"}), testOrganization)
 	w := httptest.NewRecorder()
 	h.UpdateWebhook(w, r)
 	if w.Code != http.StatusOK {
@@ -85,7 +86,7 @@ func TestUpdateWebhook_HappyPath(t *testing.T) {
 
 func TestDeleteWebhook_NoContent(t *testing.T) {
 	h := newWebhookHandlers(&fakeWebhookSvc{})
-	r := withTenant(chiReq(http.MethodDelete, "/api/v1/webhooks/wh_1", "", map[string]string{"id": "wh_1"}), testTenant)
+	r := withOrganization(chiReq(http.MethodDelete, "/api/v1/webhooks/wh_1", "", map[string]string{"id": "wh_1"}), testOrganization)
 	w := httptest.NewRecorder()
 	h.DeleteWebhook(w, r)
 	if w.Code != http.StatusNoContent {
@@ -96,7 +97,7 @@ func TestDeleteWebhook_NoContent(t *testing.T) {
 func TestGetWebhook_NotFound(t *testing.T) {
 	svc := &fakeWebhookSvc{err: domain.ErrNotFound("webhook not found")}
 	h := newWebhookHandlers(svc)
-	r := withTenant(chiReq(http.MethodGet, "/api/v1/webhooks/x", "", map[string]string{"id": "x"}), testTenant)
+	r := withOrganization(chiReq(http.MethodGet, "/api/v1/webhooks/x", "", map[string]string{"id": "x"}), testOrganization)
 	w := httptest.NewRecorder()
 	h.GetWebhook(w, r)
 	if w.Code != http.StatusNotFound {

@@ -26,7 +26,7 @@ const (
 )
 
 // OutboxSendPayload is the JSON body of a TypeOutboxSend task. It carries only
-// the outbox row id; the handler loads the full row (payload, session, tenant)
+// the outbox row id; the handler loads the full row (payload, session, organization)
 // from the store so the queued blob can't drift from the persisted truth.
 type OutboxSendPayload struct {
 	OutboxID string `json:"outboxId"`

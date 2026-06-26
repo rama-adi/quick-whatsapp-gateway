@@ -10,13 +10,13 @@ import (
 
 func testEvent() domain.Event {
 	return domain.Event{
-		Schema:    domain.Schema,
-		ID:        "evt_001",
-		Type:      domain.EventMessage,
-		Session:   "sess_1",
-		Tenant:    "ten_1",
-		Timestamp: 1000,
-		Payload:   map[string]any{"hi": "there"},
+		Schema:       domain.Schema,
+		ID:           "evt_001",
+		Type:         domain.EventMessage,
+		Session:      "sess_1",
+		Organization: "ten_1",
+		Timestamp:    1000,
+		Payload:      map[string]any{"hi": "there"},
 	}
 }
 
@@ -40,8 +40,8 @@ func TestEnqueue_CreatesPendingForMatching(t *testing.T) {
 		t.Fatalf("expected 2 deliveries, got n=%d created=%d", n, len(dr.created))
 	}
 	// Forwarded the right scope to the repo.
-	if wr.lastTenant != "ten_1" || wr.lastSession != "sess_1" || wr.lastType != domain.EventMessage {
-		t.Errorf("repo scope wrong: %q/%q/%q", wr.lastTenant, wr.lastSession, wr.lastType)
+	if wr.lastOrganization != "ten_1" || wr.lastSession != "sess_1" || wr.lastType != domain.EventMessage {
+		t.Errorf("repo scope wrong: %q/%q/%q", wr.lastOrganization, wr.lastSession, wr.lastType)
 	}
 	d := dr.created[0]
 	if d.Status != domain.DeliveryPending || d.Attempts != 0 || d.CreatedAt != 5000 {

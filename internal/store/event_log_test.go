@@ -10,7 +10,7 @@ import (
 )
 
 func eventLogColRow() []string {
-	return []string{"id", "event_id", "tenant_id", "session_id", "type", "payload", "created_at"}
+	return []string{"id", "event_id", "organization_id", "session_id", "type", "payload", "created_at"}
 }
 
 func TestEventLogRepo_Append(t *testing.T) {
@@ -18,11 +18,11 @@ func TestEventLogRepo_Append(t *testing.T) {
 	repo := NewEventLogRepo(db)
 
 	e := domain.EventLogEntry{
-		EventID: "evt_1", TenantID: "ten_1", SessionID: "sess_1",
+		EventID: "evt_1", OrganizationID: "ten_1", SessionID: "sess_1",
 		Type: domain.EventMessage, Payload: json.RawMessage(`{"x":1}`), CreatedAt: 100,
 	}
 	mock.ExpectExec("INSERT INTO event_log").
-		WithArgs(e.EventID, e.TenantID, e.SessionID, e.Type, []byte(e.Payload), e.CreatedAt).
+		WithArgs(e.EventID, e.OrganizationID, e.SessionID, e.Type, []byte(e.Payload), e.CreatedAt).
 		WillReturnResult(sqlmock.NewResult(42, 1))
 
 	id, err := repo.Append(context.Background(), e)
@@ -44,8 +44,8 @@ func TestEventLogRepo_ListSince_AllSessions(t *testing.T) {
 	rows := sqlmock.NewRows(eventLogColRow()).
 		AddRow(uint64(11), "evt_a", "ten_1", "sess_1", "message", []byte(`{}`), int64(1)).
 		AddRow(uint64(12), "evt_b", "ten_1", "sess_2", "poll.vote", []byte(`{}`), int64(2))
-	// No session filter -> tenant-wide query, ordered by id ASC.
-	mock.ExpectQuery("SELECT .* FROM event_log WHERE tenant_id = . AND id > . ORDER BY id ASC LIMIT .").
+	// No session filter -> organization-wide query, ordered by id ASC.
+	mock.ExpectQuery("SELECT .* FROM event_log WHERE organization_id = . AND id > . ORDER BY id ASC LIMIT .").
 		WithArgs("ten_1", uint64(10), 100).WillReturnRows(rows)
 
 	got, err := repo.ListSince(context.Background(), "ten_1", "", 10, 100)
@@ -66,7 +66,7 @@ func TestEventLogRepo_ListSince_SessionFilter(t *testing.T) {
 
 	rows := sqlmock.NewRows(eventLogColRow()).
 		AddRow(uint64(5), "evt_a", "ten_1", "sess_1", "message", []byte(`{"k":1}`), int64(1))
-	mock.ExpectQuery("SELECT .* FROM event_log WHERE tenant_id = . AND session_id = . AND id > . ORDER BY id ASC LIMIT .").
+	mock.ExpectQuery("SELECT .* FROM event_log WHERE organization_id = . AND session_id = . AND id > . ORDER BY id ASC LIMIT .").
 		WithArgs("ten_1", "sess_1", uint64(0), defaultLimit).WillReturnRows(rows)
 
 	got, err := repo.ListSince(context.Background(), "ten_1", "sess_1", 0, 0)

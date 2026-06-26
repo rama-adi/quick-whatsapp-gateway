@@ -15,7 +15,7 @@ type createGroupBody struct {
 
 // CreateGroup handles POST /sessions/{session}/groups.
 func (h *Handlers) CreateGroup(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
@@ -24,7 +24,7 @@ func (h *Handlers) CreateGroup(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, err)
 		return
 	}
-	info, err := h.Groups.Create(r.Context(), tenantID, param(r, "session"), body.Name, body.Participants)
+	info, err := h.Groups.Create(r.Context(), organizationID, param(r, "session"), body.Name, body.Participants)
 	if err != nil {
 		httpx.WriteError(w, err)
 		return
@@ -34,11 +34,11 @@ func (h *Handlers) CreateGroup(w http.ResponseWriter, r *http.Request) {
 
 // ListGroups handles GET /sessions/{session}/groups.
 func (h *Handlers) ListGroups(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
-	groups, err := h.Groups.List(r.Context(), tenantID, param(r, "session"))
+	groups, err := h.Groups.List(r.Context(), organizationID, param(r, "session"))
 	if err != nil {
 		httpx.WriteError(w, err)
 		return
@@ -48,11 +48,11 @@ func (h *Handlers) ListGroups(w http.ResponseWriter, r *http.Request) {
 
 // GetGroup handles GET /sessions/{session}/groups/{gid}.
 func (h *Handlers) GetGroup(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
-	group, err := h.Groups.Get(r.Context(), tenantID, param(r, "session"), param(r, "gid"))
+	group, err := h.Groups.Get(r.Context(), organizationID, param(r, "session"), param(r, "gid"))
 	if err != nil {
 		httpx.WriteError(w, err)
 		return
@@ -62,11 +62,11 @@ func (h *Handlers) GetGroup(w http.ResponseWriter, r *http.Request) {
 
 // ListGroupMembers handles GET /sessions/{session}/groups/{gid}/members.
 func (h *Handlers) ListGroupMembers(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
-	members, err := h.Groups.Members(r.Context(), tenantID, param(r, "session"), param(r, "gid"))
+	members, err := h.Groups.Members(r.Context(), organizationID, param(r, "session"), param(r, "gid"))
 	if err != nil {
 		httpx.WriteError(w, err)
 		return
@@ -81,7 +81,7 @@ type addMembersBody struct {
 
 // AddGroupMembers handles POST /sessions/{session}/groups/{gid}/members.
 func (h *Handlers) AddGroupMembers(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
@@ -90,7 +90,7 @@ func (h *Handlers) AddGroupMembers(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, err)
 		return
 	}
-	if err := h.Groups.AddMembers(r.Context(), tenantID, param(r, "session"), param(r, "gid"), body.Participants); err != nil {
+	if err := h.Groups.AddMembers(r.Context(), organizationID, param(r, "session"), param(r, "gid"), body.Participants); err != nil {
 		httpx.WriteError(w, err)
 		return
 	}
@@ -99,11 +99,11 @@ func (h *Handlers) AddGroupMembers(w http.ResponseWriter, r *http.Request) {
 
 // RemoveGroupMember handles DELETE /sessions/{session}/groups/{gid}/members/{jid}.
 func (h *Handlers) RemoveGroupMember(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
-	if err := h.Groups.RemoveMember(r.Context(), tenantID, param(r, "session"), param(r, "gid"), param(r, "jid")); err != nil {
+	if err := h.Groups.RemoveMember(r.Context(), organizationID, param(r, "session"), param(r, "gid"), param(r, "jid")); err != nil {
 		httpx.WriteError(w, err)
 		return
 	}
@@ -112,11 +112,11 @@ func (h *Handlers) RemoveGroupMember(w http.ResponseWriter, r *http.Request) {
 
 // PromoteGroupMember handles POST /sessions/{session}/groups/{gid}/members/{jid}/promote.
 func (h *Handlers) PromoteGroupMember(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
-	if err := h.Groups.Promote(r.Context(), tenantID, param(r, "session"), param(r, "gid"), param(r, "jid")); err != nil {
+	if err := h.Groups.Promote(r.Context(), organizationID, param(r, "session"), param(r, "gid"), param(r, "jid")); err != nil {
 		httpx.WriteError(w, err)
 		return
 	}
@@ -125,11 +125,11 @@ func (h *Handlers) PromoteGroupMember(w http.ResponseWriter, r *http.Request) {
 
 // DemoteGroupMember handles POST /sessions/{session}/groups/{gid}/members/{jid}/demote.
 func (h *Handlers) DemoteGroupMember(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
-	if err := h.Groups.Demote(r.Context(), tenantID, param(r, "session"), param(r, "gid"), param(r, "jid")); err != nil {
+	if err := h.Groups.Demote(r.Context(), organizationID, param(r, "session"), param(r, "gid"), param(r, "jid")); err != nil {
 		httpx.WriteError(w, err)
 		return
 	}
@@ -146,7 +146,7 @@ type updateGroupBody struct {
 
 // UpdateGroup handles PATCH /sessions/{session}/groups/{gid}.
 func (h *Handlers) UpdateGroup(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
@@ -155,7 +155,7 @@ func (h *Handlers) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, err)
 		return
 	}
-	err := h.Groups.UpdateSettings(r.Context(), tenantID, param(r, "session"), param(r, "gid"), domain.GroupSettings{
+	err := h.Groups.UpdateSettings(r.Context(), organizationID, param(r, "session"), param(r, "gid"), domain.GroupSettings{
 		Subject:     body.Subject,
 		Description: body.Description,
 		Announce:    body.Announce,
@@ -170,11 +170,11 @@ func (h *Handlers) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 
 // GetGroupInvite handles GET /sessions/{session}/groups/{gid}/invite.
 func (h *Handlers) GetGroupInvite(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
-	link, err := h.Groups.InviteLink(r.Context(), tenantID, param(r, "session"), param(r, "gid"))
+	link, err := h.Groups.InviteLink(r.Context(), organizationID, param(r, "session"), param(r, "gid"))
 	if err != nil {
 		httpx.WriteError(w, err)
 		return
@@ -184,11 +184,11 @@ func (h *Handlers) GetGroupInvite(w http.ResponseWriter, r *http.Request) {
 
 // RevokeGroupInvite handles DELETE /sessions/{session}/groups/{gid}/invite.
 func (h *Handlers) RevokeGroupInvite(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
-	link, err := h.Groups.RevokeInvite(r.Context(), tenantID, param(r, "session"), param(r, "gid"))
+	link, err := h.Groups.RevokeInvite(r.Context(), organizationID, param(r, "session"), param(r, "gid"))
 	if err != nil {
 		httpx.WriteError(w, err)
 		return
@@ -203,7 +203,7 @@ type joinGroupBody struct {
 
 // JoinGroup handles POST /sessions/{session}/groups:join.
 func (h *Handlers) JoinGroup(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
@@ -212,7 +212,7 @@ func (h *Handlers) JoinGroup(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, err)
 		return
 	}
-	jid, err := h.Groups.Join(r.Context(), tenantID, param(r, "session"), body.Invite)
+	jid, err := h.Groups.Join(r.Context(), organizationID, param(r, "session"), body.Invite)
 	if err != nil {
 		httpx.WriteError(w, err)
 		return
@@ -222,11 +222,11 @@ func (h *Handlers) JoinGroup(w http.ResponseWriter, r *http.Request) {
 
 // LeaveGroup handles POST /sessions/{session}/groups/{gid}:leave.
 func (h *Handlers) LeaveGroup(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
-	if err := h.Groups.Leave(r.Context(), tenantID, param(r, "session"), param(r, "gid")); err != nil {
+	if err := h.Groups.Leave(r.Context(), organizationID, param(r, "session"), param(r, "gid")); err != nil {
 		httpx.WriteError(w, err)
 		return
 	}
@@ -240,7 +240,7 @@ type approveMembersBody struct {
 
 // ApproveGroupMembers handles POST /sessions/{session}/groups/{gid}/members:approve.
 func (h *Handlers) ApproveGroupMembers(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
@@ -249,7 +249,7 @@ func (h *Handlers) ApproveGroupMembers(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, err)
 		return
 	}
-	if err := h.Groups.ApproveMembers(r.Context(), tenantID, param(r, "session"), param(r, "gid"), body.Participants); err != nil {
+	if err := h.Groups.ApproveMembers(r.Context(), organizationID, param(r, "session"), param(r, "gid"), body.Participants); err != nil {
 		httpx.WriteError(w, err)
 		return
 	}

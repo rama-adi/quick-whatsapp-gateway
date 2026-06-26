@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	testSession = "sess_test"
-	testTenant  = "ten_test"
+	testSession      = "sess_test"
+	testOrganization = "ten_test"
 )
 
 func mustJID(t *testing.T, s string) types.JID {
@@ -368,15 +368,15 @@ func TestNormalizeMessageSubtypes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e := msgEvent(tt.chat, "628222@s.whatsapp.net", tt.fromMe, tt.content)
-			ev, pr, ok := Normalize(e, testSession, testTenant)
+			ev, pr, ok := Normalize(e, testSession, testOrganization)
 			if !ok {
 				t.Fatalf("Normalize returned ok=false")
 			}
 			if ev.Type != tt.wantEvent {
 				t.Errorf("event type = %q, want %q", ev.Type, tt.wantEvent)
 			}
-			if ev.Session != testSession || ev.Tenant != testTenant {
-				t.Errorf("session/tenant not propagated: %q/%q", ev.Session, ev.Tenant)
+			if ev.Session != testSession || ev.Organization != testOrganization {
+				t.Errorf("session/organization not propagated: %q/%q", ev.Session, ev.Organization)
 			}
 			if ev.Schema != domain.Schema {
 				t.Errorf("schema = %q", ev.Schema)
@@ -424,7 +424,7 @@ func TestNormalizeMessageSenderLID(t *testing.T) {
 		},
 		Message: &waE2E.Message{Conversation: proto.String("hi")},
 	}
-	_, pr, ok := Normalize(e, testSession, testTenant)
+	_, pr, ok := Normalize(e, testSession, testOrganization)
 	if !ok || pr.Message == nil {
 		t.Fatalf("normalize failed")
 	}
@@ -451,7 +451,7 @@ func TestNormalizeMessageSenderAltPN_NotTreatedAsLID(t *testing.T) {
 		},
 		Message: &waE2E.Message{Conversation: proto.String("hi")},
 	}
-	_, pr, _ := Normalize(e, testSession, testTenant)
+	_, pr, _ := Normalize(e, testSession, testOrganization)
 	if pr.Message.SenderLID != "" {
 		t.Errorf("senderLID = %q, want empty (alt is PN)", pr.Message.SenderLID)
 	}

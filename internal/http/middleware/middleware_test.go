@@ -39,13 +39,13 @@ func decodeErr(t *testing.T, body io.Reader) domain.ErrorBody {
 // --- fakes -------------------------------------------------------------------
 
 type fakeVerifier struct {
-	key    *domain.APIKey
-	tenant *domain.Tenant
-	err    error
+	key   *domain.APIKey
+	orgID string
+	err   error
 }
 
-func (f fakeVerifier) Verify(_ context.Context, _ string) (*domain.APIKey, *domain.Tenant, error) {
-	return f.key, f.tenant, f.err
+func (f fakeVerifier) Verify(_ context.Context, _ string) (*domain.APIKey, string, error) {
+	return f.key, f.orgID, f.err
 }
 
 type fakeLimiter struct {
@@ -125,13 +125,13 @@ func TestLoggerPassThrough(t *testing.T) {
 
 func TestAPIKeyAuthValid(t *testing.T) {
 	v := fakeVerifier{
-		key:    &domain.APIKey{ID: "key_1", Permissions: domain.Permissions{Read: true}},
-		tenant: &domain.Tenant{ID: "tnt_1"},
+		key:   &domain.APIKey{ID: "key_1", Permissions: domain.Permissions{Read: true}},
+		orgID: "org_1",
 	}
-	var gotTenant string
+	var gotOrganization string
 	var gotKey *domain.APIKey
 	h := APIKeyAuth(v)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotTenant = httpx.TenantID(r.Context())
+		gotOrganization = httpx.OrganizationID(r.Context())
 		gotKey = httpx.APIKeyCtx(r.Context())
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -142,8 +142,8 @@ func TestAPIKeyAuthValid(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
-	if gotTenant != "tnt_1" || gotKey == nil || gotKey.ID != "key_1" {
-		t.Fatalf("ctx not populated: tenant=%q key=%+v", gotTenant, gotKey)
+	if gotOrganization != "org_1" || gotKey == nil || gotKey.ID != "key_1" {
+		t.Fatalf("ctx not populated: organization=%q key=%+v", gotOrganization, gotKey)
 	}
 }
 
@@ -170,7 +170,7 @@ func TestAPIKeyAuthMalformedHeader(t *testing.T) {
 }
 
 func TestAPIKeyAuthCaseInsensitiveScheme(t *testing.T) {
-	v := fakeVerifier{key: &domain.APIKey{ID: "k"}, tenant: &domain.Tenant{ID: "t"}}
+	v := fakeVerifier{key: &domain.APIKey{ID: "k"}, orgID: "org_1"}
 	h := APIKeyAuth(v)(okHandler())
 	req := httptest.NewRequest("GET", "/", nil)
 	req.Header.Set("Authorization", "bEaReR wak_abc")
@@ -285,40 +285,40 @@ func TestRateLimitKeyBySession(t *testing.T) {
 	}
 }
 
-func TestRateLimitKeyByTenant(t *testing.T) {
+func TestRateLimitKeyByOrganization(t *testing.T) {
 	lim := &fakeLimiter{allow: true}
 	h := RateLimit(lim, nil)(okHandler())
 	req := httptest.NewRequest("GET", "/webhooks", nil)
-	req = req.WithContext(httpx.SetTenantID(req.Context(), "tnt_9"))
+	req = req.WithContext(httpx.SetOrganizationID(req.Context(), "tnt_9"))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
-	if lim.gotKey != "tenant:tnt_9" {
-		t.Fatalf("key = %q, want tenant:tnt_9", lim.gotKey)
+	if lim.gotKey != "organization:tnt_9" {
+		t.Fatalf("key = %q, want organization:tnt_9", lim.gotKey)
 	}
 }
 
 // --- CookieSession -----------------------------------------------------------
 
-func TestCookieSessionSetsTenant(t *testing.T) {
-	// optionalAuth is a no-op passthrough here; tenantFrom reports a tenant.
+func TestCookieSessionSetsOrganization(t *testing.T) {
+	// optionalAuth is a no-op passthrough here; organizationFrom reports a organization.
 	optionalAuth := func(next http.Handler) http.Handler { return next }
-	tenantFrom := func(*http.Request) (string, bool) { return "tnt_cookie", true }
+	organizationFrom := func(*http.Request) (string, bool) { return "tnt_cookie", true }
 
 	var seen string
-	h := CookieSession(optionalAuth, tenantFrom)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		seen = httpx.TenantID(r.Context())
+	h := CookieSession(optionalAuth, organizationFrom)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = httpx.OrganizationID(r.Context())
 	}))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
 	if seen != "tnt_cookie" {
-		t.Fatalf("tenant = %q, want tnt_cookie", seen)
+		t.Fatalf("organization = %q, want tnt_cookie", seen)
 	}
 }
 
-func TestCookieSessionNoTenantNeverRejects(t *testing.T) {
+func TestCookieSessionNoOrganizationNeverRejects(t *testing.T) {
 	optionalAuth := func(next http.Handler) http.Handler { return next }
-	tenantFrom := func(*http.Request) (string, bool) { return "", false }
-	h := CookieSession(optionalAuth, tenantFrom)(okHandler())
+	organizationFrom := func(*http.Request) (string, bool) { return "", false }
+	h := CookieSession(optionalAuth, organizationFrom)(okHandler())
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
 	if rec.Code != http.StatusOK {
@@ -326,17 +326,17 @@ func TestCookieSessionNoTenantNeverRejects(t *testing.T) {
 	}
 }
 
-func TestRequireTenant(t *testing.T) {
-	h := RequireTenant()(okHandler())
-	// no tenant -> 401
+func TestRequireOrganization(t *testing.T) {
+	h := RequireOrganization()(okHandler())
+	// no organization -> 401
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", rec.Code)
 	}
-	// tenant present -> pass
+	// organization present -> pass
 	req := httptest.NewRequest("GET", "/", nil)
-	req = req.WithContext(httpx.SetTenantID(req.Context(), "tnt_1"))
+	req = req.WithContext(httpx.SetOrganizationID(req.Context(), "tnt_1"))
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {

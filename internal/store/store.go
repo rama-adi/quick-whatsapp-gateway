@@ -25,7 +25,7 @@ type dbExecQuerier interface {
 // Store aggregates every repository behind one struct for convenient wiring,
 // while each repo remains independently constructable via its New<Repo>.
 type Store struct {
-	Tenants           *TenantRepo
+	Gateways          *GatewayRepo
 	Sessions          *SessionRepo
 	APIKeys           *APIKeyRepo
 	Webhooks          *WebhookRepo
@@ -44,7 +44,7 @@ type Store struct {
 // New builds a Store with every repo bound to the same *sql.DB.
 func New(db *sql.DB) *Store {
 	return &Store{
-		Tenants:           NewTenantRepo(db),
+		Gateways:          NewGatewayRepo(db),
 		Sessions:          NewSessionRepo(db),
 		APIKeys:           NewAPIKeyRepo(db),
 		Webhooks:          NewWebhookRepo(db),

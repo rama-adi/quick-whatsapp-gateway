@@ -7,7 +7,7 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 )
 
-// SessionRepo is the repository for wa_sessions (attached WhatsApp numbers, §5).
+// SessionRepo is the repository for wa_sessions (attached WhatsApp numbers, §7).
 type SessionRepo struct {
 	db dbExecQuerier
 }
@@ -15,16 +15,16 @@ type SessionRepo struct {
 // NewSessionRepo constructs a SessionRepo.
 func NewSessionRepo(db dbExecQuerier) *SessionRepo { return &SessionRepo{db: db} }
 
-const sessionCols = `id, tenant_id, label, status, wa_jid, wa_lid, phone_number,
-	is_admin_session, auto_read, presence_typing, rate_per_min, rate_per_hour,
-	last_connected_at, created_at, updated_at`
+const sessionCols = `id, organization_id, created_by_user_id, gateway_id, label, status,
+	wa_jid, wa_lid, phone_number, is_admin_session, auto_read, presence_typing,
+	rate_per_min, rate_per_hour, last_connected_at, created_at, updated_at`
 
 func scanSession(s rowScanner) (domain.WASession, error) {
 	var v domain.WASession
 	err := s.Scan(
-		&v.ID, &v.TenantID, &v.Label, &v.Status, &v.WAJID, &v.WALID, &v.PhoneNumber,
-		&v.IsAdminSession, &v.AutoRead, &v.PresenceTyping, &v.RatePerMin, &v.RatePerHour,
-		&v.LastConnectedAt, &v.CreatedAt, &v.UpdatedAt,
+		&v.ID, &v.OrganizationID, &v.CreatedByUserID, &v.GatewayID, &v.Label, &v.Status,
+		&v.WAJID, &v.WALID, &v.PhoneNumber, &v.IsAdminSession, &v.AutoRead, &v.PresenceTyping,
+		&v.RatePerMin, &v.RatePerHour, &v.LastConnectedAt, &v.CreatedAt, &v.UpdatedAt,
 	)
 	if err != nil {
 		return domain.WASession{}, err
@@ -35,14 +35,14 @@ func scanSession(s rowScanner) (domain.WASession, error) {
 // Create inserts a new session row.
 func (r *SessionRepo) Create(ctx context.Context, s domain.WASession) error {
 	const q = `INSERT INTO wa_sessions
-(id, tenant_id, label, status, wa_jid, wa_lid, phone_number, is_admin_session,
- auto_read, presence_typing, rate_per_min, rate_per_hour, last_connected_at,
- created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+(id, organization_id, created_by_user_id, gateway_id, label, status, wa_jid, wa_lid,
+ phone_number, is_admin_session, auto_read, presence_typing, rate_per_min, rate_per_hour,
+ last_connected_at, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	_, err := r.db.ExecContext(ctx, q,
-		s.ID, s.TenantID, s.Label, s.Status, s.WAJID, s.WALID, s.PhoneNumber, s.IsAdminSession,
-		s.AutoRead, s.PresenceTyping, s.RatePerMin, s.RatePerHour, s.LastConnectedAt,
-		s.CreatedAt, s.UpdatedAt,
+		s.ID, s.OrganizationID, s.CreatedByUserID, s.GatewayID, s.Label, s.Status, s.WAJID, s.WALID,
+		s.PhoneNumber, s.IsAdminSession, s.AutoRead, s.PresenceTyping, s.RatePerMin, s.RatePerHour,
+		s.LastConnectedAt, s.CreatedAt, s.UpdatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("store: create session: %w", err)
@@ -70,11 +70,11 @@ func (r *SessionRepo) GetByJID(ctx context.Context, jid string) (domain.WASessio
 	return v, nil
 }
 
-// ListByTenant returns all sessions for a tenant ordered by created_at desc.
-// Session counts per tenant are small, so this is unpaginated.
-func (r *SessionRepo) ListByTenant(ctx context.Context, tenantID string) ([]domain.WASession, error) {
-	q := "SELECT " + sessionCols + " FROM wa_sessions WHERE tenant_id = ? ORDER BY created_at DESC"
-	rows, err := r.db.QueryContext(ctx, q, tenantID)
+// ListByOrg returns all sessions for an organization ordered by created_at desc.
+// Session counts per org are small, so this is unpaginated.
+func (r *SessionRepo) ListByOrg(ctx context.Context, organizationID string) ([]domain.WASession, error) {
+	q := "SELECT " + sessionCols + " FROM wa_sessions WHERE organization_id = ? ORDER BY created_at DESC"
+	rows, err := r.db.QueryContext(ctx, q, organizationID)
 	if err != nil {
 		return nil, fmt.Errorf("store: list sessions: %w", err)
 	}
@@ -90,13 +90,34 @@ func (r *SessionRepo) ListByTenant(ctx context.Context, tenantID string) ([]doma
 	return out, rows.Err()
 }
 
-// ListAll returns every session (super_admin cross-tenant oversight, §11). Kept
-// unpaginated for v1 single-instance scale.
+// ListAll returns every session (platform super_admin cross-org oversight, §11).
+// Kept unpaginated for single-instance scale.
 func (r *SessionRepo) ListAll(ctx context.Context) ([]domain.WASession, error) {
 	q := "SELECT " + sessionCols + " FROM wa_sessions ORDER BY created_at DESC"
 	rows, err := r.db.QueryContext(ctx, q)
 	if err != nil {
 		return nil, fmt.Errorf("store: list all sessions: %w", err)
+	}
+	defer rows.Close()
+	var out []domain.WASession
+	for rows.Next() {
+		v, err := scanSession(rows)
+		if err != nil {
+			return nil, scanErr("wa_sessions", err)
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+// ListByGateway returns every session pinned to the given gateway_id, ordered by
+// created_at. The boot orphan-guard (Stage 4) uses this to reconcile the sessions
+// this gateway is responsible for against its local keystore.
+func (r *SessionRepo) ListByGateway(ctx context.Context, gatewayID string) ([]domain.WASession, error) {
+	q := "SELECT " + sessionCols + " FROM wa_sessions WHERE gateway_id = ? ORDER BY created_at ASC"
+	rows, err := r.db.QueryContext(ctx, q, gatewayID)
+	if err != nil {
+		return nil, fmt.Errorf("store: list sessions by gateway: %w", err)
 	}
 	defer rows.Close()
 	var out []domain.WASession

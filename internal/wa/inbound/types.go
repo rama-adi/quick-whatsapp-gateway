@@ -24,9 +24,9 @@ type NormalizedMessage struct {
 	// Kind selects which capture/persist path runs. See MessageKind constants.
 	Kind MessageKind
 
-	// SessionID / TenantID tag the originating WhatsApp session and its tenant.
-	SessionID string
-	TenantID  string
+	// SessionID / OrganizationID tag the originating WhatsApp session and its organization.
+	SessionID      string
+	OrganizationID string
 
 	// ChatJID is the conversation JID (a DM peer, a group, a newsletter, …).
 	ChatJID string

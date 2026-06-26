@@ -1,6 +1,6 @@
 // Package httpx holds the shared HTTP transport primitives used by every API
 // handler: JSON encoding, the §11 error envelope, request decoding with limits,
-// cursor pagination, and the request-scoped context keys (tenant, api key,
+// cursor pagination, and the request-scoped context keys (organization, api key,
 // request id). Handlers stay thin by delegating wire concerns here.
 package httpx
 

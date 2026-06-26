@@ -11,15 +11,15 @@ const Schema = "v1"
 // in §9's example), and Timestamp is epoch-ms.
 //
 //	{ "schema":"v1","id":"evt_…","event":"message","session":"sess_…",
-//	  "tenant":"ten_abc","timestamp":1719400000000,"payload":{} }
+//	  "organization":"org_abc","timestamp":1719400000000,"payload":{} }
 type Event struct {
-	Schema    string `json:"schema"`
-	ID        string `json:"id"` // evt_<ulid>, exposed to clients
-	Type      string `json:"event"`
-	Session   string `json:"session"`
-	Tenant    string `json:"tenant"`
-	Timestamp int64  `json:"timestamp"` // epoch ms
-	Payload   any    `json:"payload"`
+	Schema       string `json:"schema"`
+	ID           string `json:"id"` // evt_<ulid>, exposed to clients
+	Type         string `json:"event"`
+	Session      string `json:"session"`
+	Organization string `json:"organization"`
+	Timestamp    int64  `json:"timestamp"` // epoch ms
+	Payload      any    `json:"payload"`
 }
 
 // Event catalog (§9 v1). Typed string constants for every event type so
@@ -45,16 +45,17 @@ const (
 )
 
 // NewEvent builds an Event with the current schema, a fresh evt_ ULID, and the
-// current epoch-ms timestamp. The session/tenant are the originating WhatsApp
-// session id and tenant id; payload is the (already-normalized) type-specific body.
-func NewEvent(typ, session, tenant string, payload any) Event {
+// current epoch-ms timestamp. The session/organization are the originating
+// WhatsApp session id and owning organization id; payload is the
+// (already-normalized) type-specific body.
+func NewEvent(typ, session, organization string, payload any) Event {
 	return Event{
-		Schema:    Schema,
-		ID:        NewEventID(),
-		Type:      typ,
-		Session:   session,
-		Tenant:    tenant,
-		Timestamp: NowMs(),
-		Payload:   payload,
+		Schema:       Schema,
+		ID:           NewEventID(),
+		Type:         typ,
+		Session:      session,
+		Organization: organization,
+		Timestamp:    NowMs(),
+		Payload:      payload,
 	}
 }

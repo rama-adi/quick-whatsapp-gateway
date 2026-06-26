@@ -14,10 +14,10 @@ func newSessionHandlers(svc SessionSvc) *Handlers {
 }
 
 func TestCreateSession_HappyPath(t *testing.T) {
-	svc := &fakeSessionSvc{created: domain.WASession{ID: "sess_1", TenantID: testTenant, Status: domain.SessionStopped}}
+	svc := &fakeSessionSvc{created: domain.WASession{ID: "sess_1", OrganizationID: testOrganization, Status: domain.SessionStopped}}
 	h := newSessionHandlers(svc)
 
-	r := withTenant(chiReq(http.MethodPost, "/api/v1/sessions", `{"label":"work","autoRead":false}`, nil), testTenant)
+	r := withOrganization(chiReq(http.MethodPost, "/api/v1/sessions", `{"label":"work","autoRead":false}`, nil), testOrganization)
 	w := httptest.NewRecorder()
 	h.CreateSession(w, r)
 
@@ -36,9 +36,9 @@ func TestCreateSession_HappyPath(t *testing.T) {
 	}
 }
 
-func TestCreateSession_NoTenant401(t *testing.T) {
+func TestCreateSession_NoOrganization401(t *testing.T) {
 	h := newSessionHandlers(&fakeSessionSvc{})
-	r := chiReq(http.MethodPost, "/api/v1/sessions", `{}`, nil) // no tenant on ctx
+	r := chiReq(http.MethodPost, "/api/v1/sessions", `{}`, nil) // no organization on ctx
 	w := httptest.NewRecorder()
 	h.CreateSession(w, r)
 	if w.Code != http.StatusUnauthorized {
@@ -51,7 +51,7 @@ func TestCreateSession_NoTenant401(t *testing.T) {
 
 func TestCreateSession_BadJSON(t *testing.T) {
 	h := newSessionHandlers(&fakeSessionSvc{})
-	r := withTenant(chiReq(http.MethodPost, "/api/v1/sessions", `{"label":`, nil), testTenant)
+	r := withOrganization(chiReq(http.MethodPost, "/api/v1/sessions", `{"label":`, nil), testOrganization)
 	w := httptest.NewRecorder()
 	h.CreateSession(w, r)
 	if w.Code != http.StatusBadRequest {
@@ -65,7 +65,7 @@ func TestCreateSession_BadJSON(t *testing.T) {
 func TestListSessions_Envelope(t *testing.T) {
 	svc := &fakeSessionSvc{list: []domain.WASession{{ID: "sess_1"}, {ID: "sess_2"}}}
 	h := newSessionHandlers(svc)
-	r := withTenant(chiReq(http.MethodGet, "/api/v1/sessions", "", nil), testTenant)
+	r := withOrganization(chiReq(http.MethodGet, "/api/v1/sessions", "", nil), testOrganization)
 	w := httptest.NewRecorder()
 	h.ListSessions(w, r)
 	if w.Code != http.StatusOK {
@@ -85,7 +85,7 @@ func TestListSessions_Envelope(t *testing.T) {
 func TestStartSession_ReturnsRefreshedRow(t *testing.T) {
 	svc := &fakeSessionSvc{one: domain.WASession{ID: "sess_1", Status: domain.SessionWorking}}
 	h := newSessionHandlers(svc)
-	r := withTenant(chiReq(http.MethodPost, "/api/v1/sessions/sess_1:start", "", map[string]string{"session": "sess_1"}), testTenant)
+	r := withOrganization(chiReq(http.MethodPost, "/api/v1/sessions/sess_1:start", "", map[string]string{"session": "sess_1"}), testOrganization)
 	w := httptest.NewRecorder()
 	h.StartSession(w, r)
 	if w.Code != http.StatusOK {
@@ -98,7 +98,7 @@ func TestStartSession_ReturnsRefreshedRow(t *testing.T) {
 
 func TestDeleteSession_NoContent(t *testing.T) {
 	h := newSessionHandlers(&fakeSessionSvc{})
-	r := withTenant(chiReq(http.MethodDelete, "/api/v1/sessions/sess_1", "", map[string]string{"session": "sess_1"}), testTenant)
+	r := withOrganization(chiReq(http.MethodDelete, "/api/v1/sessions/sess_1", "", map[string]string{"session": "sess_1"}), testOrganization)
 	w := httptest.NewRecorder()
 	h.DeleteSession(w, r)
 	if w.Code != http.StatusNoContent {
@@ -109,7 +109,7 @@ func TestDeleteSession_NoContent(t *testing.T) {
 func TestGetSession_NotFound(t *testing.T) {
 	svc := &fakeSessionSvc{err: domain.ErrNotFound("session not found")}
 	h := newSessionHandlers(svc)
-	r := withTenant(chiReq(http.MethodGet, "/api/v1/sessions/x", "", map[string]string{"session": "x"}), testTenant)
+	r := withOrganization(chiReq(http.MethodGet, "/api/v1/sessions/x", "", map[string]string{"session": "x"}), testOrganization)
 	w := httptest.NewRecorder()
 	h.GetSession(w, r)
 	if w.Code != http.StatusNotFound {
@@ -120,7 +120,7 @@ func TestGetSession_NotFound(t *testing.T) {
 func TestSessionPairingCode_HappyPath(t *testing.T) {
 	svc := &fakeSessionSvc{code: "ABCD-1234"}
 	h := newSessionHandlers(svc)
-	r := withTenant(chiReq(http.MethodPost, "/api/v1/sessions/sess_1/pairing-code", `{"phone":"62812345"}`, map[string]string{"session": "sess_1"}), testTenant)
+	r := withOrganization(chiReq(http.MethodPost, "/api/v1/sessions/sess_1/pairing-code", `{"phone":"62812345"}`, map[string]string{"session": "sess_1"}), testOrganization)
 	w := httptest.NewRecorder()
 	h.SessionPairingCode(w, r)
 	if w.Code != http.StatusOK {

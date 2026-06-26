@@ -34,8 +34,8 @@ func (a *OutboxRepoAdapter) Insert(ctx context.Context, e *domain.OutboxEntry) e
 	return a.repo.Insert(ctx, *e)
 }
 
-func (a *OutboxRepoAdapter) GetByIdempotencyKey(ctx context.Context, tenantID, key string) (*domain.OutboxEntry, error) {
-	e, err := a.repo.GetByIdempotency(ctx, tenantID, key)
+func (a *OutboxRepoAdapter) GetByIdempotencyKey(ctx context.Context, organizationID, key string) (*domain.OutboxEntry, error) {
+	e, err := a.repo.GetByIdempotency(ctx, organizationID, key)
 	if err != nil {
 		var apiErr *domain.APIError
 		if errors.As(err, &apiErr) && apiErr.Code == domain.CodeNotFound {

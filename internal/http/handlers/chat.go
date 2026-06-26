@@ -9,12 +9,12 @@ import (
 
 // ListChats handles GET /sessions/{session}/chats.
 func (h *Handlers) ListChats(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
 	limit, cursor := httpx.ParsePage(r)
-	page, err := h.Chats.List(r.Context(), tenantID, param(r, "session"), cursor, limit)
+	page, err := h.Chats.List(r.Context(), organizationID, param(r, "session"), cursor, limit)
 	if err != nil {
 		httpx.WriteError(w, err)
 		return
@@ -24,11 +24,11 @@ func (h *Handlers) ListChats(w http.ResponseWriter, r *http.Request) {
 
 // GetChat handles GET /sessions/{session}/chats/{cid}.
 func (h *Handlers) GetChat(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
-	chat, err := h.Chats.Get(r.Context(), tenantID, param(r, "session"), param(r, "cid"))
+	chat, err := h.Chats.Get(r.Context(), organizationID, param(r, "session"), param(r, "cid"))
 	if err != nil {
 		httpx.WriteError(w, err)
 		return
@@ -38,12 +38,12 @@ func (h *Handlers) GetChat(w http.ResponseWriter, r *http.Request) {
 
 // ListChatMessages handles GET /sessions/{session}/chats/{cid}/messages.
 func (h *Handlers) ListChatMessages(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
 	limit, cursor := httpx.ParsePage(r)
-	page, err := h.Chats.ListMessages(r.Context(), tenantID, param(r, "session"), param(r, "cid"), cursor, limit)
+	page, err := h.Chats.ListMessages(r.Context(), organizationID, param(r, "session"), param(r, "cid"), cursor, limit)
 	if err != nil {
 		httpx.WriteError(w, err)
 		return
@@ -53,11 +53,11 @@ func (h *Handlers) ListChatMessages(w http.ResponseWriter, r *http.Request) {
 
 // ReadChat handles POST /sessions/{session}/chats/{cid}/read.
 func (h *Handlers) ReadChat(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
-	chat, err := h.Chats.Read(r.Context(), tenantID, param(r, "session"), param(r, "cid"))
+	chat, err := h.Chats.Read(r.Context(), organizationID, param(r, "session"), param(r, "cid"))
 	if err != nil {
 		httpx.WriteError(w, err)
 		return
@@ -75,7 +75,7 @@ type updateChatBody struct {
 
 // UpdateChat handles PATCH /sessions/{session}/chats/{cid}.
 func (h *Handlers) UpdateChat(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
@@ -84,7 +84,7 @@ func (h *Handlers) UpdateChat(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, err)
 		return
 	}
-	chat, err := h.Chats.Update(r.Context(), tenantID, param(r, "session"), param(r, "cid"), service.ChatUpdate{
+	chat, err := h.Chats.Update(r.Context(), organizationID, param(r, "session"), param(r, "cid"), service.ChatUpdate{
 		Archived:   body.Archived,
 		Pinned:     body.Pinned,
 		MutedUntil: body.MutedUntil,
@@ -99,11 +99,11 @@ func (h *Handlers) UpdateChat(w http.ResponseWriter, r *http.Request) {
 
 // DeleteChat handles DELETE /sessions/{session}/chats/{cid}.
 func (h *Handlers) DeleteChat(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
-	if err := h.Chats.Delete(r.Context(), tenantID, param(r, "session"), param(r, "cid")); err != nil {
+	if err := h.Chats.Delete(r.Context(), organizationID, param(r, "session"), param(r, "cid")); err != nil {
 		httpx.WriteError(w, err)
 		return
 	}
@@ -117,7 +117,7 @@ type chatPresenceBody struct {
 
 // ChatPresence handles PUT /sessions/{session}/chats/{cid}/presence.
 func (h *Handlers) ChatPresence(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
@@ -126,7 +126,7 @@ func (h *Handlers) ChatPresence(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, err)
 		return
 	}
-	if err := h.Chats.SetPresence(r.Context(), tenantID, param(r, "session"), param(r, "cid"), body.State); err != nil {
+	if err := h.Chats.SetPresence(r.Context(), organizationID, param(r, "session"), param(r, "cid"), body.State); err != nil {
 		httpx.WriteError(w, err)
 		return
 	}

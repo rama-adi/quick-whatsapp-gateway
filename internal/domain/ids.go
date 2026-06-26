@@ -15,8 +15,6 @@ import (
 const (
 	PrefixEvent   = "evt_"  // event ids exposed to clients (event_log.event_id)
 	PrefixSession = "sess_" // wa_sessions.id
-	PrefixTenant  = "ten_"  // tenants.id mirror (Authula user id is canonical)
-	PrefixAPIKey  = "wak_"  // api key prefix + full key
 	PrefixWebhook = "wh_"   // webhooks.id
 	PrefixOutbox  = "out_"  // outbox.id
 )
@@ -46,8 +44,6 @@ func NewPrefixedID(prefix string) string { return prefix + NewULID() }
 // well-known prefixed identifier kind.
 func NewEventID() string   { return NewPrefixedID(PrefixEvent) }
 func NewSessionID() string { return NewPrefixedID(PrefixSession) }
-func NewTenantID() string  { return NewPrefixedID(PrefixTenant) }
-func NewAPIKeyID() string  { return NewPrefixedID(PrefixAPIKey) }
 func NewWebhookID() string { return NewPrefixedID(PrefixWebhook) }
 func NewOutboxID() string  { return NewPrefixedID(PrefixOutbox) }
 

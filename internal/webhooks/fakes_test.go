@@ -18,12 +18,12 @@ type fakeWebhookRepo struct {
 	byID     map[string]domain.Webhook
 	getErr   error
 
-	lastTenant, lastSession, lastType string
-	listErr                           error
+	lastOrganization, lastSession, lastType string
+	listErr                                 error
 }
 
-func (r *fakeWebhookRepo) ListMatching(_ context.Context, tenant, session, eventType string) ([]domain.Webhook, error) {
-	r.lastTenant, r.lastSession, r.lastType = tenant, session, eventType
+func (r *fakeWebhookRepo) ListMatching(_ context.Context, organization, session, eventType string) ([]domain.Webhook, error) {
+	r.lastOrganization, r.lastSession, r.lastType = organization, session, eventType
 	if r.listErr != nil {
 		return nil, r.listErr
 	}

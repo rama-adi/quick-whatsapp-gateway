@@ -17,7 +17,7 @@ type createChannelBody struct {
 
 // CreateChannel handles POST /sessions/{session}/channels.
 func (h *Handlers) CreateChannel(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
@@ -26,7 +26,7 @@ func (h *Handlers) CreateChannel(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, err)
 		return
 	}
-	jid, err := h.Channels.Create(r.Context(), tenantID, param(r, "session"), body.Name, body.Description)
+	jid, err := h.Channels.Create(r.Context(), organizationID, param(r, "session"), body.Name, body.Description)
 	if err != nil {
 		httpx.WriteError(w, err)
 		return
@@ -36,11 +36,11 @@ func (h *Handlers) CreateChannel(w http.ResponseWriter, r *http.Request) {
 
 // FollowChannel handles POST /sessions/{session}/channels/{jid}:follow.
 func (h *Handlers) FollowChannel(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
-	if err := h.Channels.Follow(r.Context(), tenantID, param(r, "session"), param(r, "jid")); err != nil {
+	if err := h.Channels.Follow(r.Context(), organizationID, param(r, "session"), param(r, "jid")); err != nil {
 		httpx.WriteError(w, err)
 		return
 	}
@@ -49,11 +49,11 @@ func (h *Handlers) FollowChannel(w http.ResponseWriter, r *http.Request) {
 
 // UnfollowChannel handles POST /sessions/{session}/channels/{jid}:unfollow.
 func (h *Handlers) UnfollowChannel(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
-	if err := h.Channels.Unfollow(r.Context(), tenantID, param(r, "session"), param(r, "jid")); err != nil {
+	if err := h.Channels.Unfollow(r.Context(), organizationID, param(r, "session"), param(r, "jid")); err != nil {
 		httpx.WriteError(w, err)
 		return
 	}
@@ -67,7 +67,7 @@ type muteChannelBody struct {
 
 // MuteChannel handles POST /sessions/{session}/channels/{jid}:mute.
 func (h *Handlers) MuteChannel(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
@@ -80,7 +80,7 @@ func (h *Handlers) MuteChannel(w http.ResponseWriter, r *http.Request) {
 	if body.Mute != nil {
 		mute = *body.Mute
 	}
-	if err := h.Channels.Mute(r.Context(), tenantID, param(r, "session"), param(r, "jid"), mute); err != nil {
+	if err := h.Channels.Mute(r.Context(), organizationID, param(r, "session"), param(r, "jid"), mute); err != nil {
 		httpx.WriteError(w, err)
 		return
 	}
@@ -89,12 +89,12 @@ func (h *Handlers) MuteChannel(w http.ResponseWriter, r *http.Request) {
 
 // ListChannelMessages handles GET /sessions/{session}/channels/{jid}/messages.
 func (h *Handlers) ListChannelMessages(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
 	limit, cursor := httpx.ParsePage(r)
-	page, err := h.Channels.Messages(r.Context(), tenantID, param(r, "session"), param(r, "jid"), cursor, limit)
+	page, err := h.Channels.Messages(r.Context(), organizationID, param(r, "session"), param(r, "jid"), cursor, limit)
 	if err != nil {
 		httpx.WriteError(w, err)
 		return
@@ -113,7 +113,7 @@ type postStatusBody struct {
 
 // PostStatus handles POST /sessions/{session}/status.
 func (h *Handlers) PostStatus(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
@@ -124,7 +124,7 @@ func (h *Handlers) PostStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	switch body.Type {
 	case "", "text":
-		id, err := h.Status.PostText(r.Context(), tenantID, param(r, "session"), body.Text)
+		id, err := h.Status.PostText(r.Context(), organizationID, param(r, "session"), body.Text)
 		if err != nil {
 			httpx.WriteError(w, err)
 			return
@@ -145,7 +145,7 @@ type presenceBody struct {
 
 // SetPresence handles PUT /sessions/{session}/presence.
 func (h *Handlers) SetPresence(w http.ResponseWriter, r *http.Request) {
-	tenantID, ok := tenant(w, r)
+	organizationID, ok := organization(w, r)
 	if !ok {
 		return
 	}
@@ -154,7 +154,7 @@ func (h *Handlers) SetPresence(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, err)
 		return
 	}
-	if err := h.Presence.Set(r.Context(), tenantID, param(r, "session"), body.State); err != nil {
+	if err := h.Presence.Set(r.Context(), organizationID, param(r, "session"), body.State); err != nil {
 		httpx.WriteError(w, err)
 		return
 	}

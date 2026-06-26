@@ -70,7 +70,7 @@ func NewSender(wa WAClient, outbox OutboxRepo, limits RateLimiter, clock Clock, 
 //  1. Validate the request (type + per-type required fields). Media types are
 //     rejected up front with a 501 (not_implemented).
 //  2. Idempotency: if a key is supplied and a prior outbox row exists for
-//     (tenant, key), replay its stored result without re-sending.
+//     (organization, key), replay its stored result without re-sending.
 //  3. Async path: persist a queued outbox row and return its id (202-style).
 //     Rate-limit breaches here defer (the row stays queued) rather than error.
 //  4. Sync path: enforce the rate limit (429-style error on breach), optionally
@@ -89,7 +89,7 @@ func (s *Sender) Send(ctx context.Context, sess domain.WASession, req domain.Sen
 
 	// 2. Idempotency replay (applies to both modes).
 	if opts.IdempotencyKey != "" {
-		if prior, err := s.outbox.GetByIdempotencyKey(ctx, sess.TenantID, opts.IdempotencyKey); err != nil {
+		if prior, err := s.outbox.GetByIdempotencyKey(ctx, sess.OrganizationID, opts.IdempotencyKey); err != nil {
 			return SendResult{}, fmt.Errorf("outbound: idempotency lookup: %w", err)
 		} else if prior != nil {
 			return replayResult(prior), nil
@@ -123,7 +123,7 @@ func (s *Sender) sendSync(ctx context.Context, sess domain.WASession, req domain
 		if err != nil {
 			// A duplicate key here means another in-flight send already claimed
 			// it; fall back to replaying the stored row.
-			if prior, gerr := s.outbox.GetByIdempotencyKey(ctx, sess.TenantID, opts.IdempotencyKey); gerr == nil && prior != nil {
+			if prior, gerr := s.outbox.GetByIdempotencyKey(ctx, sess.OrganizationID, opts.IdempotencyKey); gerr == nil && prior != nil {
 				return replayResult(prior), nil
 			}
 			return SendResult{}, err
@@ -161,7 +161,7 @@ func (s *Sender) sendAsync(ctx context.Context, sess domain.WASession, req domai
 	entry, err := s.persistOutbox(ctx, sess, req, opts.IdempotencyKey, domain.OutboxQueued)
 	if err != nil {
 		if opts.IdempotencyKey != "" {
-			if prior, gerr := s.outbox.GetByIdempotencyKey(ctx, sess.TenantID, opts.IdempotencyKey); gerr == nil && prior != nil {
+			if prior, gerr := s.outbox.GetByIdempotencyKey(ctx, sess.OrganizationID, opts.IdempotencyKey); gerr == nil && prior != nil {
 				return replayResult(prior), nil
 			}
 		}
@@ -179,13 +179,13 @@ func (s *Sender) persistOutbox(ctx context.Context, sess domain.WASession, req d
 	}
 	now := s.clock.NowMs()
 	entry := &domain.OutboxEntry{
-		ID:        domain.NewOutboxID(),
-		TenantID:  sess.TenantID,
-		SessionID: sess.ID,
-		Payload:   payload,
-		Status:    status,
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:             domain.NewOutboxID(),
+		OrganizationID: sess.OrganizationID,
+		SessionID:      sess.ID,
+		Payload:        payload,
+		Status:         status,
+		CreatedAt:      now,
+		UpdatedAt:      now,
 	}
 	if idemKey != "" {
 		entry.IdempotencyKey = &idemKey

@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	testSession = "sess_test"
-	testTenant  = "ten_test"
+	testSession      = "sess_test"
+	testOrganization = "ten_test"
 )
 
 // dmMessage builds a normalized inbound DM text message.
@@ -64,7 +64,7 @@ func groupMessage() *NormalizedMessage {
 }
 
 func event(typ string) domain.Event {
-	return domain.NewEvent(typ, testSession, testTenant, map[string]any{"x": 1})
+	return domain.NewEvent(typ, testSession, testOrganization, map[string]any{"x": 1})
 }
 
 // TestProcess_DMCapture verifies a DM message captures identity + contact with
@@ -77,7 +77,7 @@ func TestProcess_DMCapture(t *testing.T) {
 		return SessionConfig{}, true // auto_read off
 	}))
 
-	require.NoError(t, p.Process(context.Background(), testSession, testTenant, false, struct{}{}))
+	require.NoError(t, p.Process(context.Background(), testSession, testOrganization, false, struct{}{}))
 
 	require.Len(t, f.repos.identities, 1)
 	assert.Equal(t, "111@lid", f.repos.identities[0].LID)
@@ -110,7 +110,7 @@ func TestProcess_GroupCapture(t *testing.T) {
 	f.norm.nm = groupMessage()
 	p := f.newPipeline()
 
-	require.NoError(t, p.Process(context.Background(), testSession, testTenant, false, struct{}{}))
+	require.NoError(t, p.Process(context.Background(), testSession, testOrganization, false, struct{}{}))
 
 	require.Len(t, f.repos.contacts, 1)
 	assert.False(t, f.repos.contacts[0].SeenInDM, "group sighting must NOT set seen_in_dm")
@@ -183,7 +183,7 @@ func TestProcess_InterceptorDrop(t *testing.T) {
 			f.norm.nm = nm
 			p := f.newPipeline(WithCommandPrefix(tc.prefix))
 
-			require.NoError(t, p.Process(context.Background(), testSession, testTenant, tc.isAdmin, struct{}{}))
+			require.NoError(t, p.Process(context.Background(), testSession, testOrganization, tc.isAdmin, struct{}{}))
 
 			if tc.wantCmdHandled {
 				require.Len(t, f.commands.calls, 1)
@@ -220,7 +220,7 @@ func TestProcess_InterceptorRegistryError(t *testing.T) {
 	f.commands.err = errors.New("boom")
 	p := f.newPipeline(WithCommandPrefix("am"))
 
-	require.NoError(t, p.Process(context.Background(), testSession, testTenant, true, struct{}{}))
+	require.NoError(t, p.Process(context.Background(), testSession, testOrganization, true, struct{}{}))
 	assert.Empty(t, f.repos.messages, "registry error still drops the event")
 	assert.Empty(t, f.sink.published)
 }
@@ -235,7 +235,7 @@ func TestProcess_AutoReadBeforeFanout(t *testing.T) {
 		return SessionConfig{AutoRead: true, PresenceTyping: true}, true
 	}))
 
-	require.NoError(t, p.Process(context.Background(), testSession, testTenant, false, struct{}{}))
+	require.NoError(t, p.Process(context.Background(), testSession, testOrganization, false, struct{}{}))
 
 	require.Len(t, f.wa.readReceipts, 1)
 	assert.Equal(t, []string{"MSG1"}, f.wa.readReceipts[0].messageIDs)
@@ -296,7 +296,7 @@ func TestProcess_AutoReadDisabled(t *testing.T) {
 			f.norm.nm = nm
 			p := f.newPipeline(tc.opts...)
 
-			require.NoError(t, p.Process(context.Background(), testSession, testTenant, false, struct{}{}))
+			require.NoError(t, p.Process(context.Background(), testSession, testOrganization, false, struct{}{}))
 			assert.Empty(t, f.wa.readReceipts, "no read receipt expected")
 		})
 	}
@@ -322,7 +322,7 @@ func TestProcess_Receipt(t *testing.T) {
 		return SessionConfig{AutoRead: true}, true
 	}))
 
-	require.NoError(t, p.Process(context.Background(), testSession, testTenant, false, struct{}{}))
+	require.NoError(t, p.Process(context.Background(), testSession, testOrganization, false, struct{}{}))
 
 	require.Len(t, f.repos.statusUpd, 1)
 	upd := f.repos.statusUpd[0]
@@ -359,7 +359,7 @@ func TestProcess_PollVote(t *testing.T) {
 	}
 	p := f.newPipeline()
 
-	require.NoError(t, p.Process(context.Background(), testSession, testTenant, false, struct{}{}))
+	require.NoError(t, p.Process(context.Background(), testSession, testOrganization, false, struct{}{}))
 
 	require.Len(t, f.repos.pollVotes, 1)
 	pv := f.repos.pollVotes[0]
@@ -379,7 +379,7 @@ func TestProcess_EditRevoke(t *testing.T) {
 		f.norm.evt = event(domain.EventMessageEdited)
 		f.norm.nm = &NormalizedMessage{Kind: KindEdit, WAMessageID: "MSG1", Body: "edited text"}
 		p := f.newPipeline()
-		require.NoError(t, p.Process(context.Background(), testSession, testTenant, false, struct{}{}))
+		require.NoError(t, p.Process(context.Background(), testSession, testOrganization, false, struct{}{}))
 		assert.Equal(t, []string{"MSG1"}, f.repos.edited)
 		assert.Empty(t, f.repos.messages)
 	})
@@ -388,7 +388,7 @@ func TestProcess_EditRevoke(t *testing.T) {
 		f.norm.evt = event(domain.EventMessageRevoked)
 		f.norm.nm = &NormalizedMessage{Kind: KindRevoke, WAMessageID: "MSG1"}
 		p := f.newPipeline()
-		require.NoError(t, p.Process(context.Background(), testSession, testTenant, false, struct{}{}))
+		require.NoError(t, p.Process(context.Background(), testSession, testOrganization, false, struct{}{}))
 		assert.Equal(t, []string{"MSG1"}, f.repos.deleted)
 	})
 }
@@ -400,7 +400,7 @@ func TestProcess_NormalizeDrop(t *testing.T) {
 	f.norm.ok = false
 	p := f.newPipeline()
 
-	require.NoError(t, p.Process(context.Background(), testSession, testTenant, false, struct{}{}))
+	require.NoError(t, p.Process(context.Background(), testSession, testOrganization, false, struct{}{}))
 	assert.Empty(t, f.order.snapshot(), "no stage should run on a dropped event")
 }
 
@@ -416,7 +416,7 @@ func TestProcess_FromMeEcho(t *testing.T) {
 		return SessionConfig{AutoRead: true}, true
 	}))
 
-	require.NoError(t, p.Process(context.Background(), testSession, testTenant, false, struct{}{}))
+	require.NoError(t, p.Process(context.Background(), testSession, testOrganization, false, struct{}{}))
 
 	require.Len(t, f.repos.messages, 1)
 	assert.Equal(t, domain.DirectionOut, f.repos.messages[0].Direction)
@@ -434,7 +434,7 @@ func TestProcess_CaptureError(t *testing.T) {
 	f.repos.failErr = errors.New("db down")
 	p := f.newPipeline()
 
-	err := p.Process(context.Background(), testSession, testTenant, false, struct{}{})
+	err := p.Process(context.Background(), testSession, testOrganization, false, struct{}{})
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "inbound capture")
 	assert.Empty(t, f.repos.messages, "persist must not run after capture error")
@@ -452,7 +452,7 @@ func TestProcess_FanoutErrorsJoined(t *testing.T) {
 	f.webhooks.err = errors.New("enqueue fail")
 	p := f.newPipeline()
 
-	err := p.Process(context.Background(), testSession, testTenant, false, struct{}{})
+	err := p.Process(context.Background(), testSession, testOrganization, false, struct{}{})
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "inbound fanout")
 	// event_log still appended despite the other two failing
@@ -470,7 +470,7 @@ func TestProcess_AutoReadErrorNonFatal(t *testing.T) {
 		return SessionConfig{AutoRead: true}, true
 	}))
 
-	require.NoError(t, p.Process(context.Background(), testSession, testTenant, false, struct{}{}))
+	require.NoError(t, p.Process(context.Background(), testSession, testOrganization, false, struct{}{}))
 	assert.Len(t, f.sink.published, 1, "fan-out proceeds despite read-receipt failure")
 }
 
@@ -485,7 +485,7 @@ func TestProcess_NoSenderSkipsIdentity(t *testing.T) {
 	}
 	p := f.newPipeline()
 
-	require.NoError(t, p.Process(context.Background(), testSession, testTenant, false, struct{}{}))
+	require.NoError(t, p.Process(context.Background(), testSession, testOrganization, false, struct{}{}))
 	assert.Empty(t, f.repos.identities)
 	assert.Empty(t, f.repos.contacts)
 	assert.Len(t, f.sink.published, 1)

@@ -52,7 +52,7 @@ func (s *WebhookService) defaultRetry() domain.RetryPolicy {
 }
 
 // Create persists a new webhook.
-func (s *WebhookService) Create(ctx context.Context, tenantID string, in WebhookInput) (domain.Webhook, error) {
+func (s *WebhookService) Create(ctx context.Context, organizationID string, in WebhookInput) (domain.Webhook, error) {
 	if in.URL == "" {
 		return domain.Webhook{}, domain.ErrValidation("url is required")
 	}
@@ -61,16 +61,16 @@ func (s *WebhookService) Create(ctx context.Context, tenantID string, in Webhook
 	}
 	now := domain.NowMs()
 	w := domain.Webhook{
-		ID:            domain.NewWebhookID(),
-		TenantID:      tenantID,
-		SessionID:     in.SessionID,
-		URL:           in.URL,
-		Events:        in.Events,
-		CustomHeaders: in.CustomHeaders,
-		RetryPolicy:   s.defaultRetry(),
-		Active:        true,
-		CreatedAt:     now,
-		UpdatedAt:     now,
+		ID:             domain.NewWebhookID(),
+		OrganizationID: organizationID,
+		SessionID:      in.SessionID,
+		URL:            in.URL,
+		Events:         in.Events,
+		CustomHeaders:  in.CustomHeaders,
+		RetryPolicy:    s.defaultRetry(),
+		Active:         true,
+		CreatedAt:      now,
+		UpdatedAt:      now,
 	}
 	if in.RetryPolicy != nil {
 		w.RetryPolicy = *in.RetryPolicy
@@ -91,26 +91,26 @@ func (s *WebhookService) Create(ctx context.Context, tenantID string, in Webhook
 	return w, nil
 }
 
-// List returns the tenant's webhooks.
-func (s *WebhookService) List(ctx context.Context, tenantID string) ([]domain.Webhook, error) {
-	return s.repo.ListByTenant(ctx, tenantID)
+// List returns the organization's webhooks.
+func (s *WebhookService) List(ctx context.Context, organizationID string) ([]domain.Webhook, error) {
+	return s.repo.ListByOrg(ctx, organizationID)
 }
 
-// Get loads one webhook, enforcing tenant ownership.
-func (s *WebhookService) Get(ctx context.Context, tenantID, id string) (domain.Webhook, error) {
+// Get loads one webhook, enforcing organization ownership.
+func (s *WebhookService) Get(ctx context.Context, organizationID, id string) (domain.Webhook, error) {
 	w, err := s.repo.Get(ctx, id)
 	if err != nil {
 		return domain.Webhook{}, err
 	}
-	if w.TenantID != tenantID {
+	if w.OrganizationID != organizationID {
 		return domain.Webhook{}, domain.ErrNotFound("webhook not found")
 	}
 	return w, nil
 }
 
 // Update applies a partial update to a webhook.
-func (s *WebhookService) Update(ctx context.Context, tenantID, id string, in WebhookInput) (domain.Webhook, error) {
-	w, err := s.Get(ctx, tenantID, id)
+func (s *WebhookService) Update(ctx context.Context, organizationID, id string, in WebhookInput) (domain.Webhook, error) {
+	w, err := s.Get(ctx, organizationID, id)
 	if err != nil {
 		return domain.Webhook{}, err
 	}
@@ -149,8 +149,8 @@ func (s *WebhookService) Update(ctx context.Context, tenantID, id string, in Web
 }
 
 // Delete removes a webhook.
-func (s *WebhookService) Delete(ctx context.Context, tenantID, id string) error {
-	if _, err := s.Get(ctx, tenantID, id); err != nil {
+func (s *WebhookService) Delete(ctx context.Context, organizationID, id string) error {
+	if _, err := s.Get(ctx, organizationID, id); err != nil {
 		return err
 	}
 	return s.repo.Delete(ctx, id)

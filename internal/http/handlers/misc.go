@@ -8,8 +8,8 @@ import (
 )
 
 // Events handles GET /events as a live NDJSON stream by delegating to the
-// internal/stream handler (§9). Auth + tenant enrichment happen in middleware;
-// the stream handler reads the tenant from context.
+// internal/stream handler (§9). Auth + organization enrichment happen in middleware;
+// the stream handler reads the organization from context.
 func (h *Handlers) Events(w http.ResponseWriter, r *http.Request) {
 	if h.EventStream == nil {
 		httpx.WriteError(w, domain.ErrInternal("event stream is not available"))
@@ -18,7 +18,7 @@ func (h *Handlers) Events(w http.ResponseWriter, r *http.Request) {
 	h.EventStream.ServeHTTP(w, r)
 }
 
-// AdminListSessions handles GET /admin/sessions (super_admin cross-tenant view).
+// AdminListSessions handles GET /admin/sessions (super_admin cross-organization view).
 func (h *Handlers) AdminListSessions(w http.ResponseWriter, r *http.Request) {
 	sessions, err := h.Admin.ListAllSessions(r.Context())
 	if err != nil {
