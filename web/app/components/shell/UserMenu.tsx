@@ -1,7 +1,7 @@
 // Account dropdown: shows roles + sign-out.
 // FROZEN — owned by the foundation agent.
 
-import { useNavigate } from "react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { LogOut } from "lucide-react";
 import {
   DropdownMenu,
@@ -27,7 +27,7 @@ export function UserMenu({ session }: { session: AppSession }) {
       await signOut();
     } finally {
       queryClient.clear();
-      navigate("/login", { replace: true });
+      void navigate({ to: "/login", replace: true });
     }
   };
 

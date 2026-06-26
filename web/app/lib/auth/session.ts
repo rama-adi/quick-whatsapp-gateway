@@ -9,7 +9,7 @@
 // {user,userPanelEnabled,impersonating}, swap loadSession() to read it — no
 // surface code changes.
 
-import { redirect } from "react-router";
+import { redirect } from "@tanstack/react-router";
 import { fetchJSON, apiUrl } from "../api/client";
 import { authUrl } from "./client";
 import { isApiError } from "../api/envelope";
@@ -90,7 +90,7 @@ async function probeUserPanel(): Promise<boolean> {
 /** Guard for protected loaders: throws a redirect to /login when unauthenticated. */
 export function requireSession(s: AppSession | null): AppSession {
   if (!s) {
-    throw redirect("/login");
+    throw redirect({ to: "/login" });
   }
   return s;
 }
@@ -98,7 +98,7 @@ export function requireSession(s: AppSession | null): AppSession {
 /** Guard for role-gated loaders: throws a redirect home when the role is missing. */
 export function requireRole(s: AppSession, role: AppRole): void {
   if (!s.user.roles.includes(role)) {
-    throw redirect("/");
+    throw redirect({ to: "/" });
   }
 }
 

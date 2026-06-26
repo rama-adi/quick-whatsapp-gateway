@@ -5,6 +5,10 @@ tmp/
 # Frontend
 web/node_modules/
 web/build/
+web/.output/
+web/.nitro/
+web/.tanstack/
+web/dist/
 
 # Local databases / keystore
 *.db

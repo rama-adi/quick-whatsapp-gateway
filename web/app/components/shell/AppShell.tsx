@@ -1,10 +1,15 @@
-// Authenticated app shell: resolves the session, gates the event stream, and
-// renders the role-aware sidebar + outlet.
-// FROZEN — owned by the foundation agent. This is a LAYOUT ROUTE (see routes.ts).
+// Authenticated app shell: renders the role-aware sidebar + outlet and gates
+// the event stream. The session is resolved by the layout route (_app.tsx) and
+// passed in as a prop; this component is purely presentational.
+// FROZEN — owned by the foundation agent.
+//
+// Ported from react-router to TanStack Start:
+//   - clientLoader + useLoaderData moved up into routes/_app.tsx
+//   - NavLink -> @tanstack/react-router <Link> with activeProps/inactiveProps
+//   - <Outlet/> from @tanstack/react-router
 
-import { NavLink, Outlet, useLoaderData } from "react-router";
-import type { Route } from "./+types/AppShell";
-import { loadSession, requireSession, type AppSession } from "~/lib/auth/session";
+import { Link, Outlet } from "@tanstack/react-router";
+import type { AppSession } from "~/lib/auth/session";
 import { SessionProvider } from "~/lib/auth/context";
 import { EventStreamProvider } from "~/lib/events/EventStreamProvider";
 import { visibleNav, type NavItem } from "./nav";
@@ -12,13 +17,7 @@ import { ConnectionPill } from "./ConnectionPill";
 import { UserMenu } from "./UserMenu";
 import { cn } from "~/lib/utils";
 
-export async function clientLoader(): Promise<{ session: AppSession }> {
-  const session = await loadSession();
-  return { session: requireSession(session) };
-}
-
-export default function AppShell() {
-  const { session } = useLoaderData() as { session: AppSession };
+export function AppShell({ session }: { session: AppSession }) {
   const items = visibleNav(session);
   const adminItems = items.filter((i) => i.group === "Admin");
   const workspaceItems = items.filter((i) => i.group === "Workspace");
@@ -74,33 +73,21 @@ function NavSection({ title, items }: { title: string; items: NavItem[] }) {
       <ul className="space-y-0.5">
         {items.map((item) => (
           <li key={item.to}>
-            <NavLink
+            <Link
               to={item.to}
-              className={({ isActive }) =>
-                cn(
+              className="block rounded-md px-2 py-1.5 text-sm transition-colors text-sidebar-foreground/80 hover:bg-sidebar-accent/60"
+              activeProps={{
+                className: cn(
                   "block rounded-md px-2 py-1.5 text-sm transition-colors",
-                  isActive
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                    : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60",
-                )
-              }
+                  "bg-sidebar-accent text-sidebar-accent-foreground font-medium",
+                ),
+              }}
             >
               {item.label}
-            </NavLink>
+            </Link>
           </li>
         ))}
       </ul>
-    </div>
-  );
-}
-
-export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
-  return (
-    <div className="p-8">
-      <h1 className="text-lg font-semibold">Something went wrong</h1>
-      <p className="text-sm text-muted-foreground">
-        {error instanceof Error ? error.message : "Unexpected error."}
-      </p>
     </div>
   );
 }

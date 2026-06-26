@@ -1,7 +1,15 @@
 .DS_Store
 .env
+.env.*
+!.env.example
 /node_modules/
 
-# React Router
-/.react-router/
-/build/
+# TanStack Start / Vite / Nitro build output
+/.output/
+/.nitro/
+/.tanstack/
+/dist/
+
+# NOTE: app/routeTree.gen.ts is intentionally COMMITTED so `pnpm typecheck`
+# (plain `tsc --noEmit`, no pre-generate step) works on a fresh checkout. The
+# Start vite plugin regenerates it on dev/build.

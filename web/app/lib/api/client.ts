@@ -7,6 +7,13 @@
 
 import { ApiError, parseError } from "./envelope";
 
+// TODO(stage-2): repoint to the GATEWAY origin. In v2 the browser talks to the
+// gateway DIRECTLY (a separate origin via GATEWAY_URL) with a Bearer JWT — the
+// frontend server does NOT proxy gateway traffic. Replace API_BASE with
+// `${import.meta.env.VITE_GATEWAY_URL}/api/v1`, drop credentials:"include" (no
+// cookie cross-origin), and attach `Authorization: Bearer <jwt>` minted at
+// /api/auth/token. Until then this still points at the v1 same-origin path so
+// the skeleton builds.
 const API_BASE = "/api/v1";
 
 /** Build a fully-qualified API path. Pass a path starting with "/". */
