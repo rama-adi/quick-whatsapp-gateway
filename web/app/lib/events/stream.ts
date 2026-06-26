@@ -1,0 +1,90 @@
+// Event-stream transport: opens GET /api/v1/events as an NDJSON ReadableStream
+// over the cookie session and dispatches decoded frames.
+// FROZEN — owned by the foundation agent.
+//
+// Verified against internal/stream/handler.go:
+//   - the filter param is `events` (NOT `types`); default "*".
+//   - `since={id}` replays event_log oldest-first and dedups the boundary,
+//     so callers do NOT need client-side dedup on normal reconnects.
+//   - heartbeat lines are {"event":"ping"} (~20s), no id/payload.
+//   - an in-band {"event":"error"} line signals replay/stream failure.
+
+import { apiUrl } from "../api/client";
+import type { EventEnvelope } from "../api/types";
+import { parseNdjson, isPingFrame, isErrorFrame } from "./ndjson";
+
+/** Why the stream ended; the provider maps these to reconnect/polling. */
+export type StreamErrorKind = "replay_failed" | "http" | "eof" | "network";
+
+export interface OpenEventStreamOptions {
+  /** Event-type filter; default "*" (all). Sent as ?events=. */
+  events?: string;
+  /** Restrict to a single session id; omit for all of the tenant's sessions. */
+  session?: string;
+  /** Replay cursor — last data-frame id seen. Sent as ?since= on reconnect. */
+  since?: string;
+  signal: AbortSignal;
+  /** Called for every data frame (NOT pings/errors). */
+  onEvent: (e: EventEnvelope) => void;
+  /** Called for every heartbeat — resets the watchdog, never updates `since`. */
+  onPing: () => void;
+  /** Called once when the stream terminates for any reason. */
+  onError: (kind: StreamErrorKind, status?: number) => void;
+}
+
+/**
+ * Open the stream and pump frames until it ends or the signal aborts. Resolves
+ * when the stream is done; rejects nothing — terminal conditions are reported
+ * via onError so the caller has one code path for reconnection.
+ */
+export async function openEventStream(o: OpenEventStreamOptions): Promise<void> {
+  const qs = new URLSearchParams();
+  qs.set("events", o.events ?? "*");
+  if (o.session) qs.set("session", o.session);
+  if (o.since) qs.set("since", o.since);
+
+  let res: Response;
+  try {
+    res = await fetch(apiUrl(`/events?${qs.toString()}`), {
+      method: "GET",
+      credentials: "include",
+      headers: { Accept: "application/x-ndjson" },
+      signal: o.signal,
+    });
+  } catch (err) {
+    if (o.signal.aborted) return;
+    o.onError("network");
+    return;
+  }
+
+  if (!res.ok) {
+    o.onError("http", res.status);
+    return;
+  }
+  if (!res.body) {
+    o.onError("http", res.status);
+    return;
+  }
+
+  try {
+    for await (const frame of parseNdjson(res.body, o.signal)) {
+      if (isPingFrame(frame)) {
+        o.onPing();
+        continue;
+      }
+      if (isErrorFrame(frame)) {
+        o.onError("replay_failed");
+        return;
+      }
+      // Data frame.
+      o.onEvent(frame);
+    }
+    // Generator completed without an explicit error frame: the server closed.
+    if (!o.signal.aborted) {
+      o.onError("eof");
+    }
+  } catch (err) {
+    if (o.signal.aborted) return;
+    o.onError("network");
+  }
+}

@@ -1,0 +1,129 @@
+// Message hooks: paginated timeline + optimistic send.
+// FROZEN — owned by the foundation agent.
+//
+// Optimistic send (canonical pattern):
+//   - send Idempotency-Key: crypto.randomUUID()
+//   - onMutate prepends a tmp_* Message (status:"pending") to page 0 of the
+//     chat timeline keyed by SendRequest.to
+//   - onError rolls back
+//   - onSuccess reconciles tmp id → real messageId
+//   - the stream's message.status event (keyed by messageId) is authoritative.
+
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+  type InfiniteData,
+  type UseInfiniteQueryResult,
+  type UseMutationResult,
+} from "@tanstack/react-query";
+import { qk } from "../../query";
+import type { ApiError, Page } from "../envelope";
+import type { Message, SendRequest, SendResult } from "../types";
+import { apiUrl, fetchJSON, listPageFetcher, nextCursor } from "./_shared";
+
+export function useChatMessages(
+  s: string,
+  c: string,
+): UseInfiniteQueryResult<
+  InfiniteData<Page<Message>, string | undefined>,
+  ApiError
+> {
+  return useInfiniteQuery({
+    queryKey: qk.chatMessages(s, c),
+    enabled: Boolean(s && c),
+    initialPageParam: undefined as string | undefined,
+    queryFn: listPageFetcher<Message>(
+      `/sessions/${encodeURIComponent(s)}/chats/${encodeURIComponent(c)}/messages`,
+    ),
+    getNextPageParam: nextCursor,
+  });
+}
+
+type Infinite = InfiniteData<Page<Message>, string | undefined>;
+
+export function useSendMessage(
+  s: string,
+): UseMutationResult<
+  SendResult,
+  ApiError,
+  SendRequest,
+  { tmpId: string; chatJid: string }
+> {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body) =>
+      fetchJSON<SendResult>(apiUrl(`/sessions/${encodeURIComponent(s)}/messages`), {
+        method: "POST",
+        headers: { "Idempotency-Key": crypto.randomUUID() },
+        body: JSON.stringify(body),
+      }),
+    onMutate: async (body) => {
+      const chatJid = body.to;
+      const key = qk.chatMessages(s, chatJid);
+      await qc.cancelQueries({ queryKey: key });
+      const tmpId = `tmp_${crypto.randomUUID()}`;
+      const optimistic: Message = {
+        id: tmpId,
+        chatJid,
+        direction: "out",
+        type: body.type,
+        body: body.text ?? "",
+        status: "pending",
+        timestamp: Date.now(),
+      };
+      qc.setQueryData<Infinite>(key, (data) => {
+        if (!data || data.pages.length === 0) {
+          return {
+            pageParams: [undefined],
+            pages: [{ data: [optimistic], nextCursor: null }],
+          };
+        }
+        const [first, ...rest] = data.pages;
+        if (!first) return data;
+        return {
+          ...data,
+          pages: [{ ...first, data: [optimistic, ...first.data] }, ...rest],
+        };
+      });
+      return { tmpId, chatJid };
+    },
+    onError: (_e, _body, ctx) => {
+      if (!ctx) return;
+      const key = qk.chatMessages(s, ctx.chatJid);
+      qc.setQueryData<Infinite>(key, (data) => {
+        if (!data) return data;
+        return {
+          ...data,
+          pages: data.pages.map((p) => ({
+            ...p,
+            data: p.data.filter((m) => m.id !== ctx.tmpId),
+          })),
+        };
+      });
+    },
+    onSuccess: (result, _body, ctx) => {
+      if (!ctx) return;
+      const key = qk.chatMessages(s, ctx.chatJid);
+      qc.setQueryData<Infinite>(key, (data) => {
+        if (!data) return data;
+        return {
+          ...data,
+          pages: data.pages.map((p) => ({
+            ...p,
+            data: p.data.map((m) =>
+              m.id === ctx.tmpId
+                ? {
+                    ...m,
+                    id: result.messageId ?? m.id,
+                    status: result.status ?? m.status,
+                    timestamp: result.timestamp ?? m.timestamp,
+                  }
+                : m,
+            ),
+          })),
+        };
+      });
+    },
+  });
+}
