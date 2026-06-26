@@ -171,6 +171,45 @@ export function parseMessage(m: Message): ParsedMessage {
   return { kind: "unknown", type: m.type, text: body || undefined };
 }
 
+/**
+ * Cross-kind extras carried in the message body JSON: a quoted/reply preview
+ * and reaction emoji. The realtime path patches `body` on reaction/edit events
+ * (cacheBridge), so these surface from the same tolerant parse. All optional —
+ * absent fields render nothing.
+ */
+export type MessageExtras = {
+  quoted?: { author?: string; preview: string };
+  reactions: string[];
+  edited: boolean;
+};
+
+export function parseExtras(m: Message): MessageExtras {
+  const struct = tryParseJson(m.body ?? "");
+  const quotedRaw = struct?.quoted;
+  let quoted: MessageExtras["quoted"];
+  if (quotedRaw && typeof quotedRaw === "object") {
+    const q = quotedRaw as Record<string, unknown>;
+    const preview =
+      typeof q.text === "string"
+        ? q.text
+        : typeof q.body === "string"
+          ? q.body
+          : undefined;
+    if (preview) {
+      quoted = {
+        author: typeof q.author === "string" ? q.author : undefined,
+        preview,
+      };
+    }
+  }
+  const reactions = Array.isArray(struct?.reactions)
+    ? (struct.reactions as unknown[]).filter(
+        (r): r is string => typeof r === "string",
+      )
+    : [];
+  return { quoted, reactions, edited: struct?.edited === true };
+}
+
 function tryParseJson(s: string): Record<string, unknown> | null {
   const t = s.trim();
   if (!t.startsWith("{") && !t.startsWith("[")) return null;

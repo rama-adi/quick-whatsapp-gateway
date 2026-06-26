@@ -30,9 +30,9 @@ import { Route as AppAdminMonitorRouteImport } from './routes/_app/admin/monitor
 import { Route as AppUserSessionsSessionIdRouteImport } from './routes/_app/user/sessions.$sessionId'
 import { Route as AppUserSessionsSessionIdIndexRouteImport } from './routes/_app/user/sessions.$sessionId.index'
 import { Route as AppUserSessionsSessionIdContactsRouteImport } from './routes/_app/user.sessions.$sessionId.contacts'
-import { Route as AppUserSessionsSessionIdChatsRouteImport } from './routes/_app/user.sessions.$sessionId.chats'
+import { Route as AppUserSessionsSessionIdChatsRouteRouteImport } from './routes/_app/user/sessions/$sessionId/chats/route'
 import { Route as AppUserSessionsSessionIdContactsLidRouteImport } from './routes/_app/user.sessions.$sessionId.contacts.$lid'
-import { Route as AppUserSessionsSessionIdChatsChatIdRouteImport } from './routes/_app/user.sessions.$sessionId.chats.$chatId'
+import { Route as AppUserSessionsSessionIdChatsChatIdRouteImport } from './routes/_app/user/sessions/$sessionId/chats/$chatId'
 
 const AuthRoute = AuthRouteImport.update({
   id: '/_auth',
@@ -140,8 +140,8 @@ const AppUserSessionsSessionIdContactsRoute =
     path: '/contacts',
     getParentRoute: () => AppUserSessionsSessionIdRoute,
   } as any)
-const AppUserSessionsSessionIdChatsRoute =
-  AppUserSessionsSessionIdChatsRouteImport.update({
+const AppUserSessionsSessionIdChatsRouteRoute =
+  AppUserSessionsSessionIdChatsRouteRouteImport.update({
     id: '/chats',
     path: '/chats',
     getParentRoute: () => AppUserSessionsSessionIdRoute,
@@ -156,7 +156,7 @@ const AppUserSessionsSessionIdChatsChatIdRoute =
   AppUserSessionsSessionIdChatsChatIdRouteImport.update({
     id: '/$chatId',
     path: '/$chatId',
-    getParentRoute: () => AppUserSessionsSessionIdChatsRoute,
+    getParentRoute: () => AppUserSessionsSessionIdChatsRouteRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
@@ -177,7 +177,7 @@ export interface FileRoutesByFullPath {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/admin/': typeof AppAdminIndexRoute
   '/user/sessions/$sessionId': typeof AppUserSessionsSessionIdRouteWithChildren
-  '/user/sessions/$sessionId/chats': typeof AppUserSessionsSessionIdChatsRouteWithChildren
+  '/user/sessions/$sessionId/chats': typeof AppUserSessionsSessionIdChatsRouteRouteWithChildren
   '/user/sessions/$sessionId/contacts': typeof AppUserSessionsSessionIdContactsRouteWithChildren
   '/user/sessions/$sessionId/': typeof AppUserSessionsSessionIdIndexRoute
   '/user/sessions/$sessionId/chats/$chatId': typeof AppUserSessionsSessionIdChatsChatIdRoute
@@ -199,7 +199,7 @@ export interface FileRoutesByTo {
   '/user/webhooks': typeof AppUserWebhooksRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/admin': typeof AppAdminIndexRoute
-  '/user/sessions/$sessionId/chats': typeof AppUserSessionsSessionIdChatsRouteWithChildren
+  '/user/sessions/$sessionId/chats': typeof AppUserSessionsSessionIdChatsRouteRouteWithChildren
   '/user/sessions/$sessionId/contacts': typeof AppUserSessionsSessionIdContactsRouteWithChildren
   '/user/sessions/$sessionId': typeof AppUserSessionsSessionIdIndexRoute
   '/user/sessions/$sessionId/chats/$chatId': typeof AppUserSessionsSessionIdChatsChatIdRoute
@@ -226,7 +226,7 @@ export interface FileRoutesById {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/_app/admin/': typeof AppAdminIndexRoute
   '/_app/user/sessions/$sessionId': typeof AppUserSessionsSessionIdRouteWithChildren
-  '/_app/user/sessions/$sessionId/chats': typeof AppUserSessionsSessionIdChatsRouteWithChildren
+  '/_app/user/sessions/$sessionId/chats': typeof AppUserSessionsSessionIdChatsRouteRouteWithChildren
   '/_app/user/sessions/$sessionId/contacts': typeof AppUserSessionsSessionIdContactsRouteWithChildren
   '/_app/user/sessions/$sessionId/': typeof AppUserSessionsSessionIdIndexRoute
   '/_app/user/sessions/$sessionId/chats/$chatId': typeof AppUserSessionsSessionIdChatsChatIdRoute
@@ -467,7 +467,7 @@ declare module '@tanstack/react-router' {
       id: '/_app/user/sessions/$sessionId/chats'
       path: '/chats'
       fullPath: '/user/sessions/$sessionId/chats'
-      preLoaderRoute: typeof AppUserSessionsSessionIdChatsRouteImport
+      preLoaderRoute: typeof AppUserSessionsSessionIdChatsRouteRouteImport
       parentRoute: typeof AppUserSessionsSessionIdRoute
     }
     '/_app/user/sessions/$sessionId/contacts/$lid': {
@@ -482,7 +482,7 @@ declare module '@tanstack/react-router' {
       path: '/$chatId'
       fullPath: '/user/sessions/$sessionId/chats/$chatId'
       preLoaderRoute: typeof AppUserSessionsSessionIdChatsChatIdRouteImport
-      parentRoute: typeof AppUserSessionsSessionIdChatsRoute
+      parentRoute: typeof AppUserSessionsSessionIdChatsRouteRoute
     }
   }
 }
@@ -507,19 +507,19 @@ const AppAdminRouteRouteWithChildren = AppAdminRouteRoute._addFileChildren(
   AppAdminRouteRouteChildren,
 )
 
-interface AppUserSessionsSessionIdChatsRouteChildren {
+interface AppUserSessionsSessionIdChatsRouteRouteChildren {
   AppUserSessionsSessionIdChatsChatIdRoute: typeof AppUserSessionsSessionIdChatsChatIdRoute
 }
 
-const AppUserSessionsSessionIdChatsRouteChildren: AppUserSessionsSessionIdChatsRouteChildren =
+const AppUserSessionsSessionIdChatsRouteRouteChildren: AppUserSessionsSessionIdChatsRouteRouteChildren =
   {
     AppUserSessionsSessionIdChatsChatIdRoute:
       AppUserSessionsSessionIdChatsChatIdRoute,
   }
 
-const AppUserSessionsSessionIdChatsRouteWithChildren =
-  AppUserSessionsSessionIdChatsRoute._addFileChildren(
-    AppUserSessionsSessionIdChatsRouteChildren,
+const AppUserSessionsSessionIdChatsRouteRouteWithChildren =
+  AppUserSessionsSessionIdChatsRouteRoute._addFileChildren(
+    AppUserSessionsSessionIdChatsRouteRouteChildren,
   )
 
 interface AppUserSessionsSessionIdContactsRouteChildren {
@@ -538,15 +538,15 @@ const AppUserSessionsSessionIdContactsRouteWithChildren =
   )
 
 interface AppUserSessionsSessionIdRouteChildren {
-  AppUserSessionsSessionIdChatsRoute: typeof AppUserSessionsSessionIdChatsRouteWithChildren
+  AppUserSessionsSessionIdChatsRouteRoute: typeof AppUserSessionsSessionIdChatsRouteRouteWithChildren
   AppUserSessionsSessionIdContactsRoute: typeof AppUserSessionsSessionIdContactsRouteWithChildren
   AppUserSessionsSessionIdIndexRoute: typeof AppUserSessionsSessionIdIndexRoute
 }
 
 const AppUserSessionsSessionIdRouteChildren: AppUserSessionsSessionIdRouteChildren =
   {
-    AppUserSessionsSessionIdChatsRoute:
-      AppUserSessionsSessionIdChatsRouteWithChildren,
+    AppUserSessionsSessionIdChatsRouteRoute:
+      AppUserSessionsSessionIdChatsRouteRouteWithChildren,
     AppUserSessionsSessionIdContactsRoute:
       AppUserSessionsSessionIdContactsRouteWithChildren,
     AppUserSessionsSessionIdIndexRoute: AppUserSessionsSessionIdIndexRoute,
