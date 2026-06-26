@@ -1,7 +1,7 @@
 // Package service holds the gateway's business services: the layer between the
 // thin HTTP handlers (internal/http/handlers) and the persistence/subsystem
-// layer (internal/store, internal/wa, internal/stream, internal/webhooks,
-// internal/auth). Handlers validate + decode, call a service, and encode the
+// layer (internal/store, internal/wa, internal/stream, internal/webhooks).
+// Handlers validate + decode, call a service, and encode the
 // result; services own the logic and orchestration; repos own the SQL.
 //
 // Every service is constructor-injected with its collaborators (no globals).
@@ -12,7 +12,6 @@ package service
 import (
 	"log/slog"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/auth"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/crypto"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa"
@@ -27,7 +26,6 @@ type Deps struct {
 	Manager *wa.Manager
 	Sender  *outbound.Sender
 	Crypto  *crypto.AESGCM
-	Auth    *auth.Auth
 
 	// DefaultRetryDelay / DefaultRetryAttempts seed a webhook's retry policy when
 	// the caller does not specify one (WEBHOOK_RETRIES_* config defaults).

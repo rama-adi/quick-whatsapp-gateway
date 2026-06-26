@@ -29,7 +29,7 @@ import (
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/auth"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/authz"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/config"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/crypto"
 	gwhttp "github.com/ramaadi/quick-whatsapp-gateway/internal/http"
@@ -101,32 +101,20 @@ func run() error {
 	}
 	defer rdb.Close()
 
-	// --- Auth (Authula): build, seed RBAC, bootstrap super-admin ---
-	authInst, err := auth.Build(auth.Config{
-		AppName:          "quick-whatsapp-gateway",
-		BaseURL:          cfg.PublicURL,
-		Secret:           cfg.AppEncryptionKey,
-		MySQLDSN:         cfg.MySQLDSN,
-		RedisURL:         cfg.RedisURL,
-		UserPanelEnabled: cfg.UserPanelEnabled,
-		Logger:           log,
-	})
+	// --- Trust model (§4): the gateway VERIFIES callers, it does not log them in.
+	// JWTs (humans) verify locally against the better-auth JWKS; api-keys (machines)
+	// verify against the shared MySQL `apikey` table via the pinned hash scheme.
+	tokenVerifier, err := authz.NewJWTVerifier(cfg.BetterAuthJWKSURL, cfg.BetterAuthURL)
 	if err != nil {
-		return fmt.Errorf("build auth: %w", err)
+		return fmt.Errorf("build jwt verifier: %w", err)
 	}
-	defer authInst.Close()
-
-	if err := auth.SeedRBAC(ctx, authInst.RBAC()); err != nil {
-		return fmt.Errorf("seed rbac: %w", err)
-	}
-	if cfg.AdminEmail != "" && cfg.AdminPassword != "" {
-		if err := auth.BootstrapAdmin(ctx, authInst.Users(), authInst.SignUp(), authInst.RBAC(), cfg.AdminEmail, cfg.AdminPassword); err != nil {
-			return fmt.Errorf("bootstrap admin: %w", err)
-		}
+	keyVerifier, err := authz.NewAPIKeyVerifier(st.APIKeys, authz.DefaultHasher())
+	if err != nil {
+		return fmt.Errorf("build api-key verifier: %w", err)
 	}
 
-	// --- whatsmeow keystore ---
-	keystore, err := wastore.Open(ctx, wastore.Driver(cfg.WhatsmeowStoreDriver), db, cfg.WhatsmeowStoreDSN, nil)
+	// --- whatsmeow keystore (gateway-local SQLite, §6.1) ---
+	keystore, err := wastore.Open(ctx, cfg.WhatsmeowStoreDSN, nil)
 	if err != nil {
 		return fmt.Errorf("open whatsmeow keystore: %w", err)
 	}
@@ -202,16 +190,11 @@ func run() error {
 	defer dispatchStop()
 
 	// --- Services + handlers + router ---
-	// Read-only better-auth api-key verifier (§4.2). The key hasher (which must
-	// match the pinned better-auth scheme) is supplied by the authz package in a
-	// later stage; nil here means Verify returns an internal error until wired.
-	keyVerifier := service.NewKeyVerifier(st.APIKeys, nil, log)
 	services := service.New(service.Deps{
 		Store:                st,
 		Manager:              manager,
 		Sender:               sender,
 		Crypto:               aes,
-		Auth:                 authInst,
 		DefaultRetryDelay:    cfg.WebhookRetryDelay,
 		DefaultRetryAttempts: cfg.WebhookRetryAttempts,
 		Log:                  log,
@@ -227,8 +210,9 @@ func run() error {
 	h := handlers.New(services, streamHandler, log)
 	router := gwhttp.NewRouter(gwhttp.RouterConfig{
 		Handlers:    h,
-		Auth:        authInst,
-		Verifier:    keyVerifier,
+		Tokens:      tokenVerifier,
+		Keys:        keyVerifier,
+		CORSOrigins: cfg.FrontendOrigins,
 		Limiter:     nil, // HTTP-edge rate limiting optional; outbound limits sends.
 		Readiness:   readiness(db, rdb),
 		OpenAPIPath: "docs/openapi.yaml",

@@ -33,23 +33,24 @@ type Config struct {
 	// App data store
 	MySQLDSN string // MYSQL_DSN
 
-	// whatsmeow keystore
-	WhatsmeowStoreDriver string // WHATSMEOW_STORE_DRIVER: mysql | sqlite
-	WhatsmeowStoreDSN    string // WHATSMEOW_STORE_DSN
+	// whatsmeow keystore — always SQLite in v2 (§6.1); the DSN points at the
+	// gateway-local pure-Go SQLite file. No driver selection any more.
+	WhatsmeowStoreDSN string // WHATSMEOW_STORE_DSN
 
 	// Infra
 	RedisURL string // REDIS_URL
 
-	// Admin bootstrap
-	AdminEmail    string // ADMIN_EMAIL
-	AdminPassword string // ADMIN_PASSWORD
+	// Control bus (§4.6) — cross-service ctrl:* pub/sub (key/user revocation).
+	PubSubRedisURL string // PUBSUB_REDIS_URL: defaults to REDIS_URL (single instance)
+	RedisPrefix    string // REDIS_PREFIX: isolates independent stacks on one Redis (default "gw")
+
+	// Admin bootstrap (§8): the better-auth user that owns the admin session,
+	// when known. Empty => system-owned admin session (sentinel org).
+	GatewayAdminUserID string // GATEWAY_ADMIN_USER_ID
 
 	// Admin WhatsApp number
 	WhatsAppAdminNumber    string // WHATSAPP_ADMIN_NUMBER
 	WhatsAppAdminCmdPrefix string // WHATSAPP_ADMIN_CMD_PREFIX
-
-	// Panels
-	UserPanelEnabled bool // USER_PANEL_ENABLED
 
 	// Per-session defaults
 	DefaultRatePerMin  int  // DEFAULT_RATE_PER_MIN
@@ -92,14 +93,13 @@ func Load() (*Config, error) {
 		FrontendOrigins:        getCSV("FRONTEND_ORIGINS"),
 		AppEncryptionKey:       getString("APP_ENCRYPTION_KEY", ""),
 		MySQLDSN:               getString("MYSQL_DSN", ""),
-		WhatsmeowStoreDriver:   getString("WHATSMEOW_STORE_DRIVER", "sqlite"),
 		WhatsmeowStoreDSN:      getString("WHATSMEOW_STORE_DSN", "file:store.db?_foreign_keys=on"),
 		RedisURL:               getString("REDIS_URL", ""),
-		AdminEmail:             getString("ADMIN_EMAIL", ""),
-		AdminPassword:          getString("ADMIN_PASSWORD", ""),
+		PubSubRedisURL:         getString("PUBSUB_REDIS_URL", ""),
+		RedisPrefix:            getString("REDIS_PREFIX", "gw"),
+		GatewayAdminUserID:     getString("GATEWAY_ADMIN_USER_ID", ""),
 		WhatsAppAdminNumber:    getString("WHATSAPP_ADMIN_NUMBER", ""),
 		WhatsAppAdminCmdPrefix: getString("WHATSAPP_ADMIN_CMD_PREFIX", "am"),
-		UserPanelEnabled:       getBool("USER_PANEL_ENABLED", true),
 		DefaultRatePerMin:      getInt("DEFAULT_RATE_PER_MIN", 20),
 		DefaultRatePerHour:     getInt("DEFAULT_RATE_PER_HOUR", 200),
 		DefaultAutoRead:        getBool("DEFAULT_AUTO_READ", true),
@@ -121,6 +121,12 @@ func Load() (*Config, error) {
 		cfg.BetterAuthJWKSURL = strings.TrimRight(cfg.BetterAuthURL, "/") + "/api/auth/jwks"
 	}
 
+	// PUBSUB_REDIS_URL (control bus) defaults to REDIS_URL — single-instance dev
+	// collapses both roles onto one Redis (§4.6, §14).
+	if cfg.PubSubRedisURL == "" {
+		cfg.PubSubRedisURL = cfg.RedisURL
+	}
+
 	return cfg, nil
 }
 
@@ -132,16 +138,13 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("config: HTTP_ADDR must not be empty")
 	}
 
-	switch c.WhatsmeowStoreDriver {
-	case "mysql", "sqlite":
-	default:
-		return fmt.Errorf("config: WHATSMEOW_STORE_DRIVER must be 'mysql' or 'sqlite', got %q", c.WhatsmeowStoreDriver)
-	}
+	// The whatsmeow keystore is always gateway-local SQLite in v2 (§6.1).
 	if c.WhatsmeowStoreDSN == "" {
 		return fmt.Errorf("config: WHATSMEOW_STORE_DSN must not be empty")
 	}
-	if c.WhatsmeowStoreDriver == "mysql" && c.MySQLDSN == "" {
-		return fmt.Errorf("config: MYSQL_DSN is required when WHATSMEOW_STORE_DRIVER=mysql")
+
+	if c.GatewayID == "" {
+		return fmt.Errorf("config: GATEWAY_ID must not be empty")
 	}
 
 	if c.DefaultRatePerMin < 0 || c.DefaultRatePerHour < 0 {

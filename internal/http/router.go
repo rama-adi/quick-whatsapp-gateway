@@ -1,31 +1,34 @@
 package httpx
 
 import (
-	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
-	"path"
-	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/auth"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/authz"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/http/handlers"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/http/middleware"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/http/static"
 	shttpx "github.com/ramaadi/quick-whatsapp-gateway/internal/httpx"
 )
 
 // RouterConfig groups everything the router needs from the composition root.
 type RouterConfig struct {
 	Handlers *handlers.Handlers
-	Auth     *auth.Auth
 
-	// Verifier authenticates API keys (the KeyService satisfies it).
-	Verifier middleware.APIKeyVerifier
+	// Tokens verifies better-auth JWTs (humans) against the JWKS; Keys verifies
+	// better-auth api-keys (machines) against the shared `apikey` table (§4.1/§4.2).
+	// Both feed the single two-acceptor auth middleware (authz.Authenticate).
+	Tokens authz.TokenVerifier
+	Keys   authz.KeyVerifier
+
+	// CORSOrigins is the allow-list of frontend origins for the dashboard's
+	// browser calls (§4.4). Empty disables CORS.
+	CORSOrigins []string
+
 	// Limiter is the per-session/organization send limiter for API routes (optional;
 	// nil disables HTTP-edge rate limiting — the outbound pipeline still limits).
 	Limiter middleware.RateLimiter
@@ -40,9 +43,11 @@ type RouterConfig struct {
 	Log *slog.Logger
 }
 
-// NewRouter builds the full chi router per §11: Authula under /auth, the JSON API
-// under /api/v1 (with the middleware stack + per-route auth/permission gates),
-// the embedded SPA with index.html fallback, and the health/metrics probes.
+// NewRouter builds the full chi router per §11. The gateway is a pure WhatsApp
+// engine with NO human login: it has no /auth surface and serves no SPA. The
+// JSON API under /api/v1 is gated by the two-acceptor auth middleware
+// (JWKS-verified JWT OR better-auth api-key) plus the authz capability gates;
+// health/metrics probes stay unauthenticated.
 func NewRouter(cfg RouterConfig) http.Handler {
 	log := cfg.Log
 	if log == nil {
@@ -55,63 +60,49 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	r.Use(middleware.Recover(log))
 	r.Use(middleware.RequestID())
 	r.Use(middleware.Logger(log))
+	if len(cfg.CORSOrigins) > 0 {
+		r.Use(authz.CORS(cfg.CORSOrigins))
+	}
 
 	// Health / readiness / metrics (unauthenticated).
 	r.Get("/healthz", healthz)
 	r.Get("/readyz", readyz(cfg.Readiness))
 	r.Handle("/metrics", promhttp.Handler())
 
-	// Authula auth surface under /auth (login, registration, admin, etc.).
-	//
-	// Authula's own router already prefixes every route with its BasePath
-	// ("/auth"), so its handler expects to see the full "/auth/..." request path.
-	// chi's Mount strips the matched prefix before delegating, which would feed
-	// Authula "/email-password/sign-in" and 404. We therefore Handle the wildcard
-	// (which preserves the full path) instead of Mount-ing it.
-	if cfg.Auth != nil {
-		base := strings.TrimRight(cfg.Auth.BasePath(), "/")
-		r.Handle(base, cfg.Auth.Handler())
-		r.Handle(base+"/*", cfg.Auth.Handler())
-	}
-
-	// JSON API under /api/v1.
+	// JSON API under /api/v1. Every route authenticates via the single
+	// two-acceptor middleware (authz.Authenticate); capability gates authorize.
 	r.Route("/api/v1", func(api chi.Router) {
 		if cfg.OpenAPIPath != "" {
 			api.Get("/openapi.yaml", serveFile(cfg.OpenAPIPath, "application/yaml"))
 		}
 
-		// The live event stream accepts EITHER an API key OR a dashboard cookie.
-		// Enrich with both (cookie first, then api-key), then require a organization.
-		api.Group(func(ev chi.Router) {
-			if cfg.Auth != nil {
-				// internal/auth (Authula) still exposes CurrentTenantID; it resolves
-				// the same owner id the cookie enricher lifts as the organization id.
-				// internal/auth is removed in a later stage.
-				ev.Use(middleware.CookieSession(cfg.Auth.OptionalCookieAuth(), cfg.Auth.CurrentTenantID))
-			}
-			ev.Use(optionalAPIKey(cfg.Verifier))
-			ev.Use(middleware.RequireEvents())
-			ev.Get("/events", h.Events)
-		})
-
-		// Programmatic API: API-key authenticated, permission-gated.
-		api.Group(func(pr chi.Router) {
-			pr.Use(middleware.APIKeyAuth(cfg.Verifier))
+		api.Group(func(authed chi.Router) {
+			authed.Use(authz.Authenticate(cfg.Tokens, cfg.Keys))
 			if cfg.Limiter != nil {
-				pr.Use(middleware.RateLimit(cfg.Limiter, nil))
+				authed.Use(middleware.RateLimit(cfg.Limiter, nil))
 			}
-			mountAPIRoutes(pr, h)
+
+			// The live event stream: any authenticated caller with the events
+			// capability (api-key events permission, or any JWT role) (§11).
+			authed.Group(func(ev chi.Router) {
+				ev.Use(authz.RequireEvents())
+				ev.Get("/events", h.Events)
+			})
+
+			mountAPIRoutes(authed, h)
 		})
 	})
 
-	// SPA: serve the embedded dashboard for all non-API, non-auth paths, with
-	// index.html fallback for client-side routing.
-	r.NotFound(spaHandler(log))
+	// No SPA, no /auth: any other path is a JSON 404.
+	r.NotFound(func(w http.ResponseWriter, _ *http.Request) {
+		shttpx.WriteError(w, domain.ErrNotFound("route not found"))
+	})
 
 	return r
 }
 
-// mountAPIRoutes wires every §11 resource onto the API-key-authenticated group.
+// mountAPIRoutes wires every §11 resource onto the authenticated group, each
+// behind its authz capability gate.
 func mountAPIRoutes(r chi.Router, h *handlers.Handlers) {
 	// API-key management (create/list/revoke/rotate) lives in the frontend's
 	// better-auth api-key plugin (§6); the gateway only verifies keys. No /keys
@@ -119,7 +110,7 @@ func mountAPIRoutes(r chi.Router, h *handlers.Handlers) {
 
 	// --- Webhooks (manage) ---
 	r.Group(func(g chi.Router) {
-		g.Use(middleware.RequireManage())
+		g.Use(authz.RequireManage())
 		g.Post("/webhooks", h.CreateWebhook)
 		g.Get("/webhooks", h.ListWebhooks)
 		g.Get("/webhooks/{id}", h.GetWebhook)
@@ -127,15 +118,15 @@ func mountAPIRoutes(r chi.Router, h *handlers.Handlers) {
 		g.Delete("/webhooks/{id}", h.DeleteWebhook)
 	})
 
-	// --- Admin (manage; cross-organization oversight) ---
+	// --- Admin (super-admin; cross-organization oversight, §4.3) ---
 	r.Group(func(g chi.Router) {
-		g.Use(middleware.RequireManage())
+		g.Use(authz.RequireSuperAdmin())
 		g.Get("/admin/sessions", h.AdminListSessions)
 	})
 
 	// --- Sessions (manage) ---
 	r.Group(func(g chi.Router) {
-		g.Use(middleware.RequireManage())
+		g.Use(authz.RequireManage())
 		g.Post("/sessions", h.CreateSession)
 		g.Get("/sessions", h.ListSessions)
 		g.Get("/sessions/{session}", h.GetSession)
@@ -151,7 +142,7 @@ func mountAPIRoutes(r chi.Router, h *handlers.Handlers) {
 
 	// --- Messages (send) ---
 	r.Group(func(g chi.Router) {
-		g.Use(middleware.RequireSend())
+		g.Use(authz.RequireSend())
 		g.Post("/sessions/{session}/messages", h.SendMessage)
 		g.Patch("/sessions/{session}/messages/{mid}", h.EditMessage)
 		g.Delete("/sessions/{session}/messages/{mid}", h.RevokeMessage)
@@ -163,13 +154,13 @@ func mountAPIRoutes(r chi.Router, h *handlers.Handlers) {
 
 	// --- Chats (read for GET, send for mutations) ---
 	r.Group(func(g chi.Router) {
-		g.Use(middleware.RequireRead())
+		g.Use(authz.RequireRead())
 		g.Get("/sessions/{session}/chats", h.ListChats)
 		g.Get("/sessions/{session}/chats/{cid}", h.GetChat)
 		g.Get("/sessions/{session}/chats/{cid}/messages", h.ListChatMessages)
 	})
 	r.Group(func(g chi.Router) {
-		g.Use(middleware.RequireSend())
+		g.Use(authz.RequireSend())
 		g.Post("/sessions/{session}/chats/{cid}/read", h.ReadChat)
 		g.Patch("/sessions/{session}/chats/{cid}", h.UpdateChat)
 		g.Delete("/sessions/{session}/chats/{cid}", h.DeleteChat)
@@ -178,7 +169,7 @@ func mountAPIRoutes(r chi.Router, h *handlers.Handlers) {
 
 	// --- Contacts (read for GET, send for mutations) ---
 	r.Group(func(g chi.Router) {
-		g.Use(middleware.RequireRead())
+		g.Use(authz.RequireRead())
 		g.Get("/sessions/{session}/contacts", h.ListContacts)
 		g.Get("/sessions/{session}/contacts/check", h.CheckContact)
 		g.Get("/sessions/{session}/contacts/{lid}", h.GetContact)
@@ -186,21 +177,21 @@ func mountAPIRoutes(r chi.Router, h *handlers.Handlers) {
 		g.Get("/sessions/{session}/contacts/{jid}/about", h.ContactAbout)
 	})
 	r.Group(func(g chi.Router) {
-		g.Use(middleware.RequireSend())
+		g.Use(authz.RequireSend())
 		g.Post("/sessions/{session}/contacts/{jid}/block", h.BlockContact)
 		g.Post("/sessions/{session}/contacts/{jid}/unblock", h.UnblockContact)
 	})
 
 	// --- Groups (read for GET, send for mutations) ---
 	r.Group(func(g chi.Router) {
-		g.Use(middleware.RequireRead())
+		g.Use(authz.RequireRead())
 		g.Get("/sessions/{session}/groups", h.ListGroups)
 		g.Get("/sessions/{session}/groups/{gid}", h.GetGroup)
 		g.Get("/sessions/{session}/groups/{gid}/members", h.ListGroupMembers)
 		g.Get("/sessions/{session}/groups/{gid}/invite", h.GetGroupInvite)
 	})
 	r.Group(func(g chi.Router) {
-		g.Use(middleware.RequireSend())
+		g.Use(authz.RequireSend())
 		g.Post("/sessions/{session}/groups", h.CreateGroup)
 		g.Post("/sessions/{session}/groups/{gid}/members", h.AddGroupMembers)
 		g.Delete("/sessions/{session}/groups/{gid}/members/{jid}", h.RemoveGroupMember)
@@ -215,7 +206,7 @@ func mountAPIRoutes(r chi.Router, h *handlers.Handlers) {
 
 	// --- Channels (send) ---
 	r.Group(func(g chi.Router) {
-		g.Use(middleware.RequireSend())
+		g.Use(authz.RequireSend())
 		g.Post("/sessions/{session}/channels", h.CreateChannel)
 		g.Post("/sessions/{session}/channels/{jid}:follow", h.FollowChannel)
 		g.Post("/sessions/{session}/channels/{jid}:unfollow", h.UnfollowChannel)
@@ -225,52 +216,10 @@ func mountAPIRoutes(r chi.Router, h *handlers.Handlers) {
 
 	// --- Status / Presence (send) ---
 	r.Group(func(g chi.Router) {
-		g.Use(middleware.RequireSend())
+		g.Use(authz.RequireSend())
 		g.Post("/sessions/{session}/status", h.PostStatus)
 		g.Put("/sessions/{session}/presence", h.SetPresence)
 	})
-}
-
-// optionalAPIKey is a non-rejecting API-key enricher used on the events route
-// (which also accepts a cookie). It runs the verifier when a bearer key is
-// present and, on success, lifts the api-key + organization into context; any failure
-// or absence is ignored (the cookie enricher and RequireEvents gate decide).
-func optionalAPIKey(verifier middleware.APIKeyVerifier) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if verifier == nil {
-				next.ServeHTTP(w, r)
-				return
-			}
-			raw, ok := bearer(r)
-			if !ok || raw == "" {
-				next.ServeHTTP(w, r)
-				return
-			}
-			key, orgID, err := verifier.Verify(r.Context(), raw)
-			if err == nil && key != nil {
-				ctx := shttpx.SetAPIKey(r.Context(), key)
-				if orgID != "" {
-					ctx = shttpx.SetOrganizationID(ctx, orgID)
-				}
-				r = r.WithContext(ctx)
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-// bearer extracts a case-insensitive "Bearer <token>" Authorization header.
-func bearer(r *http.Request) (string, bool) {
-	h := r.Header.Get("Authorization")
-	if h == "" {
-		return "", false
-	}
-	const scheme = "bearer "
-	if len(h) < len(scheme) || !strings.EqualFold(h[:len(scheme)], scheme) {
-		return "", false
-	}
-	return strings.TrimSpace(h[len(scheme):]), true
 }
 
 func healthz(w http.ResponseWriter, _ *http.Request) {
@@ -301,42 +250,4 @@ func serveFile(path, contentType string) http.HandlerFunc {
 		w.Header().Set("Content-Type", contentType)
 		_, _ = w.Write(b)
 	}
-}
-
-// spaHandler serves the embedded SPA build. Static assets are served directly;
-// any other path falls back to index.html for client-side routing.
-func spaHandler(log *slog.Logger) http.HandlerFunc {
-	dist, err := fs.Sub(static.Assets, "dist")
-	if err != nil {
-		log.Error("spa: failed to open embedded assets", "err", err)
-		dist = static.Assets
-	}
-	fileServer := http.FileServer(http.FS(dist))
-	return func(w http.ResponseWriter, r *http.Request) {
-		// Never serve the SPA for API/auth paths — those 404 as JSON.
-		if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/auth/") {
-			shttpx.WriteError(w, domain.ErrNotFound("route not found"))
-			return
-		}
-		upath := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
-		if upath == "" {
-			upath = "index.html"
-		}
-		if _, err := fs.Stat(dist, upath); err != nil {
-			// Unknown path -> index.html fallback (client-side routing).
-			serveIndex(w, r, dist)
-			return
-		}
-		fileServer.ServeHTTP(w, r)
-	}
-}
-
-func serveIndex(w http.ResponseWriter, r *http.Request, dist fs.FS) {
-	b, err := fs.ReadFile(dist, "index.html")
-	if err != nil {
-		shttpx.WriteError(w, domain.ErrNotFound("not found"))
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write(b)
 }

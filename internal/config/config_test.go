@@ -14,9 +14,10 @@ func clearEnv(t *testing.T) {
 		"HTTP_ADDR", "PUBLIC_URL", "GATEWAY_ID",
 		"BETTER_AUTH_URL", "BETTER_AUTH_JWKS_URL", "FRONTEND_ORIGINS",
 		"APP_ENCRYPTION_KEY", "MYSQL_DSN",
-		"WHATSMEOW_STORE_DRIVER", "WHATSMEOW_STORE_DSN", "REDIS_URL",
-		"ADMIN_EMAIL", "ADMIN_PASSWORD", "WHATSAPP_ADMIN_NUMBER",
-		"WHATSAPP_ADMIN_CMD_PREFIX", "USER_PANEL_ENABLED",
+		"WHATSMEOW_STORE_DSN", "REDIS_URL",
+		"PUBSUB_REDIS_URL", "REDIS_PREFIX", "GATEWAY_ADMIN_USER_ID",
+		"WHATSAPP_ADMIN_NUMBER",
+		"WHATSAPP_ADMIN_CMD_PREFIX",
 		"DEFAULT_RATE_PER_MIN", "DEFAULT_RATE_PER_HOUR", "DEFAULT_AUTO_READ",
 		"IGNORE_STATUS", "IGNORE_GROUPS", "IGNORE_CHANNELS", "IGNORE_BROADCAST",
 		"WEBHOOK_URL", "WEBHOOK_EVENTS", "WEBHOOK_HMAC_KEY",
@@ -47,14 +48,13 @@ func TestLoad_Defaults(t *testing.T) {
 		FrontendOrigins:        nil,
 		AppEncryptionKey:       "",
 		MySQLDSN:               "",
-		WhatsmeowStoreDriver:   "sqlite",
 		WhatsmeowStoreDSN:      "file:store.db?_foreign_keys=on",
 		RedisURL:               "",
-		AdminEmail:             "",
-		AdminPassword:          "",
+		PubSubRedisURL:         "",
+		RedisPrefix:            "gw",
+		GatewayAdminUserID:     "",
 		WhatsAppAdminNumber:    "",
 		WhatsAppAdminCmdPrefix: "am",
-		UserPanelEnabled:       true,
 		DefaultRatePerMin:      20,
 		DefaultRatePerHour:     200,
 		DefaultAutoRead:        true,
@@ -86,10 +86,11 @@ func TestLoad_EnvOverride(t *testing.T) {
 	t.Setenv("FRONTEND_ORIGINS", "https://app.example.com, https://admin.example.com")
 	t.Setenv("APP_ENCRYPTION_KEY", "deadbeef")
 	t.Setenv("MYSQL_DSN", "user:pw@tcp(db:3306)/gw")
-	t.Setenv("WHATSMEOW_STORE_DRIVER", "mysql")
-	t.Setenv("WHATSMEOW_STORE_DSN", "user:pw@tcp(db:3306)/gw")
+	t.Setenv("WHATSMEOW_STORE_DSN", "file:store.db?_foreign_keys=on")
 	t.Setenv("REDIS_URL", "redis://localhost:6379")
-	t.Setenv("USER_PANEL_ENABLED", "false")
+	t.Setenv("PUBSUB_REDIS_URL", "redis://control:6379")
+	t.Setenv("REDIS_PREFIX", "stack-a")
+	t.Setenv("GATEWAY_ADMIN_USER_ID", "user_admin_1")
 	t.Setenv("DEFAULT_RATE_PER_MIN", "50")
 	t.Setenv("DEFAULT_RATE_PER_HOUR", "500")
 	t.Setenv("DEFAULT_AUTO_READ", "false")
@@ -119,9 +120,11 @@ func TestLoad_EnvOverride(t *testing.T) {
 		{"BetterAuthJWKSURL", cfg.BetterAuthJWKSURL, "https://auth.example.com/api/auth/jwks"},
 		{"AppEncryptionKey", cfg.AppEncryptionKey, "deadbeef"},
 		{"MySQLDSN", cfg.MySQLDSN, "user:pw@tcp(db:3306)/gw"},
-		{"WhatsmeowStoreDriver", cfg.WhatsmeowStoreDriver, "mysql"},
+		{"WhatsmeowStoreDSN", cfg.WhatsmeowStoreDSN, "file:store.db?_foreign_keys=on"},
 		{"RedisURL", cfg.RedisURL, "redis://localhost:6379"},
-		{"UserPanelEnabled", cfg.UserPanelEnabled, false},
+		{"PubSubRedisURL", cfg.PubSubRedisURL, "redis://control:6379"},
+		{"RedisPrefix", cfg.RedisPrefix, "stack-a"},
+		{"GatewayAdminUserID", cfg.GatewayAdminUserID, "user_admin_1"},
 		{"DefaultRatePerMin", cfg.DefaultRatePerMin, 50},
 		{"DefaultRatePerHour", cfg.DefaultRatePerHour, 500},
 		{"DefaultAutoRead", cfg.DefaultAutoRead, false},
@@ -150,6 +153,20 @@ func TestLoad_EnvOverride(t *testing.T) {
 	}
 }
 
+func TestLoad_PubSubRedisURLDefaultsToRedisURL(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("REDIS_URL", "redis://localhost:6379")
+	// PUBSUB_REDIS_URL deliberately left unset.
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.PubSubRedisURL != "redis://localhost:6379" {
+		t.Errorf("PubSubRedisURL = %q, want it to default to REDIS_URL", cfg.PubSubRedisURL)
+	}
+}
+
 func TestLoad_InvalidIntAndBoolFallBackToDefault(t *testing.T) {
 	clearEnv(t)
 	t.Setenv("DEFAULT_RATE_PER_MIN", "not-a-number")
@@ -171,13 +188,13 @@ func TestValidate(t *testing.T) {
 	// base returns a minimally-valid config that Validate accepts.
 	base := func() *Config {
 		return &Config{
-			HTTPAddr:             ":8080",
-			WhatsmeowStoreDriver: "sqlite",
-			WhatsmeowStoreDSN:    "file:store.db",
-			DefaultRatePerMin:    20,
-			DefaultRatePerHour:   200,
-			RetentionDays:        0,
-			LogLevel:             "info",
+			HTTPAddr:           ":8080",
+			GatewayID:          "gw-1",
+			WhatsmeowStoreDSN:  "file:store.db",
+			DefaultRatePerMin:  20,
+			DefaultRatePerHour: 200,
+			RetentionDays:      0,
+			LogLevel:           "info",
 		}
 	}
 
@@ -187,20 +204,10 @@ func TestValidate(t *testing.T) {
 		wantErr bool
 	}{
 		{"valid sqlite", func(*Config) {}, false},
-		{"valid mysql", func(c *Config) {
-			c.WhatsmeowStoreDriver = "mysql"
-			c.MySQLDSN = "user:pw@tcp(db:3306)/gw"
-			c.WhatsmeowStoreDSN = "user:pw@tcp(db:3306)/gw"
-		}, false},
 		{"valid uppercase log level", func(c *Config) { c.LogLevel = "DEBUG" }, false},
 		{"empty HTTP addr", func(c *Config) { c.HTTPAddr = "" }, true},
-		{"bad store driver", func(c *Config) { c.WhatsmeowStoreDriver = "postgres" }, true},
+		{"empty gateway id", func(c *Config) { c.GatewayID = "" }, true},
 		{"empty store dsn", func(c *Config) { c.WhatsmeowStoreDSN = "" }, true},
-		{"mysql driver without mysql dsn", func(c *Config) {
-			c.WhatsmeowStoreDriver = "mysql"
-			c.WhatsmeowStoreDSN = "user:pw@tcp(db:3306)/gw"
-			c.MySQLDSN = ""
-		}, true},
 		{"negative rate per min", func(c *Config) { c.DefaultRatePerMin = -1 }, true},
 		{"negative rate per hour", func(c *Config) { c.DefaultRatePerHour = -1 }, true},
 		{"negative retention", func(c *Config) { c.RetentionDays = -1 }, true},
