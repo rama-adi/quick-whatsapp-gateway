@@ -1,0 +1,141 @@
+---
+title: Deploying
+description: Ship the gateway and frontend as two Docker images sharing one MySQL and one Redis, with a persistent keystore volume — plus what to run for migrations and how to host the two halves apart.
+---
+
+You deploy two services. They share one MySQL database and one Redis, and the
+gateway keeps a SQLite keystore on a persistent volume.
+
+| Service | Image | Listens | Holds |
+|---|---|---|---|
+| Gateway | `deploy/Dockerfile` (Go, ~52 MB, CGO-free) | `:8080` | WhatsApp sessions; writes the WA tables; SQLite keystore on a volume |
+| Frontend | `deploy/Dockerfile.web` (Node 22, TanStack Start) | `:3000` | better-auth; writes the auth tables; reads WA tables for display |
+| MySQL | `mysql:8.4` | `:3306` | both table sets (WA + auth) in one database |
+| Redis | `redis:7-alpine` | `:6379` | work bus (queue, rate-limit, cache) + control bus (`ctrl:*`) |
+
+## All-in-one with Docker Compose
+
+`deploy/docker-compose.yml` runs the whole stack. Set the three secrets in a
+sibling `deploy/.env`, then build and start:
+
+```bash
+cd deploy
+cat > .env <<'EOF'
+APP_ENCRYPTION_KEY=...   # openssl rand -base64 32  (encrypts webhook secrets at rest)
+BETTER_AUTH_SECRET=...   # openssl rand -base64 32  (signs sessions / encrypts the JWKS private key)
+WHATSAPP_ADMIN_NUMBER=   # optional; the number paired on boot (leave empty to skip)
+EOF
+docker compose up --build -d
+```
+
+The browser reaches the frontend at `http://localhost:3000` and the gateway at
+`http://localhost:8080`. Inside the network the frontend reaches the gateway at
+`http://gateway:8080` and the gateway fetches the frontend's JWKS at
+`http://frontend:3000/api/auth/jwks`.
+
+## Migrations: two planes, two triggers
+
+The two table sets are migrated by different tools (see
+[Data planes](/docs/dev/data-planes)). One is automatic, one is not.
+
+- **WA tables (gateway).** The gateway runs its embedded `golang-migrate` on
+  every boot, so the `wa_sessions`/`messages`/`gateways`/… tables are created
+  and upgraded automatically. Nothing to run.
+- **Auth tables (frontend).** better-auth's tables (`user`, `session`, `apikey`,
+  `organization`, `member`, `jwks`, …) are migrated by `drizzle-kit`, which the
+  runtime frontend image does **not** run on boot. Apply them once against the
+  deployed database before first use:
+
+  ```bash
+  cd web
+  DATABASE_URL='mysql://gw:gwpass@<db-host>:3306/gateway' pnpm db:migrate
+  ```
+
+<Callout type="warn">
+A fresh stack boots with the WA tables present but the auth tables missing until
+you run `pnpm db:migrate`. Until then sign-up/login return 500. Run it as your
+first deploy step (or wire it into your release pipeline).
+</Callout>
+
+## Persistence — back up the keystore
+
+| Volume | Mount | Contents | If you lose it |
+|---|---|---|---|
+| `keystore_data` | gateway `/data/keystore` | WhatsApp device crypto (SQLite) | **Every number must be re-paired** |
+| `mysql_data` | MySQL `/var/lib/mysql` | all WA + auth data | full data loss |
+| `redis_data` | Redis `/data` | queue/cache (rebuildable) | transient — safe to lose |
+
+The keystore is what pins a session to a gateway, so it is the one volume that
+is expensive to lose. Back it up like a database.
+
+## Configuration
+
+Every variable is documented in `deploy/.env.example` (gateway) and
+`web/.env.example` (frontend). The values that must line up across the two
+services:
+
+| Variable | Set on | Must equal |
+|---|---|---|
+| `BETTER_AUTH_URL` | both | the frontend's **public** URL — it is the JWT `iss`/`aud` the gateway enforces |
+| `FRONTEND_ORIGINS` | gateway | the browser origin(s) allowed to call the gateway (CORS) |
+| `BETTER_AUTH_JWKS_URL` | gateway | where the gateway **fetches** JWKS — the *internal* frontend URL if it differs from the public one (e.g. `http://frontend:3000/api/auth/jwks`) |
+| `GATEWAY_URL` / `VITE_GATEWAY_URL` | frontend | the gateway URL for server code / the browser |
+| `PUBSUB_REDIS_URL` | both | the shared control-bus Redis (frontend publishes revocations; gateway subscribes) |
+
+<Callout type="info">
+`BETTER_AUTH_URL` (the public `iss`/`aud`) and `BETTER_AUTH_JWKS_URL` (the
+fetch address) can differ. When the gateway reaches the frontend by an internal
+name, point `BETTER_AUTH_JWKS_URL` at that name but keep `BETTER_AUTH_URL` the
+public URL so the token's `iss`/`aud` still matches what the browser uses.
+</Callout>
+
+## Bootstrapping the admin
+
+- **Platform super-admin:** set `ADMIN_USER_IDS` (frontend) to the better-auth
+  user id(s) that should have cross-org oversight. A user signs up normally,
+  then their id goes in `ADMIN_USER_IDS`.
+- **Admin WhatsApp number:** set `WHATSAPP_ADMIN_NUMBER` (gateway). On boot the
+  gateway pairs it and prints the pairing code to its logs and the admin panel.
+
+## Hosting the two halves apart
+
+The split is the point of v2: the frontend can run anywhere it can reach MySQL
+and the gateway, and the gateway runs near WhatsApp with its keystore volume.
+The trust seam is stateless — the gateway verifies JWTs against the JWKS and
+api-keys against the shared `apikey` table, with no callback to the frontend.
+
+- **Frontend on serverless / a separate host:** point `DATABASE_URL` at the
+  shared MySQL (use a pooler on serverless) and `GATEWAY_URL`/`VITE_GATEWAY_URL`
+  at the gateway. The browser talks to the gateway directly.
+- **BYO database / external services:** `deploy/docker-compose.external.yml`
+  runs the two app images against a MySQL and Redis you provide.
+- **Trusted origins:** if the gateway fetches JWKS by a host other than
+  `BETTER_AUTH_URL`, add that host to the frontend's `TRUSTED_ORIGINS`.
+
+## Health and metrics
+
+The gateway exposes `GET /healthz` (liveness), `GET /readyz` (checks MySQL +
+Redis), and `GET /metrics` (Prometheus). Use `/readyz` as the container
+healthcheck.
+
+## Running only the gateway in Docker (dev)
+
+For the fast inner loop you usually run both apps on the host (see
+[Local development](/docs/dev/local-development)). To instead run the gateway in
+a container against the dev MySQL/Redis while keeping the frontend on the host
+under Vite, enable the compose `gateway` profile:
+
+```bash
+docker compose -f deploy/docker-compose.dev.yml --profile gateway up -d --build
+```
+
+The containerized gateway reaches the host frontend's JWKS via
+`host.docker.internal` (already allowed in `vite.config.ts` `server.allowedHosts`)
+and auto-applies the WA migrations on boot.
+
+## Going live with WhatsApp
+
+Pairing a real number is the one manual step a deploy can't script: create a
+session (or set `WHATSAPP_ADMIN_NUMBER`), open the pairing code / QR in the
+dashboard, and link it from the phone's WhatsApp app. Note the ban risk — this
+uses an unofficial client; automated use may violate WhatsApp's terms.
