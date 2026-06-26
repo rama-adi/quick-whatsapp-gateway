@@ -9,15 +9,33 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as LoginRouteImport } from './routes/login'
+import { Route as AuthRouteImport } from './routes/_auth'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AuthRegisterRouteImport } from './routes/_auth/register'
+import { Route as AuthLoginRouteImport } from './routes/_auth/login'
+import { Route as Auth2faRouteImport } from './routes/_auth/2fa'
+import { Route as AppUserRouteImport } from './routes/_app/user'
 import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
+import { Route as AppAdminRouteRouteImport } from './routes/_app/admin/route'
+import { Route as AppAdminIndexRouteImport } from './routes/_app/admin/index'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth.$'
+import { Route as AppUserWebhooksRouteImport } from './routes/_app/user/webhooks'
+import { Route as AppUserSessionsRouteImport } from './routes/_app/user/sessions'
+import { Route as AppUserKeysRouteImport } from './routes/_app/user/keys'
+import { Route as AppAdminTenantsRouteImport } from './routes/_app/admin/tenants'
+import { Route as AppAdminSessionsRouteImport } from './routes/_app/admin/sessions'
+import { Route as AppAdminPairingRouteImport } from './routes/_app/admin/pairing'
+import { Route as AppAdminMonitorRouteImport } from './routes/_app/admin/monitor'
+import { Route as AppUserSessionsSessionIdRouteImport } from './routes/_app/user/sessions.$sessionId'
+import { Route as AppUserSessionsSessionIdIndexRouteImport } from './routes/_app/user/sessions.$sessionId.index'
+import { Route as AppUserSessionsSessionIdContactsRouteImport } from './routes/_app/user.sessions.$sessionId.contacts'
+import { Route as AppUserSessionsSessionIdChatsRouteImport } from './routes/_app/user.sessions.$sessionId.chats'
+import { Route as AppUserSessionsSessionIdContactsLidRouteImport } from './routes/_app/user.sessions.$sessionId.contacts.$lid'
+import { Route as AppUserSessionsSessionIdChatsChatIdRouteImport } from './routes/_app/user.sessions.$sessionId.chats.$chatId'
 
-const LoginRoute = LoginRouteImport.update({
-  id: '/login',
-  path: '/login',
+const AuthRoute = AuthRouteImport.update({
+  id: '/_auth',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppRoute = AppRouteImport.update({
@@ -29,59 +47,280 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthRegisterRoute = AuthRegisterRouteImport.update({
+  id: '/register',
+  path: '/register',
+  getParentRoute: () => AuthRoute,
+} as any)
+const AuthLoginRoute = AuthLoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => AuthRoute,
+} as any)
+const Auth2faRoute = Auth2faRouteImport.update({
+  id: '/2fa',
+  path: '/2fa',
+  getParentRoute: () => AuthRoute,
+} as any)
+const AppUserRoute = AppUserRouteImport.update({
+  id: '/user',
+  path: '/user',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppDashboardRoute = AppDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
   getParentRoute: () => AppRoute,
+} as any)
+const AppAdminRouteRoute = AppAdminRouteRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppAdminIndexRoute = AppAdminIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppAdminRouteRoute,
 } as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppUserWebhooksRoute = AppUserWebhooksRouteImport.update({
+  id: '/webhooks',
+  path: '/webhooks',
+  getParentRoute: () => AppUserRoute,
+} as any)
+const AppUserSessionsRoute = AppUserSessionsRouteImport.update({
+  id: '/sessions',
+  path: '/sessions',
+  getParentRoute: () => AppUserRoute,
+} as any)
+const AppUserKeysRoute = AppUserKeysRouteImport.update({
+  id: '/keys',
+  path: '/keys',
+  getParentRoute: () => AppUserRoute,
+} as any)
+const AppAdminTenantsRoute = AppAdminTenantsRouteImport.update({
+  id: '/tenants',
+  path: '/tenants',
+  getParentRoute: () => AppAdminRouteRoute,
+} as any)
+const AppAdminSessionsRoute = AppAdminSessionsRouteImport.update({
+  id: '/sessions',
+  path: '/sessions',
+  getParentRoute: () => AppAdminRouteRoute,
+} as any)
+const AppAdminPairingRoute = AppAdminPairingRouteImport.update({
+  id: '/pairing',
+  path: '/pairing',
+  getParentRoute: () => AppAdminRouteRoute,
+} as any)
+const AppAdminMonitorRoute = AppAdminMonitorRouteImport.update({
+  id: '/monitor',
+  path: '/monitor',
+  getParentRoute: () => AppAdminRouteRoute,
+} as any)
+const AppUserSessionsSessionIdRoute =
+  AppUserSessionsSessionIdRouteImport.update({
+    id: '/$sessionId',
+    path: '/$sessionId',
+    getParentRoute: () => AppUserSessionsRoute,
+  } as any)
+const AppUserSessionsSessionIdIndexRoute =
+  AppUserSessionsSessionIdIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AppUserSessionsSessionIdRoute,
+  } as any)
+const AppUserSessionsSessionIdContactsRoute =
+  AppUserSessionsSessionIdContactsRouteImport.update({
+    id: '/contacts',
+    path: '/contacts',
+    getParentRoute: () => AppUserSessionsSessionIdRoute,
+  } as any)
+const AppUserSessionsSessionIdChatsRoute =
+  AppUserSessionsSessionIdChatsRouteImport.update({
+    id: '/chats',
+    path: '/chats',
+    getParentRoute: () => AppUserSessionsSessionIdRoute,
+  } as any)
+const AppUserSessionsSessionIdContactsLidRoute =
+  AppUserSessionsSessionIdContactsLidRouteImport.update({
+    id: '/$lid',
+    path: '/$lid',
+    getParentRoute: () => AppUserSessionsSessionIdContactsRoute,
+  } as any)
+const AppUserSessionsSessionIdChatsChatIdRoute =
+  AppUserSessionsSessionIdChatsChatIdRouteImport.update({
+    id: '/$chatId',
+    path: '/$chatId',
+    getParentRoute: () => AppUserSessionsSessionIdChatsRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/login': typeof LoginRoute
+  '/admin': typeof AppAdminRouteRouteWithChildren
   '/dashboard': typeof AppDashboardRoute
+  '/user': typeof AppUserRouteWithChildren
+  '/2fa': typeof Auth2faRoute
+  '/login': typeof AuthLoginRoute
+  '/register': typeof AuthRegisterRoute
+  '/admin/monitor': typeof AppAdminMonitorRoute
+  '/admin/pairing': typeof AppAdminPairingRoute
+  '/admin/sessions': typeof AppAdminSessionsRoute
+  '/admin/tenants': typeof AppAdminTenantsRoute
+  '/user/keys': typeof AppUserKeysRoute
+  '/user/sessions': typeof AppUserSessionsRouteWithChildren
+  '/user/webhooks': typeof AppUserWebhooksRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/admin/': typeof AppAdminIndexRoute
+  '/user/sessions/$sessionId': typeof AppUserSessionsSessionIdRouteWithChildren
+  '/user/sessions/$sessionId/chats': typeof AppUserSessionsSessionIdChatsRouteWithChildren
+  '/user/sessions/$sessionId/contacts': typeof AppUserSessionsSessionIdContactsRouteWithChildren
+  '/user/sessions/$sessionId/': typeof AppUserSessionsSessionIdIndexRoute
+  '/user/sessions/$sessionId/chats/$chatId': typeof AppUserSessionsSessionIdChatsChatIdRoute
+  '/user/sessions/$sessionId/contacts/$lid': typeof AppUserSessionsSessionIdContactsLidRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/login': typeof LoginRoute
   '/dashboard': typeof AppDashboardRoute
+  '/user': typeof AppUserRouteWithChildren
+  '/2fa': typeof Auth2faRoute
+  '/login': typeof AuthLoginRoute
+  '/register': typeof AuthRegisterRoute
+  '/admin/monitor': typeof AppAdminMonitorRoute
+  '/admin/pairing': typeof AppAdminPairingRoute
+  '/admin/sessions': typeof AppAdminSessionsRoute
+  '/admin/tenants': typeof AppAdminTenantsRoute
+  '/user/keys': typeof AppUserKeysRoute
+  '/user/sessions': typeof AppUserSessionsRouteWithChildren
+  '/user/webhooks': typeof AppUserWebhooksRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/admin': typeof AppAdminIndexRoute
+  '/user/sessions/$sessionId/chats': typeof AppUserSessionsSessionIdChatsRouteWithChildren
+  '/user/sessions/$sessionId/contacts': typeof AppUserSessionsSessionIdContactsRouteWithChildren
+  '/user/sessions/$sessionId': typeof AppUserSessionsSessionIdIndexRoute
+  '/user/sessions/$sessionId/chats/$chatId': typeof AppUserSessionsSessionIdChatsChatIdRoute
+  '/user/sessions/$sessionId/contacts/$lid': typeof AppUserSessionsSessionIdContactsLidRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_app': typeof AppRouteWithChildren
-  '/login': typeof LoginRoute
+  '/_auth': typeof AuthRouteWithChildren
+  '/_app/admin': typeof AppAdminRouteRouteWithChildren
   '/_app/dashboard': typeof AppDashboardRoute
+  '/_app/user': typeof AppUserRouteWithChildren
+  '/_auth/2fa': typeof Auth2faRoute
+  '/_auth/login': typeof AuthLoginRoute
+  '/_auth/register': typeof AuthRegisterRoute
+  '/_app/admin/monitor': typeof AppAdminMonitorRoute
+  '/_app/admin/pairing': typeof AppAdminPairingRoute
+  '/_app/admin/sessions': typeof AppAdminSessionsRoute
+  '/_app/admin/tenants': typeof AppAdminTenantsRoute
+  '/_app/user/keys': typeof AppUserKeysRoute
+  '/_app/user/sessions': typeof AppUserSessionsRouteWithChildren
+  '/_app/user/webhooks': typeof AppUserWebhooksRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/_app/admin/': typeof AppAdminIndexRoute
+  '/_app/user/sessions/$sessionId': typeof AppUserSessionsSessionIdRouteWithChildren
+  '/_app/user/sessions/$sessionId/chats': typeof AppUserSessionsSessionIdChatsRouteWithChildren
+  '/_app/user/sessions/$sessionId/contacts': typeof AppUserSessionsSessionIdContactsRouteWithChildren
+  '/_app/user/sessions/$sessionId/': typeof AppUserSessionsSessionIdIndexRoute
+  '/_app/user/sessions/$sessionId/chats/$chatId': typeof AppUserSessionsSessionIdChatsChatIdRoute
+  '/_app/user/sessions/$sessionId/contacts/$lid': typeof AppUserSessionsSessionIdContactsLidRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/login' | '/dashboard' | '/api/auth/$'
+  fullPaths:
+    | '/'
+    | '/admin'
+    | '/dashboard'
+    | '/user'
+    | '/2fa'
+    | '/login'
+    | '/register'
+    | '/admin/monitor'
+    | '/admin/pairing'
+    | '/admin/sessions'
+    | '/admin/tenants'
+    | '/user/keys'
+    | '/user/sessions'
+    | '/user/webhooks'
+    | '/api/auth/$'
+    | '/admin/'
+    | '/user/sessions/$sessionId'
+    | '/user/sessions/$sessionId/chats'
+    | '/user/sessions/$sessionId/contacts'
+    | '/user/sessions/$sessionId/'
+    | '/user/sessions/$sessionId/chats/$chatId'
+    | '/user/sessions/$sessionId/contacts/$lid'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/login' | '/dashboard' | '/api/auth/$'
-  id: '__root__' | '/' | '/_app' | '/login' | '/_app/dashboard' | '/api/auth/$'
+  to:
+    | '/'
+    | '/dashboard'
+    | '/user'
+    | '/2fa'
+    | '/login'
+    | '/register'
+    | '/admin/monitor'
+    | '/admin/pairing'
+    | '/admin/sessions'
+    | '/admin/tenants'
+    | '/user/keys'
+    | '/user/sessions'
+    | '/user/webhooks'
+    | '/api/auth/$'
+    | '/admin'
+    | '/user/sessions/$sessionId/chats'
+    | '/user/sessions/$sessionId/contacts'
+    | '/user/sessions/$sessionId'
+    | '/user/sessions/$sessionId/chats/$chatId'
+    | '/user/sessions/$sessionId/contacts/$lid'
+  id:
+    | '__root__'
+    | '/'
+    | '/_app'
+    | '/_auth'
+    | '/_app/admin'
+    | '/_app/dashboard'
+    | '/_app/user'
+    | '/_auth/2fa'
+    | '/_auth/login'
+    | '/_auth/register'
+    | '/_app/admin/monitor'
+    | '/_app/admin/pairing'
+    | '/_app/admin/sessions'
+    | '/_app/admin/tenants'
+    | '/_app/user/keys'
+    | '/_app/user/sessions'
+    | '/_app/user/webhooks'
+    | '/api/auth/$'
+    | '/_app/admin/'
+    | '/_app/user/sessions/$sessionId'
+    | '/_app/user/sessions/$sessionId/chats'
+    | '/_app/user/sessions/$sessionId/contacts'
+    | '/_app/user/sessions/$sessionId/'
+    | '/_app/user/sessions/$sessionId/chats/$chatId'
+    | '/_app/user/sessions/$sessionId/contacts/$lid'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRouteWithChildren
-  LoginRoute: typeof LoginRoute
+  AuthRoute: typeof AuthRouteWithChildren
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
+    '/_auth': {
+      id: '/_auth'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AuthRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_app': {
@@ -98,12 +337,54 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_auth/register': {
+      id: '/_auth/register'
+      path: '/register'
+      fullPath: '/register'
+      preLoaderRoute: typeof AuthRegisterRouteImport
+      parentRoute: typeof AuthRoute
+    }
+    '/_auth/login': {
+      id: '/_auth/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof AuthLoginRouteImport
+      parentRoute: typeof AuthRoute
+    }
+    '/_auth/2fa': {
+      id: '/_auth/2fa'
+      path: '/2fa'
+      fullPath: '/2fa'
+      preLoaderRoute: typeof Auth2faRouteImport
+      parentRoute: typeof AuthRoute
+    }
+    '/_app/user': {
+      id: '/_app/user'
+      path: '/user'
+      fullPath: '/user'
+      preLoaderRoute: typeof AppUserRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/dashboard': {
       id: '/_app/dashboard'
       path: '/dashboard'
       fullPath: '/dashboard'
       preLoaderRoute: typeof AppDashboardRouteImport
       parentRoute: typeof AppRoute
+    }
+    '/_app/admin': {
+      id: '/_app/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AppAdminRouteRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/admin/': {
+      id: '/_app/admin/'
+      path: '/'
+      fullPath: '/admin/'
+      preLoaderRoute: typeof AppAdminIndexRouteImport
+      parentRoute: typeof AppAdminRouteRoute
     }
     '/api/auth/$': {
       id: '/api/auth/$'
@@ -112,23 +393,229 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_app/user/webhooks': {
+      id: '/_app/user/webhooks'
+      path: '/webhooks'
+      fullPath: '/user/webhooks'
+      preLoaderRoute: typeof AppUserWebhooksRouteImport
+      parentRoute: typeof AppUserRoute
+    }
+    '/_app/user/sessions': {
+      id: '/_app/user/sessions'
+      path: '/sessions'
+      fullPath: '/user/sessions'
+      preLoaderRoute: typeof AppUserSessionsRouteImport
+      parentRoute: typeof AppUserRoute
+    }
+    '/_app/user/keys': {
+      id: '/_app/user/keys'
+      path: '/keys'
+      fullPath: '/user/keys'
+      preLoaderRoute: typeof AppUserKeysRouteImport
+      parentRoute: typeof AppUserRoute
+    }
+    '/_app/admin/tenants': {
+      id: '/_app/admin/tenants'
+      path: '/tenants'
+      fullPath: '/admin/tenants'
+      preLoaderRoute: typeof AppAdminTenantsRouteImport
+      parentRoute: typeof AppAdminRouteRoute
+    }
+    '/_app/admin/sessions': {
+      id: '/_app/admin/sessions'
+      path: '/sessions'
+      fullPath: '/admin/sessions'
+      preLoaderRoute: typeof AppAdminSessionsRouteImport
+      parentRoute: typeof AppAdminRouteRoute
+    }
+    '/_app/admin/pairing': {
+      id: '/_app/admin/pairing'
+      path: '/pairing'
+      fullPath: '/admin/pairing'
+      preLoaderRoute: typeof AppAdminPairingRouteImport
+      parentRoute: typeof AppAdminRouteRoute
+    }
+    '/_app/admin/monitor': {
+      id: '/_app/admin/monitor'
+      path: '/monitor'
+      fullPath: '/admin/monitor'
+      preLoaderRoute: typeof AppAdminMonitorRouteImport
+      parentRoute: typeof AppAdminRouteRoute
+    }
+    '/_app/user/sessions/$sessionId': {
+      id: '/_app/user/sessions/$sessionId'
+      path: '/$sessionId'
+      fullPath: '/user/sessions/$sessionId'
+      preLoaderRoute: typeof AppUserSessionsSessionIdRouteImport
+      parentRoute: typeof AppUserSessionsRoute
+    }
+    '/_app/user/sessions/$sessionId/': {
+      id: '/_app/user/sessions/$sessionId/'
+      path: '/'
+      fullPath: '/user/sessions/$sessionId/'
+      preLoaderRoute: typeof AppUserSessionsSessionIdIndexRouteImport
+      parentRoute: typeof AppUserSessionsSessionIdRoute
+    }
+    '/_app/user/sessions/$sessionId/contacts': {
+      id: '/_app/user/sessions/$sessionId/contacts'
+      path: '/contacts'
+      fullPath: '/user/sessions/$sessionId/contacts'
+      preLoaderRoute: typeof AppUserSessionsSessionIdContactsRouteImport
+      parentRoute: typeof AppUserSessionsSessionIdRoute
+    }
+    '/_app/user/sessions/$sessionId/chats': {
+      id: '/_app/user/sessions/$sessionId/chats'
+      path: '/chats'
+      fullPath: '/user/sessions/$sessionId/chats'
+      preLoaderRoute: typeof AppUserSessionsSessionIdChatsRouteImport
+      parentRoute: typeof AppUserSessionsSessionIdRoute
+    }
+    '/_app/user/sessions/$sessionId/contacts/$lid': {
+      id: '/_app/user/sessions/$sessionId/contacts/$lid'
+      path: '/$lid'
+      fullPath: '/user/sessions/$sessionId/contacts/$lid'
+      preLoaderRoute: typeof AppUserSessionsSessionIdContactsLidRouteImport
+      parentRoute: typeof AppUserSessionsSessionIdContactsRoute
+    }
+    '/_app/user/sessions/$sessionId/chats/$chatId': {
+      id: '/_app/user/sessions/$sessionId/chats/$chatId'
+      path: '/$chatId'
+      fullPath: '/user/sessions/$sessionId/chats/$chatId'
+      preLoaderRoute: typeof AppUserSessionsSessionIdChatsChatIdRouteImport
+      parentRoute: typeof AppUserSessionsSessionIdChatsRoute
+    }
   }
 }
 
+interface AppAdminRouteRouteChildren {
+  AppAdminMonitorRoute: typeof AppAdminMonitorRoute
+  AppAdminPairingRoute: typeof AppAdminPairingRoute
+  AppAdminSessionsRoute: typeof AppAdminSessionsRoute
+  AppAdminTenantsRoute: typeof AppAdminTenantsRoute
+  AppAdminIndexRoute: typeof AppAdminIndexRoute
+}
+
+const AppAdminRouteRouteChildren: AppAdminRouteRouteChildren = {
+  AppAdminMonitorRoute: AppAdminMonitorRoute,
+  AppAdminPairingRoute: AppAdminPairingRoute,
+  AppAdminSessionsRoute: AppAdminSessionsRoute,
+  AppAdminTenantsRoute: AppAdminTenantsRoute,
+  AppAdminIndexRoute: AppAdminIndexRoute,
+}
+
+const AppAdminRouteRouteWithChildren = AppAdminRouteRoute._addFileChildren(
+  AppAdminRouteRouteChildren,
+)
+
+interface AppUserSessionsSessionIdChatsRouteChildren {
+  AppUserSessionsSessionIdChatsChatIdRoute: typeof AppUserSessionsSessionIdChatsChatIdRoute
+}
+
+const AppUserSessionsSessionIdChatsRouteChildren: AppUserSessionsSessionIdChatsRouteChildren =
+  {
+    AppUserSessionsSessionIdChatsChatIdRoute:
+      AppUserSessionsSessionIdChatsChatIdRoute,
+  }
+
+const AppUserSessionsSessionIdChatsRouteWithChildren =
+  AppUserSessionsSessionIdChatsRoute._addFileChildren(
+    AppUserSessionsSessionIdChatsRouteChildren,
+  )
+
+interface AppUserSessionsSessionIdContactsRouteChildren {
+  AppUserSessionsSessionIdContactsLidRoute: typeof AppUserSessionsSessionIdContactsLidRoute
+}
+
+const AppUserSessionsSessionIdContactsRouteChildren: AppUserSessionsSessionIdContactsRouteChildren =
+  {
+    AppUserSessionsSessionIdContactsLidRoute:
+      AppUserSessionsSessionIdContactsLidRoute,
+  }
+
+const AppUserSessionsSessionIdContactsRouteWithChildren =
+  AppUserSessionsSessionIdContactsRoute._addFileChildren(
+    AppUserSessionsSessionIdContactsRouteChildren,
+  )
+
+interface AppUserSessionsSessionIdRouteChildren {
+  AppUserSessionsSessionIdChatsRoute: typeof AppUserSessionsSessionIdChatsRouteWithChildren
+  AppUserSessionsSessionIdContactsRoute: typeof AppUserSessionsSessionIdContactsRouteWithChildren
+  AppUserSessionsSessionIdIndexRoute: typeof AppUserSessionsSessionIdIndexRoute
+}
+
+const AppUserSessionsSessionIdRouteChildren: AppUserSessionsSessionIdRouteChildren =
+  {
+    AppUserSessionsSessionIdChatsRoute:
+      AppUserSessionsSessionIdChatsRouteWithChildren,
+    AppUserSessionsSessionIdContactsRoute:
+      AppUserSessionsSessionIdContactsRouteWithChildren,
+    AppUserSessionsSessionIdIndexRoute: AppUserSessionsSessionIdIndexRoute,
+  }
+
+const AppUserSessionsSessionIdRouteWithChildren =
+  AppUserSessionsSessionIdRoute._addFileChildren(
+    AppUserSessionsSessionIdRouteChildren,
+  )
+
+interface AppUserSessionsRouteChildren {
+  AppUserSessionsSessionIdRoute: typeof AppUserSessionsSessionIdRouteWithChildren
+}
+
+const AppUserSessionsRouteChildren: AppUserSessionsRouteChildren = {
+  AppUserSessionsSessionIdRoute: AppUserSessionsSessionIdRouteWithChildren,
+}
+
+const AppUserSessionsRouteWithChildren = AppUserSessionsRoute._addFileChildren(
+  AppUserSessionsRouteChildren,
+)
+
+interface AppUserRouteChildren {
+  AppUserKeysRoute: typeof AppUserKeysRoute
+  AppUserSessionsRoute: typeof AppUserSessionsRouteWithChildren
+  AppUserWebhooksRoute: typeof AppUserWebhooksRoute
+}
+
+const AppUserRouteChildren: AppUserRouteChildren = {
+  AppUserKeysRoute: AppUserKeysRoute,
+  AppUserSessionsRoute: AppUserSessionsRouteWithChildren,
+  AppUserWebhooksRoute: AppUserWebhooksRoute,
+}
+
+const AppUserRouteWithChildren =
+  AppUserRoute._addFileChildren(AppUserRouteChildren)
+
 interface AppRouteChildren {
+  AppAdminRouteRoute: typeof AppAdminRouteRouteWithChildren
   AppDashboardRoute: typeof AppDashboardRoute
+  AppUserRoute: typeof AppUserRouteWithChildren
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppAdminRouteRoute: AppAdminRouteRouteWithChildren,
   AppDashboardRoute: AppDashboardRoute,
+  AppUserRoute: AppUserRouteWithChildren,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 
+interface AuthRouteChildren {
+  Auth2faRoute: typeof Auth2faRoute
+  AuthLoginRoute: typeof AuthLoginRoute
+  AuthRegisterRoute: typeof AuthRegisterRoute
+}
+
+const AuthRouteChildren: AuthRouteChildren = {
+  Auth2faRoute: Auth2faRoute,
+  AuthLoginRoute: AuthLoginRoute,
+  AuthRegisterRoute: AuthRegisterRoute,
+}
+
+const AuthRouteWithChildren = AuthRoute._addFileChildren(AuthRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
-  LoginRoute: LoginRoute,
+  AuthRoute: AuthRouteWithChildren,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
 export const routeTree = rootRouteImport
