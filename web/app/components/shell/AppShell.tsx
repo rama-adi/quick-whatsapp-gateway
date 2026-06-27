@@ -1,93 +1,43 @@
-// Authenticated app shell: renders the role-aware sidebar + outlet and gates
-// the event stream. The session is resolved by the layout route (_app.tsx) and
-// passed in as a prop; this component is purely presentational.
-// FROZEN — owned by the foundation agent.
+// Authenticated app shell: the role-aware sidebar + outlet, gating the event
+// stream. The session is resolved by the layout route (_app.tsx) and passed in
+// as a prop; this component is purely presentational.
+// Owned by the foundation agent.
 //
-// Ported from react-router to TanStack Start:
-//   - clientLoader + useLoaderData moved up into routes/_app.tsx
-//   - NavLink -> @tanstack/react-router <Link> with activeProps/inactiveProps
-//   - <Outlet/> from @tanstack/react-router
+// Rebuilt on the shadcn `sidebar` primitive (from the dashboard-01 block),
+// replacing the v1 hand-rolled <aside>. The SidebarProvider gives us the
+// collapsible rail, the mobile Sheet drawer (the old shell had NO mobile nav),
+// the Cmd/Ctrl+B toggle, and cookie-persisted collapsed state. AppSidebar holds
+// the nav + account menu; SiteHeader carries the trigger + connection status.
 
-import { Link, Outlet } from "@tanstack/react-router";
+import { Outlet } from "@tanstack/react-router";
 import type { AppSession } from "~/lib/auth/session";
 import { SessionProvider } from "~/lib/auth/context";
 import { EventStreamProvider } from "~/lib/events/EventStreamProvider";
-import { visibleNav, type NavItem } from "./nav";
-import { ConnectionPill } from "./ConnectionPill";
-import { UserMenu } from "./UserMenu";
-import { cn } from "~/lib/utils";
+import { SidebarInset, SidebarProvider } from "~/components/ui/sidebar";
+import { AppSidebar } from "~/components/app-sidebar";
+import { SiteHeader } from "~/components/site-header";
 
 export function AppShell({ session }: { session: AppSession }) {
-  const items = visibleNav(session);
-  const adminItems = items.filter((i) => i.group === "Admin");
-  const workspaceItems = items.filter((i) => i.group === "Workspace");
-
   return (
     <SessionProvider session={session}>
       <EventStreamProvider enabled>
-        <div className="flex min-h-screen bg-background text-foreground">
-          <aside className="hidden w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground md:flex">
-            <div className="flex h-14 items-center gap-2 border-b px-4 font-semibold">
-              WA Gateway
-            </div>
-            <nav className="flex-1 space-y-6 overflow-y-auto p-3">
-              {adminItems.length > 0 && (
-                <NavSection title="Admin" items={adminItems} />
-              )}
-              {workspaceItems.length > 0 && (
-                <NavSection title="Workspace" items={workspaceItems} />
-              )}
-            </nav>
-          </aside>
-
-          <div className="flex min-w-0 flex-1 flex-col">
-            <header className="flex h-14 items-center justify-between gap-3 border-b px-4">
-              <div className="flex items-center gap-3">
-                {session.impersonating && (
-                  <span className="rounded bg-destructive px-2 py-0.5 text-xs font-medium text-destructive-foreground">
-                    Impersonating
-                  </span>
-                )}
-              </div>
-              <div className="flex items-center gap-3">
-                <ConnectionPill />
-                <UserMenu session={session} />
-              </div>
-            </header>
+        <SidebarProvider
+          style={
+            {
+              "--sidebar-width": "16rem",
+              "--header-height": "3.5rem",
+            } as React.CSSProperties
+          }
+        >
+          <AppSidebar session={session} />
+          <SidebarInset>
+            <SiteHeader session={session} />
             <main className="min-w-0 flex-1 overflow-auto p-4 md:p-6">
               <Outlet />
             </main>
-          </div>
-        </div>
+          </SidebarInset>
+        </SidebarProvider>
       </EventStreamProvider>
     </SessionProvider>
-  );
-}
-
-function NavSection({ title, items }: { title: string; items: NavItem[] }) {
-  return (
-    <div>
-      <p className="mb-1 px-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-        {title}
-      </p>
-      <ul className="space-y-0.5">
-        {items.map((item) => (
-          <li key={item.to}>
-            <Link
-              to={item.to}
-              className="block rounded-md px-2 py-1.5 text-sm transition-colors text-sidebar-foreground/80 hover:bg-sidebar-accent/60"
-              activeProps={{
-                className: cn(
-                  "block rounded-md px-2 py-1.5 text-sm transition-colors",
-                  "bg-sidebar-accent text-sidebar-accent-foreground font-medium",
-                ),
-              }}
-            >
-              {item.label}
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </div>
   );
 }

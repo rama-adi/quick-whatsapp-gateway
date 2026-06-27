@@ -157,7 +157,7 @@ function Login() {
           </CardContent>
           <CardFooter className="flex flex-col gap-3">
             <Button type="submit" className="w-full" disabled={submitting}>
-              {submitting && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
+              {submitting && <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
               Sign in
             </Button>
             {canRegister && (

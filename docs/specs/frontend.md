@@ -102,6 +102,28 @@ the work Redis. Gateways subscribe and revoke instantly ([`trust-model.md`](trus
 - **Viewer** (read-only) — chats + message timeline; media → "not downloaded" placeholder.
 - **Contacts** — searchable found-users list; drill into DM + groups.
 
+## App shell
+
+The authenticated shell (`web/app/components/shell/AppShell.tsx`) is built on the shadcn
+`sidebar` primitive (`components/ui/sidebar.tsx`, from the `dashboard-01` block): a
+`SidebarProvider` → `AppSidebar` (`components/app-sidebar.tsx`) + `SidebarInset` → `SiteHeader`
+(`components/site-header.tsx`) + `<Outlet>`. This replaced the v1 hand-rolled `<aside>`, which had
+**no mobile navigation**; the primitive gives a collapsible icon rail, a `Sheet` drawer below `md`,
+a Cmd/Ctrl+B toggle, and cookie-persisted collapsed state.
+
+- **Nav model** — `components/shell/nav.ts` (`visibleNav(session)`) is the single source of truth:
+  role-filtered `Workspace` / `Admin` groups, each item carrying a lucide icon. Hiding is
+  **cosmetic** — the backend RBAC + route `beforeLoad` are the real gate.
+- **Docs link** — `DOCS_NAV` (always visible) puts a **Documentation** entry in the sidebar footer
+  and the account menu, linking to the in-app fumadocs site at `/docs` (a plain `<a>`: `/docs` is a
+  separate surface with its own layout/provider).
+- **Account menu** — `components/nav-user.tsx` (sidebar footer) shows the session email + roles and
+  owns sign-out (clears the query cache → `/login`). `SiteHeader` carries the sidebar trigger, the
+  impersonation badge, and the live `ConnectionPill`.
+- **Auth shell** — `_auth.tsx` is a split-screen layout (shadcn `login-04`): a form pane
+  (login/register/2fa render their existing react-hook-form + Zod cards) beside a branded value-prop
+  pane shown at `lg+`. No OAuth providers are wired, so the block's social buttons were dropped.
+
 ## Build & layout
 
 - Output: `.output` (node-server preset); `node .output/server/index.mjs`. Dev: `pnpm dev` (HMR).
