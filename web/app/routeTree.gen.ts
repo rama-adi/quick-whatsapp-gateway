@@ -29,6 +29,7 @@ import { Route as AppAdminTenantsRouteImport } from './routes/_app/admin/tenants
 import { Route as AppAdminSessionsRouteImport } from './routes/_app/admin/sessions'
 import { Route as AppAdminPairingRouteImport } from './routes/_app/admin/pairing'
 import { Route as AppAdminMonitorRouteImport } from './routes/_app/admin/monitor'
+import { Route as AppUserSessionsIndexRouteImport } from './routes/_app/user/sessions.index'
 import { Route as AppUserSessionsSessionIdRouteImport } from './routes/_app/user/sessions.$sessionId'
 import { Route as AppUserSessionsSessionIdIndexRouteImport } from './routes/_app/user/sessions.$sessionId.index'
 import { Route as AppUserSessionsSessionIdContactsRouteImport } from './routes/_app/user.sessions.$sessionId.contacts'
@@ -134,6 +135,11 @@ const AppAdminMonitorRoute = AppAdminMonitorRouteImport.update({
   path: '/monitor',
   getParentRoute: () => AppAdminRouteRoute,
 } as any)
+const AppUserSessionsIndexRoute = AppUserSessionsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppUserSessionsRoute,
+} as any)
 const AppUserSessionsSessionIdRoute =
   AppUserSessionsSessionIdRouteImport.update({
     id: '/$sessionId',
@@ -191,6 +197,7 @@ export interface FileRoutesByFullPath {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/admin/': typeof AppAdminIndexRoute
   '/user/sessions/$sessionId': typeof AppUserSessionsSessionIdRouteWithChildren
+  '/user/sessions/': typeof AppUserSessionsIndexRoute
   '/user/sessions/$sessionId/chats': typeof AppUserSessionsSessionIdChatsRouteRouteWithChildren
   '/user/sessions/$sessionId/contacts': typeof AppUserSessionsSessionIdContactsRouteWithChildren
   '/user/sessions/$sessionId/': typeof AppUserSessionsSessionIdIndexRoute
@@ -211,10 +218,10 @@ export interface FileRoutesByTo {
   '/admin/sessions': typeof AppAdminSessionsRoute
   '/admin/tenants': typeof AppAdminTenantsRoute
   '/user/keys': typeof AppUserKeysRoute
-  '/user/sessions': typeof AppUserSessionsRouteWithChildren
   '/user/webhooks': typeof AppUserWebhooksRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/admin': typeof AppAdminIndexRoute
+  '/user/sessions': typeof AppUserSessionsIndexRoute
   '/user/sessions/$sessionId/chats': typeof AppUserSessionsSessionIdChatsRouteRouteWithChildren
   '/user/sessions/$sessionId/contacts': typeof AppUserSessionsSessionIdContactsRouteWithChildren
   '/user/sessions/$sessionId': typeof AppUserSessionsSessionIdIndexRoute
@@ -244,6 +251,7 @@ export interface FileRoutesById {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/_app/admin/': typeof AppAdminIndexRoute
   '/_app/user/sessions/$sessionId': typeof AppUserSessionsSessionIdRouteWithChildren
+  '/_app/user/sessions/': typeof AppUserSessionsIndexRoute
   '/_app/user/sessions/$sessionId/chats': typeof AppUserSessionsSessionIdChatsRouteRouteWithChildren
   '/_app/user/sessions/$sessionId/contacts': typeof AppUserSessionsSessionIdContactsRouteWithChildren
   '/_app/user/sessions/$sessionId/': typeof AppUserSessionsSessionIdIndexRoute
@@ -272,6 +280,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/admin/'
     | '/user/sessions/$sessionId'
+    | '/user/sessions/'
     | '/user/sessions/$sessionId/chats'
     | '/user/sessions/$sessionId/contacts'
     | '/user/sessions/$sessionId/'
@@ -292,10 +301,10 @@ export interface FileRouteTypes {
     | '/admin/sessions'
     | '/admin/tenants'
     | '/user/keys'
-    | '/user/sessions'
     | '/user/webhooks'
     | '/api/auth/$'
     | '/admin'
+    | '/user/sessions'
     | '/user/sessions/$sessionId/chats'
     | '/user/sessions/$sessionId/contacts'
     | '/user/sessions/$sessionId'
@@ -324,6 +333,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/_app/admin/'
     | '/_app/user/sessions/$sessionId'
+    | '/_app/user/sessions/'
     | '/_app/user/sessions/$sessionId/chats'
     | '/_app/user/sessions/$sessionId/contacts'
     | '/_app/user/sessions/$sessionId/'
@@ -482,6 +492,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAdminMonitorRouteImport
       parentRoute: typeof AppAdminRouteRoute
     }
+    '/_app/user/sessions/': {
+      id: '/_app/user/sessions/'
+      path: '/'
+      fullPath: '/user/sessions/'
+      preLoaderRoute: typeof AppUserSessionsIndexRouteImport
+      parentRoute: typeof AppUserSessionsRoute
+    }
     '/_app/user/sessions/$sessionId': {
       id: '/_app/user/sessions/$sessionId'
       path: '/$sessionId'
@@ -599,10 +616,12 @@ const AppUserSessionsSessionIdRouteWithChildren =
 
 interface AppUserSessionsRouteChildren {
   AppUserSessionsSessionIdRoute: typeof AppUserSessionsSessionIdRouteWithChildren
+  AppUserSessionsIndexRoute: typeof AppUserSessionsIndexRoute
 }
 
 const AppUserSessionsRouteChildren: AppUserSessionsRouteChildren = {
   AppUserSessionsSessionIdRoute: AppUserSessionsSessionIdRouteWithChildren,
+  AppUserSessionsIndexRoute: AppUserSessionsIndexRoute,
 }
 
 const AppUserSessionsRouteWithChildren = AppUserSessionsRoute._addFileChildren(

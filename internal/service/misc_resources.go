@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"log/slog"
+	"sync"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
@@ -202,19 +203,173 @@ func (s *PresenceService) Set(ctx context.Context, organizationID, sessionID, st
 
 // AdminService backs the super-admin oversight endpoints.
 type AdminService struct {
-	store *store.Store
-	log   *slog.Logger
+	store    *store.Store
+	backfill BackfillSource
+	log      *slog.Logger
+
+	mu   sync.Mutex
+	jobs map[string]*domain.BackfillJob
 }
 
 // NewAdminService constructs an AdminService.
-func NewAdminService(s *store.Store, log *slog.Logger) *AdminService {
+func NewAdminService(s *store.Store, backfill BackfillSource, log *slog.Logger) *AdminService {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &AdminService{store: s, log: log}
+	return &AdminService{store: s, backfill: backfill, log: log, jobs: make(map[string]*domain.BackfillJob)}
 }
 
 // ListAllSessions returns every session across all organizations (super_admin).
 func (s *AdminService) ListAllSessions(ctx context.Context) ([]domain.WASession, error) {
 	return s.store.Sessions.ListAll(ctx)
+}
+
+// StartBackfill starts one in-memory backfill job for a session.
+func (s *AdminService) StartBackfill(ctx context.Context, sessionID string) (domain.BackfillJob, error) {
+	sess, err := s.store.Sessions.Get(ctx, sessionID)
+	if err != nil {
+		return domain.BackfillJob{}, err
+	}
+	if s.backfill == nil {
+		return domain.BackfillJob{}, errLiveUnavailable()
+	}
+
+	now := domain.NowMs()
+	job := &domain.BackfillJob{
+		ID:             domain.NewPrefixedID("bf_"),
+		SessionID:      sess.ID,
+		OrganizationID: sess.OrganizationID,
+		Status:         "running",
+		StartedAt:      now,
+	}
+
+	s.mu.Lock()
+	if runningJob := s.jobs[sess.ID]; runningJob != nil && runningJob.Status == "running" {
+		running := *runningJob
+		s.mu.Unlock()
+		return running, domain.ErrConflict("backfill already running for session")
+	}
+	s.jobs[sess.ID] = job
+	s.mu.Unlock()
+
+	go s.runBackfill(context.Background(), job.ID, sess.ID)
+	return *job, nil
+}
+
+// BackfillStatus returns the current or most recent backfill job.
+func (s *AdminService) BackfillStatus(_ context.Context, sessionID string) (domain.BackfillJob, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	job := s.jobs[sessionID]
+	if job == nil {
+		return domain.BackfillJob{}, domain.ErrNotFound("backfill job not found")
+	}
+	return *job, nil
+}
+
+func (s *AdminService) runBackfill(ctx context.Context, jobID, sessionID string) {
+	snapshot, err := s.backfill.BackfillSessionData(ctx, sessionID)
+	contacts, groups, members := 0, 0, 0
+	if err == nil {
+		contacts, groups, members, err = s.persistBackfill(ctx, sessionID, snapshot)
+	}
+	finished := domain.NowMs()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	job := s.jobs[sessionID]
+	if job == nil || job.ID != jobID {
+		return
+	}
+	job.FinishedAt = &finished
+	job.Contacts = contacts
+	job.Groups = groups
+	job.GroupMembers = members
+	if err != nil {
+		job.Status = "failed"
+		job.Error = err.Error()
+		s.log.WarnContext(ctx, "admin backfill failed", "session", sessionID, "job", jobID, "err", err)
+		return
+	}
+	job.Status = "succeeded"
+}
+
+func (s *AdminService) persistBackfill(ctx context.Context, sessionID string, snapshot domain.BackfillSnapshot) (int, int, int, error) {
+	now := domain.NowMs()
+	contactCount := 0
+	for _, c := range snapshot.Contacts {
+		if c.JID == "" {
+			continue
+		}
+		name := c.Name
+		if name == "" {
+			name = c.JID
+		}
+		if err := s.store.Identities.Upsert(ctx, domain.Identity{
+			LID:          c.JID,
+			Name:         stringPtr(name),
+			BusinessName: stringPtr(c.BusinessName),
+			FirstSeenAt:  now,
+			UpdatedAt:    now,
+		}); err != nil {
+			return 0, 0, 0, err
+		}
+		if err := s.store.Contacts.Upsert(ctx, domain.Contact{
+			SessionID:    sessionID,
+			LID:          c.JID,
+			SeenInDM:     false,
+			MessageCount: 0,
+			FirstSeenAt:  now,
+			LastSeenAt:   now,
+		}); err != nil {
+			return 0, 0, 0, err
+		}
+		contactCount++
+	}
+	groupCount := 0
+	memberCount := 0
+	for _, g := range snapshot.Groups {
+		if g.GroupJID == "" {
+			continue
+		}
+		participantCount := g.Participants
+		isAnnounce := g.IsAnnounce
+		isLocked := g.IsLocked
+		var createdAtWA *int64
+		if g.CreatedAtWA > 0 {
+			createdAtWA = &g.CreatedAtWA
+		}
+		if err := s.store.Groups.Upsert(ctx, domain.Group{
+			GroupJID:         g.GroupJID,
+			Subject:          stringPtr(g.Subject),
+			Description:      stringPtr(g.Description),
+			OwnerJID:         stringPtr(g.OwnerJID),
+			ParticipantCount: &participantCount,
+			IsAnnounce:       &isAnnounce,
+			IsLocked:         &isLocked,
+			CreatedAtWA:      createdAtWA,
+			FirstSeenAt:      now,
+			UpdatedAt:        now,
+		}); err != nil {
+			return 0, 0, 0, err
+		}
+		groupCount++
+		for _, m := range g.Members {
+			if m.LID == "" {
+				continue
+			}
+			if err := s.store.GroupMembers.Upsert(ctx, domain.GroupMember{
+				SessionID:     sessionID,
+				GroupJID:      g.GroupJID,
+				LID:           m.LID,
+				GroupNickname: stringPtr(m.Nickname),
+				Role:          m.Role,
+				FirstSeenAt:   now,
+				LastSeenAt:    now,
+			}); err != nil {
+				return 0, 0, 0, err
+			}
+			memberCount++
+		}
+	}
+	return contactCount, groupCount, memberCount, nil
 }

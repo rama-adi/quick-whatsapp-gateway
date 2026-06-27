@@ -2,11 +2,28 @@ package domain
 
 import (
 	"crypto/rand"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/oklog/ulid/v2"
 )
+
+// phoneJIDSuffix is the WhatsApp phone-number ("PN") JID server. A contact/identity
+// key is either "<n>@lid" (a hidden LID) or "<phone>@s.whatsapp.net" (a PN JID).
+const phoneJIDSuffix = "@s.whatsapp.net"
+
+// PhoneFromJID returns the bare phone number when jid is a "@s.whatsapp.net" JID
+// (e.g. "6282144201954@s.whatsapp.net" -> "6282144201954"), or nil otherwise (a
+// "@lid" identifier, a group JID, or empty). The result is nil-safe for use as a
+// nullable column value.
+func PhoneFromJID(jid string) *string {
+	user, ok := strings.CutSuffix(jid, phoneJIDSuffix)
+	if !ok || user == "" {
+		return nil
+	}
+	return &user
+}
 
 // ID prefixes used across the system. The spec's envelope examples show
 // prefixed, type-tagged identifiers (e.g. "evt_01J9…", "sess_01J8…",
@@ -17,6 +34,7 @@ const (
 	PrefixSession = "sess_" // wa_sessions.id
 	PrefixWebhook = "wh_"   // webhooks.id
 	PrefixOutbox  = "out_"  // outbox.id
+	PrefixMessage = "msg_"  // messages.id
 )
 
 // monotonicEntropy is shared across all NewULID calls so that two ULIDs minted
@@ -46,6 +64,7 @@ func NewEventID() string   { return NewPrefixedID(PrefixEvent) }
 func NewSessionID() string { return NewPrefixedID(PrefixSession) }
 func NewWebhookID() string { return NewPrefixedID(PrefixWebhook) }
 func NewOutboxID() string  { return NewPrefixedID(PrefixOutbox) }
+func NewMessageID() string { return NewPrefixedID(PrefixMessage) }
 
 // NowMs returns the current time as epoch milliseconds — the canonical
 // timestamp unit for every BIGINT column in §5.

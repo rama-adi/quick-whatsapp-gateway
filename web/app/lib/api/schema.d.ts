@@ -1274,6 +1274,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/sessions/{session}:backfill": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start a session data backfill (super_admin)
+         * @description Starts an in-memory background backfill for one WhatsApp session. Only one backfill may run per session at a time; concurrent requests for the same session return 409. The job pulls currently supported direct WhatsApp data (cached contacts and joined group metadata/members). Ordinary chat history is received through WhatsApp HistorySync events rather than a generic "fetch all messages" API.
+         */
+        post: operations["adminStartSessionBackfill"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/sessions/{session}/backfill": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the current or latest session backfill job */
+        get: operations["adminSessionBackfillStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1396,6 +1433,37 @@ export interface components {
             /** @description The paired phone number in plain digits. */
             phoneNumber?: string;
         };
+        BackfillJob: {
+            /** @description The backfill job id. */
+            id: string;
+            /** @description The session being backfilled. */
+            sessionId: string;
+            /** @description The session owner's organization id. */
+            organizationId: string;
+            /**
+             * @description Current job state.
+             * @enum {string}
+             */
+            status: "running" | "succeeded" | "failed";
+            /** @description Number of contacts persisted. */
+            contacts: number;
+            /** @description Number of groups persisted. */
+            groups: number;
+            /** @description Number of group memberships persisted. */
+            groupMembers: number;
+            /** @description Failure message when status is failed. */
+            error?: string;
+            /**
+             * Format: int64
+             * @description When the job started, in epoch milliseconds.
+             */
+            startedAt: number;
+            /**
+             * Format: int64
+             * @description When the job finished, in epoch milliseconds.
+             */
+            finishedAt?: number;
+        };
         /** @description The pairing QR code to display so the user can link their phone. */
         QRCode: {
             /** @description The QR payload string; render it as a QR image for the user to scan. */
@@ -1460,6 +1528,10 @@ export interface components {
             chatJid?: string;
             /** @description JID of whoever sent the message. */
             senderJid?: string;
+            /** @description LID of whoever sent the message. In group chats the sender is identified by LID; senderJid is often absent. */
+            senderLid?: string;
+            /** @description Resolved display name of the sender, when known. Especially useful in group chats to label each message's author. */
+            senderName?: string;
             /**
              * @description `in` = received by this session; `out` = sent by this session.
              * @enum {string}
@@ -3407,6 +3479,56 @@ export interface operations {
                 };
             };
             403: components["responses"]["Error"];
+        };
+    };
+    adminStartSessionBackfill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
+                session: components["parameters"]["Session"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Backfill accepted and running. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackfillJob"];
+                };
+            };
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            501: components["responses"]["Error"];
+        };
+    };
+    adminSessionBackfillStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
+                session: components["parameters"]["Session"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The current or latest backfill job for this session. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackfillJob"];
+                };
+            };
+            404: components["responses"]["Error"];
         };
     };
 }

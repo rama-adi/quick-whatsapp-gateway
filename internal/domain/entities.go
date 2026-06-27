@@ -124,15 +124,16 @@ type Identity struct {
 // Contact mirrors the whatsapp_contacts table — a per-account "found user"
 // record powering the Contacts feature (where this session encountered them).
 type Contact struct {
-	ID            uint64 `json:"id"`
-	SessionID     string `json:"sessionId"`
-	LID           string `json:"lid"`
-	SeenInDM      bool   `json:"seenInDm"`
-	DMFirstSeenAt *int64 `json:"dmFirstSeenAt,omitempty"`
-	DMLastSeenAt  *int64 `json:"dmLastSeenAt,omitempty"`
-	MessageCount  int64  `json:"messageCount"`
-	FirstSeenAt   int64  `json:"firstSeenAt"`
-	LastSeenAt    int64  `json:"lastSeenAt"`
+	ID            uint64  `json:"id"`
+	SessionID     string  `json:"sessionId"`
+	LID           string  `json:"lid"`
+	Phone         *string `json:"phone,omitempty"` // bare phone, set only when LID is a "@s.whatsapp.net" JID
+	SeenInDM      bool    `json:"seenInDm"`
+	DMFirstSeenAt *int64  `json:"dmFirstSeenAt,omitempty"`
+	DMLastSeenAt  *int64  `json:"dmLastSeenAt,omitempty"`
+	MessageCount  int64   `json:"messageCount"`
+	FirstSeenAt   int64   `json:"firstSeenAt"`
+	LastSeenAt    int64   `json:"lastSeenAt"`
 }
 
 // Group mirrors the whatsapp_groups table.
@@ -187,12 +188,17 @@ type MediaMeta struct {
 
 // Message mirrors the messages table.
 type Message struct {
-	ID              uint64           `json:"id"`
+	ID              string           `json:"id"`
 	SessionID       string           `json:"sessionId"`
 	WAMessageID     string           `json:"waMessageId"`
 	ChatJID         string           `json:"chatJid"`
 	SenderLID       *string          `json:"senderLid,omitempty"`
 	SenderJID       *string          `json:"senderJid,omitempty"`
+	// SenderName is the resolved display name of the sender (from
+	// whatsapp_identities, keyed by sender LID). Read-only: populated by the
+	// message read queries via a join, never a stored column. Mainly useful for
+	// group chats, where the sender differs per message and senderJid is absent.
+	SenderName      *string          `json:"senderName,omitempty"`
 	FromMe          bool             `json:"fromMe"`
 	Direction       MessageDirection `json:"direction"`
 	Type            string           `json:"type"` // text,poll,location,contact,reaction,system,image,...
@@ -209,6 +215,53 @@ type Message struct {
 	Timestamp       int64            `json:"timestamp"`
 	RawJSON         json.RawMessage  `json:"-"` // normalized event payload; not re-exposed
 	CreatedAt       int64            `json:"createdAt"`
+}
+
+// BackfillSnapshot is the supported data pulled from a live WhatsApp session by
+// an admin-triggered background backfill. WhatsApp chat-message history is
+// event-driven through HistorySync; this snapshot covers data with direct APIs.
+type BackfillSnapshot struct {
+	Contacts []BackfillContact `json:"contacts,omitempty"`
+	Groups   []BackfillGroup   `json:"groups,omitempty"`
+}
+
+type BackfillContact struct {
+	JID          string `json:"jid"`
+	Name         string `json:"name,omitempty"`
+	BusinessName string `json:"businessName,omitempty"`
+}
+
+type BackfillGroup struct {
+	GroupJID     string           `json:"groupJid"`
+	Subject      string           `json:"subject,omitempty"`
+	Description  string           `json:"description,omitempty"`
+	OwnerJID     string           `json:"ownerJid,omitempty"`
+	Participants int              `json:"participants,omitempty"`
+	IsAnnounce   bool             `json:"isAnnounce"`
+	IsLocked     bool             `json:"isLocked"`
+	CreatedAtWA  int64            `json:"createdAtWa,omitempty"`
+	Members      []BackfillMember `json:"members,omitempty"`
+}
+
+type BackfillMember struct {
+	LID      string    `json:"lid"`
+	JID      string    `json:"jid,omitempty"`
+	Nickname string    `json:"nickname,omitempty"`
+	Role     GroupRole `json:"role"`
+}
+
+// BackfillJob describes an in-memory background admin backfill job.
+type BackfillJob struct {
+	ID             string `json:"id"`
+	SessionID      string `json:"sessionId"`
+	OrganizationID string `json:"organizationId"`
+	Status         string `json:"status"`
+	Contacts       int    `json:"contacts"`
+	Groups         int    `json:"groups"`
+	GroupMembers   int    `json:"groupMembers"`
+	Error          string `json:"error,omitempty"`
+	StartedAt      int64  `json:"startedAt"`
+	FinishedAt     *int64 `json:"finishedAt,omitempty"`
 }
 
 // PollVote mirrors the poll_votes table.

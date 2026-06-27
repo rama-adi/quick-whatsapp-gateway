@@ -122,6 +122,8 @@ func mountAPIRoutes(r chi.Router, h *handlers.Handlers) {
 	r.Group(func(g chi.Router) {
 		g.Use(authz.RequireSuperAdmin())
 		g.Get("/admin/sessions", h.AdminListSessions)
+		g.Post("/admin/sessions/{session}:backfill", h.AdminStartSessionBackfill)
+		g.Get("/admin/sessions/{session}/backfill", h.AdminSessionBackfillStatus)
 	})
 
 	// --- Sessions (manage) ---

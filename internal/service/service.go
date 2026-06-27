@@ -75,7 +75,7 @@ func New(d Deps) *Services {
 		Channels: NewChannelService(d.Store, liveOrNilChannelOps(live), d.Log),
 		Status:   NewStatusService(d.Store, liveOrNilStatusPoster(live), d.Log),
 		Presence: NewPresenceService(d.Store, liveOrNilPresence(live), d.Log),
-		Admin:    NewAdminService(d.Store, d.Log),
+		Admin:    NewAdminService(d.Store, liveOrNilBackfill(live), d.Log),
 		Events:   NewEventsService(d.Store.EventLog, d.Log),
 	}
 }
@@ -112,6 +112,13 @@ func liveOrNilChannelOps(l *wa.LiveOps) ChannelOps {
 }
 
 func liveOrNilStatusPoster(l *wa.LiveOps) StatusPoster {
+	if l == nil {
+		return nil
+	}
+	return l
+}
+
+func liveOrNilBackfill(l *wa.LiveOps) BackfillSource {
 	if l == nil {
 		return nil
 	}

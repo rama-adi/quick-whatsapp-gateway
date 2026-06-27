@@ -27,3 +27,23 @@ func (h *Handlers) AdminListSessions(w http.ResponseWriter, r *http.Request) {
 	}
 	httpx.ListEnvelope(w, sessions, "")
 }
+
+// AdminStartSessionBackfill handles POST /admin/sessions/{session}:backfill.
+func (h *Handlers) AdminStartSessionBackfill(w http.ResponseWriter, r *http.Request) {
+	job, err := h.Admin.StartBackfill(r.Context(), param(r, "session"))
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusAccepted, job)
+}
+
+// AdminSessionBackfillStatus handles GET /admin/sessions/{session}/backfill.
+func (h *Handlers) AdminSessionBackfillStatus(w http.ResponseWriter, r *http.Request) {
+	job, err := h.Admin.BackfillStatus(r.Context(), param(r, "session"))
+	if err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, job)
+}

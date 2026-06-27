@@ -95,8 +95,14 @@ type MessageRun = {
   messages: Message[];
 };
 
+/** Identity used to break same-sender runs. In groups the sender is carried on
+ * senderLid (senderJid is absent), so prefer it; fall back to senderJid. */
+function senderKey(m: Message): string {
+  return m.senderLid ?? m.senderJid ?? "";
+}
+
 function messageId(m: Message): string {
-  return m.id ?? `${m.timestamp}-${m.senderJid}`;
+  return m.id ?? `${m.timestamp}-${senderKey(m)}`;
 }
 
 /** Group an ascending message list into same-sender runs, tagging day breaks. */
@@ -110,7 +116,7 @@ function groupRuns(ordered: Message[]): MessageRun[] {
     const dayBreak = dk !== lastDay;
     lastDay = dk;
     // Group key: same direction + sender, broken by a day boundary.
-    const runKey = `${dk}|${m.direction}|${m.senderJid ?? ""}`;
+    const runKey = `${dk}|${m.direction}|${senderKey(m)}`;
     const last = runs[runs.length - 1];
 
     if (!dayBreak && last && runKey === prevKey) {

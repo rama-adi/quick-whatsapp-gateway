@@ -77,6 +77,11 @@ type StatusPoster interface {
 	PostText(ctx context.Context, sessionID, text string) (messageID string, err error)
 }
 
+// BackfillSource pulls currently supported live data for a session.
+type BackfillSource interface {
+	BackfillSessionData(ctx context.Context, sessionID string) (domain.BackfillSnapshot, error)
+}
+
 // errLiveUnavailable is returned by the resource services when no live adapter is
 // configured (e.g. in tests or before the client is wired).
 func errLiveUnavailable() error {

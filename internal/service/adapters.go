@@ -212,6 +212,7 @@ func (r *InboundRepos) UpsertContact(ctx context.Context, in inbound.ContactUpse
 	if err := r.store.Contacts.Upsert(ctx, domain.Contact{
 		SessionID:     in.SessionID,
 		LID:           in.LID,
+		Phone:         domain.PhoneFromJID(in.LID),
 		SeenInDM:      in.SeenInDM,
 		DMFirstSeenAt: dmSeen,
 		DMLastSeenAt:  dmSeen,
@@ -414,13 +415,21 @@ func inboundMessageFromEventsMessage(m *events.NormalizedMessage, kind inbound.M
 	if body == "" {
 		body = string(eventPayloadJSON(ev))
 	}
+	// The push name is the SENDER's display name. It's a fine chat name for a DM
+	// (the peer), but for a group it would clobber the chat name with whoever sent
+	// the last message. Groups get their name from whatsapp_groups.subject at read
+	// time, so leave ChatName empty here to avoid polluting chats.name.
+	chatName := m.PushName
+	if ct == domain.ChatGroup {
+		chatName = ""
+	}
 	nm := &inbound.NormalizedMessage{
 		Kind:            kind,
 		SessionID:       sessionID,
 		OrganizationID:  organizationID,
 		ChatJID:         m.ChatJID,
 		ChatType:        ct,
-		ChatName:        m.PushName,
+		ChatName:        chatName,
 		IsDM:            ct == domain.ChatDM,
 		IsGroup:         ct == domain.ChatGroup,
 		FromMe:          m.FromMe,

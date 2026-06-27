@@ -17,13 +17,13 @@ type ContactRepo struct {
 // NewContactRepo constructs a ContactRepo.
 func NewContactRepo(db dbExecQuerier) *ContactRepo { return &ContactRepo{db: db} }
 
-const contactCols = `id, session_id, lid, seen_in_dm, dm_first_seen_at,
+const contactCols = `id, session_id, lid, phone, seen_in_dm, dm_first_seen_at,
 	dm_last_seen_at, message_count, first_seen_at, last_seen_at`
 
 func scanContact(s rowScanner) (domain.Contact, error) {
 	var c domain.Contact
 	err := s.Scan(
-		&c.ID, &c.SessionID, &c.LID, &c.SeenInDM, &c.DMFirstSeenAt,
+		&c.ID, &c.SessionID, &c.LID, &c.Phone, &c.SeenInDM, &c.DMFirstSeenAt,
 		&c.DMLastSeenAt, &c.MessageCount, &c.FirstSeenAt, &c.LastSeenAt,
 	)
 	if err != nil {
@@ -39,16 +39,17 @@ func scanContact(s rowScanner) (domain.Contact, error) {
 // struct). first_seen_at is preserved.
 func (r *ContactRepo) Upsert(ctx context.Context, c domain.Contact) error {
 	const q = `INSERT INTO whatsapp_contacts
-(session_id, lid, seen_in_dm, dm_first_seen_at, dm_last_seen_at, message_count,
+(session_id, lid, phone, seen_in_dm, dm_first_seen_at, dm_last_seen_at, message_count,
  first_seen_at, last_seen_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON DUPLICATE KEY UPDATE
+	phone            = COALESCE(VALUES(phone), phone),
 	seen_in_dm       = seen_in_dm | VALUES(seen_in_dm),
 	dm_first_seen_at = COALESCE(dm_first_seen_at, VALUES(dm_first_seen_at)),
 	dm_last_seen_at  = COALESCE(VALUES(dm_last_seen_at), dm_last_seen_at),
 	last_seen_at     = VALUES(last_seen_at)`
 	if _, err := r.db.ExecContext(ctx, q,
-		c.SessionID, c.LID, c.SeenInDM, c.DMFirstSeenAt, c.DMLastSeenAt,
+		c.SessionID, c.LID, c.Phone, c.SeenInDM, c.DMFirstSeenAt, c.DMLastSeenAt,
 		c.MessageCount, c.FirstSeenAt, c.LastSeenAt,
 	); err != nil {
 		return fmt.Errorf("store: upsert contact: %w", err)

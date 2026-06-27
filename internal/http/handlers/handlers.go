@@ -59,6 +59,8 @@ type WebhookSvc interface {
 // AdminSvc is the cross-organization oversight surface.
 type AdminSvc interface {
 	ListAllSessions(ctx context.Context) ([]domain.WASession, error)
+	StartBackfill(ctx context.Context, sessionID string) (domain.BackfillJob, error)
+	BackfillStatus(ctx context.Context, sessionID string) (domain.BackfillJob, error)
 }
 
 // ChatSvc is the chat viewer + read-state surface (§11 Chats).

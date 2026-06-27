@@ -10,8 +10,8 @@
 // active organization (wa_sessions.organization_id) before we expose its data.
 //
 // Pagination mirrors the gateway's cursor lists: limit + opaque cursor. We use a
-// numeric surrogate-PK cursor (rows.id) which is monotonic; nextCursor is the
-// last row's id as a string, matching Page<T> = {data, nextCursor}.
+// opaque sortable row cursor (rows.id); nextCursor is the last row's id,
+// matching Page<T> = {data, nextCursor}.
 
 import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "~/lib/auth/middleware";
@@ -58,18 +58,31 @@ export const fetchChatsPage = createServerFn({ method: "GET" })
     if (!ok) return { data: [], nextCursor: null };
 
     const { db } = await import("~/lib/db");
-    const { chats } = await import("~/lib/db/wa");
-    const { and, eq, lt, desc } = await import("drizzle-orm");
+    const { chats, whatsappGroups } = await import("~/lib/db/wa");
+    const { and, eq, lt, desc, sql } = await import("drizzle-orm");
 
-    const cursorId = cursor ? Number(cursor) : undefined;
+    const cursorId = cursor !== undefined ? Number(cursor) : undefined;
     const where =
       cursorId !== undefined && Number.isFinite(cursorId)
         ? and(eq(chats.sessionId, sessionId), lt(chats.id, cursorId))
         : eq(chats.sessionId, sessionId);
 
     const rows = await db
-      .select()
+      .select({
+        id: chats.id,
+        chatJid: chats.chatJid,
+        type: chats.type,
+        // Groups display their subject (whatsapp_groups); non-groups fall back to
+        // chats.name. Mirrors the gateway REST resolution so SSR + live agree.
+        name: sql<string | null>`COALESCE(${whatsappGroups.subject}, ${chats.name})`,
+        unreadCount: chats.unreadCount,
+        archived: chats.archived,
+        pinned: chats.pinned,
+        mutedUntil: chats.mutedUntil,
+        lastMessageAt: chats.lastMessageAt,
+      })
       .from(chats)
+      .leftJoin(whatsappGroups, eq(whatsappGroups.groupJid, chats.chatJid))
       .where(where)
       .orderBy(desc(chats.id))
       .limit(PAGE_LIMIT + 1);
@@ -96,12 +109,23 @@ export const fetchChat = createServerFn({ method: "GET" })
     if (!ok) return null;
 
     const { db } = await import("~/lib/db");
-    const { chats } = await import("~/lib/db/wa");
-    const { and, eq } = await import("drizzle-orm");
+    const { chats, whatsappGroups } = await import("~/lib/db/wa");
+    const { and, eq, sql } = await import("drizzle-orm");
 
     const rows = await db
-      .select()
+      .select({
+        id: chats.id,
+        chatJid: chats.chatJid,
+        type: chats.type,
+        name: sql<string | null>`COALESCE(${whatsappGroups.subject}, ${chats.name})`,
+        unreadCount: chats.unreadCount,
+        archived: chats.archived,
+        pinned: chats.pinned,
+        mutedUntil: chats.mutedUntil,
+        lastMessageAt: chats.lastMessageAt,
+      })
       .from(chats)
+      .leftJoin(whatsappGroups, eq(whatsappGroups.groupJid, chats.chatJid))
       .where(and(eq(chats.sessionId, sessionId), eq(chats.chatJid, chatJid)))
       .limit(1);
     const row = rows[0];
@@ -127,22 +151,38 @@ export const fetchMessagesPage = createServerFn({ method: "GET" })
     if (!ok) return { data: [], nextCursor: null };
 
     const { db } = await import("~/lib/db");
-    const { messages } = await import("~/lib/db/wa");
+    const { messages, whatsappIdentities } = await import("~/lib/db/wa");
     const { and, eq, lt, desc } = await import("drizzle-orm");
 
-    const cursorId = cursor ? Number(cursor) : undefined;
+    // messages.id is a sortable string ULID, so the cursor is the id itself
+    // (lexicographic compare) — no numeric parse.
     const base = and(
       eq(messages.sessionId, sessionId),
       eq(messages.chatJid, chatJid),
     );
-    const where =
-      cursorId !== undefined && Number.isFinite(cursorId)
-        ? and(base, lt(messages.id, cursorId))
-        : base;
+    const where = cursor ? and(base, lt(messages.id, cursor)) : base;
 
     const rows = await db
-      .select()
+      .select({
+        id: messages.id,
+        waMessageId: messages.waMessageId,
+        chatJid: messages.chatJid,
+        senderJid: messages.senderJid,
+        senderLid: messages.senderLid,
+        // Sender's resolved display name (whatsapp_identities, keyed by LID) so
+        // group messages can label each author; null when unknown.
+        senderName: whatsappIdentities.name,
+        direction: messages.direction,
+        type: messages.type,
+        body: messages.body,
+        status: messages.status,
+        timestamp: messages.timestamp,
+      })
       .from(messages)
+      .leftJoin(
+        whatsappIdentities,
+        eq(whatsappIdentities.lid, messages.senderLid),
+      )
       .where(where)
       .orderBy(desc(messages.id))
       .limit(PAGE_LIMIT + 1);
@@ -186,6 +226,8 @@ type MessageRow = {
   waMessageId: string;
   chatJid: string;
   senderJid: string | null;
+  senderLid: string | null;
+  senderName: string | null;
   direction: NonNullable<Message["direction"]>;
   type: string;
   body: string | null;
@@ -198,6 +240,8 @@ function rowToMessage(r: MessageRow): Message {
     id: r.waMessageId,
     chatJid: r.chatJid,
     senderJid: r.senderJid ?? undefined,
+    senderLid: r.senderLid ?? undefined,
+    senderName: r.senderName ?? undefined,
     direction: r.direction,
     type: r.type,
     body: r.body ?? undefined,

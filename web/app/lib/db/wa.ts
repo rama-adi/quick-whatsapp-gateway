@@ -148,6 +148,8 @@ export const whatsappContacts = mysqlTable(
       .primaryKey(),
     sessionId: varchar("session_id", { length: 64 }).notNull(),
     lid: varchar("lid", { length: 255 }).notNull(),
+    // bare phone, set only when `lid` is a "@s.whatsapp.net" JID (else null)
+    phone: varchar("phone", { length: 64 }),
     seenInDm: tinyint("seen_in_dm").notNull().default(0),
     dmFirstSeenAt: bigint("dm_first_seen_at", { mode: "number" }),
     dmLastSeenAt: bigint("dm_last_seen_at", { mode: "number" }),
@@ -158,6 +160,7 @@ export const whatsappContacts = mysqlTable(
   (t) => [
     uniqueIndex("uq_contact").on(t.sessionId, t.lid),
     index("idx_contact_lid").on(t.lid),
+    index("idx_contact_phone").on(t.phone),
   ],
 );
 
@@ -237,9 +240,7 @@ export const chats = mysqlTable(
 export const messages = mysqlTable(
   "messages",
   {
-    id: bigint("id", { mode: "number", unsigned: true })
-      .autoincrement()
-      .primaryKey(),
+    id: varchar("id", { length: 64 }).primaryKey(),
     sessionId: varchar("session_id", { length: 64 }).notNull(),
     waMessageId: varchar("wa_message_id", { length: 255 }).notNull(),
     chatJid: varchar("chat_jid", { length: 255 }).notNull(),
@@ -271,7 +272,7 @@ export const messages = mysqlTable(
   },
   (t) => [
     uniqueIndex("uq_msg").on(t.sessionId, t.waMessageId),
-    index("idx_msg_chat").on(t.sessionId, t.chatJid, t.timestamp),
+    index("idx_msg_chat").on(t.sessionId, t.chatJid, t.id),
     index("idx_msg_sender").on(t.senderLid),
   ],
 );

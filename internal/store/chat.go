@@ -15,8 +15,17 @@ type ChatRepo struct {
 // NewChatRepo constructs a ChatRepo.
 func NewChatRepo(db dbExecQuerier) *ChatRepo { return &ChatRepo{db: db} }
 
-const chatCols = `id, session_id, chat_jid, type, name, last_message_at,
-	unread_count, archived, pinned, muted_until`
+// chatCols selects from the chats table aliased `c`, resolving the display name
+// for group chats from whatsapp_groups.subject (joined as `g`) so a group shows
+// its real subject rather than whatever per-message name landed in chats.name.
+// For non-group chats g.subject is NULL and c.name is used unchanged.
+const chatCols = `c.id, c.session_id, c.chat_jid, c.type,
+	COALESCE(g.subject, c.name) AS name, c.last_message_at,
+	c.unread_count, c.archived, c.pinned, c.muted_until`
+
+// chatFrom is the FROM/JOIN clause paired with chatCols.
+const chatFrom = ` FROM chats c
+	LEFT JOIN whatsapp_groups g ON g.group_jid = c.chat_jid `
 
 func scanChat(s rowScanner) (domain.Chat, error) {
 	var c domain.Chat
@@ -54,7 +63,7 @@ ON DUPLICATE KEY UPDATE
 
 // Get fetches a chat by (session_id, chat_jid). Maps no-rows to not_found.
 func (r *ChatRepo) Get(ctx context.Context, sessionID, chatJID string) (domain.Chat, error) {
-	q := "SELECT " + chatCols + " FROM chats WHERE session_id = ? AND chat_jid = ?"
+	q := "SELECT " + chatCols + chatFrom + "WHERE c.session_id = ? AND c.chat_jid = ?"
 	c, err := scanChat(r.db.QueryRowContext(ctx, q, sessionID, chatJID))
 	if err != nil {
 		return domain.Chat{}, notFound(err, "chat")
@@ -71,7 +80,7 @@ func (r *ChatRepo) ListBySession(ctx context.Context, sessionID, cursor string, 
 		return Page[domain.Chat]{}, err
 	}
 	limit = normLimit(limit)
-	q := "SELECT " + chatCols + " FROM chats WHERE session_id = ? AND id > ? ORDER BY id ASC LIMIT ?"
+	q := "SELECT " + chatCols + chatFrom + "WHERE c.session_id = ? AND c.id > ? ORDER BY c.id ASC LIMIT ?"
 	rows, err := r.db.QueryContext(ctx, q, sessionID, afterID, limit)
 	if err != nil {
 		return Page[domain.Chat]{}, fmt.Errorf("store: list chats: %w", err)

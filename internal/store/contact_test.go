@@ -10,7 +10,7 @@ import (
 
 func contactColRow() []string {
 	return []string{
-		"id", "session_id", "lid", "seen_in_dm", "dm_first_seen_at",
+		"id", "session_id", "lid", "phone", "seen_in_dm", "dm_first_seen_at",
 		"dm_last_seen_at", "message_count", "first_seen_at", "last_seen_at",
 	}
 }
@@ -20,12 +20,13 @@ func TestContactRepo_Upsert(t *testing.T) {
 	repo := NewContactRepo(db)
 
 	c := domain.Contact{
-		SessionID: "sess_1", LID: "111@lid", SeenInDM: true,
+		SessionID: "sess_1", LID: "6282144201954@s.whatsapp.net", Phone: domain.PhoneFromJID("6282144201954@s.whatsapp.net"),
+		SeenInDM:      true,
 		DMFirstSeenAt: i64ptr(10), DMLastSeenAt: i64ptr(20), MessageCount: 0,
 		FirstSeenAt: 10, LastSeenAt: 20,
 	}
 	mock.ExpectExec("INSERT INTO whatsapp_contacts.*ON DUPLICATE KEY UPDATE").
-		WithArgs(c.SessionID, c.LID, c.SeenInDM, c.DMFirstSeenAt, c.DMLastSeenAt, c.MessageCount, c.FirstSeenAt, c.LastSeenAt).
+		WithArgs(c.SessionID, c.LID, c.Phone, c.SeenInDM, c.DMFirstSeenAt, c.DMLastSeenAt, c.MessageCount, c.FirstSeenAt, c.LastSeenAt).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	if err := repo.Upsert(context.Background(), c); err != nil {
@@ -66,8 +67,8 @@ func TestContactRepo_List_NoFilter(t *testing.T) {
 	repo := NewContactRepo(db)
 
 	rows := sqlmock.NewRows(contactColRow()).
-		AddRow(uint64(1), "sess_1", "a@lid", true, int64(1), int64(2), int64(3), int64(1), int64(2)).
-		AddRow(uint64(2), "sess_1", "b@lid", false, nil, nil, int64(0), int64(1), int64(2))
+		AddRow(uint64(1), "sess_1", "a@lid", nil, true, int64(1), int64(2), int64(3), int64(1), int64(2)).
+		AddRow(uint64(2), "sess_1", "6282144201954@s.whatsapp.net", "6282144201954", false, nil, nil, int64(0), int64(1), int64(2))
 	// No joins, cursor 0, limit clamped to default.
 	mock.ExpectQuery("SELECT c\\..* FROM whatsapp_contacts c WHERE c.session_id = . AND c.id > . ORDER BY c.id ASC LIMIT .").
 		WithArgs("sess_1", uint64(0), defaultLimit).WillReturnRows(rows)
@@ -93,7 +94,7 @@ func TestContactRepo_List_GroupAndQFilter(t *testing.T) {
 	repo := NewContactRepo(db)
 
 	rows := sqlmock.NewRows(contactColRow()).
-		AddRow(uint64(3), "sess_1", "a@lid", true, nil, nil, int64(5), int64(1), int64(2))
+		AddRow(uint64(3), "sess_1", "a@lid", nil, true, nil, nil, int64(5), int64(1), int64(2))
 	// group filter -> JOIN group_members; q filter -> LEFT JOIN identities + LIKE.
 	mock.ExpectQuery("FROM whatsapp_contacts c JOIN whatsapp_group_members gm.*LEFT JOIN whatsapp_identities i.*i.name LIKE .").
 		WithArgs("12@g.us", "sess_1", uint64(2), "%alice%", 1).

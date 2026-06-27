@@ -89,6 +89,14 @@ claim, §4.3) reaches it; org-scoped callers cannot. User / org / member managem
 entirely in the frontend's better-auth **admin** + **organization** plugins
 (`/api/auth/admin/*`, §12) — the gateway no longer serves any `/auth/*` surface.
 
+`POST /api/v1/admin/sessions/{session}:backfill` starts an in-memory background
+backfill for one session; `GET /api/v1/admin/sessions/{session}/backfill` returns
+the current or latest job. Only one job may run per session at a time (`409` on a
+duplicate running request). The live adapter pulls the direct data whatsmeow exposes:
+cached contacts plus joined group metadata and memberships. Ordinary historical chat
+messages are still delivered by WhatsApp HistorySync events, not by a generic
+"fetch all messages" API.
+
 ## Media (cross-cutting)
 
 Media send types (image/video/audio/document/sticker) and image status return

@@ -14,7 +14,7 @@ func messageColRow() []string {
 		"id", "session_id", "wa_message_id", "chat_jid", "sender_lid", "sender_jid",
 		"from_me", "direction", "type", "body", "quoted_message_id", "mentions",
 		"has_media", "media_meta", "status", "ack_level", "error", "edited",
-		"deleted", "timestamp", "raw_json", "created_at",
+		"deleted", "timestamp", "raw_json", "created_at", "sender_name",
 	}
 }
 
@@ -23,7 +23,7 @@ func TestMessageRepo_Upsert(t *testing.T) {
 	repo := NewMessageRepo(db)
 
 	m := domain.Message{
-		SessionID: "sess_1", WAMessageID: "wamid_1", ChatJID: "628@s.whatsapp.net",
+		ID: "msg_01TEST00000000000000000000", SessionID: "sess_1", WAMessageID: "wamid_1", ChatJID: "628@s.whatsapp.net",
 		SenderLID: strptr("111@lid"), FromMe: false, Direction: domain.DirectionIn,
 		Type: "text", Body: strptr("hi"), Mentions: json.RawMessage(`["a"]`),
 		HasMedia: false, Timestamp: 1000, CreatedAt: 1000,
@@ -31,7 +31,7 @@ func TestMessageRepo_Upsert(t *testing.T) {
 	// Upsert must use ON DUPLICATE KEY UPDATE keyed on the unique (session,wamid).
 	mock.ExpectExec("INSERT INTO messages.*ON DUPLICATE KEY UPDATE").
 		WithArgs(
-			m.SessionID, m.WAMessageID, m.ChatJID, m.SenderLID, m.SenderJID, m.FromMe,
+			m.ID, m.SessionID, m.WAMessageID, m.ChatJID, m.SenderLID, m.SenderJID, m.FromMe,
 			m.Direction, m.Type, m.Body, m.QuotedMessageID, []byte(m.Mentions),
 			m.HasMedia, nil, m.Status, m.AckLevel, m.Error, m.Edited, m.Deleted,
 			m.Timestamp, nil, m.CreatedAt,
@@ -52,17 +52,17 @@ func TestMessageRepo_GetByWAID(t *testing.T) {
 
 	media := []byte(`{"mimetype":"image/png","size":42,"filename":"a.png"}`)
 	rows := sqlmock.NewRows(messageColRow()).
-		AddRow(uint64(7), "sess_1", "wamid_1", "628@s.whatsapp.net", "111@lid", nil,
+		AddRow("msg_01TEST00000000000000000007", "sess_1", "wamid_1", "628@s.whatsapp.net", "111@lid", nil,
 			false, "in", "image", "caption", nil, []byte(`["x"]`), true, media,
-			"delivered", 2, nil, false, false, int64(1000), []byte(`{"k":1}`), int64(1000))
-	mock.ExpectQuery("SELECT .* FROM messages WHERE session_id = . AND wa_message_id = .").
+			"delivered", 2, nil, false, false, int64(1000), []byte(`{"k":1}`), int64(1000), "Alice")
+	mock.ExpectQuery("SELECT .* FROM messages m .*WHERE m.session_id = . AND m.wa_message_id = .").
 		WithArgs("sess_1", "wamid_1").WillReturnRows(rows)
 
 	got, err := repo.GetByWAID(context.Background(), "sess_1", "wamid_1")
 	if err != nil {
 		t.Fatalf("GetByWAID: %v", err)
 	}
-	if got.ID != 7 || got.Type != "image" {
+	if got.ID != "msg_01TEST00000000000000000007" || got.Type != "image" {
 		t.Fatalf("unexpected message: %+v", got)
 	}
 	if got.MediaMeta == nil || got.MediaMeta.Mimetype != "image/png" || got.MediaMeta.Size != 42 {
@@ -77,6 +77,9 @@ func TestMessageRepo_GetByWAID(t *testing.T) {
 	if string(got.RawJSON) != `{"k":1}` {
 		t.Fatalf("raw_json not scanned: %s", got.RawJSON)
 	}
+	if got.SenderName == nil || *got.SenderName != "Alice" {
+		t.Fatalf("sender_name not scanned: %+v", got.SenderName)
+	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +88,7 @@ func TestMessageRepo_GetByWAID(t *testing.T) {
 func TestMessageRepo_GetByWAID_NotFound(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewMessageRepo(db)
-	mock.ExpectQuery("SELECT .* FROM messages WHERE session_id = . AND wa_message_id = .").
+	mock.ExpectQuery("SELECT .* FROM messages m .*WHERE m.session_id = . AND m.wa_message_id = .").
 		WithArgs("sess_1", "nope").WillReturnError(noRows())
 	_, err := repo.GetByWAID(context.Background(), "sess_1", "nope")
 	assertNotFound(t, err)
@@ -134,23 +137,23 @@ func TestMessageRepo_ListByChat_Pagination(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewMessageRepo(db)
 
-	// Page size 2, cursor "5" -> id > 5, limit 2; return exactly 2 -> next cursor
+	// Page size 2, cursor "msg_...05" -> id > cursor, limit 2; return exactly 2 -> next cursor
 	// is the last id.
 	rows := sqlmock.NewRows(messageColRow()).
-		AddRow(uint64(6), "sess_1", "w6", "c", nil, nil, false, "in", "text", nil, nil, nil, false, nil, nil, nil, nil, false, false, int64(1), nil, int64(1)).
-		AddRow(uint64(9), "sess_1", "w9", "c", nil, nil, false, "in", "text", nil, nil, nil, false, nil, nil, nil, nil, false, false, int64(2), nil, int64(2))
-	mock.ExpectQuery("SELECT .* FROM messages WHERE session_id = . AND chat_jid = . AND id > . ORDER BY id ASC LIMIT .").
-		WithArgs("sess_1", "c", uint64(5), 2).WillReturnRows(rows)
+		AddRow("msg_01TEST00000000000000000006", "sess_1", "w6", "c", nil, nil, false, "in", "text", nil, nil, nil, false, nil, nil, nil, nil, false, false, int64(1), nil, int64(1), nil).
+		AddRow("msg_01TEST00000000000000000009", "sess_1", "w9", "c", nil, nil, false, "in", "text", nil, nil, nil, false, nil, nil, nil, nil, false, false, int64(2), nil, int64(2), nil)
+	mock.ExpectQuery("SELECT .* FROM messages m .*WHERE m.session_id = . AND m.chat_jid = . AND m.id > . ORDER BY m.id ASC LIMIT .").
+		WithArgs("sess_1", "c", "msg_01TEST00000000000000000005", 2).WillReturnRows(rows)
 
-	page, err := repo.ListByChat(context.Background(), "sess_1", "c", "5", 2)
+	page, err := repo.ListByChat(context.Background(), "sess_1", "c", "msg_01TEST00000000000000000005", 2)
 	if err != nil {
 		t.Fatalf("ListByChat: %v", err)
 	}
 	if len(page.Items) != 2 {
 		t.Fatalf("want 2 items, got %d", len(page.Items))
 	}
-	if page.NextCursor != "9" {
-		t.Fatalf("want next cursor 9, got %q", page.NextCursor)
+	if page.NextCursor != "msg_01TEST00000000000000000009" {
+		t.Fatalf("want next cursor msg_...09, got %q", page.NextCursor)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
@@ -160,7 +163,7 @@ func TestMessageRepo_ListByChat_Pagination(t *testing.T) {
 func TestMessageRepo_ListByChat_BadCursor(t *testing.T) {
 	db, _ := newMock(t)
 	repo := NewMessageRepo(db)
-	_, err := repo.ListByChat(context.Background(), "sess_1", "c", "notanumber", 10)
+	_, err := repo.ListByChat(context.Background(), "sess_1", "c", " bad ", 10)
 	if err == nil {
 		t.Fatal("expected validation error for bad cursor")
 	}

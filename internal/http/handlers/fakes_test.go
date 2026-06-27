@@ -172,12 +172,19 @@ func (f *fakeWebhookSvc) Delete(context.Context, string, string) error { return 
 // --- Fake AdminSvc ---
 
 type fakeAdminSvc struct {
+	job  domain.BackfillJob
 	list []domain.WASession
 	err  error
 }
 
 func (f *fakeAdminSvc) ListAllSessions(context.Context) ([]domain.WASession, error) {
 	return f.list, f.err
+}
+func (f *fakeAdminSvc) StartBackfill(context.Context, string) (domain.BackfillJob, error) {
+	return f.job, f.err
+}
+func (f *fakeAdminSvc) BackfillStatus(context.Context, string) (domain.BackfillJob, error) {
+	return f.job, f.err
 }
 
 // --- Fake ChatSvc ---

@@ -40,6 +40,11 @@ session exists and belongs to the caller's organization (foreign org => `not_fou
 - Push name comes from the global `whatsapp_identities` row (best-effort; a
   contact may exist before its identity).
 - `nickname` is per-group, from `whatsapp_group_members.group_nickname`.
+- `whatsapp_contacts.lid` holds the identifier exactly as encountered — either a
+  hidden LID (`<n>@lid`) or a phone JID (`<phone>@s.whatsapp.net`). The unique key
+  stays `(session_id, lid)`, so the two forms never collide. When `lid` is a
+  `@s.whatsapp.net` JID, the nullable `phone` column is filled with the bare phone
+  (`domain.PhoneFromJID`, COALESCE'd on upsert); for a `@lid` row it stays NULL.
 
 ## Live ops boundary
 

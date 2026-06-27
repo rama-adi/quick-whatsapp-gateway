@@ -12,6 +12,7 @@
 
 import { useMemo } from "react";
 import { createFileRoute } from "@tanstack/react-router";
+import { DatabaseBackupIcon } from "lucide-react";
 import {
   SessionStatusBadge,
   StreamIndicator,
@@ -19,7 +20,11 @@ import {
   withLiveStatus,
   fmtTime,
 } from "./-shared";
-import { useAdminSessions } from "~/lib/api/hooks/admin";
+import {
+  useAdminSessionBackfill,
+  useAdminSessions,
+  useStartAdminSessionBackfill,
+} from "~/lib/api/hooks/admin";
 import type { WASession } from "~/lib/api/types";
 import { isApiError } from "~/lib/api/envelope";
 import { Button } from "~/components/ui/button";
@@ -40,6 +45,7 @@ import {
   TableHeader,
   TableRow,
 } from "~/components/ui/table";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/_app/admin/sessions")({
   component: AdminSessions,
@@ -100,6 +106,7 @@ function AdminSessions() {
                     <TableHead>Phone</TableHead>
                     <TableHead>Kind</TableHead>
                     <TableHead className="text-right">Last connected</TableHead>
+                    <TableHead className="text-right">Backfill</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -126,6 +133,9 @@ function AdminSessions() {
                       <TableCell className="text-right text-sm text-muted-foreground">
                         {fmtTime(s.lastConnectedAt)}
                       </TableCell>
+                      <TableCell className="text-right">
+                        <BackfillCell session={s} />
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -147,6 +157,43 @@ function AdminSessions() {
           )}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function BackfillCell({ session }: { session: WASession }) {
+  const status = useAdminSessionBackfill(session.id);
+  const start = useStartAdminSessionBackfill();
+  const job = status.data;
+  const running = job?.status === "running" || start.isPending;
+
+  const onBackfill = () => {
+    start.mutate(session.id, {
+      onSuccess: () => toast.success("Backfill started"),
+      onError: (err) =>
+        toast.error(isApiError(err) ? err.message : "Backfill failed"),
+    });
+  };
+
+  return (
+    <div className="flex items-center justify-end gap-2">
+      {job ? (
+        <span className="text-xs text-muted-foreground">
+          {job.status === "succeeded"
+            ? `${job.contacts} contacts / ${job.groups} groups`
+            : job.status}
+        </span>
+      ) : null}
+      <Button
+        variant="outline"
+        size="sm"
+        className="gap-1.5"
+        disabled={running}
+        onClick={onBackfill}
+      >
+        <DatabaseBackupIcon className="size-4" aria-hidden />
+        {running ? "Running" : "Backfill"}
+      </Button>
     </div>
   );
 }

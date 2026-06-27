@@ -98,7 +98,10 @@ invokes the binary. The auth plane is migrated separately by drizzle-kit in the 
 - **NULL/JSON.** Nullable columns are `*T`; nullable JSON binds through `nullableJSON`; JSON reads
   as opaque `json.RawMessage` or typed structs (`permissions`, `retry_policy`, `media_meta`,
   `custom_headers`, `events`).
-- **Cursor pagination** opaque over the surrogate `id` (`Page[T]{Items, NextCursor}`); limits
+- **Message ids.** `messages.id` is a generated `msg_<ULID>` string, not an auto-incrementing
+  integer. It stays lexicographically sortable for cursor pagination while avoiding a single
+  hot monotonic database counter under high write throughput.
+- **Cursor pagination** opaque over the sortable `id` (`Page[T]{Items, NextCursor}`); limits
   clamp to `[1,200]` (default 50); bad cursor → `validation_error`.
 - **Error mapping.** `sql.ErrNoRows` and zero-rows-affected updates/deletes → `domain.ErrNotFound`;
   other DB errors wrapped with `%w` + a `store: <op>` prefix.

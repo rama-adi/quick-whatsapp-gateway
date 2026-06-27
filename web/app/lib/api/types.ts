@@ -5,6 +5,7 @@
 import type { components } from "./schema";
 
 export type WASession = components["schemas"]["WASession"];
+export type BackfillJob = components["schemas"]["BackfillJob"];
 export type CreateSessionRequest = components["schemas"]["CreateSessionRequest"];
 export type SessionMe = components["schemas"]["SessionMe"]; // WA own profile (NOT actor)
 export type QRCode = components["schemas"]["QRCode"];

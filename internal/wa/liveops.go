@@ -26,6 +26,7 @@ import (
 // real client satisfies it; it is intentionally separate from waClient so the
 // lifecycle fake in tests does not need to implement these methods.
 type liveClient interface {
+	GetJoinedGroups(ctx context.Context) ([]*types.GroupInfo, error)
 	GetGroupInfo(ctx context.Context, jid types.JID) (*types.GroupInfo, error)
 	CreateGroup(ctx context.Context, req whatsmeow.ReqCreateGroup) (*types.GroupInfo, error)
 	UpdateGroupParticipants(ctx context.Context, jid types.JID, participants []types.JID, action whatsmeow.ParticipantChange) ([]types.GroupParticipant, error)
@@ -72,6 +73,107 @@ func (l *LiveOps) client(id string) (liveClient, error) {
 		return nil, domain.ErrNotImplemented("live WhatsApp client is not available for this session")
 	}
 	return lc, nil
+}
+
+// ---- BackfillSource ----
+
+// BackfillSessionData pulls data that whatsmeow exposes through direct APIs.
+// Historical messages are handled by WhatsApp HistorySync events, not by a
+// generic "fetch all messages" API.
+func (l *LiveOps) BackfillSessionData(ctx context.Context, sessionID string) (domain.BackfillSnapshot, error) {
+	c, err := l.client(sessionID)
+	if err != nil {
+		return domain.BackfillSnapshot{}, err
+	}
+	contacts, err := l.backfillContacts(ctx, sessionID)
+	if err != nil {
+		return domain.BackfillSnapshot{}, err
+	}
+	groups, err := c.GetJoinedGroups(ctx)
+	if err != nil {
+		return domain.BackfillSnapshot{}, err
+	}
+	return domain.BackfillSnapshot{
+		Contacts: contacts,
+		Groups:   backfillGroups(groups),
+	}, nil
+}
+
+func (l *LiveOps) backfillContacts(ctx context.Context, sessionID string) ([]domain.BackfillContact, error) {
+	ms := l.m.Get(sessionID)
+	if ms == nil {
+		return nil, domain.ErrNotFound("session not found")
+	}
+	ms.mu.Lock()
+	raw := ms.client
+	ms.mu.Unlock()
+	c, ok := raw.(*whatsmeow.Client)
+	if !ok || c == nil || c.Store == nil || c.Store.Contacts == nil {
+		return nil, domain.ErrNotImplemented("live WhatsApp contact store is not available for this session")
+	}
+	contacts, err := c.Store.Contacts.GetAllContacts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]domain.BackfillContact, 0, len(contacts))
+	for jid, info := range contacts {
+		name := info.PushName
+		if name == "" {
+			name = info.FullName
+		}
+		if name == "" {
+			name = info.FirstName
+		}
+		out = append(out, domain.BackfillContact{
+			JID:          jid.String(),
+			Name:         name,
+			BusinessName: info.BusinessName,
+		})
+	}
+	return out, nil
+}
+
+func backfillGroups(groups []*types.GroupInfo) []domain.BackfillGroup {
+	out := make([]domain.BackfillGroup, 0, len(groups))
+	for _, g := range groups {
+		if g == nil || g.JID.IsEmpty() {
+			continue
+		}
+		members := make([]domain.BackfillMember, 0, len(g.Participants))
+		for _, p := range g.Participants {
+			lid := p.LID.String()
+			if lid == "" {
+				lid = p.JID.String()
+			}
+			if lid == "" {
+				continue
+			}
+			role := domain.RoleMember
+			if p.IsSuperAdmin {
+				role = domain.RoleSuperAdmin
+			} else if p.IsAdmin {
+				role = domain.RoleAdmin
+			}
+			members = append(members, domain.BackfillMember{
+				LID:      lid,
+				JID:      p.JID.String(),
+				Nickname: p.DisplayName,
+				Role:     role,
+			})
+		}
+		out = append(out, domain.BackfillGroup{
+			GroupJID:     g.JID.String(),
+			Subject:      g.Name,
+			Description:  g.Topic,
+			OwnerJID:     g.OwnerJID.String(),
+			Participants: len(g.Participants),
+			IsAnnounce:   g.IsAnnounce,
+			IsLocked:     g.IsLocked,
+			CreatedAtWA:  g.GroupCreated.UnixMilli(),
+			Members:      members,
+		})
+	}
+	return out
 }
 
 func parseJID(s string) (types.JID, error) {

@@ -64,6 +64,18 @@ func encodeCursor(id uint64) string {
 	return strconv.FormatUint(id, 10)
 }
 
+// parseStringCursor accepts an opaque sortable string cursor. Empty cursor means
+// "from the start"; cursors with whitespace are rejected as malformed.
+func parseStringCursor(cursor string) (string, error) {
+	if cursor == "" {
+		return "", nil
+	}
+	if strings.TrimSpace(cursor) != cursor {
+		return "", domain.ErrValidation("invalid cursor")
+	}
+	return cursor, nil
+}
+
 // Page is the generic result of a cursor-paginated list query: the items plus
 // the cursor to pass as ?cursor= for the next page ("" when exhausted).
 type Page[T any] struct {
@@ -78,6 +90,15 @@ func pageFrom[T any](items []T, limit int, idOf func(T) uint64) Page[T] {
 	next := ""
 	if len(items) == limit && len(items) > 0 {
 		next = encodeCursor(idOf(items[len(items)-1]))
+	}
+	return Page[T]{Items: items, NextCursor: next}
+}
+
+// pageFromString is pageFrom for string primary keys such as ULID cursors.
+func pageFromString[T any](items []T, limit int, idOf func(T) string) Page[T] {
+	next := ""
+	if len(items) == limit && len(items) > 0 {
+		next = idOf(items[len(items)-1])
 	}
 	return Page[T]{Items: items, NextCursor: next}
 }

@@ -10,7 +10,7 @@ import (
 
 // MessageRepo is the repository for messages (§5). Rows are keyed for upsert by
 // the unique (session_id, wa_message_id); the cursor for ListByChat is the
-// surrogate id.
+// sortable msg_<ULID> primary id.
 type MessageRepo struct {
 	db dbExecQuerier
 }
@@ -18,10 +18,18 @@ type MessageRepo struct {
 // NewMessageRepo constructs a MessageRepo.
 func NewMessageRepo(db dbExecQuerier) *MessageRepo { return &MessageRepo{db: db} }
 
-const messageCols = `id, session_id, wa_message_id, chat_jid, sender_lid,
-	sender_jid, from_me, direction, type, body, quoted_message_id, mentions,
-	has_media, media_meta, status, ack_level, error, edited, deleted, timestamp,
-	raw_json, created_at`
+// messageCols selects from the messages table aliased `m`, resolving the
+// sender's display name from whatsapp_identities (joined as `i`, keyed by the
+// sender LID). sender_name is read-only and trails the stored columns; it is
+// NULL when the sender is unknown (e.g. own messages, or an unseen LID).
+const messageCols = `m.id, m.session_id, m.wa_message_id, m.chat_jid, m.sender_lid,
+	m.sender_jid, m.from_me, m.direction, m.type, m.body, m.quoted_message_id, m.mentions,
+	m.has_media, m.media_meta, m.status, m.ack_level, m.error, m.edited, m.deleted, m.timestamp,
+	m.raw_json, m.created_at, i.name AS sender_name`
+
+// messageFrom is the FROM/JOIN clause paired with messageCols.
+const messageFrom = ` FROM messages m
+	LEFT JOIN whatsapp_identities i ON i.lid = m.sender_lid `
 
 func scanMessage(s rowScanner) (domain.Message, error) {
 	var (
@@ -34,7 +42,7 @@ func scanMessage(s rowScanner) (domain.Message, error) {
 		&m.ID, &m.SessionID, &m.WAMessageID, &m.ChatJID, &m.SenderLID,
 		&m.SenderJID, &m.FromMe, &m.Direction, &m.Type, &m.Body, &m.QuotedMessageID,
 		&mentions, &m.HasMedia, &mediaMeta, &m.Status, &m.AckLevel, &m.Error,
-		&m.Edited, &m.Deleted, &m.Timestamp, &rawJSON, &m.CreatedAt,
+		&m.Edited, &m.Deleted, &m.Timestamp, &rawJSON, &m.CreatedAt, &m.SenderName,
 	)
 	if err != nil {
 		return domain.Message{}, err
@@ -62,10 +70,10 @@ func scanMessage(s rowScanner) (domain.Message, error) {
 // conflict, so a late content upsert can't regress a delivery receipt.
 func (r *MessageRepo) Upsert(ctx context.Context, m domain.Message) error {
 	const q = `INSERT INTO messages
-(session_id, wa_message_id, chat_jid, sender_lid, sender_jid, from_me, direction,
+(id, session_id, wa_message_id, chat_jid, sender_lid, sender_jid, from_me, direction,
  type, body, quoted_message_id, mentions, has_media, media_meta, status,
  ack_level, error, edited, deleted, timestamp, raw_json, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON DUPLICATE KEY UPDATE
 	chat_jid          = VALUES(chat_jid),
 	sender_lid        = COALESCE(VALUES(sender_lid), sender_lid),
@@ -85,9 +93,12 @@ ON DUPLICATE KEY UPDATE
 		}
 		mediaMeta = b
 	}
+	if m.ID == "" {
+		m.ID = domain.NewMessageID()
+	}
 
 	if _, err := r.db.ExecContext(ctx, q,
-		m.SessionID, m.WAMessageID, m.ChatJID, m.SenderLID, m.SenderJID, m.FromMe,
+		m.ID, m.SessionID, m.WAMessageID, m.ChatJID, m.SenderLID, m.SenderJID, m.FromMe,
 		m.Direction, m.Type, m.Body, m.QuotedMessageID, nullableJSON(m.Mentions),
 		m.HasMedia, nullableJSON(mediaMeta), m.Status, m.AckLevel, m.Error,
 		m.Edited, m.Deleted, m.Timestamp, nullableJSON(m.RawJSON), m.CreatedAt,
@@ -100,7 +111,7 @@ ON DUPLICATE KEY UPDATE
 // GetByWAID fetches a message by (session_id, wa_message_id). Maps no-rows to
 // not_found.
 func (r *MessageRepo) GetByWAID(ctx context.Context, sessionID, waMessageID string) (domain.Message, error) {
-	q := "SELECT " + messageCols + " FROM messages WHERE session_id = ? AND wa_message_id = ?"
+	q := "SELECT " + messageCols + messageFrom + "WHERE m.session_id = ? AND m.wa_message_id = ?"
 	m, err := scanMessage(r.db.QueryRowContext(ctx, q, sessionID, waMessageID))
 	if err != nil {
 		return domain.Message{}, notFound(err, "message")
@@ -145,12 +156,12 @@ func (r *MessageRepo) MarkDeleted(ctx context.Context, sessionID, waMessageID st
 // /chats/{cid}/messages). Ordered by id ASC so the opaque cursor is the last
 // returned id and pagination is stable under concurrent inserts.
 func (r *MessageRepo) ListByChat(ctx context.Context, sessionID, chatJID, cursor string, limit int) (Page[domain.Message], error) {
-	afterID, err := parseCursor(cursor)
+	afterID, err := parseStringCursor(cursor)
 	if err != nil {
 		return Page[domain.Message]{}, err
 	}
 	limit = normLimit(limit)
-	q := "SELECT " + messageCols + " FROM messages WHERE session_id = ? AND chat_jid = ? AND id > ? ORDER BY id ASC LIMIT ?"
+	q := "SELECT " + messageCols + messageFrom + "WHERE m.session_id = ? AND m.chat_jid = ? AND m.id > ? ORDER BY m.id ASC LIMIT ?"
 	rows, err := r.db.QueryContext(ctx, q, sessionID, chatJID, afterID, limit)
 	if err != nil {
 		return Page[domain.Message]{}, fmt.Errorf("store: list messages: %w", err)
@@ -167,5 +178,5 @@ func (r *MessageRepo) ListByChat(ctx context.Context, sessionID, chatJID, cursor
 	if err := rows.Err(); err != nil {
 		return Page[domain.Message]{}, err
 	}
-	return pageFrom(out, limit, func(m domain.Message) uint64 { return m.ID }), nil
+	return pageFromString(out, limit, func(m domain.Message) string { return m.ID }), nil
 }

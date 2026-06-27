@@ -1434,6 +1434,43 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/SessionPage" }
         "403": { $ref: "#/components/responses/Error" }
+  /admin/sessions/{session}:backfill:
+    post:
+      tags: [Admin]
+      summary: Start a session data backfill (super_admin)
+      description: >-
+        Starts an in-memory background backfill for one WhatsApp session. Only
+        one backfill may run per session at a time; concurrent requests for the
+        same session return 409. The job pulls currently supported direct
+        WhatsApp data (cached contacts and joined group metadata/members).
+        Ordinary chat history is received through WhatsApp HistorySync events
+        rather than a generic "fetch all messages" API.
+      operationId: adminStartSessionBackfill
+      parameters:
+        - $ref: "#/components/parameters/Session"
+      responses:
+        "202":
+          description: Backfill accepted and running.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BackfillJob" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "501": { $ref: "#/components/responses/Error" }
+  /admin/sessions/{session}/backfill:
+    get:
+      tags: [Admin]
+      summary: Get the current or latest session backfill job
+      operationId: adminSessionBackfillStatus
+      parameters:
+        - $ref: "#/components/parameters/Session"
+      responses:
+        "200":
+          description: The current or latest backfill job for this session.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BackfillJob" }
+        "404": { $ref: "#/components/responses/Error" }
 
 # ===================================================================
 components:
@@ -1660,6 +1697,20 @@ components:
         lid: { type: string, description: The account's linked-device id (LID). }
         pushName: { type: string, description: The display name the account shows to others. }
         phoneNumber: { type: string, description: The paired phone number in plain digits. }
+    BackfillJob:
+      type: object
+      required: [id, sessionId, organizationId, status, contacts, groups, groupMembers, startedAt]
+      properties:
+        id: { type: string, description: The backfill job id. }
+        sessionId: { type: string, description: The session being backfilled. }
+        organizationId: { type: string, description: The session owner's organization id. }
+        status: { type: string, enum: [running, succeeded, failed], description: Current job state. }
+        contacts: { type: integer, description: Number of contacts persisted. }
+        groups: { type: integer, description: Number of groups persisted. }
+        groupMembers: { type: integer, description: Number of group memberships persisted. }
+        error: { type: string, description: Failure message when status is failed. }
+        startedAt: { type: integer, format: int64, description: "When the job started, in epoch milliseconds." }
+        finishedAt: { type: integer, format: int64, description: "When the job finished, in epoch milliseconds." }
     QRCode:
       type: object
       description: The pairing QR code to display so the user can link their phone.
@@ -1725,6 +1776,8 @@ components:
         id: { type: string, description: The WhatsApp message id. }
         chatJid: { type: string, description: JID of the chat this message belongs to. }
         senderJid: { type: string, description: JID of whoever sent the message. }
+        senderLid: { type: string, description: "LID of whoever sent the message. In group chats the sender is identified by LID; senderJid is often absent." }
+        senderName: { type: string, description: "Resolved display name of the sender, when known. Especially useful in group chats to label each message's author." }
         direction: { type: string, description: "`in` = received by this session; `out` = sent by this session.", enum: [in, out] }
         type: { type: string, description: "The message kind (e.g. text, image, location, poll, reaction, system)." }
         body: { type: string, description: "The text content or caption, when the message has one." }

@@ -89,7 +89,8 @@ CREATE TABLE whatsapp_identities (
 CREATE TABLE whatsapp_contacts (
   id            BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   session_id    VARCHAR(64) NOT NULL,               -- the account that encountered them
-  lid           VARCHAR(255) NOT NULL,
+  lid           VARCHAR(255) NOT NULL,              -- identifier as encountered: "<n>@lid" or "<phone>@s.whatsapp.net"
+  phone         VARCHAR(64)  NULL,                  -- bare phone, set only when `lid` is a "@s.whatsapp.net" JID
   seen_in_dm    TINYINT(1) NOT NULL DEFAULT 0,
   dm_first_seen_at BIGINT NULL,
   dm_last_seen_at  BIGINT NULL,
@@ -97,7 +98,8 @@ CREATE TABLE whatsapp_contacts (
   first_seen_at BIGINT NOT NULL,
   last_seen_at  BIGINT NOT NULL,
   UNIQUE KEY uq_contact (session_id, lid),
-  KEY idx_contact_lid (lid)
+  KEY idx_contact_lid (lid),
+  KEY idx_contact_phone (phone)
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 CREATE TABLE whatsapp_groups (
@@ -147,7 +149,7 @@ CREATE TABLE chats (
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 CREATE TABLE messages (
-  id                BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  id                VARCHAR(64) PRIMARY KEY,            -- msg_<ULID>, monotonic sortable cursor
   session_id        VARCHAR(64) NOT NULL,
   wa_message_id     VARCHAR(255) NOT NULL,
   chat_jid          VARCHAR(255) NOT NULL,
@@ -170,7 +172,7 @@ CREATE TABLE messages (
   raw_json          JSON NULL,
   created_at        BIGINT NOT NULL,
   UNIQUE KEY uq_msg (session_id, wa_message_id),
-  KEY idx_msg_chat (session_id, chat_jid, timestamp),
+  KEY idx_msg_chat (session_id, chat_jid, id),
   KEY idx_msg_sender (sender_lid)
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 

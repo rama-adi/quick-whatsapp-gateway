@@ -49,6 +49,15 @@ import {
   type ParsedMessage,
 } from "./-viewer-ui";
 
+/** Best display label for an incoming message's sender. Prefers the resolved
+ * senderName; if that's missing or is itself a raw JID/LID, falls back to the
+ * sender id with its server suffix (and device part) stripped. */
+function senderLabel(m: Message): string | undefined {
+  if (m.senderName && !m.senderName.includes("@")) return m.senderName;
+  const id = m.senderJid ?? m.senderLid ?? m.senderName;
+  return id ? id.replace(/[:@].*$/, "") : undefined;
+}
+
 const STATUS_LABEL: Record<MessageStatus, string> = {
   pending: "Pending",
   sent: "Sent",
@@ -69,8 +78,7 @@ export function MessageBubble({
   const outgoing = message.direction === "out";
   const parsed = parseMessage(message);
   const extras = parseExtras(message);
-  const sender =
-    !outgoing && showSender ? message.senderJid?.replace(/@.*$/, "") : undefined;
+  const sender = !outgoing && showSender ? senderLabel(message) : undefined;
   const align = outgoing ? "end" : "start";
   const hasReactions = extras.reactions.length > 0;
 
