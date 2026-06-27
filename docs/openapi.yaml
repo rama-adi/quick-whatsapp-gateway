@@ -1781,6 +1781,18 @@ components:
         direction: { type: string, description: "`in` = received by this session; `out` = sent by this session.", enum: [in, out] }
         type: { type: string, description: "The message kind (e.g. text, image, location, poll, reaction, system)." }
         body: { type: string, description: "The text content or caption, when the message has one." }
+        mentions:
+          type: array
+          description: "JIDs @-mentioned in this message (group mentions), as stored — typically LIDs."
+          items: { type: string }
+        mentionNames:
+          type: object
+          description: >-
+            Resolved display names for the @-mentions, keyed by the mention's
+            user-part — the token after `@` as it appears in `body` (e.g.
+            `205227043110953`). Lets a client render `@<name>` instead of the raw
+            number. Only mentions resolvable to a known identity are included.
+          additionalProperties: { type: string }
         status:
           type: string
           description: >-

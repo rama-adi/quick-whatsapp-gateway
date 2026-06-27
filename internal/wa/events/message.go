@@ -241,8 +241,31 @@ func applyContext(ctx *waE2E.ContextInfo, nm *NormalizedMessage) {
 		nm.QuotedMessageID = id
 	}
 	if m := ctx.GetMentionedJID(); len(m) > 0 {
-		nm.Mentions = append([]string(nil), m...)
+		nm.Mentions = canonicalMentions(m)
 	}
+}
+
+// canonicalMentions strips the ":device" suffix off each mentioned JID — the same
+// non-AD canonicalization applied to sender_lid — so stored mentions are
+// consistent and line up with the canonical identity key. WhatsApp may mention a
+// person by LID (@lid) or phone JID (@s.whatsapp.net) depending on the chat's
+// addressing mode; both forms are preserved (only the device part is dropped), so
+// the read-time resolver still matches on lid OR phone_jid. Unparseable entries
+// are kept verbatim.
+func canonicalMentions(raw []string) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(raw))
+	for _, s := range raw {
+		j, err := types.ParseJID(s)
+		if err != nil {
+			out = append(out, s)
+			continue
+		}
+		out = append(out, jidString(j.ToNonAD()))
+	}
+	return out
 }
 
 func keyID(k *waCommon.MessageKey) string {

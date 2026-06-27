@@ -134,7 +134,7 @@ func TestNormalizeMessageSubtypes(t *testing.T) {
 				Text: proto.String("reply @x"),
 				ContextInfo: &waE2E.ContextInfo{
 					StanzaID:     proto.String("quoted123"),
-					MentionedJID: []string{"628999@s.whatsapp.net"},
+					MentionedJID: []string{"628999@s.whatsapp.net", "205227043110953:9@lid"},
 				},
 			}},
 			wantEvent:   domain.EventMessage,
@@ -145,13 +145,17 @@ func TestNormalizeMessageSubtypes(t *testing.T) {
 				if nm.QuotedMessageID != "quoted123" {
 					t.Errorf("quoted = %q", nm.QuotedMessageID)
 				}
-				if len(nm.Mentions) != 1 || nm.Mentions[0] != "628999@s.whatsapp.net" {
+				// Mentions are canonicalized to non-AD form (the ":9" device suffix
+				// is stripped); the @lid and @s.whatsapp.net forms are both kept.
+				if len(nm.Mentions) != 2 ||
+					nm.Mentions[0] != "628999@s.whatsapp.net" ||
+					nm.Mentions[1] != "205227043110953@lid" {
 					t.Errorf("mentions = %v", nm.Mentions)
 				}
 				if nm.Body != "reply @x" {
 					t.Errorf("body = %q", nm.Body)
 				}
-				if p.QuotedMessageID != "quoted123" || len(p.Mentions) != 1 {
+				if p.QuotedMessageID != "quoted123" || len(p.Mentions) != 2 {
 					t.Errorf("payload quote/mentions wrong")
 				}
 			},

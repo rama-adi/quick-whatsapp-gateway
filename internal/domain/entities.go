@@ -210,6 +210,12 @@ type Message struct {
 	Body            *string          `json:"body,omitempty"`
 	QuotedMessageID *string          `json:"quotedMessageId,omitempty"`
 	Mentions        json.RawMessage  `json:"mentions,omitempty"`
+	// MentionNames resolves the @-mentions in Body to display names, keyed by the
+	// mention's user-part (the token after "@" in the body, e.g. "205227043110953")
+	// -> name. Read-only: populated by the message read queries from
+	// whatsapp_identities, never stored. Only mentions resolvable to a known
+	// identity appear; lets a client render "@<name>" instead of the raw number.
+	MentionNames    map[string]string `json:"mentionNames,omitempty"`
 	HasMedia        bool             `json:"hasMedia"`
 	MediaMeta       *MediaMeta       `json:"media,omitempty"` // null in v1 (metadata-only)
 	Status          *MessageStatus   `json:"status,omitempty"`

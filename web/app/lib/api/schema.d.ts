@@ -1541,6 +1541,12 @@ export interface components {
             type?: string;
             /** @description The text content or caption, when the message has one. */
             body?: string;
+            /** @description JIDs @-mentioned in this message (group mentions), as stored — typically LIDs. */
+            mentions?: string[];
+            /** @description Resolved display names for the @-mentions, keyed by the mention's user-part — the token after `@` as it appears in `body` (e.g. `205227043110953`). Lets a client render `@<name>` instead of the raw number. Only mentions resolvable to a known identity are included. */
+            mentionNames?: {
+                [key: string]: string;
+            };
             /**
              * @description Delivery state. `pending`, `sent`, `delivered`, `read`, `played`, or `failed` — same meanings as on a send result. Mainly meaningful for outgoing messages.
              * @enum {string}

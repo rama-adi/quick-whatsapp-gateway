@@ -79,6 +79,31 @@ changing:
 The gateway's golang-migrate is the **sole writer** of WA tables. The frontend only ever
 *introspects* them into read-only Drizzle models (`pnpm db:introspect`) — it never migrates them.
 
+### Pre-release: reshape the schema freely
+
+The software has **not shipped** — there is no production data and no backward-compat burden.
+**A schema change that makes the design cleaner is encouraged, not avoided.** If a table's shape is
+awkward, fix the shape: rewrite the migration, add columns, drop/rename, or **drop a table and
+rebuild it** when a cleaner model exists. Prefer a correct, normalized design now over a workaround
+that we carry forever.
+
+Guidance, not friction:
+
+- Don't accumulate compatibility shims or "v2.5" half-migrations for a DB nobody depends on yet —
+  collapse them into the cleanest end state.
+- A wholesale reshape can still be a single fresh migration (we already did this: `0001_init`
+  replaced the v1 migrations against an empty DB). Truncating/rebuilding dev tables is fine.
+- Still obey the **bookkeeping rules above**: a schema change updates `docs/specs/*` (esp.
+  `store.md`), runs `pnpm db:introspect` to refresh the read-only WA Drizzle models, and updates
+  `docs/openapi.yaml` + regenerates if it changes a REST response shape.
+- The line that does **not** move: WA tables are migrated only by the gateway's golang-migrate
+  (the frontend introspects, never migrates), and auth tables only by drizzle-kit. Reshape freely
+  **within** the right toolchain — don't cross them.
+- Caveat: when in doubt whether a denormalization actually helps, prefer **read-time resolution
+  from a single source of truth** over copying derived data onto rows (e.g. message sender/mention
+  names are resolved from `whatsapp_identities` on read, not stored on `messages`, so a rename is
+  reflected without rewrites). "Cleaner" means more normalized and correct, not more copies.
+
 ### v1 is archived
 
 The v1 single-binary build (Authula auth, embedded React Router SPA, MySQL keystore) is preserved

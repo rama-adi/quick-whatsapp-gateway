@@ -152,7 +152,7 @@ export const fetchMessagesPage = createServerFn({ method: "GET" })
 
     const { db } = await import("~/lib/db");
     const { messages, whatsappIdentities } = await import("~/lib/db/wa");
-    const { and, eq, lt, desc } = await import("drizzle-orm");
+    const { and, eq, lt, desc, or, inArray } = await import("drizzle-orm");
 
     // messages.id is a sortable string ULID, so the cursor is the id itself
     // (lexicographic compare) — no numeric parse.
@@ -175,6 +175,7 @@ export const fetchMessagesPage = createServerFn({ method: "GET" })
         direction: messages.direction,
         type: messages.type,
         body: messages.body,
+        mentions: messages.mentions,
         status: messages.status,
         timestamp: messages.timestamp,
       })
@@ -190,11 +191,72 @@ export const fetchMessagesPage = createServerFn({ method: "GET" })
     const hasMore = rows.length > PAGE_LIMIT;
     const pageRows = hasMore ? rows.slice(0, PAGE_LIMIT) : rows;
 
+    // Resolve @-mentions to display names (mirrors the gateway's ChatService):
+    // gather the mention JIDs across the page, look them up once by lid/phone_jid,
+    // and key the result by user-part so it matches the "@<number>" token in body.
+    const mentionJids = new Set<string>();
+    for (const r of pageRows) {
+      for (const j of parseMentions(r.mentions)) mentionJids.add(j);
+    }
+    const nameByUserPart: Record<string, string> = {};
+    if (mentionJids.size > 0) {
+      const jidList = [...mentionJids];
+      const idRows = await db
+        .select({
+          lid: whatsappIdentities.lid,
+          phoneJid: whatsappIdentities.phoneJid,
+          name: whatsappIdentities.name,
+        })
+        .from(whatsappIdentities)
+        .where(
+          or(
+            inArray(whatsappIdentities.lid, jidList),
+            inArray(whatsappIdentities.phoneJid, jidList),
+          ),
+        );
+      const byId: Record<string, string> = {};
+      for (const ir of idRows) {
+        if (!ir.name) continue;
+        byId[ir.lid] = ir.name;
+        if (ir.phoneJid) byId[ir.phoneJid] = ir.name;
+      }
+      for (const j of jidList) {
+        const n = byId[j];
+        if (n) nameByUserPart[jidUserPart(j)] = n;
+      }
+    }
+
     return {
-      data: pageRows.map(rowToMessage),
+      data: pageRows.map((r) => rowToMessage(r, nameByUserPart)),
       nextCursor: hasMore ? String(pageRows[pageRows.length - 1]?.id) : null,
     };
   });
+
+/** Token before "@" (and any ":device" suffix) — the form WhatsApp embeds as
+ * "@<userpart>" in a message body. */
+function jidUserPart(jid: string): string {
+  const i = jid.search(/[@:]/);
+  return i >= 0 ? jid.slice(0, i) : jid;
+}
+
+/** Decode a messages.mentions value (JSON array of JID strings). Drizzle returns
+ * a parsed array for the JSON column, but tolerate a raw string too. */
+function parseMentions(raw: unknown): string[] {
+  if (Array.isArray(raw)) {
+    return raw.filter((x): x is string => typeof x === "string");
+  }
+  if (typeof raw === "string" && raw) {
+    try {
+      const v: unknown = JSON.parse(raw);
+      return Array.isArray(v)
+        ? v.filter((x): x is string => typeof x === "string")
+        : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
 
 // ===== row -> DTO mappers (mirror the gateway's REST response shapes) =====
 
@@ -231,11 +293,25 @@ type MessageRow = {
   direction: NonNullable<Message["direction"]>;
   type: string;
   body: string | null;
+  mentions: unknown;
   status: Message["status"] | null;
   timestamp: number;
 };
 
-function rowToMessage(r: MessageRow): Message {
+function rowToMessage(
+  r: MessageRow,
+  nameByUserPart: Record<string, string>,
+): Message {
+  const mentions = parseMentions(r.mentions);
+  let mentionNames: Record<string, string> | undefined;
+  if (mentions.length > 0) {
+    const m: Record<string, string> = {};
+    for (const jid of mentions) {
+      const up = jidUserPart(jid);
+      if (nameByUserPart[up]) m[up] = nameByUserPart[up];
+    }
+    if (Object.keys(m).length > 0) mentionNames = m;
+  }
   return {
     id: r.waMessageId,
     chatJid: r.chatJid,
@@ -245,7 +321,9 @@ function rowToMessage(r: MessageRow): Message {
     direction: r.direction,
     type: r.type,
     body: r.body ?? undefined,
-    status: r.status ?? undefined,
+    mentions: mentions.length > 0 ? mentions : undefined,
+    mentionNames,
     timestamp: r.timestamp,
+    status: r.status ?? undefined,
   };
 }

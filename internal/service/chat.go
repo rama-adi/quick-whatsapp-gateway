@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
+	"strings"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
@@ -54,12 +56,86 @@ func (s *ChatService) Get(ctx context.Context, organizationID, sessionID, chatJI
 	return s.store.Chats.Get(ctx, sessionID, chatJID)
 }
 
-// ListMessages returns a page of a chat's messages.
+// ListMessages returns a page of a chat's messages, with @-mentions resolved to
+// display names (MentionNames) so a client can render "@<name>".
 func (s *ChatService) ListMessages(ctx context.Context, organizationID, sessionID, chatJID, cursor string, limit int) (store.Page[domain.Message], error) {
 	if err := s.requireSession(ctx, organizationID, sessionID); err != nil {
 		return store.Page[domain.Message]{}, err
 	}
-	return s.store.Messages.ListByChat(ctx, sessionID, chatJID, cursor, limit)
+	page, err := s.store.Messages.ListByChat(ctx, sessionID, chatJID, cursor, limit)
+	if err != nil {
+		return store.Page[domain.Message]{}, err
+	}
+	resolveMentionNames(ctx, s.store.Identities, s.log, page.Items)
+	return page, nil
+}
+
+// resolveMentionNames fills each message's MentionNames from whatsapp_identities so
+// a client can render "@<name>" instead of the raw "@<number>" the body carries. It
+// gathers the mention JIDs across the whole page and resolves them in one query; a
+// resolution error is logged and left non-fatal (mentions just stay unresolved).
+func resolveMentionNames(ctx context.Context, ids *store.IdentityRepo, log *slog.Logger, msgs []domain.Message) {
+	if len(msgs) == 0 {
+		return
+	}
+	perMsg := make([][]string, len(msgs))
+	var all []string
+	for i := range msgs {
+		jids := parseMentionJIDs(msgs[i].Mentions)
+		if len(jids) == 0 {
+			continue
+		}
+		perMsg[i] = jids
+		all = append(all, jids...)
+	}
+	if len(all) == 0 {
+		return
+	}
+	names, err := ids.NamesForMentions(ctx, all)
+	if err != nil {
+		log.WarnContext(ctx, "resolve mention names", slog.Any("err", err))
+		return
+	}
+	if len(names) == 0 {
+		return
+	}
+	for i := range msgs {
+		if len(perMsg[i]) == 0 {
+			continue
+		}
+		resolved := make(map[string]string, len(perMsg[i]))
+		for _, jid := range perMsg[i] {
+			up := jidUserPart(jid)
+			if n, ok := names[up]; ok {
+				resolved[up] = n
+			}
+		}
+		if len(resolved) > 0 {
+			msgs[i].MentionNames = resolved
+		}
+	}
+}
+
+// parseMentionJIDs decodes a messages.mentions JSON array (["<jid>", ...]); a nil
+// or malformed value yields no mentions.
+func parseMentionJIDs(raw json.RawMessage) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+	var jids []string
+	if err := json.Unmarshal(raw, &jids); err != nil {
+		return nil
+	}
+	return jids
+}
+
+// jidUserPart returns the token before "@" (and any ":device" suffix) — the form
+// WhatsApp embeds as "@<userpart>" in a message body.
+func jidUserPart(jid string) string {
+	if i := strings.IndexAny(jid, "@:"); i >= 0 {
+		return jid[:i]
+	}
+	return jid
 }
 
 // Read marks a chat read by zeroing its unread counter (§11 POST /chats/{cid}/read).

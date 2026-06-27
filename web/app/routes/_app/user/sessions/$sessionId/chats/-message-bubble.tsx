@@ -17,6 +17,7 @@ import {
   FileWarning,
   CornerUpLeft,
 } from "lucide-react";
+import type { ReactNode } from "react";
 import type { Message, MessageStatus } from "~/lib/api/types";
 import { cn } from "~/lib/utils";
 import {
@@ -56,6 +57,35 @@ function senderLabel(m: Message): string | undefined {
   if (m.senderName && !m.senderName.includes("@")) return m.senderName;
   const id = m.senderJid ?? m.senderLid ?? m.senderName;
   return id ? id.replace(/[:@].*$/, "") : undefined;
+}
+
+/** Render a body, turning "@<number>" tokens into "@<name>" chips when the
+ * mention resolves to a known display name (mentionNames is keyed by the token's
+ * user-part). Unresolved mentions are left as-is. */
+function renderWithMentions(
+  text: string,
+  mentionNames?: Record<string, string>,
+): ReactNode {
+  if (!mentionNames || Object.keys(mentionNames).length === 0) return text;
+  const parts: ReactNode[] = [];
+  let last = 0;
+  const re = /@(\w+)/g;
+  let m: RegExpExecArray | null;
+  let key = 0;
+  while ((m = re.exec(text)) !== null) {
+    const name = mentionNames[m[1] ?? ""];
+    if (!name) continue;
+    if (m.index > last) parts.push(text.slice(last, m.index));
+    parts.push(
+      <span key={key++} className="font-medium text-primary">
+        @{name}
+      </span>,
+    );
+    last = m.index + m[0].length;
+  }
+  if (parts.length === 0) return text;
+  if (last < text.length) parts.push(text.slice(last));
+  return parts;
 }
 
 const STATUS_LABEL: Record<MessageStatus, string> = {
@@ -108,7 +138,11 @@ export function MessageBubble({
               <QuotedPreview quoted={extras.quoted} outgoing={outgoing} />
             ) : null}
 
-            <MessageBody parsed={parsed} outgoing={outgoing} />
+            <MessageBody
+              parsed={parsed}
+              outgoing={outgoing}
+              mentionNames={message.mentionNames}
+            />
           </BubbleContent>
 
           {hasReactions ? (
@@ -189,14 +223,18 @@ function QuotedPreview({
 function MessageBody({
   parsed,
   outgoing,
+  mentionNames,
 }: {
   parsed: ParsedMessage;
   outgoing: boolean;
+  mentionNames?: Record<string, string>;
 }) {
   switch (parsed.kind) {
     case "text":
       return parsed.text ? (
-        <p className="whitespace-pre-wrap break-words">{parsed.text}</p>
+        <p className="whitespace-pre-wrap break-words">
+          {renderWithMentions(parsed.text, mentionNames)}
+        </p>
       ) : (
         <p className="italic opacity-60">(empty message)</p>
       );

@@ -91,7 +91,12 @@ func (s *ChannelService) Messages(ctx context.Context, organizationID, sessionID
 	if err := s.requireSession(ctx, organizationID, sessionID); err != nil {
 		return store.Page[domain.Message]{}, err
 	}
-	return s.store.Messages.ListByChat(ctx, sessionID, jid, cursor, limit)
+	page, err := s.store.Messages.ListByChat(ctx, sessionID, jid, cursor, limit)
+	if err != nil {
+		return store.Page[domain.Message]{}, err
+	}
+	resolveMentionNames(ctx, s.store.Identities, s.log, page.Items)
+	return page, nil
 }
 
 // ---------------------------------------------------------------------------

@@ -91,6 +91,14 @@ invokes the binary. The auth plane is migrated separately by drizzle-kit in the 
   `COALESCE(VALUES(col), col)` so a sparse later sighting never wipes a known value (e.g. a
   resolved push name survives a later nameless sighting); `chats.last_message_at` only moves
   forward via `GREATEST`.
+- **Read-time identity resolution.** Message reads enrich rows from
+  `whatsapp_identities` rather than storing display data on the message: a left
+  join resolves the sender's `sender_name` (by `sender_lid`), and the service
+  layer resolves the body's `@`-mentions to `mentionNames` (one
+  `IdentityRepo.NamesForMentions` batch per page, keyed by the mention's user-part
+  so it lines up with the `@<number>` token in the body). Both are read-only
+  projections — never stored columns — so a later name change is reflected without
+  rewriting messages.
 - **Field ownership / no clobber.** Content upserts omit fields with dedicated mutators
   (`messages.status/edited/deleted`, `chats` user flags), so a redelivered capture can't regress a
   receipt.

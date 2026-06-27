@@ -220,6 +220,42 @@ func TestIdentityRepo_FillNameByJID(t *testing.T) {
 	}
 }
 
+func TestIdentityRepo_NamesForMentions(t *testing.T) {
+	db, mock := newMock(t)
+	repo := NewIdentityRepo(db)
+
+	// Two distinct mention JIDs; the lid match resolves, the phone_jid match too.
+	rows := sqlmock.NewRows([]string{"lid", "phone_jid", "name"}).
+		AddRow("205227043110953@lid", "628999@s.whatsapp.net", "Suci").
+		AddRow("111@lid", nil, "Alice")
+	mock.ExpectQuery(`SELECT lid, phone_jid, name FROM whatsapp_identities WHERE name IS NOT NULL AND name <> '' AND \(lid IN \(\?, \?\) OR phone_jid IN \(\?, \?\)\)`).
+		WithArgs(
+			"205227043110953@lid", "111@lid",
+			"205227043110953@lid", "111@lid",
+		).
+		WillReturnRows(rows)
+
+	got, err := repo.NamesForMentions(context.Background(), []string{
+		"205227043110953@lid", "111@lid", "205227043110953@lid", // dup ignored
+	})
+	if err != nil {
+		t.Fatalf("NamesForMentions: %v", err)
+	}
+	// Keyed by user-part (the "@<token>" form in a message body).
+	if got["205227043110953"] != "Suci" || got["111"] != "Alice" {
+		t.Fatalf("unexpected resolution: %+v", got)
+	}
+
+	// Empty input is a no-op (no query).
+	if m, err := repo.NamesForMentions(context.Background(), nil); err != nil || m != nil {
+		t.Fatalf("empty input: m=%v err=%v", m, err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestGroupRepo_Upsert(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewGroupRepo(db)
