@@ -14,10 +14,16 @@
 //   - react-router NavLink -> @tanstack/react-router <Link> with activeProps and
 //     activeOptions ({exact} for the index tab).
 
-import { createFileRoute, Link, Outlet } from "@tanstack/react-router";
+import {
+  createFileRoute,
+  Link,
+  Outlet,
+  useRouterState,
+} from "@tanstack/react-router";
 import { ArrowLeftIcon } from "lucide-react";
 import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/utils";
+import { SessionOverview } from "./-components/session-overview";
 
 export const Route = createFileRoute("/_app/user/sessions/$sessionId")({
   component: SessionDetailLayout,
@@ -25,6 +31,11 @@ export const Route = createFileRoute("/_app/user/sessions/$sessionId")({
 
 function SessionDetailLayout() {
   const { sessionId } = Route.useParams();
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
+  const isBareSessionRoute =
+    pathname === `/user/sessions/${encodeURIComponent(sessionId)}`;
 
   const tabBase =
     "px-3 py-2 text-sm text-muted-foreground hover:text-foreground";
@@ -67,7 +78,11 @@ function SessionDetailLayout() {
         </Link>
       </div>
 
-      <Outlet />
+      {isBareSessionRoute ? (
+        <SessionOverview sessionId={sessionId} />
+      ) : (
+        <Outlet />
+      )}
     </div>
   );
 }

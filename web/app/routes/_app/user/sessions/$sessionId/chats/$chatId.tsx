@@ -58,26 +58,30 @@ export const Route = createFileRoute(
 )({
   loader: async ({ params, context }) => {
     const { sessionId, chatId } = params;
-    await Promise.all([
-      context.queryClient.ensureQueryData({
-        queryKey: qk.chat(sessionId, chatId),
-        queryFn: async (): Promise<Chat> => {
-          const chat = await fetchChat({
-            data: { sessionId, chatJid: chatId },
-          });
-          // ensureQueryData must resolve a value; an empty stub lets the client
-          // hook refetch + the header render the jid until the gateway answers.
-          return chat ?? { jid: chatId };
-        },
-      }),
-      context.queryClient.ensureInfiniteQueryData({
-        queryKey: qk.chatMessages(sessionId, chatId),
-        initialPageParam: undefined as string | undefined,
-        queryFn: () =>
-          fetchMessagesPage({ data: { sessionId, chatJid: chatId } }),
-        getNextPageParam: (last: Page<Message>) => last.nextCursor ?? undefined,
-      }),
-    ]);
+    try {
+      await Promise.all([
+        context.queryClient.ensureQueryData({
+          queryKey: qk.chat(sessionId, chatId),
+          queryFn: async (): Promise<Chat> => {
+            const chat = await fetchChat({
+              data: { sessionId, chatJid: chatId },
+            });
+            // ensureQueryData must resolve a value; an empty stub lets the client
+            // hook refetch + the header render the jid until the gateway answers.
+            return chat ?? { jid: chatId };
+          },
+        }),
+        context.queryClient.ensureInfiniteQueryData({
+          queryKey: qk.chatMessages(sessionId, chatId),
+          initialPageParam: undefined as string | undefined,
+          queryFn: () =>
+            fetchMessagesPage({ data: { sessionId, chatJid: chatId } }),
+          getNextPageParam: (last: Page<Message>) => last.nextCursor ?? undefined,
+        }),
+      ]);
+    } catch (err) {
+      console.warn("[viewer] failed to preload chat timeline:", err);
+    }
   },
   component: ViewerTimeline,
 });

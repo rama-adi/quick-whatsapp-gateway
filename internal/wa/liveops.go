@@ -2,6 +2,7 @@ package wa
 
 import (
 	"context"
+	"time"
 
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
@@ -41,6 +42,7 @@ type liveClient interface {
 	UpdateBlocklist(ctx context.Context, jid types.JID, action events.BlocklistChangeAction) (*types.Blocklist, error)
 	SendPresence(ctx context.Context, state types.Presence) error
 	SendChatPresence(ctx context.Context, jid types.JID, state types.ChatPresence, media types.ChatPresenceMedia) error
+	MarkRead(ctx context.Context, ids []types.MessageID, timestamp time.Time, chat, sender types.JID, receiptTypeExtra ...types.ReceiptType) error
 }
 
 // LiveOps returns a session-resolving adapter over the manager. It satisfies the
@@ -365,6 +367,37 @@ func (l *LiveOps) SetChatPresence(ctx context.Context, sessionID, chatJID, state
 		return domain.ErrValidation("invalid chat presence state")
 	}
 	return c.SendChatPresence(ctx, j, cp, media)
+}
+
+// SendReadReceipt marks one or more incoming messages as read.
+func (l *LiveOps) SendReadReceipt(ctx context.Context, sessionID, chatJID, senderJID string, messageIDs []string) error {
+	c, err := l.client(sessionID)
+	if err != nil {
+		return err
+	}
+	chat, err := parseJID(chatJID)
+	if err != nil {
+		return err
+	}
+	var sender types.JID
+	if senderJID != "" {
+		sender, err = parseJID(senderJID)
+		if err != nil {
+			return err
+		}
+	}
+	ids := make([]types.MessageID, 0, len(messageIDs))
+	for _, id := range messageIDs {
+		if id != "" {
+			ids = append(ids, types.MessageID(id))
+		}
+	}
+	return c.MarkRead(ctx, ids, time.Now(), chat, sender)
+}
+
+// SendPresence sends per-chat composing/paused presence for the inbound pipeline.
+func (l *LiveOps) SendPresence(ctx context.Context, sessionID, chatJID, state string) error {
+	return l.SetChatPresence(ctx, sessionID, chatJID, state)
 }
 
 // ---- ChannelOps ----

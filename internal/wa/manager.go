@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"log/slog"
 	mrand "math/rand"
@@ -113,6 +114,14 @@ func NewManager(
 
 // SetClientFactory swaps the whatsmeow client constructor. Intended for tests.
 func (m *Manager) SetClientFactory(f clientFactory) { m.newClient = f }
+
+// SetInboundHandler replaces the inbound event handler. It is used by the
+// composition root to break the manager <-> inbound pipeline wiring cycle.
+func (m *Manager) SetInboundHandler(h InboundHandler) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.inbound = h
+}
 
 // SetWALogger sets the whatsmeow logger used for newly built clients.
 func (m *Manager) SetWALogger(l waLog.Logger) { m.waLogger = l }
@@ -344,6 +353,10 @@ func (m *Manager) bootstrapAdmin(ctx context.Context, devices []*store.Device) (
 	// Pair via phone code on a fresh device.
 	code, err := m.startPairingCode(ctx, sess, m.cfg.AdminNumber)
 	if err != nil {
+		if isConflictMessage(err, "session already running") {
+			m.log.Info("admin session already running; skipping bootstrap pairing", "number", m.cfg.AdminNumber, "session", sess.ID)
+			return "", nil
+		}
 		return "", fmt.Errorf("admin pairing: %w", err)
 	}
 	// Surface the code: logged here, and to the dashboard via the persisted/emitted
@@ -351,6 +364,11 @@ func (m *Manager) bootstrapAdmin(ctx context.Context, devices []*store.Device) (
 	m.log.Info("ADMIN NUMBER PAIRING CODE — link in WhatsApp > Linked Devices > Link with phone number",
 		"number", m.cfg.AdminNumber, "code", code)
 	return code, nil
+}
+
+func isConflictMessage(err error, message string) bool {
+	var apiErr *domain.APIError
+	return errors.As(err, &apiErr) && apiErr.Code == domain.CodeConflict && apiErr.Message == message
 }
 
 // ----------------------------------------------------------------------------
@@ -819,8 +837,16 @@ func (m *Manager) applyEvent(ctx context.Context, ms *ManagedSession, evt any) {
 	if _, ok := evt.(*events.Connected); ok {
 		// Reset backoff on a successful connection.
 		ms.mu.Lock()
+		client := ms.client
 		ms.attempt = 0
 		ms.mu.Unlock()
+		if client != nil {
+			go func() {
+				if err := client.SendPresence(context.Background(), types.PresenceAvailable); err != nil {
+					m.log.Warn("send online presence failed", "session", ms.SessionID, "err", err)
+				}
+			}()
+		}
 	}
 
 	if t.terminal {

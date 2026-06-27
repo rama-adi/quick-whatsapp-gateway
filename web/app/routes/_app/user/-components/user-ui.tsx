@@ -21,7 +21,11 @@ export function formatTimestamp(ms: number | undefined): string {
   const normalized = ms < 1e12 ? ms * 1000 : ms;
   const d = new Date(normalized);
   if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString();
+  return new Intl.DateTimeFormat("en", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "UTC",
+  }).format(d);
 }
 
 /** Map a session status to a Badge variant for consistent coloring. */

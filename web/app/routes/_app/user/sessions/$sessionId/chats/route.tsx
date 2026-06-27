@@ -37,13 +37,17 @@ export const Route = createFileRoute("/_app/user/sessions/$sessionId/chats")({
   loader: async ({ params, context }) => {
     // Seed page 0 into the cache under the canonical hook key so the client
     // hydrates from SSR and the cacheBridge has a page to patch.
-    await context.queryClient.ensureInfiniteQueryData({
-      queryKey: qk.chats(params.sessionId),
-      initialPageParam: undefined as string | undefined,
-      queryFn: () =>
-        fetchChatsPage({ data: { sessionId: params.sessionId } }),
-      getNextPageParam: (last: Page<Chat>) => last.nextCursor ?? undefined,
-    });
+    try {
+      await context.queryClient.ensureInfiniteQueryData({
+        queryKey: qk.chats(params.sessionId),
+        initialPageParam: undefined as string | undefined,
+        queryFn: () =>
+          fetchChatsPage({ data: { sessionId: params.sessionId } }),
+        getNextPageParam: (last: Page<Chat>) => last.nextCursor ?? undefined,
+      });
+    } catch (err) {
+      console.warn("[viewer] failed to preload chats:", err);
+    }
   },
   component: ViewerChats,
 });

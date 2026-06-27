@@ -42,6 +42,7 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/stream"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa/inbound"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa/outbound"
 	wastore "github.com/ramaadi/quick-whatsapp-gateway/internal/wa/store"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/webhooks"
@@ -145,8 +146,7 @@ func run() error {
 	// --- Session manager (per-session whatsmeow clients) ---
 	managerRepo := service.NewManagerSessionRepo(st.Sessions, nil)
 	managerSink := service.NewEventSinkAdapter(publisher, log)
-	inboundHandler := service.NewInboundLogHandler(log)
-	manager := wa.NewManager(keystore, managerRepo, managerSink, inboundHandler, nil, log, wa.Config{
+	manager := wa.NewManager(keystore, managerRepo, managerSink, nil, nil, log, wa.Config{
 		AdminNumber:         cfg.WhatsAppAdminNumber,
 		AdminOrganizationID: cfg.WhatsAppAdminOrgID,
 		GatewayID:           cfg.GatewayID,
@@ -154,6 +154,28 @@ func run() error {
 		DefaultRatePerHour:  cfg.DefaultRatePerHour,
 		DefaultAutoRead:     cfg.DefaultAutoRead,
 	})
+	inboundPipeline := inbound.NewPipeline(
+		service.NewInboundNormalizer(),
+		inbound.NewNoopCommandRegistry(),
+		service.NewInboundRepos(st),
+		publisher,
+		service.NewInboundWebhookEnqueuerAdapter(enqueuer),
+		manager.LiveOps(),
+		inbound.SystemClock{},
+		inbound.WithLogger(log),
+		inbound.WithSessionConfig(func(sessionID string) (inbound.SessionConfig, bool) {
+			s, err := st.Sessions.Get(context.Background(), sessionID)
+			if err != nil {
+				return inbound.SessionConfig{}, false
+			}
+			return inbound.SessionConfig{
+				AutoRead:       s.AutoRead,
+				PresenceTyping: s.PresenceTyping,
+			}, true
+		}),
+	)
+	inboundHandler := service.NewInboundPipelineHandler(inboundPipeline, log)
+	manager.SetInboundHandler(inboundHandler)
 	// Boot orphan-guard (§4.6 boot reconciliation, §17 R2): before resuming a
 	// session, confirm its owning org still exists in better-auth's shared
 	// `organization` table; orphaned sessions are marked STOPPED and not resumed.

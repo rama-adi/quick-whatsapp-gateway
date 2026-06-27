@@ -87,6 +87,9 @@ type waClient interface {
 	AddEventHandler(handler whatsmeow.EventHandler) uint32
 	GetQRChannel(ctx context.Context) (<-chan whatsmeow.QRChannelItem, error)
 	PairPhone(ctx context.Context, phone string, showPushNotification bool, clientType whatsmeow.PairClientType, clientDisplayName string) (string, error)
+	SendPresence(ctx context.Context, state types.Presence) error
+	SendChatPresence(ctx context.Context, jid types.JID, state types.ChatPresence, media types.ChatPresenceMedia) error
+	MarkRead(ctx context.Context, ids []types.MessageID, timestamp time.Time, chat, sender types.JID, receiptTypeExtra ...types.ReceiptType) error
 }
 
 // compile-time assertion that the real client satisfies the interface.

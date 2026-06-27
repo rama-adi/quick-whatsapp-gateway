@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"sync"
 	"testing"
+	"time"
 
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store"
@@ -81,8 +82,16 @@ func (f *fakeRepo) GetByJID(_ context.Context, jid string) (*domain.WASession, e
 	}
 	return s, nil
 }
-func (f *fakeRepo) ListByOrg(context.Context, string) ([]*domain.WASession, error) {
-	return nil, nil
+func (f *fakeRepo) ListByOrg(_ context.Context, organizationID string) ([]*domain.WASession, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []*domain.WASession
+	for _, s := range f.byID {
+		if s.OrganizationID == organizationID {
+			out = append(out, s)
+		}
+	}
+	return out, nil
 }
 func (f *fakeRepo) Create(_ context.Context, s *domain.WASession) error {
 	f.mu.Lock()
@@ -157,6 +166,8 @@ type fakeClient struct {
 	loggedOut   bool
 	disconnects int
 	handler     whatsmeow.EventHandler
+	presence    []types.Presence
+	readIDs     []types.MessageID
 }
 
 func (c *fakeClient) Connect() error {
@@ -199,6 +210,21 @@ func (c *fakeClient) GetQRChannel(context.Context) (<-chan whatsmeow.QRChannelIt
 }
 func (c *fakeClient) PairPhone(context.Context, string, bool, whatsmeow.PairClientType, string) (string, error) {
 	return "ABCD-1234", nil
+}
+func (c *fakeClient) SendPresence(_ context.Context, state types.Presence) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.presence = append(c.presence, state)
+	return nil
+}
+func (c *fakeClient) SendChatPresence(context.Context, types.JID, types.ChatPresence, types.ChatPresenceMedia) error {
+	return nil
+}
+func (c *fakeClient) MarkRead(_ context.Context, ids []types.MessageID, _ time.Time, _, _ types.JID, _ ...types.ReceiptType) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.readIDs = append(c.readIDs, ids...)
+	return nil
 }
 
 func quietLogger() *slog.Logger {
@@ -293,6 +319,40 @@ func TestBootstrapAdmin_NeedsPairing_ReturnsCode(t *testing.T) {
 	// An auth.code event must have been emitted.
 	if sink.typeCount(domain.EventAuthCode) != 1 {
 		t.Fatalf("expected 1 auth.code event, got %d", sink.typeCount(domain.EventAuthCode))
+	}
+}
+
+func TestBootstrapAdmin_RunningSession_NoFatalConflict(t *testing.T) {
+	m, repo, _, _, fc := newTestManager(t, Config{AdminNumber: "628111", AdminOrganizationID: "ten_admin"})
+	phone := "628111"
+	sess := &domain.WASession{
+		ID:             "sess_admin",
+		OrganizationID: "ten_admin",
+		Status:         domain.SessionStarting,
+		PhoneNumber:    &phone,
+		IsAdminSession: true,
+		CreatedAt:      1000,
+		UpdatedAt:      1000,
+	}
+	if err := repo.Create(context.Background(), sess); err != nil {
+		t.Fatal(err)
+	}
+	ms := &ManagedSession{
+		SessionID:      sess.ID,
+		OrganizationID: sess.OrganizationID,
+		IsAdmin:        true,
+		device:         m.keystore.NewDevice(),
+		client:         fc,
+		status:         domain.SessionStarting,
+	}
+	m.sessions[sess.ID] = ms
+
+	code, err := m.bootstrapAdmin(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code != "" {
+		t.Fatalf("expected no pairing code for running admin session, got %q", code)
 	}
 }
 
@@ -408,6 +468,26 @@ func TestEventHandler_ConnectedResetsBackoff(t *testing.T) {
 	}
 	if ms.status != domain.SessionWorking {
 		t.Fatalf("status should be working, got %s", ms.status)
+	}
+
+	deadline := time.After(500 * time.Millisecond)
+	tick := time.NewTicker(10 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		fc.mu.Lock()
+		got := append([]types.Presence(nil), fc.presence...)
+		fc.mu.Unlock()
+		if len(got) > 0 {
+			if got[0] != types.PresenceAvailable {
+				t.Fatalf("presence = %v, want available", got)
+			}
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for online presence")
+		case <-tick.C:
+		}
 	}
 }
 
