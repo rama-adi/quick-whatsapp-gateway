@@ -49,41 +49,47 @@ func (s *ContactService) List(ctx context.Context, organizationID, sessionID str
 	return s.store.Contacts.List(ctx, sessionID, f, cursor, limit)
 }
 
-// ContactGroup is one group sighting in the §11 GET /contacts/{lid} detail view.
+// ContactGroup is one group membership in the §11 GET /contacts/{lid} detail
+// view — the identity↔group pivot row, with the per-group member `tag`.
 type ContactGroup struct {
 	JID      string  `json:"jid"`
 	Name     *string `json:"name,omitempty"`
-	Nickname *string `json:"nickname,omitempty"`
+	Tag      *string `json:"tag,omitempty"`
 	Role     string  `json:"role"`
 	LastSeen int64   `json:"lastSeen"`
 }
 
-// ContactDetail is the §11 GET /contacts/{lid} response: identity (push name
-// preferred) + DM sighting + per-group memberships.
+// ContactDetail is the §11 GET /contacts/{lid} response: the central identity
+// (push name preferred) + whether the session has a DM with them + their group
+// memberships (with per-group tag).
 type ContactDetail struct {
 	Identity *domain.Identity `json:"identity,omitempty"`
-	Contact  domain.Contact   `json:"contact"`
 	DM       bool             `json:"dm"`
 	Groups   []ContactGroup   `json:"groups"`
 }
 
-// Get returns a contact's identity + DM + group memberships. Prefers the push
-// name from the global identity; nickname is per-group from the membership pivot.
+// Get returns a contact's identity + DM flag + group memberships. The identity is
+// the central record (push name preferred); the DM flag is derived from the
+// session's chats; `tag` is per-group from the membership pivot.
 func (s *ContactService) Get(ctx context.Context, organizationID, sessionID, lid string) (ContactDetail, error) {
 	if err := s.requireSession(ctx, organizationID, sessionID); err != nil {
 		return ContactDetail{}, err
 	}
-	contact, err := s.store.Contacts.Get(ctx, sessionID, lid)
+	id, err := s.store.Identities.GetByLID(ctx, lid)
 	if err != nil {
 		return ContactDetail{}, err
 	}
-	detail := ContactDetail{Contact: contact, DM: contact.SeenInDM, Groups: []ContactGroup{}}
+	detail := ContactDetail{Identity: &id, Groups: []ContactGroup{}}
 
-	// Identity is best-effort: a contact may exist before its identity row.
-	if id, err := s.store.Identities.GetByLID(ctx, lid); err == nil {
-		idCopy := id
-		detail.Identity = &idCopy
+	phoneJID := ""
+	if id.PhoneJID != nil {
+		phoneJID = *id.PhoneJID
 	}
+	dm, err := s.store.Contacts.SeenInDM(ctx, sessionID, lid, phoneJID)
+	if err != nil {
+		return ContactDetail{}, err
+	}
+	detail.DM = dm
 
 	members, err := s.store.GroupMembers.ListByContact(ctx, sessionID, lid)
 	if err != nil {
@@ -92,7 +98,7 @@ func (s *ContactService) Get(ctx context.Context, organizationID, sessionID, lid
 	for _, m := range members {
 		cg := ContactGroup{
 			JID:      m.GroupJID,
-			Nickname: m.GroupNickname,
+			Tag:      m.Tag,
 			Role:     string(m.Role),
 			LastSeen: m.LastSeenAt,
 		}

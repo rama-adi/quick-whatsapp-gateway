@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 
@@ -80,60 +81,110 @@ func (l *LiveOps) client(id string) (liveClient, error) {
 // BackfillSessionData pulls data that whatsmeow exposes through direct APIs.
 // Historical messages are handled by WhatsApp HistorySync events, not by a
 // generic "fetch all messages" API.
+//
+// It is BEST-EFFORT: contacts and groups are fetched independently and a failure
+// in one does not discard the other. The call only errors when BOTH sources fail
+// (or the session isn't live), so a flaky single API can't nuke the whole job.
 func (l *LiveOps) BackfillSessionData(ctx context.Context, sessionID string) (domain.BackfillSnapshot, error) {
 	c, err := l.client(sessionID)
 	if err != nil {
 		return domain.BackfillSnapshot{}, err
 	}
-	contacts, err := l.backfillContacts(ctx, sessionID)
-	if err != nil {
-		return domain.BackfillSnapshot{}, err
+	wmc, dev := l.rawClient(sessionID)
+
+	// The whatsmeow contact store is the ONLY source of member push names —
+	// WhatsApp does not include them in group metadata. It accumulates them from
+	// message traffic / app-state sync (PutPushName). Fetch it once and reuse it
+	// both for contact identities and to resolve each group member's push name.
+	var (
+		allContacts map[types.JID]types.ContactInfo
+		cErr        error
+	)
+	if wmc != nil && wmc.Store != nil && wmc.Store.Contacts != nil {
+		allContacts, cErr = wmc.Store.Contacts.GetAllContacts(ctx)
+	} else {
+		cErr = domain.ErrNotImplemented("live WhatsApp contact store is not available for this session")
 	}
-	groups, err := c.GetJoinedGroups(ctx)
-	if err != nil {
-		return domain.BackfillSnapshot{}, err
+	if cErr != nil {
+		l.m.log.WarnContext(ctx, "backfill contacts failed", "session", sessionID, "err", cErr)
 	}
-	return domain.BackfillSnapshot{
-		Contacts: contacts,
-		Groups:   backfillGroups(groups),
-	}, nil
+	names := buildNameIndex(allContacts)
+	contacts := l.backfillContacts(ctx, dev, allContacts)
+
+	var groups []domain.BackfillGroup
+	joined, gErr := c.GetJoinedGroups(ctx)
+	if gErr != nil {
+		l.m.log.WarnContext(ctx, "backfill groups failed", "session", sessionID, "err", gErr)
+	} else {
+		groups = l.backfillGroups(ctx, dev, names, joined)
+	}
+
+	// Only a total wash is an error; partial data is still worth persisting.
+	if cErr != nil && gErr != nil {
+		return domain.BackfillSnapshot{}, gErr
+	}
+	return domain.BackfillSnapshot{Contacts: contacts, Groups: groups}, nil
 }
 
-func (l *LiveOps) backfillContacts(ctx context.Context, sessionID string) ([]domain.BackfillContact, error) {
+// rawClient returns the concrete *whatsmeow.Client and its Device store for a
+// session, or (nil, nil) when not live. Used for the store-backed reads
+// (contact store, LID↔phone mapping) the narrow liveClient interface omits.
+func (l *LiveOps) rawClient(sessionID string) (*whatsmeow.Client, *store.Device) {
 	ms := l.m.Get(sessionID)
 	if ms == nil {
-		return nil, domain.ErrNotFound("session not found")
+		return nil, nil
 	}
 	ms.mu.Lock()
 	raw := ms.client
 	ms.mu.Unlock()
 	c, ok := raw.(*whatsmeow.Client)
-	if !ok || c == nil || c.Store == nil || c.Store.Contacts == nil {
-		return nil, domain.ErrNotImplemented("live WhatsApp contact store is not available for this session")
+	if !ok || c == nil {
+		return nil, nil
 	}
-	contacts, err := c.Store.Contacts.GetAllContacts(ctx)
-	if err != nil {
-		return nil, err
-	}
+	return c, c.Store
+}
+
+func (l *LiveOps) backfillContacts(ctx context.Context, dev *store.Device, contacts map[types.JID]types.ContactInfo) []domain.BackfillContact {
 	out := make([]domain.BackfillContact, 0, len(contacts))
 	for jid, info := range contacts {
-		name := info.PushName
-		if name == "" {
-			name = info.FullName
-		}
-		if name == "" {
-			name = info.FirstName
+		lid, phoneJID := resolveLIDAndPhone(ctx, dev, jid)
+		if lid == "" {
+			// No LID mapping — can't key this identity consistently; skip it. Real
+			// participants are still captured via group backfill + message capture.
+			continue
 		}
 		out = append(out, domain.BackfillContact{
-			JID:          jid.String(),
-			Name:         name,
+			LID:          lid,
+			PhoneJID:     phoneJID,
+			PhoneNumber:  phoneNumberOf(phoneJID),
+			Name:         contactName(info),
 			BusinessName: info.BusinessName,
 		})
 	}
-	return out, nil
+	return out
 }
 
-func backfillGroups(groups []*types.GroupInfo) []domain.BackfillGroup {
+// buildNameIndex maps canonical LID and phone-JID strings to the best display
+// name from the cached contact store, so group members can be labeled by their
+// push name. Entries without a usable name are skipped.
+func buildNameIndex(contacts map[types.JID]types.ContactInfo) map[string]string {
+	idx := make(map[string]string, len(contacts))
+	for jid, info := range contacts {
+		name := contactName(info)
+		if name == "" {
+			continue
+		}
+		switch jid.Server {
+		case types.HiddenUserServer:
+			idx[jid.ToNonAD().String()] = name
+		case types.DefaultUserServer:
+			idx[jid.ToNonAD().String()] = name
+		}
+	}
+	return idx
+}
+
+func (l *LiveOps) backfillGroups(ctx context.Context, dev *store.Device, names map[string]string, groups []*types.GroupInfo) []domain.BackfillGroup {
 	out := make([]domain.BackfillGroup, 0, len(groups))
 	for _, g := range groups {
 		if g == nil || g.JID.IsEmpty() {
@@ -141,31 +192,17 @@ func backfillGroups(groups []*types.GroupInfo) []domain.BackfillGroup {
 		}
 		members := make([]domain.BackfillMember, 0, len(g.Participants))
 		for _, p := range g.Participants {
-			lid := p.LID.String()
-			if lid == "" {
-				lid = p.JID.String()
-			}
-			if lid == "" {
+			m, ok := backfillMember(ctx, dev, names, p)
+			if !ok {
 				continue
 			}
-			role := domain.RoleMember
-			if p.IsSuperAdmin {
-				role = domain.RoleSuperAdmin
-			} else if p.IsAdmin {
-				role = domain.RoleAdmin
-			}
-			members = append(members, domain.BackfillMember{
-				LID:      lid,
-				JID:      p.JID.String(),
-				Nickname: p.DisplayName,
-				Role:     role,
-			})
+			members = append(members, m)
 		}
 		out = append(out, domain.BackfillGroup{
 			GroupJID:     g.JID.String(),
 			Subject:      g.Name,
 			Description:  g.Topic,
-			OwnerJID:     g.OwnerJID.String(),
+			OwnerJID:     canonicalLID(g.OwnerJID),
 			Participants: len(g.Participants),
 			IsAnnounce:   g.IsAnnounce,
 			IsLocked:     g.IsLocked,
@@ -175,6 +212,115 @@ func backfillGroups(groups []*types.GroupInfo) []domain.BackfillGroup {
 	}
 	return out
 }
+
+// backfillMember projects a whatsmeow GroupParticipant into a BackfillMember,
+// resolving a canonical LID and the participant's phone. ok=false when the
+// participant carries no usable LID.
+func backfillMember(ctx context.Context, dev *store.Device, names map[string]string, p types.GroupParticipant) (domain.BackfillMember, bool) {
+	lid := canonicalLID(p.LID)
+	phoneJID := p.PhoneNumber
+	if phoneJID.IsEmpty() && p.JID.Server == types.DefaultUserServer {
+		phoneJID = p.JID
+	}
+	if lid == "" {
+		// Participant addressed by phone only: try to map it to a LID so the
+		// member + identity stay LID-keyed like everything else.
+		if !phoneJID.IsEmpty() && dev != nil {
+			if mapped, err := dev.LIDs.GetLIDForPN(ctx, phoneJID); err == nil {
+				lid = canonicalLID(mapped)
+			}
+		}
+	}
+	if lid == "" {
+		return domain.BackfillMember{}, false
+	}
+	role := domain.RoleMember
+	if p.IsSuperAdmin {
+		role = domain.RoleSuperAdmin
+	} else if p.IsAdmin {
+		role = domain.RoleAdmin
+	}
+	var phoneJIDStr string
+	if !phoneJID.IsEmpty() {
+		phoneJIDStr = phoneJID.ToNonAD().String()
+	}
+	// Resolve the member's push name from the contact-store index, by LID then by
+	// phone. Empty when WhatsApp has never surfaced a name for them — it then
+	// fills in later from message push-name capture.
+	name := names[lid]
+	if name == "" && phoneJIDStr != "" {
+		name = names[phoneJIDStr]
+	}
+	return domain.BackfillMember{
+		LID:         lid,
+		JID:         phoneJIDStr,
+		PhoneNumber: phoneNumberOf(phoneJIDStr),
+		// Tag is the per-group label WhatsApp shows (often an obfuscated phone for
+		// anonymous members) — a per-group identity, kept as-is on the pivot.
+		Tag:  p.DisplayName,
+		Name: name,
+		Role: role,
+	}, true
+}
+
+// resolveLIDAndPhone maps a contact-store key (which may be a phone JID or a LID,
+// possibly device-suffixed) to a canonical LID string and a phone JID string.
+// Either may be "" when the mapping is unknown.
+func resolveLIDAndPhone(ctx context.Context, dev *store.Device, jid types.JID) (lid string, phoneJID string) {
+	switch jid.Server {
+	case types.HiddenUserServer: // already a LID
+		lid = canonicalLID(jid)
+		if dev != nil {
+			if pn, err := dev.LIDs.GetPNForLID(ctx, jid.ToNonAD()); err == nil && !pn.IsEmpty() {
+				phoneJID = pn.ToNonAD().String()
+			}
+		}
+	case types.DefaultUserServer: // a phone JID
+		phoneJID = jid.ToNonAD().String()
+		if dev != nil {
+			if l, err := dev.LIDs.GetLIDForPN(ctx, jid); err == nil {
+				lid = canonicalLID(l)
+			}
+		}
+	}
+	return lid, phoneJID
+}
+
+// canonicalLID renders a JID as a canonical (non-AD) LID string, or "" when the
+// JID is not a LID. Stripping the agent/device part (":NN") collapses the
+// per-device duplicates that made the identities table inconsistent.
+func canonicalLID(j types.JID) string {
+	if j.IsEmpty() || j.Server != types.HiddenUserServer {
+		return ""
+	}
+	return j.ToNonAD().String()
+}
+
+// phoneNumberOf extracts the bare phone number from a "<num>@s.whatsapp.net" JID
+// string, or "" for anything else.
+func phoneNumberOf(jidStr string) string {
+	const suffix = "@" + types.DefaultUserServer
+	if jidStr == "" || len(jidStr) <= len(suffix) || jidStr[len(jidStr)-len(suffix):] != suffix {
+		return ""
+	}
+	return jidStr[:len(jidStr)-len(suffix)]
+}
+
+// contactName picks the best display name from a ContactInfo, preferring the push
+// name. Never returns an obfuscated/redacted value.
+func contactName(info types.ContactInfo) string {
+	switch {
+	case info.PushName != "":
+		return info.PushName
+	case info.FullName != "":
+		return info.FullName
+	case info.FirstName != "":
+		return info.FirstName
+	default:
+		return ""
+	}
+}
+
 
 func parseJID(s string) (types.JID, error) {
 	jid, err := types.ParseJID(s)

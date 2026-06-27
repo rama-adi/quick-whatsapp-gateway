@@ -195,6 +195,31 @@ func TestIdentityRepo_UpsertAndGet(t *testing.T) {
 	}
 }
 
+func TestIdentityRepo_FillNameByJID(t *testing.T) {
+	db, mock := newMock(t)
+	repo := NewIdentityRepo(db)
+
+	// Fills by lid-or-phone_jid match, only where name is currently empty.
+	mock.ExpectExec("UPDATE whatsapp_identities SET name = ., updated_at = . WHERE .lid = . OR phone_jid = .. AND .name IS NULL OR name = ..").
+		WithArgs("Alice", int64(7), "628@s.whatsapp.net", "628@s.whatsapp.net").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	if err := repo.FillNameByJID(context.Background(), "628@s.whatsapp.net", "Alice", 7); err != nil {
+		t.Fatalf("FillNameByJID: %v", err)
+	}
+
+	// Empty jid or name is a no-op (no query issued).
+	if err := repo.FillNameByJID(context.Background(), "", "Alice", 7); err != nil {
+		t.Fatalf("FillNameByJID empty jid: %v", err)
+	}
+	if err := repo.FillNameByJID(context.Background(), "628@s.whatsapp.net", "", 7); err != nil {
+		t.Fatalf("FillNameByJID empty name: %v", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestGroupRepo_Upsert(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewGroupRepo(db)
@@ -241,17 +266,17 @@ func TestGroupMemberRepo_UpsertAndListByContact(t *testing.T) {
 
 	m := domain.GroupMember{
 		SessionID: "sess_1", GroupJID: "12@g.us", LID: "111@lid",
-		GroupNickname: strptr("Al"), Role: domain.RoleAdmin, FirstSeenAt: 1, LastSeenAt: 2,
+		Tag: strptr("Al"), Role: domain.RoleAdmin, FirstSeenAt: 1, LastSeenAt: 2,
 	}
 	mock.ExpectExec("INSERT INTO whatsapp_group_members.*ON DUPLICATE KEY UPDATE").
-		WithArgs(m.SessionID, m.GroupJID, m.LID, m.GroupNickname, m.Role, m.FirstSeenAt, m.LastSeenAt).
+		WithArgs(m.SessionID, m.GroupJID, m.LID, m.Tag, m.Role, m.FirstSeenAt, m.LastSeenAt).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	if err := repo.Upsert(context.Background(), m); err != nil {
 		t.Fatalf("Upsert: %v", err)
 	}
 
 	rows := sqlmock.NewRows([]string{
-		"id", "session_id", "group_jid", "lid", "group_nickname", "role", "first_seen_at", "last_seen_at",
+		"id", "session_id", "group_jid", "lid", "tag", "role", "first_seen_at", "last_seen_at",
 	}).AddRow(uint64(1), "sess_1", "12@g.us", "111@lid", "Al", "admin", int64(1), int64(2))
 	mock.ExpectQuery("SELECT .* FROM whatsapp_group_members WHERE session_id = . AND lid = .").
 		WithArgs("sess_1", "111@lid").WillReturnRows(rows)

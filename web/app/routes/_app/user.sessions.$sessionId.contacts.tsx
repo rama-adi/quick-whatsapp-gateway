@@ -66,7 +66,7 @@ function toFilter(s: ContactsSearch): ContactFilter {
 }
 
 function displayName(c: Contact): string {
-  return c.pushName || c.name || c.phoneNumber || c.lid || "Unknown";
+  return c.name || c.businessName || c.phoneNumber || c.lid || "Unknown";
 }
 
 function initials(c: Contact): string {

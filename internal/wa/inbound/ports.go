@@ -70,14 +70,16 @@ type Clock interface {
 type Repos interface {
 	// --- identity / contacts capture (§7.3) ---
 
-	// UpsertIdentity records/refreshes global LID->phone/name resolution.
+	// UpsertIdentity records/refreshes the central LID->phone/name resolution.
 	UpsertIdentity(ctx context.Context, in IdentityUpsert) error
-	// UpsertContact records that sessionID encountered lid; bumps message_count
-	// and last_seen, and (for DMs) sets seen_in_dm + DM timestamps.
-	UpsertContact(ctx context.Context, in ContactUpsert) error
+	// FillIdentityName opportunistically fills an EXISTING identity's missing
+	// display name from a push-name sighting that carries only a JID (not a
+	// canonical LID) — e.g. contact.update / push-name events. Matched by lid or
+	// phone_jid; never inserts, never overwrites a known name.
+	FillIdentityName(ctx context.Context, in IdentityNameFill) error
 	// UpsertGroup records/refreshes group metadata.
 	UpsertGroup(ctx context.Context, in GroupUpsert) error
-	// UpsertGroupMember records a participant's membership (nickname + role).
+	// UpsertGroupMember records a participant's membership (tag + role).
 	UpsertGroupMember(ctx context.Context, in GroupMemberUpsert) error
 
 	// --- persist (§7.4) ---
@@ -112,16 +114,13 @@ type IdentityUpsert struct {
 	NowMs        int64
 }
 
-// ContactUpsert is the input to Repos.UpsertContact.
-type ContactUpsert struct {
-	SessionID string
-	LID       string
-	// SeenInDM, when true, sets seen_in_dm and the DM first/last-seen timestamps.
-	SeenInDM bool
-	// BumpMessageCount adds one to message_count (only for real messages, not
-	// receipts/presence).
-	BumpMessageCount bool
-	NowMs            int64
+// IdentityNameFill is the input to Repos.FillIdentityName. JID is the identifier
+// as seen on the event (a "@lid" or "@s.whatsapp.net" JID); the store matches it
+// against an existing identity's lid or phone_jid.
+type IdentityNameFill struct {
+	JID   string
+	Name  string // push name (or saved display name) to fill if missing
+	NowMs int64
 }
 
 // GroupUpsert is the input to Repos.UpsertGroup.
@@ -142,9 +141,10 @@ type GroupMemberUpsert struct {
 	SessionID string
 	GroupJID  string
 	LID       string
-	Nickname  string
-	Role      domain.GroupRole
-	NowMs     int64
+	// Tag is the per-group member tag WhatsApp shows beside the name.
+	Tag   string
+	Role  domain.GroupRole
+	NowMs int64
 }
 
 // ChatUpsert is the input to Repos.UpsertChat.

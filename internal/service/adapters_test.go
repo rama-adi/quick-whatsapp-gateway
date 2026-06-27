@@ -47,7 +47,9 @@ func TestInboundMessageFromEventsMessage_LIDSenderAndGroupAccounting(t *testing.
 	if !nm.IsGroup || nm.Group == nil || nm.Group.GroupJID != payload.ChatJID {
 		t.Fatalf("group capture missing: isGroup=%v group=%+v", nm.IsGroup, nm.Group)
 	}
-	if len(nm.Members) != 1 || nm.Members[0].LID != nm.SenderLID || nm.Members[0].Nickname != "Synthetic Sender" {
+	// A message records membership only; the push name belongs to the identity, so
+	// the per-group tag stays empty (filled by backfill / group-info).
+	if len(nm.Members) != 1 || nm.Members[0].LID != nm.SenderLID || nm.Members[0].Tag != "" {
 		t.Fatalf("members = %+v", nm.Members)
 	}
 	if nm.Body != "synthetic group text" || nm.QuotedMessageID != "MSG_SYNTHETIC_QUOTED" {

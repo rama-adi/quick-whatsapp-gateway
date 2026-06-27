@@ -123,17 +123,19 @@ type Identity struct {
 
 // Contact mirrors the whatsapp_contacts table — a per-account "found user"
 // record powering the Contacts feature (where this session encountered them).
+// Contact is the "found users" projection over the central identity table: a
+// person a session has encountered, with where we found them. It is not a stored
+// row — it is assembled from whatsapp_identities plus per-session DM (chats) and
+// group-membership (whatsapp_group_members) signals.
 type Contact struct {
-	ID            uint64  `json:"id"`
-	SessionID     string  `json:"sessionId"`
-	LID           string  `json:"lid"`
-	Phone         *string `json:"phone,omitempty"` // bare phone, set only when LID is a "@s.whatsapp.net" JID
-	SeenInDM      bool    `json:"seenInDm"`
-	DMFirstSeenAt *int64  `json:"dmFirstSeenAt,omitempty"`
-	DMLastSeenAt  *int64  `json:"dmLastSeenAt,omitempty"`
-	MessageCount  int64   `json:"messageCount"`
-	FirstSeenAt   int64   `json:"firstSeenAt"`
-	LastSeenAt    int64   `json:"lastSeenAt"`
+	// ID is the underlying identity id, exposed only for cursor pagination.
+	ID           uint64  `json:"-"`
+	LID          string  `json:"lid"`
+	PhoneNumber  *string `json:"phoneNumber,omitempty"`
+	Name         *string `json:"name,omitempty"` // push name (preferred display)
+	BusinessName *string `json:"businessName,omitempty"`
+	// Source is where this session encountered the person: "dm" or "group".
+	Source string `json:"source"`
 }
 
 // Group mirrors the whatsapp_groups table.
@@ -153,15 +155,18 @@ type Group struct {
 
 // GroupMember mirrors the whatsapp_group_members pivot. group_nickname is the
 // per-group display name and lives here (not on Identity).
+// GroupMember is one row of the identity↔group pivot: a person's membership of a
+// group, observed by a session, with their role and per-group `tag` (the second
+// per-group identity WhatsApp shows beside the global push name).
 type GroupMember struct {
-	ID            uint64    `json:"id"`
-	SessionID     string    `json:"sessionId"`
-	GroupJID      string    `json:"groupJid"`
-	LID           string    `json:"lid"`
-	GroupNickname *string   `json:"groupNickname,omitempty"`
-	Role          GroupRole `json:"role"`
-	FirstSeenAt   int64     `json:"firstSeenAt"`
-	LastSeenAt    int64     `json:"lastSeenAt"`
+	ID          uint64    `json:"id"`
+	SessionID   string    `json:"sessionId"`
+	GroupJID    string    `json:"groupJid"`
+	LID         string    `json:"lid"`
+	Tag         *string   `json:"tag,omitempty"`
+	Role        GroupRole `json:"role"`
+	FirstSeenAt int64     `json:"firstSeenAt"`
+	LastSeenAt  int64     `json:"lastSeenAt"`
 }
 
 // Chat mirrors the chats table.
@@ -226,7 +231,11 @@ type BackfillSnapshot struct {
 }
 
 type BackfillContact struct {
-	JID          string `json:"jid"`
+	// LID is the canonical (non-AD) LID this contact resolves to — the identity
+	// table's key. Empty when the contact has no known LID mapping.
+	LID          string `json:"lid"`
+	PhoneJID     string `json:"phoneJid,omitempty"`
+	PhoneNumber  string `json:"phoneNumber,omitempty"`
 	Name         string `json:"name,omitempty"`
 	BusinessName string `json:"businessName,omitempty"`
 }
@@ -244,10 +253,19 @@ type BackfillGroup struct {
 }
 
 type BackfillMember struct {
-	LID      string    `json:"lid"`
-	JID      string    `json:"jid,omitempty"`
-	Nickname string    `json:"nickname,omitempty"`
-	Role     GroupRole `json:"role"`
+	// LID is the canonical (non-AD) LID of the participant — both the group-member
+	// row key and the identity row this member contributes.
+	LID         string    `json:"lid"`
+	JID         string    `json:"jid,omitempty"`
+	PhoneNumber string    `json:"phoneNumber,omitempty"`
+	// Tag is the per-group member tag WhatsApp shows beside the name (often the
+	// obfuscated phone for anonymous members). Stored on the pivot as-is — it is a
+	// per-group identity, distinct from the global push name.
+	Tag string `json:"tag,omitempty"`
+	// Name is a real display name resolved for this participant (contact store /
+	// push name), when known — used to seed the identity row.
+	Name string    `json:"name,omitempty"`
+	Role GroupRole `json:"role"`
 }
 
 // BackfillJob describes an in-memory background admin backfill job.

@@ -53,6 +53,26 @@ ON DUPLICATE KEY UPDATE
 	return nil
 }
 
+// FillNameByJID opportunistically fills an existing identity's display name from
+// a push-name sighting (contact.update / push-name events carry only a JID, not a
+// canonical LID). It matches the row by either its lid or its phone_jid and only
+// writes when we don't already have a name — so a fresh sighting enriches a
+// nameless identity but never clobbers a known name. It NEVER inserts: a contact
+// the account merely synced shouldn't create an identity for someone never
+// actually encountered. No match (zero rows) is not an error.
+func (r *IdentityRepo) FillNameByJID(ctx context.Context, jid, name string, nowMs int64) error {
+	if jid == "" || name == "" {
+		return nil
+	}
+	const q = `UPDATE whatsapp_identities
+SET name = ?, updated_at = ?
+WHERE (lid = ? OR phone_jid = ?) AND (name IS NULL OR name = '')`
+	if _, err := r.db.ExecContext(ctx, q, name, nowMs, jid, jid); err != nil {
+		return fmt.Errorf("store: fill identity name: %w", err)
+	}
+	return nil
+}
+
 // GetByLID fetches an identity by its unique lid. Maps no-rows to not_found.
 func (r *IdentityRepo) GetByLID(ctx context.Context, lid string) (domain.Identity, error) {
 	q := "SELECT " + identityCols + " FROM whatsapp_identities WHERE lid = ?"

@@ -22,16 +22,26 @@ fan-out).
    Raw protobufs never leave the Normalizer.
 2. **Command interceptor** (§8/§9) — on the admin session, an inbound,
    non-echo text whose body starts with `WHATSAPP_ADMIN_CMD_PREFIX` is handed to
-   the `CommandRegistry` and **dropped**: not persisted, not emitted, not counted
-   as a contact. v2 ships the interceptor + a no-op registry (`amlogin` is later).
-3. **Identity / contacts capture** (§9) — upsert global `whatsapp_identities`
-   (push name preferred); upsert per-account `whatsapp_contacts` (DMs set
-   `seen_in_dm` + DM timestamps; `message_count` bumps only for real inbound,
-   non-echo messages); for groups upsert `whatsapp_groups` +
-   `whatsapp_group_members` (nickname + role, role defaults to `member`).
+   the `CommandRegistry` and **dropped**: not persisted, not emitted. v2 ships the
+   interceptor + a no-op registry (`amlogin` is later).
+3. **Identity capture** (§9) — upsert the central `whatsapp_identities` row (push
+   name preferred), keyed by the **canonical non-AD LID** (`:device` stripped).
+   When a push name arrives **without** a canonical LID (a `contact.update` /
+   push-name event carries only a JID), it is used opportunistically to **fill a
+   nameless existing identity**, matched by `lid` or `phone_jid` — never inserting
+   (a merely-synced contact shouldn't create an identity) and never clobbering a
+   name we already have. There is no per-session contacts table — DM "found"
+   status is derived later from `chats`. For groups upsert `whatsapp_groups` + the
+   `whatsapp_group_members` pivot (per-group `tag` + role, role defaults to
+   `member`).
 4. **Persist** (§9) — upsert `chats`; insert `messages` (incl. `raw_json`);
    `edit`/`revoke` flip flags on the target; receipts update `status`/`ack_level`;
-   poll updates insert `poll_votes`.
+   poll updates insert `poll_votes`. **Content-less system messages are dropped
+   here** — the classifier's unrecognized-content fallthrough (`MsgType=="system"`:
+   E2E-encryption notices, ephemeral settings, sender-key distribution, …) carries
+   no displayable body, so after identity capture it is dropped (not persisted, not
+   fanned out). Real WhatsApp renders group notices from typed group events, not
+   from these.
 5. **Auto-read** (§9) — if the session has `auto_read`, send a read receipt
    **before** any fan-out; optional `presence_typing` → "composing". Best-effort:
    WA-client errors are logged, never fatal.
@@ -66,10 +76,10 @@ small consumer interface that Phase 3 satisfies with concrete types:
   and `SendPresence(ctx, sessionID, chatJID, state string) error`.
 - `Clock.NowMs() int64`.
 - `Repos` — the subset of store upserts/inserts used by capture/persist/fan-out
-  (`UpsertIdentity/Contact/Group/GroupMember/Chat`, `InsertMessage`,
-  `MarkMessageEdited/Deleted`, `UpdateMessageStatus`, `InsertPollVote`,
-  `AppendEventLog`). Arguments are decoupled `*Upsert`/`*Insert` structs so the
-  store's row types are not a dependency.
+  (`UpsertIdentity`, `FillIdentityName`, `UpsertGroup/GroupMember`, `UpsertChat`,
+  `InsertMessage`, `MarkMessageEdited/Deleted`, `UpdateMessageStatus`,
+  `InsertPollVote`, `AppendEventLog`). Arguments are decoupled `*Upsert`/`*Insert`/
+  `*Fill` structs so the store's row types are not a dependency.
 
 Options: `WithCommandPrefix(string)` (default `"am"`; empty disables the
 interceptor), `WithSessionConfig(SessionConfigFunc)` (resolves per-session
@@ -88,9 +98,12 @@ interceptor), `WithSessionConfig(SessionConfigFunc)` (resolves per-session
   does double duty as a regular API number (§8). A prefixed admin message is
   dropped even when the no-op registry returns `handled=false`, and even when the
   registry errors (the error is logged, the drop stands).
-- **`message_count` bumps only for `KindMessage` and not `FromMe`.** Receipts,
-  poll votes, edits/revokes, and own-number echoes refresh identity/contact
-  `last_seen` but never count the peer as having messaged us.
+- **Identity capture runs for any kind that carries a sender** (push name
+  preferred, COALESCE'd so a later nameless sighting never wipes a known name).
+  A push name seen **without** a canonical LID (contact.update / push-name events)
+  still gets used — it fills a nameless existing identity by `lid`/`phone_jid`
+  (`FillIdentityName`), never inserting. There is no message-count / DM bookkeeping
+  in the pipeline — DM "found" status is derived from `chats` at read time.
 - **Capture/persist errors abort and return** (wrapped `inbound capture`/`inbound
   persist`) so the caller can retry; re-processing is idempotent
   (`UNIQUE(session_id, wa_message_id)`). Auto-read errors are non-fatal.
@@ -106,7 +119,7 @@ Table-driven tests (`pipeline_test.go`) with hand-written fakes for every
 interface (`fakes_test.go`), including a shared `callOrder` recorder for ordering
 assertions. Coverage ~84%, `-race` clean. Cases:
 
-- DM vs group capture (seen_in_dm only for DMs; group + members upserted for
+- DM vs group capture (identity captured for both; group + members upserted for
   groups; empty role defaults to `member`).
 - Interceptor matrix: admin+prefix drop; admin no-prefix / non-admin / echo /
   empty-prefix / receipt all processed; registry error still drops.

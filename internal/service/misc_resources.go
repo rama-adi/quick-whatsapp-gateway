@@ -297,29 +297,23 @@ func (s *AdminService) persistBackfill(ctx context.Context, sessionID string, sn
 	now := domain.NowMs()
 	contactCount := 0
 	for _, c := range snapshot.Contacts {
-		if c.JID == "" {
+		if c.LID == "" {
 			continue
 		}
-		name := c.Name
-		if name == "" {
-			name = c.JID
-		}
+		// name is left NULL when unknown so a real push name captured later wins
+		// (Identity.Upsert COALESCEs) — never store the LID/JID as the name.
+		// Contacts feed the central identity table; DM "found" status is derived
+		// later from the chats table, so there is no per-session contact row. Name
+		// is left NULL when unknown so a real push name captured later wins
+		// (Identity.Upsert COALESCEs) — never store the LID/JID as the name.
 		if err := s.store.Identities.Upsert(ctx, domain.Identity{
-			LID:          c.JID,
-			Name:         stringPtr(name),
+			LID:          c.LID,
+			PhoneNumber:  stringPtr(c.PhoneNumber),
+			PhoneJID:     stringPtr(c.PhoneJID),
+			Name:         stringPtr(c.Name),
 			BusinessName: stringPtr(c.BusinessName),
 			FirstSeenAt:  now,
 			UpdatedAt:    now,
-		}); err != nil {
-			return 0, 0, 0, err
-		}
-		if err := s.store.Contacts.Upsert(ctx, domain.Contact{
-			SessionID:    sessionID,
-			LID:          c.JID,
-			SeenInDM:     false,
-			MessageCount: 0,
-			FirstSeenAt:  now,
-			LastSeenAt:   now,
 		}); err != nil {
 			return 0, 0, 0, err
 		}
@@ -357,14 +351,28 @@ func (s *AdminService) persistBackfill(ctx context.Context, sessionID string, sn
 			if m.LID == "" {
 				continue
 			}
+			// Seed an identity for every participant so group senders resolve to a
+			// name/phone (the previous backfill only covered the contact store, so
+			// most members had no identity row). Name is best-effort and COALESCEd,
+			// so message push-name capture still upgrades it later.
+			if err := s.store.Identities.Upsert(ctx, domain.Identity{
+				LID:         m.LID,
+				PhoneNumber: stringPtr(m.PhoneNumber),
+				PhoneJID:    stringPtr(m.JID),
+				Name:        stringPtr(m.Name),
+				FirstSeenAt: now,
+				UpdatedAt:   now,
+			}); err != nil {
+				return 0, 0, 0, err
+			}
 			if err := s.store.GroupMembers.Upsert(ctx, domain.GroupMember{
-				SessionID:     sessionID,
-				GroupJID:      g.GroupJID,
-				LID:           m.LID,
-				GroupNickname: stringPtr(m.Nickname),
-				Role:          m.Role,
-				FirstSeenAt:   now,
-				LastSeenAt:    now,
+				SessionID:   sessionID,
+				GroupJID:    g.GroupJID,
+				LID:         m.LID,
+				Tag:         stringPtr(m.Tag),
+				Role:        m.Role,
+				FirstSeenAt: now,
+				LastSeenAt:  now,
 			}); err != nil {
 				return 0, 0, 0, err
 			}

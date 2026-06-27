@@ -18,12 +18,15 @@ import (
 // DeviceSent/Edited wrappers), so we read from it directly per recon §5.
 func normalizeMessage(e *events.Message, sessionID, organizationID string) (domain.Event, PersistResult, bool) {
 	info := e.Info
+	// Canonicalize sender addresses to non-AD form (drop the ":device" / agent
+	// part) so the same human maps to ONE identity key — the device suffix was a
+	// primary source of duplicate identity rows and broken sender_lid joins.
 	nm := &NormalizedMessage{
 		WAMessageID: info.ID,
 		ChatJID:     jidString(info.Chat),
 		ChatClass:   ClassifyChat(info.Chat),
-		SenderJID:   jidString(info.Sender),
-		SenderLID:   jidString(info.SenderAlt), // LID alt-address when AddressingMode is PN, or vice-versa
+		SenderJID:   jidString(info.Sender.ToNonAD()),
+		SenderLID:   jidString(info.SenderAlt.ToNonAD()), // LID alt-address when AddressingMode is PN, or vice-versa
 		FromMe:      info.IsFromMe,
 		PushName:    info.PushName,
 		Timestamp:   msFromTime(info.Timestamp),

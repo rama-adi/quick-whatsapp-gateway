@@ -1610,12 +1610,12 @@ export interface components {
             lid?: string;
             /** @description The contact's phone number, when known. */
             phoneNumber?: string;
-            /** @description The contact's saved name, when known. */
+            /** @description The contact's display (push) name, when known. */
             name?: string;
-            /** @description The display name the contact set for themselves. */
-            pushName?: string;
+            /** @description The verified business name, for business accounts. */
+            businessName?: string;
             /**
-             * @description Where this session first saw the contact. `dm` = in a direct chat; `group` = in a group.
+             * @description Where this session encountered the contact. `dm` = a direct chat exists; `group` = seen in a group.
              * @enum {string}
              */
             source?: "dm" | "group";
@@ -1636,8 +1636,8 @@ export interface components {
                 jid?: string;
                 /** @description The group's name. */
                 name?: string;
-                /** @description The contact's display name within this group, if set. */
-                nickname?: string;
+                /** @description The contact's per-group member tag (a second per-group identity WhatsApp shows beside the name), if any. */
+                tag?: string;
                 /**
                  * @description The contact's role in the group. `member`; `admin`; `superadmin` = the group creator.
                  * @enum {string}
@@ -1687,12 +1687,12 @@ export interface components {
             /** @description The group's members. */
             participants?: components["schemas"]["GroupMember"][];
         };
-        /** @description One member of a group. */
+        /** @description One member of a group (the identity↔group pivot row). */
         GroupMember: {
-            /** @description The member's JID. */
-            jid?: string;
-            /** @description The member's display name within this group, if set. */
-            nickname?: string;
+            /** @description The member's LID (canonical, the identity key). */
+            lid?: string;
+            /** @description The per-group member tag WhatsApp shows beside the name, if any. */
+            tag?: string;
             /**
              * @description `member`; `admin`; `superadmin` = the group creator.
              * @enum {string}

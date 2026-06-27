@@ -110,10 +110,10 @@ type NormalizedGroup struct {
 
 // NormalizedMember is one group participant for whatsapp_group_members upserts.
 type NormalizedMember struct {
-	LID      string
-	JID      string
-	Nickname string // per-group display name (group_nickname)
-	Role     domain.GroupRole
+	LID  string
+	JID  string
+	Tag  string // per-group member tag (pivot)
+	Role domain.GroupRole
 }
 
 // NormalizedReceipt carries the fields needed to update message status/ack.

@@ -57,7 +57,7 @@ func groupMessage() *NormalizedMessage {
 			Subject:  "Lunch Crew",
 		},
 		Members: []NormalizedMember{
-			{LID: "222@lid", JID: "628222@s.whatsapp.net", Nickname: "Bobby", Role: domain.RoleAdmin},
+			{LID: "222@lid", JID: "628222@s.whatsapp.net", Tag: "Bobby", Role: domain.RoleAdmin},
 			{LID: "333@lid", JID: "628333@s.whatsapp.net"}, // role defaults to member
 		},
 	}
@@ -67,8 +67,8 @@ func event(typ string) domain.Event {
 	return domain.NewEvent(typ, testSession, testOrganization, map[string]any{"x": 1})
 }
 
-// TestProcess_DMCapture verifies a DM message captures identity + contact with
-// seen_in_dm set, bumps message_count, and persists chat + message; no group rows.
+// TestProcess_DMCapture verifies a DM message captures the identity and persists
+// chat + message; no group rows (DM "found" is later derived from the chat).
 func TestProcess_DMCapture(t *testing.T) {
 	f := newFakes()
 	f.norm.evt = event(domain.EventMessage)
@@ -82,11 +82,6 @@ func TestProcess_DMCapture(t *testing.T) {
 	require.Len(t, f.repos.identities, 1)
 	assert.Equal(t, "111@lid", f.repos.identities[0].LID)
 	assert.Equal(t, "Alice", f.repos.identities[0].Name)
-
-	require.Len(t, f.repos.contacts, 1)
-	c := f.repos.contacts[0]
-	assert.True(t, c.SeenInDM, "DM must set seen_in_dm")
-	assert.True(t, c.BumpMessageCount, "real inbound message bumps count")
 
 	require.Len(t, f.repos.chats, 1)
 	assert.Equal(t, domain.ChatDM, f.repos.chats[0].Type)
@@ -103,7 +98,7 @@ func TestProcess_DMCapture(t *testing.T) {
 }
 
 // TestProcess_GroupCapture verifies a group message captures group + members
-// (with default-member role fill), and does NOT set seen_in_dm.
+// (with default-member role fill).
 func TestProcess_GroupCapture(t *testing.T) {
 	f := newFakes()
 	f.norm.evt = event(domain.EventMessage)
@@ -112,15 +107,12 @@ func TestProcess_GroupCapture(t *testing.T) {
 
 	require.NoError(t, p.Process(context.Background(), testSession, testOrganization, false, struct{}{}))
 
-	require.Len(t, f.repos.contacts, 1)
-	assert.False(t, f.repos.contacts[0].SeenInDM, "group sighting must NOT set seen_in_dm")
-
 	require.Len(t, f.repos.groups, 1)
 	assert.Equal(t, "12036@g.us", f.repos.groups[0].GroupJID)
 
 	require.Len(t, f.repos.members, 2)
 	assert.Equal(t, domain.RoleAdmin, f.repos.members[0].Role)
-	assert.Equal(t, "Bobby", f.repos.members[0].Nickname)
+	assert.Equal(t, "Bobby", f.repos.members[0].Tag)
 	assert.Equal(t, domain.RoleMember, f.repos.members[1].Role, "empty role defaults to member")
 }
 
@@ -195,7 +187,6 @@ func TestProcess_InterceptorDrop(t *testing.T) {
 			if tc.wantDropped {
 				// Nothing persisted/emitted/counted.
 				assert.Empty(t, f.repos.identities, "dropped: no identity")
-				assert.Empty(t, f.repos.contacts, "dropped: no contact (not counted)")
 				assert.Empty(t, f.repos.messages, "dropped: not persisted")
 				assert.Empty(t, f.repos.eventLog, "dropped: no event_log")
 				assert.Empty(t, f.sink.published, "dropped: not emitted")
@@ -303,7 +294,7 @@ func TestProcess_AutoReadDisabled(t *testing.T) {
 }
 
 // TestProcess_Receipt verifies the receipt path updates message status/ack and
-// does not insert a message, bump a contact count, or auto-read.
+// does not insert a message or auto-read.
 func TestProcess_Receipt(t *testing.T) {
 	f := newFakes()
 	f.norm.evt = event(domain.EventMessageStatus)
@@ -333,9 +324,6 @@ func TestProcess_Receipt(t *testing.T) {
 
 	assert.Empty(t, f.repos.messages, "receipt inserts no message")
 	assert.Empty(t, f.wa.readReceipts, "receipt does not auto-read")
-	// identity refreshed but message_count NOT bumped
-	require.Len(t, f.repos.contacts, 1)
-	assert.False(t, f.repos.contacts[0].BumpMessageCount)
 	// still fanned out
 	assert.Len(t, f.sink.published, 1)
 }
@@ -405,7 +393,7 @@ func TestProcess_NormalizeDrop(t *testing.T) {
 }
 
 // TestProcess_FromMeEcho verifies an own-number echo is persisted as direction
-// out, does not bump contact count, and is not auto-read.
+// out and is not auto-read.
 func TestProcess_FromMeEcho(t *testing.T) {
 	f := newFakes()
 	f.norm.evt = event(domain.EventMessageFromMe)
@@ -420,8 +408,6 @@ func TestProcess_FromMeEcho(t *testing.T) {
 
 	require.Len(t, f.repos.messages, 1)
 	assert.Equal(t, domain.DirectionOut, f.repos.messages[0].Direction)
-	require.Len(t, f.repos.contacts, 1)
-	assert.False(t, f.repos.contacts[0].BumpMessageCount, "echo does not count peer")
 	assert.Empty(t, f.wa.readReceipts, "echo is not auto-read")
 }
 
@@ -475,7 +461,7 @@ func TestProcess_AutoReadErrorNonFatal(t *testing.T) {
 }
 
 // TestProcess_NoSenderSkipsIdentity verifies events without sender info still
-// persist/fan-out but skip identity/contact capture.
+// persist/fan-out but skip identity capture.
 func TestProcess_NoSenderSkipsIdentity(t *testing.T) {
 	f := newFakes()
 	f.norm.evt = event(domain.EventChatUpdate)
@@ -487,8 +473,50 @@ func TestProcess_NoSenderSkipsIdentity(t *testing.T) {
 
 	require.NoError(t, p.Process(context.Background(), testSession, testOrganization, false, struct{}{}))
 	assert.Empty(t, f.repos.identities)
-	assert.Empty(t, f.repos.contacts)
 	assert.Len(t, f.sink.published, 1)
+}
+
+// TestProcess_SystemMessageDropped verifies a content-less system message still
+// captures the sender's identity but is not persisted to messages nor fanned out.
+func TestProcess_SystemMessageDropped(t *testing.T) {
+	f := newFakes()
+	f.norm.evt = event(domain.EventMessage)
+	nm := dmMessage()
+	nm.MsgType = "system"
+	nm.Body = ""
+	f.norm.nm = nm
+	p := f.newPipeline()
+
+	require.NoError(t, p.Process(context.Background(), testSession, testOrganization, false, struct{}{}))
+
+	require.Len(t, f.repos.identities, 1, "identity still captured")
+	assert.Empty(t, f.repos.chats, "no chat upsert for a dropped system message")
+	assert.Empty(t, f.repos.messages, "system message not persisted")
+	assert.Empty(t, f.sink.published, "system message not fanned out")
+	assert.Empty(t, f.repos.eventLog, "system message not logged")
+}
+
+// TestProcess_PushNameFill verifies a sender-less push-name sighting (a
+// contact.update / push-name event) fills an existing identity's name via
+// FillIdentityName instead of upserting a new identity, and still fans out.
+func TestProcess_PushNameFill(t *testing.T) {
+	f := newFakes()
+	f.norm.evt = event(domain.EventContactUpdate)
+	f.norm.nm = &NormalizedMessage{
+		Kind:      KindOther,
+		ChatJID:   "628111@s.whatsapp.net",
+		SenderJID: "628111@s.whatsapp.net",
+		PushName:  "Alice",
+	}
+	p := f.newPipeline()
+
+	require.NoError(t, p.Process(context.Background(), testSession, testOrganization, false, struct{}{}))
+
+	assert.Empty(t, f.repos.identities, "no identity insert from a name hint")
+	require.Len(t, f.repos.nameFills, 1)
+	assert.Equal(t, "628111@s.whatsapp.net", f.repos.nameFills[0].JID)
+	assert.Equal(t, "Alice", f.repos.nameFills[0].Name)
+	assert.Len(t, f.sink.published, 1, "contact update still fans out")
 }
 
 // TestNoopCommandRegistry confirms the v1 registry recognizes nothing.

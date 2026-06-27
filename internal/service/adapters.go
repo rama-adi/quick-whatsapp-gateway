@@ -204,28 +204,8 @@ func (r *InboundRepos) UpsertIdentity(ctx context.Context, in inbound.IdentityUp
 	})
 }
 
-func (r *InboundRepos) UpsertContact(ctx context.Context, in inbound.ContactUpsert) error {
-	var dmSeen *int64
-	if in.SeenInDM {
-		dmSeen = &in.NowMs
-	}
-	if err := r.store.Contacts.Upsert(ctx, domain.Contact{
-		SessionID:     in.SessionID,
-		LID:           in.LID,
-		Phone:         domain.PhoneFromJID(in.LID),
-		SeenInDM:      in.SeenInDM,
-		DMFirstSeenAt: dmSeen,
-		DMLastSeenAt:  dmSeen,
-		MessageCount:  0,
-		FirstSeenAt:   in.NowMs,
-		LastSeenAt:    in.NowMs,
-	}); err != nil {
-		return err
-	}
-	if in.BumpMessageCount {
-		return r.store.Contacts.BumpSeen(ctx, in.SessionID, in.LID, in.NowMs)
-	}
-	return nil
+func (r *InboundRepos) FillIdentityName(ctx context.Context, in inbound.IdentityNameFill) error {
+	return r.store.Identities.FillNameByJID(ctx, in.JID, in.Name, in.NowMs)
 }
 
 func (r *InboundRepos) UpsertGroup(ctx context.Context, in inbound.GroupUpsert) error {
@@ -245,13 +225,13 @@ func (r *InboundRepos) UpsertGroup(ctx context.Context, in inbound.GroupUpsert) 
 
 func (r *InboundRepos) UpsertGroupMember(ctx context.Context, in inbound.GroupMemberUpsert) error {
 	return r.store.GroupMembers.Upsert(ctx, domain.GroupMember{
-		SessionID:     in.SessionID,
-		GroupJID:      in.GroupJID,
-		LID:           in.LID,
-		GroupNickname: stringPtr(in.Nickname),
-		Role:          in.Role,
-		FirstSeenAt:   in.NowMs,
-		LastSeenAt:    in.NowMs,
+		SessionID:   in.SessionID,
+		GroupJID:    in.GroupJID,
+		LID:         in.LID,
+		Tag:         stringPtr(in.Tag),
+		Role:        in.Role,
+		FirstSeenAt: in.NowMs,
+		LastSeenAt:  in.NowMs,
 	})
 }
 
@@ -394,6 +374,23 @@ func inboundMessageFromPersistResult(pr events.PersistResult, ev domain.Event, s
 			},
 			RawJSON: eventPayloadJSON(ev),
 		}
+	case events.PersistContactUpdate:
+		// A push-name / contact event carries a display name for a JID but no
+		// canonical LID. Surface it as a sender-less name hint so capture fills an
+		// existing identity's missing name (push name preferred over saved name).
+		name := pr.PushName
+		if name == "" {
+			name = pr.ContactName
+		}
+		return &inbound.NormalizedMessage{
+			Kind:           inbound.KindOther,
+			SessionID:      sessionID,
+			OrganizationID: organizationID,
+			ChatJID:        pr.ContactJID,
+			SenderJID:      pr.ContactJID,
+			PushName:       name,
+			RawJSON:        eventPayloadJSON(ev),
+		}
 	default:
 		return &inbound.NormalizedMessage{
 			Kind:           inbound.KindOther,
@@ -450,10 +447,13 @@ func inboundMessageFromEventsMessage(m *events.NormalizedMessage, kind inbound.M
 	if nm.IsGroup {
 		nm.Group = &inbound.NormalizedGroup{GroupJID: m.ChatJID}
 		if senderLID != "" {
+			// A message records the sender's MEMBERSHIP; the push name belongs to
+			// the identity (captured separately). The per-group tag isn't carried on
+			// a message, so leave it empty (backfill / group-info fills it).
 			nm.Members = append(nm.Members, inbound.NormalizedMember{
-				LID:      senderLID,
-				JID:      senderJID,
-				Nickname: m.PushName,
+				LID:  senderLID,
+				JID:  senderJID,
+				Role: domain.RoleMember,
 			})
 		}
 	}

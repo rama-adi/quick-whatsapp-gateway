@@ -23,10 +23,10 @@ api-key `reference_id`, never by joining `member` on the hot path ([`trust-model
 | `wa_sessions` | `SessionRepo` | `organization_id` (+ `gateway_id` pin) |
 | `webhooks` | `WebhookRepo` | `organization_id` |
 | `webhook_deliveries` | `WebhookDeliveryRepo` | via `webhook_id` |
-| `whatsapp_identities` | `IdentityRepo` | global |
-| `whatsapp_contacts` | `ContactRepo` | via `session_id` |
+| `whatsapp_identities` | `IdentityRepo` | global (central identity, canonical LID) |
+| _(no contacts table)_ | `ContactRepo` | projection over identities + chats(DM) + members, scoped via `session_id` |
 | `whatsapp_groups` | `GroupRepo` | global |
-| `whatsapp_group_members` | `GroupMemberRepo` | via `session_id` |
+| `whatsapp_group_members` | `GroupMemberRepo` | identity↔group pivot (role + `tag`), via `session_id` |
 | `chats` | `ChatRepo` | via `session_id` |
 | `messages` | `MessageRepo` | via `session_id` |
 | `poll_votes` | `PollVoteRepo` | via `session_id` |
@@ -88,8 +88,9 @@ invokes the binary. The auth plane is migrated separately by drizzle-kit in the 
 ## Decisions (carried from v1, still apply)
 
 - **Upserts** via `ON DUPLICATE KEY UPDATE` on the natural unique key; capture upserts use
-  `COALESCE(VALUES(col), col)` so a sparse later sighting never wipes a known value; `seen_in_dm`
-  is OR-ed; `chats.last_message_at` only moves forward via `GREATEST`.
+  `COALESCE(VALUES(col), col)` so a sparse later sighting never wipes a known value (e.g. a
+  resolved push name survives a later nameless sighting); `chats.last_message_at` only moves
+  forward via `GREATEST`.
 - **Field ownership / no clobber.** Content upserts omit fields with dedicated mutators
   (`messages.status/edited/deleted`, `chats` user flags), so a redelivered capture can't regress a
   receipt.

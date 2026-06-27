@@ -142,6 +142,18 @@ func (p *Pipeline) Process(ctx context.Context, sessionID, organizationID string
 		return fmt.Errorf("inbound capture: %w", err)
 	}
 
+	// Content-less system/control traffic (the classifier's unrecognized-content
+	// fallthrough: E2E-encryption notices, ephemeral settings, sender-key
+	// distribution, …) carries no displayable body. Capture has already refreshed
+	// the sender's identity; drop the rest so these never land in `messages` or
+	// fan out as empty "system" events. Real WhatsApp renders group notices from
+	// typed group events, not from these.
+	if nm.Kind == KindMessage && nm.MsgType == "system" {
+		p.log.DebugContext(ctx, "inbound: dropped content-less system message",
+			slog.String("session", sessionID))
+		return nil
+	}
+
 	// Stage 4: persist (chats, messages, poll votes, receipt status).
 	if err := p.persist(ctx, nm); err != nil {
 		return fmt.Errorf("inbound persist: %w", err)

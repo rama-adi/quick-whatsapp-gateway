@@ -72,7 +72,7 @@ type fakeRepos struct {
 	order *callOrder
 
 	identities []IdentityUpsert
-	contacts   []ContactUpsert
+	nameFills  []IdentityNameFill
 	groups     []GroupUpsert
 	members    []GroupMemberUpsert
 	chats      []ChatUpsert
@@ -105,12 +105,12 @@ func (r *fakeRepos) UpsertIdentity(ctx context.Context, in IdentityUpsert) error
 	return nil
 }
 
-func (r *fakeRepos) UpsertContact(ctx context.Context, in ContactUpsert) error {
-	r.order.record("UpsertContact")
-	if err := r.maybeFail("UpsertContact"); err != nil {
+func (r *fakeRepos) FillIdentityName(ctx context.Context, in IdentityNameFill) error {
+	r.order.record("FillIdentityName")
+	if err := r.maybeFail("FillIdentityName"); err != nil {
 		return err
 	}
-	r.contacts = append(r.contacts, in)
+	r.nameFills = append(r.nameFills, in)
 	return nil
 }
 

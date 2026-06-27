@@ -1,16 +1,15 @@
 // Contacts surface — server-side hybrid READS (§6.2). Colocated server functions
-// that read the GATEWAY-OWNED identity/contacts/groups tables directly via
-// Drizzle for SSR/loader hydration, mapped into the OpenAPI DTO shapes the
-// gateway REST API returns (Contact / ContactDetail / Page<Contact>) so the
-// client hooks (useContacts / useContact) hydrate from the seeded cache.
+// that read the GATEWAY-OWNED identity/group tables directly via Drizzle for
+// SSR/loader hydration, mapped into the OpenAPI DTO shapes the gateway REST API
+// returns (Contact / ContactDetail / Page<Contact>) so the client hooks
+// (useContacts / useContact) hydrate from the seeded cache.
 //
-// READ-ONLY (single-writer = gateway, §6.2). Gated to the caller's active org:
-// the session must belong to the active organization before exposing its data.
+// READ-ONLY (single-writer = gateway, §6.2). Gated to the caller's active org.
 //
-// Filters mirror the gateway's contact list query (?q=&source=&group=). The
-// list joins whatsapp_contacts (per-session, the "found in DM" flag) with the
-// global whatsapp_identities (name/phone), and optionally with
-// whatsapp_group_members (source=group / a specific group).
+// "Found users" is a PROJECTION over the central whatsapp_identities table:
+// there is no contacts table. A person is found in a DM when the session has a
+// `chats` row (type='dm') whose peer is their LID/phone, and in a group via
+// whatsapp_group_members. This mirrors the gateway's ContactRepo query.
 
 import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "~/lib/auth/middleware";
@@ -56,18 +55,35 @@ export const fetchContactsPage = createServerFn({ method: "GET" })
     if (!ok) return { data: [], nextCursor: null };
 
     const { db } = await import("~/lib/db");
-    const { whatsappContacts, whatsappIdentities, whatsappGroupMembers } =
-      await import("~/lib/db/wa");
-    const { and, eq, gt, like, or, asc } = await import("drizzle-orm");
+    const { whatsappIdentities } = await import("~/lib/db/wa");
+    const { and, eq, gt, like, or, asc, sql } = await import("drizzle-orm");
 
+    // Per-session "found" signals, correlated to each identity row.
+    const dmExists = sql<boolean>`EXISTS (SELECT 1 FROM chats ch
+      WHERE ch.session_id = ${sessionId} AND ch.type = 'dm'
+        AND (ch.chat_jid = ${whatsappIdentities.lid}
+          OR (${whatsappIdentities.phoneJid} IS NOT NULL AND ch.chat_jid = ${whatsappIdentities.phoneJid})))`;
+    const groupExists = sql<boolean>`EXISTS (SELECT 1 FROM whatsapp_group_members gm
+      WHERE gm.session_id = ${sessionId} AND gm.lid = ${whatsappIdentities.lid})`;
+
+    const conds = [];
     const cursorId = cursor ? Number(cursor) : undefined;
-    const conds = [eq(whatsappContacts.sessionId, sessionId)];
-
     if (cursorId !== undefined && Number.isFinite(cursorId)) {
       conds.push(gt(whatsappIdentities.id, cursorId));
     }
-    if (filter.source === "dm") {
-      conds.push(eq(whatsappContacts.seenInDm, 1));
+    if (filter.group) {
+      conds.push(
+        sql`EXISTS (SELECT 1 FROM whatsapp_group_members gm
+          WHERE gm.session_id = ${sessionId} AND gm.lid = ${whatsappIdentities.lid}
+            AND gm.group_jid = ${filter.group})`,
+      );
+    } else if (filter.source === "dm") {
+      conds.push(dmExists);
+    } else if (filter.source === "group") {
+      conds.push(groupExists);
+    } else {
+      const anywhere = or(dmExists, groupExists);
+      if (anywhere) conds.push(anywhere);
     }
     if (filter.q) {
       const term = `%${filter.q}%`;
@@ -79,55 +95,20 @@ export const fetchContactsPage = createServerFn({ method: "GET" })
       if (m) conds.push(m);
     }
 
-    // source=group / a specific group => restrict to lids present as members.
-    const groupScoped = filter.source === "group" || Boolean(filter.group);
-
-    const baseSelect = {
-      identityId: whatsappIdentities.id,
-      lid: whatsappIdentities.lid,
-      phoneNumber: whatsappIdentities.phoneNumber,
-      name: whatsappIdentities.name,
-      businessName: whatsappIdentities.businessName,
-      seenInDm: whatsappContacts.seenInDm,
-    };
-
-    let rows: IdentityRow[];
-
-    if (groupScoped) {
-      const groupConds = [...conds];
-      if (filter.group) {
-        groupConds.push(eq(whatsappGroupMembers.groupJid, filter.group));
-      }
-      rows = await db
-        .select(baseSelect)
-        .from(whatsappContacts)
-        .innerJoin(
-          whatsappIdentities,
-          eq(whatsappIdentities.lid, whatsappContacts.lid),
-        )
-        .innerJoin(
-          whatsappGroupMembers,
-          and(
-            eq(whatsappGroupMembers.sessionId, whatsappContacts.sessionId),
-            eq(whatsappGroupMembers.lid, whatsappContacts.lid),
-          ),
-        )
-        .where(and(...groupConds))
-        .groupBy(whatsappIdentities.id)
-        .orderBy(asc(whatsappIdentities.id))
-        .limit(PAGE_LIMIT + 1);
-    } else {
-      rows = await db
-        .select(baseSelect)
-        .from(whatsappContacts)
-        .innerJoin(
-          whatsappIdentities,
-          eq(whatsappIdentities.lid, whatsappContacts.lid),
-        )
-        .where(and(...conds))
-        .orderBy(asc(whatsappIdentities.id))
-        .limit(PAGE_LIMIT + 1);
-    }
+    const rows = await db
+      .select({
+        identityId: whatsappIdentities.id,
+        lid: whatsappIdentities.lid,
+        phoneNumber: whatsappIdentities.phoneNumber,
+        name: whatsappIdentities.name,
+        businessName: whatsappIdentities.businessName,
+        inDm: dmExists,
+        inGroup: groupExists,
+      })
+      .from(whatsappIdentities)
+      .where(and(...conds))
+      .orderBy(asc(whatsappIdentities.id))
+      .limit(PAGE_LIMIT + 1);
 
     const hasMore = rows.length > PAGE_LIMIT;
     const pageRows = hasMore ? rows.slice(0, PAGE_LIMIT) : rows;
@@ -153,42 +134,40 @@ export const fetchContactDetail = createServerFn({ method: "GET" })
     if (!ok) return null;
 
     const { db } = await import("~/lib/db");
-    const {
-      whatsappContacts,
-      whatsappIdentities,
-      whatsappGroupMembers,
-      whatsappGroups,
-    } = await import("~/lib/db/wa");
-    const { and, eq } = await import("drizzle-orm");
+    const { whatsappIdentities, whatsappGroupMembers, whatsappGroups } =
+      await import("~/lib/db/wa");
+    const { and, eq, sql } = await import("drizzle-orm");
 
     const idRows = await db
       .select({
-        identityId: whatsappIdentities.id,
         lid: whatsappIdentities.lid,
         phoneNumber: whatsappIdentities.phoneNumber,
         name: whatsappIdentities.name,
         businessName: whatsappIdentities.businessName,
-        seenInDm: whatsappContacts.seenInDm,
+        phoneJid: whatsappIdentities.phoneJid,
       })
       .from(whatsappIdentities)
-      .leftJoin(
-        whatsappContacts,
-        and(
-          eq(whatsappContacts.lid, whatsappIdentities.lid),
-          eq(whatsappContacts.sessionId, sessionId),
-        ),
-      )
       .where(eq(whatsappIdentities.lid, lid))
       .limit(1);
 
     const idRow = idRows[0];
     if (!idRow) return null;
 
+    const dmRows = await db
+      .select({
+        found: sql<boolean>`EXISTS (SELECT 1 FROM chats
+          WHERE session_id = ${sessionId} AND type = 'dm'
+            AND (chat_jid = ${lid}
+              OR (${idRow.phoneJid} IS NOT NULL AND chat_jid = ${idRow.phoneJid})))`,
+      })
+      .from(sql`DUAL`);
+    const dm = Boolean(dmRows[0]?.found);
+
     const groupRows = await db
       .select({
         jid: whatsappGroupMembers.groupJid,
         name: whatsappGroups.subject,
-        nickname: whatsappGroupMembers.groupNickname,
+        tag: whatsappGroupMembers.tag,
         role: whatsappGroupMembers.role,
         lastSeen: whatsappGroupMembers.lastSeenAt,
       })
@@ -205,37 +184,43 @@ export const fetchContactDetail = createServerFn({ method: "GET" })
       );
 
     return {
-      identity: rowToContact(idRow),
-      dm: Boolean(idRow.seenInDm),
+      identity: rowToContact({
+        lid: idRow.lid,
+        phoneNumber: idRow.phoneNumber,
+        name: idRow.name,
+        businessName: idRow.businessName,
+        inDm: dm,
+        inGroup: groupRows.length > 0,
+      }),
+      dm,
       groups: groupRows.map((g) => ({
         jid: g.jid,
         name: g.name ?? undefined,
-        nickname: g.nickname ?? undefined,
+        tag: g.tag ?? undefined,
         role: g.role,
         lastSeen: g.lastSeen ?? undefined,
       })),
     };
   });
 
-// ===== row -> DTO mappers (mirror the gateway's REST response shapes) =====
+// ===== row -> DTO mapper (mirrors the gateway's REST Contact shape) =====
 
 type IdentityRow = {
-  identityId: number;
   lid: string;
   phoneNumber: string | null;
   name: string | null;
   businessName: string | null;
-  seenInDm: number | null;
+  inDm: boolean;
+  inGroup: boolean;
 };
 
 function rowToContact(r: IdentityRow): Contact {
-  // The schema has no separate push-name column; surface the business name as
-  // the push name fallback (the gateway REST does the same enrichment).
   return {
     lid: r.lid,
     phoneNumber: r.phoneNumber ?? undefined,
     name: r.name ?? undefined,
-    pushName: r.businessName ?? undefined,
-    source: r.seenInDm ? "dm" : "group",
+    businessName: r.businessName ?? undefined,
+    // A direct relationship is the stronger signal; else it's a group find.
+    source: r.inDm ? "dm" : "group",
   };
 }

@@ -75,8 +75,15 @@ export function MessageBubble({
   /** First message of a same-sender run shows the header; later ones don't. */
   showSender?: boolean;
 }) {
-  const outgoing = message.direction === "out";
   const parsed = parseMessage(message);
+
+  // System/protocol rows (E2E-encryption notices, ephemeral settings, sender-key
+  // distribution, …) carry no human-readable body — their stored body is raw
+  // event JSON. The gateway drops these going forward; legacy rows already in the
+  // DB render as nothing so they never show JSON garbage in the timeline.
+  if (parsed.kind === "system") return null;
+
+  const outgoing = message.direction === "out";
   const extras = parseExtras(message);
   const sender = !outgoing && showSender ? senderLabel(message) : undefined;
   const align = outgoing ? "end" : "start";
@@ -286,6 +293,11 @@ function MessageBody({
           </div>
         </div>
       );
+
+    case "system":
+      // Handled by the centered-notice early return in MessageBubble; never
+      // reaches the bubble body. Render nothing as a safety net.
+      return null;
 
     case "unknown":
     default:

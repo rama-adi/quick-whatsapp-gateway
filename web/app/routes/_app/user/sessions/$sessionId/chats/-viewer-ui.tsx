@@ -109,6 +109,7 @@ export type ParsedMessage =
   | { kind: "poll"; name?: string; options: string[] }
   | { kind: "location"; latitude?: number; longitude?: number; name?: string }
   | { kind: "contact"; name?: string; phone?: string }
+  | { kind: "system" }
   | { kind: "unknown"; type?: string; text?: string };
 
 /**
@@ -123,6 +124,12 @@ export function parseMessage(m: Message): ParsedMessage {
 
   if (type === "text" || type === "chat" || type === "") {
     return { kind: "text", text: body };
+  }
+
+  if (type === "system") {
+    // Content-less group/protocol notices. The gateway drops these going
+    // forward; legacy rows render as nothing (their body is raw event JSON).
+    return { kind: "system" };
   }
 
   if (MEDIA_TYPES.has(type)) {

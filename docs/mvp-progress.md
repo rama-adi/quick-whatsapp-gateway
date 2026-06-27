@@ -70,6 +70,15 @@ e2e smoke against a live WhatsApp number.
   their owning R-milestone. (Masterplan §17 R0.)
 - **Forward-compat:** `gateways` registry + `wa_sessions.gateway_id` so multi-gateway is
   additive.
+- **Identity model (single central table):** one `whatsapp_identities` row per person,
+  keyed by the **canonical non-AD LID** (the `:device` suffix is stripped at capture and
+  backfill, collapsing the duplicate rows that made identities inconsistent). The
+  per-session `whatsapp_contacts` table is **removed** — "found in DM" is derived from the
+  `chats` table; group membership is the `whatsapp_group_members` **pivot** (identity ↔
+  group) carrying `role` + a per-group **`tag`** (the second per-group identity WhatsApp
+  shows beside the push name). Backfill seeds identities for every group participant and
+  resolves push names from the contact store. (Migration `0002_identity_redesign`; identity
+  tables wiped for a clean re-backfill. See `docs/specs/contacts.md`, `resources.md`.)
 
 ## Open risks / follow-ups
 

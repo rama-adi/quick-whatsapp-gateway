@@ -140,29 +140,9 @@ export const whatsappIdentities = mysqlTable(
   ],
 );
 
-export const whatsappContacts = mysqlTable(
-  "whatsapp_contacts",
-  {
-    id: bigint("id", { mode: "number", unsigned: true })
-      .autoincrement()
-      .primaryKey(),
-    sessionId: varchar("session_id", { length: 64 }).notNull(),
-    lid: varchar("lid", { length: 255 }).notNull(),
-    // bare phone, set only when `lid` is a "@s.whatsapp.net" JID (else null)
-    phone: varchar("phone", { length: 64 }),
-    seenInDm: tinyint("seen_in_dm").notNull().default(0),
-    dmFirstSeenAt: bigint("dm_first_seen_at", { mode: "number" }),
-    dmLastSeenAt: bigint("dm_last_seen_at", { mode: "number" }),
-    messageCount: bigint("message_count", { mode: "number" }).notNull().default(0),
-    firstSeenAt: bigint("first_seen_at", { mode: "number" }).notNull(),
-    lastSeenAt: bigint("last_seen_at", { mode: "number" }).notNull(),
-  },
-  (t) => [
-    uniqueIndex("uq_contact").on(t.sessionId, t.lid),
-    index("idx_contact_lid").on(t.lid),
-    index("idx_contact_phone").on(t.phone),
-  ],
-);
+// NOTE: there is no whatsapp_contacts table. "Found users" is a projection over
+// whatsapp_identities, with DM status derived from `chats` (type='dm') and group
+// membership from whatsapp_group_members.
 
 export const whatsappGroups = mysqlTable(
   "whatsapp_groups",
@@ -193,7 +173,8 @@ export const whatsappGroupMembers = mysqlTable(
     sessionId: varchar("session_id", { length: 64 }).notNull(),
     groupJid: varchar("group_jid", { length: 255 }).notNull(),
     lid: varchar("lid", { length: 255 }).notNull(),
-    groupNickname: text("group_nickname"),
+    // per-group member tag (the second per-group identity beside the push name)
+    tag: text("tag"),
     role: mysqlEnum("role", ["member", "admin", "superadmin"])
       .notNull()
       .default("member"),

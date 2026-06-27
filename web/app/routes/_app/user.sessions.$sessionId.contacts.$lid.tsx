@@ -53,7 +53,7 @@ interface ContactsSearch {
 
 function displayName(c: Contact | undefined): string {
   if (!c) return "Unknown";
-  return c.pushName || c.name || c.phoneNumber || c.lid || "Unknown";
+  return c.name || c.businessName || c.phoneNumber || c.lid || "Unknown";
 }
 
 function formatLastSeen(ts: number | undefined): string {
@@ -166,7 +166,7 @@ function ContactDetailRoute() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Group</TableHead>
-                  <TableHead>Nickname</TableHead>
+                  <TableHead>Tag</TableHead>
                   <TableHead>Role</TableHead>
                   <TableHead>Last seen</TableHead>
                   <TableHead className="text-right">Filter</TableHead>
@@ -267,10 +267,9 @@ function IdentityCard({
       </CardHeader>
       <CardContent className="space-y-3">
         <dl className="grid gap-3 text-sm sm:grid-cols-2">
-          {identity?.pushName && identity.pushName !== name && (
-            <Field label="Push name" value={identity.pushName} />
+          {identity?.businessName && identity.businessName !== name && (
+            <Field label="Business name" value={identity.businessName} />
           )}
-          {identity?.name && <Field label="Saved name" value={identity.name} />}
           <Field
             label="About"
             value={
@@ -340,7 +339,7 @@ function GroupMembershipRow({
           </span>
         )}
       </TableCell>
-      <TableCell>{group.nickname || "—"}</TableCell>
+      <TableCell>{group.tag || "—"}</TableCell>
       <TableCell>
         {group.role ? (
           <Badge variant="outline">{ROLE_LABEL[group.role]}</Badge>

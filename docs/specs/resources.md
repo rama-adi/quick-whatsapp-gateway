@@ -97,6 +97,33 @@ cached contacts plus joined group metadata and memberships. Ordinary historical 
 messages are still delivered by WhatsApp HistorySync events, not by a generic
 "fetch all messages" API.
 
+Backfill is **best-effort**: contacts and groups are fetched independently and a
+failure in one does not discard the other; the job only fails when both sources
+fail. Identity capture is the reliability focus (`wa.LiveOps.BackfillSessionData`,
+`AdminService.persistBackfill`):
+
+- **Every LID is canonicalized to non-AD form** (`types.JID.ToNonAD()`, dropping the
+  `:device` part) before it is written — to `whatsapp_identities`, `whatsapp_group_members`,
+  and message `sender_lid` (in `events.normalizeMessage`). This collapses the
+  per-device duplicate identity rows and keeps the `messages.sender_lid → whatsapp_identities.lid`
+  join (resources/chat reads) reliable.
+- **Identities are keyed by LID, never a phone JID.** Contacts whose store key is a
+  phone JID are mapped to their LID via `Store.LIDs.GetLIDForPN`; `phone_number` /
+  `phone_jid` columns are populated from the phone, and the LID↔phone direction is
+  filled with `GetPNForLID`. A contact with no resolvable LID is skipped (real
+  participants are still captured from group membership + message capture).
+- **Group participants seed identities too.** The previous backfill only mirrored the
+  contact store, so most group members had no identity row and their messages showed
+  no sender. Each participant now upserts a LID-keyed identity (phone from
+  `GroupParticipant.PhoneNumber`). Member **push names** are resolved from the contact
+  store: `GetAllContacts` is fetched once and indexed by canonical LID / phone, then
+  each participant is labeled from that index. WhatsApp does *not* carry push names in
+  group metadata (`GroupParticipant.DisplayName` is only an obfuscated phone for
+  anonymous users, and `GetUserInfo` returns business `VerifiedName`, not push name) —
+  the contact store, populated from message traffic / app-state sync, is the only
+  source. Names are `COALESCE`d on upsert, so a member with no push name yet stays
+  unnamed until message capture fills it; obfuscated display names are never stored.
+
 ## Media (cross-cutting)
 
 Media send types (image/video/audio/document/sticker) and image status return

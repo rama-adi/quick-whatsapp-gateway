@@ -1839,9 +1839,9 @@ components:
       properties:
         lid: { type: string, description: "The contact's linked-device id (LID) — WhatsApp's privacy-preserving address, used as the stable key for a contact." }
         phoneNumber: { type: string, description: "The contact's phone number, when known." }
-        name: { type: string, description: "The contact's saved name, when known." }
-        pushName: { type: string, description: The display name the contact set for themselves. }
-        source: { type: string, description: "Where this session first saw the contact. `dm` = in a direct chat; `group` = in a group.", enum: [dm, group] }
+        name: { type: string, description: "The contact's display (push) name, when known." }
+        businessName: { type: string, description: "The verified business name, for business accounts." }
+        source: { type: string, description: "Where this session encountered the contact. `dm` = a direct chat exists; `group` = seen in a group.", enum: [dm, group] }
     ContactPage:
       type: object
       description: One page of contacts, plus the cursor for the next page.
@@ -1866,7 +1866,7 @@ components:
             properties:
               jid: { type: string, description: The group's JID. }
               name: { type: string, description: The group's name. }
-              nickname: { type: string, description: "The contact's display name within this group, if set." }
+              tag: { type: string, description: "The contact's per-group member tag (a second per-group identity WhatsApp shows beside the name), if any." }
               role: { type: string, description: "The contact's role in the group. `member`; `admin`; `superadmin` = the group creator.", enum: [member, admin, superadmin] }
               lastSeen: { type: integer, format: int64, description: "When the contact was last seen in this group, in epoch milliseconds." }
     OnWhatsApp:
@@ -1902,10 +1902,10 @@ components:
           items: { $ref: "#/components/schemas/GroupMember" }
     GroupMember:
       type: object
-      description: One member of a group.
+      description: One member of a group (the identity↔group pivot row).
       properties:
-        jid: { type: string, description: The member's JID. }
-        nickname: { type: string, description: "The member's display name within this group, if set." }
+        lid: { type: string, description: "The member's LID (canonical, the identity key)." }
+        tag: { type: string, description: "The per-group member tag WhatsApp shows beside the name, if any." }
         role: { type: string, description: "`member`; `admin`; `superadmin` = the group creator.", enum: [member, admin, superadmin] }
     GroupSettings:
       type: object

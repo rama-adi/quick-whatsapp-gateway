@@ -21,7 +21,9 @@ import (
 func (p *Pipeline) capture(ctx context.Context, nm *NormalizedMessage) error {
 	now := p.now()
 
-	// Identity + contact only make sense when we know who the sender is.
+	// Identity capture only makes sense when we know who the sender is. The central
+	// identity table is the single source of truth — there is no per-session
+	// contact row; DM "found" status is derived from the chats table.
 	if nm.SenderLID != "" {
 		if err := p.repos.UpsertIdentity(ctx, IdentityUpsert{
 			LID:          nm.SenderLID,
@@ -33,19 +35,17 @@ func (p *Pipeline) capture(ctx context.Context, nm *NormalizedMessage) error {
 		}); err != nil {
 			return fmt.Errorf("upsert identity %q: %w", nm.SenderLID, err)
 		}
-
-		// message_count bumps only for real, non-echo messages. Echoes
-		// (FromMe) and receipts/poll-votes/presence don't count the peer as
-		// "messaging us".
-		bump := isContactBumpKind(nm.Kind) && !nm.FromMe
-		if err := p.repos.UpsertContact(ctx, ContactUpsert{
-			SessionID:        nm.SessionID,
-			LID:              nm.SenderLID,
-			SeenInDM:         nm.IsDM,
-			BumpMessageCount: bump,
-			NowMs:            now,
+	} else if nm.PushName != "" && nm.SenderJID != "" {
+		// A push name that isn't tied to a canonical LID (contact.update /
+		// push-name events carry only a JID). Take advantage of it: fill an
+		// existing identity's missing name, matched by lid or phone_jid. This
+		// never inserts and never clobbers a known name.
+		if err := p.repos.FillIdentityName(ctx, IdentityNameFill{
+			JID:   nm.SenderJID,
+			Name:  nm.PushName,
+			NowMs: now,
 		}); err != nil {
-			return fmt.Errorf("upsert contact %q: %w", nm.SenderLID, err)
+			return fmt.Errorf("fill identity name %q: %w", nm.SenderJID, err)
 		}
 	}
 
@@ -74,7 +74,7 @@ func (p *Pipeline) capture(ctx context.Context, nm *NormalizedMessage) error {
 				SessionID: nm.SessionID,
 				GroupJID:  nm.Group.GroupJID,
 				LID:       m.LID,
-				Nickname:  m.Nickname,
+				Tag:       m.Tag,
 				Role:      role,
 				NowMs:     now,
 			}); err != nil {
@@ -84,17 +84,4 @@ func (p *Pipeline) capture(ctx context.Context, nm *NormalizedMessage) error {
 	}
 
 	return nil
-}
-
-// isContactBumpKind reports whether the event kind represents a real inbound
-// message that should increment the contact's message_count.
-func isContactBumpKind(k MessageKind) bool {
-	switch k {
-	case KindMessage:
-		return true
-	default:
-		// edits/revokes mutate an existing message; receipts/poll-votes/other
-		// don't represent a new message from the peer.
-		return false
-	}
 }
