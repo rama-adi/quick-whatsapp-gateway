@@ -1,5 +1,11 @@
 // Live connection indicator bound to the event-stream status.
-// FROZEN — owned by the foundation agent.
+// Owned by the foundation agent.
+//
+// Optional, reusable surface indicator — drop <ConnectionPill/> into any surface
+// that wants to show event-stream liveness. It is NOT mounted in the app top bar
+// (that slot now carries the org switcher). The stream is page-scoped
+// (reference-counted opt-in), so this pill renders nothing on surfaces that
+// haven't requested it — it only reflects liveness where a connection exists.
 
 import { Wifi, WifiOff, Loader2, RefreshCw } from "lucide-react";
 import { Badge } from "~/components/ui/badge";
@@ -7,7 +13,10 @@ import { cn } from "~/lib/utils";
 import { useEventStream } from "~/lib/events/useEventStream";
 
 export function ConnectionPill({ className }: { className?: string }) {
-  const { status, reconnectNow } = useEventStream();
+  const { status, reconnectNow, active } = useEventStream();
+
+  // No surface on this page requested the stream — nothing to indicate.
+  if (!active) return null;
 
   const label =
     status === "open"

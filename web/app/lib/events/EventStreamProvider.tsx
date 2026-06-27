@@ -1,8 +1,12 @@
 // Mounts the single NDJSON event-stream connection and drives the cache bridge.
-// FROZEN — owned by the foundation agent.
+// Owned by the foundation agent. Mounted once at the app shell, but it stays
+// IDLE until a surface opts in.
 //
 // Lifecycle:
-//   - `enabled` flips true once the app shell resolves a session.
+//   - `enabled` is reference-counted: it flips true while ≥1 mounted surface
+//     holds a subscription (useEventStreamSubscription) and back to false when
+//     the last one unmounts. Idle pages never open the socket; navigating
+//     between two live surfaces keeps the count >0 so the connection is reused.
 //   - reconnects use full-jitter backoff, capped at 30s, reset on clean open.
 //   - `since` tracks the last DATA-frame id; the server dedups the boundary.
 //   - a 45s watchdog (server pings ~20s) catches dead-but-open TCP.
@@ -30,15 +34,26 @@ function backoff(attempt: number): number {
 }
 
 export function EventStreamProvider({
-  enabled,
   children,
 }: {
-  enabled: boolean;
   children: React.ReactNode;
 }) {
   const qc = useQueryClient();
   const [status, setStatus] = useState<StreamStatus>("idle");
   const [polling, setPolling] = useState(false);
+
+  // Reference-counted opt-in: the socket is live only while ≥1 mounted surface
+  // holds a subscription. Acquire/release are stable so subscribers can use
+  // them as effect deps without re-running. Net-zero swaps during a route
+  // transition (one release + one acquire) batch into a single re-render, so
+  // the connection is never dropped when moving between two live surfaces.
+  const [subscribers, setSubscribers] = useState(0);
+  const enabled = subscribers > 0;
+  const acquire = useCallback(() => setSubscribers((n) => n + 1), []);
+  const release = useCallback(
+    () => setSubscribers((n) => Math.max(0, n - 1)),
+    [],
+  );
 
   // Mutable refs survive reconnects without re-triggering effects.
   const lastEventId = useRef<string | null>(null);
@@ -193,8 +208,11 @@ export function EventStreamProvider({
       lastEventId: lastEventId.current,
       polling,
       reconnectNow,
+      active: enabled,
+      acquire,
+      release,
     }),
-    [status, polling, reconnectNow],
+    [status, polling, reconnectNow, enabled, acquire, release],
   );
 
   return (

@@ -25,6 +25,7 @@ import {
   useAdminSessions,
   useStartAdminSessionBackfill,
 } from "~/lib/api/hooks/admin";
+import { useEventStreamSubscription } from "~/lib/events/useEventStream";
 import type { WASession } from "~/lib/api/types";
 import { isApiError } from "~/lib/api/envelope";
 import { Button } from "~/components/ui/button";
@@ -52,6 +53,7 @@ export const Route = createFileRoute("/_app/admin/sessions")({
 });
 
 function AdminSessions() {
+  useEventStreamSubscription();
   const q = useAdminSessions();
   const overrides = useLiveSessionStatus();
 

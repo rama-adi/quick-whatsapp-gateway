@@ -105,22 +105,31 @@ export function useSendMessage(
     onSuccess: (result, _body, ctx) => {
       if (!ctx) return;
       const key = qk.chatMessages(s, ctx.chatJid);
+      const realId = result.messageId;
       qc.setQueryData<Infinite>(key, (data) => {
         if (!data) return data;
+        // If the stream echo (message.from_me) already inserted the real
+        // message before this resolved, drop the optimistic tmp instead of
+        // renaming it — renaming would leave two rows sharing the real id.
+        const realExists =
+          realId != null &&
+          data.pages.some((p) => p.data.some((m) => m.id === realId));
         return {
           ...data,
           pages: data.pages.map((p) => ({
             ...p,
-            data: p.data.map((m) =>
-              m.id === ctx.tmpId
-                ? {
-                    ...m,
-                    id: result.messageId ?? m.id,
-                    status: result.status ?? m.status,
-                    timestamp: result.timestamp ?? m.timestamp,
-                  }
-                : m,
-            ),
+            data: realExists
+              ? p.data.filter((m) => m.id !== ctx.tmpId)
+              : p.data.map((m) =>
+                  m.id === ctx.tmpId
+                    ? {
+                        ...m,
+                        id: realId ?? m.id,
+                        status: result.status ?? m.status,
+                        timestamp: result.timestamp ?? m.timestamp,
+                      }
+                    : m,
+                ),
           })),
         };
       });

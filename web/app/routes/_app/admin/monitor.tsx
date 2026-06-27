@@ -1,13 +1,15 @@
 // Admin: global event monitor — live NDJSON firehose tail with type filtering.
 // Reads the shared event bus (events=*, no session filter); it does NOT open its
-// own connection — the single EventStreamProvider (mounted by AppShell) owns
-// that. Ported verbatim from v1 admin/monitor.tsx; only the route shell + the
-// ./-shared import path changed. Guard comes from the parent /admin route.
+// own connection — it opts into the single shared EventStreamProvider via
+// useEventStreamSubscription() so the socket is live while this page is mounted.
+// Ported from v1 admin/monitor.tsx; the route shell + ./-shared import path
+// changed. Guard comes from the parent /admin route.
 
 import { useCallback, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { StreamIndicator, fmtTime } from "./-shared";
 import { useEventBus } from "~/lib/events/eventBus";
+import { useEventStreamSubscription } from "~/lib/events/useEventStream";
 import type { EventEnvelope } from "~/lib/api/types";
 import { Button } from "~/components/ui/button";
 import { Badge } from "~/components/ui/badge";
@@ -29,6 +31,7 @@ export const Route = createFileRoute("/_app/admin/monitor")({
 const MONITOR_CAPACITY = 500;
 
 function AdminMonitor() {
+  useEventStreamSubscription();
   const events = useEventBus(undefined, MONITOR_CAPACITY);
   const [typeFilter, setTypeFilter] = useState<string>("*");
   const [text, setText] = useState("");

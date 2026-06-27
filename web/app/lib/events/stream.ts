@@ -15,13 +15,14 @@
 //   - the filter param is `events` (NOT `types`); default "*".
 //   - `since={id}` replays event_log oldest-first and dedups the boundary,
 //     so callers do NOT need client-side dedup on normal reconnects.
+//   - the stream opens with a {"event":"connected","heartbeatSeconds":N} line.
 //   - heartbeat lines are {"event":"ping"} (~20s), no id/payload.
 //   - an in-band {"event":"error"} line signals replay/stream failure.
 
 import { apiUrl } from "../api/client";
 import { getGatewayToken } from "../api/token-provider";
 import type { EventEnvelope } from "../api/types";
-import { parseNdjson, isPingFrame, isErrorFrame } from "./ndjson";
+import { parseNdjson, isConnectedFrame, isPingFrame, isErrorFrame } from "./ndjson";
 
 /** Why the stream ended; the provider maps these to reconnect/polling. */
 export type StreamErrorKind = "replay_failed" | "http" | "eof" | "network";
@@ -34,9 +35,12 @@ export interface OpenEventStreamOptions {
   /** Replay cursor — last data-frame id seen. Sent as ?since= on reconnect. */
   since?: string;
   signal: AbortSignal;
-  /** Called for every data frame (NOT pings/errors). */
+  /** Called for every data frame (NOT connected/pings/errors). */
   onEvent: (e: EventEnvelope) => void;
-  /** Called for every heartbeat — resets the watchdog, never updates `since`. */
+  /**
+   * Liveness signal — the leading `connected` frame and every heartbeat `ping`.
+   * Resets the watchdog and marks the connection healthy; never updates `since`.
+   */
   onPing: () => void;
   /** Called once when the stream terminates for any reason. */
   onError: (kind: StreamErrorKind, status?: number) => void;
@@ -81,7 +85,9 @@ export async function openEventStream(o: OpenEventStreamOptions): Promise<void> 
 
   try {
     for await (const frame of parseNdjson(res.body, o.signal)) {
-      if (isPingFrame(frame)) {
+      // The leading `connected` frame and periodic pings are both liveness-only:
+      // they prove the socket is open without carrying a data event or cursor.
+      if (isConnectedFrame(frame) || isPingFrame(frame)) {
         o.onPing();
         continue;
       }

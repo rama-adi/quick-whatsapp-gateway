@@ -89,6 +89,8 @@ func TestHandler_NDJSONEncodingAndTail(t *testing.T) {
 		t.Fatalf("content-type = %q", got)
 	}
 
+	expectConnected(t, lines)
+
 	// Give the handler a moment to open its subscription before publishing.
 	waitForPatternSub(t, rig.mr)
 
@@ -117,6 +119,7 @@ func TestHandler_EventTypeFiltering(t *testing.T) {
 	// Only subscribe to message + poll.vote.
 	_, cancel, lines := startStream(t, rig.h, "?events=message,poll.vote")
 	defer cancel()
+	expectConnected(t, lines)
 	waitForPatternSub(t, rig.mr)
 
 	// This one must be filtered OUT.
@@ -139,6 +142,7 @@ func TestHandler_SessionFilter(t *testing.T) {
 
 	_, cancel, lines := startStream(t, rig.h, "?events=*&session=sess_1")
 	defer cancel()
+	expectConnected(t, lines)
 	waitForExactSub(t, rig.mr, sessionChannel("ten_a", "sess_1"))
 
 	// Different session — must not be delivered (different channel entirely).
@@ -157,6 +161,7 @@ func TestHandler_Heartbeat(t *testing.T) {
 
 	_, cancel, lines := startStream(t, rig.h, "?events=*")
 	defer cancel()
+	expectConnected(t, lines)
 	waitForPatternSub(t, rig.mr)
 
 	// Drive a heartbeat tick manually.
@@ -171,6 +176,26 @@ func TestHandler_Heartbeat(t *testing.T) {
 	}
 }
 
+func TestHandler_ConnectedFrameFirst(t *testing.T) {
+	rig := newTestHandler(t, staticOrganization("ten_a"), nil)
+
+	_, cancel, lines := startStream(t, rig.h, "?events=*")
+	defer cancel()
+
+	// The very first line must be the connected frame, before any event or ping.
+	got := recv(t, lines)
+	if got["event"] != "connected" {
+		t.Fatalf("first frame event = %v, want connected", got["event"])
+	}
+	if _, ok := got["timestamp"]; !ok {
+		t.Errorf("connected frame missing timestamp: %v", got)
+	}
+	// Default heartbeat is 20s; it must be advertised so clients can size a timeout.
+	if hb, ok := got["heartbeatSeconds"].(float64); !ok || int(hb) != 20 {
+		t.Errorf("heartbeatSeconds = %v, want 20", got["heartbeatSeconds"])
+	}
+}
+
 func TestHandler_SinceResumeThenTail(t *testing.T) {
 	// Two persisted entries to replay, then a live one to tail.
 	e1 := domain.EventLogEntry{EventID: "evt_1", OrganizationID: "ten_a", SessionID: "sess_1", Type: domain.EventMessage, Payload: json.RawMessage(`{"n":1}`), CreatedAt: 100}
@@ -181,6 +206,7 @@ func TestHandler_SinceResumeThenTail(t *testing.T) {
 
 	_, cancel, lines := startStream(t, rig.h, "?events=*&since=evt_0")
 	defer cancel()
+	expectConnected(t, lines)
 
 	// Replay should come first, in order.
 	got1 := recv(t, lines)
@@ -225,6 +251,7 @@ func TestHandler_SinceDedupBoundary(t *testing.T) {
 
 	_, cancel, lines := startStream(t, rig.h, "?events=*&since=evt_prev")
 	defer cancel()
+	expectConnected(t, lines)
 
 	// Replayed boundary line.
 	got1 := recv(t, lines)
@@ -254,6 +281,7 @@ func TestHandler_ReplayError(t *testing.T) {
 
 	_, cancel, lines := startStream(t, rig.h, "?events=*&since=evt_0")
 	defer cancel()
+	expectConnected(t, lines)
 
 	got := recv(t, lines)
 	if got["event"] != "error" {

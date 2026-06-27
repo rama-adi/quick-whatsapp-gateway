@@ -157,7 +157,15 @@ function ViewerTimeline() {
       (messages.data as InfiniteData<Page<Message>> | undefined)?.pages.flatMap(
         (p) => p.data,
       ) ?? [];
-    return [...flat].sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
+    // Dedupe by id before sorting. A refetch-on-mount (e.g. switching chats)
+    // re-pages with cursors; if a live message was prepended to page 0 while we
+    // were away, the page boundary shifts and the same message can come back in
+    // two adjacent pages. Keep the last occurrence (most recently written).
+    const byId = new Map<string, Message>();
+    for (const m of flat) byId.set(messageId(m), m);
+    return [...byId.values()].sort(
+      (a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0),
+    );
   }, [messages.data]);
 
   const runs = useMemo(() => groupRuns(ordered), [ordered]);
@@ -178,7 +186,7 @@ function ViewerTimeline() {
     <TooltipProvider>
       <section
         aria-label="Conversation"
-        className="flex h-[calc(100vh-12rem)] flex-col rounded-lg border bg-card"
+        className="flex h-full min-h-[60svh] flex-col rounded-lg border bg-card md:min-h-0"
       >
         <header className="flex items-center gap-3 border-b px-4 py-2">
           <ChatAvatar

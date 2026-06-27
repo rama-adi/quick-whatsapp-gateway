@@ -123,6 +123,11 @@ Core types:
 - `setStatus` dedup; event handler terminal-stops-reconnect + tears down + emits
   + still forwards to inbound; `Connected` resets backoff; `PairSuccess` records
   the JID/LID onto the session row.
+- Online presence: the manager announces `PresenceAvailable` on `Connected`, but
+  whatsmeow's `SendPresence` requires a push name that only arrives via app-state
+  sync (after `Connected`) — so it re-announces on `AppStateSyncComplete`, which is
+  when presence actually sticks on a freshly-paired session. A missing push name is
+  benign (debug-logged, retried), not a warning.
 - Lifecycle: `CreateSession` persists + registers + applies rate defaults;
   `Start` rejects unpaired; `Stop` tears down + marks STOPPED; `Logout` calls
   `client.Logout`, deletes the keystore device, marks LOGGED_OUT; not-found

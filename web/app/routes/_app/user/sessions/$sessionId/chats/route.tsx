@@ -25,6 +25,7 @@ import type { Chat } from "~/lib/api/types";
 import type { Page } from "~/lib/api/envelope";
 import { isApiError } from "~/lib/api/envelope";
 import { usePollingInterval, useEventStream } from "~/lib/events/useEventStream";
+import { useFillMain } from "~/components/shell/page-chrome";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
@@ -54,6 +55,9 @@ export const Route = createFileRoute("/_app/user/sessions/$sessionId/chats")({
 
 function ViewerChats() {
   const { sessionId } = Route.useParams();
+  // The chat surface manages its own internal scroll areas, so clamp <main> to
+  // the viewport (the session-detail layout owns the top-bar back/tabs).
+  useFillMain();
   // Read the active child param (chatId) to highlight the selected row; it lives
   // on the nested timeline route, so read the merged params non-strictly.
   const { chatId } = useParams({ strict: false });
@@ -76,28 +80,32 @@ function ViewerChats() {
       (p) => p.data,
     ) ?? [];
 
+  const degraded = status === "polling" || status === "reconnecting";
+
   return (
-    <div className="grid gap-4 md:grid-cols-[300px_1fr]">
+    <div className="grid h-full min-h-0 gap-4 overflow-y-auto p-4 md:grid-cols-[320px_1fr] md:grid-rows-[minmax(0,1fr)] md:overflow-hidden">
       <section
         aria-label="Chats"
-        className="flex max-h-[calc(100vh-12rem)] flex-col rounded-lg border bg-card"
+        className="flex max-h-[45svh] min-h-0 flex-col overflow-hidden rounded-lg border bg-card md:max-h-none"
       >
-        <header className="flex items-center justify-between gap-2 border-b px-3 py-2">
-          <h2 className="text-sm font-semibold">Chats</h2>
-          {status === "polling" || status === "reconnecting" ? (
+        {degraded ? (
+          <header className="flex items-center justify-between gap-2 border-b px-3 py-2">
+            <span className="text-xs font-medium text-muted-foreground">
+              Live updates {status === "polling" ? "paused" : "reconnecting…"}
+            </span>
             <Button
               size="sm"
               variant="ghost"
               className="h-7 px-2 text-xs"
               onClick={reconnectNow}
-              title="Live stream degraded — click to reconnect"
+              title="Reconnect the live stream"
             >
-              {status === "polling" ? "Polling" : "Reconnecting"}
+              Reconnect
             </Button>
-          ) : null}
-        </header>
+          </header>
+        ) : null}
 
-        <ScrollArea className="flex-1">
+        <ScrollArea className="min-h-0 flex-1">
           <ChatListBody
             sessionId={sessionId}
             chatId={chatId}
@@ -122,7 +130,7 @@ function ViewerChats() {
         </ScrollArea>
       </section>
 
-      <div className="min-w-0">
+      <div className="min-h-0 min-w-0">
         <Outlet />
       </div>
     </div>

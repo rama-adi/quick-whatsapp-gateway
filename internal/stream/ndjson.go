@@ -48,6 +48,18 @@ func (l *lineWriter) writeRaw(data []byte) error {
 
 var newline = []byte{'\n'}
 
+// connectedEnvelope is the first line emitted on a freshly-opened stream, before
+// any replay or live tail. It confirms the stream is live immediately — clients
+// otherwise wait up to one heartbeat interval for the first byte — and advertises
+// the heartbeat cadence so a client can size its own dead-stream timeout.
+func connectedEnvelope(heartbeatSecs int) map[string]any {
+	return map[string]any{
+		"event":            "connected",
+		"timestamp":        domain.NowMs(),
+		"heartbeatSeconds": heartbeatSecs,
+	}
+}
+
 // pingEnvelope is the heartbeat line shape (§9: {"event":"ping",...}). It carries
 // a fresh epoch-ms timestamp so clients can measure liveness.
 func pingEnvelope() map[string]any {

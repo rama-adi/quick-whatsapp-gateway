@@ -132,6 +132,16 @@ func startStream(t *testing.T, h *Handler, query string) (*http.Response, contex
 	return resp, cancel, readLines(resp)
 }
 
+// expectConnected consumes and validates the leading "connected" frame that every
+// successfully-opened stream emits before any replay or live tail.
+func expectConnected(t *testing.T, ch <-chan map[string]any) {
+	t.Helper()
+	got := recv(t, ch)
+	if got["event"] != "connected" {
+		t.Fatalf("first frame event = %v, want connected", got["event"])
+	}
+}
+
 // recv waits for one line or fails after a timeout.
 func recv(t *testing.T, ch <-chan map[string]any) map[string]any {
 	t.Helper()

@@ -95,10 +95,10 @@ the work Redis. Gateways subscribe and revoke instantly ([`trust-model.md`](trus
 - **Admin** (`_app/admin/*`) — users + orgs (better-auth admin plugin: list/ban/impersonate/
   roles), all WhatsApp sessions across **all orgs** (each showing its gateway), admin-number
   pairing code, event monitor.
-- **User** (`_app/user/*`, toggleable) — an **org switcher** (`-components/org-switcher.tsx`,
-  sets the active org); that org's sessions (create/start/stop/QR/pairing, each tagged with its
-  gateway); API keys (`keys.tsx`), webhooks (`webhooks.tsx`), viewer. Members & invitations UI is
-  the R6 fast-follow.
+- **User** (`_app/user/*`, toggleable) — the active org is chosen with the **org switcher** in the
+  app top bar (`components/shell/org-switcher.tsx`); that org's sessions (create/start/stop/QR/
+  pairing, each tagged with its gateway); API keys (`keys.tsx`), webhooks (`webhooks.tsx`), viewer.
+  Members & invitations UI is the R6 fast-follow.
 - **Viewer** (read-only) — chats + message timeline; media → "not downloaded" placeholder.
 - **Contacts** — searchable found-users list; drill into DM + groups.
 
@@ -107,9 +107,23 @@ the work Redis. Gateways subscribe and revoke instantly ([`trust-model.md`](trus
 The authenticated shell (`web/app/components/shell/AppShell.tsx`) is built on the shadcn
 `sidebar` primitive (`components/ui/sidebar.tsx`, from the `dashboard-01` block): a
 `SidebarProvider` → `AppSidebar` (`components/app-sidebar.tsx`) + `SidebarInset` → `SiteHeader`
-(`components/site-header.tsx`) + `<Outlet>`. This replaced the v1 hand-rolled `<aside>`, which had
-**no mobile navigation**; the primitive gives a collapsible icon rail, a `Sheet` drawer below `md`,
-a Cmd/Ctrl+B toggle, and cookie-persisted collapsed state.
+(`components/site-header.tsx`) + `AppMain` (the content region wrapping `<Outlet>`). This replaced
+the v1 hand-rolled `<aside>`, which had **no mobile navigation**; the primitive gives a collapsible
+icon rail, a `Sheet` drawer below `md`, a Cmd/Ctrl+B toggle, and cookie-persisted collapsed state.
+
+- **Clamped height** — the shell is pinned to the viewport (`SidebarProvider` is `h-svh
+  overflow-hidden`), so the sidebar + top bar stay fixed and the **content region is the only
+  scroller** — the body never scrolls. `AppMain` is `flex-1 min-h-0`: by default `overflow-auto`
+  with `p-4 md:p-6`; in **fill mode** it drops the padding and becomes `overflow-hidden` so the page
+  owns its own internal scroll areas (used by chat — `routes/_app/user/sessions/$sessionId/chats/*`,
+  which sizes its panes with flex `min-h-0` + `ScrollArea`/`MessageScroller`, no `calc()` heights).
+- **Page chrome** — `components/shell/page-chrome.tsx` lets the active route project content into the
+  top bar and opt into fill mode. `SiteHeader` renders a `PageHeaderSlot`; a route renders
+  `<PageHeader>` (with `HeaderBack` / `HeaderTitle` / actions) which **portals** into that slot for
+  as long as it's mounted, and `fill` (or the standalone `useFillMain()` for a leaf under a layout
+  that already owns the header) flips `AppMain` to fill. Exactly one route per surface owns the
+  `PageHeader` (the session-detail layout `sessions.$sessionId.tsx` owns the back button + tab strip
+  for overview/chats/contacts; the nested chat route only calls `useFillMain()`).
 
 - **Nav model** — `components/shell/nav.ts` (`visibleNav(session)`) is the single source of truth:
   role-filtered `Workspace` / `Admin` groups, each item carrying a lucide icon. Hiding is
@@ -119,10 +133,38 @@ a Cmd/Ctrl+B toggle, and cookie-persisted collapsed state.
   separate surface with its own layout/provider).
 - **Account menu** — `components/nav-user.tsx` (sidebar footer) shows the session email + roles and
   owns sign-out (clears the query cache → `/login`). `SiteHeader` carries the sidebar trigger, the
-  impersonation badge, and the live `ConnectionPill`.
+  impersonation badge, and the **org switcher** (`components/shell/org-switcher.tsx`, shown only for
+  user-panel sessions; admin-only accounts work cross-org). Active-route highlighting in the sidebar
+  uses TanStack Router's `activeProps` → `data-[active=true]` (value-matched, not attribute-presence).
 - **Auth shell** — `_auth.tsx` is a split-screen layout (shadcn `login-04`): a form pane
   (login/register/2fa render their existing react-hook-form + Zod cards) beside a branded value-prop
   pane shown at `lg+`. No OAuth providers are wired, so the block's social buttons were dropped.
+
+## Page-scoped event stream
+
+The NDJSON event stream is **one shared connection, opened only on the pages that need it** —
+not a global firehose stamped across the whole dashboard. The single `EventStreamProvider`
+(`web/app/lib/events/EventStreamProvider.tsx`) is mounted once in the `AppShell` so any authed
+surface can read connection status, but it stays **idle** until a surface opts in.
+
+- **Opt-in** — a surface calls `useEventStreamSubscription()` (`web/app/lib/events/useEventStream.ts`).
+  The provider keeps the socket open while **≥1 mounted surface** holds a subscription
+  (reference-counted) and tears it down when the last unmounts. Net-zero swaps during a route
+  transition (one release + one acquire) batch into a single re-render, so navigating between two
+  live surfaces hands the connection over without dropping it.
+- **Who opts in today** — the user sessions subtree (one call in the `/_app/user/sessions` layout
+  covers the list, detail/overview, chats, and contacts) and the admin `monitor` + `sessions`
+  pages. Idle surfaces (keys, webhooks, dashboard, docs, tenants) never open the socket.
+- **Adding a new live page** — just call `useEventStreamSubscription()` in the page (or its layout
+  route, to cover a whole subtree); read live data via the query cache, `useEventStream()` status,
+  `usePollingInterval()`, or the `eventBus` firehose as before.
+- **Indicators** — liveness is shown by surface-local indicators (admin `StreamIndicator`, the
+  chats header's polling/reconnect button), not a global top-bar pill. `ConnectionPill`
+  (`components/shell/ConnectionPill.tsx`) remains a reusable drop-in: it reads `active` from the
+  context and renders nothing when no surface on the page has requested the stream.
+- **Why not per-gateway-keyed** — the stream is org-scoped (the gateway streams all of a tenant's
+  sessions on one socket); this change makes the mount page-scoped rather than app-global, which is
+  the prerequisite for a future multi-gateway registry (no global singleton assuming one gateway).
 
 ## Build & layout
 

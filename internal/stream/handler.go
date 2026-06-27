@@ -98,9 +98,10 @@ func NewHandler(cfg HandlerConfig) *Handler {
 //  1. authorize (organization from context) and parse query (session, events, since);
 //  2. open the Redis subscription FIRST so no live event is missed between the
 //     replay and the tail;
-//  3. on ?since=, replay matching event_log entries oldest-first, remembering the
+//  3. emit a "connected" frame so the client confirms the stream is live at once;
+//  4. on ?since=, replay matching event_log entries oldest-first, remembering the
 //     last replayed event id to skip its duplicate on the live tail;
-//  4. tail the subscription, writing each passing event as one JSON line + flush,
+//  5. tail the subscription, writing each passing event as one JSON line + flush,
 //     emitting a ping line every heartbeat interval, until the client disconnects.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -158,6 +159,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush() // commit status + headers so the client sees the stream open
 
 	enc := newLineWriter(w, flusher)
+
+	// Emit a "connected" frame immediately so the client confirms the stream is
+	// live without waiting up to one heartbeat interval for the first byte. A write
+	// failure here means the client already hung up.
+	if err := enc.writeJSON(connectedEnvelope(h.heartbeat)); err != nil {
+		return
+	}
 
 	// Replay from the durable log for ?since=, tracking the last id we emitted so
 	// the live tail can drop its echo.

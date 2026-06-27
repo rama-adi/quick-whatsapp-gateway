@@ -837,16 +837,19 @@ func (m *Manager) applyEvent(ctx context.Context, ms *ManagedSession, evt any) {
 	if _, ok := evt.(*events.Connected); ok {
 		// Reset backoff on a successful connection.
 		ms.mu.Lock()
-		client := ms.client
 		ms.attempt = 0
 		ms.mu.Unlock()
-		if client != nil {
-			go func() {
-				if err := client.SendPresence(context.Background(), types.PresenceAvailable); err != nil {
-					m.log.Warn("send online presence failed", "session", ms.SessionID, "err", err)
-				}
-			}()
-		}
+		// Announce "available". On a freshly-paired session the push name has not
+		// synced yet, so SendPresence no-ops with ErrNoPushName — the
+		// AppStateSyncComplete case below re-announces once the push name lands.
+		m.sendOnlinePresence(ms)
+	}
+
+	// SendPresence requires the push name, which only arrives via app-state sync —
+	// that completes AFTER Connected. (Re)announce availability when a sync lands so
+	// the account actually shows online on the first connect after pairing.
+	if _, ok := evt.(*events.AppStateSyncComplete); ok {
+		m.sendOnlinePresence(ms)
 	}
 
 	if t.terminal {
@@ -859,6 +862,29 @@ func (m *Manager) applyEvent(ctx context.Context, ms *ManagedSession, evt any) {
 	if t.changed {
 		m.setStatus(ctx, ms, t.status)
 	}
+}
+
+// sendOnlinePresence announces "available" for the session in the background.
+// A missing push name (expected right after Connected, before app-state sync has
+// delivered it) is downgraded to debug — applyEvent re-announces once the
+// AppStateSyncComplete event fires, which is when presence actually sticks.
+func (m *Manager) sendOnlinePresence(ms *ManagedSession) {
+	ms.mu.Lock()
+	client := ms.client
+	ms.mu.Unlock()
+	if client == nil {
+		return
+	}
+	go func() {
+		err := client.SendPresence(context.Background(), types.PresenceAvailable)
+		switch {
+		case err == nil:
+		case errors.Is(err, whatsmeow.ErrNoPushName):
+			m.log.Debug("online presence deferred until push name syncs", "session", ms.SessionID)
+		default:
+			m.log.Warn("send online presence failed", "session", ms.SessionID, "err", err)
+		}
+	}()
 }
 
 // recordPairedJID persists the phone/LID JIDs onto the session row after pairing.

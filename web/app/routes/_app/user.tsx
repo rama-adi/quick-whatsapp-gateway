@@ -9,11 +9,11 @@
 // re-fetch. Unauthorized users are redirected home (the nav hiding in the
 // FROZEN shell is cosmetic; this is the real gate).
 //
-// The org switcher lives here (top of every user surface) because sessions /
-// keys / webhooks are all scoped to the active organization.
+// The active-org switcher used to live here; it now sits in the app top bar
+// (components/site-header.tsx) as global chrome for user-panel sessions, since
+// sessions / keys / webhooks are all scoped to the active organization.
 
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
-import { OrgSwitcher } from "./user/-components/org-switcher";
 
 export const Route = createFileRoute("/_app/user")({
   beforeLoad: ({ context }) => {
@@ -26,13 +26,5 @@ export const Route = createFileRoute("/_app/user")({
 });
 
 function UserLayout() {
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-medium text-muted-foreground">Workspace</h2>
-        <OrgSwitcher />
-      </div>
-      <Outlet />
-    </div>
-  );
+  return <Outlet />;
 }

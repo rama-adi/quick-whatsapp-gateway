@@ -43,8 +43,10 @@ fan-out).
    fanned out). Real WhatsApp renders group notices from typed group events, not
    from these.
 5. **Auto-read** (§9) — if the session has `auto_read`, send a read receipt
-   **before** any fan-out; optional `presence_typing` → "composing". Best-effort:
-   WA-client errors are logged, never fatal.
+   **before** any fan-out; optional `presence_typing` → "composing". The receipt's
+   sender is `SenderJID`, falling back to `SenderLID` when the phone JID is unknown
+   (LID-only senders) — WA routes a group receipt by participant and drops one with
+   an empty sender. Best-effort: WA-client errors are logged, never fatal.
 6. **Fan-out** (§9) — append `event_log` (durable resume cursor) + publish to
    the event sink + enqueue webhook deliveries. The three sinks are independent;
    failures are joined and returned.

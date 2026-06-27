@@ -27,7 +27,16 @@ func (p *Pipeline) autoRead(ctx context.Context, nm *NormalizedMessage) {
 		return
 	}
 
-	if err := p.wa.SendReadReceipt(ctx, nm.SessionID, nm.ChatJID, nm.SenderJID, []string{nm.WAMessageID}); err != nil {
+	// WhatsApp routes a group read receipt by participant, so the sender JID is
+	// required. For LID-only senders (the norm post-LID-migration) SenderJID is
+	// empty, so fall back to the LID — sending with an empty sender makes WA drop
+	// the receipt and the chat stays unread.
+	sender := nm.SenderJID
+	if sender == "" {
+		sender = nm.SenderLID
+	}
+
+	if err := p.wa.SendReadReceipt(ctx, nm.SessionID, nm.ChatJID, sender, []string{nm.WAMessageID}); err != nil {
 		p.log.WarnContext(ctx, "auto-read: send read receipt failed",
 			slog.String("session", nm.SessionID),
 			slog.String("chat", nm.ChatJID),

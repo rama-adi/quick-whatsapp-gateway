@@ -31,6 +31,7 @@ import { Badge } from "~/components/ui/badge";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Avatar, AvatarFallback } from "~/components/ui/avatar";
 import { ScrollArea } from "~/components/ui/scroll-area";
+import { useFillMain } from "~/components/shell/page-chrome";
 import {
   Select,
   SelectContent,
@@ -98,6 +99,9 @@ export const Route = createFileRoute(
 
 function ContactsList() {
   const { sessionId } = Route.useParams();
+  // Master/detail surface owns its own scrolling — clamp <main> to the viewport
+  // (the session-detail layout owns the top-bar back/tabs).
+  useFillMain();
   // The active child param (lid) lives on the nested detail route; read merged
   // params non-strictly to highlight the selected row.
   const { lid } = useParams({ strict: false });
@@ -159,10 +163,10 @@ function ContactsList() {
   const hasFilters = Boolean(filter.q || filter.source || filter.group);
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[340px_1fr]">
+    <div className="grid h-full min-h-0 gap-4 overflow-y-auto p-4 lg:grid-cols-[340px_1fr] lg:grid-rows-[minmax(0,1fr)] lg:overflow-hidden">
       <section
         aria-label="Found users"
-        className="flex max-h-[calc(100vh-9rem)] flex-col rounded-lg border bg-card"
+        className="flex max-h-[45svh] min-h-0 flex-col overflow-hidden rounded-lg border bg-card lg:max-h-none"
       >
         <header className="space-y-3 border-b p-3">
           <div className="flex items-center justify-between">
@@ -214,7 +218,7 @@ function ContactsList() {
           )}
         </header>
 
-        <ScrollArea className="flex-1">
+        <ScrollArea className="min-h-0 flex-1">
           <ContactRows
             sessionId={sessionId}
             rows={rows}
@@ -239,7 +243,10 @@ function ContactsList() {
         )}
       </section>
 
-      <section aria-label="Contact detail" className="min-w-0">
+      <section
+        aria-label="Contact detail"
+        className="min-h-0 min-w-0 lg:overflow-y-auto"
+      >
         <Outlet />
       </section>
     </div>

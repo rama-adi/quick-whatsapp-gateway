@@ -15,9 +15,9 @@ connects to the gateway directly (§12).
    marshals each event to its canonical JSON envelope and `PUBLISH`es it to a
    per-`(organization, session)` Redis channel.
 2. **Handler** — `GET /api/v1/events?session={id}&events=*&since={eventId}` served as
-   `application/x-ndjson`, chunked, one JSON object per line, with a `ping` heartbeat,
-   `?since=` resume, event-type/session filtering, and clean client-disconnect
-   teardown.
+   `application/x-ndjson`, chunked, one JSON object per line, opening with a
+   `connected` frame, then a `ping` heartbeat, `?since=` resume,
+   event-type/session filtering, and clean client-disconnect teardown.
 3. **Live registry + control-bus drop** — a registry of open streams keyed by the
    authenticating principal so the control bus (§4.6) can **close live streams on
    revocation** (api-key revoked, user banned, org membership removed).
@@ -83,10 +83,14 @@ Constructors: `NewPublisher(RedisClient, *slog.Logger)` and `NewHandler(HandlerC
    control-bus `ctrl:*` revocation can close it (deregistered on disconnect).
 5. **Write headers + flush** (`application/x-ndjson`, `no-cache`, `X-Accel-Buffering:no`)
    so the client sees the stream open immediately.
-6. **Replay** (only if `?since=` and a `LogReader` is wired) — stream matching
+6. **Connected frame** — emit `{"event":"connected","timestamp":…,"heartbeatSeconds":N}`
+   as the first line, before replay/tail, so the client confirms the stream is live at
+   once (otherwise it waits up to one heartbeat interval for the first byte) and learns
+   the heartbeat cadence to size its own dead-stream timeout.
+7. **Replay** (only if `?since=` and a `LogReader` is wired) — stream matching
    `event_log` entries oldest-first, capped at `resumeReplayLimit` (1000). The id of the
    last entry read is remembered as the **boundary**.
-7. **Tail** — copy live events from the subscription; write the raw published bytes as
+8. **Tail** — copy live events from the subscription; write the raw published bytes as
    one line + flush. The boundary id (if any) is skipped exactly once to dedup the
    replay/tail overlap. A `ping` line is emitted on every heartbeat tick. The loop exits
    on request-context cancel (client disconnect / shutdown / control-bus drop) or

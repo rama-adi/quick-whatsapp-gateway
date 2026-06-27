@@ -14,15 +14,10 @@
 //   - react-router NavLink -> @tanstack/react-router <Link> with activeProps and
 //     activeOptions ({exact} for the index tab).
 
-import {
-  createFileRoute,
-  Link,
-  Outlet,
-  useRouterState,
-} from "@tanstack/react-router";
-import { ArrowLeftIcon } from "lucide-react";
-import { Button } from "~/components/ui/button";
+import { createFileRoute, Link, Outlet, useRouterState } from "@tanstack/react-router";
+import { Separator } from "~/components/ui/separator";
 import { cn } from "~/lib/utils";
+import { PageHeader, HeaderBack } from "~/components/shell/page-chrome";
 import { SessionOverview } from "./-components/session-overview";
 
 export const Route = createFileRoute("/_app/user/sessions/$sessionId")({
@@ -37,52 +32,67 @@ function SessionDetailLayout() {
   const isBareSessionRoute =
     pathname === `/user/sessions/${encodeURIComponent(sessionId)}`;
 
-  const tabBase =
-    "px-3 py-2 text-sm text-muted-foreground hover:text-foreground";
-  const tabActive = "border-b-2 border-primary font-medium text-foreground";
-
   return (
-    <div className="space-y-4">
-      <Button asChild variant="ghost" size="sm" className="gap-1.5">
-        <Link to="/user/sessions">
-          <ArrowLeftIcon className="size-4" aria-hidden />
-          All sessions
-        </Link>
-      </Button>
-
-      <div className="flex items-center gap-1 border-b">
-        <Link
-          to="/user/sessions/$sessionId"
-          params={{ sessionId }}
-          activeOptions={{ exact: true }}
-          className={tabBase}
-          activeProps={{ className: cn(tabBase, tabActive) }}
-        >
-          Overview
-        </Link>
-        <Link
-          to="/user/sessions/$sessionId/chats"
-          params={{ sessionId }}
-          className={tabBase}
-          activeProps={{ className: cn(tabBase, tabActive) }}
-        >
-          Chats
-        </Link>
-        <Link
-          to="/user/sessions/$sessionId/contacts"
-          params={{ sessionId }}
-          className={tabBase}
-          activeProps={{ className: cn(tabBase, tabActive) }}
-        >
-          Contacts
-        </Link>
-      </div>
+    <>
+      {/* This layout owns the top-bar chrome for the whole session-detail
+          surface (overview / chats / contacts), so nested routes don't render
+          their own <PageHeader>. Keeping the layout body height-transparent
+          (just the active child) is what lets the chat surface opt into fill
+          mode below it. */}
+      <PageHeader>
+        <HeaderBack to="/user/sessions" label="All sessions" />
+        <Separator
+          orientation="vertical"
+          className="data-[orientation=vertical]:h-4"
+        />
+        <nav className="flex min-w-0 items-center gap-1 overflow-x-auto">
+          <SessionTab to="/user/sessions/$sessionId" sessionId={sessionId} exact>
+            Overview
+          </SessionTab>
+          <SessionTab to="/user/sessions/$sessionId/chats" sessionId={sessionId}>
+            Chats
+          </SessionTab>
+          <SessionTab
+            to="/user/sessions/$sessionId/contacts"
+            sessionId={sessionId}
+          >
+            Contacts
+          </SessionTab>
+        </nav>
+      </PageHeader>
 
       {isBareSessionRoute ? (
         <SessionOverview sessionId={sessionId} />
       ) : (
         <Outlet />
       )}
-    </div>
+    </>
+  );
+}
+
+function SessionTab({
+  to,
+  sessionId,
+  exact = false,
+  children,
+}: {
+  to: string;
+  sessionId: string;
+  exact?: boolean;
+  children: React.ReactNode;
+}) {
+  const base =
+    "shrink-0 rounded-md px-2.5 py-1 text-sm text-muted-foreground hover:bg-accent hover:text-foreground";
+  const active = "bg-accent font-medium text-foreground";
+  return (
+    <Link
+      to={to as never}
+      params={{ sessionId } as never}
+      activeOptions={{ exact }}
+      className={base}
+      activeProps={{ className: cn(base, active) }}
+    >
+      {children}
+    </Link>
   );
 }

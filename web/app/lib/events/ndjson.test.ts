@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { parseNdjson, isPingFrame, isErrorFrame, isDataFrame } from "./ndjson";
+import {
+  parseNdjson,
+  isConnectedFrame,
+  isPingFrame,
+  isErrorFrame,
+  isDataFrame,
+} from "./ndjson";
 import type { StreamFrame } from "./ndjson";
 
 function streamFromChunks(chunks: string[]): ReadableStream<Uint8Array> {
@@ -58,15 +64,20 @@ describe("parseNdjson", () => {
     expect((frames[0] as { id: string }).id).toBe("ok");
   });
 
-  it("classifies ping, error and data frames", async () => {
+  it("classifies connected, ping, error and data frames", async () => {
     const frames = await collect([
+      '{"event":"connected","heartbeatSeconds":20}\n',
       '{"event":"ping"}\n',
       '{"event":"error","error":"replay failed"}\n',
       '{"id":"d","event":"message"}\n',
     ]);
-    expect(frames[0] && isPingFrame(frames[0])).toBe(true);
-    expect(frames[1] && isErrorFrame(frames[1])).toBe(true);
-    expect(frames[2] && isDataFrame(frames[2])).toBe(true);
+    expect(frames[0] && isConnectedFrame(frames[0])).toBe(true);
+    // The connected frame must NOT be mistaken for a ping or a data frame.
+    expect(frames[0] && isPingFrame(frames[0])).toBe(false);
+    expect(frames[0] && isDataFrame(frames[0])).toBe(false);
+    expect(frames[1] && isPingFrame(frames[1])).toBe(true);
+    expect(frames[2] && isErrorFrame(frames[2])).toBe(true);
+    expect(frames[3] && isDataFrame(frames[3])).toBe(true);
   });
 
   it("stops when the signal is aborted", async () => {
