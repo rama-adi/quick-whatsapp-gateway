@@ -283,6 +283,23 @@ func deviceJIDs(devices []*store.Device) []string {
 	return out
 }
 
+// findAdminSession returns the persisted admin session for the configured number,
+// or nil if none exists yet. Admin sessions stay unpaired (wa_jid NULL) until a
+// device links, so they are matched by their owning org, the is_admin flag, and
+// the phone number rather than by JID.
+func (m *Manager) findAdminSession(ctx context.Context) (*domain.WASession, error) {
+	sessions, err := m.repo.ListByOrg(ctx, m.cfg.AdminOrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	for _, s := range sessions {
+		if s != nil && s.IsAdminSession && s.PhoneNumber != nil && *s.PhoneNumber == m.cfg.AdminNumber {
+			return s, nil
+		}
+	}
+	return nil, nil
+}
+
 // bootstrapAdmin creates and pairs the admin session if the admin number is set
 // and not yet paired (§6). It returns the pairing code (also logged to console)
 // or "" when nothing was needed.
@@ -296,9 +313,15 @@ func (m *Manager) bootstrapAdmin(ctx context.Context, devices []*store.Device) (
 		return "", nil
 	}
 
-	// Find or create the is_admin_session row.
-	sess, err := m.repo.GetByJID(ctx, adminJID)
-	if err != nil || sess == nil {
+	// Find or create the is_admin_session row. An unpaired admin session has a NULL
+	// wa_jid, so we can't look it up by JID; matching on org + admin flag + number
+	// keeps this idempotent — without it every restart-before-pairing would create
+	// another duplicate admin session row.
+	sess, err := m.findAdminSession(ctx)
+	if err != nil {
+		return "", fmt.Errorf("lookup admin session: %w", err)
+	}
+	if sess == nil {
 		now := m.clock.NowMs()
 		phone := m.cfg.AdminNumber
 		sess = &domain.WASession{

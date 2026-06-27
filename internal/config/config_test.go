@@ -212,6 +212,11 @@ func TestValidate(t *testing.T) {
 		{"negative rate per hour", func(c *Config) { c.DefaultRatePerHour = -1 }, true},
 		{"negative retention", func(c *Config) { c.RetentionDays = -1 }, true},
 		{"bad log level", func(c *Config) { c.LogLevel = "verbose" }, true},
+		{"admin number without org", func(c *Config) { c.WhatsAppAdminNumber = "628123456789" }, true},
+		{"admin number with org", func(c *Config) {
+			c.WhatsAppAdminNumber = "628123456789"
+			c.WhatsAppAdminOrgID = "org_123"
+		}, false},
 	}
 
 	for _, tt := range tests {

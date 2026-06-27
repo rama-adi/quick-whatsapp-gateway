@@ -147,11 +147,12 @@ func run() error {
 	managerSink := service.NewEventSinkAdapter(publisher, log)
 	inboundHandler := service.NewInboundLogHandler(log)
 	manager := wa.NewManager(keystore, managerRepo, managerSink, inboundHandler, nil, log, wa.Config{
-		AdminNumber:        cfg.WhatsAppAdminNumber,
-		GatewayID:          cfg.GatewayID,
-		DefaultRatePerMin:  cfg.DefaultRatePerMin,
-		DefaultRatePerHour: cfg.DefaultRatePerHour,
-		DefaultAutoRead:    cfg.DefaultAutoRead,
+		AdminNumber:         cfg.WhatsAppAdminNumber,
+		AdminOrganizationID: cfg.WhatsAppAdminOrgID,
+		GatewayID:           cfg.GatewayID,
+		DefaultRatePerMin:   cfg.DefaultRatePerMin,
+		DefaultRatePerHour:  cfg.DefaultRatePerHour,
+		DefaultAutoRead:     cfg.DefaultAutoRead,
 	})
 	// Boot orphan-guard (§4.6 boot reconciliation, §17 R2): before resuming a
 	// session, confirm its owning org still exists in better-auth's shared

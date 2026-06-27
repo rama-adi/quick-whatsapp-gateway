@@ -51,6 +51,12 @@ type Config struct {
 	// Admin WhatsApp number
 	WhatsAppAdminNumber    string // WHATSAPP_ADMIN_NUMBER
 	WhatsAppAdminCmdPrefix string // WHATSAPP_ADMIN_CMD_PREFIX
+	// WhatsAppAdminOrgID is the organization the bootstrapped admin session
+	// belongs to. It must be a real organization in better-auth's `organization`
+	// table; otherwise the admin session's events cannot publish (they are
+	// org-keyed) and the boot orphan-guard marks the session STOPPED on the next
+	// restart. Required whenever WHATSAPP_ADMIN_NUMBER is set.
+	WhatsAppAdminOrgID string // WHATSAPP_ADMIN_ORG_ID
 
 	// Per-session defaults
 	DefaultRatePerMin  int  // DEFAULT_RATE_PER_MIN
@@ -104,6 +110,7 @@ func Load() (*Config, error) {
 		GatewayAdminUserID:     getString("GATEWAY_ADMIN_USER_ID", ""),
 		WhatsAppAdminNumber:    getString("WHATSAPP_ADMIN_NUMBER", ""),
 		WhatsAppAdminCmdPrefix: getString("WHATSAPP_ADMIN_CMD_PREFIX", "am"),
+		WhatsAppAdminOrgID:     getString("WHATSAPP_ADMIN_ORG_ID", ""),
 		DefaultRatePerMin:      getInt("DEFAULT_RATE_PER_MIN", 20),
 		DefaultRatePerHour:     getInt("DEFAULT_RATE_PER_HOUR", 200),
 		DefaultAutoRead:        getBool("DEFAULT_AUTO_READ", true),
@@ -149,6 +156,13 @@ func (c *Config) Validate() error {
 
 	if c.GatewayID == "" {
 		return fmt.Errorf("config: GATEWAY_ID must not be empty")
+	}
+
+	// A configured admin number must name the organization that owns its session.
+	// Without it the admin session's (org-keyed) events cannot publish and the boot
+	// orphan-guard would stop the session on the next restart.
+	if c.WhatsAppAdminNumber != "" && c.WhatsAppAdminOrgID == "" {
+		return fmt.Errorf("config: WHATSAPP_ADMIN_ORG_ID must be set when WHATSAPP_ADMIN_NUMBER is set")
 	}
 
 	if c.DefaultRatePerMin < 0 || c.DefaultRatePerHour < 0 {

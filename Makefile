@@ -1,15 +1,25 @@
 COMPOSE_DEV = docker compose -f deploy/docker-compose.dev.yml
+# Same compose, plus the dockerized gateway (hot-reload via air). Compose waits
+# for MySQL + Redis to be healthy before starting the gateway, so one `up` is enough.
+COMPOSE_GW  = $(COMPOSE_DEV) --profile gateway-dev
 
-.PHONY: infra-up infra-down infra-reset dev web migrate build lint test tidy gen
+.PHONY: infra-up infra-down infra-reset up up-logs down dev web migrate build lint test tidy gen
 
-infra-up:    ## start mysql + redis
+infra-up:    ## start mysql + redis only (run the gateway on the host with `make dev`)
 	$(COMPOSE_DEV) up -d
 infra-down:  ## stop infra (keep data)
 	$(COMPOSE_DEV) down
 infra-reset: ## stop infra + wipe data
 	$(COMPOSE_DEV) down -v
 
-dev:         ## backend hot-reload (run infra-up first)
+up:          ## one command: build + run gateway + mysql + redis in Docker
+	$(COMPOSE_GW) up -d --build
+up-logs:     ## follow the dockerized gateway logs (e.g. to read the admin pairing code)
+	$(COMPOSE_GW) logs -f gateway-dev
+down:        ## stop the full dockerized dev stack (keep data; add `-v` target to wipe)
+	$(COMPOSE_GW) down
+
+dev:         ## backend hot-reload on the HOST (run infra-up first)
 	air
 web:         ## frontend dev server (HMR)
 	cd web && pnpm dev

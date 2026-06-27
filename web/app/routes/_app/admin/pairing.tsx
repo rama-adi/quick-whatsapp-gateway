@@ -8,7 +8,9 @@
 // QR refresh rides the shared firehose (auth.qr event refetches the seed query).
 
 import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
+import { qk } from "~/lib/query";
 import {
   SessionStatusBadge,
   StreamIndicator,
@@ -211,7 +213,10 @@ function PairingPanel({
 
         <div className="grid gap-6 md:grid-cols-2">
           <QrPanel sessionId={session.id} needsScan={needsScan} />
-          <PairingCodePanel sessionId={session.id} />
+          <PairingCodePanel
+            sessionId={session.id}
+            adminPhone={session.phoneNumber}
+          />
         </div>
       </CardContent>
     </Card>
@@ -263,9 +268,33 @@ function QrPanel({ sessionId, needsScan }: { sessionId: string; needsScan: boole
   );
 }
 
-function PairingCodePanel({ sessionId }: { sessionId: string }) {
+function PairingCodePanel({
+  sessionId,
+  adminPhone,
+}: {
+  sessionId: string;
+  adminPhone?: string;
+}) {
   const pairing = usePairingCode();
-  const [phone, setPhone] = useState("");
+  const [phone, setPhone] = useState(adminPhone ?? "");
+
+  // Prefill the admin number once it loads (without clobbering manual edits).
+  useEffect(() => {
+    if (adminPhone) setPhone((cur) => cur || adminPhone);
+  }, [adminPhone]);
+
+  // The code the gateway prints to its console on boot is also pushed as an
+  // `auth.code` event; cacheBridge writes it here. Read it so it shows on the
+  // dashboard without anyone tailing the logs. A manually requested code lands
+  // in the same place (usePairingCode's onSuccess), so this covers both.
+  const live = useQuery<{ code?: string } | undefined>({
+    queryKey: qk.sessionPairing(sessionId),
+    queryFn: () => undefined,
+    enabled: false,
+    staleTime: Infinity,
+  }).data;
+
+  const code = pairing.data?.code ?? live?.code;
 
   const submit = (e: React.FormEvent): void => {
     e.preventDefault();
@@ -298,11 +327,19 @@ function PairingCodePanel({ sessionId }: { sessionId: string }) {
           </Button>
         </div>
       </form>
-      {pairing.data?.code && (
+      {code ? (
         <div className="rounded-md border bg-muted/40 p-3">
           <p className="text-xs text-muted-foreground">Enter this code on the phone:</p>
-          <p className="font-mono text-2xl tracking-widest">{pairing.data.code}</p>
+          <p className="font-mono text-2xl tracking-widest">{code}</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            WhatsApp → Linked Devices → Link with phone number.
+          </p>
         </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          On startup the gateway generates a code for the admin number — it
+          appears here automatically. Or request a fresh one above.
+        </p>
       )}
     </section>
   );
