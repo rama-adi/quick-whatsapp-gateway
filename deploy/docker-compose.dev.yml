@@ -26,7 +26,7 @@ services:
     ports: ["8080:8080"]
     env_file: [.env]
     environment: &gateway_container_overrides
-      MYSQL_DSN: "gw:gwpass@tcp(mysql:3306)/gateway?parseTime=true&charset=utf8mb4"
+      MYSQL_DSN: "gw:gwpass@tcp(mysql:3306)/gateway?parseTime=true&charset=utf8mb4&clientFoundRows=true"
       REDIS_URL: "redis://redis:6379"
       WHATSMEOW_STORE_DSN: "file:/data/keystore/store.db?_pragma=foreign_keys(on)&_pragma=journal_mode(WAL)"
       BETTER_AUTH_JWKS_URL: "http://host.docker.internal:3000/api/auth/jwks"

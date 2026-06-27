@@ -409,13 +409,13 @@ func openMySQL(dsn string) (*sql.DB, error) {
 		return nil, fmt.Errorf("MYSQL_DSN is required")
 	}
 	// Ensure parseTime is on so DATETIME columns round-trip as time.Time.
-	if !strings.Contains(dsn, "parseTime=") {
-		sep := "?"
-		if strings.Contains(dsn, "?") {
-			sep = "&"
-		}
-		dsn += sep + "parseTime=true"
-	}
+	dsn = ensureDSNParam(dsn, "parseTime", "parseTime=true")
+	// Force CLIENT_FOUND_ROWS so RowsAffected() reports MATCHED rows, not CHANGED
+	// rows. The store uses affectedOrNotFound on UPDATEs as an existence assertion
+	// (e.g. mark-chat-read, PATCH chat flags); without this, an idempotent update
+	// that sets a row to the values it already holds reports 0 affected and is
+	// misread as a 404. clientFoundRows makes "matched a row" the success signal.
+	dsn = ensureDSNParam(dsn, "clientFoundRows", "clientFoundRows=true")
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
 		return nil, err
@@ -430,6 +430,21 @@ func openMySQL(dsn string) (*sql.DB, error) {
 		return nil, err
 	}
 	return db, nil
+}
+
+// ensureDSNParam appends `kv` (e.g. "parseTime=true") to a MySQL DSN's query
+// string unless the named param is already present, picking the right `?`/`&`
+// separator. It leaves an explicitly-set value untouched so a deployment can
+// still override.
+func ensureDSNParam(dsn, name, kv string) string {
+	if strings.Contains(dsn, name+"=") {
+		return dsn
+	}
+	sep := "?"
+	if strings.Contains(dsn, "?") {
+		sep = "&"
+	}
+	return dsn + sep + kv
 }
 
 func openRedis(rawURL string) (*redis.Client, error) {

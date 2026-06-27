@@ -23,7 +23,7 @@ services:
       BETTER_AUTH_JWKS_URL: "http://frontend:3000/api/auth/jwks"
       FRONTEND_ORIGINS: "http://localhost:3000"
       APP_ENCRYPTION_KEY: "${APP_ENCRYPTION_KEY}"
-      MYSQL_DSN: "gw:gwpass@tcp(mysql:3306)/gateway?parseTime=true&charset=utf8mb4"
+      MYSQL_DSN: "gw:gwpass@tcp(mysql:3306)/gateway?parseTime=true&charset=utf8mb4&clientFoundRows=true"
       WHATSMEOW_STORE_DSN: "file:/data/keystore/store.db?_pragma=foreign_keys(on)&_pragma=journal_mode(WAL)"
       REDIS_URL: "redis://redis:6379"
       REDIS_PREFIX: "gw"
