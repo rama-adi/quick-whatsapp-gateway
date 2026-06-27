@@ -11,7 +11,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Liveness probe */
+        /**
+         * Liveness probe
+         * @description Returns 200 as long as the process is running. No authentication. Use it to tell whether the gateway is up at all; it does not check the database or Redis (use the readiness probe for that).
+         */
         get: operations["healthz"];
         put?: never;
         post?: never;
@@ -30,7 +33,7 @@ export interface paths {
         };
         /**
          * Readiness probe
-         * @description 200 once the database and Redis are reachable.
+         * @description Returns 200 once the gateway can reach its dependencies (the database and Redis), and 500 while it cannot. No authentication. Use it to decide whether the gateway is ready to take traffic, not just whether the process is alive.
          */
         get: operations["readyz"];
         put?: never;
@@ -48,7 +51,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** This OpenAPI document */
+        /**
+         * This OpenAPI document
+         * @description Returns this OpenAPI document as YAML. No authentication. This is the same contract you are reading, served straight from the running gateway.
+         */
         get: operations["openapi"];
         put?: never;
         post?: never;
@@ -65,10 +71,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List sessions */
+        /**
+         * List sessions
+         * @description Lists the sessions (attached WhatsApp numbers) belonging to the caller's organization. Requires the `manage` capability. Each session shows its status, the number once paired, and which gateway holds it.
+         */
         get: operations["listSessions"];
         put?: never;
-        /** Create a session */
+        /**
+         * Create a session
+         * @description Creates a new session (a slot for one WhatsApp number) in the caller's organization. Requires the `manage` capability. The session starts unpaired; to attach a number, link a device with the QR code or request a phone pairing code. Set `start: true` in the body to begin QR pairing right away.
+         */
         post: operations["createSession"];
         delete?: never;
         options?: never;
@@ -81,16 +93,22 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
             };
             cookie?: never;
         };
-        /** Get a session */
+        /**
+         * Get a session
+         * @description Returns one session by id, including its current status and (once paired) the attached number. Requires the `manage` capability. A session in another organization returns 404, not 403.
+         */
         get: operations["getSession"];
         put?: never;
         post?: never;
-        /** Delete a session */
+        /**
+         * Delete a session
+         * @description Permanently deletes a session and its stored data. Requires the `manage` capability. This removes the session for good; if a number is still attached, log it out first to unlink the device. Returns 204 with no body.
+         */
         delete: operations["deleteSession"];
         options?: never;
         head?: never;
@@ -102,14 +120,17 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
             };
             cookie?: never;
         };
         get?: never;
         put?: never;
-        /** Start a session */
+        /**
+         * Start a session
+         * @description Connects an already-paired session to WhatsApp. Requires the `manage` capability. The session must already have a number attached; to pair a new session, use the QR code or pairing-code endpoints instead. Returns the refreshed session so you can see its new status.
+         */
         post: operations["startSession"];
         delete?: never;
         options?: never;
@@ -122,14 +143,17 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
             };
             cookie?: never;
         };
         get?: never;
         put?: never;
-        /** Stop a session */
+        /**
+         * Stop a session
+         * @description Disconnects a session from WhatsApp without unlinking the device. Requires the `manage` capability. The number stays paired, so you can start it again later. Returns the refreshed session so you can see its new status.
+         */
         post: operations["stopSession"];
         delete?: never;
         options?: never;
@@ -142,14 +166,17 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
             };
             cookie?: never;
         };
         get?: never;
         put?: never;
-        /** Restart a session */
+        /**
+         * Restart a session
+         * @description Stops and then starts the session — a reconnect that keeps the number paired. Requires the `manage` capability. Use this to recover a session that is stuck or failed. Returns the refreshed session so you can see its new status.
+         */
         post: operations["restartSession"];
         delete?: never;
         options?: never;
@@ -162,14 +189,17 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
             };
             cookie?: never;
         };
         get?: never;
         put?: never;
-        /** Log out a session (unpair the device) */
+        /**
+         * Log out a session (unpair the device)
+         * @description Logs the session out of WhatsApp and unlinks the device, so the number is no longer attached. Requires the `manage` capability. To use the number again you must pair it from scratch. The session row itself stays; use delete to remove it entirely. Returns the refreshed session so you can see its new status.
+         */
         post: operations["logoutSession"];
         delete?: never;
         options?: never;
@@ -182,12 +212,15 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
             };
             cookie?: never;
         };
-        /** Get the connected account's own identity */
+        /**
+         * Get the connected account's own identity
+         * @description Returns the WhatsApp identity of the number attached to this session — its JID, linked-device id, push name, and phone number. Requires the `manage` capability. Returns 404 if the session is not paired yet.
+         */
         get: operations["sessionMe"];
         put?: never;
         post?: never;
@@ -205,12 +238,15 @@ export interface paths {
             };
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
             };
             cookie?: never;
         };
-        /** Get the current pairing QR code */
+        /**
+         * Get the current pairing QR code
+         * @description Returns the QR code to scan from WhatsApp on the phone to attach a number to this session. Requires the `manage` capability. By default returns the raw code string; pass `?format=image` for a PNG. If no code is ready yet, this starts pairing and returns 404 — codes also refresh and stream live over the event stream as `auth.qr`, so subscribe there to follow along. Returns an error if the session is already paired.
+         */
         get: operations["sessionQR"];
         put?: never;
         post?: never;
@@ -225,14 +261,17 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
             };
             cookie?: never;
         };
         get?: never;
         put?: never;
-        /** Request a phone pairing code */
+        /**
+         * Request a phone pairing code
+         * @description Requests a pairing code to attach a number without scanning a QR — the alternative to the QR endpoint. Requires the `manage` capability. Pass the phone number to pair in the body; the response returns a short code (for example `ABCD-1234`) to enter in WhatsApp on that phone under Link a device. Returns an error if the session is already paired.
+         */
         post: operations["sessionPairingCode"];
         delete?: never;
         options?: never;
@@ -245,7 +284,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
             };
             cookie?: never;
@@ -253,8 +292,23 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Send a message (any supported type)
-         * @description Single send endpoint discriminated on `type`. `text`, `poll`, `location` and `contact` are live in v1; `image`/`video`/`audio`/`document`/`sticker` return 501. Supports `Idempotency-Key` and `?async`.
+         * Send a message
+         * @description Sends one message. There is a single send endpoint for every kind of message; the `type` field in the body chooses which one. `text`, `poll`, `location`, and `contact` work in v1. The media types `image`, `video`, `audio`, `document`, and `sticker` are not built yet and return 501 before any WhatsApp call is made.
+         *
+         *     Two optional controls:
+         *
+         *     - `Idempotency-Key` (header): if you retry a send with the same key, the
+         *       gateway returns the result of the first send and does not send a second
+         *       message to WhatsApp. The key is scoped to your organization.
+         *
+         *     - `?async=true` (query): the gateway saves the send to a queue and returns
+         *       right away instead of waiting for WhatsApp to acknowledge it. The final
+         *       delivery status arrives later as a `message.status` event on the event
+         *       stream. Without `?async`, the call blocks until WhatsApp acknowledges
+         *       the send.
+         *
+         *
+         *     Requires the `send` capability. Over the per-session rate limit, a synchronous send returns 429; an async send stays queued instead.
          */
         post: operations["sendMessage"];
         delete?: never;
@@ -268,9 +322,9 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description WhatsApp message id. */
+                /** @description The WhatsApp message id (the per-message stable id assigned by WhatsApp). */
                 mid: components["parameters"]["MessageID"];
             };
             cookie?: never;
@@ -278,11 +332,17 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Revoke (delete for everyone) */
+        /**
+         * Revoke a message (delete for everyone)
+         * @description Deletes a message you sent (the `mid` in the path) for everyone in the chat, not just on your device. Requires the `send` capability.
+         */
         delete: operations["revokeMessage"];
         options?: never;
         head?: never;
-        /** Edit a sent text message */
+        /**
+         * Edit a sent text message
+         * @description Replaces the text of a message you already sent, identified by `mid` in the path. Only text messages can be edited. Requires the `send` capability.
+         */
         patch: operations["editMessage"];
         trace?: never;
     };
@@ -291,18 +351,24 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description WhatsApp message id. */
+                /** @description The WhatsApp message id (the per-message stable id assigned by WhatsApp). */
                 mid: components["parameters"]["MessageID"];
             };
             cookie?: never;
         };
         get?: never;
         put?: never;
-        /** Add a reaction */
+        /**
+         * Add a reaction to a message
+         * @description Reacts to the message in the path (`mid`) with a single emoji. Sending a new reaction replaces any reaction you previously set on that message. Requires the `send` capability.
+         */
         post: operations["addReaction"];
-        /** Remove a reaction */
+        /**
+         * Remove your reaction from a message
+         * @description Clears the reaction you set on the message in the path (`mid`). Requires the `send` capability.
+         */
         delete: operations["removeReaction"];
         options?: never;
         head?: never;
@@ -314,16 +380,19 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description WhatsApp message id. */
+                /** @description The WhatsApp message id (the per-message stable id assigned by WhatsApp). */
                 mid: components["parameters"]["MessageID"];
             };
             cookie?: never;
         };
         get?: never;
         put?: never;
-        /** Forward a message */
+        /**
+         * Forward a message to another chat
+         * @description Forwards the message in the path (`mid`) to the chat named by `to` (a recipient JID). Requires the `send` capability. Note for v1: the forwarded message is a text reference to the original, marked as forwarded; it does not copy the original body or re-upload media. A faithful copy is planned once the gateway can fetch a stored message by id.
+         */
         post: operations["forwardMessage"];
         delete?: never;
         options?: never;
@@ -336,16 +405,19 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description WhatsApp message id. */
+                /** @description The WhatsApp message id (the per-message stable id assigned by WhatsApp). */
                 mid: components["parameters"]["MessageID"];
             };
             cookie?: never;
         };
         get?: never;
         put?: never;
-        /** Vote on a poll message */
+        /**
+         * Vote on a poll message
+         * @description Casts a vote on the poll message in the path (`mid`). `options` is the list of poll choices you are voting for; send the full set you want selected, since it replaces your previous vote. Requires the `send` capability.
+         */
         post: operations["voteMessage"];
         delete?: never;
         options?: never;
@@ -358,12 +430,15 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
             };
             cookie?: never;
         };
-        /** List chats */
+        /**
+         * List a session's chats
+         * @description Returns a page of the session's chats, served from the gateway's stored copy. Page through results with `limit` and `cursor`; the response carries the next cursor. Requires the `read` capability.
+         */
         get: operations["listChats"];
         put?: never;
         post?: never;
@@ -378,43 +453,55 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description Chat JID. */
+                /** @description The chat's JID. A JID (Jabber ID) is WhatsApp's address for a conversation or user — e.g. `123...@s.whatsapp.net` for a direct chat or `123...@g.us` for a group. */
                 cid: components["parameters"]["ChatID"];
             };
             cookie?: never;
         };
-        /** Get a chat */
+        /**
+         * Get a single chat
+         * @description Returns one chat by its id (`cid`, the chat JID). Requires the `read` capability.
+         */
         get: operations["getChat"];
         put?: never;
         post?: never;
-        /** Delete a chat */
+        /**
+         * Delete a chat
+         * @description Removes the chat in the path (`cid`) from the gateway's stored copy. This is a local delete only; it does not delete the chat on WhatsApp. Returns 204 with no body. Requires the `send` capability.
+         */
         delete: operations["deleteChat"];
         options?: never;
         head?: never;
-        /** Update a chat (archive / pin / mute) */
+        /**
+         * Update a chat's archive, pin, and mute flags
+         * @description Changes the archive, pin, and mute state of the chat in the path (`cid`). Only the fields you send are changed; omitted fields stay as they are. To mute, set `mutedUntil` to an epoch-millisecond timestamp; to unmute, send `unmute: true`. Returns the updated chat. Requires the `send` capability.
+         */
         patch: operations["updateChat"];
         trace?: never;
     };
     "/sessions/{session}/chats/{cid}/messages": {
         parameters: {
             query?: {
-                /** @description Max items to return. */
+                /** @description Maximum number of items to return on one page (clamped to 1–200; defaults to 50). */
                 limit?: components["parameters"]["Limit"];
-                /** @description Opaque pagination cursor from a previous response's nextCursor. */
+                /** @description Page cursor. Pass the `nextCursor` value from the previous response to fetch the next page. The value is opaque — treat it as a token, do not parse it. Omit it to get the first page. */
                 cursor?: components["parameters"]["Cursor"];
             };
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description Chat JID. */
+                /** @description The chat's JID. A JID (Jabber ID) is WhatsApp's address for a conversation or user — e.g. `123...@s.whatsapp.net` for a direct chat or `123...@g.us` for a group. */
                 cid: components["parameters"]["ChatID"];
             };
             cookie?: never;
         };
-        /** List messages in a chat */
+        /**
+         * List messages in a chat
+         * @description Returns a page of messages in the chat named by `cid`, served from the gateway's stored copy. Page through results with `limit` and `cursor`; the response carries the next cursor. Requires the `read` capability.
+         */
         get: operations["listChatMessages"];
         put?: never;
         post?: never;
@@ -429,16 +516,19 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description Chat JID. */
+                /** @description The chat's JID. A JID (Jabber ID) is WhatsApp's address for a conversation or user — e.g. `123...@s.whatsapp.net` for a direct chat or `123...@g.us` for a group. */
                 cid: components["parameters"]["ChatID"];
             };
             cookie?: never;
         };
         get?: never;
         put?: never;
-        /** Mark a chat read */
+        /**
+         * Mark a chat as read
+         * @description Clears the unread counter on the chat in the path (`cid`). In v1 this updates the gateway's own unread state, which is what the chat viewer reads; it does not send per-message read receipts to WhatsApp. Returns 204 with no body. Requires the `send` capability.
+         */
         post: operations["readChat"];
         delete?: never;
         options?: never;
@@ -451,15 +541,18 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description Chat JID. */
+                /** @description The chat's JID. A JID (Jabber ID) is WhatsApp's address for a conversation or user — e.g. `123...@s.whatsapp.net` for a direct chat or `123...@g.us` for a group. */
                 cid: components["parameters"]["ChatID"];
             };
             cookie?: never;
         };
         get?: never;
-        /** Send a chat presence (typing / recording) */
+        /**
+         * Set typing or recording presence in a chat
+         * @description Tells the chat in the path (`cid`) that you are typing (`composing`), recording audio (`recording`), or have stopped (`paused`). This goes straight to WhatsApp and needs a live, connected client for the session; if the session has no connected client, the call returns 501. Returns 204 with no body. Requires the `send` capability.
+         */
         put: operations["chatPresence"];
         post?: never;
         delete?: never;
@@ -473,12 +566,15 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
             };
             cookie?: never;
         };
-        /** List found-user contacts */
+        /**
+         * List a session's contacts
+         * @description Returns the people this session has seen, one page at a time. Served from the gateway's stored WhatsApp data, so it works even when the session is not currently connected. Optional filters: `source=dm` keeps only people you have a direct chat with, `source=group` keeps only people seen in a group, `group={jid}` keeps only members of one group, and `q=` searches their name or number. Use `limit` and `cursor` to page through results.
+         */
         get: operations["listContacts"];
         put?: never;
         post?: never;
@@ -495,12 +591,15 @@ export interface paths {
             };
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
             };
             cookie?: never;
         };
-        /** Check whether a phone number is on WhatsApp */
+        /**
+         * Check whether a phone number is on WhatsApp
+         * @description Asks WhatsApp whether the given `phone` number has an account, and returns its JID (WhatsApp's internal address) if it does. This is a live lookup, so the session must be connected; if it is not, the gateway responds 501.
+         */
         get: operations["checkContact"];
         put?: never;
         post?: never;
@@ -515,13 +614,16 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
                 lid: string;
             };
             cookie?: never;
         };
-        /** Get a contact (identity + DM + group memberships) */
+        /**
+         * Get one contact
+         * @description Returns everything stored for one contact, addressed by its `lid` (WhatsApp's stable per-account identifier for a person): their name, whether you have a direct chat with them, and every group you have seen them in, with their nickname and role in each. Served from stored data, so no live connection is needed.
+         */
         get: operations["getContact"];
         put?: never;
         post?: never;
@@ -536,14 +638,17 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description A WhatsApp JID. */
+                /** @description A WhatsApp JID — the address of a user, group, or channel. */
                 jid: components["parameters"]["JID"];
             };
             cookie?: never;
         };
-        /** Get a contact's profile picture */
+        /**
+         * Get a contact's profile picture
+         * @description Fetches the contact's current profile picture from WhatsApp and returns its URL and metadata. This is a live lookup, so the session must be connected; if it is not, the gateway responds 501.
+         */
         get: operations["contactPicture"];
         put?: never;
         post?: never;
@@ -558,14 +663,17 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description A WhatsApp JID. */
+                /** @description A WhatsApp JID — the address of a user, group, or channel. */
                 jid: components["parameters"]["JID"];
             };
             cookie?: never;
         };
-        /** Get a contact's about/status text */
+        /**
+         * Get a contact's about text
+         * @description Fetches the contact's "about" text (the short status line on their profile) from WhatsApp. This is a live lookup, so the session must be connected; if it is not, the gateway responds 501.
+         */
         get: operations["contactAbout"];
         put?: never;
         post?: never;
@@ -580,16 +688,19 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description A WhatsApp JID. */
+                /** @description A WhatsApp JID — the address of a user, group, or channel. */
                 jid: components["parameters"]["JID"];
             };
             cookie?: never;
         };
         get?: never;
         put?: never;
-        /** Block a contact */
+        /**
+         * Block a contact
+         * @description Tells WhatsApp to block this contact so they can no longer message the session. This is a live action, so the session must be connected; if it is not, the gateway responds 501.
+         */
         post: operations["blockContact"];
         delete?: never;
         options?: never;
@@ -602,16 +713,19 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description A WhatsApp JID. */
+                /** @description A WhatsApp JID — the address of a user, group, or channel. */
                 jid: components["parameters"]["JID"];
             };
             cookie?: never;
         };
         get?: never;
         put?: never;
-        /** Unblock a contact */
+        /**
+         * Unblock a contact
+         * @description Tells WhatsApp to unblock this contact so they can message the session again. This is a live action, so the session must be connected; if it is not, the gateway responds 501.
+         */
         post: operations["unblockContact"];
         delete?: never;
         options?: never;
@@ -624,15 +738,21 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
             };
             cookie?: never;
         };
-        /** List groups */
+        /**
+         * List a session's groups
+         * @description Returns the groups this session belongs to, one page at a time. Served from the gateway's stored WhatsApp data, so it works even when the session is not connected. Use `limit` and `cursor` to page through results.
+         */
         get: operations["listGroups"];
         put?: never;
-        /** Create a group */
+        /**
+         * Create a group
+         * @description Creates a new WhatsApp group with the given `subject` (group name) and starting `participants` (a list of JIDs), and returns the new group's info. This is a live action, so the session must be connected; if it is not, the gateway responds 501.
+         */
         post: operations["createGroup"];
         delete?: never;
         options?: never;
@@ -645,14 +765,17 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
             };
             cookie?: never;
         };
         get?: never;
         put?: never;
-        /** Join a group by invite link/code */
+        /**
+         * Join a group by invite
+         * @description Joins the group named by the `invite` code (the code from a WhatsApp group invite link) and returns the group's info. This is a live action, so the session must be connected; if it is not, the gateway responds 501.
+         */
         post: operations["joinGroup"];
         delete?: never;
         options?: never;
@@ -665,21 +788,27 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description Group JID. */
+                /** @description The group's JID (ends in `@g.us`). */
                 gid: components["parameters"]["GroupID"];
             };
             cookie?: never;
         };
-        /** Get a group */
+        /**
+         * Get one group
+         * @description Returns the stored details for one group, addressed by its group JID (`gid`): subject, description, and settings. Served from stored data, so no live connection is needed.
+         */
         get: operations["getGroup"];
         put?: never;
         post?: never;
         delete?: never;
         options?: never;
         head?: never;
-        /** Update group settings */
+        /**
+         * Update group settings
+         * @description Changes the group's settings — subject, description, whether only admins can post (announce), and whether only admins can edit group info (locked). Send only the fields you want to change. This is a live action, so the session must be connected; if it is not, the gateway responds 501.
+         */
         patch: operations["updateGroup"];
         trace?: never;
     };
@@ -688,16 +817,19 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description Group JID. */
+                /** @description The group's JID (ends in `@g.us`). */
                 gid: components["parameters"]["GroupID"];
             };
             cookie?: never;
         };
         get?: never;
         put?: never;
-        /** Leave a group */
+        /**
+         * Leave a group
+         * @description Removes the session's own account from the group. This is a live action, so the session must be connected; if it is not, the gateway responds 501.
+         */
         post: operations["leaveGroup"];
         delete?: never;
         options?: never;
@@ -710,17 +842,23 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description Group JID. */
+                /** @description The group's JID (ends in `@g.us`). */
                 gid: components["parameters"]["GroupID"];
             };
             cookie?: never;
         };
-        /** List group members */
+        /**
+         * List a group's members
+         * @description Returns the members of the group, each with their JID and role (member or admin). Served from stored data, so no live connection is needed.
+         */
         get: operations["listGroupMembers"];
         put?: never;
-        /** Add members */
+        /**
+         * Add members to a group
+         * @description Adds the listed `participants` (a list of JIDs) to the group. This is a live action, so the session must be connected; if it is not, the gateway responds 501.
+         */
         post: operations["addGroupMembers"];
         delete?: never;
         options?: never;
@@ -733,16 +871,19 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description Group JID. */
+                /** @description The group's JID (ends in `@g.us`). */
                 gid: components["parameters"]["GroupID"];
             };
             cookie?: never;
         };
         get?: never;
         put?: never;
-        /** Approve pending join requests (not in v1) */
+        /**
+         * Approve pending join requests (not implemented in v2)
+         * @description Approving people waiting to join a group is not part of v2's live WhatsApp surface, so this endpoint always responds 501.
+         */
         post: operations["approveGroupMembers"];
         delete?: never;
         options?: never;
@@ -755,11 +896,11 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description Group JID. */
+                /** @description The group's JID (ends in `@g.us`). */
                 gid: components["parameters"]["GroupID"];
-                /** @description A WhatsApp JID. */
+                /** @description A WhatsApp JID — the address of a user, group, or channel. */
                 jid: components["parameters"]["JID"];
             };
             cookie?: never;
@@ -767,7 +908,10 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Remove a member */
+        /**
+         * Remove a member from a group
+         * @description Removes the member named by `jid` from the group. This is a live action, so the session must be connected; if it is not, the gateway responds 501.
+         */
         delete: operations["removeGroupMember"];
         options?: never;
         head?: never;
@@ -779,18 +923,21 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description Group JID. */
+                /** @description The group's JID (ends in `@g.us`). */
                 gid: components["parameters"]["GroupID"];
-                /** @description A WhatsApp JID. */
+                /** @description A WhatsApp JID — the address of a user, group, or channel. */
                 jid: components["parameters"]["JID"];
             };
             cookie?: never;
         };
         get?: never;
         put?: never;
-        /** Promote a member to admin */
+        /**
+         * Promote a member to admin
+         * @description Makes the member named by `jid` a group admin. This is a live action, so the session must be connected; if it is not, the gateway responds 501.
+         */
         post: operations["promoteGroupMember"];
         delete?: never;
         options?: never;
@@ -803,18 +950,21 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description Group JID. */
+                /** @description The group's JID (ends in `@g.us`). */
                 gid: components["parameters"]["GroupID"];
-                /** @description A WhatsApp JID. */
+                /** @description A WhatsApp JID — the address of a user, group, or channel. */
                 jid: components["parameters"]["JID"];
             };
             cookie?: never;
         };
         get?: never;
         put?: never;
-        /** Demote an admin to member */
+        /**
+         * Demote an admin to member
+         * @description Removes admin rights from the member named by `jid`, making them a regular member. This is a live action, so the session must be connected; if it is not, the gateway responds 501.
+         */
         post: operations["demoteGroupMember"];
         delete?: never;
         options?: never;
@@ -827,18 +977,24 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description Group JID. */
+                /** @description The group's JID (ends in `@g.us`). */
                 gid: components["parameters"]["GroupID"];
             };
             cookie?: never;
         };
-        /** Get the group invite link */
+        /**
+         * Get the group invite link
+         * @description Returns the group's current invite link, which anyone can use to join. This is a live lookup, so the session must be connected; if it is not, the gateway responds 501.
+         */
         get: operations["getGroupInvite"];
         put?: never;
         post?: never;
-        /** Revoke (reset) the group invite link */
+        /**
+         * Reset the group invite link
+         * @description Cancels the current invite link and generates a new one, then returns it. Any previously shared link stops working. This is a live action, so the session must be connected; if it is not, the gateway responds 501.
+         */
         delete: operations["revokeGroupInvite"];
         options?: never;
         head?: never;
@@ -850,14 +1006,17 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
             };
             cookie?: never;
         };
         get?: never;
         put?: never;
-        /** Create a channel (newsletter) — not in v1 */
+        /**
+         * Create a channel (newsletter) — not in v1
+         * @description Create a WhatsApp channel (newsletter) on this session. Requires the `send` capability. Not implemented in v1: this always returns 501.
+         */
         post: operations["createChannel"];
         delete?: never;
         options?: never;
@@ -870,16 +1029,19 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description A WhatsApp JID. */
+                /** @description A WhatsApp JID — the address of a user, group, or channel. */
                 jid: components["parameters"]["JID"];
             };
             cookie?: never;
         };
         get?: never;
         put?: never;
-        /** Follow a channel — not in v1 */
+        /**
+         * Follow a channel — not in v1
+         * @description Follow the channel identified by `jid` on this session. Requires the `send` capability. Not implemented in v1: this always returns 501.
+         */
         post: operations["followChannel"];
         delete?: never;
         options?: never;
@@ -892,16 +1054,19 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description A WhatsApp JID. */
+                /** @description A WhatsApp JID — the address of a user, group, or channel. */
                 jid: components["parameters"]["JID"];
             };
             cookie?: never;
         };
         get?: never;
         put?: never;
-        /** Unfollow a channel — not in v1 */
+        /**
+         * Unfollow a channel — not in v1
+         * @description Stop following the channel identified by `jid` on this session. Requires the `send` capability. Not implemented in v1: this always returns 501.
+         */
         post: operations["unfollowChannel"];
         delete?: never;
         options?: never;
@@ -914,16 +1079,19 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description A WhatsApp JID. */
+                /** @description A WhatsApp JID — the address of a user, group, or channel. */
                 jid: components["parameters"]["JID"];
             };
             cookie?: never;
         };
         get?: never;
         put?: never;
-        /** Mute a channel — not in v1 */
+        /**
+         * Mute a channel — not in v1
+         * @description Mute or unmute the channel identified by `jid` on this session. Requires the `send` capability. Not implemented in v1: this always returns 501.
+         */
         post: operations["muteChannel"];
         delete?: never;
         options?: never;
@@ -934,21 +1102,24 @@ export interface paths {
     "/sessions/{session}/channels/{jid}/messages": {
         parameters: {
             query?: {
-                /** @description Max items to return. */
+                /** @description Maximum number of items to return on one page (clamped to 1–200; defaults to 50). */
                 limit?: components["parameters"]["Limit"];
-                /** @description Opaque pagination cursor from a previous response's nextCursor. */
+                /** @description Page cursor. Pass the `nextCursor` value from the previous response to fetch the next page. The value is opaque — treat it as a token, do not parse it. Omit it to get the first page. */
                 cursor?: components["parameters"]["Cursor"];
             };
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description A WhatsApp JID. */
+                /** @description A WhatsApp JID — the address of a user, group, or channel. */
                 jid: components["parameters"]["JID"];
             };
             cookie?: never;
         };
-        /** List stored channel messages */
+        /**
+         * List stored channel messages
+         * @description Return a page of stored messages for the channel identified by `jid` on this session. Requires the `send` capability. Use `limit` and `cursor` to page; the response carries the next cursor.
+         */
         get: operations["listChannelMessages"];
         put?: never;
         post?: never;
@@ -963,14 +1134,17 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
             };
             cookie?: never;
         };
         get?: never;
         put?: never;
-        /** Post a status update (text; media returns 501) */
+        /**
+         * Post a status update (text; media returns 501)
+         * @description Post a status update (the "My Status" story) from this session. Requires the `send` capability. Only `type: text` works in v1; `type: image` and any other media return 501.
+         */
         post: operations["postStatus"];
         delete?: never;
         options?: never;
@@ -983,13 +1157,16 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
             };
             cookie?: never;
         };
         get?: never;
-        /** Set account presence (online / offline) */
+        /**
+         * Set account presence (online / offline)
+         * @description Set the session account's global presence to `online` or `offline` (whether contacts see the account as available). Requires the `send` capability. This is account-wide; to send a typing or recording indicator into one chat, use the chat presence endpoint instead.
+         */
         put: operations["setPresence"];
         post?: never;
         delete?: never;
@@ -1007,7 +1184,9 @@ export interface paths {
         };
         /**
          * Stream events (NDJSON)
-         * @description Long-lived NDJSON stream of the §9 event envelope. Requires the `events` capability: an api-key with the `events` permission, or a JWT (any role). Scoped to the caller's organization.
+         * @description Open a long-lived connection that streams events as they happen. The response is NDJSON: the connection stays open and the gateway writes one JSON event object per line, each ending in a newline. Read it line by line; do not wait for the body to finish. About every 20 seconds the gateway sends a `{"event":"ping"}` line so the connection stays alive — ignore those.
+         *     You only ever see your own organization's events. Requires the `events` capability: an api-key with the `events` permission, or any JWT.
+         *     Filter with `types` (comma-separated event types) and `session` (one session id). To resume after a disconnect, reconnect with `since={lastEventId}` (the `id` of the last event you processed); the gateway replays the events you missed, then continues live. This is how a dashboard reconnects after its short-lived JWT expires, without losing events.
          */
         get: operations["events"];
         put?: never;
@@ -1025,10 +1204,18 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List webhooks */
+        /**
+         * List webhooks
+         * @description List the webhook endpoints configured for the caller's organization. Requires the `manage` capability. Use `limit` and `cursor` to page; the response carries the next cursor.
+         */
         get: operations["listWebhooks"];
         put?: never;
-        /** Create a webhook */
+        /**
+         * Create a webhook
+         * @description Register a webhook endpoint for the caller's organization. Requires the `manage` capability. When a matching event fires, the gateway POSTs the event envelope (the same JSON shape as the `/events` stream) to `url`. Set `events` to the event types to receive (`["*"]` for all) and `sessionId` to scope to one session (null = all of the organization's sessions).
+         *     If you set a `secret`, the gateway signs each POST: it sends the lowercase-hex HMAC-SHA512 of the exact request body in the `X-Webhook-Hmac` header (with `X-Webhook-Hmac-Algorithm: sha512`). Recompute it on your end with the same secret to confirm the request really came from the gateway. Every POST also carries `X-Webhook-Request-Id` (the event id, so you can drop duplicate redeliveries) and `X-Webhook-Timestamp` (epoch milliseconds).
+         *     Failed deliveries (a non-2xx response or a connection error) are retried on the `retryPolicy` schedule — by default exponential backoff (2s, 4s, 8s, …) for up to 15 attempts, after which the delivery is given up on. The secret is stored encrypted and never returned in responses.
+         */
         post: operations["createWebhook"];
         delete?: never;
         options?: never;
@@ -1041,19 +1228,29 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
+                /** @description Resource id in the path (e.g. a webhook id). */
                 id: components["parameters"]["ID"];
             };
             cookie?: never;
         };
-        /** Get a webhook */
+        /**
+         * Get a webhook
+         * @description Fetch one webhook by `id`. Requires the `manage` capability, and the webhook must belong to the caller's organization. The secret is never returned.
+         */
         get: operations["getWebhook"];
         put?: never;
         post?: never;
-        /** Delete a webhook */
+        /**
+         * Delete a webhook
+         * @description Delete the webhook identified by `id`. Requires the `manage` capability, and the webhook must belong to the caller's organization. After deletion no further events are delivered to its url.
+         */
         delete: operations["deleteWebhook"];
         options?: never;
         head?: never;
-        /** Update a webhook */
+        /**
+         * Update a webhook
+         * @description Update the webhook identified by `id` (url, events, session scope, secret, custom headers, retry policy, or active flag). Requires the `manage` capability, and the webhook must belong to the caller's organization. Send a new `secret` to rotate it; omit it to leave the stored secret unchanged.
+         */
         patch: operations["updateWebhook"];
         trace?: never;
     };
@@ -1064,7 +1261,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Cross-organization session oversight (super_admin) */
+        /**
+         * List sessions across all organizations (super_admin)
+         * @description List WhatsApp sessions across every organization, for platform oversight. Restricted to a platform super_admin — it requires a JWT carrying the super_admin platform role; api-keys and ordinary org roles are rejected with 403. Unlike the org-scoped session list, this is not limited to one organization. Use `limit` and `cursor` to page.
+         */
         get: operations["adminListSessions"];
         put?: never;
         post?: never;
@@ -1078,278 +1278,467 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /** @description Standard error envelope used across the API (§11). */
+        /** @description The shape every error response uses. The HTTP status code says what kind of failure it was; this body carries a stable machine-readable `code`, a human `message`, and optional `details`. */
         Error: {
             error: {
-                /** @enum {string} */
+                /**
+                 * @description Stable error code, independent of the HTTP status. `rate_limited` = too many requests; `not_found` = no such resource (or it belongs to another organization); `unauthorized` = missing/invalid credentials; `forbidden` = authenticated but lacks the required permission; `validation_error` = bad request input; `conflict` = a duplicate or state clash; `not_implemented` = the feature is stubbed in this build (returned as HTTP 501); `internal` = an unexpected server error.
+                 * @enum {string}
+                 */
                 code: "rate_limited" | "not_found" | "unauthorized" | "forbidden" | "validation_error" | "conflict" | "not_implemented" | "internal";
+                /** @description Human-readable explanation of what went wrong. */
                 message: string;
+                /** @description Optional extra context about the error (e.g. which field failed validation). */
                 details?: {
                     [key: string]: unknown;
                 };
             };
         };
+        /** @description Pagination fields shared by every list response. */
         PageMeta: {
-            /** @description Pass back as ?cursor to fetch the next page; null/absent at the end. */
+            /** @description Pass this back as the `cursor` query parameter to fetch the next page. It is null (or absent) when there are no more items. */
             nextCursor?: string | null;
         };
+        /** @description Fields for creating a new WhatsApp session (an attached number). */
         CreateSessionRequest: {
+            /** @description Optional human-friendly name for the session. */
             label?: string;
-            /** @description Start the session immediately. */
+            /** @description If true, start the session right away (otherwise it is created stopped). */
             start?: boolean;
+            /** @description If true, mark incoming messages as read automatically. */
             autoRead?: boolean;
+            /** @description If true, send a "typing…" presence indicator while sending. */
             presenceTyping?: boolean;
         };
-        /** @description An attached WhatsApp number (mirrors the wa_sessions table). Owned by an organization (`organizationId`); `gatewayId` names which gateway holds this session's keystore. Per §13 the response also carries the owning gateway's `label`/`status`/`baseUrl` from the `gateways` registry (the optional `gateway` object) so the dashboard can show where each session lives once there is more than one gateway. */
+        /** @description One attached WhatsApp number. Each session is owned by one organization and runs on one gateway. The `gateway` object (when present) describes which gateway holds this session, so a dashboard can show where each session lives when there is more than one gateway. */
         WASession: {
-            /** @description App session id (ULID). */
+            /** @description The session id (a ULID). */
             id: string;
-            /** @description Owning better-auth organization id. */
+            /** @description Id of the organization that owns this session. */
             organizationId: string;
-            /** @description better-auth user that created the session (audit). */
+            /** @description Id of the user who created the session (kept for audit). */
             createdByUserId?: string;
-            /** @description Gateway holding this session's keystore (= GATEWAY_ID). */
+            /** @description Id of the gateway that holds this session's WhatsApp keys and connection. */
             gatewayId: string;
-            /** @description The owning gateway's registry row (label/status/baseUrl), per §13. */
+            /** @description The owning gateway's details (label, online status, base URL), for showing where the session runs. */
             gateway?: components["schemas"]["Gateway"];
-            label?: string;
-            /** @enum {string} */
-            status: "starting" | "scan_qr_code" | "working" | "failed" | "stopped" | "logged_out";
-            /** @description Phone JID once paired. */
-            waJid?: string;
-            /** @description Linked-device id. */
-            waLid?: string;
-            phoneNumber?: string;
-            /** @description The WHATSAPP_ADMIN_NUMBER session. */
-            isAdminSession: boolean;
-            autoRead: boolean;
-            presenceTyping: boolean;
-            ratePerMin: number;
-            ratePerHour: number;
-            /** Format: int64 */
-            lastConnectedAt?: number;
-            /** Format: int64 */
-            createdAt: number;
-            /** Format: int64 */
-            updatedAt: number;
-        };
-        /** @description A row in the `gateways` registry (§7) — one self-row in v2, more when sharding. Surfaced on session responses so the dashboard knows where a session lives. */
-        Gateway: {
-            /** @description Gateway id (= GATEWAY_ID). */
-            id: string;
+            /** @description Human-friendly name for the session. */
             label?: string;
             /**
-             * @description Gateway liveness derived from the registry heartbeat.
+             * @description Where the session is in its lifecycle. `starting` = connecting (also used after a transient disconnect, since the gateway reconnects); `scan_qr_code` = waiting for the QR code to be scanned to pair; `working` = connected and usable; `failed` = the connection broke (e.g. replaced by another device); `stopped` = deliberately stopped; `logged_out` = unpaired on the phone, needs a fresh QR scan.
+             * @enum {string}
+             */
+            status: "starting" | "scan_qr_code" | "working" | "failed" | "stopped" | "logged_out";
+            /** @description The session's own WhatsApp JID, set once the number is paired. */
+            waJid?: string;
+            /** @description The session's linked-device id (LID), WhatsApp's privacy-preserving per-device address. */
+            waLid?: string;
+            /** @description The paired phone number in plain digits. */
+            phoneNumber?: string;
+            /** @description True if this is the gateway's configured admin session (WHATSAPP_ADMIN_NUMBER). */
+            isAdminSession: boolean;
+            /** @description Whether incoming messages are marked read automatically. */
+            autoRead: boolean;
+            /** @description Whether a "typing…" indicator is sent while sending. */
+            presenceTyping: boolean;
+            /** @description Send rate limit per minute for this session. */
+            ratePerMin: number;
+            /** @description Send rate limit per hour for this session. */
+            ratePerHour: number;
+            /**
+             * Format: int64
+             * @description When the session last connected, in epoch milliseconds.
+             */
+            lastConnectedAt?: number;
+            /**
+             * Format: int64
+             * @description When the session was created, in epoch milliseconds.
+             */
+            createdAt: number;
+            /**
+             * Format: int64
+             * @description When the session was last updated, in epoch milliseconds.
+             */
+            updatedAt: number;
+        };
+        /** @description One gateway instance. A deployment usually has a single gateway; more are added only when sharding sessions across machines. This is attached to session responses so a dashboard knows where a session runs. */
+        Gateway: {
+            /** @description The gateway's id. */
+            id: string;
+            /** @description Human-friendly name for the gateway. */
+            label?: string;
+            /**
+             * @description Whether the gateway is currently reachable, based on its most recent heartbeat.
              * @enum {string}
              */
             status: "online" | "offline";
-            /** @description External base URL of this gateway (PUBLIC_URL). */
+            /** @description The gateway's public base URL, where clients reach it. */
             baseUrl?: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description When the gateway last sent a heartbeat, in epoch milliseconds.
+             */
             lastSeenAt?: number;
         };
+        /** @description One page of sessions, plus the cursor for the next page. */
         SessionPage: components["schemas"]["PageMeta"] & {
+            /** @description The sessions on this page. */
             data?: components["schemas"]["WASession"][];
         };
+        /** @description The WhatsApp account this session is paired with. */
         SessionMe: {
+            /** @description The account's own WhatsApp JID. */
             jid?: string;
+            /** @description The account's linked-device id (LID). */
             lid?: string;
+            /** @description The display name the account shows to others. */
             pushName?: string;
+            /** @description The paired phone number in plain digits. */
             phoneNumber?: string;
         };
+        /** @description The pairing QR code to display so the user can link their phone. */
         QRCode: {
-            /** @description Raw QR code string to render. */
+            /** @description The QR payload string; render it as a QR image for the user to scan. */
             code?: string;
         };
-        /** @description Discriminated on `type` (§11). */
+        /** @description One outgoing message. `type` selects which other fields apply (e.g. `text` uses `text`; `location` uses `latitude`/`longitude`/`name`; `poll` uses `name`/`options`/`selectableCount`). Media types (image/video/audio/document/sticker) are not implemented in this build and return 501. */
         SendRequest: {
-            /** @enum {string} */
+            /**
+             * @description Which kind of message to send. Determines which other fields are used.
+             * @enum {string}
+             */
             type: "text" | "poll" | "location" | "contact" | "image" | "video" | "audio" | "document" | "sticker";
-            /** @description Recipient JID. */
+            /** @description The recipient's JID (a user JID for a direct message, a group JID for a group). */
             to: string;
+            /** @description The message text (for type text). */
             text?: string;
-            /** @description Quoted message id. */
+            /** @description The id of the message this one quotes/replies to. */
             replyTo?: string;
+            /** @description JIDs to @-mention in the message. */
             mentions?: string[];
-            /** @description Poll name or location label. */
+            /** @description For a poll, the poll question; for a location, the place label. */
             name?: string;
+            /** @description The poll's answer options (for poll messages). */
             options?: string[];
+            /** @description How many options a voter may pick in the poll (1 = single choice). */
             selectableCount?: number;
+            /** @description Latitude of the shared location. */
             latitude?: number;
+            /** @description Longitude of the shared location. */
             longitude?: number;
             contact?: components["schemas"]["ContactCard"];
         };
+        /** @description A contact to share (for contact messages). */
         ContactCard: {
+            /** @description The contact's display name. */
             name?: string;
+            /** @description The contact's phone number. */
             phone?: string;
+            /** @description A full vCard string; if set, it is sent verbatim instead of building one from name/phone. */
             vcard?: string;
         };
+        /** @description The outcome of a send request. */
         SendResult: {
+            /** @description The WhatsApp message id assigned to the sent message. */
             messageId?: string;
-            /** @enum {string} */
+            /**
+             * @description Delivery state of the message. `pending` = queued/not yet confirmed; `sent` = handed to WhatsApp; `delivered` = reached the recipient's device; `read` = opened; `played` = voice/video note played; `failed` = could not be sent.
+             * @enum {string}
+             */
             status?: "pending" | "sent" | "delivered" | "read" | "played" | "failed";
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description When the message was sent, in epoch milliseconds.
+             */
             timestamp?: number;
         };
+        /** @description A stored message in a chat (sent or received). */
         Message: {
+            /** @description The WhatsApp message id. */
             id?: string;
+            /** @description JID of the chat this message belongs to. */
             chatJid?: string;
+            /** @description JID of whoever sent the message. */
             senderJid?: string;
-            /** @enum {string} */
+            /**
+             * @description `in` = received by this session; `out` = sent by this session.
+             * @enum {string}
+             */
             direction?: "in" | "out";
+            /** @description The message kind (e.g. text, image, location, poll, reaction, system). */
             type?: string;
+            /** @description The text content or caption, when the message has one. */
             body?: string;
-            /** @enum {string} */
+            /**
+             * @description Delivery state. `pending`, `sent`, `delivered`, `read`, `played`, or `failed` — same meanings as on a send result. Mainly meaningful for outgoing messages.
+             * @enum {string}
+             */
             status?: "pending" | "sent" | "delivered" | "read" | "played" | "failed";
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description When the message was sent or received, in epoch milliseconds.
+             */
             timestamp?: number;
         };
+        /** @description One page of messages, plus the cursor for the next page. */
         MessagePage: components["schemas"]["PageMeta"] & {
+            /** @description The messages on this page. */
             data?: components["schemas"]["Message"][];
         };
+        /** @description A conversation this session is part of. */
         Chat: {
+            /** @description The chat's JID. */
             jid?: string;
-            /** @enum {string} */
+            /**
+             * @description Kind of chat. `dm` = one-to-one; `group`; `newsletter` = a channel; `broadcast` = a broadcast list; `status` = the status feed.
+             * @enum {string}
+             */
             type?: "dm" | "group" | "newsletter" | "broadcast" | "status";
+            /** @description The chat's display name (contact name or group subject). */
             name?: string;
+            /** @description Number of unread messages in this chat. */
             unreadCount?: number;
+            /** @description Whether the chat is archived. */
             archived?: boolean;
+            /** @description Whether the chat is pinned to the top. */
             pinned?: boolean;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Muted until this time (epoch milliseconds); absent if not muted.
+             */
             mutedUntil?: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description When the most recent message arrived, in epoch milliseconds.
+             */
             lastMessageAt?: number;
         };
+        /** @description One page of chats, plus the cursor for the next page. */
         ChatPage: components["schemas"]["PageMeta"] & {
+            /** @description The chats on this page. */
             data?: components["schemas"]["Chat"][];
         };
+        /** @description Fields to change on a chat. Omit a field to leave it unchanged. */
         UpdateChatRequest: {
+            /** @description Set the chat's archived state. */
             archived?: boolean;
+            /** @description Set the chat's pinned state. */
             pinned?: boolean;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Mute the chat until this time (epoch milliseconds).
+             */
             mutedUntil?: number;
+            /** @description If true, unmute the chat (clears any mute). */
             unmute?: boolean;
         };
+        /** @description A person this session has encountered (the Contacts feature). */
         Contact: {
+            /** @description The contact's linked-device id (LID) — WhatsApp's privacy-preserving address, used as the stable key for a contact. */
             lid?: string;
+            /** @description The contact's phone number, when known. */
             phoneNumber?: string;
+            /** @description The contact's saved name, when known. */
             name?: string;
+            /** @description The display name the contact set for themselves. */
             pushName?: string;
-            /** @enum {string} */
+            /**
+             * @description Where this session first saw the contact. `dm` = in a direct chat; `group` = in a group.
+             * @enum {string}
+             */
             source?: "dm" | "group";
         };
+        /** @description One page of contacts, plus the cursor for the next page. */
         ContactPage: components["schemas"]["PageMeta"] & {
+            /** @description The contacts on this page. */
             data?: components["schemas"]["Contact"][];
         };
+        /** @description A contact plus where they show up — whether there is a direct chat, and which groups they share with this session. */
         ContactDetail: {
             identity?: components["schemas"]["Contact"];
-            /** @description Whether a DM chat exists. */
+            /** @description True if a direct chat with this contact exists. */
             dm?: boolean;
+            /** @description Groups this contact and the session share. */
             groups?: {
+                /** @description The group's JID. */
                 jid?: string;
+                /** @description The group's name. */
                 name?: string;
+                /** @description The contact's display name within this group, if set. */
                 nickname?: string;
-                /** @enum {string} */
+                /**
+                 * @description The contact's role in the group. `member`; `admin`; `superadmin` = the group creator.
+                 * @enum {string}
+                 */
                 role?: "member" | "admin" | "superadmin";
-                /** Format: int64 */
+                /**
+                 * Format: int64
+                 * @description When the contact was last seen in this group, in epoch milliseconds.
+                 */
                 lastSeen?: number;
             }[];
         };
+        /** @description The result of checking whether a phone number is on WhatsApp. */
         OnWhatsApp: {
+            /** @description The phone number that was checked. */
             query?: string;
+            /** @description The WhatsApp JID for the number, if it is on WhatsApp. */
             jid?: string;
+            /** @description True if the number has a WhatsApp account. */
             isIn?: boolean;
+            /** @description The verified business name, for official business accounts. */
             verifiedName?: string;
         };
+        /** @description A contact's or group's profile picture. */
         ProfilePicture: {
+            /** @description URL of the picture image. */
             url?: string;
+            /** @description The picture's id; changes when the picture changes, so it can be used for caching. */
             id?: string;
+            /** @description The picture variant (e.g. full image vs. preview thumbnail). */
             type?: string;
         };
+        /** @description A WhatsApp group and its members. */
         GroupInfo: {
+            /** @description The group's JID. */
             jid?: string;
+            /** @description The group's name (its subject). */
             subject?: string;
+            /** @description The group's description text. */
             description?: string;
+            /** @description JID of the group's owner/creator. */
             owner?: string;
+            /** @description If true, only admins can post (announcement group). */
             announce?: boolean;
+            /** @description If true, only admins can edit the group's info (name, description, icon). */
             locked?: boolean;
+            /** @description The group's members. */
             participants?: components["schemas"]["GroupMember"][];
         };
+        /** @description One member of a group. */
         GroupMember: {
+            /** @description The member's JID. */
             jid?: string;
+            /** @description The member's display name within this group, if set. */
             nickname?: string;
-            /** @enum {string} */
+            /**
+             * @description `member`; `admin`; `superadmin` = the group creator.
+             * @enum {string}
+             */
             role?: "member" | "admin" | "superadmin";
         };
+        /** @description Group settings to change. Omit a field to leave it unchanged. */
         GroupSettings: {
+            /** @description New group name. */
             subject?: string;
+            /** @description New group description. */
             description?: string;
+            /** @description If true, restrict posting to admins. */
             announce?: boolean;
+            /** @description If true, restrict editing the group's info to admins. */
             locked?: boolean;
         };
+        /** @description One page of groups, plus the cursor for the next page. */
         GroupPage: components["schemas"]["PageMeta"] & {
+            /** @description The groups on this page. */
             data?: components["schemas"]["GroupInfo"][];
         };
+        /** @description How failed webhook deliveries are retried. */
         RetryPolicy: {
-            /** @example exponential */
+            /**
+             * @description Backoff strategy. `exponential` doubles the delay each attempt; any other value uses a constant delay.
+             * @example exponential
+             */
             policy?: string;
+            /** @description Base delay before retrying. For exponential, the delay is delaySeconds × 2^(attempt-1). Defaults to 2. */
             delaySeconds?: number;
+            /** @description Maximum number of attempts before the delivery is given up (dead-lettered). Defaults to 15. */
             attempts?: number;
         };
+        /** @description Fields for creating or updating a webhook. */
         WebhookRequest: {
-            /** @description Null = all of the organization's sessions. */
+            /** @description Deliver only events from this session. Null/omitted means all of the organization's sessions. */
             sessionId?: string;
+            /** @description The HTTPS endpoint that receives the event POSTs. */
             url?: string;
+            /** @description Event types to deliver. Use ["*"] to receive every event; an empty list receives none. */
             events?: string[];
+            /** @description If set, each delivery is signed with HMAC-SHA512 over the body, in the X-Webhook-Hmac header, so the receiver can verify it came from the gateway. */
             secret?: string;
+            /** @description Extra HTTP headers to send with each delivery (applied last, so they can override the defaults). */
             customHeaders?: {
                 [key: string]: string;
             };
             retryPolicy?: components["schemas"]["RetryPolicy"];
+            /** @description Whether the webhook is enabled. Inactive webhooks receive nothing. */
             active?: boolean;
         };
+        /** @description A configured webhook (the secret is never returned). */
         Webhook: {
+            /** @description The webhook's id. */
             id?: string;
+            /** @description Id of the organization that owns the webhook. */
             organizationId?: string;
+            /** @description The session this webhook is scoped to; null means all of the organization's sessions. */
             sessionId?: string;
+            /** @description The HTTPS endpoint that receives the event POSTs. */
             url?: string;
+            /** @description Event types delivered to this webhook (["*"] means all). */
             events?: string[];
+            /** @description Extra HTTP headers sent with each delivery. */
             customHeaders?: {
                 [key: string]: string;
             };
             retryPolicy?: components["schemas"]["RetryPolicy"];
+            /** @description Whether the webhook is enabled. */
             active?: boolean;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description When the webhook was created, in epoch milliseconds.
+             */
             createdAt?: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description When the webhook was last updated, in epoch milliseconds.
+             */
             updatedAt?: number;
         };
+        /** @description One page of webhooks, plus the cursor for the next page. */
         WebhookPage: components["schemas"]["PageMeta"] & {
+            /** @description The webhooks on this page. */
             data?: components["schemas"]["Webhook"][];
         };
-        /** @description The §9 event envelope, one per NDJSON line. */
+        /** @description One event from the gateway. The same shape is delivered two ways: as one JSON object per line on the event stream (NDJSON — newline-delimited JSON), and as the body of each webhook POST. */
         Event: {
-            /** @example v1 */
+            /**
+             * @description Envelope schema version, so consumers can adapt if the shape changes.
+             * @example v1
+             */
             schema: string;
-            /** @example evt_01J9... */
+            /**
+             * @description Unique event id. Webhooks repeat it in X-Webhook-Request-Id so receivers can drop duplicate redeliveries.
+             * @example evt_01J9...
+             */
             id: string;
-            /** @description Event type, e.g. message, session.status, group.update. */
+            /** @description The event type, e.g. message, session.status, group.update. */
             event: string;
+            /** @description Id of the session the event came from. */
             session: string;
-            /** @description Owning organization id. */
+            /** @description Id of the organization that owns the session. */
             organization: string;
             /**
              * Format: int64
-             * @description Epoch milliseconds.
+             * @description When the event happened, in epoch milliseconds.
              */
             timestamp: number;
+            /** @description The event-type-specific body. Its fields depend on the event type. */
             payload: {
                 [key: string]: unknown;
             };
         };
     };
     responses: {
-        /** @description Error envelope (§11). */
+        /** @description An error, returned in the standard error envelope (see the Error schema). */
         Error: {
             headers: {
                 [name: string]: unknown;
@@ -1358,7 +1747,7 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description The send result. */
+        /** @description The message was accepted; the body reports the WhatsApp message id and its current status. */
         SendResultOK: {
             headers: {
                 [name: string]: unknown;
@@ -1369,20 +1758,21 @@ export interface components {
         };
     };
     parameters: {
-        /** @description The WhatsApp session id (sess_…). */
+        /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
         Session: string;
+        /** @description Resource id in the path (e.g. a webhook id). */
         ID: string;
-        /** @description WhatsApp message id. */
+        /** @description The WhatsApp message id (the per-message stable id assigned by WhatsApp). */
         MessageID: string;
-        /** @description Chat JID. */
+        /** @description The chat's JID. A JID (Jabber ID) is WhatsApp's address for a conversation or user — e.g. `123...@s.whatsapp.net` for a direct chat or `123...@g.us` for a group. */
         ChatID: string;
-        /** @description Group JID. */
+        /** @description The group's JID (ends in `@g.us`). */
         GroupID: string;
-        /** @description A WhatsApp JID. */
+        /** @description A WhatsApp JID — the address of a user, group, or channel. */
         JID: string;
-        /** @description Max items to return. */
+        /** @description Maximum number of items to return on one page (clamped to 1–200; defaults to 50). */
         Limit: number;
-        /** @description Opaque pagination cursor from a previous response's nextCursor. */
+        /** @description Page cursor. Pass the `nextCursor` value from the previous response to fetch the next page. The value is opaque — treat it as a token, do not parse it. Omit it to get the first page. */
         Cursor: string;
     };
     requestBodies: never;
@@ -1455,9 +1845,9 @@ export interface operations {
     listSessions: {
         parameters: {
             query?: {
-                /** @description Max items to return. */
+                /** @description Maximum number of items to return on one page (clamped to 1–200; defaults to 50). */
                 limit?: components["parameters"]["Limit"];
-                /** @description Opaque pagination cursor from a previous response's nextCursor. */
+                /** @description Page cursor. Pass the `nextCursor` value from the previous response to fetch the next page. The value is opaque — treat it as a token, do not parse it. Omit it to get the first page. */
                 cursor?: components["parameters"]["Cursor"];
             };
             header?: never;
@@ -1511,7 +1901,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
             };
             cookie?: never;
@@ -1535,7 +1925,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
             };
             cookie?: never;
@@ -1557,7 +1947,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
             };
             cookie?: never;
@@ -1581,7 +1971,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
             };
             cookie?: never;
@@ -1605,7 +1995,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
             };
             cookie?: never;
@@ -1629,7 +2019,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
             };
             cookie?: never;
@@ -1653,7 +2043,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
             };
             cookie?: never;
@@ -1681,7 +2071,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
             };
             cookie?: never;
@@ -1706,7 +2096,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
             };
             cookie?: never;
@@ -1746,7 +2136,7 @@ export interface operations {
                 "Idempotency-Key"?: string;
             };
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
             };
             cookie?: never;
@@ -1777,9 +2167,9 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description WhatsApp message id. */
+                /** @description The WhatsApp message id (the per-message stable id assigned by WhatsApp). */
                 mid: components["parameters"]["MessageID"];
             };
             cookie?: never;
@@ -1795,9 +2185,9 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description WhatsApp message id. */
+                /** @description The WhatsApp message id (the per-message stable id assigned by WhatsApp). */
                 mid: components["parameters"]["MessageID"];
             };
             cookie?: never;
@@ -1819,9 +2209,9 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description WhatsApp message id. */
+                /** @description The WhatsApp message id (the per-message stable id assigned by WhatsApp). */
                 mid: components["parameters"]["MessageID"];
             };
             cookie?: never;
@@ -1844,9 +2234,9 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description WhatsApp message id. */
+                /** @description The WhatsApp message id (the per-message stable id assigned by WhatsApp). */
                 mid: components["parameters"]["MessageID"];
             };
             cookie?: never;
@@ -1862,9 +2252,9 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description WhatsApp message id. */
+                /** @description The WhatsApp message id (the per-message stable id assigned by WhatsApp). */
                 mid: components["parameters"]["MessageID"];
             };
             cookie?: never;
@@ -1887,9 +2277,9 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description WhatsApp message id. */
+                /** @description The WhatsApp message id (the per-message stable id assigned by WhatsApp). */
                 mid: components["parameters"]["MessageID"];
             };
             cookie?: never;
@@ -1909,14 +2299,14 @@ export interface operations {
     listChats: {
         parameters: {
             query?: {
-                /** @description Max items to return. */
+                /** @description Maximum number of items to return on one page (clamped to 1–200; defaults to 50). */
                 limit?: components["parameters"]["Limit"];
-                /** @description Opaque pagination cursor from a previous response's nextCursor. */
+                /** @description Page cursor. Pass the `nextCursor` value from the previous response to fetch the next page. The value is opaque — treat it as a token, do not parse it. Omit it to get the first page. */
                 cursor?: components["parameters"]["Cursor"];
             };
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
             };
             cookie?: never;
@@ -1940,9 +2330,9 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description Chat JID. */
+                /** @description The chat's JID. A JID (Jabber ID) is WhatsApp's address for a conversation or user — e.g. `123...@s.whatsapp.net` for a direct chat or `123...@g.us` for a group. */
                 cid: components["parameters"]["ChatID"];
             };
             cookie?: never;
@@ -1966,9 +2356,9 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description Chat JID. */
+                /** @description The chat's JID. A JID (Jabber ID) is WhatsApp's address for a conversation or user — e.g. `123...@s.whatsapp.net` for a direct chat or `123...@g.us` for a group. */
                 cid: components["parameters"]["ChatID"];
             };
             cookie?: never;
@@ -1990,9 +2380,9 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description Chat JID. */
+                /** @description The chat's JID. A JID (Jabber ID) is WhatsApp's address for a conversation or user — e.g. `123...@s.whatsapp.net` for a direct chat or `123...@g.us` for a group. */
                 cid: components["parameters"]["ChatID"];
             };
             cookie?: never;
@@ -2018,16 +2408,16 @@ export interface operations {
     listChatMessages: {
         parameters: {
             query?: {
-                /** @description Max items to return. */
+                /** @description Maximum number of items to return on one page (clamped to 1–200; defaults to 50). */
                 limit?: components["parameters"]["Limit"];
-                /** @description Opaque pagination cursor from a previous response's nextCursor. */
+                /** @description Page cursor. Pass the `nextCursor` value from the previous response to fetch the next page. The value is opaque — treat it as a token, do not parse it. Omit it to get the first page. */
                 cursor?: components["parameters"]["Cursor"];
             };
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description Chat JID. */
+                /** @description The chat's JID. A JID (Jabber ID) is WhatsApp's address for a conversation or user — e.g. `123...@s.whatsapp.net` for a direct chat or `123...@g.us` for a group. */
                 cid: components["parameters"]["ChatID"];
             };
             cookie?: never;
@@ -2051,9 +2441,9 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description Chat JID. */
+                /** @description The chat's JID. A JID (Jabber ID) is WhatsApp's address for a conversation or user — e.g. `123...@s.whatsapp.net` for a direct chat or `123...@g.us` for a group. */
                 cid: components["parameters"]["ChatID"];
             };
             cookie?: never;
@@ -2081,9 +2471,9 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description Chat JID. */
+                /** @description The chat's JID. A JID (Jabber ID) is WhatsApp's address for a conversation or user — e.g. `123...@s.whatsapp.net` for a direct chat or `123...@g.us` for a group. */
                 cid: components["parameters"]["ChatID"];
             };
             cookie?: never;
@@ -2112,9 +2502,9 @@ export interface operations {
     listContacts: {
         parameters: {
             query?: {
-                /** @description Max items to return. */
+                /** @description Maximum number of items to return on one page (clamped to 1–200; defaults to 50). */
                 limit?: components["parameters"]["Limit"];
-                /** @description Opaque pagination cursor from a previous response's nextCursor. */
+                /** @description Page cursor. Pass the `nextCursor` value from the previous response to fetch the next page. The value is opaque — treat it as a token, do not parse it. Omit it to get the first page. */
                 cursor?: components["parameters"]["Cursor"];
                 source?: "dm" | "group";
                 /** @description Filter to members of this group JID. */
@@ -2124,7 +2514,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
             };
             cookie?: never;
@@ -2150,7 +2540,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
             };
             cookie?: never;
@@ -2176,7 +2566,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
                 lid: string;
             };
@@ -2201,9 +2591,9 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description A WhatsApp JID. */
+                /** @description A WhatsApp JID — the address of a user, group, or channel. */
                 jid: components["parameters"]["JID"];
             };
             cookie?: never;
@@ -2228,9 +2618,9 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description A WhatsApp JID. */
+                /** @description A WhatsApp JID — the address of a user, group, or channel. */
                 jid: components["parameters"]["JID"];
             };
             cookie?: never;
@@ -2257,9 +2647,9 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description A WhatsApp JID. */
+                /** @description A WhatsApp JID — the address of a user, group, or channel. */
                 jid: components["parameters"]["JID"];
             };
             cookie?: never;
@@ -2282,9 +2672,9 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description A WhatsApp JID. */
+                /** @description A WhatsApp JID — the address of a user, group, or channel. */
                 jid: components["parameters"]["JID"];
             };
             cookie?: never;
@@ -2305,14 +2695,14 @@ export interface operations {
     listGroups: {
         parameters: {
             query?: {
-                /** @description Max items to return. */
+                /** @description Maximum number of items to return on one page (clamped to 1–200; defaults to 50). */
                 limit?: components["parameters"]["Limit"];
-                /** @description Opaque pagination cursor from a previous response's nextCursor. */
+                /** @description Page cursor. Pass the `nextCursor` value from the previous response to fetch the next page. The value is opaque — treat it as a token, do not parse it. Omit it to get the first page. */
                 cursor?: components["parameters"]["Cursor"];
             };
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
             };
             cookie?: never;
@@ -2336,7 +2726,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
             };
             cookie?: never;
@@ -2368,7 +2758,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
             };
             cookie?: never;
@@ -2398,9 +2788,9 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description Group JID. */
+                /** @description The group's JID (ends in `@g.us`). */
                 gid: components["parameters"]["GroupID"];
             };
             cookie?: never;
@@ -2424,9 +2814,9 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description Group JID. */
+                /** @description The group's JID (ends in `@g.us`). */
                 gid: components["parameters"]["GroupID"];
             };
             cookie?: never;
@@ -2453,9 +2843,9 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description Group JID. */
+                /** @description The group's JID (ends in `@g.us`). */
                 gid: components["parameters"]["GroupID"];
             };
             cookie?: never;
@@ -2478,9 +2868,9 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description Group JID. */
+                /** @description The group's JID (ends in `@g.us`). */
                 gid: components["parameters"]["GroupID"];
             };
             cookie?: never;
@@ -2504,9 +2894,9 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description Group JID. */
+                /** @description The group's JID (ends in `@g.us`). */
                 gid: components["parameters"]["GroupID"];
             };
             cookie?: never;
@@ -2535,9 +2925,9 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description Group JID. */
+                /** @description The group's JID (ends in `@g.us`). */
                 gid: components["parameters"]["GroupID"];
             };
             cookie?: never;
@@ -2552,11 +2942,11 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description Group JID. */
+                /** @description The group's JID (ends in `@g.us`). */
                 gid: components["parameters"]["GroupID"];
-                /** @description A WhatsApp JID. */
+                /** @description A WhatsApp JID — the address of a user, group, or channel. */
                 jid: components["parameters"]["JID"];
             };
             cookie?: never;
@@ -2579,11 +2969,11 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description Group JID. */
+                /** @description The group's JID (ends in `@g.us`). */
                 gid: components["parameters"]["GroupID"];
-                /** @description A WhatsApp JID. */
+                /** @description A WhatsApp JID — the address of a user, group, or channel. */
                 jid: components["parameters"]["JID"];
             };
             cookie?: never;
@@ -2606,11 +2996,11 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description Group JID. */
+                /** @description The group's JID (ends in `@g.us`). */
                 gid: components["parameters"]["GroupID"];
-                /** @description A WhatsApp JID. */
+                /** @description A WhatsApp JID — the address of a user, group, or channel. */
                 jid: components["parameters"]["JID"];
             };
             cookie?: never;
@@ -2633,9 +3023,9 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description Group JID. */
+                /** @description The group's JID (ends in `@g.us`). */
                 gid: components["parameters"]["GroupID"];
             };
             cookie?: never;
@@ -2662,9 +3052,9 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description Group JID. */
+                /** @description The group's JID (ends in `@g.us`). */
                 gid: components["parameters"]["GroupID"];
             };
             cookie?: never;
@@ -2691,7 +3081,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
             };
             cookie?: never;
@@ -2706,9 +3096,9 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description A WhatsApp JID. */
+                /** @description A WhatsApp JID — the address of a user, group, or channel. */
                 jid: components["parameters"]["JID"];
             };
             cookie?: never;
@@ -2723,9 +3113,9 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description A WhatsApp JID. */
+                /** @description A WhatsApp JID — the address of a user, group, or channel. */
                 jid: components["parameters"]["JID"];
             };
             cookie?: never;
@@ -2740,9 +3130,9 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description A WhatsApp JID. */
+                /** @description A WhatsApp JID — the address of a user, group, or channel. */
                 jid: components["parameters"]["JID"];
             };
             cookie?: never;
@@ -2755,16 +3145,16 @@ export interface operations {
     listChannelMessages: {
         parameters: {
             query?: {
-                /** @description Max items to return. */
+                /** @description Maximum number of items to return on one page (clamped to 1–200; defaults to 50). */
                 limit?: components["parameters"]["Limit"];
-                /** @description Opaque pagination cursor from a previous response's nextCursor. */
+                /** @description Page cursor. Pass the `nextCursor` value from the previous response to fetch the next page. The value is opaque — treat it as a token, do not parse it. Omit it to get the first page. */
                 cursor?: components["parameters"]["Cursor"];
             };
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
-                /** @description A WhatsApp JID. */
+                /** @description A WhatsApp JID — the address of a user, group, or channel. */
                 jid: components["parameters"]["JID"];
             };
             cookie?: never;
@@ -2788,7 +3178,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
             };
             cookie?: never;
@@ -2816,7 +3206,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (sess_…). */
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
                 session: components["parameters"]["Session"];
             };
             cookie?: never;
@@ -2856,7 +3246,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description An NDJSON stream; one Event JSON object per line. */
+            /** @description A live NDJSON stream — one Event JSON object per line, plus periodic ping lines. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2871,9 +3261,9 @@ export interface operations {
     listWebhooks: {
         parameters: {
             query?: {
-                /** @description Max items to return. */
+                /** @description Maximum number of items to return on one page (clamped to 1–200; defaults to 50). */
                 limit?: components["parameters"]["Limit"];
-                /** @description Opaque pagination cursor from a previous response's nextCursor. */
+                /** @description Page cursor. Pass the `nextCursor` value from the previous response to fetch the next page. The value is opaque — treat it as a token, do not parse it. Omit it to get the first page. */
                 cursor?: components["parameters"]["Cursor"];
             };
             header?: never;
@@ -2924,6 +3314,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description Resource id in the path (e.g. a webhook id). */
                 id: components["parameters"]["ID"];
             };
             cookie?: never;
@@ -2947,6 +3338,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description Resource id in the path (e.g. a webhook id). */
                 id: components["parameters"]["ID"];
             };
             cookie?: never;
@@ -2968,6 +3360,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description Resource id in the path (e.g. a webhook id). */
                 id: components["parameters"]["ID"];
             };
             cookie?: never;
@@ -2993,9 +3386,9 @@ export interface operations {
     adminListSessions: {
         parameters: {
             query?: {
-                /** @description Max items to return. */
+                /** @description Maximum number of items to return on one page (clamped to 1–200; defaults to 50). */
                 limit?: components["parameters"]["Limit"];
-                /** @description Opaque pagination cursor from a previous response's nextCursor. */
+                /** @description Page cursor. Pass the `nextCursor` value from the previous response to fetch the next page. The value is opaque — treat it as a token, do not parse it. Omit it to get the first page. */
                 cursor?: components["parameters"]["Cursor"];
             };
             header?: never;

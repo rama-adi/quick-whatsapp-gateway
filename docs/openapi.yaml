@@ -1442,13 +1442,16 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: >
-        `Authorization: Bearer <token>`. The SAME bearer accepts EITHER a
-        better-auth JWT (EdDSA; humans, verified against the JWKS — carries
-        the active org + org/platform role) OR a better-auth api-key (machines;
-        prefix `wa_`, carries a `gateway` permission set). The gateway tries
-        both acceptors. `bearerFormat: JWT` documents the human path; api-keys
-        are also accepted on this header.
+      description: >-
+        Send one `Authorization: Bearer <token>` header. The gateway accepts
+        two kinds of token here and tries each in turn. The first is a login
+        token (a JWT) the frontend mints for a signed-in person; the gateway
+        checks its signature against the frontend's public keys and reads the
+        person's organization and role from it. The second is an api-key for a
+        script or service (prefixed `wa_`), which carries a fixed set of gateway
+        permissions. The `bearerFormat: JWT` label above describes the person
+        token; api-keys work on this same header. An api-key may instead be sent
+        in the `x-api-key` header.
     apiKeyHeader:
       type: apiKey
       in: header
