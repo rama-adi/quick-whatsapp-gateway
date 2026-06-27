@@ -8,6 +8,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"net/url"
 
 	"github.com/go-chi/chi/v5"
 
@@ -198,5 +199,16 @@ func organization(w http.ResponseWriter, r *http.Request) (string, bool) {
 	return id, true
 }
 
-// param reads a chi URL parameter.
-func param(r *http.Request, name string) string { return chi.URLParam(r, name) }
+// param reads a chi URL parameter, URL-decoding it. chi routes on the raw
+// (escaped) path when URL.RawPath is set, so URLParam returns the still-encoded
+// segment — e.g. a chat/contact JID arrives as "120363...%40g.us" rather than
+// "120363...@g.us". WhatsApp identifiers carry "@" (and ":"), so without this the
+// value never matches the stored jid and the lookup 404s. Falls back to the raw
+// value if it isn't valid percent-encoding.
+func param(r *http.Request, name string) string {
+	raw := chi.URLParam(r, name)
+	if decoded, err := url.PathUnescape(raw); err == nil {
+		return decoded
+	}
+	return raw
+}

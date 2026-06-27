@@ -173,7 +173,7 @@ type GroupMember struct {
 type Chat struct {
 	ID            uint64   `json:"id"`
 	SessionID     string   `json:"sessionId"`
-	ChatJID       string   `json:"chatJid"`
+	ChatJID       string   `json:"jid"` // REST/OpenAPI contract field is `jid` (matches the frontend Chat type + SSR reads)
 	Type          ChatType `json:"type"`
 	Name          *string  `json:"name,omitempty"`
 	LastMessageAt *int64   `json:"lastMessageAt,omitempty"`
