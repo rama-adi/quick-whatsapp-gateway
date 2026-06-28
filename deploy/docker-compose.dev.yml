@@ -40,6 +40,10 @@ services:
       REDIS_URL: "redis://redis:6379"
       WHATSMEOW_STORE_DSN: "file:/data/keystore/store.db?_pragma=foreign_keys(on)&_pragma=journal_mode(WAL)"
       BETTER_AUTH_JWKS_URL: "http://host.docker.internal:3000/api/auth/jwks"
+      # The router runs on the HOST under `make router`; the dockerized gateway
+      # reaches its JWKS (to verify internal assertions) via host.docker.internal,
+      # not the in-container localhost.
+      ROUTER_JWKS_URL: "http://host.docker.internal:8090/.well-known/router-jwks.json"
     extra_hosts: ["host.docker.internal:host-gateway"]
     volumes: ["keystore_dev:/data/keystore"]
     depends_on:

@@ -77,15 +77,15 @@ func run() error {
 	defer stop()
 
 	// --- App data store (MySQL) + migrations ---
+	if err := migrateUp(cfg.MySQLDSN); err != nil {
+		return fmt.Errorf("run migrations: %w", err)
+	}
+
 	db, err := openMySQL(cfg.MySQLDSN)
 	if err != nil {
 		return fmt.Errorf("open mysql: %w", err)
 	}
 	defer db.Close()
-
-	if err := migrateUp(db); err != nil {
-		return fmt.Errorf("run migrations: %w", err)
-	}
 
 	st := store.New(db)
 
@@ -470,7 +470,12 @@ func migrator(db *sql.DB) (*migrate.Migrate, error) {
 	return m, nil
 }
 
-func migrateUp(db *sql.DB) error {
+func migrateUp(dsn string) error {
+	db, err := openMigrateMySQL(dsn)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
 	m, err := migrator(db)
 	if err != nil {
 		return err
@@ -481,6 +486,16 @@ func migrateUp(db *sql.DB) error {
 	return nil
 }
 
+// openMigrateMySQL opens a MySQL connection for running migrations. golang-migrate's
+// mysql WithInstance driver runs each migration file as a single Exec, so a file
+// with more than one statement (e.g. an ALTER plus a CREATE INDEX, or several
+// CREATE TABLEs) needs multiStatements enabled — otherwise MySQL rejects the
+// second statement with a 1064 syntax error. The app's own pool deliberately
+// leaves this off; only the migrator needs it.
+func openMigrateMySQL(dsn string) (*sql.DB, error) {
+	return openMySQL(ensureDSNParam(dsn, "multiStatements", "multiStatements=true"))
+}
+
 // runMigrate implements `migrate up|down`.
 func runMigrate(args []string) error {
 	cfg, err := config.Load()
@@ -488,7 +503,7 @@ func runMigrate(args []string) error {
 		return err
 	}
 	setupLogging(cfg.LogLevel)
-	db, err := openMySQL(cfg.MySQLDSN)
+	db, err := openMigrateMySQL(cfg.MySQLDSN)
 	if err != nil {
 		return err
 	}
