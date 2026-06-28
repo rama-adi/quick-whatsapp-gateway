@@ -153,7 +153,7 @@ func run() error {
 		DefaultAutoRead:     cfg.DefaultAutoRead,
 	})
 	inboundPipeline := inbound.NewPipeline(
-		service.NewInboundNormalizer(),
+		service.NewInboundNormalizer(manager.LiveOps(), st.Polls),
 		inbound.NewNoopCommandRegistry(),
 		service.NewInboundRepos(st),
 		publisher,

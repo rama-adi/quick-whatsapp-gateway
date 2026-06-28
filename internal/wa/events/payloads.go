@@ -114,11 +114,13 @@ type NormalizedMessage struct {
 	Contact  *ContactData
 	Poll     *PollData
 
-	// Poll vote (incoming PollUpdateMessage, still encrypted at normalize time):
-	// the encrypted selected-option hashes; decryption happens later in the
-	// pipeline via cli.DecryptPollVote.
+	// Poll vote (incoming PollUpdateMessage). The vote payload is encrypted at
+	// normalize time, so only the target poll id is known here; decryption and
+	// option-text resolution happen in the composition-layer normalizer (which
+	// holds the whatsmeow client + the stored poll options). SelectedOptions is
+	// therefore filled in after this struct is produced.
 	PollVoteTargetID string   // the poll-creation message id being voted on
-	SelectedHashes   []string // encrypted option hashes
+	SelectedOptions  []string // resolved selected-option text (empty until resolved)
 }
 
 // MessageSubtype enumerates the in-band variants of an *events.Message.

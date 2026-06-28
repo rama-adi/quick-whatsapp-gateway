@@ -74,6 +74,22 @@ func (p *Pipeline) persistMessage(ctx context.Context, nm *NormalizedMessage, no
 		dir = domain.DirectionOut
 	}
 
+	// A poll-creation message also records its options so later votes (which
+	// carry only option hashes) can be resolved to readable text.
+	if nm.Poll != nil {
+		if err := p.repos.UpsertPoll(ctx, PollUpsert{
+			SessionID:       nm.SessionID,
+			PollMessageID:   nm.WAMessageID,
+			ChatJID:         nm.ChatJID,
+			Name:            nm.Poll.Name,
+			Options:         nm.Poll.Options,
+			SelectableCount: nm.Poll.SelectableCount,
+			NowMs:           now,
+		}); err != nil {
+			return fmt.Errorf("upsert poll %q: %w", nm.WAMessageID, err)
+		}
+	}
+
 	if err := p.repos.InsertMessage(ctx, MessageInsert{
 		SessionID:       nm.SessionID,
 		WAMessageID:     nm.WAMessageID,

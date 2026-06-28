@@ -29,6 +29,7 @@ api-key `reference_id`, never by joining `member` on the hot path ([`trust-model
 | `whatsapp_group_members` | `GroupMemberRepo` | identity↔group pivot (role + `tag`), via `session_id` |
 | `chats` | `ChatRepo` | via `session_id` |
 | `messages` | `MessageRepo` | via `session_id` (inbound captures **and** the gateway's own sends — see below) |
+| `polls` | `PollRepo` | via `session_id` (poll-creation options, so votes resolve to text) |
 | `poll_votes` | `PollVoteRepo` | via `session_id` |
 | `outbox` | `OutboxRepo` | `organization_id` (idempotency) |
 | `event_log` | `EventLogRepo` | `organization_id` |
@@ -69,7 +70,9 @@ CREATE TABLE wa_sessions (
   KEY idx_sessions_gateway (gateway_id),
   UNIQUE KEY uq_sessions_jid (wa_jid)
 );
--- webhooks/webhook_deliveries/whatsapp_*/chats/messages/poll_votes/outbox/event_log follow §7
+-- webhooks/webhook_deliveries/whatsapp_*/chats/messages/polls/poll_votes/outbox/event_log follow §7
+-- polls (0005): UNIQUE (session_id, poll_message_id); options JSON; the canonical
+--   source of a poll's option list so incoming votes (option hashes) resolve to text.
 ```
 
 - **`organization_id`** replaces v1 `tenant_id` on every owned table; `webhooks`, `event_log`,

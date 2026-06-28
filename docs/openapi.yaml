@@ -1633,8 +1633,10 @@ components:
         reaction:
           description: "For message.reaction: the emoji reacted with; empty string means the reaction was removed."
           type: string
-        selectedHashes:
-          description: "For poll.vote: the encrypted option hashes the voter selected."
+        selectedOptions:
+          description: "For poll.vote: the option(s) the voter selected, resolved to the poll's option text. Falls back to the raw SHA-256 hash for any option that can't be resolved (e.g. the poll creation was never seen)."
+          examples:
+            - - "Yes"
           items:
             type: string
           type:

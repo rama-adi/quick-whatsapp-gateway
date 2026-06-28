@@ -19,8 +19,12 @@ import (
 // the pipeline drops it silently (e.g. source-level ignore rules in §7, or an
 // event type we don't model). When ok is true, both the Event and the
 // *NormalizedMessage are non-nil and consistent.
+// Normalize takes a context because some events require I/O to fully normalize —
+// a poll vote is decrypted via the live whatsmeow client and its option hashes
+// resolved against the stored poll. The work is gated on the event kind, so the
+// common path stays allocation-light and side-effect-free.
 type Normalizer interface {
-	Normalize(evt any, sessionID, organizationID string) (domain.Event, *NormalizedMessage, bool)
+	Normalize(ctx context.Context, evt any, sessionID, organizationID string) (domain.Event, *NormalizedMessage, bool)
 }
 
 // CommandRegistry handles admin-session private commands (§6/§7). On the admin
@@ -93,6 +97,9 @@ type Repos interface {
 	MarkMessageDeleted(ctx context.Context, sessionID, waMessageID string) error
 	// UpdateMessageStatus updates status/ack_level for acked messages (receipts).
 	UpdateMessageStatus(ctx context.Context, in MessageStatusUpdate) error
+	// UpsertPoll records a poll-creation message's options so later votes can be
+	// resolved to option text.
+	UpsertPoll(ctx context.Context, in PollUpsert) error
 	// InsertPollVote inserts a poll_votes row.
 	InsertPollVote(ctx context.Context, in PollVoteInsert) error
 
@@ -184,6 +191,17 @@ type MessageStatusUpdate struct {
 	Status       domain.MessageStatus
 	AckLevel     *int
 	NowMs        int64
+}
+
+// PollUpsert is the input to Repos.UpsertPoll.
+type PollUpsert struct {
+	SessionID       string
+	PollMessageID   string
+	ChatJID         string
+	Name            string
+	Options         []string
+	SelectableCount int
+	NowMs           int64
 }
 
 // PollVoteInsert is the input to Repos.InsertPollVote.

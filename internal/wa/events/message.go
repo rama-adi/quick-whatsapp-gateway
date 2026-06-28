@@ -64,8 +64,8 @@ func classify(e *events.Message, msg *waE2E.Message, nm *NormalizedMessage) {
 		fillEdit(e, msg, nm)
 	case msg.GetPollUpdateMessage() != nil:
 		fillPollVote(msg.GetPollUpdateMessage(), nm)
-	case msg.GetPollCreationMessage() != nil:
-		fillPoll(msg.GetPollCreationMessage(), nm)
+	case pollCreation(msg) != nil:
+		fillPoll(pollCreation(msg), nm)
 	case msg.GetLocationMessage() != nil:
 		fillLocation(msg.GetLocationMessage(), nm)
 	case msg.GetContactMessage() != nil:
@@ -124,6 +124,25 @@ func fillPollVote(pu *waE2E.PollUpdateMessage, nm *NormalizedMessage) {
 	// The vote payload is encrypted; expose the target poll id. Actual selected
 	// options are decrypted later via cli.DecryptPollVote (§7 persist stage).
 	nm.PollVoteTargetID = keyID(pu.GetPollCreationMessageKey())
+}
+
+// pollCreation returns the poll-creation content of a message regardless of which
+// versioned field carries it. WhatsApp has revised the poll wire field several
+// times: the original PollCreationMessage (field 49) is now legacy, and current
+// clients send PollCreationMessageV2 (60) / V3 (64). Only checking the legacy
+// field is why modern polls were classified as an unknown "system" message and
+// dropped. (V4+ wrap the poll in a FutureProofMessage and are not handled yet.)
+func pollCreation(msg *waE2E.Message) *waE2E.PollCreationMessage {
+	switch {
+	case msg.GetPollCreationMessage() != nil:
+		return msg.GetPollCreationMessage()
+	case msg.GetPollCreationMessageV2() != nil:
+		return msg.GetPollCreationMessageV2()
+	case msg.GetPollCreationMessageV3() != nil:
+		return msg.GetPollCreationMessageV3()
+	default:
+		return nil
+	}
 }
 
 func fillPoll(pc *waE2E.PollCreationMessage, nm *NormalizedMessage) {
@@ -317,7 +336,7 @@ func messagePayload(nm *NormalizedMessage) MessagePayload {
 		Location:        nm.Location,
 		Contact:         nm.Contact,
 		Poll:            nm.Poll,
-		SelectedHashes:  nm.SelectedHashes,
+		SelectedOptions: nm.SelectedOptions,
 	}
 }
 

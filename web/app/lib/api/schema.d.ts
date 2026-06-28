@@ -2838,8 +2838,13 @@ export interface components {
             quotedMessageId?: string;
             /** @description For message.reaction: the emoji reacted with; empty string means the reaction was removed. */
             reaction?: string;
-            /** @description For poll.vote: the encrypted option hashes the voter selected. */
-            selectedHashes?: string[] | null;
+            /**
+             * @description For poll.vote: the option(s) the voter selected, resolved to the poll's option text. Falls back to the raw SHA-256 hash for any option that can't be resolved (e.g. the poll creation was never seen).
+             * @example [
+             *       "Yes"
+             *     ]
+             */
+            selectedOptions?: string[] | null;
             /** @description JID of the sender (set for group messages; for DMs it equals the chat). */
             senderJid?: string;
             /** @description The sender's linked-device id, when available. */

@@ -81,7 +81,7 @@ type MessagePayload struct {
 	Location        *LocationData     `json:"location,omitempty" doc:"Set when type is location."`
 	Contact         *ContactData      `json:"contact,omitempty" doc:"Set when type is contact."`
 	Poll            *PollData         `json:"poll,omitempty" doc:"Set when type is poll (poll creation)."`
-	SelectedHashes  []string          `json:"selectedHashes,omitempty" doc:"For poll.vote: the encrypted option hashes the voter selected."`
+	SelectedOptions []string          `json:"selectedOptions,omitempty" doc:"For poll.vote: the option(s) the voter selected, resolved to the poll's option text. Falls back to the raw SHA-256 hash for any option that can't be resolved (e.g. the poll creation was never seen)." example:"[\"Yes\"]"`
 }
 
 // MessageStatusPayload is the payload of a `message.status` event: a delivery

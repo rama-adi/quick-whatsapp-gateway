@@ -115,7 +115,7 @@ func NewPipeline(
 // event never races the read receipt (§7.5).
 func (p *Pipeline) Process(ctx context.Context, sessionID, organizationID string, isAdminSession bool, evt any) error {
 	// Stage 1: normalize.
-	envelope, nm, ok := p.normalizer.Normalize(evt, sessionID, organizationID)
+	envelope, nm, ok := p.normalizer.Normalize(ctx, evt, sessionID, organizationID)
 	if !ok {
 		// Filtered/unrecognized event — nothing to do.
 		return nil

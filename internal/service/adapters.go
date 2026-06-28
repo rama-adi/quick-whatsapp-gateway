@@ -2,11 +2,14 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
 
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/apitypes"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa"
@@ -162,13 +165,35 @@ func (h *InboundPipelineHandler) Handle(ctx context.Context, sessionID, organiza
 	}
 }
 
-type InboundNormalizer struct{}
+// pollVoteDecryptor decrypts an incoming poll-vote event into the hex-encoded
+// SHA-256 hashes of the selected options. Satisfied by wa.LiveOps.
+type pollVoteDecryptor interface {
+	DecryptPollVote(ctx context.Context, sessionID string, evt any) ([]string, error)
+}
 
-func NewInboundNormalizer() *InboundNormalizer { return &InboundNormalizer{} }
+// pollOptionStore reads a poll's stored option list so vote hashes can be
+// resolved to option text. Satisfied by *store.PollRepo.
+type pollOptionStore interface {
+	GetOptions(ctx context.Context, sessionID, pollMessageID string) ([]string, error)
+}
+
+// InboundNormalizer adapts events.Normalize to the inbound.Normalizer port and,
+// for poll votes, enriches the result by decrypting the vote and resolving the
+// selected option hashes to readable text (decryptor + polls are optional; when
+// either is nil, votes are left with empty SelectedOptions).
+type InboundNormalizer struct {
+	decryptor pollVoteDecryptor
+	polls     pollOptionStore
+	log       *slog.Logger
+}
+
+func NewInboundNormalizer(decryptor pollVoteDecryptor, polls pollOptionStore) *InboundNormalizer {
+	return &InboundNormalizer{decryptor: decryptor, polls: polls, log: slog.Default()}
+}
 
 var _ inbound.Normalizer = (*InboundNormalizer)(nil)
 
-func (InboundNormalizer) Normalize(evt any, sessionID, organizationID string) (domain.Event, *inbound.NormalizedMessage, bool) {
+func (n *InboundNormalizer) Normalize(ctx context.Context, evt any, sessionID, organizationID string) (domain.Event, *inbound.NormalizedMessage, bool) {
 	ev, pr, ok := events.Normalize(evt, sessionID, organizationID)
 	if !ok {
 		return domain.Event{}, nil, false
@@ -181,7 +206,66 @@ func (InboundNormalizer) Normalize(evt any, sessionID, organizationID string) (d
 			OrganizationID: organizationID,
 		}
 	}
+	if nm.Kind == inbound.KindPollVote && nm.PollVote != nil {
+		n.resolvePollVote(ctx, sessionID, evt, &ev, nm)
+	}
 	return ev, nm, true
+}
+
+// resolvePollVote decrypts the vote and resolves the selected option hashes to
+// option text, writing the result onto both the persistence view (nm.PollVote)
+// and the outbound envelope (ev.Payload). A failure is logged and left as an
+// empty selection rather than dropping the vote — the row + event still record
+// who voted on which poll.
+func (n *InboundNormalizer) resolvePollVote(ctx context.Context, sessionID string, evt any, ev *domain.Event, nm *inbound.NormalizedMessage) {
+	if n.decryptor == nil || n.polls == nil {
+		return
+	}
+	hashes, err := n.decryptor.DecryptPollVote(ctx, sessionID, evt)
+	if err != nil {
+		n.log.WarnContext(ctx, "poll vote decrypt failed",
+			slog.String("session", sessionID),
+			slog.String("poll", nm.PollVote.PollMessageID),
+			slog.Any("err", err))
+		return
+	}
+	options, err := n.polls.GetOptions(ctx, sessionID, nm.PollVote.PollMessageID)
+	if err != nil {
+		n.log.WarnContext(ctx, "poll options lookup failed",
+			slog.String("session", sessionID),
+			slog.String("poll", nm.PollVote.PollMessageID),
+			slog.Any("err", err))
+		// Fall through: resolveSelectedOptions returns the raw hashes when options
+		// are unknown, which is still more useful than nothing.
+	}
+	selected := resolveSelectedOptions(options, hashes)
+	nm.PollVote.SelectedOptions = json.RawMessage(mustMarshalJSON(selected))
+	if mp, ok := ev.Payload.(apitypes.MessagePayload); ok {
+		mp.SelectedOptions = selected
+		ev.Payload = mp
+	}
+	// Keep the persisted raw_json consistent with the enriched envelope.
+	nm.RawJSON = eventPayloadJSON(*ev)
+}
+
+// resolveSelectedOptions maps each selected option hash (hex-encoded SHA-256 of
+// the option text) back to its option string. An unmatched hash is kept verbatim
+// so a vote for an option we never stored is still legible as its hash.
+func resolveSelectedOptions(options, selectedHashes []string) []string {
+	out := make([]string, 0, len(selectedHashes))
+	byHash := make(map[string]string, len(options))
+	for _, opt := range options {
+		sum := sha256.Sum256([]byte(opt))
+		byHash[hex.EncodeToString(sum[:])] = opt
+	}
+	for _, h := range selectedHashes {
+		if name, ok := byHash[strings.ToLower(h)]; ok {
+			out = append(out, name)
+		} else {
+			out = append(out, h)
+		}
+	}
+	return out
 }
 
 type InboundRepos struct {
@@ -283,6 +367,19 @@ func (r *InboundRepos) UpdateMessageStatus(ctx context.Context, in inbound.Messa
 	return nil
 }
 
+func (r *InboundRepos) UpsertPoll(ctx context.Context, in inbound.PollUpsert) error {
+	return r.store.Polls.Upsert(ctx, domain.Poll{
+		SessionID:       in.SessionID,
+		PollMessageID:   in.PollMessageID,
+		ChatJID:         in.ChatJID,
+		Name:            in.Name,
+		Options:         in.Options,
+		SelectableCount: in.SelectableCount,
+		CreatedAt:       in.NowMs,
+		UpdatedAt:       in.NowMs,
+	})
+}
+
 func (r *InboundRepos) InsertPollVote(ctx context.Context, in inbound.PollVoteInsert) error {
 	_, err := r.store.PollVotes.Insert(ctx, domain.PollVote{
 		SessionID:       in.SessionID,
@@ -355,9 +452,11 @@ func inboundMessageFromPersistResult(pr events.PersistResult, ev domain.Event, s
 		nm := inboundMessageFromEventsMessage(pr.Message, inbound.KindPollVote, ev, sessionID, organizationID)
 		if nm != nil && pr.Message != nil {
 			nm.PollVote = &inbound.NormalizedPollVote{
-				PollMessageID:   pr.Message.PollVoteTargetID,
-				VoterLID:        pr.Message.SenderLID,
-				SelectedOptions: json.RawMessage(mustMarshalJSON(pr.Message.SelectedHashes)),
+				PollMessageID: pr.Message.PollVoteTargetID,
+				VoterLID:      pr.Message.SenderLID,
+				// Filled by InboundNormalizer.resolvePollVote (decrypt + resolve);
+				// default to an empty selection if resolution is unavailable.
+				SelectedOptions: json.RawMessage("[]"),
 				TimestampMs:     pr.Message.Timestamp,
 			}
 		}
@@ -443,6 +542,13 @@ func inboundMessageFromEventsMessage(m *events.NormalizedMessage, kind inbound.M
 		MediaMeta:       mediaMetaFromEvents(m.MediaInfo),
 		TimestampMs:     m.Timestamp,
 		RawJSON:         eventPayloadJSON(ev),
+	}
+	if m.Poll != nil {
+		nm.Poll = &inbound.NormalizedPoll{
+			Name:            m.Poll.Name,
+			Options:         m.Poll.Options,
+			SelectableCount: m.Poll.SelectableCount,
+		}
 	}
 	if nm.IsGroup {
 		nm.Group = &inbound.NormalizedGroup{GroupJID: m.ChatJID}

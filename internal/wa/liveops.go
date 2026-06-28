@@ -2,6 +2,7 @@ package wa
 
 import (
 	"context"
+	"encoding/hex"
 	"time"
 
 	"go.mau.fi/whatsmeow"
@@ -74,6 +75,33 @@ func (l *LiveOps) client(id string) (liveClient, error) {
 		return nil, domain.ErrNotImplemented("live WhatsApp client is not available for this session")
 	}
 	return lc, nil
+}
+
+// DecryptPollVote decrypts an incoming poll-vote (PollUpdateMessage) event and
+// returns the SHA-256 hashes of the options the voter selected, hex-encoded.
+// WhatsApp never sends the option text in a vote — only these hashes — so the
+// caller resolves them against the originating poll's stored options. evt is the
+// raw *events.Message the inbound pipeline received; a non-message or a session
+// without a live client yields a not_implemented error.
+func (l *LiveOps) DecryptPollVote(ctx context.Context, sessionID string, evt any) ([]string, error) {
+	msg, ok := evt.(*events.Message)
+	if !ok {
+		return nil, domain.ErrValidation("not a message event")
+	}
+	c, _ := l.rawClient(sessionID)
+	if c == nil {
+		return nil, domain.ErrNotImplemented("live WhatsApp client is not available for this session")
+	}
+	vote, err := c.DecryptPollVote(ctx, msg)
+	if err != nil {
+		return nil, err
+	}
+	hashes := vote.GetSelectedOptions()
+	out := make([]string, 0, len(hashes))
+	for _, h := range hashes {
+		out = append(out, hex.EncodeToString(h))
+	}
+	return out, nil
 }
 
 // ---- BackfillSource ----
@@ -320,7 +348,6 @@ func contactName(info types.ContactInfo) string {
 		return ""
 	}
 }
-
 
 func parseJID(s string) (types.JID, error) {
 	jid, err := types.ParseJID(s)

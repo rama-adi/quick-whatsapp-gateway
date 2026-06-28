@@ -300,6 +300,35 @@ func TestNormalizeMessageSubtypes(t *testing.T) {
 			},
 		},
 		{
+			// Modern WhatsApp clients send polls as PollCreationMessageV3 (field 64),
+			// not the legacy PollCreationMessage. Both must classify as a poll.
+			name: "poll creation V3",
+			chat: group,
+			content: &waE2E.Message{PollCreationMessageV3: &waE2E.PollCreationMessage{
+				Name: proto.String("Dinner?"),
+				Options: []*waE2E.PollCreationMessage_Option{
+					{OptionName: proto.String("Ramen")},
+					{OptionName: proto.String("Tacos")},
+				},
+				SelectableOptionsCount: proto.Uint32(1),
+			}},
+			wantEvent:   domain.EventMessage,
+			wantKind:    PersistMessage,
+			wantSubtype: SubtypePoll,
+			wantType:    "poll",
+			check: func(t *testing.T, nm *NormalizedMessage, p MessagePayload) {
+				if nm.Poll == nil {
+					t.Fatalf("poll nil")
+				}
+				if nm.Poll.Name != "Dinner?" || len(nm.Poll.Options) != 2 {
+					t.Errorf("poll = %+v", nm.Poll)
+				}
+				if nm.Poll.Options[0] != "Ramen" || nm.Poll.Options[1] != "Tacos" {
+					t.Errorf("poll options = %v", nm.Poll.Options)
+				}
+			},
+		},
+		{
 			name: "poll vote",
 			chat: group,
 			content: &waE2E.Message{PollUpdateMessage: &waE2E.PollUpdateMessage{

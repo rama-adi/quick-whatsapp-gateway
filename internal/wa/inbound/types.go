@@ -64,6 +64,11 @@ type NormalizedMessage struct {
 	Group   *NormalizedGroup
 	Members []NormalizedMember
 
+	// --- poll creation (Kind == KindMessage, MsgType == "poll") ---
+	// Set when the message is a poll creation; persisted to the polls table so
+	// later votes can be resolved back to option text.
+	Poll *NormalizedPoll
+
 	// --- receipt (Kind == KindReceipt) ---
 	Receipt *NormalizedReceipt
 
@@ -126,6 +131,13 @@ type NormalizedReceipt struct {
 	AckLevel *int
 	// TimestampMs is the receipt time.
 	TimestampMs int64
+}
+
+// NormalizedPoll carries a poll-creation message's options for a polls upsert.
+type NormalizedPoll struct {
+	Name            string
+	Options         []string
+	SelectableCount int
 }
 
 // NormalizedPollVote carries the fields for a poll_votes insert.

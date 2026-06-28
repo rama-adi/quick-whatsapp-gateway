@@ -316,6 +316,21 @@ type BackfillImport struct {
 	FinishedAt        *int64  `json:"finishedAt,omitempty" doc:"When the import finished, in epoch milliseconds (UTC). Optional; null while still running." example:"1719662460000"`
 }
 
+// Poll mirrors the polls table: the option list of a poll-creation message,
+// kept so incoming votes (which carry only SHA-256 hashes of the chosen options)
+// can be resolved back to readable option text.
+type Poll struct {
+	ID              uint64   `json:"id" doc:"The poll row id (internal numeric key)." example:"3401"`
+	SessionID       string   `json:"sessionId" doc:"Id of the session that observed the poll." example:"01J9ZX8K2QHV0M3T6R7P4N5W8C"`
+	PollMessageID   string   `json:"pollMessageId" doc:"Id of the poll-creation message." example:"3EB0C431C26A1916E07A"`
+	ChatJID         string   `json:"chatJid" doc:"JID of the chat the poll was posted in."`
+	Name            string   `json:"name" doc:"The poll question."`
+	Options         []string `json:"options" doc:"The poll answer options, in creation order."`
+	SelectableCount int      `json:"selectableCount" doc:"How many options a voter may select (1 = single choice)." example:"1"`
+	CreatedAt       int64    `json:"createdAt" doc:"When the poll was first recorded, epoch milliseconds."`
+	UpdatedAt       int64    `json:"updatedAt" doc:"When the poll row was last updated, epoch milliseconds."`
+}
+
 // PollVote mirrors the poll_votes table.
 type PollVote struct {
 	ID              uint64          `json:"id" doc:"The poll-vote row id (internal numeric key)." example:"9012"`

@@ -883,11 +883,54 @@ A delete-for-everyone. There is no body — only the target id.
 
 ## Polls
 
+### Poll creation
+
+A poll being posted arrives as a regular `message` event (or `message.from_me` if this
+account posted it) with `type` set to `poll`. The question and options are in the `poll`
+field. The gateway records the options so it can resolve later votes back to readable
+labels.
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9POLLNEW0000000000001",
+  "event": "message",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400023500,
+  "payload": {
+    "waMessageId": "3EB0A1B2C3D4E5F6A7BC",
+    "chatJid": "120363012345678901@g.us",
+    "senderJid": "6281234567890@s.whatsapp.net",
+    "fromMe": false,
+    "type": "poll",
+    "body": "Lunch?",
+    "poll": {
+      "name": "Lunch?",
+      "options": ["Pizza", "Sushi"],
+      "selectableCount": 1
+    },
+    "hasMedia": false,
+    "media": null,
+    "timestamp": 1719400023500,
+    "pushName": "Alex"
+  }
+}
+```
+
+**Fields**
+
+- `poll.name` (string) — the poll question.
+- `poll.options` (string[]) — the answer options, in creation order.
+- `poll.selectableCount` (number) — how many options a voter may pick (1 = single choice).
+
 ### `poll.vote`
 
-Someone voted on a poll. `targetId` is the original poll message they voted on. You do
-not get the chosen option labels in plain text — `selectedHashes` holds encrypted hashes
-of the options instead.
+Someone voted on a poll. `targetId` is the original poll message they voted on.
+`selectedOptions` holds the chosen option **labels**: WhatsApp transmits a vote as
+SHA-256 hashes of the options, and the gateway resolves them back to text using the
+options it recorded when the poll was created. If a vote arrives for a poll the gateway
+never saw (so it can't resolve a hash), that entry falls back to the raw hash string.
 
 ```json
 {
@@ -904,7 +947,7 @@ of the options instead.
     "fromMe": false,
     "type": "poll_vote",
     "targetId": "3EB0A1B2C3D4E5F6A7BC",
-    "selectedHashes": ["a1b2c3d4e5f6a7b8", "d4e5f6a7b8c9d0e1"],
+    "selectedOptions": ["Sushi"],
     "hasMedia": false,
     "media": null,
     "timestamp": 1719400024000,
@@ -916,7 +959,7 @@ of the options instead.
 **Fields**
 
 - `targetId` (string) — the poll-creation message's `waMessageId`.
-- `selectedHashes` (string[]) — encrypted hashes of the chosen options (not plaintext labels).
+- `selectedOptions` (string[]) — the chosen option labels (falls back to the raw SHA-256 hash for any option the gateway can't resolve).
 - Plus the common message fields (`waMessageId`, `chatJid`, `senderJid`, `fromMe`, `timestamp`, `pushName`).
 
 ## Presence, chats & contacts

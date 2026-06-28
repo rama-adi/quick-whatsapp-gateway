@@ -34,9 +34,10 @@ fan-out).
    status is derived later from `chats`. For groups upsert `whatsapp_groups` + the
    `whatsapp_group_members` pivot (per-group `tag` + role, role defaults to
    `member`).
-4. **Persist** (§9) — upsert `chats`; insert `messages` (incl. `raw_json`);
+4. **Persist** (§9) — upsert `chats`; insert `messages` (incl. `raw_json`); a poll
+   creation also upserts `polls` (its options, so later votes can be resolved);
    `edit`/`revoke` flip flags on the target; receipts update `status`/`ack_level`;
-   poll updates insert `poll_votes`. **Content-less system messages are dropped
+   poll updates insert `poll_votes` (with the resolved `selected_options`). **Content-less system messages are dropped
    here** — the classifier's unrecognized-content fallthrough (`MsgType=="system"`:
    E2E-encryption notices, ephemeral settings, sender-key distribution, …) carries
    no displayable body, so after identity capture it is dropped (not persisted, not
@@ -60,7 +61,8 @@ fan-out).
   this package, NOT `internal/wa/events`, per "interfaces defined by the
   consumer". `Kind` (`message`/`receipt`/`poll_vote`/`edit`/`revoke`/`other`)
   selects the capture/persist path. Carries sender/identity, message body,
-  optional `Group`+`Members`, `Receipt`, `PollVote`, and `RawJSON`.
+  optional `Group`+`Members`, `Poll` (poll-creation options), `Receipt`,
+  `PollVote`, and `RawJSON`.
 - `NoopCommandRegistry` — v2 registry, recognizes nothing.
 - `SystemClock` — production `Clock` backed by `domain.NowMs`.
 
@@ -69,8 +71,11 @@ fan-out).
 The package imports only stdlib + `internal/domain`. Every collaborator is a
 small consumer interface that Phase 3 satisfies with concrete types:
 
-- `Normalizer.Normalize(evt any, sessionID, organizationID string) (domain.Event, *NormalizedMessage, bool)`
-  — the bool is "ok"; false drops the event silently.
+- `Normalizer.Normalize(ctx, evt any, sessionID, organizationID string) (domain.Event, *NormalizedMessage, bool)`
+  — the bool is "ok"; false drops the event silently. It takes a `ctx` because a
+  poll vote is decrypted + resolved during normalization (gated on the event kind);
+  the composition-layer `InboundNormalizer` holds the whatsmeow client and the
+  `polls` reader needed for that.
 - `CommandRegistry.Handle(ctx, sessionID, body string) (handled bool, err error)`.
 - `EventSink.Publish(ctx, domain.Event) error`.
 - `WebhookEnqueuer.Enqueue(ctx, domain.Event) error`.
@@ -80,7 +85,7 @@ small consumer interface that Phase 3 satisfies with concrete types:
 - `Repos` — the subset of store upserts/inserts used by capture/persist/fan-out
   (`UpsertIdentity`, `FillIdentityName`, `UpsertGroup/GroupMember`, `UpsertChat`,
   `InsertMessage`, `MarkMessageEdited/Deleted`, `UpdateMessageStatus`,
-  `InsertPollVote`, `AppendEventLog`). Arguments are decoupled `*Upsert`/`*Insert`/
+  `UpsertPoll`, `InsertPollVote`, `AppendEventLog`). Arguments are decoupled `*Upsert`/`*Insert`/
   `*Fill` structs so the store's row types are not a dependency.
 
 Options: `WithCommandPrefix(string)` (default `"am"`; empty disables the
@@ -128,7 +133,8 @@ assertions. Coverage ~84%, `-race` clean. Cases:
 - Auto-read ordering (receipt before all fan-out; persist before receipt) and the
   off paths (flag off, no resolver, unknown session, echo, non-message kind).
 - Receipt → `UpdateMessageStatus` (no message insert, no count bump, no
-  auto-read); poll update → `InsertPollVote`; edit/revoke flag flips.
+  auto-read); poll creation → `UpsertPoll` (+ message insert); poll update →
+  `InsertPollVote`; edit/revoke flag flips.
 - Normalize-drop runs no stages; from-me echo persists as `out`; sender-less
   events skip identity/contact but still fan out; capture-error aborts;
   fan-out errors joined while `event_log` still appended; auto-read error

@@ -47,7 +47,7 @@ type fakeNormalizer struct {
 	ok  bool
 }
 
-func (f *fakeNormalizer) Normalize(evt any, sessionID, organizationID string) (domain.Event, *NormalizedMessage, bool) {
+func (f *fakeNormalizer) Normalize(ctx context.Context, evt any, sessionID, organizationID string) (domain.Event, *NormalizedMessage, bool) {
 	return f.evt, f.nm, f.ok
 }
 
@@ -80,6 +80,7 @@ type fakeRepos struct {
 	edited     []string
 	deleted    []string
 	statusUpd  []MessageStatusUpdate
+	polls      []PollUpsert
 	pollVotes  []PollVoteInsert
 	eventLog   []domain.Event
 	failOn     string // method name to fail, e.g. "InsertMessage"
@@ -174,6 +175,15 @@ func (r *fakeRepos) UpdateMessageStatus(ctx context.Context, in MessageStatusUpd
 		return err
 	}
 	r.statusUpd = append(r.statusUpd, in)
+	return nil
+}
+
+func (r *fakeRepos) UpsertPoll(ctx context.Context, in PollUpsert) error {
+	r.order.record("UpsertPoll")
+	if err := r.maybeFail("UpsertPoll"); err != nil {
+		return err
+	}
+	r.polls = append(r.polls, in)
 	return nil
 }
 

@@ -36,6 +36,7 @@ type Store struct {
 	GroupMembers      *GroupMemberRepo
 	Chats             *ChatRepo
 	Messages          *MessageRepo
+	Polls             *PollRepo
 	PollVotes         *PollVoteRepo
 	Outbox            *OutboxRepo
 	EventLog          *EventLogRepo
@@ -56,6 +57,7 @@ func New(db *sql.DB) *Store {
 		GroupMembers:      NewGroupMemberRepo(db),
 		Chats:             NewChatRepo(db),
 		Messages:          NewMessageRepo(db),
+		Polls:             NewPollRepo(db),
 		PollVotes:         NewPollVoteRepo(db),
 		Outbox:            NewOutboxRepo(db),
 		EventLog:          NewEventLogRepo(db),

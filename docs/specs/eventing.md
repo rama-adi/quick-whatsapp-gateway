@@ -81,8 +81,12 @@ Ephemeral/ViewOnce/DeviceSent/Edited). Detection order (control messages first):
    `GetEditedMessage()`, target id from the key). Note: the real constant is
    `ProtocolMessage_MESSAGE_EDIT` (value 14), not the `EDIT` the recon cheat-sheet implied.
 4. `GetPollUpdateMessage()` → poll vote (target poll id; the vote payload stays encrypted
-   here — decryption happens later via `cli.DecryptPollVote`).
-5. `GetPollCreationMessage()` → poll (name/options/selectableCount).
+   here — decryption + option-text resolution happen in the composition-layer normalizer,
+   which holds the whatsmeow client and the stored poll options, see below).
+5. `GetPollCreationMessage()` **or** `GetPollCreationMessageV2()`/`V3()` → poll
+   (name/options/selectableCount). Current WhatsApp clients send the V3 field; checking only
+   the legacy field was why modern polls were misclassified as a content-less "system"
+   message and dropped. (V4+ wrap the poll in a `FutureProofMessage` and are not handled.)
 6. `GetLocationMessage()` → location (lat/long/name/address).
 7. `GetContactMessage()` → contact (displayName + vCard verbatim).
 8. Any media message (image/video/audio/document/sticker) → media **metadata only**.
@@ -130,7 +134,12 @@ unclassifiable data is worse than persisting an odd JID downstream can still rec
 - **`Disconnected` is non-terminal** (manager reconnects) → reported as `starting`;
   `LoggedOut`/`StreamReplaced` are terminal → `logged_out`/`failed`.
 - **Non-lifecycle receipts** (sender/retry/server-error/etc.) → `ok=false`.
-- Poll **votes** are emitted with the target poll id only; option decryption is deferred.
+- Poll **votes**: `events.Normalize` produces the target poll id only (the vote is still
+  encrypted). The composition-layer `InboundNormalizer` then decrypts it via the live
+  whatsmeow client (`cli.DecryptPollVote` → SHA-256 option hashes) and resolves those
+  hashes to option text against the `polls` table (populated when the poll creation was
+  persisted), writing `selectedOptions` onto both the `poll.vote` envelope and the
+  `poll_votes` row. An unresolvable hash (poll never seen) falls back to the raw hash.
 
 ### How it's tested
 
