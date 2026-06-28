@@ -1,17 +1,16 @@
 ---
 title: Event shape
-description: The fields in every gateway event, plus a copy-pasteable JSON example for each event type and state. The same shape arrives on the stream and on webhooks.
+description: The fields in every gateway event, plus a copy-pasteable JSON example for each event type and state. The same shape arrives on the realtime WebSocket and on webhooks.
 ---
 
 Every event the gateway emits is one JSON object with the same outer fields. Those
 outer fields are the **envelope**; the part that changes per event type sits in one
-of them, `payload`. The gateway sends this same object two ways: on the event stream
+of them, `payload`. The gateway sends this same object two ways: on the realtime WebSocket
 and on webhooks (more on both below).
 
 This page lists the envelope fields, then gives a complete, copy-pasteable example for
 every event type and every state it can be in. To set up a subscription, see
-[Receive events](/docs/guides/receiving); for the full endpoint contract, see the
-[stream events API](/docs/api/events/events).
+[Receive events](/docs/guides/receiving).
 
 ## Envelope fields
 
@@ -37,34 +36,66 @@ every event type and every state it can be in. To set up a subscription, see
 | `timestamp` | integer | When the gateway emitted the event, in milliseconds since the Unix epoch. |
 | `payload` | object | The event-specific data. Its fields depend on `event` — see each entry below. |
 
-You get the same object whether you read the stream or receive a webhook, so you only
+You get the same object whether you receive realtime events or webhooks, so you only
 write your handler once. The two delivery methods differ only in how the bytes reach you:
 
-| | Stream | Webhook |
+| | Realtime WebSocket | Webhook |
 |---|---|---|
-| How it arrives | You hold open `GET /api/v1/events` and read lines as they come | The gateway sends an HTTP `POST` to your URL |
-| Format | `application/x-ndjson` — one envelope per line | The envelope as a JSON request body |
+| How it arrives | Open a WebSocket after minting a single-use ticket via POST /api/v1/realtime/ticket | The gateway sends an HTTP `POST` to your URL |
+| Format | Discrete JSON text frames, one object per frame | The envelope as a JSON request body |
 | Keepalive | A `ping` event arrives about every 20 seconds | n/a |
-| Dropped connection | Reconnect with `since={lastEventId}` to replay what you missed | The gateway retries the delivery |
+| Dropped connection | Mint a new ticket with `since={lastEventId}` to replay what you missed | The gateway retries the delivery |
 | How to skip duplicates | Track the envelope `id` | The envelope `id` is also in the `X-Webhook-Request-Id` header |
-| Authenticity | The connection itself is authenticated | Each `POST` is signed: `X-Webhook-Hmac`, with `X-Webhook-Hmac-Algorithm: sha512` |
+| Authenticity | The ticket (single-use, short-lived) authorizes the socket | Each `POST` is signed: `X-Webhook-Hmac`, with `X-Webhook-Hmac-Algorithm: sha512` |
 
-## Subscribe to the stream
+## Connect to realtime events
+
+Realtime events use a WebSocket with a two-step handshake: mint a ticket, then open the socket.
+
+**Step 1: Mint a ticket**
 
 ```bash
-curl -N "https://your-gateway/api/v1/events?events=*&session=sess_01J8ABCDEF0123456789" \
-  -H "Authorization: Bearer $TOKEN"
+curl -X POST "https://your-gateway/api/v1/realtime/ticket" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "scope": "organization",
+    "events": ["*"],
+    "session": "sess_01J8ABCDEF0123456789"
+  }'
 ```
 
-- `events=*` means every type. To narrow, pass a comma-separated list, e.g.
-  `events=message,poll.vote`.
-- `session=` filters to one session. Omit it to receive events from every session your
-  organization owns.
-- If the connection drops, reconnect with `since={lastEventId}`, where `lastEventId` is
-  the `id` of the last event you processed. The gateway replays the events you missed
-  from its event log, then continues with live events.
+Response:
 
-See the [stream events API](/docs/api/events/events) for the full endpoint detail.
+```json
+{
+  "ticket": "rt_...",
+  "expiresInSeconds": 30,
+  "url": "wss://your-gateway/api/v1/realtime?ticket=rt_..."
+}
+```
+
+**Step 2: Open the WebSocket**
+
+Connect to the `url` from the response (or build it: take your base URL, swap `http(s)` for `ws(s)`, and append `/api/v1/realtime?ticket=rt_...`).
+
+The ticket is single-use and expires in ~30 seconds. Mint one ticket per connection, immediately before opening the socket. Use the ticket (not your bearer token) to authorize the connection.
+
+**Request body fields for the ticket**
+
+- `scope` (string, optional, default `organization`) — `organization` (all sessions your org owns), `session` (one session), or `firehose` (all events).
+- `session` (string, optional) — required when `scope` is `session`. The `sess_...` id.
+- `events` (string array, optional, default `["*"]`) — event types to receive. Examples: `["*"]` for all, `["message", "poll.vote"]` to narrow.
+- `since` (string, optional) — the `id` of the last event you processed. Use this when reconnecting to resume from where you left off. The server replays everything after this id (up to 1000 events), then tails live. Deduplicate on the `id` field.
+
+**Over the socket**
+
+The server sends discrete JSON text frames (not NDJSON lines):
+
+- First frame: `{"event":"connected","heartbeatSeconds":20,"timestamp":...}`
+- Heartbeat: `{"event":"ping","timestamp":...}` about every 20 seconds. If pings stop, reconnect.
+- Error: `{"event":"error","error":"..."}`
+- Data: the full event envelope with `schema`, `id`, `event`, `session`, `organization`, `timestamp`, `payload`.
 
 ## Event catalog
 

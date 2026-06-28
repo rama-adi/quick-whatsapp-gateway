@@ -1,6 +1,6 @@
 ---
 title: Receive events
-description: Read gateway events by holding open an HTTP stream, or have the gateway POST each one to a URL you run.
+description: Read gateway events via WebSocket realtime stream, or have the gateway POST each one to a URL you run.
 ---
 
 Whenever something happens on one of your sessions — a message arrives, a delivery
@@ -9,7 +9,7 @@ produces an **event**. You read those events in one of two ways:
 
 | Way | How it works | Use it when |
 |---|---|---|
-| **Stream** | You open one long-lived HTTP connection and the gateway writes events to it as they happen. | Your code can hold a connection open — a worker, a script, the dashboard. |
+| **Realtime WebSocket** | You mint a ticket, open a WebSocket connection, and receive events as discrete JSON frames as they happen. | Your code can hold a connection open — a worker, a script, the dashboard. |
 | **Webhooks** | The gateway sends an HTTP `POST` to a URL you run, once per event, and retries until it succeeds. | You have a public URL and would rather not hold a connection open. |
 
 Both carry the **same event envelope** (the JSON wrapper described below), so the data
@@ -44,45 +44,63 @@ Every event is one JSON object with the same outer fields:
 For every field of every payload type, with concrete examples, see
 [Event shape](/docs/guides/event-shape).
 
-## Stream the events
+## Stream the events via WebSocket
 
-Open a `GET` to the events endpoint with your Bearer token. The response is
-`application/x-ndjson` — NDJSON means newline-delimited JSON: the connection stays
-open and the gateway writes one event per line, each line a single JSON object ending
-in `\n`.
+The gateway delivers events over a WebSocket connection. The connection uses a two-step handshake: first you mint a single-use ticket, then you connect with that ticket.
+
+### Step 1: Mint a ticket
+
+Send a POST request to `/api/v1/realtime/ticket` with your Bearer token. The request body is optional JSON:
 
 ```bash
-curl -N https://your-gateway/api/v1/events?events=* \
-  -H "Authorization: Bearer $TOKEN"
+curl -X POST https://your-gateway/api/v1/realtime/ticket \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "scope": "organization",
+    "events": ["*"],
+    "since": ""
+  }'
 ```
 
-Control what you receive with query parameters:
+The request body fields are all optional:
 
-| Parameter | Effect |
+| Field | Effect |
 |---|---|
-| `events=*` | Subscribe to every event type. |
-| `events=message,poll.vote` | Subscribe to only the named types (comma-separated). |
-| `session={id}` | Follow one session. Omit it to receive events for every session your organization owns. |
-| `since={lastEventId}` | Replay the events you missed since that id, then keep tailing live events. |
+| `scope` | One of `session`, `organization`, or `firehose`. Default is `organization` (all sessions your org owns). Use `session` to subscribe to one session only (then `session` is required). |
+| `session` | The session id. Required when `scope` is `session`. |
+| `events` | Array of event types to receive: `["*"]` for all, or specific names like `["message","poll.vote"]`. Default is `["*"]`. |
+| `since` | The id of the last event you processed (for resume/replay after a reconnect). Omit or leave empty to get live events only. |
 
-Two things to know about a live stream:
+The response is JSON:
 
-- **Heartbeat.** A `ping` event arrives about every 20 seconds. If you stop seeing
-  pings, the connection is dead and you should reconnect.
-- **Reconnecting after a drop.** Reconnect with `since={lastEventId}` set to the `id`
-  of the last event you processed. The gateway replays everything after that id from
-  its durable log, then resumes tailing. Replayed events look identical to live ones,
-  so you cannot tell them apart — which is why deduping on `id` matters.
+```json
+{
+  "ticket": "rt_...",
+  "expiresInSeconds": 30,
+  "url": "wss://your-gateway/api/v1/realtime?ticket=rt_..."
+}
+```
 
-This is a plain chunked HTTP stream, **not** Server-Sent Events: there is no
-`text/event-stream` content type and no `data:` framing. Read it with `fetch` and a
-`ReadableStream`, and set the `Authorization` header the same way as any other call.
-See [stream events](/docs/api/events/events).
+The ticket is **single-use** and expires in about 30 seconds. Mint one ticket per connection, immediately before connecting. The ticket (not your bearer token) authorizes the WebSocket.
+
+### Step 2: Open the WebSocket
+
+Connect to the URL returned in the ticket response (or build it: take your gateway base URL, swap `http://` for `ws://` and `https://` for `wss://`, then append `/api/v1/realtime?ticket=rt_...`).
+
+Over the socket the server sends **discrete JSON text frames** — one JSON object per frame:
+
+- **First frame:** `{"event":"connected","heartbeatSeconds":20,"timestamp":<epoch-ms>}` — the connection is ready.
+- **Heartbeat:** `{"event":"ping","timestamp":<epoch-ms>}` — sent about every 20 seconds. If pings stop, the connection is dead; reconnect.
+- **Error:** `{"event":"error","error":"<error message>"}` — something went wrong.
+- **Data frame:** The full event envelope (schema, id, event, session, organization, timestamp, payload).
+
+### Reconnect after a drop
+
+To resume after a disconnect and get the events you missed, mint a new ticket with `since` set to the `id` of the last event you processed. The server replays everything after that id from its durable log (up to 1000 events), then resumes tailing live events. Replayed events are identical to live ones, so you must deduplicate on the event `id`.
 
 <Callout type="info">
-A dashboard JWT expires after about 5 minutes, but the stream only checks your token
-when you connect. To keep going past expiry, refresh your token and reconnect with
-`since={lastEventId}` — the replay stitches the gap so your view is never torn.
+A login JWT expires after about 5 minutes, but the ticket carries the connection — your token only needs to be valid when you mint the ticket. Each reconnect mints a fresh ticket with a new token, so expiry never interrupts your stream as long as you reconnect with `since`.
 </Callout>
 
 ## Use webhooks instead
@@ -130,8 +148,8 @@ is marked **dead** and not tried again.
 
 ## Event catalog
 
-Every event type the gateway emits. Subscribe with `events=*` for all of them, or name
-the ones you want.
+Every event type the gateway emits. Set `events` to `["*"]` (the default) to receive
+all of them, or list just the ones you want.
 
 | Event | Fires when |
 |---|---|

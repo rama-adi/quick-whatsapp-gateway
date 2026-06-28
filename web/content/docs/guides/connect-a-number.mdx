@@ -38,8 +38,8 @@ On the phone, open **WhatsApp → Linked devices → Link a device**, then scan 
 code shown in the dashboard.
 
 To fetch the current code from code instead, call
-[get the QR code](/docs/api/sessions/sessionQR). Add `?format=image` to get a PNG
-image instead of the raw string.
+[get the QR code](/docs/api/sessions/sessionQR). The endpoint returns JSON with a
+`code` string — your client renders the QR image from that string.
 
 ### Option B: Enter a pairing code
 
@@ -79,7 +79,7 @@ be in any of these statuses:
 
 The dashboard updates the status live. From code, you can
 [poll the session](/docs/api/sessions/getSession) or subscribe to `session.status`
-on the [event stream](/docs/guides/receiving).
+on the [realtime WebSocket](/docs/guides/receiving).
 
 ## Next
 

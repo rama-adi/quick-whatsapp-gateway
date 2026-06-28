@@ -57,7 +57,7 @@ rejects anything the key isn't allowed to do.
 | `read` | List and read sessions, chats, contacts, and messages. |
 | `send` | Send messages and message actions (react, edit, revoke, forward). |
 | `manage` | Create and change sessions and webhooks. |
-| `events` | Open the [event stream](/docs/guides/receiving) and receive events. |
+| `events` | Connect to the realtime WebSocket to [receive events](/docs/guides/receiving). |
 
 Give each key only the permissions it needs. A key that only pushes notifications
 needs `send`, not `manage`.
