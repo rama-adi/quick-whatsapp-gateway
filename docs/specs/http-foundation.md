@@ -23,8 +23,9 @@ human login**: no `/auth` surface, no embedded SPA, no cookie middleware.
 - **Open probes:** `GET /healthz`, `GET /readyz`, `/metrics` (Prometheus) — unauthenticated.
 - **`/api/v1`** — an authenticated group wraps the **assertion middleware** (`RouterConfig.Auth`,
   `assertion.Middleware`) plus an optional edge `RateLimit`; each resource group then composes its
-  capability gate. `GET /events` (NDJSON stream) sits behind `RequireEvents` and is proxied by the
-  router (the WebSocket cutover that replaces it is **Increment B**, not done yet).
+  capability gate. The gateway **no longer exposes `/events`** — realtime is WebSocket-only on the
+  router (`GET /api/v1/realtime`); the gateway only publishes events to Redis for the router to
+  fan out.
 - **No SPA, no `/auth`:** any unmatched path is a JSON `404` via `WriteError(ErrNotFound)`.
 
 `RouterConfig` carries `Auth func(http.Handler) http.Handler` (the assertion middleware),
@@ -42,7 +43,6 @@ verifiers — now on the router), `CORSOrigins` (CORS now on the router), and se
 | Messages | `RequireSend` | `/sessions/{session}/messages` (+ edit/revoke/reaction/forward/vote) |
 | Chats/Contacts/Groups/Channels | `RequireRead` (GET) / `RequireSend` (mutations) | per-session sub-resources |
 | Status/Presence | `RequireSend` | `/status`, `/presence` |
-| Events | `RequireEvents` | `GET /events` (NDJSON, §11) |
 
 > **Removed vs v1:** `/auth/*` (→ better-auth on the frontend), `/keys*` (→ better-auth api-key
 > plugin — the gateway only *verifies* keys), `/auth/admin/*` (→ better-auth admin plugin), and the

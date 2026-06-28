@@ -30,13 +30,11 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/assertion"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/authz"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/config"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/crypto"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 	gwhttp "github.com/ramaadi/quick-whatsapp-gateway/internal/http"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/http/handlers"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/httpx"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/queue"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/service"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
@@ -264,22 +262,10 @@ func run() error {
 		Log:                  log,
 	})
 
-	// Live-connection registry + stream handler. The control-bus subscriber (and
-	// thus revocation-driven stream drops) now lives on the router, which owns the
-	// realtime endpoint; the gateway keeps the registry so the handler still tracks
-	// connections (Increment B moves the client realtime transport off the gateway
-	// entirely).
-	streamRegistry := stream.NewConnRegistry()
-	streamHandler := stream.NewHandler(stream.HandlerConfig{
-		Redis:        rdb,
-		Organization: stream.OrganizationAccessorFunc(organizationFromContext),
-		LogReader:    service.NewEventLogReaderAdapter(st.EventLog),
-		Principals:   stream.PrincipalAccessorFunc(streamIdentityFromContext),
-		Registry:     streamRegistry,
-		Log:          log,
-	})
-
-	h := handlers.New(services, streamHandler, log)
+	// Realtime is WebSocket-only and lives on the central router, which owns the
+	// ticket+WS endpoint and subscribes to the events the gateway publishes to
+	// Redis (above). The gateway no longer serves any client transport.
+	h := handlers.New(services, log)
 	router := gwhttp.NewRouter(gwhttp.RouterConfig{
 		Handlers:  h,
 		Auth:      assertion.Middleware(assertionVerifier),
@@ -325,28 +311,6 @@ func run() error {
 	}
 	log.Info("server stopped cleanly")
 	return nil
-}
-
-// organizationFromContext is the stream.OrganizationAccessor: it reads the
-// organization id the auth middleware lifted onto the request context.
-func organizationFromContext(ctx context.Context) (string, bool) {
-	id := httpx.OrganizationID(ctx)
-	return id, id != ""
-}
-
-// streamIdentityFromContext is the stream.PrincipalAccessor: it lifts the
-// verified caller's identity off the context so the control bus can drop a live
-// stream by its api-key id / user id / org (§4.6).
-func streamIdentityFromContext(ctx context.Context) (stream.ConnIdentity, bool) {
-	p := authz.FromContext(ctx)
-	if p == nil {
-		return stream.ConnIdentity{}, false
-	}
-	return stream.ConnIdentity{
-		KeyID:          p.KeyID,
-		UserID:         p.UserID,
-		OrganizationID: p.OrganizationID,
-	}, true
 }
 
 // registerGateway upserts this gateway's registry row with the given lifecycle

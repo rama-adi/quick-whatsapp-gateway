@@ -1202,28 +1202,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/events": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Stream events (NDJSON)
-         * @description Open a long-lived connection that streams events as they happen. The response is NDJSON: the connection stays open and the gateway writes one JSON event object per line, each ending in a newline. Read it line by line; do not wait for the body to finish. About every 20 seconds the gateway sends a `{"event":"ping"}` line so the connection stays alive — ignore those.
-         *     You only ever see your own organization's events. Requires the `events` capability: an api-key with the `events` permission, or any JWT.
-         *     Filter with `types` (comma-separated event types) and `session` (one session id). To resume after a disconnect, reconnect with `since={lastEventId}` (the `id` of the last event you processed); the gateway replays the events you missed, then continues live. This is how a dashboard reconnects after its short-lived JWT expires, without losing events.
-         */
-        get: operations["events"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/webhooks": {
         parameters: {
             query?: never;
@@ -1239,7 +1217,7 @@ export interface paths {
         put?: never;
         /**
          * Create a webhook
-         * @description Register a webhook endpoint for the caller's organization. Requires the `manage` capability. When a matching event fires, the gateway POSTs the event envelope (the same JSON shape as the `/events` stream) to `url`. Set `events` to the event types to receive (`["*"]` for all) and `sessionId` to scope to one session (null = all of the organization's sessions).
+         * @description Register a webhook endpoint for the caller's organization. Requires the `manage` capability. When a matching event fires, the gateway POSTs the event envelope (the `Event` JSON shape, also delivered over the realtime WebSocket) to `url`. Set `events` to the event types to receive (`["*"]` for all) and `sessionId` to scope to one session (null = all of the organization's sessions).
          *     If you set a `secret`, the gateway signs each POST: it sends the lowercase-hex HMAC-SHA512 of the exact request body in the `X-Webhook-Hmac` header (with `X-Webhook-Hmac-Algorithm: sha512`). Recompute it on your end with the same secret to confirm the request really came from the gateway. Every POST also carries `X-Webhook-Request-Id` (the event id, so you can drop duplicate redeliveries) and `X-Webhook-Timestamp` (epoch milliseconds).
          *     Failed deliveries (a non-2xx response or a connection error) are retried on the `retryPolicy` schedule — by default exponential backoff (2s, 4s, 8s, …) for up to 15 attempts, after which the delivery is given up on. The secret is stored encrypted and never returned in responses.
          */
@@ -1856,7 +1834,7 @@ export interface components {
             /** @description The webhooks on this page. */
             data?: components["schemas"]["Webhook"][];
         };
-        /** @description One event from the gateway. The same shape is delivered two ways: as one JSON object per line on the event stream (NDJSON — newline-delimited JSON), and as the body of each webhook POST. */
+        /** @description One event from the gateway. This is the body of each webhook POST, and the same envelope shape is delivered over the realtime WebSocket (on the central router) as a discrete JSON message per event. */
         Event: {
             /**
              * @description Envelope schema version, so consumers can adapt if the shape changes.
@@ -3441,32 +3419,6 @@ export interface operations {
             400: components["responses"]["Error"];
             404: components["responses"]["Error"];
             501: components["responses"]["Error"];
-        };
-    };
-    events: {
-        parameters: {
-            query?: {
-                /** @description Comma-separated event type filter. */
-                types?: string;
-                /** @description Restrict to one session id. */
-                session?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description A live NDJSON stream — one Event JSON object per line, plus periodic ping lines. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/x-ndjson": components["schemas"]["Event"];
-                };
-            };
-            401: components["responses"]["Error"];
         };
     };
     listWebhooks: {

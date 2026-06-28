@@ -1,12 +1,12 @@
 # Central router (`cmd/router` + `internal/router` + `internal/assertion`)
 
-Status: implemented (Increment A + the server side of Increment B of
+Status: implemented (Increment A + Increment B of
 [`../plans/plan-router-impl.md`](../plans/plan-router-impl.md)). Live: the REST broker, auth
 termination, gateway registry lifecycle (Layer 1), and the realtime **WebSocket** endpoint
 (`POST /api/v1/realtime/ticket` + `GET /api/v1/realtime`, single-use Redis tickets, Redis `evt:*`
-fan-out, control-bus stream-drop). **Remaining for full Increment B:** the frontend WS client (it
-still consumes NDJSON, which the router proxies for now), then deleting the gateway's NDJSON
-`/events` transport. See "Realtime" below.
+fan-out, control-bus stream-drop). Realtime is **WebSocket-only**: the frontend WS client redeems
+a ticket against the router, and the gateway's legacy NDJSON `/events` transport has been removed
+(the gateway only publishes events to Redis now). See "Realtime" below.
 
 ## Purpose
 
@@ -129,7 +129,7 @@ On the **gateway** side the matching config is `ROUTER_JWKS_URL` (required at ru
 JWKS for assertion verify) + `ROUTER_ASSERTION_ISSUER` (default `router`); `GATEWAY_ID` is the
 assertion audience. See [`http-foundation.md`](http-foundation.md).
 
-## Realtime (Increment B — server side implemented)
+## Realtime (Increment B — implemented)
 
 The router is the single client-facing realtime endpoint. A browser cannot set an `Authorization`
 header on a WebSocket, so authz happens once at **ticket mint** and the WS handshake merely redeems a
@@ -149,10 +149,10 @@ Events reach the router over the **shared Redis `evt:*` fan-out** the gateways a
 (the gateway keeps its `stream.Publisher`). The transport-agnostic `stream.Pump` runs the
 subscribe → connected → replay → tail loop and writes WebSocket text frames via a `Sink`.
 
-**Remaining for full Increment B:** the frontend WS client (it still consumes the NDJSON `/events`
-stream, which the router proxies streaming for now), then deleting the gateway's NDJSON transport
-once nothing references it. The plan's "direct-push" event seam (gateway → router ingest, no Redis in
-the event path) is an optimization deferred in favor of reusing the existing Redis fan-out.
+The frontend WS client (`web/app/lib/events/stream.ts`) mints a ticket then opens the WebSocket;
+the gateway's legacy NDJSON `/events` transport has been **removed** — nothing references it. The
+plan's "direct-push" event seam (gateway → router ingest, no Redis in the event path) is an
+optimization deferred in favor of reusing the existing Redis fan-out.
 
 > **Increment 0 (also not done):** the code-first OpenAPI foundation (huma; shared Go types →
 > generated `docs/openapi.yaml`). For now `docs/openapi.yaml` remains the hand-authored contract the

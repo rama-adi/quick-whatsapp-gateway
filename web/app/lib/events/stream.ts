@@ -24,7 +24,7 @@ import {
   isPingFrame,
   isErrorFrame,
   type StreamFrame,
-} from "./ndjson";
+} from "./frames";
 
 /** Why the stream ended; the provider maps these to reconnect/polling. */
 export type StreamErrorKind = "replay_failed" | "http" | "eof" | "network";

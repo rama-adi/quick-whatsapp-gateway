@@ -2,11 +2,11 @@ package stream
 
 import "time"
 
-// heartbeatInterval is the default cadence for {"event":"ping"} keep-alive lines
-// (§9: every ~20s). Exposed via HandlerConfig for tests to shorten.
+// heartbeatInterval is the default cadence for {"event":"ping"} keep-alive frames
+// (§9: every ~20s). Overridable via PumpConfig.Heartbeat for tests to shorten.
 const heartbeatInterval = 20 * time.Second
 
-// Ticker is the minimal slice of *time.Ticker the handler needs for heartbeats.
+// Ticker is the minimal slice of *time.Ticker the pump needs for heartbeats.
 // Abstracting it lets tests drive the heartbeat deterministically with a fake
 // ticker instead of waiting on wall-clock time.
 type Ticker interface {

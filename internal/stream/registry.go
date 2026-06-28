@@ -17,10 +17,10 @@ type ConnIdentity struct {
 }
 
 // PrincipalAccessor lifts a connection's ConnIdentity off the request context.
-// Like OrganizationAccessor it is a consumer interface so the stream package
-// stays free of the authz import; main supplies a func adapter. A nil accessor
-// (or one returning ok=false) means the connection is registered with only the
-// organization id the handler already resolves.
+// It is a consumer interface so the stream package stays free of the authz import;
+// the router supplies a func adapter. A nil accessor (or one returning ok=false)
+// means the connection is registered with only the organization id the caller
+// already resolves.
 type PrincipalAccessor interface {
 	IdentityFromContext(ctx context.Context) (ConnIdentity, bool)
 }

@@ -145,10 +145,8 @@ var (
 )
 
 // Handlers bundles the service dependencies and exposes one http.HandlerFunc
-// method per §11 endpoint. CORE groups (sessions, messages, keys, webhooks,
-// events) are fully implemented; the remaining groups (chats, contacts, groups,
-// channels, status, presence, admin*) are method stubs returning not_implemented
-// until the next stage fills them.
+// method per §11 endpoint. Realtime is no longer served here — the router owns
+// the WebSocket transport; the gateway only publishes events to Redis.
 type Handlers struct {
 	Sessions SessionSvc
 	Messages MessageSvc
@@ -162,33 +160,28 @@ type Handlers struct {
 	Status   StatusSvc
 	Presence PresenceSvc
 
-	// EventStream is the live NDJSON stream handler (internal/stream). May be nil
-	// in tests that don't exercise the stream endpoint.
-	EventStream http.Handler
-
 	Log *slog.Logger
 }
 
-// New builds Handlers from the concrete service aggregate and the stream
-// handler. The concrete services satisfy the consumer interfaces above.
-func New(s *service.Services, events http.Handler, log *slog.Logger) *Handlers {
+// New builds Handlers from the concrete service aggregate. The concrete services
+// satisfy the consumer interfaces above.
+func New(s *service.Services, log *slog.Logger) *Handlers {
 	if log == nil {
 		log = slog.Default()
 	}
 	return &Handlers{
-		Sessions:    s.Sessions,
-		Messages:    s.Messages,
-		Webhooks:    s.Webhooks,
-		Admin:       s.Admin,
-		Backup:      s.Backup,
-		Chats:       s.Chats,
-		Contacts:    s.Contacts,
-		Groups:      s.Groups,
-		Channels:    s.Channels,
-		Status:      s.Status,
-		Presence:    s.Presence,
-		EventStream: events,
-		Log:         log,
+		Sessions: s.Sessions,
+		Messages: s.Messages,
+		Webhooks: s.Webhooks,
+		Admin:    s.Admin,
+		Backup:   s.Backup,
+		Chats:    s.Chats,
+		Contacts: s.Contacts,
+		Groups:   s.Groups,
+		Channels: s.Channels,
+		Status:   s.Status,
+		Presence: s.Presence,
+		Log:      log,
 	}
 }
 

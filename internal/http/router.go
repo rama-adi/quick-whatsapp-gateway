@@ -82,13 +82,6 @@ func NewRouter(cfg RouterConfig) http.Handler {
 				authed.Use(middleware.RateLimit(cfg.Limiter, nil))
 			}
 
-			// The live event stream: any authenticated caller with the events
-			// capability (api-key events permission, or any JWT role) (§11).
-			authed.Group(func(ev chi.Router) {
-				ev.Use(authz.RequireEvents())
-				ev.Get("/events", h.Events)
-			})
-
 			mountAPIRoutes(authed, h)
 		})
 	})

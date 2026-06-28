@@ -1,54 +1,26 @@
 package stream
 
+// This file holds the shared event-envelope helpers used by the transport-agnostic
+// pump (pump.go): building the connected/ping frames, rendering replayed event-log
+// entries into the §9 envelope shape, peeking an event's id/type off a raw payload,
+// and the heartbeat duration helper. The NDJSON wire framing that once lived here
+// is gone — realtime is WebSocket-only (the router redeems a ticket and pumps
+// discrete JSON messages); these helpers carry no transport-specific framing.
+
 import (
-	"bytes"
 	"encoding/json"
-	"net/http"
 	"time"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 )
 
-// lineWriter writes one JSON object per line (NDJSON) to an http.ResponseWriter
-// and flushes after each line so chunks reach the client immediately.
-type lineWriter struct {
-	w       http.ResponseWriter
-	flusher http.Flusher
-}
+// resumeReplayLimit caps how many event-log entries a single ?since= resume
+// replays before switching to the live tail, bounding memory/latency on a client
+// that has been disconnected for a long time. Older history beyond this is the
+// concern of the REST event-log endpoints, not the live stream.
+const resumeReplayLimit = 1000
 
-func newLineWriter(w http.ResponseWriter, f http.Flusher) *lineWriter {
-	return &lineWriter{w: w, flusher: f}
-}
-
-// writeJSON marshals v and writes it as a single NDJSON line (object + '\n'),
-// then flushes.
-func (l *lineWriter) writeJSON(v any) error {
-	data, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	return l.writeRaw(data)
-}
-
-// writeRaw writes pre-marshalled JSON as one NDJSON line. The payload must be a
-// single JSON value with no interior newlines (json.Marshal output satisfies
-// this); we append exactly one trailing '\n' as the line terminator, normalizing
-// any newline already present so we never emit a blank line.
-func (l *lineWriter) writeRaw(data []byte) error {
-	data = bytes.TrimRight(data, "\n")
-	if _, err := l.w.Write(data); err != nil {
-		return err
-	}
-	if _, err := l.w.Write(newline); err != nil {
-		return err
-	}
-	l.flusher.Flush()
-	return nil
-}
-
-var newline = []byte{'\n'}
-
-// connectedEnvelope is the first line emitted on a freshly-opened stream, before
+// connectedEnvelope is the first frame emitted on a freshly-opened stream, before
 // any replay or live tail. It confirms the stream is live immediately — clients
 // otherwise wait up to one heartbeat interval for the first byte — and advertises
 // the heartbeat cadence so a client can size its own dead-stream timeout.
@@ -60,7 +32,7 @@ func connectedEnvelope(heartbeatSecs int) map[string]any {
 	}
 }
 
-// pingEnvelope is the heartbeat line shape (§9: {"event":"ping",...}). It carries
+// pingEnvelope is the heartbeat frame shape (§9: {"event":"ping",...}). It carries
 // a fresh epoch-ms timestamp so clients can measure liveness.
 func pingEnvelope() map[string]any {
 	return map[string]any{
@@ -73,7 +45,7 @@ func pingEnvelope() map[string]any {
 // matching what the live publisher emits for the same event. EventLogEntry's JSON
 // tags already map id/event/session/organization/payload, but it has no "schema" and
 // uses createdAt rather than timestamp, so we build the envelope explicitly to
-// keep replayed and live lines byte-compatible in shape.
+// keep replayed and live frames byte-compatible in shape.
 func logEntryEnvelope(e *domain.EventLogEntry) domain.Event {
 	return domain.Event{
 		Schema:       domain.Schema,

@@ -1,22 +1,24 @@
-// Package stream implements the NDJSON event-delivery transport (masterplan §9)
-// and the Redis pub/sub fan-out that backs it.
+// Package stream implements live event delivery (masterplan §9) and the Redis
+// pub/sub fan-out that backs it.
 //
 // Two halves live here:
 //
 //   - Publisher is the EventSink the rest of the system writes domain.Events to.
 //     It marshals each event and PUBLISHes it to a per-(organization, session) Redis
-//     channel so any number of stream connections can fan it out.
+//     channel. It runs in the gateway.
 //
-//   - Handler serves GET /api/v1/events as application/x-ndjson: it subscribes to
-//     the caller's organization channels (optionally narrowed to one session), filters
-//     by the events= list, optionally replays from the event log on ?since=, then
-//     tails live events — emitting a heartbeat line every ~20s and stopping when
-//     the client disconnects.
+//   - Pump is the transport-agnostic subscribe → connected → replay → tail loop:
+//     it subscribes per resolved Scope (session / organization / firehose), filters
+//     by the events list, optionally replays from the event log on a since cursor,
+//     then tails live events — emitting a heartbeat every ~20s and writing each
+//     framed JSON message to a Sink, stopping when the context is cancelled or the
+//     Sink errors. The central router owns the only Sink (a WebSocket text-frame
+//     writer); the legacy NDJSON gateway transport has been removed.
 //
-// Per the parallel-build rules this package imports only the stdlib, go-redis
-// (already a dependency), and internal/domain. Every other collaborator (the
-// event-log reader, the clock/ticker, the organization accessor) is a small consumer
-// interface defined here and wired to a concrete type by the composition root.
+// This package imports only the stdlib, go-redis (already a dependency), and
+// internal/domain. Every other collaborator (the event-log reader, the
+// clock/ticker, the Sink, the principal accessor) is a small consumer interface
+// defined here and wired to a concrete type by the composition root.
 package stream
 
 import (

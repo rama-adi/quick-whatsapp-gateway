@@ -69,7 +69,6 @@ tags:
   - name: Groups
   - name: Channels
   - name: Status & Presence
-  - name: Events
   - name: Webhooks
   - name: Admin
 
@@ -1328,44 +1327,6 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "501": { $ref: "#/components/responses/Error" }
 
-  # ----------------------------------------------------------------- Events
-  /events:
-    get:
-      tags: [Events]
-      summary: Stream events (NDJSON)
-      description: >-
-        Open a long-lived connection that streams events as they happen. The response
-        is NDJSON: the connection stays open and the gateway writes one JSON event
-        object per line, each ending in a newline. Read it line by line; do not wait
-        for the body to finish. About every 20 seconds the gateway sends a
-        `{"event":"ping"}` line so the connection stays alive — ignore those.
-
-        You only ever see your own organization's events. Requires the `events`
-        capability: an api-key with the `events` permission, or any JWT.
-
-        Filter with `types` (comma-separated event types) and `session` (one session
-        id). To resume after a disconnect, reconnect with `since={lastEventId}` (the
-        `id` of the last event you processed); the gateway replays the events you
-        missed, then continues live. This is how a dashboard reconnects after its
-        short-lived JWT expires, without losing events.
-      operationId: events
-      parameters:
-        - name: types
-          in: query
-          schema: { type: string }
-          description: Comma-separated event type filter.
-        - name: session
-          in: query
-          schema: { type: string }
-          description: Restrict to one session id.
-      responses:
-        "200":
-          description: A live NDJSON stream — one Event JSON object per line, plus periodic ping lines.
-          content:
-            application/x-ndjson:
-              schema: { $ref: "#/components/schemas/Event" }
-        "401": { $ref: "#/components/responses/Error" }
-
   # --------------------------------------------------------------- Webhooks
   /webhooks:
     get:
@@ -1392,7 +1353,8 @@ paths:
       description: >-
         Register a webhook endpoint for the caller's organization. Requires the `manage`
         capability. When a matching event fires, the gateway POSTs the event envelope
-        (the same JSON shape as the `/events` stream) to `url`. Set `events` to the
+        (the `Event` JSON shape, also delivered over the realtime WebSocket) to `url`.
+        Set `events` to the
         event types to receive (`["*"]` for all) and `sessionId` to scope to one session
         (null = all of the organization's sessions).
 
@@ -2075,9 +2037,9 @@ components:
     Event:
       type: object
       description: >-
-        One event from the gateway. The same shape is delivered two ways: as one
-        JSON object per line on the event stream (NDJSON — newline-delimited
-        JSON), and as the body of each webhook POST.
+        One event from the gateway. This is the body of each webhook POST, and the
+        same envelope shape is delivered over the realtime WebSocket (on the central
+        router) as a discrete JSON message per event.
       required: [schema, id, event, session, organization, timestamp, payload]
       properties:
         schema: { type: string, description: "Envelope schema version, so consumers can adapt if the shape changes.", example: v1 }

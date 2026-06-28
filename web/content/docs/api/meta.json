@@ -10,7 +10,6 @@
     "groups",
     "channels",
     "status-&-presence",
-    "events",
     "webhooks",
     "admin"
   ]
