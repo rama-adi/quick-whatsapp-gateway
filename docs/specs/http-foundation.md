@@ -29,7 +29,7 @@ metrics probes stay open. Masterplan §4.3, §4.4, §13.
 |---|---|---|
 | Webhooks | `RequireManage` | `/webhooks`, `/webhooks/{id}` (POST/GET/PATCH/DELETE) |
 | Admin | `RequireSuperAdmin` | `GET /admin/sessions`, `POST /admin/sessions/{session}:backfill`, `GET /admin/sessions/{session}/backfill` |
-| Sessions | `RequireManage` | `/sessions`, `:start`/`:stop`/`:restart`/`:logout`, `/me`, `/qr`, `/pairing-code` |
+| Sessions | `RequireManage` | `/sessions`, `:start`/`:stop`/`:restart`/`:logout`, `/me`, `/qr`, `/pairing-code`, `POST`/`GET /sessions/{session}/backfill` (crypt15 backup import) |
 | Messages | `RequireSend` | `/sessions/{session}/messages` (+ edit/revoke/reaction/forward/vote) |
 | Chats/Contacts/Groups/Channels | `RequireRead` (GET) / `RequireSend` (mutations) | per-session sub-resources |
 | Status/Presence | `RequireSend` | `/status`, `/presence` |

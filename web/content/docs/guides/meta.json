@@ -6,6 +6,7 @@
     "connect-a-number",
     "sending",
     "receiving",
+    "backfill-history",
     "event-shape",
     "api-keys",
     "organizations",

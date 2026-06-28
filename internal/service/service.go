@@ -49,6 +49,7 @@ type Services struct {
 	Presence *PresenceService
 	Admin    *AdminService
 	Events   *EventsService
+	Backup   *BackupImportService
 }
 
 // New builds every service from the shared Deps. It is the single wiring point
@@ -77,6 +78,7 @@ func New(d Deps) *Services {
 		Presence: NewPresenceService(d.Store, liveOrNilPresence(live), d.Log),
 		Admin:    NewAdminService(d.Store, liveOrNilBackfill(live), d.Log),
 		Events:   NewEventsService(d.Store.EventLog, d.Log),
+		Backup:   NewBackupImportService(d.Store, d.Log),
 	}
 }
 

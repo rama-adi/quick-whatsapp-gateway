@@ -32,6 +32,7 @@ api-key `reference_id`, never by joining `member` on the hot path ([`trust-model
 | `poll_votes` | `PollVoteRepo` | via `session_id` |
 | `outbox` | `OutboxRepo` | `organization_id` (idempotency) |
 | `event_log` | `EventLogRepo` | `organization_id` |
+| `backfill_imports` | `BackfillImportRepo` | via `session_id` (import job status + once/24h quota) |
 
 `apikey` and the other better-auth tables are **not** in this repo set — they are frontend-owned
 (Drizzle). `APIKeyRepo` here is **read-only** (`GetByHash`) and used solely by `internal/authz`
@@ -115,7 +116,15 @@ invokes the binary. The auth plane is migrated separately by drizzle-kit in the 
   [`outbound-pipeline.md`](outbound-pipeline.md). Both go through
   `MessageRepo.Upsert` keyed by `(session_id, wa_message_id)`, so the two paths
   reconcile onto one row rather than duplicating (a self-send and any later echo
-  of it collapse to the same message).
+  of it collapse to the same message). A **third writer** is the crypt15 backup
+  import (`BackupImportService`), which upserts historical messages/chats through
+  the same repos — also idempotent by `(session_id, wa_message_id)`, so an import
+  merges with live capture (see [`backfill-import.md`](backfill-import.md)).
+- **`backfill_imports` is the import quota's source of truth.** A user backup
+  import is durably tracked here (status + counts + schema fingerprint); the
+  once/24h-per-session limit is enforced by `LastSuccessAt` and the concurrency
+  guard by `HasRunningSince`, so the quota survives restarts. Owned via
+  `session_id`; `super_admin` bypasses the quota.
 - **Message ids.** `messages.id` is a generated `msg_<ULID>` string, not an auto-incrementing
   integer. It stays lexicographically sortable for cursor pagination while avoiding a single
   hot monotonic database counter under high write throughput.

@@ -39,6 +39,7 @@ type Store struct {
 	PollVotes         *PollVoteRepo
 	Outbox            *OutboxRepo
 	EventLog          *EventLogRepo
+	BackfillImports   *BackfillImportRepo
 }
 
 // New builds a Store with every repo bound to the same *sql.DB.
@@ -58,5 +59,6 @@ func New(db *sql.DB) *Store {
 		PollVotes:         NewPollVoteRepo(db),
 		Outbox:            NewOutboxRepo(db),
 		EventLog:          NewEventLogRepo(db),
+		BackfillImports:   NewBackfillImportRepo(db),
 	}
 }

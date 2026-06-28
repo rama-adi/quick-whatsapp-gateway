@@ -140,6 +140,12 @@ func mountAPIRoutes(r chi.Router, h *handlers.Handlers) {
 		g.Get("/sessions/{session}/me", h.SessionMe)
 		g.Get("/sessions/{session}/qr", h.SessionQR)
 		g.Post("/sessions/{session}/pairing-code", h.SessionPairingCode)
+
+		// Backup import: upload a WhatsApp msgstore.db.crypt15 to backfill the
+		// session's chats/messages/identities/groups. Once per 24h per session for
+		// non-admins; super_admins bypass (gates already let super_admin through).
+		g.Post("/sessions/{session}/backfill", h.ImportBackup)
+		g.Get("/sessions/{session}/backfill", h.BackupStatus)
 	})
 
 	// --- Messages (send) ---

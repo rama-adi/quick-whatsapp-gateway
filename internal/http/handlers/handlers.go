@@ -64,6 +64,12 @@ type AdminSvc interface {
 	BackfillStatus(ctx context.Context, sessionID string) (domain.BackfillJob, error)
 }
 
+// BackupSvc is the user-facing WhatsApp backup (crypt15) import surface.
+type BackupSvc interface {
+	StartImport(ctx context.Context, organizationID, sessionID string, isSuperAdmin bool, ciphertext []byte, key string) (domain.BackfillImport, error)
+	ImportStatus(ctx context.Context, organizationID, sessionID string, isSuperAdmin bool) (domain.BackfillImport, error)
+}
+
 // ChatSvc is the chat viewer + read-state surface (§11 Chats).
 type ChatSvc interface {
 	List(ctx context.Context, organizationID, sessionID, cursor string, limit int) (store.Page[domain.Chat], error)
@@ -129,6 +135,7 @@ var (
 	_ MessageSvc  = (*service.MessageService)(nil)
 	_ WebhookSvc  = (*service.WebhookService)(nil)
 	_ AdminSvc    = (*service.AdminService)(nil)
+	_ BackupSvc   = (*service.BackupImportService)(nil)
 	_ ChatSvc     = (*service.ChatService)(nil)
 	_ ContactSvc  = (*service.ContactService)(nil)
 	_ GroupSvc    = (*service.GroupService)(nil)
@@ -147,6 +154,7 @@ type Handlers struct {
 	Messages MessageSvc
 	Webhooks WebhookSvc
 	Admin    AdminSvc
+	Backup   BackupSvc
 	Chats    ChatSvc
 	Contacts ContactSvc
 	Groups   GroupSvc
@@ -172,6 +180,7 @@ func New(s *service.Services, events http.Handler, log *slog.Logger) *Handlers {
 		Messages:    s.Messages,
 		Webhooks:    s.Webhooks,
 		Admin:       s.Admin,
+		Backup:      s.Backup,
 		Chats:       s.Chats,
 		Contacts:    s.Contacts,
 		Groups:      s.Groups,

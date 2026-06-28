@@ -1,0 +1,62 @@
+---
+title: Backfill chat history
+description: Import your existing WhatsApp chat history into a session by uploading an encrypted backup.
+---
+
+When you link a number, the gateway only records messages from that point on —
+anything sent before is not in your dashboard. If you have WhatsApp's **end-to-end
+encrypted backup**, you can import your full history into a session: chats,
+messages, contacts, groups and members all get backfilled.
+
+This works because the backup *is* your message database — the gateway decrypts it
+on the server, reads it, and merges it into the session. Imported messages are
+keyed by their WhatsApp message id, so importing more than once (or importing on
+top of live history) never creates duplicates.
+
+## What you need
+
+1. **The backup file** — `msgstore.db.crypt15`. On the phone, turn on the
+   end-to-end encrypted backup (WhatsApp → **Settings → Chats → Chat backup →
+   End-to-end encrypted backup**), let it run, then copy `msgstore.db.crypt15` off
+   the device (it lives under WhatsApp's `Databases` folder).
+2. **The decryption key** — the **64-character** key WhatsApp shows you when you
+   turn the encrypted backup on. Keep it safe; without it the backup can't be read.
+
+## Import from the dashboard
+
+1. Open the session (**Sessions → your number**).
+2. In the **Backup import** card, choose your `.crypt15` file and paste the key.
+3. Press **Import**. The gateway decrypts the file (a wrong key or wrong file is
+   rejected immediately), then imports in the background. The card shows progress
+   and the counts of chats and messages as they land.
+
+When it finishes, open the **Chats** tab — your history is there.
+
+## Limits
+
+- **Once per day per session.** An ordinary account can run one successful import
+  per session per 24 hours. (A failed attempt — e.g. a wrong key — doesn't use up
+  your daily allowance.)
+- **Text and metadata, not media files.** Message text, captions, sender, time,
+  replies and mentions are imported. Media (images, video, audio) is recorded as
+  metadata only — the files themselves are not downloaded.
+- **One import at a time** per session.
+
+## From your own code
+
+The dashboard calls the gateway's REST API, and so can you (with an `manage`-scoped
+API key):
+
+```bash
+curl -X POST "$GATEWAY/api/v1/sessions/$SESSION/backfill" \
+  -H "Authorization: Bearer $API_KEY" \
+  -F "file=@msgstore.db.crypt15" \
+  -F "key=$CRYPT15_KEY"
+
+# poll status
+curl "$GATEWAY/api/v1/sessions/$SESSION/backfill" \
+  -H "Authorization: Bearer $API_KEY"
+```
+
+The `POST` returns a job (`status: "running"`); poll the `GET` until it reads
+`succeeded` or `failed`.

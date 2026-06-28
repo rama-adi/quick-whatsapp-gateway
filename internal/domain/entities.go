@@ -288,6 +288,28 @@ type BackfillJob struct {
 	FinishedAt     *int64 `json:"finishedAt,omitempty"`
 }
 
+// BackfillImport mirrors the backfill_imports table — a durable record of a
+// user-initiated WhatsApp backup (crypt15) import. It is both the dashboard's
+// job-status surface and the source of truth for the once-per-24h-per-session
+// import quota (super_admins bypass). Distinct from BackfillJob, which is the
+// in-memory admin live-data backfill.
+type BackfillImport struct {
+	ID                string  `json:"id"`
+	SessionID         string  `json:"sessionId"`
+	OrganizationID    string  `json:"organizationId"`
+	Source            string  `json:"source"` // "crypt15"
+	Status            string  `json:"status"` // running | succeeded | failed
+	Chats             int     `json:"chats"`
+	Messages          int     `json:"messages"`
+	Identities        int     `json:"identities"`
+	Groups            int     `json:"groups"`
+	GroupMembers      int     `json:"groupMembers"`
+	SchemaFingerprint *string `json:"schemaFingerprint,omitempty"`
+	Error             string  `json:"error,omitempty"`
+	CreatedAt         int64   `json:"createdAt"`
+	FinishedAt        *int64  `json:"finishedAt,omitempty"`
+}
+
 // PollVote mirrors the poll_votes table.
 type PollVote struct {
 	ID              uint64          `json:"id"`

@@ -29,6 +29,7 @@ import {
   QrImage,
   SessionStatusBadge,
 } from "./user-ui";
+import { BackupImportCard } from "./backup-import-card";
 
 const LIFECYCLE: SessionAction[] = ["start", "stop", "restart", "logout"];
 
@@ -108,6 +109,7 @@ export function SessionOverview({ sessionId }: { sessionId: string }) {
         ) : (
           <ConnectedCard session={s} />
         )}
+        <BackupImportCard sessionId={sessionId} />
       </div>
     </div>
   );

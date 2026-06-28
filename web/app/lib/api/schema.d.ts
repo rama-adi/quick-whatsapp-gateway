@@ -279,6 +279,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sessions/{session}/backfill": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
+                session: components["parameters"]["Session"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Get the latest backup import job for a session
+         * @description Returns the most recent backup import for this session (running, succeeded or failed) with its progress counts. Requires the `manage` capability.
+         */
+        get: operations["sessionBackupStatus"];
+        put?: never;
+        /**
+         * Import a WhatsApp backup (crypt15) to backfill history
+         * @description Uploads an end-to-end encrypted WhatsApp database backup (`msgstore.db.crypt15`) plus its decryption key. The gateway decrypts it, reads the SQLite, and upserts the session's chats, messages, identities, groups and group members (idempotent by message id, so re-running merges). Requires the `manage` capability. Rate limited to once per 24 hours per session for ordinary users; platform super_admins have no limit. The key is a 64-character hex string (WhatsApp > Settings > Chats > Chat backup > End-to-end encrypted backup), a raw 32-byte key, or a serialized `encrypted_backup.key`. Decryption runs inline, so a wrong key or bad file fails immediately with 400; the import itself runs in the background — poll the GET on this path for status.
+         */
+        post: operations["importSessionBackup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sessions/{session}/messages": {
         parameters: {
             query?: never;
@@ -1464,6 +1491,49 @@ export interface components {
              */
             finishedAt?: number;
         };
+        /** @description A user-initiated WhatsApp backup (crypt15) import job and its progress. */
+        BackfillImport: {
+            /** @description The import job id. */
+            id: string;
+            /** @description The session being backfilled. */
+            sessionId: string;
+            /** @description The session owner's organization id. */
+            organizationId: string;
+            /**
+             * @description The backup source.
+             * @example crypt15
+             */
+            source: string;
+            /**
+             * @description Current job state.
+             * @enum {string}
+             */
+            status: "running" | "succeeded" | "failed";
+            /** @description Number of chats upserted. */
+            chats: number;
+            /** @description Number of messages upserted. */
+            messages: number;
+            /** @description Number of identities upserted. */
+            identities: number;
+            /** @description Number of groups upserted. */
+            groups: number;
+            /** @description Number of group memberships upserted. */
+            groupMembers: number;
+            /** @description Detected backup schema fingerprint (WhatsApp build id + capability hash). */
+            schemaFingerprint?: string;
+            /** @description Failure message when status is failed. */
+            error?: string;
+            /**
+             * Format: int64
+             * @description When the import started, in epoch milliseconds.
+             */
+            createdAt: number;
+            /**
+             * Format: int64
+             * @description When the import finished, in epoch milliseconds.
+             */
+            finishedAt?: number;
+        };
         /** @description The pairing QR code to display so the user can link their phone. */
         QRCode: {
             /** @description The QR payload string; render it as a QR image for the user to scan. */
@@ -2202,6 +2272,69 @@ export interface operations {
             };
             400: components["responses"]["Error"];
             404: components["responses"]["Error"];
+        };
+    };
+    sessionBackupStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
+                session: components["parameters"]["Session"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The latest backup import job for this session. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackfillImport"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    importSessionBackup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
+                session: components["parameters"]["Session"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /**
+                     * Format: binary
+                     * @description The `msgstore.db.crypt15` backup file.
+                     */
+                    file: string;
+                    /** @description The crypt15 decryption key (64-char hex, raw 32-byte, or serialized key). */
+                    key: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Import accepted and running in the background. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackfillImport"];
+                };
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            429: components["responses"]["Error"];
         };
     };
     sendMessage: {

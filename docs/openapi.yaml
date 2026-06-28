@@ -357,6 +357,64 @@ paths:
         "400": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
 
+  /sessions/{session}/backfill:
+    parameters: [ { $ref: "#/components/parameters/Session" } ]
+    post:
+      tags: [Sessions]
+      summary: Import a WhatsApp backup (crypt15) to backfill history
+      description: >-
+        Uploads an end-to-end encrypted WhatsApp database backup
+        (`msgstore.db.crypt15`) plus its decryption key. The gateway decrypts it,
+        reads the SQLite, and upserts the session's chats, messages, identities,
+        groups and group members (idempotent by message id, so re-running merges).
+        Requires the `manage` capability. Rate limited to once per 24 hours per
+        session for ordinary users; platform super_admins have no limit. The key
+        is a 64-character hex string (WhatsApp > Settings > Chats > Chat backup >
+        End-to-end encrypted backup), a raw 32-byte key, or a serialized
+        `encrypted_backup.key`. Decryption runs inline, so a wrong key or bad file
+        fails immediately with 400; the import itself runs in the background — poll
+        the GET on this path for status.
+      operationId: importSessionBackup
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, key]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: The `msgstore.db.crypt15` backup file.
+                key:
+                  type: string
+                  description: The crypt15 decryption key (64-char hex, raw 32-byte, or serialized key).
+      responses:
+        "202":
+          description: Import accepted and running in the background.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BackfillImport" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+    get:
+      tags: [Sessions]
+      summary: Get the latest backup import job for a session
+      description: >-
+        Returns the most recent backup import for this session (running, succeeded
+        or failed) with its progress counts. Requires the `manage` capability.
+      operationId: sessionBackupStatus
+      responses:
+        "200":
+          description: The latest backup import job for this session.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BackfillImport" }
+        "404": { $ref: "#/components/responses/Error" }
+
   # --------------------------------------------------------------- Messages
   /sessions/{session}/messages:
     parameters: [ { $ref: "#/components/parameters/Session" } ]
@@ -1711,6 +1769,25 @@ components:
         error: { type: string, description: Failure message when status is failed. }
         startedAt: { type: integer, format: int64, description: "When the job started, in epoch milliseconds." }
         finishedAt: { type: integer, format: int64, description: "When the job finished, in epoch milliseconds." }
+    BackfillImport:
+      type: object
+      description: A user-initiated WhatsApp backup (crypt15) import job and its progress.
+      required: [id, sessionId, organizationId, source, status, chats, messages, identities, groups, groupMembers, createdAt]
+      properties:
+        id: { type: string, description: The import job id. }
+        sessionId: { type: string, description: The session being backfilled. }
+        organizationId: { type: string, description: The session owner's organization id. }
+        source: { type: string, description: The backup source., example: crypt15 }
+        status: { type: string, enum: [running, succeeded, failed], description: Current job state. }
+        chats: { type: integer, description: Number of chats upserted. }
+        messages: { type: integer, description: Number of messages upserted. }
+        identities: { type: integer, description: Number of identities upserted. }
+        groups: { type: integer, description: Number of groups upserted. }
+        groupMembers: { type: integer, description: Number of group memberships upserted. }
+        schemaFingerprint: { type: string, description: Detected backup schema fingerprint (WhatsApp build id + capability hash). }
+        error: { type: string, description: Failure message when status is failed. }
+        createdAt: { type: integer, format: int64, description: "When the import started, in epoch milliseconds." }
+        finishedAt: { type: integer, format: int64, description: "When the import finished, in epoch milliseconds." }
     QRCode:
       type: object
       description: The pairing QR code to display so the user can link their phone.

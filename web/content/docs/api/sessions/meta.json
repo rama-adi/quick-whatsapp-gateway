@@ -11,6 +11,8 @@
     "logoutSession",
     "sessionMe",
     "sessionQR",
-    "sessionPairingCode"
+    "sessionPairingCode",
+    "sessionBackupStatus",
+    "importSessionBackup"
   ]
 }

@@ -31,13 +31,34 @@ export async function fetchJSON<T>(input: string, init?: RequestInit): Promise<T
   return doFetch<T>(input, init, false);
 }
 
+/**
+ * Perform a multipart/form-data request (file upload) against the gateway. Same
+ * Bearer-JWT attachment and 401-retry as fetchJSON, but the body is a FormData
+ * and we deliberately do NOT set Content-Type — the browser must add the
+ * multipart boundary itself.
+ */
+export async function fetchFormData<T>(
+  input: string,
+  form: FormData,
+  init?: RequestInit,
+): Promise<T> {
+  return doFetch<T>(input, { ...init, method: init?.method ?? "POST", body: form }, false);
+}
+
 async function doFetch<T>(
   input: string,
   init: RequestInit | undefined,
   retried: boolean,
 ): Promise<T> {
   const headers = new Headers(init?.headers);
-  if (init?.body !== undefined && init.body !== null && !headers.has("Content-Type")) {
+  const isFormData = typeof FormData !== "undefined" && init?.body instanceof FormData;
+  if (
+    init?.body !== undefined &&
+    init.body !== null &&
+    !isFormData &&
+    !headers.has("Content-Type")
+  ) {
+    // FormData sets its own multipart Content-Type (with boundary); never override.
     headers.set("Content-Type", "application/json");
   }
   if (!headers.has("Accept")) headers.set("Accept", "application/json");

@@ -79,6 +79,15 @@ e2e smoke against a live WhatsApp number.
   shows beside the push name). Backfill seeds identities for every group participant and
   resolves push names from the contact store. (Migration `0002_identity_redesign`; identity
   tables wiped for a clean re-backfill. See `docs/specs/contacts.md`, `resources.md`.)
+- **User backup import (crypt15):** ordinary org users can backfill a session's full history by
+  uploading their WhatsApp `msgstore.db.crypt15` + key (`POST /sessions/{session}/backfill`), not
+  just the admin live-data backfill. Gateway-side decrypt (CGO-free, `internal/backup`) + SQLite
+  read via `modernc.org/sqlite` with **capability detection** (no reliable WhatsApp schema version
+  exists — probe tables/columns, degrade gracefully, record a fingerprint). Upserts chats /
+  messages / identities / groups / members idempotently by `(session_id, wa_message_id)`, so it
+  merges with live capture. **Quota locked: once per 24h per session for non-admins; super_admin
+  unlimited** — enforced durably via the new `backfill_imports` table (Migration
+  `0003_backfill_imports`). See `docs/specs/backfill-import.md`.
 
 ## Open risks / follow-ups
 
