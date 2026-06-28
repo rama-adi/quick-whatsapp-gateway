@@ -131,6 +131,18 @@ func (r *SessionRepo) ListByGateway(ctx context.Context, gatewayID string) ([]do
 	return out, rows.Err()
 }
 
+// CountByGateway returns how many sessions are pinned to the given gateway_id. The
+// gateway heartbeat reports this into the registry (gateways.session_count) so the
+// router can place new sessions on the least-loaded gateway (D8).
+func (r *SessionRepo) CountByGateway(ctx context.Context, gatewayID string) (int, error) {
+	const q = "SELECT COUNT(*) FROM wa_sessions WHERE gateway_id = ?"
+	var n int
+	if err := r.db.QueryRowContext(ctx, q, gatewayID).Scan(&n); err != nil {
+		return 0, fmt.Errorf("store: count sessions by gateway: %w", err)
+	}
+	return n, nil
+}
+
 // Update writes the mutable fields of a session (settings + WA identity), keying
 // on id and refreshing updated_at from the struct.
 func (r *SessionRepo) Update(ctx context.Context, s domain.WASession) error {

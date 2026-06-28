@@ -11,15 +11,21 @@ import "encoding/json"
 //   - JSON tags use the API's camelCase conventions (§11) for fields that are
 //     serialized over the wire.
 
-// Gateway mirrors the gateways registry table (§7). One self-row in v2; more rows
-// appear when sharding (forward-compat session pinning by gateway_id).
+// Gateway mirrors the gateways registry table (§7, router accounting Layer 1). The
+// registry is the routing table the central router reads: each row pins where a
+// gateway is reachable (BaseURL), whether it is taking traffic (Status), and how
+// loaded it is (SessionCount/Capacity) so the router can place new sessions on the
+// least-loaded reachable gateway and 503 requests bound for an unreachable one.
 type Gateway struct {
-	ID         string  `json:"id"` // = GATEWAY_ID
-	Label      *string `json:"label,omitempty"`
-	BaseURL    *string `json:"baseUrl,omitempty"`
-	LastSeenAt *int64  `json:"lastSeenAt,omitempty"`
-	CreatedAt  int64   `json:"createdAt"`
-	UpdatedAt  int64   `json:"updatedAt"`
+	ID           string        `json:"id"` // = GATEWAY_ID
+	Label        *string       `json:"label,omitempty"`
+	Status       GatewayStatus `json:"status"`             // lifecycle state (joining|active|draining|drained|unreachable)
+	SessionCount int           `json:"sessionCount"`       // sessions currently pinned to this gateway
+	Capacity     *int          `json:"capacity,omitempty"` // soft placement cap; nil = unbounded
+	BaseURL      *string       `json:"baseUrl,omitempty"`
+	LastSeenAt   *int64        `json:"lastSeenAt,omitempty"`
+	CreatedAt    int64         `json:"createdAt"`
+	UpdatedAt    int64         `json:"updatedAt"`
 }
 
 // WASession mirrors the wa_sessions table (an attached WhatsApp number).

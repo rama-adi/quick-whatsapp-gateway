@@ -36,6 +36,21 @@ func SessionStatusFromName(name string) (s SessionStatus, ok bool) {
 	return
 }
 
+// GatewayStatus mirrors gateways.status (router accounting Layer 1, D8). The
+// lifecycle is joining → active → draining → drained; unreachable is derived by
+// the router from a stale heartbeat (it is not written by the gateway's own boot
+// path). Only `active` gateways receive new session placements and proxied
+// traffic; the router 503s requests bound for a non-active/stale gateway.
+type GatewayStatus string
+
+const (
+	GatewayJoining     GatewayStatus = "joining"
+	GatewayActive      GatewayStatus = "active"
+	GatewayDraining    GatewayStatus = "draining"
+	GatewayDrained     GatewayStatus = "drained"
+	GatewayUnreachable GatewayStatus = "unreachable"
+)
+
 // ChatType mirrors chats.type.
 type ChatType string
 

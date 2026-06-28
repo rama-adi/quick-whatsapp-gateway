@@ -9,27 +9,36 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 )
 
+func gatewayRows() *sqlmock.Rows {
+	return sqlmock.NewRows([]string{
+		"id", "label", "status", "session_count", "capacity",
+		"base_url", "last_seen_at", "created_at", "updated_at",
+	})
+}
+
 func TestGatewayRepo_UpsertAndGet(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewGatewayRepo(db)
 
-	g := domain.Gateway{ID: "gw_1", Label: strptr("primary"), BaseURL: strptr("https://gw"), CreatedAt: 1, UpdatedAt: 2}
+	g := domain.Gateway{
+		ID: "gw_1", Label: strptr("primary"), Status: domain.GatewayActive,
+		BaseURL: strptr("https://gw"), CreatedAt: 1, UpdatedAt: 2,
+	}
 	mock.ExpectExec("INSERT INTO gateways.*ON DUPLICATE KEY UPDATE").
-		WithArgs(g.ID, g.Label, g.BaseURL, g.LastSeenAt, g.CreatedAt, g.UpdatedAt).
+		WithArgs(g.ID, g.Label, g.Status, g.SessionCount, g.Capacity, g.BaseURL, g.LastSeenAt, g.CreatedAt, g.UpdatedAt).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	if err := repo.Upsert(context.Background(), g); err != nil {
 		t.Fatalf("Upsert: %v", err)
 	}
 
-	rows := sqlmock.NewRows([]string{"id", "label", "base_url", "last_seen_at", "created_at", "updated_at"}).
-		AddRow("gw_1", "primary", "https://gw", nil, int64(1), int64(2))
+	rows := gatewayRows().AddRow("gw_1", "primary", "active", 3, nil, "https://gw", nil, int64(1), int64(2))
 	mock.ExpectQuery("SELECT .* FROM gateways WHERE id = .").
 		WithArgs("gw_1").WillReturnRows(rows)
 	got, err := repo.Get(context.Background(), "gw_1")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if got.ID != "gw_1" {
+	if got.ID != "gw_1" || got.Status != domain.GatewayActive || got.SessionCount != 3 {
 		t.Fatalf("unexpected gateway: %+v", got)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -44,6 +53,84 @@ func TestGatewayRepo_Get_NotFound(t *testing.T) {
 		WithArgs("x").WillReturnError(noRows())
 	_, err := repo.Get(context.Background(), "x")
 	assertNotFound(t, err)
+}
+
+func TestGatewayRepo_HeartbeatAndSetStatus(t *testing.T) {
+	db, mock := newMock(t)
+	repo := NewGatewayRepo(db)
+
+	mock.ExpectExec("UPDATE gateways SET last_seen_at=., session_count=., updated_at=. WHERE id=.").
+		WithArgs(int64(100), 7, int64(100), "gw_1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	if err := repo.Heartbeat(context.Background(), "gw_1", 100, 7); err != nil {
+		t.Fatalf("Heartbeat: %v", err)
+	}
+
+	mock.ExpectExec("UPDATE gateways SET status=., updated_at=. WHERE id=.").
+		WithArgs(domain.GatewayDraining, int64(200), "gw_1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	if err := repo.SetStatus(context.Background(), "gw_1", domain.GatewayDraining, 200); err != nil {
+		t.Fatalf("SetStatus: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestGatewayRepo_PickForPlacement(t *testing.T) {
+	db, mock := newMock(t)
+	repo := NewGatewayRepo(db)
+
+	rows := gatewayRows().AddRow("gw_b", nil, "active", 1, nil, "https://b", int64(9), int64(1), int64(2))
+	mock.ExpectQuery("SELECT .* FROM gateways").
+		WithArgs(domain.GatewayActive).WillReturnRows(rows)
+	got, err := repo.PickForPlacement(context.Background())
+	if err != nil {
+		t.Fatalf("PickForPlacement: %v", err)
+	}
+	if got.ID != "gw_b" {
+		t.Fatalf("unexpected pick: %+v", got)
+	}
+
+	// No active gateway with headroom → not_found (router maps to 503).
+	mock.ExpectQuery("SELECT .* FROM gateways").
+		WithArgs(domain.GatewayActive).WillReturnError(noRows())
+	if _, err := repo.PickForPlacement(context.Background()); err == nil {
+		t.Fatal("expected not_found when no gateway available")
+	} else {
+		assertNotFound(t, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestGatewayRepo_ListActive(t *testing.T) {
+	db, mock := newMock(t)
+	repo := NewGatewayRepo(db)
+	rows := gatewayRows().
+		AddRow("gw_a", nil, "active", 0, nil, "https://a", int64(1), int64(1), int64(1)).
+		AddRow("gw_b", nil, "active", 2, 10, "https://b", int64(1), int64(1), int64(1))
+	mock.ExpectQuery("SELECT .* FROM gateways WHERE status = .").
+		WithArgs(domain.GatewayActive).WillReturnRows(rows)
+	got, err := repo.ListActive(context.Background())
+	if err != nil {
+		t.Fatalf("ListActive: %v", err)
+	}
+	if len(got) != 2 || got[0].ID != "gw_a" {
+		t.Fatalf("unexpected list: %+v", got)
+	}
+}
+
+func TestSessionRepo_CountByGateway(t *testing.T) {
+	db, mock := newMock(t)
+	repo := NewSessionRepo(db)
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM wa_sessions WHERE gateway_id = .").
+		WithArgs("gw_1").WillReturnRows(sqlmock.NewRows([]string{"c"}).AddRow(5))
+	n, err := repo.CountByGateway(context.Background(), "gw_1")
+	if err != nil || n != 5 {
+		t.Fatalf("CountByGateway: n=%d err=%v", n, err)
+	}
 }
 
 func TestWebhookRepo_CreateAndScanJSON(t *testing.T) {

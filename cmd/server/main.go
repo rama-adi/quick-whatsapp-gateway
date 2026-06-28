@@ -337,6 +337,7 @@ func upsertGatewaySelfRow(ctx context.Context, repo *store.GatewayRepo, cfg *con
 	now := domain.NowMs()
 	g := domain.Gateway{
 		ID:         cfg.GatewayID,
+		Status:     domain.GatewayActive,
 		LastSeenAt: &now,
 		CreatedAt:  now,
 		UpdatedAt:  now,
