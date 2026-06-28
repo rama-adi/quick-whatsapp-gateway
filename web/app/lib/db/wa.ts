@@ -33,10 +33,16 @@ import {
   varchar,
 } from "drizzle-orm/mysql-core";
 
-// Registry of gateways. One self-row in v2; rows added when sharding.
+// Registry of gateways — the central router's routing table. status/session_count/
+// capacity are the lifecycle + load columns added by migration 0004
+// (docs/specs/store.md). Mirrors the migrated DDL (manual sync; re-introspect when
+// a live migrated DB is available).
 export const gateways = mysqlTable("gateways", {
   id: varchar("id", { length: 64 }).primaryKey(),
   label: varchar("label", { length: 255 }),
+  status: varchar("status", { length: 16 }).notNull().default("active"),
+  sessionCount: int("session_count", { unsigned: true }).notNull().default(0),
+  capacity: int("capacity", { unsigned: true }),
   baseUrl: text("base_url"),
   lastSeenAt: bigint("last_seen_at", { mode: "number" }),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
