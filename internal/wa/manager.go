@@ -383,6 +383,13 @@ func (m *Manager) CreateSession(ctx context.Context, organizationID string, labe
 	sess := &domain.WASession{
 		ID:             domain.NewSessionID(),
 		OrganizationID: organizationID,
+		// Pin the session to this gateway at creation. The router proxies
+		// POST /sessions to the placement-chosen gateway, so the gateway that
+		// runs CreateSession is the one that owns it; recording gateway_id here
+		// lets the router resolve every later request (QR, start, status, send)
+		// back to this gateway. Without it the row stays unpinned and the router
+		// returns 503 gateway_unavailable.
+		GatewayID:      m.cfg.GatewayID,
 		Label:          label,
 		Status:         domain.SessionStopped,
 		AutoRead:       autoRead,
