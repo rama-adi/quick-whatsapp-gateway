@@ -10,6 +10,10 @@ RUN corepack enable
 COPY web/package.json web/pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY web/ ./
+# Force the node-server preset. Nitro auto-detects the build host and would emit
+# the `zeabur` preset (.zeabur/output) when built on Zeabur, but this image
+# serves the standalone node output (.output/server/index.mjs).
+ENV NITRO_PRESET=node-server SERVER_PRESET=node-server
 RUN pnpm build                       # nitro node-server preset -> /web/.output
 
 # --- Stage 2: runtime (Node server) ---
