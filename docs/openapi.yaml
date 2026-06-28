@@ -15,6 +15,12 @@ components:
       type: object
     ApiError:
       additionalProperties: false
+      properties:
+        error:
+          $ref: "#/components/schemas/ErrorDetail"
+          description: The error. Present on every non-2xx response.
+      required:
+        - error
       type: object
     ApproveGroupMembersInputBody:
       additionalProperties: false
@@ -808,6 +814,37 @@ components:
           examples:
             - Updated message text
           type: string
+      type: object
+    ErrorDetail:
+      additionalProperties: false
+      properties:
+        code:
+          description: "Stable, machine-readable error code. Branch on this, not on the HTTP status or the message text — the message may change wording, the code will not. Codes map to HTTP statuses: not_found→404, unauthorized→401, forbidden→403, validation_error→400, conflict→409, rate_limited→429, not_implemented→501, gateway_unavailable→503 (the owning gateway is draining or unreachable; retry), internal→500."
+          enum:
+            - rate_limited
+            - not_found
+            - unauthorized
+            - forbidden
+            - validation_error
+            - conflict
+            - not_implemented
+            - gateway_unavailable
+            - internal
+          examples:
+            - not_found
+          type: string
+        details:
+          additionalProperties: {}
+          description: Optional structured context. For validation_error this carries an "errors" array of field-level messages; absent when there is nothing to add.
+          type: object
+        message:
+          description: Human-readable explanation of what went wrong, for logs and developers. Not localized and not meant to be shown verbatim to end users.
+          examples:
+            - session not found
+          type: string
+      required:
+        - code
+        - message
       type: object
     FormFile:
       additionalProperties: false

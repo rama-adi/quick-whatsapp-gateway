@@ -13,7 +13,6 @@ package humax
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 
@@ -36,7 +35,7 @@ func init() {
 		if status == http.StatusUnprocessableEntity {
 			status = http.StatusBadRequest
 		}
-		ae := domain.NewAPIError(codeForStatus(status), msg)
+		d := ErrorDetail{Code: codeForStatus(status), Message: msg}
 		if len(errs) > 0 {
 			details := make([]string, 0, len(errs))
 			for _, e := range errs {
@@ -45,22 +44,35 @@ func init() {
 				}
 			}
 			if len(details) > 0 {
-				ae = ae.WithDetails(map[string]any{"errors": details})
+				d.Details = map[string]any{"errors": details}
 			}
 		}
-		return &apiError{err: ae}
+		return &apiError{Err: d}
 	}
 }
 
-// apiError wraps a *domain.APIError so huma treats it as a StatusError and
-// marshals it as the §11 envelope.
-type apiError struct{ err *domain.APIError }
-
-func (e *apiError) Error() string  { return e.err.Error() }
-func (e *apiError) GetStatus() int { return statusForCode(e.err.Code) }
-func (e *apiError) MarshalJSON() ([]byte, error) {
-	return json.Marshal(domain.ErrorBody{Error: e.err})
+// ErrorDetail is the inner object of the §11 error envelope — the machine-readable
+// `code`, a human-readable `message`, and optional structured `details`. huma
+// reflects its exported fields (with their doc/enum/example tags) into the
+// generated `ErrorDetail` schema, so the contract documents exactly what an error
+// body contains.
+type ErrorDetail struct {
+	Code string `json:"code" enum:"rate_limited,not_found,unauthorized,forbidden,validation_error,conflict,not_implemented,gateway_unavailable,internal" doc:"Stable, machine-readable error code. Branch on this, not on the HTTP status or the message text — the message may change wording, the code will not. Codes map to HTTP statuses: not_found→404, unauthorized→401, forbidden→403, validation_error→400, conflict→409, rate_limited→429, not_implemented→501, gateway_unavailable→503 (the owning gateway is draining or unreachable; retry), internal→500." example:"not_found"`
+	Message string `json:"message" doc:"Human-readable explanation of what went wrong, for logs and developers. Not localized and not meant to be shown verbatim to end users." example:"session not found"`
+	Details map[string]any `json:"details,omitempty" doc:"Optional structured context. For validation_error this carries an \"errors\" array of field-level messages; absent when there is nothing to add." additionalProperties:"true"`
 }
+
+// apiError is BOTH the wire model for the §11 error envelope and a huma
+// StatusError. huma reflects its single exported field into the `ApiError`
+// response schema ({ "error": ErrorDetail }), and encoding/json marshals it to
+// the same {"error":{"code","message","details"}} body — no custom marshaler
+// needed, so the documented schema and the bytes on the wire can never diverge.
+type apiError struct {
+	Err ErrorDetail `json:"error" doc:"The error. Present on every non-2xx response."`
+}
+
+func (e *apiError) Error() string  { return e.Err.Code + ": " + e.Err.Message }
+func (e *apiError) GetStatus() int { return statusForCode(e.Err.Code) }
 
 // Err maps any error into the huma error envelope: a *domain.APIError keeps its
 // code/status; anything else is masked as a generic 500 so internals never leak.
@@ -68,9 +80,9 @@ func (e *apiError) MarshalJSON() ([]byte, error) {
 func Err(err error) error {
 	var ae *domain.APIError
 	if errors.As(err, &ae) {
-		return &apiError{err: ae}
+		return &apiError{Err: ErrorDetail{Code: ae.Code, Message: ae.Message, Details: ae.Details}}
 	}
-	return &apiError{err: domain.ErrInternal("internal server error")}
+	return &apiError{Err: ErrorDetail{Code: domain.CodeInternal, Message: "internal server error"}}
 }
 
 // NewAPI builds a huma API mounted on the given chi router with this gateway's

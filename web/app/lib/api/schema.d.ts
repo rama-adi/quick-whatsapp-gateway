@@ -1705,7 +1705,10 @@ export interface components {
              */
             participants?: string[] | null;
         };
-        ApiError: Record<string, never>;
+        ApiError: {
+            /** @description The error. Present on every non-2xx response. */
+            error: components["schemas"]["ErrorDetail"];
+        };
         ApproveGroupMembersInputBody: {
             /**
              * @description User JIDs of pending join requests to approve. Not implemented in v2 (always 501); this field is accepted but never acted on.
@@ -2285,6 +2288,23 @@ export interface components {
              * @example Updated message text
              */
             text?: string;
+        };
+        ErrorDetail: {
+            /**
+             * @description Stable, machine-readable error code. Branch on this, not on the HTTP status or the message text — the message may change wording, the code will not. Codes map to HTTP statuses: not_found→404, unauthorized→401, forbidden→403, validation_error→400, conflict→409, rate_limited→429, not_implemented→501, gateway_unavailable→503 (the owning gateway is draining or unreachable; retry), internal→500.
+             * @example not_found
+             * @enum {string}
+             */
+            code: "rate_limited" | "not_found" | "unauthorized" | "forbidden" | "validation_error" | "conflict" | "not_implemented" | "gateway_unavailable" | "internal";
+            /** @description Optional structured context. For validation_error this carries an "errors" array of field-level messages; absent when there is nothing to add. */
+            details?: {
+                [key: string]: unknown;
+            };
+            /**
+             * @description Human-readable explanation of what went wrong, for logs and developers. Not localized and not meant to be shown verbatim to end users.
+             * @example session not found
+             */
+            message: string;
         };
         FormFile: {
             ContentType: string;
