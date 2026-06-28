@@ -1,0 +1,8 @@
+# pnpm 10.16+ relocated settings out of package.json's "pnpm" field into this
+# file. The build image uses a newer pnpm than local dev, so the field in
+# package.json is ignored there and a fresh `pnpm install --frozen-lockfile`
+# hard-fails with ERR_PNPM_IGNORED_BUILDS for the native deps below. Declaring
+# them here (the location modern pnpm reads) lets their build scripts run.
+onlyBuiltDependencies:
+  - esbuild
+  - lightningcss
