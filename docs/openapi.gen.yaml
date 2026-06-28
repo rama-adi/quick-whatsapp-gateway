@@ -23,6 +23,65 @@ components:
             - array
             - "null"
       type: object
+    AuthCodeEvent:
+      additionalProperties: false
+      properties:
+        event:
+          enum:
+            - auth.code
+          examples:
+            - auth.code
+          type: string
+        payload:
+          $ref: "#/components/schemas/AuthCodePayload"
+      required:
+        - event
+        - payload
+      type: object
+    AuthCodePayload:
+      additionalProperties: false
+      properties:
+        businessName:
+          description: The account's WhatsApp Business display name, if it is a business account.
+          type: string
+        jid:
+          description: The linked phone JID (e.g. 6281234567890@s.whatsapp.net).
+          examples:
+            - 6281234567890@s.whatsapp.net
+          type: string
+        lid:
+          description: The linked-device identifier (LID) WhatsApp assigned to this device.
+          type: string
+        platform:
+          description: The device platform WhatsApp reports (e.g. android, iphone, web).
+          type: string
+      type: object
+    AuthQREvent:
+      additionalProperties: false
+      properties:
+        event:
+          enum:
+            - auth.qr
+          examples:
+            - auth.qr
+          type: string
+        payload:
+          $ref: "#/components/schemas/AuthQRPayload"
+      required:
+        - event
+        - payload
+      type: object
+    AuthQRPayload:
+      additionalProperties: false
+      properties:
+        code:
+          description: The QR code content to render as a QR image for the user to scan in WhatsApp → Linked devices.
+          examples:
+            - 2@abc123...
+          type: string
+      required:
+        - code
+      type: object
     BackfillImport:
       additionalProperties: false
       properties:
@@ -112,6 +171,46 @@ components:
         - groupMembers
         - startedAt
       type: object
+    CallEvent:
+      additionalProperties: false
+      properties:
+        event:
+          enum:
+            - call.incoming
+          examples:
+            - call.incoming
+          type: string
+        payload:
+          $ref: "#/components/schemas/CallPayload"
+      required:
+        - event
+        - payload
+      type: object
+    CallPayload:
+      additionalProperties: false
+      properties:
+        callId:
+          description: WhatsApp's call id.
+          type: string
+        from:
+          description: JID of the caller.
+          type: string
+        groupJid:
+          description: JID of the group, for a group call.
+          type: string
+        isGroup:
+          description: True for a group call.
+          type: boolean
+        timestamp:
+          description: When the call came in, epoch milliseconds.
+          format: int64
+          type: integer
+      required:
+        - callId
+        - from
+        - timestamp
+        - isGroup
+      type: object
     Chat:
       additionalProperties: false
       properties:
@@ -155,6 +254,42 @@ components:
         state:
           type: string
       type: object
+    ChatUpdateEvent:
+      additionalProperties: false
+      properties:
+        event:
+          enum:
+            - chat.update
+          examples:
+            - chat.update
+          type: string
+        payload:
+          $ref: "#/components/schemas/ChatUpdatePayload"
+      required:
+        - event
+        - payload
+      type: object
+    ChatUpdatePayload:
+      additionalProperties: false
+      properties:
+        change:
+          description: What changed; currently picture.
+          examples:
+            - picture
+          type: string
+        chatJid:
+          description: JID of the chat that changed.
+          type: string
+        pictureId:
+          description: Id of the new profile picture, when set.
+          type: string
+        removed:
+          description: True if the picture was removed rather than changed.
+          type: boolean
+      required:
+        - chatJid
+        - change
+      type: object
     Contact:
       additionalProperties: false
       properties:
@@ -188,6 +323,16 @@ components:
         phone:
           type: string
         vcard:
+          type: string
+      type: object
+    ContactData:
+      additionalProperties: false
+      properties:
+        displayName:
+          description: The contact's display name.
+          type: string
+        vcard:
+          description: The raw vCard for the shared contact.
           type: string
       type: object
     ContactDetail:
@@ -225,6 +370,39 @@ components:
         - jid
         - role
         - lastSeen
+      type: object
+    ContactUpdateEvent:
+      additionalProperties: false
+      properties:
+        event:
+          enum:
+            - contact.update
+          examples:
+            - contact.update
+          type: string
+        payload:
+          $ref: "#/components/schemas/ContactUpdatePayload"
+      required:
+        - event
+        - payload
+      type: object
+    ContactUpdatePayload:
+      additionalProperties: false
+      properties:
+        firstName:
+          description: The first name from the address book, when known.
+          type: string
+        fullName:
+          description: The full name from the address book, when known.
+          type: string
+        jid:
+          description: JID of the contact that changed.
+          type: string
+        pushName:
+          description: The contact's current WhatsApp display (push) name.
+          type: string
+      required:
+        - jid
       type: object
     CreateChannelInputBody:
       additionalProperties: false
@@ -339,6 +517,22 @@ components:
         - firstSeenAt
         - updatedAt
       type: object
+    GroupEvent:
+      additionalProperties: false
+      properties:
+        event:
+          enum:
+            - group.update
+            - group.participant
+          examples:
+            - group.update
+          type: string
+        payload:
+          $ref: "#/components/schemas/GroupPayload"
+      required:
+        - event
+        - payload
+      type: object
     GroupInfo:
       additionalProperties: false
       properties:
@@ -391,6 +585,70 @@ components:
         - role
         - firstSeenAt
         - lastSeenAt
+      type: object
+    GroupPayload:
+      additionalProperties: false
+      properties:
+        demote:
+          description: JIDs demoted from admin.
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        description:
+          description: New group description, when it changed.
+          type: string
+        groupJid:
+          description: JID of the group.
+          examples:
+            - 123456789-987654321@g.us
+          type: string
+        isAnnounce:
+          description: "Announce mode: when true only admins can send messages."
+          type: boolean
+        isLocked:
+          description: "Locked mode: when true only admins can edit group info."
+          type: boolean
+        join:
+          description: JIDs that joined the group.
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        leave:
+          description: JIDs that left or were removed.
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        newInviteLink:
+          description: New invite link, when it was reset.
+          type: string
+        promote:
+          description: JIDs promoted to admin.
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        reason:
+          description: Reason/context for the change, when WhatsApp provides one.
+          type: string
+        sender:
+          description: JID of the member who made the change.
+          type: string
+        subject:
+          description: New group subject (name), when it changed.
+          type: string
+        timestamp:
+          description: When the change happened, epoch milliseconds.
+          format: int64
+          type: integer
+      required:
+        - groupJid
       type: object
     Identity:
       additionalProperties: false
@@ -541,6 +799,31 @@ components:
       required:
         - data
       type: object
+    LocationData:
+      additionalProperties: false
+      properties:
+        address:
+          description: Optional street address.
+          type: string
+        latitude:
+          description: Latitude in decimal degrees.
+          examples:
+            - -6.2
+          format: double
+          type: number
+        longitude:
+          description: Longitude in decimal degrees.
+          examples:
+            - 106.8
+          format: double
+          type: number
+        name:
+          description: Optional place name.
+          type: string
+      required:
+        - latitude
+        - longitude
+      type: object
     Me:
       additionalProperties: false
       properties:
@@ -565,10 +848,15 @@ components:
       additionalProperties: false
       properties:
         filename:
+          description: Original filename, for document messages.
           type: string
         mimetype:
+          description: Media MIME type, e.g. image/jpeg.
+          examples:
+            - image/jpeg
           type: string
         size:
+          description: Media size in bytes.
           format: int64
           type: integer
       type: object
@@ -639,11 +927,205 @@ components:
         - timestamp
         - createdAt
       type: object
+    MessageEvent:
+      additionalProperties: false
+      properties:
+        event:
+          description: The event type.
+          enum:
+            - message
+            - message.from_me
+            - message.reaction
+            - message.edited
+            - message.revoked
+            - poll.vote
+          examples:
+            - message
+          type: string
+        payload:
+          $ref: "#/components/schemas/MessagePayload"
+      required:
+        - event
+        - payload
+      type: object
+    MessagePayload:
+      additionalProperties: false
+      properties:
+        body:
+          description: Text body, for text and caption-bearing messages.
+          examples:
+            - Hello!
+          type: string
+        chatJid:
+          description: JID of the chat the message belongs to (a user, group, or broadcast list).
+          examples:
+            - 6281234567890@s.whatsapp.net
+          type: string
+        contact:
+          $ref: "#/components/schemas/ContactData"
+          description: Set when type is contact.
+        fromMe:
+          description: True if this account authored the message (the message.from_me event).
+          type: boolean
+        hasMedia:
+          description: True if the message carried media. The media itself is metadata-only in v1 (no download).
+          type: boolean
+        location:
+          $ref: "#/components/schemas/LocationData"
+          description: Set when type is location.
+        media:
+          $ref: "#/components/schemas/MediaMeta"
+          description: Media descriptor. Always null in v1 (metadata-only); see hasMedia.
+        mentions:
+          description: JIDs mentioned in the message body.
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        poll:
+          $ref: "#/components/schemas/PollData"
+          description: Set when type is poll (poll creation).
+        pushName:
+          description: The sender's WhatsApp display (push) name at send time.
+          type: string
+        quotedMessageId:
+          description: If this message quotes/replies to another, that message's id.
+          type: string
+        reaction:
+          description: "For message.reaction: the emoji reacted with; empty string means the reaction was removed."
+          type: string
+        selectedHashes:
+          description: "For poll.vote: the encrypted option hashes the voter selected."
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        senderJid:
+          description: JID of the sender (set for group messages; for DMs it equals the chat).
+          type: string
+        senderLid:
+          description: The sender's linked-device id, when available.
+          type: string
+        targetId:
+          description: "For reaction/edit/revoke: the id of the message being reacted to, edited, or revoked."
+          type: string
+        timestamp:
+          description: When WhatsApp timestamped the message, in epoch milliseconds.
+          format: int64
+          type: integer
+        type:
+          description: "Content type of the message: text, location, contact, poll, reaction, edit, revoke, media, and others."
+          examples:
+            - text
+          type: string
+        waMessageId:
+          description: WhatsApp's message id (stanza id), unique within the chat.
+          examples:
+            - 3EB0...
+          type: string
+      required:
+        - waMessageId
+        - chatJid
+        - fromMe
+        - type
+        - hasMedia
+        - media
+        - timestamp
+      type: object
+    MessageStatusEvent:
+      additionalProperties: false
+      properties:
+        event:
+          enum:
+            - message.status
+          examples:
+            - message.status
+          type: string
+        payload:
+          $ref: "#/components/schemas/MessageStatusPayload"
+      required:
+        - event
+        - payload
+      type: object
+    MessageStatusPayload:
+      additionalProperties: false
+      properties:
+        chatJid:
+          description: JID of the chat the receipt is for.
+          type: string
+        messageIds:
+          description: The message ids whose status advanced.
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        senderJid:
+          description: JID of the participant the receipt came from (group chats).
+          type: string
+        status:
+          description: "New delivery status, in progression order: sent (left this device) → delivered (reached the recipient device) → read (recipient opened it) → played (voice/video note played). May also be failed."
+          enum:
+            - pending
+            - sent
+            - delivered
+            - read
+            - played
+            - failed
+          examples:
+            - delivered
+          type: string
+        timestamp:
+          description: When the receipt was generated, epoch milliseconds.
+          format: int64
+          type: integer
+      required:
+        - chatJid
+        - messageIds
+        - status
+        - timestamp
+      type: object
     MuteChannelInputBody:
       additionalProperties: false
       properties:
         mute:
           type: boolean
+      type: object
+    NewsletterEvent:
+      additionalProperties: false
+      properties:
+        event:
+          enum:
+            - newsletter.update
+          examples:
+            - newsletter.update
+          type: string
+        payload:
+          $ref: "#/components/schemas/NewsletterPayload"
+      required:
+        - event
+        - payload
+      type: object
+    NewsletterPayload:
+      additionalProperties: false
+      properties:
+        action:
+          description: "What happened: join, leave, or mute."
+          enum:
+            - join
+            - leave
+            - mute
+          examples:
+            - join
+          type: string
+        jid:
+          description: JID of the newsletter/channel.
+          type: string
+      required:
+        - jid
+        - action
       type: object
     OnWhatsApp:
       additionalProperties: false
@@ -672,6 +1154,30 @@ components:
       required:
         - code
       type: object
+    PollData:
+      additionalProperties: false
+      properties:
+        name:
+          description: The poll question.
+          type: string
+        options:
+          description: The poll answer options, in order.
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        selectableCount:
+          description: How many options a voter may select (1 = single choice).
+          examples:
+            - 1
+          format: int64
+          type: integer
+      required:
+        - name
+        - options
+        - selectableCount
+      type: object
     PostStatusInputBody:
       additionalProperties: false
       properties:
@@ -687,6 +1193,57 @@ components:
           type: string
       required:
         - messageId
+      type: object
+    PresenceEvent:
+      additionalProperties: false
+      properties:
+        event:
+          enum:
+            - presence.update
+          examples:
+            - presence.update
+          type: string
+        payload:
+          $ref: "#/components/schemas/PresencePayload"
+      required:
+        - event
+        - payload
+      type: object
+    PresencePayload:
+      additionalProperties: false
+      properties:
+        chatJid:
+          description: Chat the presence applies to, for chat (typing) presence.
+          type: string
+        from:
+          description: JID whose presence changed.
+          type: string
+        lastSeen:
+          description: Last-seen time in epoch milliseconds, when the contact shares it.
+          format: int64
+          type: integer
+        media:
+          description: "For chat presence, the kind being composed: text or audio."
+          enum:
+            - text
+            - audio
+          type: string
+        state:
+          description: "Presence state: available (online), unavailable (offline), composing (typing), or paused (stopped typing)."
+          enum:
+            - available
+            - unavailable
+            - composing
+            - paused
+          examples:
+            - composing
+          type: string
+        unavailable:
+          description: True when the contact went offline.
+          type: boolean
+      required:
+        - from
+        - state
       type: object
     ProfilePicture:
       additionalProperties: false
@@ -799,6 +1356,39 @@ components:
           type: string
       required:
         - mode
+      type: object
+    SessionStatusEvent:
+      additionalProperties: false
+      properties:
+        event:
+          enum:
+            - session.status
+          examples:
+            - session.status
+          type: string
+        payload:
+          $ref: "#/components/schemas/SessionStatusPayload"
+      required:
+        - event
+        - payload
+      type: object
+    SessionStatusPayload:
+      additionalProperties: false
+      properties:
+        status:
+          description: "New session status. One of: starting (connecting), scan_qr_code (waiting for a QR scan or pairing code), working (connected and ready to send/receive), failed (connection failed; will retry), stopped (intentionally stopped), logged_out (the WhatsApp account unlinked the device — must re-pair)."
+          enum:
+            - starting
+            - scan_qr_code
+            - working
+            - failed
+            - stopped
+            - logged_out
+          examples:
+            - working
+          type: string
+      required:
+        - status
       type: object
     SetPresenceInputBody:
       additionalProperties: false
@@ -2834,3 +3424,50 @@ paths:
       summary: Update a webhook
       tags:
         - Webhooks
+webhooks:
+  event:
+    post:
+      description: The gateway POSTs this body to each configured webhook url when a matching event fires, and delivers the identical envelope over the realtime WebSocket as a discrete JSON message. The `event` field discriminates which payload shape applies. Webhook deliveries carry the event id in the `X-Webhook-Request-Id` header (and an HMAC signature in `X-Webhook-Signature` when a secret is configured) so receivers can verify and de-duplicate.
+      operationId: event
+      requestBody:
+        content:
+          application/json:
+            schema:
+              discriminator:
+                mapping:
+                  auth.code: "#/components/schemas/AuthCodeEvent"
+                  auth.qr: "#/components/schemas/AuthQREvent"
+                  call.incoming: "#/components/schemas/CallEvent"
+                  chat.update: "#/components/schemas/ChatUpdateEvent"
+                  contact.update: "#/components/schemas/ContactUpdateEvent"
+                  group.participant: "#/components/schemas/GroupEvent"
+                  group.update: "#/components/schemas/GroupEvent"
+                  message: "#/components/schemas/MessageEvent"
+                  message.edited: "#/components/schemas/MessageEvent"
+                  message.from_me: "#/components/schemas/MessageEvent"
+                  message.reaction: "#/components/schemas/MessageEvent"
+                  message.revoked: "#/components/schemas/MessageEvent"
+                  message.status: "#/components/schemas/MessageStatusEvent"
+                  newsletter.update: "#/components/schemas/NewsletterEvent"
+                  poll.vote: "#/components/schemas/MessageEvent"
+                  presence.update: "#/components/schemas/PresenceEvent"
+                  session.status: "#/components/schemas/SessionStatusEvent"
+                propertyName: event
+              oneOf:
+                - $ref: "#/components/schemas/MessageEvent"
+                - $ref: "#/components/schemas/MessageStatusEvent"
+                - $ref: "#/components/schemas/SessionStatusEvent"
+                - $ref: "#/components/schemas/AuthQREvent"
+                - $ref: "#/components/schemas/AuthCodeEvent"
+                - $ref: "#/components/schemas/PresenceEvent"
+                - $ref: "#/components/schemas/GroupEvent"
+                - $ref: "#/components/schemas/ChatUpdateEvent"
+                - $ref: "#/components/schemas/ContactUpdateEvent"
+                - $ref: "#/components/schemas/CallEvent"
+                - $ref: "#/components/schemas/NewsletterEvent"
+        description: The event envelope. Exactly one of the listed event shapes, selected by `event`.
+        required: true
+      responses:
+        "200":
+          description: Return any 2xx to acknowledge receipt. Non-2xx (or a timeout) makes the gateway retry with backoff.
+      summary: Gateway event

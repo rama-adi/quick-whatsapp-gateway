@@ -1,155 +1,35 @@
 package events
 
-import "github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+import (
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/apitypes"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+)
 
-// This file defines (a) the wire payload structs that ride inside a domain.Event
-// (camelCase JSON, §9/§11 conventions, NEVER containing a raw protobuf) and
-// (b) PersistResult, the structured handoff the inbound pipeline consumes after
-// normalization (§7 stages: capture / persist / fan-out).
+// The wire payload structs (the "payload" of a domain.Event) are defined ONCE in
+// internal/apitypes (the source of truth for the generated OpenAPI event catalog,
+// D11) and aliased here so the inbound pipeline keeps using the familiar
+// events.<Payload> names with no duplication. This file also defines PersistResult,
+// the structured handoff the inbound pipeline consumes after normalization (§7).
 
-// --- Wire payloads (the "payload" of domain.Event) ---
+// --- Wire payloads (aliases of the typed apitypes catalog) ---
 
-// SessionStatusPayload — event "session.status".
-type SessionStatusPayload struct {
-	Status string `json:"status"` // a domain.SessionStatus value (e.g. "working")
-}
-
-// AuthQRPayload — event "auth.qr". The QR string the UI renders.
-type AuthQRPayload struct {
-	Code string `json:"code"`
-}
-
-// AuthCodePayload — event "auth.code". Emitted on PairSuccess; the linked JID/LID.
-type AuthCodePayload struct {
-	JID          string `json:"jid,omitempty"`
-	LID          string `json:"lid,omitempty"`
-	BusinessName string `json:"businessName,omitempty"`
-	Platform     string `json:"platform,omitempty"`
-}
-
-// MessagePayload — events "message" / "message.from_me" / "message.reaction" /
-// "message.edited" / "message.revoked" / "poll.vote". A single flat shape
-// discriminated by the surrounding Event.Type, mirroring the messages table.
-// Media is always null in v1 (HasMedia + Media metadata only).
-type MessagePayload struct {
-	WAMessageID     string     `json:"waMessageId"`
-	ChatJID         string     `json:"chatJid"`
-	SenderJID       string     `json:"senderJid,omitempty"`
-	SenderLID       string     `json:"senderLid,omitempty"`
-	FromMe          bool       `json:"fromMe"`
-	Type            string     `json:"type"` // text,location,contact,poll,reaction,edit,revoke,media,...
-	Body            string     `json:"body,omitempty"`
-	QuotedMessageID string     `json:"quotedMessageId,omitempty"`
-	Mentions        []string   `json:"mentions,omitempty"`
-	HasMedia        bool       `json:"hasMedia"`
-	Media           *MediaMeta `json:"media"` // ALWAYS null in v1 (metadata-only): see HasMedia + MediaInfo on PersistResult
-	Timestamp       int64      `json:"timestamp"`
-	PushName        string     `json:"pushName,omitempty"`
-	// Reaction / edit / revoke / poll specifics (set only for the relevant Type):
-	Reaction       string        `json:"reaction,omitempty"`       // emoji for message.reaction ("" = removed)
-	TargetID       string        `json:"targetId,omitempty"`       // edited/revoked/reacted target message id
-	Location       *LocationData `json:"location,omitempty"`       // for type "location"
-	Contact        *ContactData  `json:"contact,omitempty"`        // for type "contact"
-	Poll           *PollData     `json:"poll,omitempty"`           // for type "poll"
-	SelectedHashes []string      `json:"selectedHashes,omitempty"` // for poll.vote (encrypted option hashes)
-}
-
-// MediaMeta is the on-wire media descriptor. Per §9 the "media" field is always
-// null in v1, so this is never actually serialized into MessagePayload.Media; the
-// parsed values travel on PersistResult.MediaInfo for the persistence layer.
-type MediaMeta struct {
-	Mimetype string `json:"mimetype,omitempty"`
-	Size     int64  `json:"size,omitempty"`
-	Filename string `json:"filename,omitempty"`
-}
-
-// LocationData is the wire shape for a location message.
-type LocationData struct {
-	Latitude  float64 `json:"latitude"`
-	Longitude float64 `json:"longitude"`
-	Name      string  `json:"name,omitempty"`
-	Address   string  `json:"address,omitempty"`
-}
-
-// ContactData is the wire shape for a shared contact card (vCard kept verbatim).
-type ContactData struct {
-	DisplayName string `json:"displayName,omitempty"`
-	VCard       string `json:"vcard,omitempty"`
-}
-
-// PollData is the wire shape for a poll-creation message.
-type PollData struct {
-	Name            string   `json:"name"`
-	Options         []string `json:"options"`
-	SelectableCount int      `json:"selectableCount"`
-}
-
-// MessageStatusPayload — event "message.status" (from receipts).
-type MessageStatusPayload struct {
-	ChatJID    string   `json:"chatJid"`
-	SenderJID  string   `json:"senderJid,omitempty"`
-	MessageIDs []string `json:"messageIds"`
-	Status     string   `json:"status"` // a domain.MessageStatus value
-	Timestamp  int64    `json:"timestamp"`
-}
-
-// PresencePayload — event "presence.update" (Presence + ChatPresence).
-type PresencePayload struct {
-	ChatJID     string `json:"chatJid,omitempty"`
-	From        string `json:"from"`
-	State       string `json:"state"`           // available|unavailable|composing|paused
-	Media       string `json:"media,omitempty"` // ChatPresence media kind (text|audio)
-	Unavailable bool   `json:"unavailable,omitempty"`
-	LastSeen    int64  `json:"lastSeen,omitempty"`
-}
-
-// GroupPayload — events "group.update" / "group.participant".
-type GroupPayload struct {
-	GroupJID      string   `json:"groupJid"`
-	Subject       string   `json:"subject,omitempty"`
-	Description   string   `json:"description,omitempty"`
-	Sender        string   `json:"sender,omitempty"`
-	IsAnnounce    *bool    `json:"isAnnounce,omitempty"`
-	IsLocked      *bool    `json:"isLocked,omitempty"`
-	NewInviteLink string   `json:"newInviteLink,omitempty"`
-	Reason        string   `json:"reason,omitempty"`
-	Join          []string `json:"join,omitempty"`
-	Leave         []string `json:"leave,omitempty"`
-	Promote       []string `json:"promote,omitempty"`
-	Demote        []string `json:"demote,omitempty"`
-	Timestamp     int64    `json:"timestamp,omitempty"`
-}
-
-// ChatUpdatePayload — event "chat.update" (currently profile-picture changes).
-type ChatUpdatePayload struct {
-	ChatJID   string `json:"chatJid"`
-	Change    string `json:"change"` // e.g. "picture"
-	PictureID string `json:"pictureId,omitempty"`
-	Removed   bool   `json:"removed,omitempty"`
-}
-
-// ContactUpdatePayload — event "contact.update" (PushName / Contact actions).
-type ContactUpdatePayload struct {
-	JID       string `json:"jid"`
-	PushName  string `json:"pushName,omitempty"`
-	FullName  string `json:"fullName,omitempty"`
-	FirstName string `json:"firstName,omitempty"`
-}
-
-// CallPayload — event "call.incoming".
-type CallPayload struct {
-	CallID    string `json:"callId"`
-	From      string `json:"from"`
-	Timestamp int64  `json:"timestamp"`
-	IsGroup   bool   `json:"isGroup"`
-	GroupJID  string `json:"groupJid,omitempty"`
-}
-
-// NewsletterPayload — event "newsletter.update".
-type NewsletterPayload struct {
-	JID    string `json:"jid"`
-	Action string `json:"action"` // join|leave|mute
-}
+type (
+	SessionStatusPayload = apitypes.SessionStatusPayload
+	AuthQRPayload        = apitypes.AuthQRPayload
+	AuthCodePayload      = apitypes.AuthCodePayload
+	MessagePayload       = apitypes.MessagePayload
+	MediaMeta            = domain.MediaMeta
+	LocationData         = apitypes.LocationData
+	ContactData          = apitypes.ContactData
+	PollData             = apitypes.PollData
+	MessageStatusPayload = apitypes.MessageStatusPayload
+	PresencePayload      = apitypes.PresencePayload
+	GroupPayload         = apitypes.GroupPayload
+	ChatUpdatePayload    = apitypes.ChatUpdatePayload
+	ContactUpdatePayload = apitypes.ContactUpdatePayload
+	CallPayload          = apitypes.CallPayload
+	NewsletterPayload    = apitypes.NewsletterPayload
+)
 
 // --- PersistResult: the inbound-pipeline handoff ---
 

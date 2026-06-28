@@ -192,19 +192,19 @@ type Chat struct {
 // MediaMeta is the typed shape of messages.media_meta JSON. Media is never
 // downloaded in v1 — this is metadata only.
 type MediaMeta struct {
-	Mimetype string `json:"mimetype,omitempty"`
-	Size     int64  `json:"size,omitempty"`
-	Filename string `json:"filename,omitempty"`
+	Mimetype string `json:"mimetype,omitempty" doc:"Media MIME type, e.g. image/jpeg." example:"image/jpeg"`
+	Size     int64  `json:"size,omitempty" doc:"Media size in bytes."`
+	Filename string `json:"filename,omitempty" doc:"Original filename, for document messages."`
 }
 
 // Message mirrors the messages table.
 type Message struct {
-	ID              string           `json:"id"`
-	SessionID       string           `json:"sessionId"`
-	WAMessageID     string           `json:"waMessageId"`
-	ChatJID         string           `json:"chatJid"`
-	SenderLID       *string          `json:"senderLid,omitempty"`
-	SenderJID       *string          `json:"senderJid,omitempty"`
+	ID          string  `json:"id"`
+	SessionID   string  `json:"sessionId"`
+	WAMessageID string  `json:"waMessageId"`
+	ChatJID     string  `json:"chatJid"`
+	SenderLID   *string `json:"senderLid,omitempty"`
+	SenderJID   *string `json:"senderJid,omitempty"`
 	// SenderName is the resolved display name of the sender (from
 	// whatsapp_identities, keyed by sender LID). Read-only: populated by the
 	// message read queries via a join, never a stored column. Mainly useful for
@@ -221,17 +221,17 @@ type Message struct {
 	// -> name. Read-only: populated by the message read queries from
 	// whatsapp_identities, never stored. Only mentions resolvable to a known
 	// identity appear; lets a client render "@<name>" instead of the raw number.
-	MentionNames    map[string]string `json:"mentionNames,omitempty"`
-	HasMedia        bool             `json:"hasMedia"`
-	MediaMeta       *MediaMeta       `json:"media,omitempty"` // null in v1 (metadata-only)
-	Status          *MessageStatus   `json:"status,omitempty"`
-	AckLevel        *int             `json:"ackLevel,omitempty"`
-	Error           *string          `json:"error,omitempty"`
-	Edited          bool             `json:"edited"`
-	Deleted         bool             `json:"deleted"`
-	Timestamp       int64            `json:"timestamp"`
-	RawJSON         json.RawMessage  `json:"-"` // normalized event payload; not re-exposed
-	CreatedAt       int64            `json:"createdAt"`
+	MentionNames map[string]string `json:"mentionNames,omitempty"`
+	HasMedia     bool              `json:"hasMedia"`
+	MediaMeta    *MediaMeta        `json:"media,omitempty"` // null in v1 (metadata-only)
+	Status       *MessageStatus    `json:"status,omitempty"`
+	AckLevel     *int              `json:"ackLevel,omitempty"`
+	Error        *string           `json:"error,omitempty"`
+	Edited       bool              `json:"edited"`
+	Deleted      bool              `json:"deleted"`
+	Timestamp    int64             `json:"timestamp"`
+	RawJSON      json.RawMessage   `json:"-"` // normalized event payload; not re-exposed
+	CreatedAt    int64             `json:"createdAt"`
 }
 
 // BackfillSnapshot is the supported data pulled from a live WhatsApp session by
@@ -267,9 +267,9 @@ type BackfillGroup struct {
 type BackfillMember struct {
 	// LID is the canonical (non-AD) LID of the participant — both the group-member
 	// row key and the identity row this member contributes.
-	LID         string    `json:"lid"`
-	JID         string    `json:"jid,omitempty"`
-	PhoneNumber string    `json:"phoneNumber,omitempty"`
+	LID         string `json:"lid"`
+	JID         string `json:"jid,omitempty"`
+	PhoneNumber string `json:"phoneNumber,omitempty"`
 	// Tag is the per-group member tag WhatsApp shows beside the name (often the
 	// obfuscated phone for anonymous members). Stored on the pivot as-is — it is a
 	// per-group identity, distinct from the global push name.
