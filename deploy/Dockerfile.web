@@ -23,5 +23,9 @@ FROM node:22-alpine
 WORKDIR /web
 ENV NODE_ENV=production
 COPY --from=build /web/.output ./.output
+# fumadocs-openapi resolves its input ("../docs/openapi.yaml" in app/lib/openapi.ts)
+# from the server's cwd (/web) at request time, so the API reference pages need the
+# contract on disk at /docs/openapi.yaml. The .output bundle does not embed it.
+COPY docs/openapi.yaml /docs/openapi.yaml
 EXPOSE 3000
 CMD ["node", ".output/server/index.mjs"]
