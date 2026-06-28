@@ -140,11 +140,14 @@ export const fetchContactDetail = createServerFn({ method: "GET" })
 
     const idRows = await db
       .select({
+        id: whatsappIdentities.id,
         lid: whatsappIdentities.lid,
         phoneNumber: whatsappIdentities.phoneNumber,
         name: whatsappIdentities.name,
         businessName: whatsappIdentities.businessName,
         phoneJid: whatsappIdentities.phoneJid,
+        firstSeenAt: whatsappIdentities.firstSeenAt,
+        updatedAt: whatsappIdentities.updatedAt,
       })
       .from(whatsappIdentities)
       .where(eq(whatsappIdentities.lid, lid))
@@ -184,14 +187,16 @@ export const fetchContactDetail = createServerFn({ method: "GET" })
       );
 
     return {
-      identity: rowToContact({
+      identity: {
+        id: idRow.id,
         lid: idRow.lid,
-        phoneNumber: idRow.phoneNumber,
-        name: idRow.name,
-        businessName: idRow.businessName,
-        inDm: dm,
-        inGroup: groupRows.length > 0,
-      }),
+        phoneNumber: idRow.phoneNumber ?? undefined,
+        phoneJid: idRow.phoneJid ?? undefined,
+        name: idRow.name ?? undefined,
+        businessName: idRow.businessName ?? undefined,
+        firstSeenAt: idRow.firstSeenAt,
+        updatedAt: idRow.updatedAt,
+      },
       dm,
       groups: groupRows.map((g) => ({
         jid: g.jid,

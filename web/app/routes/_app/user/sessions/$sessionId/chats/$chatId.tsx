@@ -66,9 +66,20 @@ export const Route = createFileRoute(
             const chat = await fetchChat({
               data: { sessionId, chatJid: chatId },
             });
-            // ensureQueryData must resolve a value; an empty stub lets the client
+            // ensureQueryData must resolve a value; a minimal stub lets the client
             // hook refetch + the header render the jid until the gateway answers.
-            return chat ?? { jid: chatId };
+            // The non-jid fields are placeholders, overwritten by the real fetch.
+            return (
+              chat ?? {
+                id: 0,
+                sessionId,
+                jid: chatId,
+                type: "dm",
+                unreadCount: 0,
+                archived: false,
+                pinned: false,
+              }
+            );
           },
         }),
         context.queryClient.ensureInfiniteQueryData({
@@ -76,7 +87,8 @@ export const Route = createFileRoute(
           initialPageParam: undefined as string | undefined,
           queryFn: () =>
             fetchMessagesPage({ data: { sessionId, chatJid: chatId } }),
-          getNextPageParam: (last: Page<Message>) => last.nextCursor ?? undefined,
+          getNextPageParam: (last: unknown) =>
+            (last as Page<Message>).nextCursor ?? undefined,
         }),
       ]);
     } catch (err) {

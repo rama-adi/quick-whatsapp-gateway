@@ -20,7 +20,7 @@ rulebook: where things live, what to update alongside a change, and the gates th
 |---|---|
 | `masterplan-mvp.md` | The v2 design spec — the overview every other doc drills into. |
 | `docs/specs/*.md` | One living spec per subsystem (detail). Start at `_V2-STATUS.md` (index of all specs + their state). |
-| `docs/openapi.yaml` | The **public API contract of record, served by the router** at `/api/v1/openapi.yaml`. Co-authored: the gateway implements the resource schemas, the router adds the front door (auth framing, session routing). Stays at repo root (shared system contract). |
+| `docs/openapi.yaml` | The **public API contract of record, served by the router** at `/api/v1/openapi.yaml`. **GENERATED, not hand-written** (code-first via huma, D11): the Go input/output structs (`internal/apitypes` + the per-resource `*_ops.go` registrars) are the source of truth; `make openapi` regenerates this file. Stays at repo root (shared system contract). |
 | `docs/mvp-progress.md` | Milestone tracker (R0–R6) and the log of locked decisions. |
 | `web/content/docs/*` | The fumadocs site: hand-written user/dev guides (`guides/`) + generated API reference (`api/`). |
 | `web/` | Frontend — TanStack Start, better-auth, Drizzle, ported shadcn. |
@@ -64,7 +64,7 @@ Follow-on steps depend on what you touched. Run them in the same change as the b
 
 | You changed… | Then also run / write |
 |---|---|
-| The public REST API (paths, request/response shapes — resource schemas on the gateway, front door on the router) | Edit `docs/openapi.yaml` (the public contract of record, served by the router at `/api/v1/openapi.yaml`), then `cd web && pnpm gen:api` (regen typed client `app/lib/api/schema.d.ts`) **and** `pnpm docs:openapi` (regen the fumadocs API reference pages under `content/docs/api/`). |
+| The public REST API (paths, request/response shapes) | Edit the **Go types**, not the yaml: the per-resource huma ops in `internal/http/handlers/*_ops.go` (operations + request/response structs with `doc:`/`enum:`/`example:` tags) and shared DTOs/events in `internal/apitypes`. Then `make openapi` (regenerates `docs/openapi.yaml` from the Go types — the contract of record the router serves), then `cd web && pnpm gen:api` (regen typed client `app/lib/api/schema.d.ts`) **and** `pnpm docs:openapi` (regen the fumadocs API reference pages). `make gen` runs all three. CI guards drift with `make openapi-check`. Webhook/realtime **event** shapes live in `internal/apitypes/events.go` (the generated OpenAPI `webhooks` section). |
 | better-auth config (`web/app/lib/auth/server.ts`) | `cd web && pnpm auth:generate` (regen `app/lib/db/auth-schema.ts`), then `pnpm db:migrate` (drizzle-kit) to apply the auth tables. |
 | The gateway MySQL schema | Author a new `migrations/NNNN_*.{up,down}.sql` (golang-migrate), then `cd web && pnpm db:introspect` to refresh the read-only WA Drizzle models (`app/lib/db/wa.ts`). |
 

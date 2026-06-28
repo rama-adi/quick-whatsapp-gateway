@@ -16,7 +16,7 @@ function evt(event: string, payload: Record<string, unknown>, id = "evt_x"): Eve
     organization: "org_1",
     timestamp: 1000,
     payload,
-  };
+  } as EventEnvelope;
 }
 
 function infinite<T>(items: T[]): InfiniteData<Page<T>, string | undefined> {
@@ -61,7 +61,16 @@ describe("applyEvent", () => {
   it("message prepends to page 0 and bumps the chat", () => {
     const chatJid = "123@s.whatsapp.net";
     qc.setQueryData(qk.chatMessages(SESSION, chatJid), infinite<Message>([]));
-    const chat: Chat = { jid: chatJid, type: "dm", name: "x", unreadCount: 0 };
+    const chat: Chat = {
+      id: 1,
+      sessionId: SESSION,
+      jid: chatJid,
+      type: "dm",
+      name: "x",
+      unreadCount: 0,
+      archived: false,
+      pinned: false,
+    };
     qc.setQueryData(qk.chat(SESSION, chatJid), chat);
     qc.setQueryData(qk.chats(SESSION), infinite([chat]));
 
@@ -109,12 +118,19 @@ describe("applyEvent", () => {
     const chatJid = "123@s.whatsapp.net";
     const m: Message = {
       id: "m1",
+      sessionId: SESSION,
       chatJid,
       direction: "out",
+      fromMe: true,
       type: "text",
       body: "hi",
       status: "pending",
       timestamp: 1,
+      createdAt: 1,
+      deleted: false,
+      edited: false,
+      hasMedia: false,
+      waMessageId: "m1",
     };
     qc.setQueryData(qk.chatMessages(SESSION, chatJid), infinite([m]));
 

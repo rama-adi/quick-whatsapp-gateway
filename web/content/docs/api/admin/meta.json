@@ -1,8 +1,9 @@
 {
   "title": "Admin",
+  "description": "Cross-organization oversight for platform super-admins: list all sessions and trigger/inspect history backfills.",
   "pages": [
     "adminListSessions",
-    "adminStartSessionBackfill",
-    "adminSessionBackfillStatus"
+    "adminSessionBackfillStatus",
+    "adminStartSessionBackfill"
   ]
 }

@@ -1,12 +1,13 @@
 {
   "title": "Contacts",
+  "description": "Look up and manage contacts: list/check/get contacts, profile picture and about (read); block/unblock (send).",
   "pages": [
     "listContacts",
     "checkContact",
-    "getContact",
-    "contactPicture",
-    "contactAbout",
+    "getContactAbout",
     "blockContact",
-    "unblockContact"
+    "getContactPicture",
+    "unblockContact",
+    "getContact"
   ]
 }

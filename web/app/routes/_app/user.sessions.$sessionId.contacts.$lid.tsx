@@ -15,7 +15,7 @@ import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useContact } from "~/lib/api/hooks/contacts";
 import { qk } from "~/lib/query";
-import type { Contact, ContactDetail } from "~/lib/api/types";
+import type { ContactDetail } from "~/lib/api/types";
 import { isApiError } from "~/lib/api/envelope";
 import {
   useBlockContact,
@@ -44,6 +44,7 @@ import { toast } from "sonner";
 import { fetchContactDetail } from "./-contacts-data";
 
 type GroupRow = NonNullable<ContactDetail["groups"]>[number];
+type Identity = NonNullable<ContactDetail["identity"]>;
 
 interface ContactsSearch {
   q?: string;
@@ -51,7 +52,7 @@ interface ContactsSearch {
   group?: string;
 }
 
-function displayName(c: Contact | undefined): string {
+function displayName(c: Identity | undefined): string {
   if (!c) return "Unknown";
   return c.name || c.businessName || c.phoneNumber || c.lid || "Unknown";
 }
@@ -78,7 +79,7 @@ export const Route = createFileRoute(
       queryKey: qk.contact(sessionId, lid),
       queryFn: async (): Promise<ContactDetail> => {
         const detail = await fetchContactDetail({ data: { sessionId, lid } });
-        return detail ?? { identity: { lid }, dm: false, groups: [] };
+        return detail ?? { dm: false, groups: [] };
       },
     });
   },
@@ -198,7 +199,7 @@ function IdentityCard({
 }: {
   sessionId: string;
   jid: string;
-  identity: Contact | undefined;
+  identity: Identity | undefined;
   dm: boolean;
   search: ContactsSearch;
 }) {
@@ -257,11 +258,6 @@ function IdentityCard({
           )}
           <div className="flex flex-wrap gap-1.5 pt-1">
             {dm && <Badge variant="secondary">Has DM</Badge>}
-            {identity?.source && (
-              <Badge variant="outline" className="capitalize">
-                Found in {identity.source}
-              </Badge>
-            )}
           </div>
         </div>
       </CardHeader>

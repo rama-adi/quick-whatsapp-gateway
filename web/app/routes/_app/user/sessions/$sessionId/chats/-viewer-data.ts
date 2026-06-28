@@ -20,6 +20,13 @@ import type { Page } from "~/lib/api/envelope";
 
 const PAGE_LIMIT = 50;
 
+// The generated Message schema types `mentions` as `unknown` (the gateway emits a
+// free-form JSON array). TanStack's server-fn serializer rejects `unknown`, so we
+// narrow it to the concrete wire shape (a JID string array) here. `string[]` is
+// assignable to `unknown`, so a SerializableMessage is still a valid Message for
+// the cache consumers.
+type SerializableMessage = Omit<Message, "mentions"> & { mentions?: string[] };
+
 /** Throws (redirect handled upstream) unless the session is in the active org. */
 async function assertSessionInActiveOrg(
   sessionId: string,
@@ -70,6 +77,7 @@ export const fetchChatsPage = createServerFn({ method: "GET" })
     const rows = await db
       .select({
         id: chats.id,
+        sessionId: chats.sessionId,
         chatJid: chats.chatJid,
         type: chats.type,
         // Groups display their subject (whatsapp_groups); non-groups fall back to
@@ -115,6 +123,7 @@ export const fetchChat = createServerFn({ method: "GET" })
     const rows = await db
       .select({
         id: chats.id,
+        sessionId: chats.sessionId,
         chatJid: chats.chatJid,
         type: chats.type,
         name: sql<string | null>`COALESCE(${whatsappGroups.subject}, ${chats.name})`,
@@ -142,7 +151,7 @@ export const fetchMessagesPage = createServerFn({ method: "GET" })
   .validator(
     (input: { sessionId: string; chatJid: string; cursor?: string }) => input,
   )
-  .handler(async ({ data, context }): Promise<Page<Message>> => {
+  .handler(async ({ data, context }): Promise<Page<SerializableMessage>> => {
     const { sessionId, chatJid, cursor } = data;
     const ok = await assertSessionInActiveOrg(
       sessionId,
@@ -165,6 +174,7 @@ export const fetchMessagesPage = createServerFn({ method: "GET" })
     const rows = await db
       .select({
         id: messages.id,
+        sessionId: messages.sessionId,
         waMessageId: messages.waMessageId,
         chatJid: messages.chatJid,
         senderJid: messages.senderJid,
@@ -177,7 +187,12 @@ export const fetchMessagesPage = createServerFn({ method: "GET" })
         body: messages.body,
         mentions: messages.mentions,
         status: messages.status,
+        fromMe: messages.fromMe,
+        hasMedia: messages.hasMedia,
+        edited: messages.edited,
+        deleted: messages.deleted,
         timestamp: messages.timestamp,
+        createdAt: messages.createdAt,
       })
       .from(messages)
       .leftJoin(
@@ -261,6 +276,8 @@ function parseMentions(raw: unknown): string[] {
 // ===== row -> DTO mappers (mirror the gateway's REST response shapes) =====
 
 type ChatRow = {
+  id: number;
+  sessionId: string;
   chatJid: string;
   type: Chat["type"];
   name: string | null;
@@ -273,6 +290,8 @@ type ChatRow = {
 
 function rowToChat(r: ChatRow): Chat {
   return {
+    id: r.id,
+    sessionId: r.sessionId,
     jid: r.chatJid,
     type: r.type,
     name: r.name ?? undefined,
@@ -285,6 +304,7 @@ function rowToChat(r: ChatRow): Chat {
 }
 
 type MessageRow = {
+  sessionId: string;
   waMessageId: string;
   chatJid: string;
   senderJid: string | null;
@@ -295,13 +315,18 @@ type MessageRow = {
   body: string | null;
   mentions: unknown;
   status: Message["status"] | null;
+  fromMe: number;
+  hasMedia: number;
+  edited: number;
+  deleted: number;
   timestamp: number;
+  createdAt: number;
 };
 
 function rowToMessage(
   r: MessageRow,
   nameByUserPart: Record<string, string>,
-): Message {
+): SerializableMessage {
   const mentions = parseMentions(r.mentions);
   let mentionNames: Record<string, string> | undefined;
   if (mentions.length > 0) {
@@ -314,6 +339,8 @@ function rowToMessage(
   }
   return {
     id: r.waMessageId,
+    sessionId: r.sessionId,
+    waMessageId: r.waMessageId,
     chatJid: r.chatJid,
     senderJid: r.senderJid ?? undefined,
     senderLid: r.senderLid ?? undefined,
@@ -323,7 +350,12 @@ function rowToMessage(
     body: r.body ?? undefined,
     mentions: mentions.length > 0 ? mentions : undefined,
     mentionNames,
+    fromMe: Boolean(r.fromMe),
+    hasMedia: Boolean(r.hasMedia),
+    edited: Boolean(r.edited),
+    deleted: Boolean(r.deleted),
     timestamp: r.timestamp,
+    createdAt: r.createdAt,
     status: r.status ?? undefined,
   };
 }

@@ -63,14 +63,22 @@ export function useSendMessage(
       const key = qk.chatMessages(s, chatJid);
       await qc.cancelQueries({ queryKey: key });
       const tmpId = `tmp_${crypto.randomUUID()}`;
+      const now = Date.now();
       const optimistic: Message = {
         id: tmpId,
+        sessionId: s,
         chatJid,
         direction: "out",
+        fromMe: true,
         type: body.type,
         body: body.text ?? "",
         status: "pending",
-        timestamp: Date.now(),
+        timestamp: now,
+        createdAt: now,
+        deleted: false,
+        edited: false,
+        hasMedia: false,
+        waMessageId: "",
       };
       qc.setQueryData<Infinite>(key, (data) => {
         if (!data || data.pages.length === 0) {
@@ -105,7 +113,7 @@ export function useSendMessage(
     onSuccess: (result, _body, ctx) => {
       if (!ctx) return;
       const key = qk.chatMessages(s, ctx.chatJid);
-      const realId = result.messageId;
+      const realId = result.waMessageId;
       qc.setQueryData<Infinite>(key, (data) => {
         if (!data) return data;
         // If the stream echo (message.from_me) already inserted the real
@@ -125,7 +133,7 @@ export function useSendMessage(
                     ? {
                         ...m,
                         id: realId ?? m.id,
-                        status: result.status ?? m.status,
+                        status: (result.status as Message["status"]) ?? m.status,
                         timestamp: result.timestamp ?? m.timestamp,
                       }
                     : m,

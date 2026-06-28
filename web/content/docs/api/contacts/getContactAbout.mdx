@@ -1,20 +1,17 @@
 ---
-title: Unblock a contact
+title: Get a contact's about text
 description: >-
-  Tells WhatsApp to unblock this contact so they can message the session again.
+  Fetches the contact's "about" text — the short status line shown on their
+  profile — from WhatsApp.
 
 
-  This is a **live action** against WhatsApp — the session must be
+  This is a **live lookup** against WhatsApp — the session must be
   **connected**. If the session is not connected the gateway responds `501`
-  (`not_implemented`).
+  (`not_implemented`). The `about` field may be an empty string when the contact
+  has none or has restricted it by privacy settings.
 
 
-  The operation is **idempotent**: unblocking a contact who is not blocked
-  succeeds with the same `204` and no additional effect. On success the response
-  body is empty.
-
-
-  **Auth:** requires the `send` capability.
+  **Auth:** requires the `read` capability.
 
 
   **Errors:** `404` (`not_found`) if the session does not exist or is not owned
@@ -24,28 +21,24 @@ full: true
 _openapi:
   preload:
     - ../docs/openapi.yaml
-  method: POST
+  method: GET
   webhook: false
   toc: []
   structuredData:
     headings: []
     contents:
       - content: >-
-          Tells WhatsApp to unblock this contact so they can message the session
-          again.
+          Fetches the contact's "about" text — the short status line shown on
+          their profile — from WhatsApp.
 
 
-          This is a **live action** against WhatsApp — the session must be
+          This is a **live lookup** against WhatsApp — the session must be
           **connected**. If the session is not connected the gateway responds
-          `501` (`not_implemented`).
+          `501` (`not_implemented`). The `about` field may be an empty string
+          when the contact has none or has restricted it by privacy settings.
 
 
-          The operation is **idempotent**: unblocking a contact who is not
-          blocked succeeds with the same `204` and no additional effect. On
-          success the response body is empty.
-
-
-          **Auth:** requires the `send` capability.
+          **Auth:** requires the `read` capability.
 
 
           **Errors:** `404` (`not_found`) if the session does not exist or is
@@ -62,7 +55,7 @@ export default function Layout(props) {
   return (
     <>
       {props.children}
-      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/contacts/{jid}/unblock","method":"post"}]} />
+      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/contacts/{jid}/about","method":"get"}]} />
     </>
   );
 }

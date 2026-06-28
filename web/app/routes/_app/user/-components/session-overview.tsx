@@ -171,15 +171,15 @@ function IdentityCard({
         </Row>
         <Row label="JID">
           <span className="font-mono text-xs break-all">
-            {session.waJid || me.data?.jid || "-"}
+            {session.waJid || me.data?.waJid || "-"}
           </span>
         </Row>
-        <Row label="Push name">
+        <Row label="LID">
           {me.isLoading
             ? "..."
             : isApiError(me.error) && me.error.isNotImplemented
               ? "not available"
-              : me.data?.pushName || "-"}
+              : me.data?.waLid || "-"}
         </Row>
         <Row label="Auto-read">{session.autoRead ? "on" : "off"}</Row>
         <Row label="Presence typing">

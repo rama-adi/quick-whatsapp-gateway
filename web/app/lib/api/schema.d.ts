@@ -4,1262 +4,7 @@
  */
 
 export interface paths {
-    "/healthz": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Liveness probe
-         * @description Returns 200 as long as the process is running. No authentication. Use it to tell whether the gateway is up at all; it does not check the database or Redis (use the readiness probe for that).
-         */
-        get: operations["healthz"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/readyz": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Readiness probe
-         * @description Returns 200 once the gateway can reach its dependencies (the database and Redis), and 500 while it cannot. No authentication. Use it to decide whether the gateway is ready to take traffic, not just whether the process is alive.
-         */
-        get: operations["readyz"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/openapi.yaml": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * This OpenAPI document
-         * @description Returns this OpenAPI document as YAML. No authentication. This is the same contract you are reading, served straight from the running gateway.
-         */
-        get: operations["openapi"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List sessions
-         * @description Lists the sessions (attached WhatsApp numbers) belonging to the caller's organization. Requires the `manage` capability. Each session shows its status, the number once paired, and which gateway holds it.
-         */
-        get: operations["listSessions"];
-        put?: never;
-        /**
-         * Create a session
-         * @description Creates a new session (a slot for one WhatsApp number) in the caller's organization. Requires the `manage` capability. The session starts unpaired; to attach a number, link a device with the QR code or request a phone pairing code. Set `start: true` in the body to begin QR pairing right away.
-         */
-        post: operations["createSession"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-            };
-            cookie?: never;
-        };
-        /**
-         * Get a session
-         * @description Returns one session by id, including its current status and (once paired) the attached number. Requires the `manage` capability. A session in another organization returns 404, not 403.
-         */
-        get: operations["getSession"];
-        put?: never;
-        post?: never;
-        /**
-         * Delete a session
-         * @description Permanently deletes a session and its stored data. Requires the `manage` capability. This removes the session for good; if a number is still attached, log it out first to unlink the device. Returns 204 with no body.
-         */
-        delete: operations["deleteSession"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session}:start": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Start a session
-         * @description Connects an already-paired session to WhatsApp. Requires the `manage` capability. The session must already have a number attached; to pair a new session, use the QR code or pairing-code endpoints instead. Returns the refreshed session so you can see its new status.
-         */
-        post: operations["startSession"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session}:stop": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Stop a session
-         * @description Disconnects a session from WhatsApp without unlinking the device. Requires the `manage` capability. The number stays paired, so you can start it again later. Returns the refreshed session so you can see its new status.
-         */
-        post: operations["stopSession"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session}:restart": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Restart a session
-         * @description Stops and then starts the session — a reconnect that keeps the number paired. Requires the `manage` capability. Use this to recover a session that is stuck or failed. Returns the refreshed session so you can see its new status.
-         */
-        post: operations["restartSession"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session}:logout": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Log out a session (unpair the device)
-         * @description Logs the session out of WhatsApp and unlinks the device, so the number is no longer attached. Requires the `manage` capability. To use the number again you must pair it from scratch. The session row itself stays; use delete to remove it entirely. Returns the refreshed session so you can see its new status.
-         */
-        post: operations["logoutSession"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session}/me": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-            };
-            cookie?: never;
-        };
-        /**
-         * Get the connected account's own identity
-         * @description Returns the WhatsApp identity of the number attached to this session — its JID, linked-device id, push name, and phone number. Requires the `manage` capability. Returns 404 if the session is not paired yet.
-         */
-        get: operations["sessionMe"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session}/qr": {
-        parameters: {
-            query?: {
-                /** @description Return a QR image instead of the raw code string. */
-                format?: "image";
-            };
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-            };
-            cookie?: never;
-        };
-        /**
-         * Get the current pairing QR code
-         * @description Returns the QR code to scan from WhatsApp on the phone to attach a number to this session. Requires the `manage` capability. By default returns the raw code string; pass `?format=image` for a PNG. If no code is ready yet, this starts pairing and returns 404 — codes also refresh and stream live over the event stream as `auth.qr`, so subscribe there to follow along. Returns an error if the session is already paired.
-         */
-        get: operations["sessionQR"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session}/pairing-code": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Request a phone pairing code
-         * @description Requests a pairing code to attach a number without scanning a QR — the alternative to the QR endpoint. Requires the `manage` capability. Pass the phone number to pair in the body; the response returns a short code (for example `ABCD-1234`) to enter in WhatsApp on that phone under Link a device. Returns an error if the session is already paired.
-         */
-        post: operations["sessionPairingCode"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session}/backfill": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-            };
-            cookie?: never;
-        };
-        /**
-         * Get the latest backup import job for a session
-         * @description Returns the most recent backup import for this session (running, succeeded or failed) with its progress counts. Requires the `manage` capability.
-         */
-        get: operations["sessionBackupStatus"];
-        put?: never;
-        /**
-         * Import a WhatsApp backup (crypt15) to backfill history
-         * @description Uploads an end-to-end encrypted WhatsApp database backup (`msgstore.db.crypt15`) plus its decryption key. The gateway decrypts it, reads the SQLite, and upserts the session's chats, messages, identities, groups and group members (idempotent by message id, so re-running merges). Requires the `manage` capability. Rate limited to once per 24 hours per session for ordinary users; platform super_admins have no limit. The key is a 64-character hex string (WhatsApp > Settings > Chats > Chat backup > End-to-end encrypted backup), a raw 32-byte key, or a serialized `encrypted_backup.key`. Decryption runs inline, so a wrong key or bad file fails immediately with 400; the import itself runs in the background — poll the GET on this path for status.
-         */
-        post: operations["importSessionBackup"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session}/messages": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Send a message
-         * @description Sends one message. There is a single send endpoint for every kind of message; the `type` field in the body chooses which one. `text`, `poll`, `location`, and `contact` work in v1. The media types `image`, `video`, `audio`, `document`, and `sticker` are not built yet and return 501 before any WhatsApp call is made.
-         *
-         *     Two optional controls:
-         *
-         *     - `Idempotency-Key` (header): if you retry a send with the same key, the
-         *       gateway returns the result of the first send and does not send a second
-         *       message to WhatsApp. The key is scoped to your organization.
-         *
-         *     - `?async=true` (query): the gateway saves the send to a queue and returns
-         *       right away instead of waiting for WhatsApp to acknowledge it. The final
-         *       delivery status arrives later as a `message.status` event on the event
-         *       stream. Without `?async`, the call blocks until WhatsApp acknowledges
-         *       the send.
-         *
-         *
-         *     Requires the `send` capability. Over the per-session rate limit, a synchronous send returns 429; an async send stays queued instead.
-         */
-        post: operations["sendMessage"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session}/messages/{mid}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description The WhatsApp message id (the per-message stable id assigned by WhatsApp). */
-                mid: components["parameters"]["MessageID"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Revoke a message (delete for everyone)
-         * @description Deletes a message you sent (the `mid` in the path) for everyone in the chat, not just on your device. Requires the `send` capability.
-         */
-        delete: operations["revokeMessage"];
-        options?: never;
-        head?: never;
-        /**
-         * Edit a sent text message
-         * @description Replaces the text of a message you already sent, identified by `mid` in the path. Only text messages can be edited. Requires the `send` capability.
-         */
-        patch: operations["editMessage"];
-        trace?: never;
-    };
-    "/sessions/{session}/messages/{mid}/reaction": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description The WhatsApp message id (the per-message stable id assigned by WhatsApp). */
-                mid: components["parameters"]["MessageID"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Add a reaction to a message
-         * @description Reacts to the message in the path (`mid`) with a single emoji. Sending a new reaction replaces any reaction you previously set on that message. Requires the `send` capability.
-         */
-        post: operations["addReaction"];
-        /**
-         * Remove your reaction from a message
-         * @description Clears the reaction you set on the message in the path (`mid`). Requires the `send` capability.
-         */
-        delete: operations["removeReaction"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session}/messages/{mid}/forward": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description The WhatsApp message id (the per-message stable id assigned by WhatsApp). */
-                mid: components["parameters"]["MessageID"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Forward a message to another chat
-         * @description Forwards the message in the path (`mid`) to the chat named by `to` (a recipient JID). Requires the `send` capability. Note for v1: the forwarded message is a text reference to the original, marked as forwarded; it does not copy the original body or re-upload media. A faithful copy is planned once the gateway can fetch a stored message by id.
-         */
-        post: operations["forwardMessage"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session}/messages/{mid}/vote": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description The WhatsApp message id (the per-message stable id assigned by WhatsApp). */
-                mid: components["parameters"]["MessageID"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Vote on a poll message
-         * @description Casts a vote on the poll message in the path (`mid`). `options` is the list of poll choices you are voting for; send the full set you want selected, since it replaces your previous vote. Requires the `send` capability.
-         */
-        post: operations["voteMessage"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session}/chats": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-            };
-            cookie?: never;
-        };
-        /**
-         * List a session's chats
-         * @description Returns a page of the session's chats, served from the gateway's stored copy. Page through results with `limit` and `cursor`; the response carries the next cursor. Requires the `read` capability.
-         */
-        get: operations["listChats"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session}/chats/{cid}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description The chat's JID. A JID (Jabber ID) is WhatsApp's address for a conversation or user — e.g. `123...@s.whatsapp.net` for a direct chat or `123...@g.us` for a group. */
-                cid: components["parameters"]["ChatID"];
-            };
-            cookie?: never;
-        };
-        /**
-         * Get a single chat
-         * @description Returns one chat by its id (`cid`, the chat JID). Requires the `read` capability.
-         */
-        get: operations["getChat"];
-        put?: never;
-        post?: never;
-        /**
-         * Delete a chat
-         * @description Removes the chat in the path (`cid`) from the gateway's stored copy. This is a local delete only; it does not delete the chat on WhatsApp. Returns 204 with no body. Requires the `send` capability.
-         */
-        delete: operations["deleteChat"];
-        options?: never;
-        head?: never;
-        /**
-         * Update a chat's archive, pin, and mute flags
-         * @description Changes the archive, pin, and mute state of the chat in the path (`cid`). Only the fields you send are changed; omitted fields stay as they are. To mute, set `mutedUntil` to an epoch-millisecond timestamp; to unmute, send `unmute: true`. Returns the updated chat. Requires the `send` capability.
-         */
-        patch: operations["updateChat"];
-        trace?: never;
-    };
-    "/sessions/{session}/chats/{cid}/messages": {
-        parameters: {
-            query?: {
-                /** @description Maximum number of items to return on one page (clamped to 1–200; defaults to 50). */
-                limit?: components["parameters"]["Limit"];
-                /** @description Page cursor. Pass the `nextCursor` value from the previous response to fetch the next page. The value is opaque — treat it as a token, do not parse it. Omit it to get the first page. */
-                cursor?: components["parameters"]["Cursor"];
-            };
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description The chat's JID. A JID (Jabber ID) is WhatsApp's address for a conversation or user — e.g. `123...@s.whatsapp.net` for a direct chat or `123...@g.us` for a group. */
-                cid: components["parameters"]["ChatID"];
-            };
-            cookie?: never;
-        };
-        /**
-         * List messages in a chat
-         * @description Returns a page of messages in the chat named by `cid`, served from the gateway's stored copy. Page through results with `limit` and `cursor`; the response carries the next cursor. Requires the `read` capability.
-         */
-        get: operations["listChatMessages"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session}/chats/{cid}/read": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description The chat's JID. A JID (Jabber ID) is WhatsApp's address for a conversation or user — e.g. `123...@s.whatsapp.net` for a direct chat or `123...@g.us` for a group. */
-                cid: components["parameters"]["ChatID"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Mark a chat as read
-         * @description Clears the unread counter on the chat in the path (`cid`). In v1 this updates the gateway's own unread state, which is what the chat viewer reads; it does not send per-message read receipts to WhatsApp. Returns 204 with no body. Requires the `send` capability.
-         */
-        post: operations["readChat"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session}/chats/{cid}/presence": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description The chat's JID. A JID (Jabber ID) is WhatsApp's address for a conversation or user — e.g. `123...@s.whatsapp.net` for a direct chat or `123...@g.us` for a group. */
-                cid: components["parameters"]["ChatID"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Set typing or recording presence in a chat
-         * @description Tells the chat in the path (`cid`) that you are typing (`composing`), recording audio (`recording`), or have stopped (`paused`). This goes straight to WhatsApp and needs a live, connected client for the session; if the session has no connected client, the call returns 501. Returns 204 with no body. Requires the `send` capability.
-         */
-        put: operations["chatPresence"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session}/contacts": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-            };
-            cookie?: never;
-        };
-        /**
-         * List a session's contacts
-         * @description Returns the people this session has seen, one page at a time. Served from the gateway's stored WhatsApp data, so it works even when the session is not currently connected. Optional filters: `source=dm` keeps only people you have a direct chat with, `source=group` keeps only people seen in a group, `group={jid}` keeps only members of one group, and `q=` searches their name or number. Use `limit` and `cursor` to page through results.
-         */
-        get: operations["listContacts"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session}/contacts/check": {
-        parameters: {
-            query: {
-                phone: string;
-            };
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-            };
-            cookie?: never;
-        };
-        /**
-         * Check whether a phone number is on WhatsApp
-         * @description Asks WhatsApp whether the given `phone` number has an account, and returns its JID (WhatsApp's internal address) if it does. This is a live lookup, so the session must be connected; if it is not, the gateway responds 501.
-         */
-        get: operations["checkContact"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session}/contacts/{lid}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                lid: string;
-            };
-            cookie?: never;
-        };
-        /**
-         * Get one contact
-         * @description Returns everything stored for one contact, addressed by its `lid` (WhatsApp's stable per-account identifier for a person): their name, whether you have a direct chat with them, and every group you have seen them in, with their nickname and role in each. Served from stored data, so no live connection is needed.
-         */
-        get: operations["getContact"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session}/contacts/{jid}/picture": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description A WhatsApp JID — the address of a user, group, or channel. */
-                jid: components["parameters"]["JID"];
-            };
-            cookie?: never;
-        };
-        /**
-         * Get a contact's profile picture
-         * @description Fetches the contact's current profile picture from WhatsApp and returns its URL and metadata. This is a live lookup, so the session must be connected; if it is not, the gateway responds 501.
-         */
-        get: operations["contactPicture"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session}/contacts/{jid}/about": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description A WhatsApp JID — the address of a user, group, or channel. */
-                jid: components["parameters"]["JID"];
-            };
-            cookie?: never;
-        };
-        /**
-         * Get a contact's about text
-         * @description Fetches the contact's "about" text (the short status line on their profile) from WhatsApp. This is a live lookup, so the session must be connected; if it is not, the gateway responds 501.
-         */
-        get: operations["contactAbout"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session}/contacts/{jid}/block": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description A WhatsApp JID — the address of a user, group, or channel. */
-                jid: components["parameters"]["JID"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Block a contact
-         * @description Tells WhatsApp to block this contact so they can no longer message the session. This is a live action, so the session must be connected; if it is not, the gateway responds 501.
-         */
-        post: operations["blockContact"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session}/contacts/{jid}/unblock": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description A WhatsApp JID — the address of a user, group, or channel. */
-                jid: components["parameters"]["JID"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Unblock a contact
-         * @description Tells WhatsApp to unblock this contact so they can message the session again. This is a live action, so the session must be connected; if it is not, the gateway responds 501.
-         */
-        post: operations["unblockContact"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session}/groups": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-            };
-            cookie?: never;
-        };
-        /**
-         * List a session's groups
-         * @description Returns the groups this session belongs to, one page at a time. Served from the gateway's stored WhatsApp data, so it works even when the session is not connected. Use `limit` and `cursor` to page through results.
-         */
-        get: operations["listGroups"];
-        put?: never;
-        /**
-         * Create a group
-         * @description Creates a new WhatsApp group with the given `subject` (group name) and starting `participants` (a list of JIDs), and returns the new group's info. This is a live action, so the session must be connected; if it is not, the gateway responds 501.
-         */
-        post: operations["createGroup"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session}/groups:join": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Join a group by invite
-         * @description Joins the group named by the `invite` code (the code from a WhatsApp group invite link) and returns the group's info. This is a live action, so the session must be connected; if it is not, the gateway responds 501.
-         */
-        post: operations["joinGroup"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session}/groups/{gid}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description The group's JID (ends in `@g.us`). */
-                gid: components["parameters"]["GroupID"];
-            };
-            cookie?: never;
-        };
-        /**
-         * Get one group
-         * @description Returns the stored details for one group, addressed by its group JID (`gid`): subject, description, and settings. Served from stored data, so no live connection is needed.
-         */
-        get: operations["getGroup"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /**
-         * Update group settings
-         * @description Changes the group's settings — subject, description, whether only admins can post (announce), and whether only admins can edit group info (locked). Send only the fields you want to change. This is a live action, so the session must be connected; if it is not, the gateway responds 501.
-         */
-        patch: operations["updateGroup"];
-        trace?: never;
-    };
-    "/sessions/{session}/groups/{gid}:leave": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description The group's JID (ends in `@g.us`). */
-                gid: components["parameters"]["GroupID"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Leave a group
-         * @description Removes the session's own account from the group. This is a live action, so the session must be connected; if it is not, the gateway responds 501.
-         */
-        post: operations["leaveGroup"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session}/groups/{gid}/members": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description The group's JID (ends in `@g.us`). */
-                gid: components["parameters"]["GroupID"];
-            };
-            cookie?: never;
-        };
-        /**
-         * List a group's members
-         * @description Returns the members of the group, each with their JID and role (member or admin). Served from stored data, so no live connection is needed.
-         */
-        get: operations["listGroupMembers"];
-        put?: never;
-        /**
-         * Add members to a group
-         * @description Adds the listed `participants` (a list of JIDs) to the group. This is a live action, so the session must be connected; if it is not, the gateway responds 501.
-         */
-        post: operations["addGroupMembers"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session}/groups/{gid}/members:approve": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description The group's JID (ends in `@g.us`). */
-                gid: components["parameters"]["GroupID"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Approve pending join requests (not implemented in v2)
-         * @description Approving people waiting to join a group is not part of v2's live WhatsApp surface, so this endpoint always responds 501.
-         */
-        post: operations["approveGroupMembers"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session}/groups/{gid}/members/{jid}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description The group's JID (ends in `@g.us`). */
-                gid: components["parameters"]["GroupID"];
-                /** @description A WhatsApp JID — the address of a user, group, or channel. */
-                jid: components["parameters"]["JID"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Remove a member from a group
-         * @description Removes the member named by `jid` from the group. This is a live action, so the session must be connected; if it is not, the gateway responds 501.
-         */
-        delete: operations["removeGroupMember"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session}/groups/{gid}/members/{jid}/promote": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description The group's JID (ends in `@g.us`). */
-                gid: components["parameters"]["GroupID"];
-                /** @description A WhatsApp JID — the address of a user, group, or channel. */
-                jid: components["parameters"]["JID"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Promote a member to admin
-         * @description Makes the member named by `jid` a group admin. This is a live action, so the session must be connected; if it is not, the gateway responds 501.
-         */
-        post: operations["promoteGroupMember"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session}/groups/{gid}/members/{jid}/demote": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description The group's JID (ends in `@g.us`). */
-                gid: components["parameters"]["GroupID"];
-                /** @description A WhatsApp JID — the address of a user, group, or channel. */
-                jid: components["parameters"]["JID"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Demote an admin to member
-         * @description Removes admin rights from the member named by `jid`, making them a regular member. This is a live action, so the session must be connected; if it is not, the gateway responds 501.
-         */
-        post: operations["demoteGroupMember"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session}/groups/{gid}/invite": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description The group's JID (ends in `@g.us`). */
-                gid: components["parameters"]["GroupID"];
-            };
-            cookie?: never;
-        };
-        /**
-         * Get the group invite link
-         * @description Returns the group's current invite link, which anyone can use to join. This is a live lookup, so the session must be connected; if it is not, the gateway responds 501.
-         */
-        get: operations["getGroupInvite"];
-        put?: never;
-        post?: never;
-        /**
-         * Reset the group invite link
-         * @description Cancels the current invite link and generates a new one, then returns it. Any previously shared link stops working. This is a live action, so the session must be connected; if it is not, the gateway responds 501.
-         */
-        delete: operations["revokeGroupInvite"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session}/channels": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Create a channel (newsletter) — not in v1
-         * @description Create a WhatsApp channel (newsletter) on this session. Requires the `send` capability. Not implemented in v1: this always returns 501.
-         */
-        post: operations["createChannel"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session}/channels/{jid}:follow": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description A WhatsApp JID — the address of a user, group, or channel. */
-                jid: components["parameters"]["JID"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Follow a channel — not in v1
-         * @description Follow the channel identified by `jid` on this session. Requires the `send` capability. Not implemented in v1: this always returns 501.
-         */
-        post: operations["followChannel"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session}/channels/{jid}:unfollow": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description A WhatsApp JID — the address of a user, group, or channel. */
-                jid: components["parameters"]["JID"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Unfollow a channel — not in v1
-         * @description Stop following the channel identified by `jid` on this session. Requires the `send` capability. Not implemented in v1: this always returns 501.
-         */
-        post: operations["unfollowChannel"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session}/channels/{jid}:mute": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description A WhatsApp JID — the address of a user, group, or channel. */
-                jid: components["parameters"]["JID"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Mute a channel — not in v1
-         * @description Mute or unmute the channel identified by `jid` on this session. Requires the `send` capability. Not implemented in v1: this always returns 501.
-         */
-        post: operations["muteChannel"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session}/channels/{jid}/messages": {
-        parameters: {
-            query?: {
-                /** @description Maximum number of items to return on one page (clamped to 1–200; defaults to 50). */
-                limit?: components["parameters"]["Limit"];
-                /** @description Page cursor. Pass the `nextCursor` value from the previous response to fetch the next page. The value is opaque — treat it as a token, do not parse it. Omit it to get the first page. */
-                cursor?: components["parameters"]["Cursor"];
-            };
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description A WhatsApp JID — the address of a user, group, or channel. */
-                jid: components["parameters"]["JID"];
-            };
-            cookie?: never;
-        };
-        /**
-         * List stored channel messages
-         * @description Return a page of stored messages for the channel identified by `jid` on this session. Requires the `send` capability. Use `limit` and `cursor` to page; the response carries the next cursor.
-         */
-        get: operations["listChannelMessages"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session}/status": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Post a status update (text; media returns 501)
-         * @description Post a status update (the "My Status" story) from this session. Requires the `send` capability. Only `type: text` works in v1; `type: image` and any other media return 501.
-         */
-        post: operations["postStatus"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/sessions/{session}/presence": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Set account presence (online / offline)
-         * @description Set the session account's global presence to `online` or `offline` (whether contacts see the account as available). Requires the `send` capability. This is account-wide; to send a typing or recording indicator into one chat, use the chat presence endpoint instead.
-         */
-        put: operations["setPresence"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/webhooks": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List webhooks
-         * @description List the webhook endpoints configured for the caller's organization. Requires the `manage` capability. Use `limit` and `cursor` to page; the response carries the next cursor.
-         */
-        get: operations["listWebhooks"];
-        put?: never;
-        /**
-         * Create a webhook
-         * @description Register a webhook endpoint for the caller's organization. Requires the `manage` capability. When a matching event fires, the gateway POSTs the event envelope (the `Event` JSON shape, also delivered over the realtime WebSocket) to `url`. Set `events` to the event types to receive (`["*"]` for all) and `sessionId` to scope to one session (null = all of the organization's sessions).
-         *     If you set a `secret`, the gateway signs each POST: it sends the lowercase-hex HMAC-SHA512 of the exact request body in the `X-Webhook-Hmac` header (with `X-Webhook-Hmac-Algorithm: sha512`). Recompute it on your end with the same secret to confirm the request really came from the gateway. Every POST also carries `X-Webhook-Request-Id` (the event id, so you can drop duplicate redeliveries) and `X-Webhook-Timestamp` (epoch milliseconds).
-         *     Failed deliveries (a non-2xx response or a connection error) are retried on the `retryPolicy` schedule — by default exponential backoff (2s, 4s, 8s, …) for up to 15 attempts, after which the delivery is given up on. The secret is stored encrypted and never returned in responses.
-         */
-        post: operations["createWebhook"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/webhooks/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Resource id in the path (e.g. a webhook id). */
-                id: components["parameters"]["ID"];
-            };
-            cookie?: never;
-        };
-        /**
-         * Get a webhook
-         * @description Fetch one webhook by `id`. Requires the `manage` capability, and the webhook must belong to the caller's organization. The secret is never returned.
-         */
-        get: operations["getWebhook"];
-        put?: never;
-        post?: never;
-        /**
-         * Delete a webhook
-         * @description Delete the webhook identified by `id`. Requires the `manage` capability, and the webhook must belong to the caller's organization. After deletion no further events are delivered to its url.
-         */
-        delete: operations["deleteWebhook"];
-        options?: never;
-        head?: never;
-        /**
-         * Update a webhook
-         * @description Update the webhook identified by `id` (url, events, session scope, secret, custom headers, retry policy, or active flag). Requires the `manage` capability, and the webhook must belong to the caller's organization. Send a new `secret` to rotate it; omit it to leave the stored secret unchanged.
-         */
-        patch: operations["updateWebhook"];
-        trace?: never;
-    };
-    "/admin/sessions": {
+    "/api/v1/admin/sessions": {
         parameters: {
             query?: never;
             header?: never;
@@ -1268,7 +13,22 @@ export interface paths {
         };
         /**
          * List sessions across all organizations (super_admin)
-         * @description List WhatsApp sessions across every organization, for platform oversight. Restricted to a platform super_admin — it requires a JWT carrying the super_admin platform role; api-keys and ordinary org roles are rejected with 403. Unlike the org-scoped session list, this is not limited to one organization. Use `limit` and `cursor` to page.
+         * @description List WhatsApp sessions across **every** organization, for platform oversight.
+         *
+         *     Unlike the org-scoped session list, this is not limited to the caller's organization — it returns sessions for all tenants in one flat list.
+         *
+         *     ### Preconditions
+         *
+         *     - Restricted to a platform **super_admin**. The caller must present a login JWT that carries the `super_admin` platform role.
+         *     - api-keys (prefixed `wa_`) and ordinary org roles (owner/admin/member) are **rejected** even if otherwise valid.
+         *
+         *     ### Side effects & semantics
+         *
+         *     - Read-only. No state is changed.
+         *
+         *     ### Errors
+         *
+         *     - `forbidden` (403) — the caller is authenticated but is not a platform super_admin (e.g. an api-key, or a person without the super_admin role).
          */
         get: operations["adminListSessions"];
         put?: never;
@@ -1279,7 +39,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin/sessions/{session}:backfill": {
+    "/api/v1/admin/sessions/{session}/backfill": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the current or latest session backfill job (super_admin)
+         * @description Return the **current or most recent** backfill job for one WhatsApp session.
+         *
+         *     Use this to poll a backfill started with `POST /admin/sessions/{session}:backfill`: it reports the job's status and progress. If a backfill is in progress, the running job is returned; otherwise the last completed/failed job for the session is returned.
+         *
+         *     ### Semantics
+         *
+         *     - Read-only. Backfill state is held **in memory**, so a gateway restart clears it: after a restart this returns 404 until a new backfill is started.
+         *
+         *     ### Preconditions
+         *
+         *     - Requires the platform **super_admin** role (login JWT only; api-keys and org roles are rejected with 403).
+         *
+         *     ### Errors
+         *
+         *     - `forbidden` (403) — caller is not a platform super_admin.
+         *     - `not_found` (404) — the session does not exist, or no backfill job is on record for it (e.g. none has been started since the last gateway restart).
+         */
+        get: operations["adminSessionBackfillStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/sessions/{session}:backfill": {
         parameters: {
             query?: never;
             header?: never;
@@ -1290,7 +85,30 @@ export interface paths {
         put?: never;
         /**
          * Start a session data backfill (super_admin)
-         * @description Starts an in-memory background backfill for one WhatsApp session. Only one backfill may run per session at a time; concurrent requests for the same session return 409. The job pulls currently supported direct WhatsApp data (cached contacts and joined group metadata/members). Ordinary chat history is received through WhatsApp HistorySync events rather than a generic "fetch all messages" API.
+         * @description Start an in-memory background backfill for one WhatsApp session, re-pulling the directly fetchable WhatsApp data for that number.
+         *
+         *     The job pulls only the data WhatsApp exposes through a direct fetch: **cached contacts** and **joined group metadata/members**. Ordinary chat history is **not** part of a backfill — message history arrives asynchronously through WhatsApp `HistorySync` events, and there is no generic "fetch all messages" API.
+         *
+         *     ### Asynchronous behavior
+         *
+         *     - Returns **202 Accepted** immediately with the created/running `BackfillJob`; the work continues in the background.
+         *     - Poll `GET /admin/sessions/{session}/backfill` to observe progress and completion.
+         *
+         *     ### Idempotency / concurrency
+         *
+         *     - At most **one** backfill may run per session at a time. If a backfill is already in progress for this session, the request is rejected with **409** rather than starting a second one — it is **not** a no-op merge into the existing job.
+         *
+         *     ### Preconditions
+         *
+         *     - Requires the platform **super_admin** role (login JWT only; api-keys and org roles are rejected with 403).
+         *     - The session must exist.
+         *
+         *     ### Errors
+         *
+         *     - `forbidden` (403) — caller is not a platform super_admin.
+         *     - `not_found` (404) — no session with the given id exists.
+         *     - `conflict` (409) — a backfill is already running for this session; wait for it to finish (poll the status endpoint) before retrying.
+         *     - `not_implemented` (501) — backfill is unavailable in this build/configuration for the requested session.
          */
         post: operations["adminStartSessionBackfill"];
         delete?: never;
@@ -1299,15 +117,196 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin/sessions/{session}/backfill": {
+    "/api/v1/sessions": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Get the current or latest session backfill job */
-        get: operations["adminSessionBackfillStatus"];
+        /**
+         * List sessions
+         * @description Lists the sessions (attached WhatsApp numbers) belonging to the caller's organization.
+         *
+         *     Requires the `manage` capability.
+         *
+         *     Each item shows the session's current status, the attached number once paired, and which gateway currently holds it. The response is org-scoped — sessions in other organizations are never returned.
+         *
+         *     **Pagination.** This list is returned in a single page (no cursor is consumed); the response carries a `nextCursor` field for forward compatibility, which is null when there are no further pages.
+         *
+         *     **Errors.** `unauthorized` (401) — missing or invalid credentials. `forbidden` (403) — the caller lacks the `manage` capability.
+         */
+        get: operations["listSessions"];
+        put?: never;
+        /**
+         * Create a session
+         * @description Creates a new session — a slot for one WhatsApp number — in the caller's organization.
+         *
+         *     Requires the `manage` capability.
+         *
+         *     The session starts **unpaired**: no WhatsApp number is attached yet. To attach a number, link a device by scanning the QR code (`GET /sessions/{session}/qr`) or by requesting a phone pairing code (`POST /sessions/{session}/pairing-code`).
+         *
+         *     **Side effects / async behavior.** When the request body sets `start: true`, the gateway begins QR pairing right away and the returned session reflects the early connecting state; pairing then proceeds asynchronously (watch the event stream for `auth.qr` and connection events). When `start` is omitted or false, the session is created stopped.
+         *
+         *     **Not idempotent:** each call creates a distinct session.
+         *
+         *     **Errors.** `validation_error` (400) — the body failed validation (e.g. an invalid field). `unauthorized` (401) — missing or invalid credentials. `forbidden` (403) — the caller lacks the `manage` capability.
+         *
+         *     On success returns **201 Created** with the new session row.
+         */
+        post: operations["createSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a session
+         * @description Returns one session by id, including its current status and — once paired — the attached WhatsApp number and the gateway that holds it.
+         *
+         *     Requires the `manage` capability.
+         *
+         *     **Org isolation.** A session that belongs to another organization is reported as `not_found` (404), **not** `forbidden`, so a caller cannot probe for the existence of other orgs' sessions.
+         *
+         *     **Errors.** `not_found` (404) — no such session in your organization. `unauthorized` (401) / `forbidden` (403) — credential / capability failures.
+         */
+        get: operations["getSession"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete a session
+         * @description Permanently deletes a session and its stored data.
+         *
+         *     Requires the `manage` capability.
+         *
+         *     **Destructive and irreversible.** This removes the session row for good. If a WhatsApp number is still attached, log it out first (`POST /sessions/{session}:logout`) to unlink the device cleanly; deleting does not guarantee the device is unlinked on WhatsApp's side.
+         *
+         *     **Idempotency.** Deleting a session that does not exist (or belongs to another org) returns `not_found` (404).
+         *
+         *     **Errors.** `not_found` (404) — no such session in your organization. `unauthorized` (401) / `forbidden` (403) — credential / capability failures.
+         *
+         *     Returns **204 No Content** on success.
+         */
+        delete: operations["deleteSession"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}/backfill": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the latest backup import job for a session
+         * @description Returns the **most recent** backup import for this session — whether it is still running, has succeeded, or has failed — along with its progress counts.
+         *
+         *     **Use this** to poll the outcome of an import started via `POST /api/v1/sessions/{session}/backfill`, which returns `202` and completes its work in the background.
+         *
+         *     **Preconditions.**
+         *     - Requires the `manage` capability.
+         *     - The session must exist and be owned by the caller's organization.
+         *
+         *     This is a read-only operation with no side effects; it is safe to call repeatedly. The returned job reflects the latest known state at read time.
+         *
+         *     **Errors.**
+         *     - `not_found` (404) — the session does not exist, is not owned by the caller's organization, or no import has ever been started for it.
+         */
+        get: operations["backupStatus"];
+        put?: never;
+        /**
+         * Import a WhatsApp backup (crypt15) to backfill history
+         * @description Uploads an end-to-end encrypted WhatsApp message-store backup (`msgstore.db.crypt15`) together with its decryption key, and backfills the session's chat history from it.
+         *
+         *     **What it does.** The gateway decrypts the uploaded blob with the supplied key, opens the embedded SQLite database, and **upserts** the session's chats, messages, WhatsApp identities, groups, and group members. The import is **idempotent by message id**: re-running the same (or an overlapping) backup merges rather than duplicates, so it is safe to retry.
+         *
+         *     **Use this** to seed or top up a freshly linked session with the history that already exists on the device — the live event stream only covers messages received after the session connected.
+         *
+         *     **Preconditions.**
+         *     - Requires the `manage` capability.
+         *     - The session must exist and be owned by the caller's organization.
+         *     - Both the `file` part (non-empty) and the `key` field (non-empty after trimming) are required.
+         *
+         *     **Decryption is inline; import is asynchronous.** The key and file are validated and the backup is decrypted **synchronously** while handling the request, so a wrong key, corrupt file, or unreadable upload fails immediately with `400`. Once decryption succeeds the request returns **202 Accepted** and the actual upsert runs in the **background**. Poll `GET /api/v1/sessions/{session}/backfill` for live progress counts and the terminal outcome.
+         *
+         *     **Concurrency / idempotency.** Only one import may run per session at a time. A second import requested while one is still running is rejected with `409` (conflict). There is no `Idempotency-Key` header on this route; duplicate suppression comes from the per-session single-flight lock plus message-id upsert semantics.
+         *
+         *     **Rate limit.** Ordinary callers may import at most **once per 24 hours per session**; exceeding this returns `429`. Platform `super_admin` principals are exempt and have no limit.
+         *
+         *     **Limits.** The upload is capped at **256 MiB**; a larger body is rejected by the body cap. The body-read timeout is disabled for this route because large msgstore backups can take well beyond the default read window to upload.
+         *
+         *     **Errors.**
+         *     - `validation_error` (400) — missing/empty `file`, missing/empty `key`, unreadable upload, wrong key, or an undecryptable/corrupt backup.
+         *     - `not_found` (404) — the session does not exist or is not owned by the caller's organization.
+         *     - `conflict` (409) — an import is already running for this session.
+         *     - `rate_limited` (429) — the 24-hour-per-session limit was hit (non-super_admin callers).
+         */
+        post: operations["importBackup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}/channels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create a channel (newsletter)
+         * @description Create a WhatsApp **channel** (newsletter) owned by this session, returning its newly minted JID.
+         *
+         *     **Not implemented in v1.** This endpoint is wired but the underlying WhatsApp operation is not yet built, so it **always responds `501` with `not_implemented`** — no channel is created and nothing is persisted. The request body shape below documents the eventual contract; today it is accepted but ignored.
+         *
+         *     **Authorization:** requires the `send` capability; callers lacking it get `403` (`forbidden`). Requests without a valid principal get `401`.
+         *
+         *     **When implemented**, this will be a write that creates a brand-new channel on the WhatsApp network; it is **not** idempotent (each successful call would create a distinct channel) and on success returns `201` with the channel's `jid`.
+         *
+         *     **Errors:** `403` `forbidden` (missing `send`), `404` `not_found` (session unknown), `501` `not_implemented` (current behavior), and, once built, `400` `validation_error` for a missing/invalid `name`.
+         */
+        post: operations["createChannel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}/channels/{jid}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List stored channel messages
+         * @description Return a page of **stored** messages for the channel identified by `jid` on this session, newest-first.
+         *
+         *     This reads from the gateway's own message store — it returns what the gateway has already received and persisted for the channel, not a live fetch from WhatsApp. A channel the session has never received posts from yields an empty page.
+         *
+         *     **Pagination:** use `limit` (1–200, default 50) and `cursor`. Omit `cursor` for the first page; read `nextCursor` from the response and pass it back to fetch the next page. The cursor is opaque — do not parse it. An empty `nextCursor` means the last page has been reached.
+         *
+         *     **Authorization:** requires the `send` capability (`403` `forbidden` otherwise; `401` without a valid principal). This is a safe, side-effect-free read.
+         *
+         *     **Errors:** `403` `forbidden` (missing `send`), `404` `not_found` (session or channel unknown).
+         */
+        get: operations["listChannelMessages"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1316,598 +315,3198 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sessions/{session}/channels/{jid}:follow": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Follow a channel
+         * @description Subscribe this session to the channel identified by `jid` so its posts arrive on this account.
+         *
+         *     **Not implemented in v1.** This endpoint is wired but **always responds `501` with `not_implemented`** — no follow is performed and no state changes.
+         *
+         *     **Authorization:** requires the `send` capability (`403` `forbidden` otherwise; `401` without a valid principal).
+         *
+         *     **When implemented**, this will be an **idempotent** write: following an already-followed channel is a no-op and still returns `204` (no content). The action takes no request body.
+         *
+         *     **Errors:** `403` `forbidden` (missing `send`), `404` `not_found` (session or channel unknown), `501` `not_implemented` (current behavior).
+         */
+        post: operations["followChannel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}/channels/{jid}:mute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mute or unmute a channel
+         * @description Set this session's notification state for the channel identified by `jid`.
+         *
+         *     The request body is optional. Send `{"mute": true}` to mute, `{"mute": false}` to unmute. If the field is omitted (or the body is empty/absent), the channel is **muted** (the default is `true`).
+         *
+         *     **Not implemented in v1.** This endpoint is wired but **always responds `501` with `not_implemented`** — the mute state is not changed.
+         *
+         *     **Authorization:** requires the `send` capability (`403` `forbidden` otherwise; `401` without a valid principal).
+         *
+         *     **When implemented**, this will be an **idempotent** write that sets (not toggles) the mute state, returning `204` (no content) on success regardless of the prior state.
+         *
+         *     **Errors:** `403` `forbidden` (missing `send`), `404` `not_found` (session or channel unknown), `501` `not_implemented` (current behavior).
+         */
+        post: operations["muteChannel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}/channels/{jid}:unfollow": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unfollow a channel
+         * @description Unsubscribe this session from the channel identified by `jid` so its posts stop arriving on this account.
+         *
+         *     **Not implemented in v1.** This endpoint is wired but **always responds `501` with `not_implemented`** — no unfollow is performed and no state changes.
+         *
+         *     **Authorization:** requires the `send` capability (`403` `forbidden` otherwise; `401` without a valid principal).
+         *
+         *     **When implemented**, this will be an **idempotent** write: unfollowing a channel that is not followed is a no-op and still returns `204` (no content). The action takes no request body.
+         *
+         *     **Errors:** `403` `forbidden` (missing `send`), `404` `not_found` (session or channel unknown), `501` `not_implemented` (current behavior).
+         */
+        post: operations["unfollowChannel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}/chats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List chats
+         * @description Returns a page of the session's chats, served from the gateway's **stored copy** (not a live WhatsApp query), ordered for display.
+         *
+         *     Page through results with `limit` and `cursor`: send the `nextCursor` from the previous response back as `cursor` to fetch the next page. When `nextCursor` is `null` there are no more chats.
+         *
+         *     Requires the `read` capability.
+         *
+         *     **Errors**
+         *
+         *     - `not_found` (404): the session does not exist or is not owned by the caller's organization.
+         *     - `forbidden` (403): the caller lacks the `read` capability.
+         */
+        get: operations["listChats"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}/chats/{cid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a chat
+         * @description Returns one chat by its id (`cid`, the chat JID), served from the gateway's **stored copy**. Use this to read a single chat's archive/pin/mute flags and unread count.
+         *
+         *     Requires the `read` capability.
+         *
+         *     **Errors**
+         *
+         *     - `not_found` (404): the session does not exist, is not owned by the caller's organization, or no chat with that `cid` is stored for the session.
+         *     - `forbidden` (403): the caller lacks the `read` capability.
+         */
+        get: operations["getChat"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete a chat
+         * @description Removes the chat in the path (`cid`) from the gateway's **stored copy**, along with its locally stored messages.
+         *
+         *     This is a **local delete only**: it does not delete the chat on WhatsApp, and the chat may reappear if new activity is later ingested for it.
+         *
+         *     On success returns **204 No Content** with no body.
+         *
+         *     Requires the `send` capability.
+         *
+         *     **Errors**
+         *
+         *     - `not_found` (404): the session does not exist, is not owned by the caller's organization, or no chat with that `cid` is stored.
+         *     - `forbidden` (403): the caller lacks the `send` capability.
+         */
+        delete: operations["deleteChat"];
+        options?: never;
+        head?: never;
+        /**
+         * Update a chat (archive/pin/mute)
+         * @description Changes the archive, pin, and mute state of the chat in the path (`cid`) and returns the updated chat.
+         *
+         *     **Partial update:** only the fields you send are changed; omitted fields stay as they are.
+         *
+         *     - `archived` — set the chat's archived state.
+         *     - `pinned` — set whether the chat is pinned to the top.
+         *     - `mutedUntil` — mute until this instant, as Unix epoch **milliseconds**.
+         *     - `unmute` — when `true`, clears any existing mute. Takes precedence over `mutedUntil`.
+         *
+         *     Requires the `send` capability.
+         *
+         *     **Errors**
+         *
+         *     - `not_found` (404): the session does not exist, is not owned by the caller's organization, or no chat with that `cid` is stored.
+         *     - `validation_error` (422): the request body is malformed.
+         *     - `forbidden` (403): the caller lacks the `send` capability.
+         */
+        patch: operations["updateChat"];
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}/chats/{cid}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List chat messages
+         * @description Returns a page of messages in the chat named by `cid`, served from the gateway's **stored copy** (the message history the gateway has ingested), newest first.
+         *
+         *     Page through results with `limit` and `cursor`: send the `nextCursor` from the previous response back as `cursor` to fetch the next (older) page. When `nextCursor` is `null` there are no more messages.
+         *
+         *     Requires the `read` capability.
+         *
+         *     **Errors**
+         *
+         *     - `not_found` (404): the session does not exist, is not owned by the caller's organization, or no chat with that `cid` is stored.
+         *     - `forbidden` (403): the caller lacks the `read` capability.
+         */
+        get: operations["listChatMessages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}/chats/{cid}/presence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set chat presence (typing/recording)
+         * @description Broadcasts a typing/recording presence indicator to the chat in the path (`cid`). Set `state` to `composing` ("typing…"), `recording` ("recording audio…"), or `paused` (clear the indicator).
+         *
+         *     **Live client required:** this goes straight to WhatsApp and needs a live, connected client for the session. If the session has no connected client, the call returns **501 `not_implemented`**.
+         *
+         *     On success returns **204 No Content** with no body. The indicator is transient — WhatsApp clears it after a short timeout, so re-send periodically to keep it showing.
+         *
+         *     Requires the `send` capability.
+         *
+         *     **Errors**
+         *
+         *     - `validation_error` (400/422): `state` is missing or not one of the allowed values.
+         *     - `not_found` (404): the session does not exist or is not owned by the caller's organization.
+         *     - `not_implemented` (501): the session has no connected WhatsApp client to deliver the presence.
+         *     - `forbidden` (403): the caller lacks the `send` capability.
+         */
+        put: operations["setChatPresence"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}/chats/{cid}/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark a chat as read
+         * @description Clears the unread counter on the chat in the path (`cid`) and returns the updated chat.
+         *
+         *     This updates the **gateway's own unread state** — the value the chat viewer reads — and does **not** send per-message read receipts to WhatsApp.
+         *
+         *     **Idempotent:** calling it again on an already-read chat is a no-op and returns the same chat.
+         *
+         *     Requires the `send` capability.
+         *
+         *     **Errors**
+         *
+         *     - `not_found` (404): the session does not exist, is not owned by the caller's organization, or no chat with that `cid` is stored.
+         *     - `forbidden` (403): the caller lacks the `send` capability.
+         */
+        post: operations["readChat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}/contacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a session's contacts (found users)
+         * @description Returns the people this session has seen, one page at a time.
+         *
+         *     Served entirely from the gateway's **stored** WhatsApp data, so it works even when the session is currently disconnected — no live WhatsApp connection is required.
+         *
+         *     **Filters** (all optional, combinable):
+         *     - `source=dm` — keep only people you have a direct chat with.
+         *     - `source=group` — keep only people seen in a group.
+         *     - `group={jid}` — keep only members of the given group JID.
+         *     - `q=` — case-insensitive substring search over each contact's name or number.
+         *
+         *     **Pagination:** results are cursor-paged. Use `limit` (1–200, default 50) to size the page and pass the response's `nextCursor` back as `cursor` to fetch the next page. An empty `nextCursor` means there are no more pages.
+         *
+         *     **Auth:** requires the `read` capability.
+         *
+         *     **Errors:** `404` (`not_found`) if the session does not exist or is not owned by the caller's organization; `400` (`validation_error`) if a query parameter is malformed.
+         */
+        get: operations["listContacts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}/contacts/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Check whether a phone number is on WhatsApp
+         * @description Asks WhatsApp whether the given `phone` number has an account and, if so, returns its JID (WhatsApp's internal address).
+         *
+         *     This is a **live lookup** against WhatsApp, not a read of stored data — the session must be **connected**. If the session is not connected the gateway responds `501` (`not_implemented`).
+         *
+         *     The lookup is read-only and has no side effects; it neither adds the number as a contact nor notifies the other party.
+         *
+         *     **Auth:** requires the `read` capability.
+         *
+         *     **Errors:** `400` (`validation_error`) if `phone` is missing or malformed; `404` (`not_found`) if the session does not exist or is not owned by the caller's organization; `501` (`not_implemented`) if the session is not connected so the live lookup cannot run.
+         */
+        get: operations["checkContact"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}/contacts/{jid}/about": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a contact's about text
+         * @description Fetches the contact's "about" text — the short status line shown on their profile — from WhatsApp.
+         *
+         *     This is a **live lookup** against WhatsApp — the session must be **connected**. If the session is not connected the gateway responds `501` (`not_implemented`). The `about` field may be an empty string when the contact has none or has restricted it by privacy settings.
+         *
+         *     **Auth:** requires the `read` capability.
+         *
+         *     **Errors:** `404` (`not_found`) if the session does not exist or is not owned by the caller's organization; `501` (`not_implemented`) if the session is not connected.
+         */
+        get: operations["getContactAbout"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}/contacts/{jid}/block": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Block a contact
+         * @description Tells WhatsApp to block this contact so they can no longer message the session.
+         *
+         *     This is a **live action** against WhatsApp — the session must be **connected**. If the session is not connected the gateway responds `501` (`not_implemented`).
+         *
+         *     The operation is **idempotent**: blocking an already-blocked contact succeeds with the same `204` and no additional effect. On success the response body is empty.
+         *
+         *     **Auth:** requires the `send` capability.
+         *
+         *     **Errors:** `404` (`not_found`) if the session does not exist or is not owned by the caller's organization; `501` (`not_implemented`) if the session is not connected.
+         */
+        post: operations["blockContact"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}/contacts/{jid}/picture": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a contact's profile picture
+         * @description Fetches the contact's current profile picture from WhatsApp and returns its URL and metadata.
+         *
+         *     This is a **live lookup** against WhatsApp — the session must be **connected**. If the session is not connected the gateway responds `501` (`not_implemented`). The returned URL points at WhatsApp's CDN and is time-limited; fetch it promptly.
+         *
+         *     **Auth:** requires the `read` capability.
+         *
+         *     **Errors:** `404` (`not_found`) if the session does not exist or is not owned by the caller's organization (also returned when the contact has no accessible picture, depending on privacy settings); `501` (`not_implemented`) if the session is not connected.
+         */
+        get: operations["getContactPicture"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}/contacts/{jid}/unblock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unblock a contact
+         * @description Tells WhatsApp to unblock this contact so they can message the session again.
+         *
+         *     This is a **live action** against WhatsApp — the session must be **connected**. If the session is not connected the gateway responds `501` (`not_implemented`).
+         *
+         *     The operation is **idempotent**: unblocking a contact who is not blocked succeeds with the same `204` and no additional effect. On success the response body is empty.
+         *
+         *     **Auth:** requires the `send` capability.
+         *
+         *     **Errors:** `404` (`not_found`) if the session does not exist or is not owned by the caller's organization; `501` (`not_implemented`) if the session is not connected.
+         */
+        post: operations["unblockContact"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}/contacts/{lid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get one contact
+         * @description Returns everything stored for one contact, addressed by its `lid` (WhatsApp's stable per-account identifier for a person): their name, whether you have a direct chat with them, and every group you have seen them in — including their nickname and role in each group.
+         *
+         *     Served entirely from **stored** data, so no live WhatsApp connection is needed.
+         *
+         *     **Auth:** requires the `read` capability.
+         *
+         *     **Errors:** `404` (`not_found`) if the session does not exist, is not owned by the caller's organization, or no contact with the given `lid` is stored for that session.
+         */
+        get: operations["getContact"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}/groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a session's groups
+         * @description Returns the groups this session belongs to.
+         *
+         *     **Capability:** requires `read`.
+         *
+         *     **Served from stored data:** the list comes from the gateway's stored WhatsApp data, so it works even when the session is **not connected** (no live WhatsApp round-trip).
+         *
+         *     **Response:** a `List` envelope (`{ "data": [...], "nextCursor": "" }`) of group objects. The current implementation returns the full set in a single page with an empty `nextCursor`.
+         *
+         *     **Errors:**
+         *     - **404 `not_found`** — no session with this id is owned by your organization.
+         */
+        get: operations["listGroups"];
+        put?: never;
+        /**
+         * Create a group
+         * @description Creates a new WhatsApp group with the given **name** (group subject) and starting **participants** (a list of user JIDs), and returns the new group's info.
+         *
+         *     **Capability:** requires `send`.
+         *
+         *     **Precondition (live action):** the session must be **connected**. Creating a group talks to WhatsApp in real time; if the session is not connected the gateway responds **501 `not_implemented`**.
+         *
+         *     **Side effects:** the group is created on WhatsApp with this session's account as owner/first admin, the listed participants are invited, and the new group is upserted into the gateway's stored WhatsApp data so it appears in `listGroups` immediately. Not idempotent — calling twice creates two distinct groups.
+         *
+         *     **Errors:**
+         *     - **400 `validation_error`** — missing/empty name, no participants, or a malformed JID.
+         *     - **404 `not_found`** — no session with this id is owned by your organization.
+         *     - **501 `not_implemented`** — the session is not connected.
+         */
+        post: operations["createGroup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}/groups/{gid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get one group
+         * @description Returns the stored details for one group, addressed by its group JID (`gid`): subject, description, and settings.
+         *
+         *     **Capability:** requires `read`.
+         *
+         *     **Served from stored data:** no live WhatsApp connection is needed.
+         *
+         *     **Errors:**
+         *     - **404 `not_found`** — the session does not exist (or is not yours), or no group with this `gid` is stored for it.
+         */
+        get: operations["getGroup"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update group settings
+         * @description Changes the group's settings — **subject**, **description**, whether only admins can post (**announce**), and whether only admins can edit group info (**locked**).
+         *
+         *     **Partial update:** send only the fields you want to change; omitted fields are left untouched. Each field maps to a separate WhatsApp operation, applied in order.
+         *
+         *     **Capability:** requires `send`.
+         *
+         *     **Precondition (live action):** the session must be **connected** and (for most settings) its account must be a group **admin**. If the session is not connected the gateway responds **501 `not_implemented`**.
+         *
+         *     **Success:** **204 No Content**.
+         *
+         *     **Errors:**
+         *     - **400 `validation_error`** — malformed body.
+         *     - **404 `not_found`** — the session or group does not exist (or is not yours).
+         *     - **403 `forbidden`** — the session's account lacks the rights to change this setting.
+         *     - **501 `not_implemented`** — the session is not connected.
+         */
+        patch: operations["updateGroup"];
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}/groups/{gid}/invite": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the group invite link
+         * @description Returns the group's current invite link (a `https://chat.whatsapp.com/<code>` URL anyone can use to join), in the shape `{ "invite": "https://chat.whatsapp.com/..." }`.
+         *
+         *     **Capability:** requires `read`.
+         *
+         *     **Precondition (live lookup):** unlike most read endpoints this is a **live** WhatsApp query, so the session must be **connected**; if it is not the gateway responds **501 `not_implemented`**. The session's account must also be a group admin to fetch the link.
+         *
+         *     **Errors:**
+         *     - **404 `not_found`** — the session or group does not exist (or is not yours).
+         *     - **403 `forbidden`** — the session's account is not an admin of this group.
+         *     - **501 `not_implemented`** — the session is not connected.
+         */
+        get: operations["getGroupInvite"];
+        put?: never;
+        post?: never;
+        /**
+         * Reset the group invite link
+         * @description Cancels the current invite link and generates a new one, then returns it in the shape `{ "invite": "https://chat.whatsapp.com/..." }`.
+         *
+         *     **Side effect:** any previously shared link **stops working** immediately — share the returned link going forward.
+         *
+         *     **Capability:** requires `send`.
+         *
+         *     **Precondition (live action):** the session must be **connected** and its account must be a group **admin**. If the session is not connected the gateway responds **501 `not_implemented`**.
+         *
+         *     **Errors:**
+         *     - **404 `not_found`** — the session or group does not exist (or is not yours).
+         *     - **403 `forbidden`** — the session's account is not an admin of this group.
+         *     - **501 `not_implemented`** — the session is not connected.
+         */
+        delete: operations["revokeGroupInvite"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}/groups/{gid}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a group's members
+         * @description Returns the members of the group, each with their JID and role (member or admin).
+         *
+         *     **Capability:** requires `read`.
+         *
+         *     **Served from stored data:** no live WhatsApp connection is needed.
+         *
+         *     **Response:** a `List` envelope of group-member objects. The current implementation returns all members in a single page with an empty `nextCursor`.
+         *
+         *     **Errors:**
+         *     - **404 `not_found`** — the session does not exist (or is not yours), or no group with this `gid` is stored for it.
+         */
+        get: operations["listGroupMembers"];
+        put?: never;
+        /**
+         * Add members to a group
+         * @description Adds the listed **participants** (user JIDs) to the group.
+         *
+         *     **Capability:** requires `send`.
+         *
+         *     **Precondition (live action):** the session must be **connected** and its account must be a group **admin**. If the session is not connected the gateway responds **501 `not_implemented`**.
+         *
+         *     **Success:** **204 No Content** (empty body).
+         *
+         *     **Notes:** WhatsApp may decline to add some numbers (privacy settings, invalid number) without failing the whole call. Adding a JID that is already a member is a no-op.
+         *
+         *     **Errors:**
+         *     - **400 `validation_error`** — empty participant list or a malformed JID.
+         *     - **404 `not_found`** — the session or group does not exist (or is not yours).
+         *     - **403 `forbidden`** — the session's account is not an admin of this group.
+         *     - **501 `not_implemented`** — the session is not connected.
+         */
+        post: operations["addGroupMembers"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}/groups/{gid}/members/{jid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a member from a group
+         * @description Removes the member named by `jid` from the group.
+         *
+         *     **Capability:** requires `send`.
+         *
+         *     **Precondition (live action):** the session must be **connected** and its account must be a group **admin**. If the session is not connected the gateway responds **501 `not_implemented`**.
+         *
+         *     **Success:** **204 No Content**. Idempotent in effect — removing someone who is not (or no longer) a member still ends with them not in the group.
+         *
+         *     **Errors:**
+         *     - **404 `not_found`** — the session or group does not exist (or is not yours).
+         *     - **403 `forbidden`** — the session's account is not an admin of this group.
+         *     - **501 `not_implemented`** — the session is not connected.
+         */
+        delete: operations["removeGroupMember"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}/groups/{gid}/members/{jid}/demote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Demote an admin to member
+         * @description Removes admin rights from the member named by `jid`, making them a regular member.
+         *
+         *     **Capability:** requires `send`.
+         *
+         *     **Precondition (live action):** the session must be **connected** and its account must be a group **admin**. If the session is not connected the gateway responds **501 `not_implemented`**.
+         *
+         *     **Success:** **204 No Content**. Demoting someone who is already a regular member is a no-op.
+         *
+         *     **Errors:**
+         *     - **404 `not_found`** — the session, group, or member does not exist (or is not yours).
+         *     - **403 `forbidden`** — the session's account is not an admin of this group.
+         *     - **501 `not_implemented`** — the session is not connected.
+         */
+        post: operations["demoteGroupMember"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}/groups/{gid}/members/{jid}/promote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Promote a member to admin
+         * @description Makes the member named by `jid` a group **admin**.
+         *
+         *     **Capability:** requires `send`.
+         *
+         *     **Precondition (live action):** the session must be **connected** and its account must already be a group **admin**. If the session is not connected the gateway responds **501 `not_implemented`**.
+         *
+         *     **Success:** **204 No Content**. Promoting someone who is already an admin is a no-op.
+         *
+         *     **Errors:**
+         *     - **404 `not_found`** — the session, group, or member does not exist (or is not yours).
+         *     - **403 `forbidden`** — the session's account is not an admin of this group.
+         *     - **501 `not_implemented`** — the session is not connected.
+         */
+        post: operations["promoteGroupMember"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}/groups/{gid}/members:approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve pending join requests (not implemented in v2)
+         * @description **Not implemented in v2.** Approving people waiting to join a group is not part of v2's live WhatsApp surface, so this endpoint **always responds 501 `not_implemented`** regardless of the request body. The route and `participants` body shape are reserved for a future release.
+         *
+         *     **Capability:** requires `send` (checked before the 501 is returned).
+         */
+        post: operations["approveGroupMembers"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}/groups/{gid}:leave": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Leave a group
+         * @description Removes the session's **own** account from the group.
+         *
+         *     **Capability:** requires `send`.
+         *
+         *     **Precondition (live action):** the session must be **connected**. If it is not the gateway responds **501 `not_implemented`**.
+         *
+         *     **Success:** **204 No Content**. After leaving, this session can no longer act on the group; reading still works only on whatever stored data remains.
+         *
+         *     **Errors:**
+         *     - **404 `not_found`** — the session or group does not exist (or is not yours).
+         *     - **501 `not_implemented`** — the session is not connected.
+         */
+        post: operations["leaveGroup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}/groups:join": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Join a group by invite
+         * @description Joins the group named by the **invite** code (the code from a WhatsApp group invite link) and returns the joined group's JID in the shape `{ "groupJid": "...@g.us" }`.
+         *
+         *     **Capability:** requires `send`.
+         *
+         *     **Precondition (live action):** the session must be **connected**. If it is not the gateway responds **501 `not_implemented`**.
+         *
+         *     **Success:** **200 OK** with the group's JID. Use that JID with the other group endpoints (e.g. `getGroup`, `listGroupMembers`). Joining a group the account already belongs to still returns the group's JID.
+         *
+         *     **Errors:**
+         *     - **400 `validation_error`** — missing or unparseable invite code/link, or the invite is invalid/expired.
+         *     - **404 `not_found`** — no session with this id is owned by your organization.
+         *     - **501 `not_implemented`** — the session is not connected.
+         */
+        post: operations["joinGroup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the connected account's own identity
+         * @description Returns the WhatsApp identity of the number attached to this session — its JID, linked-device id, push name, and phone number.
+         *
+         *     Requires the `manage` capability.
+         *
+         *     **Precondition.** The session must be paired; if no number is attached yet, this returns `not_found` (404). On builds where this is not yet wired, it may return `not_implemented` (501).
+         *
+         *     **Errors.** `not_found` (404) — session unknown or not yet paired. `not_implemented` (501) — the feature is stubbed in this build. `unauthorized` (401) / `forbidden` (403) — credential / capability failures.
+         */
+        get: operations["sessionMe"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a message
+         * @description Sends one message from the given session. There is a **single** send endpoint for every kind of message; the discriminated `type` field in the request body chooses which one.
+         *
+         *     **Supported in v1:** `text`, `poll`, `location`, and `contact`.
+         *
+         *     **Not implemented yet:** the media types `image`, `video`, `audio`, `document`, and `sticker` return **501 `not_implemented`** before any WhatsApp call is made.
+         *
+         *     ### Delivery mode (`?async`)
+         *     - **Synchronous (default, `?async=false`):** the call blocks until WhatsApp acknowledges the send and returns **200** with the final `SendResult`.
+         *     - **Asynchronous (`?async=true`):** the gateway persists the send to a queue and returns **202** immediately with a queued `SendResult`. The final delivery status arrives later as a `message.status` event on the event stream.
+         *
+         *     ### Idempotency (`Idempotency-Key` header)
+         *     Supply a stable key to make retries safe: replaying a send with a key already seen for your organization returns the **original** result and does not dispatch a second WhatsApp message.
+         *
+         *     ### Preconditions & errors
+         *     - Requires the **`send`** capability.
+         *     - The session must exist, be owned by your organization, and be connected.
+         *     - **400 `validation_error`** — malformed body or an unsupported/invalid field for the chosen `type`.
+         *     - **404 `not_found`** — the session does not exist or is not owned by your organization.
+         *     - **429 `rate_limited`** — over the per-session send rate limit. A synchronous send is rejected with 429; an async send stays queued instead of failing.
+         *     - **501 `not_implemented`** — a media `type` that is not built yet.
+         */
+        post: operations["sendMessage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}/messages/{mid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke a message (delete for everyone)
+         * @description Deletes the message identified by `mid` in the path **for everyone** in the chat — not just on your own device. Located by `chat` (and `sender`) in the body.
+         *
+         *     Use the `sender` body field to revoke another participant's message (e.g. as a group admin); leave it empty to revoke your own message.
+         *
+         *     This is a synchronous operation and returns **200** with a `SendResult`. WhatsApp enforces its own time/role limits on who may revoke what.
+         *
+         *     ### Preconditions & errors
+         *     - Requires the **`send`** capability.
+         *     - **404 `not_found`** — the session or message does not exist or is not owned by your organization.
+         */
+        delete: operations["revokeMessage"];
+        options?: never;
+        head?: never;
+        /**
+         * Edit a sent text message
+         * @description Replaces the text body of a message you already sent, identified by `mid` in the path and located by `chat` in the body.
+         *
+         *     **Constraints:**
+         *     - Only **text** messages can be edited; editing media or other kinds is not supported.
+         *     - The message must have been sent by this session.
+         *
+         *     This is a synchronous send to WhatsApp and returns **200** with a `SendResult`.
+         *
+         *     ### Preconditions & errors
+         *     - Requires the **`send`** capability.
+         *     - **400 `validation_error`** — missing/empty `text` or a non-text message.
+         *     - **404 `not_found`** — the session or message does not exist or is not owned by your organization.
+         */
+        patch: operations["editMessage"];
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}/messages/{mid}/forward": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Forward a message to another chat
+         * @description Forwards the message identified by `mid` (located by `chat`/`sender` in the body) to the destination chat named by `to` (a recipient JID).
+         *
+         *     **Note (v1 behavior):** the forwarded message is sent as a **text reference** to the original, marked as forwarded — it does **not** copy the original body verbatim or re-upload media. A faithful copy is planned once the gateway can fetch a stored message by id.
+         *
+         *     Returns **200** with a `SendResult` describing the newly sent (forwarded) message.
+         *
+         *     ### Preconditions & errors
+         *     - Requires the **`send`** capability.
+         *     - **400 `validation_error`** — missing/empty `to`.
+         *     - **404 `not_found`** — the session or source message does not exist or is not owned by your organization.
+         */
+        post: operations["forwardMessage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}/messages/{mid}/reaction": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add a reaction to a message
+         * @description Reacts to the message identified by `mid` (located by `chat`/`sender` in the body) with a single emoji.
+         *
+         *     A reaction is **idempotent per message**: sending a new reaction replaces any reaction you previously set on that message — there is at most one reaction per (you, message) pair.
+         *
+         *     Returns **200** with a `SendResult`.
+         *
+         *     ### Preconditions & errors
+         *     - Requires the **`send`** capability.
+         *     - **400 `validation_error`** — missing/empty `emoji`.
+         *     - **404 `not_found`** — the session or message does not exist or is not owned by your organization.
+         */
+        post: operations["addReaction"];
+        /**
+         * Remove your reaction from a message
+         * @description Clears the reaction you previously set on the message identified by `mid` (located by `chat`/`sender` in the body). The gateway sends an **empty** reaction to WhatsApp, so any `emoji` value in the body is ignored.
+         *
+         *     Idempotent: removing when no reaction is set is a no-op. Returns **200** with a `SendResult`.
+         *
+         *     ### Preconditions & errors
+         *     - Requires the **`send`** capability.
+         *     - **404 `not_found`** — the session or message does not exist or is not owned by your organization.
+         */
+        delete: operations["removeReaction"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}/messages/{mid}/vote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Vote on a poll message
+         * @description Casts a vote on the poll message identified by `mid` (located by `chat`/`sender` in the body).
+         *
+         *     `options` is the **complete** set of poll choices you want selected — it **replaces** your previous vote rather than adding to it. Send an empty array to clear your vote; for a single-choice poll send exactly one option.
+         *
+         *     Returns **200** with a `SendResult`.
+         *
+         *     ### Preconditions & errors
+         *     - Requires the **`send`** capability.
+         *     - **400 `validation_error`** — the target is not a poll or an option does not match the poll's choices.
+         *     - **404 `not_found`** — the session or poll message does not exist or is not owned by your organization.
+         */
+        post: operations["voteMessage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}/pairing-code": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Request a phone pairing code
+         * @description Requests a pairing code to attach a number **without scanning a QR** — the alternative to the QR endpoint.
+         *
+         *     Requires the `manage` capability.
+         *
+         *     **Input.** Pass the target `phone` (international format, digits only, no leading + — e.g. `628123456789`) in the request body.
+         *
+         *     **Output.** The response returns a short code such as `ABCD-1234` to enter in WhatsApp on that phone under Settings → Linked devices → Link a device → Link with phone number instead.
+         *
+         *     **Precondition.** The session must be unpaired; requesting a code for an already-paired session returns an error. The code is short-lived — request a fresh one if it expires before use.
+         *
+         *     **Errors.** `validation_error` (400) — missing or malformed `phone`, or the session is already paired. `not_found` (404) — no such session in your organization. `unauthorized` (401) / `forbidden` (403) — credential / capability failures.
+         */
+        post: operations["sessionPairingCode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}/presence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set account presence (online / offline)
+         * @description Set the session account's **global** presence to `online` or `offline` — whether the account's contacts see it as available.
+         *
+         *     **When to use.** Mark the account available (`online`) or away (`offline`) account-wide. This is *not* per-chat: to send a "typing…" or "recording…" indicator into one conversation, use the chat presence endpoint (`PUT /sessions/{session}/chats/{cid}/presence`) instead.
+         *
+         *     **Capability.** Requires the `send` capability on the caller's identity.
+         *
+         *     **Preconditions.** The `{session}` must belong to the caller's organization and be paired/connected; an unknown or cross-org session yields `not_found` (404).
+         *
+         *     **Idempotency.** Setting the presence to a value it already holds is a no-op as far as observers are concerned; the call is safe to repeat.
+         *
+         *     **Result.** Returns `204 No Content` on success (empty body).
+         *
+         *     **Errors.**
+         *     - `validation_error` (400) — `state` is missing or not one of `online` / `offline`.
+         *     - `not_found` (404) — the session does not exist or is not owned by the caller's organization.
+         *     - `forbidden` (403) — the caller lacks the `send` capability.
+         *     - `not_implemented` (501) — a presence mode not supported by the engine.
+         */
+        put: operations["setPresence"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}/qr": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the current pairing QR code
+         * @description Returns the QR code to scan from WhatsApp on the phone (Settings → Linked devices → Link a device) to attach a number to this session.
+         *
+         *     Requires the `manage` capability.
+         *
+         *     **Behavior.** Returns the raw QR code string in the JSON body.
+         *
+         *     **Side effect.** If no code is ready yet, this endpoint *starts pairing* and returns `not_found` (404) until a code exists. QR codes are short-lived and refresh periodically; they also stream live over the event stream as `auth.qr` events, so the recommended pattern is to subscribe there and follow the codes as they rotate rather than polling.
+         *
+         *     **Precondition.** The session must be unpaired — requesting a QR for an already-paired session returns an error.
+         *
+         *     **Errors.** `not_found` (404) — no code ready yet (pairing was started) or session unknown. `unauthorized` (401) / `forbidden` (403) — credential / capability failures.
+         */
+        get: operations["sessionQR"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Post a status update (text; media returns 501)
+         * @description Post a status update — the "My Status" story — from this session's WhatsApp account.
+         *
+         *     **When to use.** Publish a short text update visible to the account's contacts (subject to WhatsApp's own status-privacy settings).
+         *
+         *     **Capability.** Requires the `send` capability on the caller's identity.
+         *
+         *     **Preconditions.** The `{session}` must belong to the caller's organization and be paired/connected; an unknown or cross-org session yields `not_found` (404).
+         *
+         *     **Supported types.** Only `type: text` works in v1. The `type` field may be omitted, in which case it defaults to `text`.
+         *
+         *     **Side effects.** On success the status story is published on WhatsApp and a message id is returned. There is no built-in idempotency key for this endpoint — re-posting the same text publishes a new status each time, so callers that retry must dedupe themselves.
+         *
+         *     **Result.** Returns `200` with the published WhatsApp message id (`messageId`).
+         *
+         *     **Errors.**
+         *     - `validation_error` (400) — empty/whitespace `text` for a text status.
+         *     - `not_found` (404) — the session does not exist or is not owned by the caller's organization.
+         *     - `forbidden` (403) — the caller lacks the `send` capability.
+         *     - `not_implemented` (501) — `type: image` or any non-text type; media statuses are not implemented in v1 (consistent with media send).
+         */
+        post: operations["postStatus"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}:logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Log out a session (unpair the device)
+         * @description Logs the session out of WhatsApp and **unlinks the device**, so the number is no longer attached.
+         *
+         *     Requires the `manage` capability.
+         *
+         *     **Destructive.** Unlike `:stop` (which keeps the pairing), logout severs the link: to use the number again you must pair it from scratch via QR or a pairing code. The session row itself remains — use `DELETE /sessions/{session}` to remove it entirely.
+         *
+         *     **Idempotency.** Logging out a session that is already logged out / unpaired is a harmless no-op. The response returns the refreshed session so you can see its new status.
+         *
+         *     **Errors.** `not_found` (404) — no such session in your organization. `unauthorized` (401) / `forbidden` (403) — credential / capability failures.
+         *
+         *     Returns **200** with the refreshed session.
+         */
+        post: operations["logoutSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}:restart": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restart a session
+         * @description Stops and then starts the session — a reconnect that keeps the number paired.
+         *
+         *     Requires the `manage` capability.
+         *
+         *     Use this to recover a session that is stuck or in a failed state. The number stays attached throughout; no re-pairing is needed.
+         *
+         *     **Async.** The reconnect proceeds in the background; the response returns the refreshed session row so you can observe its new status.
+         *
+         *     **Errors.** `not_found` (404) — no such session in your organization. `unauthorized` (401) / `forbidden` (403) — credential / capability failures.
+         *
+         *     Returns **200** with the refreshed session.
+         */
+        post: operations["restartSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}:start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start a session
+         * @description Connects an **already-paired** session to WhatsApp.
+         *
+         *     Requires the `manage` capability.
+         *
+         *     **Precondition.** The session must already have a number attached. To pair a *new* session instead, use the QR (`GET /sessions/{session}/qr`) or pairing-code (`POST /sessions/{session}/pairing-code`) endpoints.
+         *
+         *     **Async / idempotency.** Connecting happens in the background; the response returns the refreshed session row so you can observe its new status (it may still be transitioning). Calling start on a session that is already started is a harmless no-op.
+         *
+         *     **Errors.** `not_found` (404) — no such session in your organization. `unauthorized` (401) / `forbidden` (403) — credential / capability failures.
+         *
+         *     Returns **200** with the refreshed session.
+         */
+        post: operations["startSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}:stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop a session
+         * @description Disconnects a session from WhatsApp **without** unlinking the device.
+         *
+         *     Requires the `manage` capability.
+         *
+         *     The attached number stays paired, so you can `:start` it again later without re-pairing. To unlink the device entirely, use `:logout` instead.
+         *
+         *     **Idempotency.** Stopping an already-stopped session is a harmless no-op. The response returns the refreshed session so you can see its new status.
+         *
+         *     **Errors.** `not_found` (404) — no such session in your organization. `unauthorized` (401) / `forbidden` (403) — credential / capability failures.
+         *
+         *     Returns **200** with the refreshed session.
+         */
+        post: operations["stopSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/webhooks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List webhooks
+         * @description List the webhook endpoints configured for the caller's organization. Requires the `manage` capability.
+         *
+         *     The response is scoped to the caller's organization — webhooks owned by other organizations are never returned, and secrets are never included.
+         *
+         *     This endpoint returns the full set in one page (the response carries an empty `nextCursor`); no pagination parameters are accepted. Errors: `403 forbidden` if the caller lacks the `manage` capability.
+         */
+        get: operations["listWebhooks"];
+        put?: never;
+        /**
+         * Create a webhook
+         * @description Register a webhook endpoint for the caller's organization. Requires the `manage` capability.
+         *
+         *     When a matching event fires, the gateway sends an HTTP `POST` to `url` whose body is the event envelope — the same JSON shape delivered over the realtime WebSocket. Use `events` to choose the event types to receive (`["*"]` for all) and `sessionId` to scope deliveries to one session (null/omitted = all of the organization's sessions).
+         *
+         *     **Signing.** If you set a `secret`, every `POST` is signed: the gateway sends the lowercase-hex HMAC-SHA512 of the exact raw request body in the `X-Webhook-Hmac` header (with `X-Webhook-Hmac-Algorithm: sha512`). Recompute it on your end with the same secret to confirm the request really came from the gateway. The secret is stored encrypted and is never returned in any response.
+         *
+         *     **Delivery headers.** Every `POST` also carries `X-Webhook-Request-Id` (the event id — use it to drop duplicate redeliveries) and `X-Webhook-Timestamp` (epoch milliseconds). Any `customHeaders` are applied last and can override the defaults.
+         *
+         *     **Retries.** A delivery that returns non-2xx or fails to connect is retried on the `retryPolicy` schedule — by default exponential backoff (2s, 4s, 8s, …) for up to 15 attempts, after which it is given up (dead-lettered).
+         *
+         *     On success returns `201` with the created webhook. Errors: `422 validation_error` if the body is malformed (e.g. `url` missing or not a valid URL); `403 forbidden` if the caller lacks the `manage` capability.
+         */
+        post: operations["createWebhook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/webhooks/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a webhook
+         * @description Fetch one webhook by `id`. Requires the `manage` capability, and the webhook must belong to the caller's organization.
+         *
+         *     The signing secret is never returned. Errors: `404 not_found` if no webhook with that id is owned by the caller's organization; `403 forbidden` if the caller lacks the `manage` capability.
+         */
+        get: operations["getWebhook"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete a webhook
+         * @description Delete the webhook identified by `id`. Requires the `manage` capability, and the webhook must belong to the caller's organization.
+         *
+         *     After deletion no further events are delivered to its url; any deliveries already pending retry stop. The deletion is permanent — there is no soft-delete (to pause deliveries without removing the config, set `active: false` via update instead).
+         *
+         *     On success returns `204` with an empty body. Errors: `404 not_found` if no webhook with that id is owned by the caller's organization; `403 forbidden` if the caller lacks the `manage` capability.
+         */
+        delete: operations["deleteWebhook"];
+        options?: never;
+        head?: never;
+        /**
+         * Update a webhook
+         * @description Update the webhook identified by `id` — its `url`, `events`, `sessionId` scope, `secret`, `customHeaders`, `retryPolicy`, or `active` flag. Requires the `manage` capability, and the webhook must belong to the caller's organization.
+         *
+         *     **Secret rotation.** Send a new `secret` to rotate it; omit the field to leave the stored secret unchanged. As elsewhere, the secret is never returned.
+         *
+         *     On success returns `200` with the updated webhook. Errors: `404 not_found` if no webhook with that id is owned by the caller's organization; `422 validation_error` if the supplied fields are invalid (e.g. a malformed `url`); `403 forbidden` if the caller lacks the `manage` capability.
+         */
+        patch: operations["updateWebhook"];
+        trace?: never;
+    };
 }
-export type webhooks = Record<string, never>;
+export interface webhooks {
+    event: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Gateway event
+         * @description The gateway POSTs this body to each configured webhook url when a matching event fires, and delivers the identical envelope over the realtime WebSocket as a discrete JSON message. The `event` field discriminates which payload shape applies. Webhook deliveries carry the event id in the `X-Webhook-Request-Id` header (and an HMAC signature in `X-Webhook-Signature` when a secret is configured) so receivers can verify and de-duplicate.
+         */
+        post: operations["event"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+}
 export interface components {
     schemas: {
-        /** @description The shape every error response uses. The HTTP status code says what kind of failure it was; this body carries a stable machine-readable `code`, a human `message`, and optional `details`. */
-        Error: {
-            error: {
-                /**
-                 * @description Stable error code, independent of the HTTP status. `rate_limited` = too many requests; `not_found` = no such resource (or it belongs to another organization); `unauthorized` = missing/invalid credentials; `forbidden` = authenticated but lacks the required permission; `validation_error` = bad request input; `conflict` = a duplicate or state clash; `not_implemented` = the feature is stubbed in this build (returned as HTTP 501); `internal` = an unexpected server error.
-                 * @enum {string}
-                 */
-                code: "rate_limited" | "not_found" | "unauthorized" | "forbidden" | "validation_error" | "conflict" | "not_implemented" | "internal";
-                /** @description Human-readable explanation of what went wrong. */
-                message: string;
-                /** @description Optional extra context about the error (e.g. which field failed validation). */
-                details?: {
-                    [key: string]: unknown;
-                };
-            };
-        };
-        /** @description Pagination fields shared by every list response. */
-        PageMeta: {
-            /** @description Pass this back as the `cursor` query parameter to fetch the next page. It is null (or absent) when there are no more items. */
-            nextCursor?: string | null;
-        };
-        /** @description Fields for creating a new WhatsApp session (an attached number). */
-        CreateSessionRequest: {
-            /** @description Optional human-friendly name for the session. */
-            label?: string;
-            /** @description If true, start the session right away (otherwise it is created stopped). */
-            start?: boolean;
-            /** @description If true, mark incoming messages as read automatically. */
-            autoRead?: boolean;
-            /** @description If true, send a "typing…" presence indicator while sending. */
-            presenceTyping?: boolean;
-        };
-        /** @description One attached WhatsApp number. Each session is owned by one organization and runs on one gateway. The `gateway` object (when present) describes which gateway holds this session, so a dashboard can show where each session lives when there is more than one gateway. */
-        WASession: {
-            /** @description The session id (a ULID). */
-            id: string;
-            /** @description Id of the organization that owns this session. */
-            organizationId: string;
-            /** @description Id of the user who created the session (kept for audit). */
-            createdByUserId?: string;
-            /** @description Id of the gateway that holds this session's WhatsApp keys and connection. */
-            gatewayId: string;
-            /** @description The owning gateway's details (label, online status, base URL), for showing where the session runs. */
-            gateway?: components["schemas"]["Gateway"];
-            /** @description Human-friendly name for the session. */
-            label?: string;
+        AddGroupMembersInputBody: {
             /**
-             * @description Where the session is in its lifecycle. `starting` = connecting (also used after a transient disconnect, since the gateway reconnects); `scan_qr_code` = waiting for the QR code to be scanned to pair; `working` = connected and usable; `failed` = the connection broke (e.g. replaced by another device); `stopped` = deliberately stopped; `logged_out` = unpaired on the phone, needs a fresh QR scan.
+             * @description User JIDs to add to the group (each ending in @s.whatsapp.net). Required by the service. The session's account must be a group admin; some numbers may decline to be added depending on their privacy settings.
+             * @example [
+             *       "6281234567890@s.whatsapp.net"
+             *     ]
+             */
+            participants?: string[] | null;
+        };
+        ApiError: Record<string, never>;
+        ApproveGroupMembersInputBody: {
+            /**
+             * @description User JIDs of pending join requests to approve. Not implemented in v2 (always 501); this field is accepted but never acted on.
+             * @example [
+             *       "6281234567890@s.whatsapp.net"
+             *     ]
+             */
+            participants?: string[] | null;
+        };
+        AuthCodeEvent: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
-            status: "starting" | "scan_qr_code" | "working" | "failed" | "stopped" | "logged_out";
-            /** @description The session's own WhatsApp JID, set once the number is paired. */
-            waJid?: string;
-            /** @description The session's linked-device id (LID), WhatsApp's privacy-preserving per-device address. */
-            waLid?: string;
-            /** @description The paired phone number in plain digits. */
-            phoneNumber?: string;
-            /** @description True if this is the gateway's configured admin session (WHATSAPP_ADMIN_NUMBER). */
-            isAdminSession: boolean;
-            /** @description Whether incoming messages are marked read automatically. */
-            autoRead: boolean;
-            /** @description Whether a "typing…" indicator is sent while sending. */
-            presenceTyping: boolean;
-            /** @description Send rate limit per minute for this session. */
-            ratePerMin: number;
-            /** @description Send rate limit per hour for this session. */
-            ratePerHour: number;
+            event: "auth.code";
             /**
-             * Format: int64
-             * @description When the session last connected, in epoch milliseconds.
+             * @description Unique event id. Webhook deliveries repeat it in the X-Webhook-Request-Id header so receivers can drop duplicate redeliveries; the realtime client uses it as the ?since resume cursor.
+             * @example evt_01J9ZX...
              */
-            lastConnectedAt?: number;
+            id: string;
+            /**
+             * @description Id of the organization that owns the session.
+             * @example org_01J9...
+             */
+            organization: string;
+            payload: components["schemas"]["AuthCodePayload"];
+            /**
+             * @description Envelope schema version, so consumers can adapt if the shape changes.
+             * @example v1
+             * @enum {string}
+             */
+            schema: "v1";
+            /**
+             * @description Id of the WhatsApp session the event came from.
+             * @example wa_sess_01J9...
+             */
+            session: string;
             /**
              * Format: int64
-             * @description When the session was created, in epoch milliseconds.
+             * @description When the event happened, in epoch milliseconds.
+             * @example 1719400000000
+             */
+            timestamp: number;
+        };
+        AuthCodePayload: {
+            /** @description The account's WhatsApp Business display name, if it is a business account. */
+            businessName?: string;
+            /**
+             * @description The linked phone JID (e.g. 6281234567890@s.whatsapp.net).
+             * @example 6281234567890@s.whatsapp.net
+             */
+            jid?: string;
+            /** @description The linked-device identifier (LID) WhatsApp assigned to this device. */
+            lid?: string;
+            /** @description The device platform WhatsApp reports (e.g. android, iphone, web). */
+            platform?: string;
+        };
+        AuthQREvent: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            event: "auth.qr";
+            /**
+             * @description Unique event id. Webhook deliveries repeat it in the X-Webhook-Request-Id header so receivers can drop duplicate redeliveries; the realtime client uses it as the ?since resume cursor.
+             * @example evt_01J9ZX...
+             */
+            id: string;
+            /**
+             * @description Id of the organization that owns the session.
+             * @example org_01J9...
+             */
+            organization: string;
+            payload: components["schemas"]["AuthQRPayload"];
+            /**
+             * @description Envelope schema version, so consumers can adapt if the shape changes.
+             * @example v1
+             * @enum {string}
+             */
+            schema: "v1";
+            /**
+             * @description Id of the WhatsApp session the event came from.
+             * @example wa_sess_01J9...
+             */
+            session: string;
+            /**
+             * Format: int64
+             * @description When the event happened, in epoch milliseconds.
+             * @example 1719400000000
+             */
+            timestamp: number;
+        };
+        AuthQRPayload: {
+            /**
+             * @description The QR code content to render as a QR image for the user to scan in WhatsApp → Linked devices.
+             * @example 2@abc123...
+             */
+            code: string;
+        };
+        BackfillImport: {
+            /**
+             * Format: int64
+             * @description Number of chats upserted.
+             * @example 57
+             */
+            chats: number;
+            /**
+             * Format: int64
+             * @description When the import started, in epoch milliseconds (UTC).
+             * @example 1719662400000
              */
             createdAt: number;
             /**
-             * Format: int64
-             * @description When the session was last updated, in epoch milliseconds.
+             * @description Failure message when status is failed. Optional; empty otherwise.
+             * @example unsupported backup schema
              */
-            updatedAt: number;
-        };
-        /** @description One gateway instance. A deployment usually has a single gateway; more are added only when sharding sessions across machines. This is attached to session responses so a dashboard knows where a session runs. */
-        Gateway: {
-            /** @description The gateway's id. */
-            id: string;
-            /** @description Human-friendly name for the gateway. */
-            label?: string;
-            /**
-             * @description Whether the gateway is currently reachable, based on its most recent heartbeat.
-             * @enum {string}
-             */
-            status: "online" | "offline";
-            /** @description The gateway's public base URL, where clients reach it. */
-            baseUrl?: string;
-            /**
-             * Format: int64
-             * @description When the gateway last sent a heartbeat, in epoch milliseconds.
-             */
-            lastSeenAt?: number;
-        };
-        /** @description One page of sessions, plus the cursor for the next page. */
-        SessionPage: components["schemas"]["PageMeta"] & {
-            /** @description The sessions on this page. */
-            data?: components["schemas"]["WASession"][];
-        };
-        /** @description The WhatsApp account this session is paired with. */
-        SessionMe: {
-            /** @description The account's own WhatsApp JID. */
-            jid?: string;
-            /** @description The account's linked-device id (LID). */
-            lid?: string;
-            /** @description The display name the account shows to others. */
-            pushName?: string;
-            /** @description The paired phone number in plain digits. */
-            phoneNumber?: string;
-        };
-        BackfillJob: {
-            /** @description The backfill job id. */
-            id: string;
-            /** @description The session being backfilled. */
-            sessionId: string;
-            /** @description The session owner's organization id. */
-            organizationId: string;
-            /**
-             * @description Current job state.
-             * @enum {string}
-             */
-            status: "running" | "succeeded" | "failed";
-            /** @description Number of contacts persisted. */
-            contacts: number;
-            /** @description Number of groups persisted. */
-            groups: number;
-            /** @description Number of group memberships persisted. */
-            groupMembers: number;
-            /** @description Failure message when status is failed. */
             error?: string;
             /**
              * Format: int64
-             * @description When the job started, in epoch milliseconds.
-             */
-            startedAt: number;
-            /**
-             * Format: int64
-             * @description When the job finished, in epoch milliseconds.
+             * @description When the import finished, in epoch milliseconds (UTC). Optional; null while still running.
+             * @example 1719662460000
              */
             finishedAt?: number;
-        };
-        /** @description A user-initiated WhatsApp backup (crypt15) import job and its progress. */
-        BackfillImport: {
-            /** @description The import job id. */
+            /**
+             * Format: int64
+             * @description Number of group memberships upserted.
+             * @example 342
+             */
+            groupMembers: number;
+            /**
+             * Format: int64
+             * @description Number of groups upserted.
+             * @example 14
+             */
+            groups: number;
+            /**
+             * @description The import job id.
+             * @example 01J9...
+             */
             id: string;
-            /** @description The session being backfilled. */
-            sessionId: string;
-            /** @description The session owner's organization id. */
+            /**
+             * Format: int64
+             * @description Number of identities upserted.
+             * @example 310
+             */
+            identities: number;
+            /**
+             * Format: int64
+             * @description Number of messages upserted.
+             * @example 12043
+             */
+            messages: number;
+            /**
+             * @description Id of the organization that owns the session.
+             * @example org_01J9ABC...
+             */
             organizationId: string;
             /**
-             * @description The backup source.
+             * @description Detected backup schema fingerprint (WhatsApp build id + capability hash), recorded for diagnosing format drift. Optional; null when not detected.
+             * @example 2.24.x:ab12cd
+             */
+            schemaFingerprint?: string;
+            /**
+             * @description Id of the session being backfilled.
+             * @example 01J9ZX8K2QHV0M3T6R7P4N5W8C
+             */
+            sessionId: string;
+            /**
+             * @description The backup source format. Currently always crypt15 (an encrypted WhatsApp chat backup).
              * @example crypt15
              */
             source: string;
             /**
-             * @description Current job state.
+             * @description Current job state. **running** = import in progress; **succeeded** = completed and rows upserted; **failed** = aborted (see error). Progression: running → succeeded, or running → failed.
+             * @example succeeded
              * @enum {string}
              */
             status: "running" | "succeeded" | "failed";
-            /** @description Number of chats upserted. */
-            chats: number;
-            /** @description Number of messages upserted. */
-            messages: number;
-            /** @description Number of identities upserted. */
-            identities: number;
-            /** @description Number of groups upserted. */
-            groups: number;
-            /** @description Number of group memberships upserted. */
-            groupMembers: number;
-            /** @description Detected backup schema fingerprint (WhatsApp build id + capability hash). */
-            schemaFingerprint?: string;
-            /** @description Failure message when status is failed. */
+        };
+        BackfillJob: {
+            /**
+             * Format: int64
+             * @description Number of contacts persisted so far.
+             * @example 128
+             */
+            contacts: number;
+            /**
+             * @description Failure message when status is failed. Optional; empty otherwise.
+             * @example session not connected
+             */
             error?: string;
             /**
              * Format: int64
-             * @description When the import started, in epoch milliseconds.
-             */
-            createdAt: number;
-            /**
-             * Format: int64
-             * @description When the import finished, in epoch milliseconds.
+             * @description When the job finished, in epoch milliseconds (UTC). Optional; null while still running.
+             * @example 1719662460000
              */
             finishedAt?: number;
-        };
-        /** @description The pairing QR code to display so the user can link their phone. */
-        QRCode: {
-            /** @description The QR payload string; render it as a QR image for the user to scan. */
-            code?: string;
-        };
-        /** @description One outgoing message. `type` selects which other fields apply (e.g. `text` uses `text`; `location` uses `latitude`/`longitude`/`name`; `poll` uses `name`/`options`/`selectableCount`). Media types (image/video/audio/document/sticker) are not implemented in this build and return 501. */
-        SendRequest: {
-            /**
-             * @description Which kind of message to send. Determines which other fields are used.
-             * @enum {string}
-             */
-            type: "text" | "poll" | "location" | "contact" | "image" | "video" | "audio" | "document" | "sticker";
-            /** @description The recipient's JID (a user JID for a direct message, a group JID for a group). */
-            to: string;
-            /** @description The message text (for type text). */
-            text?: string;
-            /** @description The id of the message this one quotes/replies to. */
-            replyTo?: string;
-            /** @description JIDs to @-mention in the message. */
-            mentions?: string[];
-            /** @description For a poll, the poll question; for a location, the place label. */
-            name?: string;
-            /** @description The poll's answer options (for poll messages). */
-            options?: string[];
-            /** @description How many options a voter may pick in the poll (1 = single choice). */
-            selectableCount?: number;
-            /** @description Latitude of the shared location. */
-            latitude?: number;
-            /** @description Longitude of the shared location. */
-            longitude?: number;
-            contact?: components["schemas"]["ContactCard"];
-        };
-        /** @description A contact to share (for contact messages). */
-        ContactCard: {
-            /** @description The contact's display name. */
-            name?: string;
-            /** @description The contact's phone number. */
-            phone?: string;
-            /** @description A full vCard string; if set, it is sent verbatim instead of building one from name/phone. */
-            vcard?: string;
-        };
-        /** @description The outcome of a send request. */
-        SendResult: {
-            /** @description The WhatsApp message id assigned to the sent message. */
-            messageId?: string;
-            /**
-             * @description Delivery state of the message. `pending` = queued/not yet confirmed; `sent` = handed to WhatsApp; `delivered` = reached the recipient's device; `read` = opened; `played` = voice/video note played; `failed` = could not be sent.
-             * @enum {string}
-             */
-            status?: "pending" | "sent" | "delivered" | "read" | "played" | "failed";
             /**
              * Format: int64
-             * @description When the message was sent, in epoch milliseconds.
+             * @description Number of group memberships persisted so far.
+             * @example 342
+             */
+            groupMembers: number;
+            /**
+             * Format: int64
+             * @description Number of groups persisted so far.
+             * @example 14
+             */
+            groups: number;
+            /**
+             * @description The backfill job id.
+             * @example 01J9...
+             */
+            id: string;
+            /**
+             * @description Id of the organization that owns the session.
+             * @example org_01J9ABC...
+             */
+            organizationId: string;
+            /**
+             * @description Id of the session being backfilled.
+             * @example 01J9ZX8K2QHV0M3T6R7P4N5W8C
+             */
+            sessionId: string;
+            /**
+             * Format: int64
+             * @description When the job started, in epoch milliseconds (UTC).
+             * @example 1719662400000
+             */
+            startedAt: number;
+            /**
+             * @description Current job state. **running** = in progress; **succeeded** = completed and data persisted; **failed** = aborted (see error). Progression: running → succeeded, or running → failed.
+             * @example succeeded
+             * @enum {string}
+             */
+            status: "running" | "succeeded" | "failed";
+        };
+        CallEvent: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            event: "call.incoming";
+            /**
+             * @description Unique event id. Webhook deliveries repeat it in the X-Webhook-Request-Id header so receivers can drop duplicate redeliveries; the realtime client uses it as the ?since resume cursor.
+             * @example evt_01J9ZX...
+             */
+            id: string;
+            /**
+             * @description Id of the organization that owns the session.
+             * @example org_01J9...
+             */
+            organization: string;
+            payload: components["schemas"]["CallPayload"];
+            /**
+             * @description Envelope schema version, so consumers can adapt if the shape changes.
+             * @example v1
+             * @enum {string}
+             */
+            schema: "v1";
+            /**
+             * @description Id of the WhatsApp session the event came from.
+             * @example wa_sess_01J9...
+             */
+            session: string;
+            /**
+             * Format: int64
+             * @description When the event happened, in epoch milliseconds.
+             * @example 1719400000000
+             */
+            timestamp: number;
+        };
+        CallPayload: {
+            /** @description WhatsApp's call id. */
+            callId: string;
+            /** @description JID of the caller. */
+            from: string;
+            /** @description JID of the group, for a group call. */
+            groupJid?: string;
+            /** @description True for a group call. */
+            isGroup: boolean;
+            /**
+             * Format: int64
+             * @description When the call came in, epoch milliseconds.
+             */
+            timestamp: number;
+        };
+        Chat: {
+            /**
+             * @description Whether the chat is archived.
+             * @example false
+             */
+            archived: boolean;
+            /**
+             * Format: int64
+             * @description The chat row id (internal numeric key).
+             * @example 3344
+             */
+            id: number;
+            /**
+             * @description The chat's WhatsApp JID — its stable identifier.
+             * @example 6281234567890@s.whatsapp.net
+             */
+            jid: string;
+            /**
+             * Format: int64
+             * @description When the most recent message in this chat arrived, in epoch milliseconds (UTC). Optional; null if the chat has no messages.
+             * @example 1719662400000
+             */
+            lastMessageAt?: number;
+            /**
+             * Format: int64
+             * @description Muted until this time, in epoch milliseconds (UTC). Optional; null/absent when the chat is not muted.
+             * @example 1751198400000
+             */
+            mutedUntil?: number;
+            /**
+             * @description The chat's display name (contact name for a DM, subject for a group). Optional; null when unknown.
+             * @example Alice
+             */
+            name?: string;
+            /**
+             * @description Whether the chat is pinned to the top of the list.
+             * @example false
+             */
+            pinned: boolean;
+            /**
+             * @description Id of the session this chat belongs to.
+             * @example 01J9ZX8K2QHV0M3T6R7P4N5W8C
+             */
+            sessionId: string;
+            /**
+             * @description Kind of chat. **dm** = one-to-one direct message; **group** = a group chat; **newsletter** = a WhatsApp channel; **broadcast** = a broadcast list; **status** = the status (stories) feed.
+             * @example dm
+             * @enum {string}
+             */
+            type: "dm" | "group" | "newsletter" | "broadcast" | "status";
+            /**
+             * Format: int64
+             * @description Number of unread messages in this chat.
+             * @example 3
+             */
+            unreadCount: number;
+        };
+        ChatPresenceInputBody: {
+            /**
+             * @description The presence state to broadcast to the chat. One of: composing — show a "typing…" indicator; recording — show a "recording audio…" indicator; paused — clear an active typing/recording indicator. Required.
+             * @example composing
+             * @enum {string}
+             */
+            state?: "composing" | "paused" | "recording";
+        };
+        ChatUpdateEvent: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            event: "chat.update";
+            /**
+             * @description Unique event id. Webhook deliveries repeat it in the X-Webhook-Request-Id header so receivers can drop duplicate redeliveries; the realtime client uses it as the ?since resume cursor.
+             * @example evt_01J9ZX...
+             */
+            id: string;
+            /**
+             * @description Id of the organization that owns the session.
+             * @example org_01J9...
+             */
+            organization: string;
+            payload: components["schemas"]["ChatUpdatePayload"];
+            /**
+             * @description Envelope schema version, so consumers can adapt if the shape changes.
+             * @example v1
+             * @enum {string}
+             */
+            schema: "v1";
+            /**
+             * @description Id of the WhatsApp session the event came from.
+             * @example wa_sess_01J9...
+             */
+            session: string;
+            /**
+             * Format: int64
+             * @description When the event happened, in epoch milliseconds.
+             * @example 1719400000000
+             */
+            timestamp: number;
+        };
+        ChatUpdatePayload: {
+            /**
+             * @description What changed; currently picture.
+             * @example picture
+             */
+            change: string;
+            /** @description JID of the chat that changed. */
+            chatJid: string;
+            /** @description Id of the new profile picture, when set. */
+            pictureId?: string;
+            /** @description True if the picture was removed rather than changed. */
+            removed?: boolean;
+        };
+        Contact: {
+            /**
+             * @description The verified business name, for WhatsApp Business accounts. Optional; null for non-business accounts.
+             * @example Acme Corp
+             */
+            businessName?: string;
+            /**
+             * @description The contact's linked-device id (LID) — WhatsApp's privacy-preserving address, used as the stable key for a contact.
+             * @example 205227043110953@lid
+             */
+            lid: string;
+            /**
+             * @description The contact's display (push) name, when known. Optional; null when unknown.
+             * @example Alice
+             */
+            name?: string;
+            /**
+             * @description The contact's phone number in plain digits, when known. Optional; null when only the LID is known.
+             * @example 6281234567890
+             */
+            phoneNumber?: string;
+            /**
+             * @description Where this session encountered the contact. **dm** = a direct chat with them exists; **group** = they were seen in a group this session is in.
+             * @example dm
+             * @enum {string}
+             */
+            source: "dm" | "group";
+        };
+        ContactAboutOutputBody: {
+            about: string;
+        };
+        ContactCard: {
+            /**
+             * @description The shared contact's display name. Used to build a vCard when vcard is not supplied. Optional.
+             * @example Alice
+             */
+            name?: string;
+            /**
+             * @description The shared contact's phone number in plain digits. Used to build a vCard when vcard is not supplied. Optional.
+             * @example 6281234567890
+             */
+            phone?: string;
+            /**
+             * @description A full vCard string. If set, it is sent verbatim instead of building one from name/phone. Optional.
+             * @example BEGIN:VCARD
+             *     VERSION:3.0
+             *     FN:Alice
+             *     TEL:+6281234567890
+             *     END:VCARD
+             */
+            vcard?: string;
+        };
+        ContactData: {
+            /** @description The contact's display name. */
+            displayName?: string;
+            /** @description The raw vCard for the shared contact. */
+            vcard?: string;
+        };
+        ContactDetail: {
+            dm: boolean;
+            groups: components["schemas"]["ContactGroup"][] | null;
+            identity?: components["schemas"]["Identity"];
+        };
+        ContactGroup: {
+            jid: string;
+            /** Format: int64 */
+            lastSeen: number;
+            name?: string;
+            role: string;
+            tag?: string;
+        };
+        ContactUpdateEvent: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            event: "contact.update";
+            /**
+             * @description Unique event id. Webhook deliveries repeat it in the X-Webhook-Request-Id header so receivers can drop duplicate redeliveries; the realtime client uses it as the ?since resume cursor.
+             * @example evt_01J9ZX...
+             */
+            id: string;
+            /**
+             * @description Id of the organization that owns the session.
+             * @example org_01J9...
+             */
+            organization: string;
+            payload: components["schemas"]["ContactUpdatePayload"];
+            /**
+             * @description Envelope schema version, so consumers can adapt if the shape changes.
+             * @example v1
+             * @enum {string}
+             */
+            schema: "v1";
+            /**
+             * @description Id of the WhatsApp session the event came from.
+             * @example wa_sess_01J9...
+             */
+            session: string;
+            /**
+             * Format: int64
+             * @description When the event happened, in epoch milliseconds.
+             * @example 1719400000000
+             */
+            timestamp: number;
+        };
+        ContactUpdatePayload: {
+            /** @description The first name from the address book, when known. */
+            firstName?: string;
+            /** @description The full name from the address book, when known. */
+            fullName?: string;
+            /** @description JID of the contact that changed. */
+            jid: string;
+            /** @description The contact's current WhatsApp display (push) name. */
+            pushName?: string;
+        };
+        CreateChannelInputBody: {
+            /**
+             * @description Optional free-text description shown on the channel profile.
+             * @example Product updates and release notes.
+             */
+            description?: string;
+            /**
+             * @description Display name of the channel (newsletter). Optional on the wire; the service validates it and returns a validation_error (400) if it is missing or invalid.
+             * @example Acme Announcements
+             */
+            name?: string;
+        };
+        CreateChannelOutputBody: {
+            jid: string;
+        };
+        CreateGroupInputBody: {
+            /**
+             * @description The group subject (display name) shown to all members. Required by the service; an empty name is rejected with validation_error.
+             * @example Engineering Team
+             */
+            name?: string;
+            /**
+             * @description Initial members to add, given as WhatsApp JIDs (user addresses ending in @s.whatsapp.net). The session's own number is implicitly the owner and need not be listed. Required by the service; numbers that cannot receive group invites may be silently skipped by WhatsApp.
+             * @example [
+             *       "6281234567890@s.whatsapp.net",
+             *       "6289876543210@s.whatsapp.net"
+             *     ]
+             */
+            participants?: string[] | null;
+        };
+        CreateSessionInputBody: {
+            /**
+             * @description If true, incoming messages on this session are automatically marked as read (blue ticks). Optional; when omitted the gateway default applies.
+             * @example false
+             */
+            autoRead?: boolean;
+            /**
+             * @description Optional human-friendly name for the session, shown in dashboards and lists. Omit to create an unlabeled session.
+             * @example Sales line
+             */
+            label?: string;
+            /**
+             * @description If true, the session emits a "typing…" presence indicator to the recipient while it sends a message. Optional; when omitted the gateway default applies.
+             * @example true
+             */
+            presenceTyping?: boolean;
+            /**
+             * @description If true, begin QR pairing immediately on creation (the session transitions toward connecting and a QR code becomes available). If false (the default), the session is created stopped/unpaired and you start pairing later via the QR or pairing-code endpoints.
+             * @example true
+             */
+            start?: boolean;
+        };
+        EditMessageInputBody: {
+            /**
+             * @description The JID of the chat the message lives in (e.g. "123...@s.whatsapp.net" for a direct chat or "123...@g.us" for a group). Identifies which conversation the message id belongs to.
+             * @example 6281234567890@s.whatsapp.net
+             */
+            chat?: string;
+            /**
+             * @description The new text body that replaces the message's current text. Required. Only text messages can be edited — editing media or other kinds is not supported.
+             * @example Updated message text
+             */
+            text?: string;
+        };
+        FormFile: {
+            ContentType: string;
+            Filename: string;
+            IsSet: boolean;
+            /** Format: int64 */
+            Size: number;
+        };
+        ForwardInputBody: {
+            /**
+             * @description The JID of the source chat the message currently lives in (e.g. "123...@s.whatsapp.net" or "123...@g.us").
+             * @example 6281234567890@s.whatsapp.net
+             */
+            chat?: string;
+            /**
+             * @description The JID of the original sender of the message. Leave empty ("") for your own message; set the author's JID for another participant's message.
+             * @example
+             */
+            sender?: string;
+            /**
+             * @description The destination chat JID to forward into (e.g. "123...@s.whatsapp.net" for a direct chat or "123...@g.us" for a group). Required. Note (v1): the forwarded message is sent as a text reference to the original, marked as forwarded — it does not copy the original body or re-upload media.
+             * @example 6289876543210@s.whatsapp.net
+             */
+            to?: string;
+        };
+        Group: {
+            /**
+             * Format: int64
+             * @description When the group was created on WhatsApp, in epoch milliseconds (UTC). Optional; null when unknown.
+             * @example 1700000000000
+             */
+            createdAtWa?: number;
+            /**
+             * @description The group's description text. Optional; null when unset.
+             * @example Coordination for Q3 launch
+             */
+            description?: string;
+            /**
+             * Format: int64
+             * @description When this group was first observed by the gateway, in epoch milliseconds (UTC).
+             * @example 1719662400000
+             */
+            firstSeenAt: number;
+            /**
+             * @description The group's WhatsApp JID — its stable identifier.
+             * @example 120363021234567890@g.us
+             */
+            groupJid: string;
+            /**
+             * Format: int64
+             * @description The group row id (internal numeric key).
+             * @example 512
+             */
+            id: number;
+            /**
+             * @description If true, only admins can post (announcement group). Optional; null when unknown.
+             * @example false
+             */
+            isAnnounce?: boolean;
+            /**
+             * @description If true, only admins can edit the group's info (name, description, icon). Optional; null when unknown.
+             * @example false
+             */
+            isLocked?: boolean;
+            /**
+             * @description JID of the group's owner/creator. Optional; null when unknown.
+             * @example 6281234567890@s.whatsapp.net
+             */
+            ownerJid?: string;
+            /**
+             * Format: int64
+             * @description Number of members in the group. Optional; null when not yet known.
+             * @example 42
+             */
+            participantCount?: number;
+            /**
+             * @description The group's name (its subject). Optional; null when unknown.
+             * @example Project Team
+             */
+            subject?: string;
+            /**
+             * Format: int64
+             * @description When this group's record was last updated, in epoch milliseconds (UTC).
+             * @example 1719662400000
+             */
+            updatedAt: number;
+        };
+        GroupEvent: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            event: "group.participant" | "group.update";
+            /**
+             * @description Unique event id. Webhook deliveries repeat it in the X-Webhook-Request-Id header so receivers can drop duplicate redeliveries; the realtime client uses it as the ?since resume cursor.
+             * @example evt_01J9ZX...
+             */
+            id: string;
+            /**
+             * @description Id of the organization that owns the session.
+             * @example org_01J9...
+             */
+            organization: string;
+            payload: components["schemas"]["GroupPayload"];
+            /**
+             * @description Envelope schema version, so consumers can adapt if the shape changes.
+             * @example v1
+             * @enum {string}
+             */
+            schema: "v1";
+            /**
+             * @description Id of the WhatsApp session the event came from.
+             * @example wa_sess_01J9...
+             */
+            session: string;
+            /**
+             * Format: int64
+             * @description When the event happened, in epoch milliseconds.
+             * @example 1719400000000
+             */
+            timestamp: number;
+        };
+        GroupInfo: {
+            description?: string;
+            groupJid: string;
+            isAnnounce?: boolean;
+            isLocked?: boolean;
+            ownerJid?: string;
+            /** Format: int64 */
+            participants?: number;
+            subject?: string;
+        };
+        GroupMember: {
+            /**
+             * Format: int64
+             * @description When this membership was first observed, in epoch milliseconds (UTC).
+             * @example 1719662400000
+             */
+            firstSeenAt: number;
+            /**
+             * @description JID of the group this membership is in.
+             * @example 120363021234567890@g.us
+             */
+            groupJid: string;
+            /**
+             * Format: int64
+             * @description The membership pivot-row id (internal numeric key).
+             * @example 7781
+             */
+            id: number;
+            /**
+             * Format: int64
+             * @description When this member was last seen in the group, in epoch milliseconds (UTC).
+             * @example 1719662400000
+             */
+            lastSeenAt: number;
+            /**
+             * @description The member's LID (canonical, the identity key).
+             * @example 205227043110953@lid
+             */
+            lid: string;
+            /**
+             * @description The member's role in the group. **member** = ordinary participant; **admin** = group admin (can manage members and settings); **superadmin** = the group creator/owner.
+             * @example member
+             * @enum {string}
+             */
+            role: "member" | "admin" | "superadmin";
+            /**
+             * @description Id of the session that observed this membership.
+             * @example 01J9ZX8K2QHV0M3T6R7P4N5W8C
+             */
+            sessionId: string;
+            /**
+             * @description The per-group member tag WhatsApp shows beside the name — a second, group-specific identity (often the obfuscated phone for anonymous members), distinct from the global push name. Optional; null when absent.
+             * @example ~Alice
+             */
+            tag?: string;
+        };
+        GroupPayload: {
+            /** @description JIDs demoted from admin. */
+            demote?: string[] | null;
+            /** @description New group description, when it changed. */
+            description?: string;
+            /**
+             * @description JID of the group.
+             * @example 123456789-987654321@g.us
+             */
+            groupJid: string;
+            /** @description Announce mode: when true only admins can send messages. */
+            isAnnounce?: boolean;
+            /** @description Locked mode: when true only admins can edit group info. */
+            isLocked?: boolean;
+            /** @description JIDs that joined the group. */
+            join?: string[] | null;
+            /** @description JIDs that left or were removed. */
+            leave?: string[] | null;
+            /** @description New invite link, when it was reset. */
+            newInviteLink?: string;
+            /** @description JIDs promoted to admin. */
+            promote?: string[] | null;
+            /** @description Reason/context for the change, when WhatsApp provides one. */
+            reason?: string;
+            /** @description JID of the member who made the change. */
+            sender?: string;
+            /** @description New group subject (name), when it changed. */
+            subject?: string;
+            /**
+             * Format: int64
+             * @description When the change happened, epoch milliseconds.
              */
             timestamp?: number;
         };
-        /** @description A stored message in a chat (sent or received). */
-        Message: {
-            /** @description The WhatsApp message id. */
-            id?: string;
-            /** @description JID of the chat this message belongs to. */
-            chatJid?: string;
-            /** @description JID of whoever sent the message. */
-            senderJid?: string;
-            /** @description LID of whoever sent the message. In group chats the sender is identified by LID; senderJid is often absent. */
-            senderLid?: string;
-            /** @description Resolved display name of the sender, when known. Especially useful in group chats to label each message's author. */
-            senderName?: string;
+        Identity: {
             /**
-             * @description `in` = received by this session; `out` = sent by this session.
+             * @description The verified business name, for WhatsApp Business accounts. Optional; null for non-business accounts.
+             * @example Acme Corp
+             */
+            businessName?: string;
+            /**
+             * Format: int64
+             * @description When this identity was first observed, in epoch milliseconds (UTC).
+             * @example 1719662400000
+             */
+            firstSeenAt: number;
+            /**
+             * Format: int64
+             * @description The identity row id (internal numeric key).
+             * @example 1024
+             */
+            id: number;
+            /**
+             * @description The person's linked-device id (LID) — WhatsApp's privacy-preserving address and the stable key for this identity.
+             * @example 205227043110953@lid
+             */
+            lid: string;
+            /**
+             * @description The person's push name (their self-set display name) — the preferred display value. Optional; null when unknown.
+             * @example Alice
+             */
+            name?: string;
+            /**
+             * @description The person's phone-based WhatsApp JID, when resolved. Optional; null when only the LID is known.
+             * @example 6281234567890@s.whatsapp.net
+             */
+            phoneJid?: string;
+            /**
+             * @description The person's phone number in plain digits, when resolved. Optional; null when only the LID is known.
+             * @example 6281234567890
+             */
+            phoneNumber?: string;
+            /**
+             * Format: int64
+             * @description When this identity was last updated, in epoch milliseconds (UTC).
+             * @example 1719662400000
+             */
+            updatedAt: number;
+        };
+        InviteOutputBody: {
+            invite: string;
+        };
+        JoinGroupInputBody: {
+            /**
+             * @description The group invite code. Accept either the bare code or the full https://chat.whatsapp.com/<code> link. Required by the service. Joining a group that the account is already a member of is effectively a no-op that still returns the group's JID.
+             * @example FaKeInViTeCoDe123
+             */
+            invite?: string;
+        };
+        JoinGroupOutputBody: {
+            groupJid: string;
+        };
+        ListChat: {
+            data: components["schemas"]["Chat"][] | null;
+            nextCursor?: string;
+        };
+        ListContact: {
+            data: components["schemas"]["Contact"][] | null;
+            nextCursor?: string;
+        };
+        ListGroup: {
+            data: components["schemas"]["Group"][] | null;
+            nextCursor?: string;
+        };
+        ListGroupMember: {
+            data: components["schemas"]["GroupMember"][] | null;
+            nextCursor?: string;
+        };
+        ListMessage: {
+            data: components["schemas"]["Message"][] | null;
+            nextCursor?: string;
+        };
+        ListWASession: {
+            data: components["schemas"]["WASession"][] | null;
+            nextCursor?: string;
+        };
+        ListWebhook: {
+            data: components["schemas"]["Webhook"][] | null;
+            nextCursor?: string;
+        };
+        LocationData: {
+            /** @description Optional street address. */
+            address?: string;
+            /**
+             * Format: double
+             * @description Latitude in decimal degrees.
+             * @example -6.2
+             */
+            latitude: number;
+            /**
+             * Format: double
+             * @description Longitude in decimal degrees.
+             * @example 106.8
+             */
+            longitude: number;
+            /** @description Optional place name. */
+            name?: string;
+        };
+        Me: {
+            connected: boolean;
+            phoneNumber?: string;
+            sessionId: string;
+            status: string;
+            waJid?: string;
+            waLid?: string;
+        };
+        MediaMeta: {
+            /**
+             * @description Original filename, for document messages. Optional.
+             * @example invoice.pdf
+             */
+            filename?: string;
+            /**
+             * @description Media MIME type, e.g. image/jpeg. Optional.
+             * @example image/jpeg
+             */
+            mimetype?: string;
+            /**
+             * Format: int64
+             * @description Media size in bytes. Optional.
+             * @example 204800
+             */
+            size?: number;
+        };
+        Message: {
+            /**
+             * Format: int64
+             * @description Raw WhatsApp acknowledgement level underlying status (0=pending … up to played). Optional; null when not tracked.
+             * @example 3
+             */
+            ackLevel?: number;
+            /**
+             * @description The text content or media caption, when the message has one. Optional; null for messages with no text.
+             * @example Hello there!
+             */
+            body?: string;
+            /**
+             * @description JID of the chat this message belongs to.
+             * @example 6281234567890@s.whatsapp.net
+             */
+            chatJid: string;
+            /**
+             * Format: int64
+             * @description When the message row was stored, in epoch milliseconds (UTC).
+             * @example 1719662400000
+             */
+            createdAt: number;
+            /**
+             * @description True if the message was deleted/revoked.
+             * @example false
+             */
+            deleted: boolean;
+            /**
+             * @description Message direction. **in** = received by this session; **out** = sent by this session.
+             * @example in
              * @enum {string}
              */
-            direction?: "in" | "out";
-            /** @description The message kind (e.g. text, image, location, poll, reaction, system). */
-            type?: string;
-            /** @description The text content or caption, when the message has one. */
-            body?: string;
-            /** @description JIDs @-mentioned in this message (group mentions), as stored — typically LIDs. */
-            mentions?: string[];
-            /** @description Resolved display names for the @-mentions, keyed by the mention's user-part — the token after `@` as it appears in `body` (e.g. `205227043110953`). Lets a client render `@<name>` instead of the raw number. Only mentions resolvable to a known identity are included. */
+            direction: "in" | "out";
+            /**
+             * @description True if the message was edited after being sent.
+             * @example false
+             */
+            edited: boolean;
+            /**
+             * @description Failure reason when status is failed. Optional; null otherwise.
+             * @example recipient not on WhatsApp
+             */
+            error?: string;
+            /**
+             * @description True if this session sent the message; false if it was received.
+             * @example false
+             */
+            fromMe: boolean;
+            /**
+             * @description True if the message carries media (image/video/audio/document/sticker).
+             * @example false
+             */
+            hasMedia: boolean;
+            /**
+             * @description The stored message id (the WhatsApp message id, stable across the gateway).
+             * @example 3EB0C431C26A1916E07A
+             */
+            id: string;
+            /** @description Media metadata (mimetype, size, filename) when the message has media. Metadata only — media is not downloaded in this build, so this is null even when hasMedia is true. */
+            media?: components["schemas"]["MediaMeta"];
+            /**
+             * @description Resolved display names for the @-mentions, keyed by the mention's user-part — the token after '@' as it appears in 'body' (e.g. '205227043110953') → name. Read-only: populated from whatsapp_identities at read time, never stored. Only mentions resolvable to a known identity are included; lets a client render '@<name>' instead of the raw number. Optional.
+             * @example {
+             *       "205227043110953": "Alice"
+             *     }
+             */
             mentionNames?: {
                 [key: string]: string;
             };
             /**
-             * @description Delivery state. `pending`, `sent`, `delivered`, `read`, `played`, or `failed` — same meanings as on a send result. Mainly meaningful for outgoing messages.
+             * @description JIDs @-mentioned in this message (group mentions), as stored — typically LIDs. JSON array. Optional; absent when there are no mentions.
+             * @example [
+             *       "205227043110953@lid"
+             *     ]
+             */
+            mentions?: unknown;
+            /**
+             * @description Id of the message this one quotes/replies to. Optional; null when not a reply.
+             * @example 3EB0C431C26A1916E001
+             */
+            quotedMessageId?: string;
+            /**
+             * @description JID of whoever sent the message. Optional; null in group chats where only the LID is known.
+             * @example 6281234567890@s.whatsapp.net
+             */
+            senderJid?: string;
+            /**
+             * @description LID of whoever sent the message. In group chats the sender is identified by LID (senderJid is often absent). Optional; null when not applicable.
+             * @example 205227043110953@lid
+             */
+            senderLid?: string;
+            /**
+             * @description Resolved display name of the sender, from whatsapp_identities (keyed by sender LID). Read-only: populated by a join at read time, never stored. Especially useful in group chats to label each message's author. Optional; null when unresolved.
+             * @example Alice
+             */
+            senderName?: string;
+            /**
+             * @description Id of the session this message belongs to.
+             * @example 01J9ZX8K2QHV0M3T6R7P4N5W8C
+             */
+            sessionId: string;
+            /**
+             * @description Delivery state, mainly meaningful for outgoing messages. Progression: **pending** (queued, not yet confirmed) → **sent** (handed to WhatsApp) → **delivered** (reached the recipient's device) → **read** (opened) → **played** (voice/video note played). **failed** = could not be sent. Optional; null for inbound messages with no tracked status.
+             * @example delivered
              * @enum {string}
              */
             status?: "pending" | "sent" | "delivered" | "read" | "played" | "failed";
             /**
              * Format: int64
-             * @description When the message was sent or received, in epoch milliseconds.
+             * @description When the message was sent or received, in epoch milliseconds (UTC).
+             * @example 1719662400000
              */
-            timestamp?: number;
-        };
-        /** @description One page of messages, plus the cursor for the next page. */
-        MessagePage: components["schemas"]["PageMeta"] & {
-            /** @description The messages on this page. */
-            data?: components["schemas"]["Message"][];
-        };
-        /** @description A conversation this session is part of. */
-        Chat: {
-            /** @description The chat's JID. */
-            jid?: string;
+            timestamp: number;
             /**
-             * @description Kind of chat. `dm` = one-to-one; `group`; `newsletter` = a channel; `broadcast` = a broadcast list; `status` = the status feed.
+             * @description The message kind. Common values: text, image, video, audio, document, sticker, location, contact, poll, reaction, system.
+             * @example text
+             */
+            type: string;
+            /**
+             * @description The raw WhatsApp message id as assigned by WhatsApp.
+             * @example 3EB0C431C26A1916E07A
+             */
+            waMessageId: string;
+        };
+        MessageEvent: {
+            /**
+             * @description The event type. (enum property replaced by openapi-typescript)
              * @enum {string}
              */
-            type?: "dm" | "group" | "newsletter" | "broadcast" | "status";
-            /** @description The chat's display name (contact name or group subject). */
-            name?: string;
-            /** @description Number of unread messages in this chat. */
-            unreadCount?: number;
-            /** @description Whether the chat is archived. */
-            archived?: boolean;
-            /** @description Whether the chat is pinned to the top. */
-            pinned?: boolean;
+            event: "message" | "message.edited" | "message.from_me" | "message.reaction" | "message.revoked" | "poll.vote";
             /**
-             * Format: int64
-             * @description Muted until this time (epoch milliseconds); absent if not muted.
+             * @description Unique event id. Webhook deliveries repeat it in the X-Webhook-Request-Id header so receivers can drop duplicate redeliveries; the realtime client uses it as the ?since resume cursor.
+             * @example evt_01J9ZX...
              */
-            mutedUntil?: number;
+            id: string;
             /**
-             * Format: int64
-             * @description When the most recent message arrived, in epoch milliseconds.
+             * @description Id of the organization that owns the session.
+             * @example org_01J9...
              */
-            lastMessageAt?: number;
-        };
-        /** @description One page of chats, plus the cursor for the next page. */
-        ChatPage: components["schemas"]["PageMeta"] & {
-            /** @description The chats on this page. */
-            data?: components["schemas"]["Chat"][];
-        };
-        /** @description Fields to change on a chat. Omit a field to leave it unchanged. */
-        UpdateChatRequest: {
-            /** @description Set the chat's archived state. */
-            archived?: boolean;
-            /** @description Set the chat's pinned state. */
-            pinned?: boolean;
-            /**
-             * Format: int64
-             * @description Mute the chat until this time (epoch milliseconds).
-             */
-            mutedUntil?: number;
-            /** @description If true, unmute the chat (clears any mute). */
-            unmute?: boolean;
-        };
-        /** @description A person this session has encountered (the Contacts feature). */
-        Contact: {
-            /** @description The contact's linked-device id (LID) — WhatsApp's privacy-preserving address, used as the stable key for a contact. */
-            lid?: string;
-            /** @description The contact's phone number, when known. */
-            phoneNumber?: string;
-            /** @description The contact's display (push) name, when known. */
-            name?: string;
-            /** @description The verified business name, for business accounts. */
-            businessName?: string;
-            /**
-             * @description Where this session encountered the contact. `dm` = a direct chat exists; `group` = seen in a group.
-             * @enum {string}
-             */
-            source?: "dm" | "group";
-        };
-        /** @description One page of contacts, plus the cursor for the next page. */
-        ContactPage: components["schemas"]["PageMeta"] & {
-            /** @description The contacts on this page. */
-            data?: components["schemas"]["Contact"][];
-        };
-        /** @description A contact plus where they show up — whether there is a direct chat, and which groups they share with this session. */
-        ContactDetail: {
-            identity?: components["schemas"]["Contact"];
-            /** @description True if a direct chat with this contact exists. */
-            dm?: boolean;
-            /** @description Groups this contact and the session share. */
-            groups?: {
-                /** @description The group's JID. */
-                jid?: string;
-                /** @description The group's name. */
-                name?: string;
-                /** @description The contact's per-group member tag (a second per-group identity WhatsApp shows beside the name), if any. */
-                tag?: string;
-                /**
-                 * @description The contact's role in the group. `member`; `admin`; `superadmin` = the group creator.
-                 * @enum {string}
-                 */
-                role?: "member" | "admin" | "superadmin";
-                /**
-                 * Format: int64
-                 * @description When the contact was last seen in this group, in epoch milliseconds.
-                 */
-                lastSeen?: number;
-            }[];
-        };
-        /** @description The result of checking whether a phone number is on WhatsApp. */
-        OnWhatsApp: {
-            /** @description The phone number that was checked. */
-            query?: string;
-            /** @description The WhatsApp JID for the number, if it is on WhatsApp. */
-            jid?: string;
-            /** @description True if the number has a WhatsApp account. */
-            isIn?: boolean;
-            /** @description The verified business name, for official business accounts. */
-            verifiedName?: string;
-        };
-        /** @description A contact's or group's profile picture. */
-        ProfilePicture: {
-            /** @description URL of the picture image. */
-            url?: string;
-            /** @description The picture's id; changes when the picture changes, so it can be used for caching. */
-            id?: string;
-            /** @description The picture variant (e.g. full image vs. preview thumbnail). */
-            type?: string;
-        };
-        /** @description A WhatsApp group and its members. */
-        GroupInfo: {
-            /** @description The group's JID. */
-            jid?: string;
-            /** @description The group's name (its subject). */
-            subject?: string;
-            /** @description The group's description text. */
-            description?: string;
-            /** @description JID of the group's owner/creator. */
-            owner?: string;
-            /** @description If true, only admins can post (announcement group). */
-            announce?: boolean;
-            /** @description If true, only admins can edit the group's info (name, description, icon). */
-            locked?: boolean;
-            /** @description The group's members. */
-            participants?: components["schemas"]["GroupMember"][];
-        };
-        /** @description One member of a group (the identity↔group pivot row). */
-        GroupMember: {
-            /** @description The member's LID (canonical, the identity key). */
-            lid?: string;
-            /** @description The per-group member tag WhatsApp shows beside the name, if any. */
-            tag?: string;
-            /**
-             * @description `member`; `admin`; `superadmin` = the group creator.
-             * @enum {string}
-             */
-            role?: "member" | "admin" | "superadmin";
-        };
-        /** @description Group settings to change. Omit a field to leave it unchanged. */
-        GroupSettings: {
-            /** @description New group name. */
-            subject?: string;
-            /** @description New group description. */
-            description?: string;
-            /** @description If true, restrict posting to admins. */
-            announce?: boolean;
-            /** @description If true, restrict editing the group's info to admins. */
-            locked?: boolean;
-        };
-        /** @description One page of groups, plus the cursor for the next page. */
-        GroupPage: components["schemas"]["PageMeta"] & {
-            /** @description The groups on this page. */
-            data?: components["schemas"]["GroupInfo"][];
-        };
-        /** @description How failed webhook deliveries are retried. */
-        RetryPolicy: {
-            /**
-             * @description Backoff strategy. `exponential` doubles the delay each attempt; any other value uses a constant delay.
-             * @example exponential
-             */
-            policy?: string;
-            /** @description Base delay before retrying. For exponential, the delay is delaySeconds × 2^(attempt-1). Defaults to 2. */
-            delaySeconds?: number;
-            /** @description Maximum number of attempts before the delivery is given up (dead-lettered). Defaults to 15. */
-            attempts?: number;
-        };
-        /** @description Fields for creating or updating a webhook. */
-        WebhookRequest: {
-            /** @description Deliver only events from this session. Null/omitted means all of the organization's sessions. */
-            sessionId?: string;
-            /** @description The HTTPS endpoint that receives the event POSTs. */
-            url?: string;
-            /** @description Event types to deliver. Use ["*"] to receive every event; an empty list receives none. */
-            events?: string[];
-            /** @description If set, each delivery is signed with HMAC-SHA512 over the body, in the X-Webhook-Hmac header, so the receiver can verify it came from the gateway. */
-            secret?: string;
-            /** @description Extra HTTP headers to send with each delivery (applied last, so they can override the defaults). */
-            customHeaders?: {
-                [key: string]: string;
-            };
-            retryPolicy?: components["schemas"]["RetryPolicy"];
-            /** @description Whether the webhook is enabled. Inactive webhooks receive nothing. */
-            active?: boolean;
-        };
-        /** @description A configured webhook (the secret is never returned). */
-        Webhook: {
-            /** @description The webhook's id. */
-            id?: string;
-            /** @description Id of the organization that owns the webhook. */
-            organizationId?: string;
-            /** @description The session this webhook is scoped to; null means all of the organization's sessions. */
-            sessionId?: string;
-            /** @description The HTTPS endpoint that receives the event POSTs. */
-            url?: string;
-            /** @description Event types delivered to this webhook (["*"] means all). */
-            events?: string[];
-            /** @description Extra HTTP headers sent with each delivery. */
-            customHeaders?: {
-                [key: string]: string;
-            };
-            retryPolicy?: components["schemas"]["RetryPolicy"];
-            /** @description Whether the webhook is enabled. */
-            active?: boolean;
-            /**
-             * Format: int64
-             * @description When the webhook was created, in epoch milliseconds.
-             */
-            createdAt?: number;
-            /**
-             * Format: int64
-             * @description When the webhook was last updated, in epoch milliseconds.
-             */
-            updatedAt?: number;
-        };
-        /** @description One page of webhooks, plus the cursor for the next page. */
-        WebhookPage: components["schemas"]["PageMeta"] & {
-            /** @description The webhooks on this page. */
-            data?: components["schemas"]["Webhook"][];
-        };
-        /** @description One event from the gateway. This is the body of each webhook POST, and the same envelope shape is delivered over the realtime WebSocket (on the central router) as a discrete JSON message per event. */
-        Event: {
+            organization: string;
+            payload: components["schemas"]["MessagePayload"];
             /**
              * @description Envelope schema version, so consumers can adapt if the shape changes.
              * @example v1
+             * @enum {string}
              */
-            schema: string;
+            schema: "v1";
             /**
-             * @description Unique event id. Webhooks repeat it in X-Webhook-Request-Id so receivers can drop duplicate redeliveries.
-             * @example evt_01J9...
+             * @description Id of the WhatsApp session the event came from.
+             * @example wa_sess_01J9...
              */
-            id: string;
-            /** @description The event type, e.g. message, session.status, group.update. */
-            event: string;
-            /** @description Id of the session the event came from. */
             session: string;
-            /** @description Id of the organization that owns the session. */
-            organization: string;
             /**
              * Format: int64
              * @description When the event happened, in epoch milliseconds.
+             * @example 1719400000000
              */
             timestamp: number;
-            /** @description The event-type-specific body. Its fields depend on the event type. */
-            payload: {
-                [key: string]: unknown;
+        };
+        MessagePayload: {
+            /**
+             * @description Text body, for text and caption-bearing messages.
+             * @example Hello!
+             */
+            body?: string;
+            /**
+             * @description JID of the chat the message belongs to (a user, group, or broadcast list).
+             * @example 6281234567890@s.whatsapp.net
+             */
+            chatJid: string;
+            /** @description Set when type is contact. */
+            contact?: components["schemas"]["ContactData"];
+            /** @description True if this account authored the message (the message.from_me event). */
+            fromMe: boolean;
+            /** @description True if the message carried media. The media itself is metadata-only in v1 (no download). */
+            hasMedia: boolean;
+            /** @description Set when type is location. */
+            location?: components["schemas"]["LocationData"];
+            /** @description Media descriptor. Always null in v1 (metadata-only); see hasMedia. */
+            media: components["schemas"]["MediaMeta"];
+            /** @description JIDs mentioned in the message body. */
+            mentions?: string[] | null;
+            /** @description Set when type is poll (poll creation). */
+            poll?: components["schemas"]["PollData"];
+            /** @description The sender's WhatsApp display (push) name at send time. */
+            pushName?: string;
+            /** @description If this message quotes/replies to another, that message's id. */
+            quotedMessageId?: string;
+            /** @description For message.reaction: the emoji reacted with; empty string means the reaction was removed. */
+            reaction?: string;
+            /** @description For poll.vote: the encrypted option hashes the voter selected. */
+            selectedHashes?: string[] | null;
+            /** @description JID of the sender (set for group messages; for DMs it equals the chat). */
+            senderJid?: string;
+            /** @description The sender's linked-device id, when available. */
+            senderLid?: string;
+            /** @description For reaction/edit/revoke: the id of the message being reacted to, edited, or revoked. */
+            targetId?: string;
+            /**
+             * Format: int64
+             * @description When WhatsApp timestamped the message, in epoch milliseconds.
+             */
+            timestamp: number;
+            /**
+             * @description Content type of the message: text, location, contact, poll, reaction, edit, revoke, media, and others.
+             * @example text
+             */
+            type: string;
+            /**
+             * @description WhatsApp's message id (stanza id), unique within the chat.
+             * @example 3EB0...
+             */
+            waMessageId: string;
+        };
+        MessageStatusEvent: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            event: "message.status";
+            /**
+             * @description Unique event id. Webhook deliveries repeat it in the X-Webhook-Request-Id header so receivers can drop duplicate redeliveries; the realtime client uses it as the ?since resume cursor.
+             * @example evt_01J9ZX...
+             */
+            id: string;
+            /**
+             * @description Id of the organization that owns the session.
+             * @example org_01J9...
+             */
+            organization: string;
+            payload: components["schemas"]["MessageStatusPayload"];
+            /**
+             * @description Envelope schema version, so consumers can adapt if the shape changes.
+             * @example v1
+             * @enum {string}
+             */
+            schema: "v1";
+            /**
+             * @description Id of the WhatsApp session the event came from.
+             * @example wa_sess_01J9...
+             */
+            session: string;
+            /**
+             * Format: int64
+             * @description When the event happened, in epoch milliseconds.
+             * @example 1719400000000
+             */
+            timestamp: number;
+        };
+        MessageStatusPayload: {
+            /** @description JID of the chat the receipt is for. */
+            chatJid: string;
+            /** @description The message ids whose status advanced. */
+            messageIds: string[] | null;
+            /** @description JID of the participant the receipt came from (group chats). */
+            senderJid?: string;
+            /**
+             * @description New delivery status, in progression order: sent (left this device) → delivered (reached the recipient device) → read (recipient opened it) → played (voice/video note played). May also be failed.
+             * @example delivered
+             * @enum {string}
+             */
+            status: "pending" | "sent" | "delivered" | "read" | "played" | "failed";
+            /**
+             * Format: int64
+             * @description When the receipt was generated, epoch milliseconds.
+             */
+            timestamp: number;
+        };
+        MuteChannelInputBody: {
+            /**
+             * @description Whether to mute (true) or unmute (false) the channel. Optional: omit the field (or send an empty/absent body) and the channel is muted (defaults to true).
+             * @example true
+             */
+            mute?: boolean;
+        };
+        NewsletterEvent: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            event: "newsletter.update";
+            /**
+             * @description Unique event id. Webhook deliveries repeat it in the X-Webhook-Request-Id header so receivers can drop duplicate redeliveries; the realtime client uses it as the ?since resume cursor.
+             * @example evt_01J9ZX...
+             */
+            id: string;
+            /**
+             * @description Id of the organization that owns the session.
+             * @example org_01J9...
+             */
+            organization: string;
+            payload: components["schemas"]["NewsletterPayload"];
+            /**
+             * @description Envelope schema version, so consumers can adapt if the shape changes.
+             * @example v1
+             * @enum {string}
+             */
+            schema: "v1";
+            /**
+             * @description Id of the WhatsApp session the event came from.
+             * @example wa_sess_01J9...
+             */
+            session: string;
+            /**
+             * Format: int64
+             * @description When the event happened, in epoch milliseconds.
+             * @example 1719400000000
+             */
+            timestamp: number;
+        };
+        NewsletterPayload: {
+            /**
+             * @description What happened: join, leave, or mute.
+             * @example join
+             * @enum {string}
+             */
+            action: "join" | "leave" | "mute";
+            /** @description JID of the newsletter/channel. */
+            jid: string;
+        };
+        OnWhatsApp: {
+            isOnWhatsApp: boolean;
+            jid?: string;
+            query: string;
+        };
+        PairingCodeInputBody: {
+            /**
+             * @description The phone number to pair, in international format with country code and no leading + or spaces (E.164 digits only). This is the WhatsApp number the code will be entered on under "Link a device".
+             * @example 628123456789
+             */
+            phone?: string;
+        };
+        PairingCodeOutputBody: {
+            code: string;
+        };
+        PollData: {
+            /** @description The poll question. */
+            name: string;
+            /** @description The poll answer options, in order. */
+            options: string[] | null;
+            /**
+             * Format: int64
+             * @description How many options a voter may select (1 = single choice).
+             * @example 1
+             */
+            selectableCount: number;
+        };
+        PostStatusInputBody: {
+            /**
+             * @description The status text. Required (non-empty) when type is "text" or omitted; an empty or whitespace-only value yields validation_error (400). Ignored for non-text types.
+             * @example Out of office until Monday.
+             */
+            text?: string;
+            /**
+             * @description The kind of status to post. Optional on the wire (an empty value is treated as "text"), but the service still validates it.
+             *
+             *     - **text** — a text-only "My Status" story. The only kind supported in v1.
+             *     - **image** — an image status. Returns not_implemented (501) in v1; reserved for a later release.
+             *
+             *     Any value other than these two also returns not_implemented (501).
+             * @example text
+             * @enum {string}
+             */
+            type?: "text" | "image";
+        };
+        PostStatusOutputBody: {
+            messageId: string;
+        };
+        PresenceEvent: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            event: "presence.update";
+            /**
+             * @description Unique event id. Webhook deliveries repeat it in the X-Webhook-Request-Id header so receivers can drop duplicate redeliveries; the realtime client uses it as the ?since resume cursor.
+             * @example evt_01J9ZX...
+             */
+            id: string;
+            /**
+             * @description Id of the organization that owns the session.
+             * @example org_01J9...
+             */
+            organization: string;
+            payload: components["schemas"]["PresencePayload"];
+            /**
+             * @description Envelope schema version, so consumers can adapt if the shape changes.
+             * @example v1
+             * @enum {string}
+             */
+            schema: "v1";
+            /**
+             * @description Id of the WhatsApp session the event came from.
+             * @example wa_sess_01J9...
+             */
+            session: string;
+            /**
+             * Format: int64
+             * @description When the event happened, in epoch milliseconds.
+             * @example 1719400000000
+             */
+            timestamp: number;
+        };
+        PresencePayload: {
+            /** @description Chat the presence applies to, for chat (typing) presence. */
+            chatJid?: string;
+            /** @description JID whose presence changed. */
+            from: string;
+            /**
+             * Format: int64
+             * @description Last-seen time in epoch milliseconds, when the contact shares it.
+             */
+            lastSeen?: number;
+            /**
+             * @description For chat presence, the kind being composed: text or audio.
+             * @enum {string}
+             */
+            media?: "text" | "audio";
+            /**
+             * @description Presence state: available (online), unavailable (offline), composing (typing), or paused (stopped typing).
+             * @example composing
+             * @enum {string}
+             */
+            state: "available" | "unavailable" | "composing" | "paused";
+            /** @description True when the contact went offline. */
+            unavailable?: boolean;
+        };
+        ProfilePicture: {
+            id?: string;
+            url?: string;
+        };
+        QR: {
+            code: string;
+            /** Format: int64 */
+            expiresAt?: number;
+        };
+        ReactionInputBody: {
+            /**
+             * @description The JID of the chat the message lives in (e.g. "123...@s.whatsapp.net" for a direct chat or "123...@g.us" for a group).
+             * @example 6281234567890@s.whatsapp.net
+             */
+            chat?: string;
+            /**
+             * @description The single emoji to react with. Sending a reaction replaces any reaction you previously set on this message. On the add (POST) endpoint this is required; on the remove (DELETE) endpoint it is ignored — the gateway always sends an empty reaction to clear yours.
+             * @example 👍
+             */
+            emoji?: string;
+            /**
+             * @description The JID of the original sender of the message being reacted to. Leave empty ("") for your own message; set the author's JID for another participant's message.
+             * @example
+             */
+            sender?: string;
+        };
+        RetryPolicy: {
+            /**
+             * Format: int64
+             * @description Maximum number of delivery attempts before the delivery is given up and marked dead (dead-lettered). Defaults to 15.
+             * @example 15
+             */
+            attempts: number;
+            /**
+             * Format: int64
+             * @description Base delay before retrying, in seconds. For the exponential policy this is the first-attempt delay and the base of the doubling. Defaults to 2.
+             * @example 2
+             */
+            delaySeconds: number;
+            /**
+             * @description Backoff strategy for failed deliveries. **exponential** doubles the delay each attempt (delaySeconds × 2^(attempt-1)); any other value uses a constant delay of delaySeconds.
+             * @example exponential
+             */
+            policy: string;
+        };
+        RevokeMessageInputBody: {
+            /**
+             * @description The JID of the chat the message lives in (e.g. "123...@s.whatsapp.net" for a direct chat or "123...@g.us" for a group).
+             * @example 6281234567890@s.whatsapp.net
+             */
+            chat?: string;
+            /**
+             * @description The JID of the original sender of the message. Leave empty ("") when revoking your own message; set it to the author's JID when revoking another participant's message (e.g. as a group admin).
+             * @example
+             */
+            sender?: string;
+        };
+        SendRequest: {
+            /** @description The contact card to share. Required for type contact. */
+            contact?: components["schemas"]["ContactCard"];
+            /**
+             * Format: double
+             * @description Latitude of the shared location in decimal degrees. Required for type location.
+             * @example -6.2
+             */
+            latitude?: number;
+            /**
+             * Format: double
+             * @description Longitude of the shared location in decimal degrees. Required for type location.
+             * @example 106.816666
+             */
+            longitude?: number;
+            /**
+             * @description JIDs to @-mention in the message. Optional.
+             * @example [
+             *       "6289876543210@s.whatsapp.net"
+             *     ]
+             */
+            mentions?: string[] | null;
+            /**
+             * @description For a poll, the poll question; for a location, the place label. Required for poll; optional for location.
+             * @example Lunch on Friday?
+             */
+            name?: string;
+            /**
+             * @description The poll's answer options. Required for type poll.
+             * @example [
+             *       "Yes",
+             *       "No",
+             *       "Maybe"
+             *     ]
+             */
+            options?: string[] | null;
+            /**
+             * @description Id of the message this one quotes/replies to (a wa_message_id). Optional.
+             * @example 3EB0C431C26A1916E001
+             */
+            replyTo?: string;
+            /**
+             * Format: int64
+             * @description How many options a voter may pick in the poll (1 = single choice). Used for type poll.
+             * @example 1
+             */
+            selectableCount?: number;
+            /**
+             * @description The message text. Required for type text; ignored otherwise.
+             * @example Hello there!
+             */
+            text?: string;
+            /**
+             * @description The recipient's JID: a user JID for a direct message (e.g. 6281234567890@s.whatsapp.net) or a group JID for a group (e.g. 120363021234567890@g.us). Required.
+             * @example 6281234567890@s.whatsapp.net
+             */
+            to: string;
+            /**
+             * @description Which kind of message to send. Determines which other fields are required. **text** uses text (+ optional replyTo/mentions); **poll** uses name (question) + options + selectableCount; **location** uses latitude + longitude + optional name (label); **contact** uses contact. The media types **image**, **video**, **audio**, **document**, **sticker** parse but are not implemented in this build and return 501 (not_implemented).
+             * @example text
+             * @enum {string}
+             */
+            type: "text" | "poll" | "location" | "contact" | "image" | "video" | "audio" | "document" | "sticker";
+        };
+        SendResult: {
+            mode: string;
+            outboxId?: string;
+            replayed?: boolean;
+            status?: string;
+            /** Format: int64 */
+            timestamp?: number;
+            waMessageId?: string;
+        };
+        SessionStatusEvent: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            event: "session.status";
+            /**
+             * @description Unique event id. Webhook deliveries repeat it in the X-Webhook-Request-Id header so receivers can drop duplicate redeliveries; the realtime client uses it as the ?since resume cursor.
+             * @example evt_01J9ZX...
+             */
+            id: string;
+            /**
+             * @description Id of the organization that owns the session.
+             * @example org_01J9...
+             */
+            organization: string;
+            payload: components["schemas"]["SessionStatusPayload"];
+            /**
+             * @description Envelope schema version, so consumers can adapt if the shape changes.
+             * @example v1
+             * @enum {string}
+             */
+            schema: "v1";
+            /**
+             * @description Id of the WhatsApp session the event came from.
+             * @example wa_sess_01J9...
+             */
+            session: string;
+            /**
+             * Format: int64
+             * @description When the event happened, in epoch milliseconds.
+             * @example 1719400000000
+             */
+            timestamp: number;
+        };
+        SessionStatusPayload: {
+            /**
+             * @description New session status. One of: starting (connecting), scan_qr_code (waiting for a QR scan or pairing code), working (connected and ready to send/receive), failed (connection failed; will retry), stopped (intentionally stopped), logged_out (the WhatsApp account unlinked the device — must re-pair).
+             * @example working
+             * @enum {string}
+             */
+            status: "starting" | "scan_qr_code" | "working" | "failed" | "stopped" | "logged_out";
+        };
+        SetPresenceInputBody: {
+            /**
+             * @description The account-wide presence to set, controlling whether the account appears available to its contacts. Optional on the wire, but the service validates it: any value other than the two below yields validation_error (400).
+             *
+             *     - **online** — the account is shown as available/active.
+             *     - **offline** — the account is shown as unavailable.
+             *
+             *     This is account-wide. To send a per-chat "typing…" or "recording…" indicator into a single conversation, use the chat presence endpoint instead.
+             * @example online
+             * @enum {string}
+             */
+            state?: "online" | "offline";
+        };
+        UpdateChatInputBody: {
+            /**
+             * @description Set the chat's archived state. Omit to leave it unchanged.
+             * @example true
+             */
+            archived?: boolean;
+            /**
+             * Format: int64
+             * @description Mute the chat until this instant, expressed as Unix epoch milliseconds. Omit to leave the mute state unchanged. To unmute, send unmute:true instead of this field.
+             * @example 1735689600000
+             */
+            mutedUntil?: number;
+            /**
+             * @description Set whether the chat is pinned to the top. Omit to leave it unchanged.
+             * @example false
+             */
+            pinned?: boolean;
+            /**
+             * @description When true, clears any existing mute (overrides mutedUntil). Defaults to false.
+             * @example false
+             */
+            unmute?: boolean;
+        };
+        UpdateGroupInputBody: {
+            /**
+             * @description Announcement mode. When true, only admins may post messages; when false, all members may post. Omit to leave unchanged.
+             * @example true
+             */
+            announce?: boolean;
+            /**
+             * @description New group description / topic text shown in the group info screen. Omit to leave unchanged.
+             * @example Sprint planning and on-call coordination.
+             */
+            description?: string;
+            /**
+             * @description Locked (info-edit) mode. When true, only admins may edit the group subject, description, and icon; when false, any member may. Omit to leave unchanged.
+             * @example false
+             */
+            locked?: boolean;
+            /**
+             * @description New group subject (display name). Omit to leave unchanged. Sending null is not a valid update — only present fields are applied.
+             * @example Engineering Team (renamed)
+             */
+            subject?: string;
+        };
+        VoteInputBody: {
+            /**
+             * @description The JID of the chat the poll lives in (e.g. "123...@s.whatsapp.net" or "123...@g.us").
+             * @example 120363012345678901@g.us
+             */
+            chat?: string;
+            /**
+             * @description The full set of poll option texts you want selected. This replaces your previous vote entirely — send every option you want marked, not just the new ones. Send an empty array to clear your vote. For single-choice polls supply exactly one option.
+             * @example [
+             *       "Pizza",
+             *       "Sushi"
+             *     ]
+             */
+            options?: string[] | null;
+            /**
+             * @description The JID of the poll's creator/sender. Identifies the poll message together with mid.
+             * @example
+             */
+            sender?: string;
+        };
+        WASession: {
+            /**
+             * @description Whether incoming messages are automatically marked read (blue ticks) before the session acts on them.
+             * @example false
+             */
+            autoRead: boolean;
+            /**
+             * Format: int64
+             * @description When the session was created, in epoch milliseconds (UTC).
+             * @example 1719662400000
+             */
+            createdAt: number;
+            /**
+             * @description Id of the better-auth user who created the session, kept for audit. Optional; null when created by a non-user principal (e.g. an API key) or unknown.
+             * @example user_01J9DEF...
+             */
+            createdByUserId?: string;
+            /**
+             * @description Id of the gateway that holds this session's WhatsApp keystore and live connection. The session is pinned here; a dashboard uses it (and the embedded gateway object on responses that include it) to show where the session runs.
+             * @example gw-sg-1
+             */
+            gatewayId: string;
+            /**
+             * @description The session id (a ULID). Stable identifier for the attached WhatsApp number; used in all per-session routes.
+             * @example 01J9ZX8K2QHV0M3T6R7P4N5W8C
+             */
+            id: string;
+            /**
+             * @description True if this is the gateway's configured admin session (the WHATSAPP_ADMIN_NUMBER). The admin session has extra privileges such as triggering live-data backfills.
+             * @example false
+             */
+            isAdminSession: boolean;
+            /**
+             * @description Human-friendly name for the session. Optional; null when unset.
+             * @example Support line
+             */
+            label?: string;
+            /**
+             * Format: int64
+             * @description When the session last established a live WhatsApp connection, in epoch milliseconds (UTC). Optional; null if it has never connected.
+             * @example 1719662400000
+             */
+            lastConnectedAt?: number;
+            /**
+             * @description Id of the better-auth organization that owns this session. All access to the session is scoped to this org.
+             * @example org_01J9ABC...
+             */
+            organizationId: string;
+            /**
+             * @description The paired phone number in plain digits (E.164 without +). Optional; null before pairing.
+             * @example 6281234567890
+             */
+            phoneNumber?: string;
+            /**
+             * @description Whether a "typing…" presence indicator is sent to the recipient while a message is being sent.
+             * @example true
+             */
+            presenceTyping: boolean;
+            /**
+             * Format: int64
+             * @description Outbound send rate limit for this session, in messages per hour. Sends exceeding the limit are throttled.
+             * @example 600
+             */
+            ratePerHour: number;
+            /**
+             * Format: int64
+             * @description Outbound send rate limit for this session, in messages per minute. Sends exceeding the limit are throttled.
+             * @example 20
+             */
+            ratePerMin: number;
+            /**
+             * @description Where the session is in its lifecycle. **starting** = connecting (also used after a transient disconnect, since the gateway auto-reconnects); **scan_qr_code** = waiting for the pairing QR code to be scanned (fetch it via the QR endpoint); **working** = connected and usable for sending/receiving; **failed** = the connection broke (e.g. the number was linked to another device); **stopped** = deliberately stopped by an operator; **logged_out** = unpaired on the phone, requires a fresh QR scan to recover. Typical pairing path: starting → scan_qr_code → working.
+             * @example working
+             * @enum {string}
+             */
+            status: "starting" | "scan_qr_code" | "working" | "failed" | "stopped" | "logged_out";
+            /**
+             * Format: int64
+             * @description When the session was last updated, in epoch milliseconds (UTC).
+             * @example 1719662400000
+             */
+            updatedAt: number;
+            /**
+             * @description The session's own WhatsApp JID, set once the number is paired. Optional; null before pairing.
+             * @example 6281234567890@s.whatsapp.net
+             */
+            waJid?: string;
+            /**
+             * @description The session's linked-device id (LID) — WhatsApp's privacy-preserving per-device address. Optional; null before pairing.
+             * @example 205227043110953@lid
+             */
+            waLid?: string;
+        };
+        Webhook: {
+            /**
+             * @description Whether the webhook is enabled. An inactive webhook receives no deliveries.
+             * @example true
+             */
+            active: boolean;
+            /**
+             * Format: int64
+             * @description When the webhook was created, in epoch milliseconds (UTC).
+             * @example 1719662400000
+             */
+            createdAt: number;
+            /**
+             * @description Extra HTTP headers sent with each delivery. Applied last, so they can override the gateway's default headers. Optional.
+             * @example {
+             *       "X-Tenant": "acme"
+             *     }
+             */
+            customHeaders?: {
+                [key: string]: string;
             };
+            /**
+             * @description Event types delivered to this webhook. Use ["*"] to receive every event; an empty list receives none. Example values: "message", "session.status", "poll.vote", "group.update".
+             * @example [
+             *       "message",
+             *       "poll.vote"
+             *     ]
+             */
+            events: string[] | null;
+            /**
+             * @description The webhook's id.
+             * @example wh_01J9...
+             */
+            id: string;
+            /**
+             * @description Id of the organization that owns this webhook.
+             * @example org_01J9ABC...
+             */
+            organizationId: string;
+            /** @description How failed deliveries to this webhook are retried (backoff strategy, base delay, max attempts). */
+            retryPolicy: components["schemas"]["RetryPolicy"];
+            /**
+             * @description The session this webhook is scoped to: only events from this session are delivered. Optional; null means all of the organization's sessions.
+             * @example 01J9ZX8K2QHV0M3T6R7P4N5W8C
+             */
+            sessionId?: string;
+            /**
+             * Format: int64
+             * @description When the webhook was last updated, in epoch milliseconds (UTC).
+             * @example 1719662400000
+             */
+            updatedAt: number;
+            /**
+             * @description The HTTPS endpoint that receives event POSTs (the Event envelope as the request body).
+             * @example https://example.com/webhooks/wa
+             */
+            url: string;
+        };
+        WebhookBody: {
+            /**
+             * @description Whether the webhook is enabled. An inactive (false) webhook is kept but receives no deliveries. Defaults to enabled when omitted on create.
+             * @example true
+             */
+            active?: boolean;
+            /**
+             * @description Extra HTTP headers attached to every delivery POST. Applied last, so they can override the gateway's default headers. Use for static auth tokens or routing hints the receiver requires.
+             * @example {
+             *       "X-Tenant": "acme"
+             *     }
+             */
+            customHeaders?: {
+                [key: string]: string;
+            };
+            /**
+             * @description Event types to deliver to this webhook. Use ["*"] to receive every event type; an explicit list (e.g. ["message.received", "session.connected"]) delivers only those types; an empty list delivers nothing. See the event catalog for the full set of type names.
+             * @example [
+             *       "*"
+             *     ]
+             */
+            events?: string[] | null;
+            /** @description How failed deliveries (non-2xx response or connection error) are retried. Omit to use the gateway default: exponential backoff with a 2s base delay (2s, 4s, 8s, …) for up to 15 attempts, after which the delivery is given up (dead-lettered). */
+            retryPolicy?: components["schemas"]["RetryPolicy"];
+            /**
+             * @description Plaintext HMAC signing secret. When set, the gateway signs each delivery: it sends the lowercase-hex HMAC-SHA512 of the exact raw request body in the X-Webhook-Hmac header (alongside X-Webhook-Hmac-Algorithm: sha512), so the receiver can recompute it with the same secret and confirm authenticity. Stored encrypted at rest and **never returned** in any response. On update: send a new value to rotate the secret; omit the field to leave the stored secret unchanged.
+             * @example whsec_3f9a...redacted
+             */
+            secret?: string;
+            /**
+             * @description Scope this webhook to a single session: only events produced by that session are delivered. Omit or set to null to receive events from **all** of the caller organization's sessions. Must reference a session owned by the caller's organization.
+             * @example 01HHX5...
+             */
+            sessionId?: string;
+            /**
+             * @description The HTTPS endpoint that receives the delivery POSTs. Required on create (validated server-side; a missing or malformed value yields a 422 "validation_error"). The gateway POSTs the event envelope (the same JSON shape pushed over the realtime WebSocket) to this URL as the request body.
+             * @example https://example.com/hooks/whatsapp
+             */
+            url?: string;
         };
     };
-    responses: {
-        /** @description An error, returned in the standard error envelope (see the Error schema). */
-        Error: {
-            headers: {
-                [name: string]: unknown;
-            };
-            content: {
-                "application/json": components["schemas"]["Error"];
-            };
-        };
-        /** @description The message was accepted; the body reports the WhatsApp message id and its current status. */
-        SendResultOK: {
-            headers: {
-                [name: string]: unknown;
-            };
-            content: {
-                "application/json": components["schemas"]["SendResult"];
-            };
-        };
-    };
-    parameters: {
-        /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-        Session: string;
-        /** @description Resource id in the path (e.g. a webhook id). */
-        ID: string;
-        /** @description The WhatsApp message id (the per-message stable id assigned by WhatsApp). */
-        MessageID: string;
-        /** @description The chat's JID. A JID (Jabber ID) is WhatsApp's address for a conversation or user — e.g. `123...@s.whatsapp.net` for a direct chat or `123...@g.us` for a group. */
-        ChatID: string;
-        /** @description The group's JID (ends in `@g.us`). */
-        GroupID: string;
-        /** @description A WhatsApp JID — the address of a user, group, or channel. */
-        JID: string;
-        /** @description Maximum number of items to return on one page (clamped to 1–200; defaults to 50). */
-        Limit: number;
-        /** @description Page cursor. Pass the `nextCursor` value from the previous response to fetch the next page. The value is opaque — treat it as a token, do not parse it. Omit it to get the first page. */
-        Cursor: string;
-    };
+    responses: never;
+    parameters: never;
     requestBodies: never;
     headers: never;
     pathItems: never;
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    healthz: {
+    adminListSessions: {
         parameters: {
             query?: never;
             header?: never;
@@ -1916,83 +3515,117 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Process is running. */
+            /** @description OK */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "text/plain": string;
+                    "application/json": components["schemas"]["ListWASession"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
                 };
             };
         };
     };
-    readyz: {
+    adminSessionBackfillStatus: {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                /** @description The WhatsApp session id to target. A session is one attached WhatsApp number; the id is the opaque session identifier returned by the session list/create endpoints (it is **not** the phone number). As a super_admin endpoint this may name a session owned by any organization, not only the caller's. */
+                session: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Ready. */
+            /** @description OK */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "text/plain": string;
+                    "application/json": components["schemas"]["BackfillJob"];
                 };
             };
-            500: components["responses"]["Error"];
-        };
-    };
-    openapi: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The OpenAPI spec. */
-            200: {
+            /** @description Error */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/yaml": string;
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    adminStartSessionBackfill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id to target. A session is one attached WhatsApp number; the id is the opaque session identifier returned by the session list/create endpoints (it is **not** the phone number). As a super_admin endpoint this may name a session owned by any organization, not only the caller's. */
+                session: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackfillJob"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
                 };
             };
         };
     };
     listSessions: {
         parameters: {
-            query?: {
-                /** @description Maximum number of items to return on one page (clamped to 1–200; defaults to 50). */
-                limit?: components["parameters"]["Limit"];
-                /** @description Page cursor. Pass the `nextCursor` value from the previous response to fetch the next page. The value is opaque — treat it as a token, do not parse it. Omit it to get the first page. */
-                cursor?: components["parameters"]["Cursor"];
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description A page of sessions. */
+            /** @description OK */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SessionPage"];
+                    "application/json": components["schemas"]["ListWASession"];
                 };
             };
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
         };
     };
     createSession: {
@@ -2004,11 +3637,11 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CreateSessionRequest"];
+                "application/json": components["schemas"]["CreateSessionInputBody"];
             };
         };
         responses: {
-            /** @description Created. */
+            /** @description Created */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -2017,9 +3650,15 @@ export interface operations {
                     "application/json": components["schemas"]["WASession"];
                 };
             };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
         };
     };
     getSession: {
@@ -2027,14 +3666,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
+                /** @description The session id — a session is one attached (or to-be-attached) WhatsApp number, scoped to your organization. A session in another organization is reported as not_found (404), never forbidden. */
+                session: string;
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description The session. */
+            /** @description OK */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2043,7 +3682,15 @@ export interface operations {
                     "application/json": components["schemas"]["WASession"];
                 };
             };
-            404: components["responses"]["Error"];
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
         };
     };
     deleteSession: {
@@ -2051,220 +3698,44 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
+                /** @description The session id — a session is one attached (or to-be-attached) WhatsApp number, scoped to your organization. A session in another organization is reported as not_found (404), never forbidden. */
+                session: string;
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Deleted. */
+            /** @description No Content */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            404: components["responses"]["Error"];
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
         };
     };
-    startSession: {
+    backupStatus: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
+                /** @description Identifier of the WhatsApp session whose latest import job is reported. The caller's organization must own this session (otherwise not_found, 404). */
+                session: string;
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Session started. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WASession"];
-                };
-            };
-            404: components["responses"]["Error"];
-        };
-    };
-    stopSession: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Session stopped. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WASession"];
-                };
-            };
-            404: components["responses"]["Error"];
-        };
-    };
-    restartSession: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Session restarted. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WASession"];
-                };
-            };
-            404: components["responses"]["Error"];
-        };
-    };
-    logoutSession: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Session logged out. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WASession"];
-                };
-            };
-            404: components["responses"]["Error"];
-        };
-    };
-    sessionMe: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Own identity. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SessionMe"];
-                };
-            };
-            404: components["responses"]["Error"];
-            501: components["responses"]["Error"];
-        };
-    };
-    sessionQR: {
-        parameters: {
-            query?: {
-                /** @description Return a QR image instead of the raw code string. */
-                format?: "image";
-            };
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description QR code (raw code, or PNG when ?format=image). */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["QRCode"];
-                    "image/png": string;
-                };
-            };
-            404: components["responses"]["Error"];
-        };
-    };
-    sessionPairingCode: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    /** @example 628123456789 */
-                    phone: string;
-                };
-            };
-        };
-        responses: {
-            /** @description Pairing code. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** @example ABCD-1234 */
-                        code?: string;
-                    };
-                };
-            };
-            400: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-        };
-    };
-    sessionBackupStatus: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The latest backup import job for this session. */
+            /** @description OK */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2273,34 +3744,45 @@ export interface operations {
                     "application/json": components["schemas"]["BackfillImport"];
                 };
             };
-            404: components["responses"]["Error"];
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
         };
     };
-    importSessionBackup: {
+    importBackup: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
+                /** @description Identifier of the WhatsApp session whose history the backup is imported into. The caller's organization must own this session (otherwise not_found, 404). */
+                session: string;
             };
             cookie?: never;
         };
-        requestBody: {
+        requestBody?: {
             content: {
                 "multipart/form-data": {
                     /**
                      * Format: binary
-                     * @description The `msgstore.db.crypt15` backup file.
+                     * @description The WhatsApp end-to-end encrypted message-store backup file, named msgstore.db.crypt15 on the device. This is the raw, still-encrypted blob — do NOT decrypt it client-side. Required: the request fails with validation_error (400) if the part is absent or its body is empty. Bounded to 256 MiB; a larger upload trips the body cap and is rejected before reaching the handler.
                      */
                     file: string;
-                    /** @description The crypt15 decryption key (64-char hex, raw 32-byte, or serialized key). */
+                    /**
+                     * @description The crypt15 decryption key for the uploaded backup. Accepts three forms: (1) a 64-character hex string — the human-readable code shown under WhatsApp > Settings > Chats > Chat backup > End-to-end encrypted backup; (2) a raw 32-byte key; or (3) a serialized encrypted_backup.key file. Leading/trailing whitespace is trimmed. Required: an empty or whitespace-only value fails with validation_error (400). The key is used inline to decrypt the file before the job is accepted, so a wrong key fails fast with 400 rather than failing the background job.
+                     * @example 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+                     */
                     key: string;
                 };
             };
         };
         responses: {
-            /** @description Import accepted and running in the background. */
+            /** @description Accepted */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -2309,24 +3791,1213 @@ export interface operations {
                     "application/json": components["schemas"]["BackfillImport"];
                 };
             };
-            400: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
-            429: components["responses"]["Error"];
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    createChannel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id — one attached WhatsApp number — that will own the new channel. The session must exist and be connected. */
+                session: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateChannelInputBody"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateChannelOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listChannelMessages: {
+        parameters: {
+            query?: {
+                /** @description Maximum number of messages to return on one page. Optional. Omitted or 0 defaults to 50; values are clamped to the range 1–200. */
+                limit?: number;
+                /** @description Opaque pagination cursor. Omit it for the first page; on each response read "nextCursor" and pass it back here to fetch the next page. Treat the value as a token — do not parse or construct it. An empty "nextCursor" in the response means there are no more pages. */
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id (one attached WhatsApp number) whose stored channel messages are queried. */
+                session: string;
+                /** @description The channel's WhatsApp JID (a newsletter address, e.g. "120363012345678901@newsletter"). Percent-encode reserved characters such as "@" ("%40") in the path. */
+                jid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListMessage"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    followChannel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id (one attached WhatsApp number) performing the follow/unfollow. */
+                session: string;
+                /** @description The channel's WhatsApp JID (a newsletter address, e.g. "120363012345678901@newsletter"). Percent-encode reserved characters such as "@" ("%40") in the path — the gateway URL-decodes it before use. */
+                jid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    muteChannel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id (one attached WhatsApp number) whose mute state for this channel is being changed. */
+                session: string;
+                /** @description The channel's WhatsApp JID (a newsletter address, e.g. "120363012345678901@newsletter"). Percent-encode reserved characters such as "@" ("%40") in the path. */
+                jid: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MuteChannelInputBody"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    unfollowChannel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id (one attached WhatsApp number) performing the follow/unfollow. */
+                session: string;
+                /** @description The channel's WhatsApp JID (a newsletter address, e.g. "120363012345678901@newsletter"). Percent-encode reserved characters such as "@" ("%40") in the path — the gateway URL-decodes it before use. */
+                jid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listChats: {
+        parameters: {
+            query?: {
+                /** @description Maximum number of chats to return on one page. Clamped to the range 1–200; a missing or zero value defaults to 50. */
+                limit?: number;
+                /** @description Opaque pagination cursor. Pass the nextCursor value from the previous response to fetch the next page; treat it as a token and do not parse it. Omit it to get the first page. */
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). The session must be owned by the caller's organization or the request fails with not_found. */
+                session: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListChat"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getChat: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). The session must be owned by the caller's organization or the request fails with not_found. */
+                session: string;
+                /** @description The chat's JID (Jabber ID) — WhatsApp's address for a conversation. Format is 123...@s.whatsapp.net for a direct chat or 123...@g.us for a group. */
+                cid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Chat"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    deleteChat: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). The session must be owned by the caller's organization or the request fails with not_found. */
+                session: string;
+                /** @description The chat's JID to delete from the gateway's stored copy. Format is 123...@s.whatsapp.net for a direct chat or 123...@g.us for a group. */
+                cid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    updateChat: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). The session must be owned by the caller's organization or the request fails with not_found. */
+                session: string;
+                /** @description The chat's JID to update. Format is 123...@s.whatsapp.net for a direct chat or 123...@g.us for a group. */
+                cid: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateChatInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Chat"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listChatMessages: {
+        parameters: {
+            query?: {
+                /** @description Maximum number of messages to return on one page. Clamped to the range 1–200; a missing or zero value defaults to 50. */
+                limit?: number;
+                /** @description Opaque pagination cursor. Pass the nextCursor value from the previous response to fetch the next (older) page; treat it as a token and do not parse it. Omit it to get the first page. */
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). The session must be owned by the caller's organization or the request fails with not_found. */
+                session: string;
+                /** @description The chat's JID whose messages to list. Format is 123...@s.whatsapp.net for a direct chat or 123...@g.us for a group. */
+                cid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListMessage"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    setChatPresence: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). The session must be owned by the caller's organization or the request fails with not_found. */
+                session: string;
+                /** @description The chat's JID to send the presence indicator to. Format is 123...@s.whatsapp.net for a direct chat or 123...@g.us for a group. */
+                cid: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatPresenceInputBody"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    readChat: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number). The session must be owned by the caller's organization or the request fails with not_found. */
+                session: string;
+                /** @description The chat's JID to mark as read. Format is 123...@s.whatsapp.net for a direct chat or 123...@g.us for a group. */
+                cid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Chat"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listContacts: {
+        parameters: {
+            query?: {
+                /** @description Optional source filter. **dm** keeps only people you have a direct chat with; **group** keeps only people seen in a group. Omit to return contacts from both sources. */
+                source?: "dm" | "group";
+                /** @description Optional group filter. Pass a group JID (e.g. "12345-67890@g.us") to keep only members of that one group. Has no effect unless the contacts were seen in that group. */
+                group?: string;
+                /** @description Optional free-text search over each contact's name or phone number. Case-insensitive substring match. */
+                q?: string;
+                /** @description Maximum number of contacts to return on one page. Clamped server-side to the range 1–200; values outside the range are coerced to the nearest bound. Defaults to 50 when omitted or 0. */
+                limit?: number;
+                /** @description Opaque pagination cursor. Pass the "nextCursor" value from the previous response to fetch the next page; omit on the first request. Treat the value as a token — do not parse, construct, or modify it. An empty "nextCursor" in the response means the last page was reached. */
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number) whose contacts are listed. */
+                session: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListContact"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    checkContact: {
+        parameters: {
+            query?: {
+                /** @description The phone number to look up, in E.164 form (digits, optionally with a leading +). WhatsApp is queried live to determine whether this number has an account. */
+                phone?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id used to perform the live on-WhatsApp lookup. The session must be connected. */
+                session: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnWhatsApp"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getContactAbout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id used to perform the live action. The session must be connected. */
+                session: string;
+                /** @description A WhatsApp JID — the address of a user (e.g. "14155550123@s.whatsapp.net"), group ("...@g.us"), or channel. For contact picture/about/block/unblock this is the target user's JID. */
+                jid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContactAboutOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    blockContact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id used to perform the live action. The session must be connected. */
+                session: string;
+                /** @description A WhatsApp JID — the address of a user (e.g. "14155550123@s.whatsapp.net"), group ("...@g.us"), or channel. For contact picture/about/block/unblock this is the target user's JID. */
+                jid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getContactPicture: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id used to perform the live action. The session must be connected. */
+                session: string;
+                /** @description A WhatsApp JID — the address of a user (e.g. "14155550123@s.whatsapp.net"), group ("...@g.us"), or channel. For contact picture/about/block/unblock this is the target user's JID. */
+                jid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProfilePicture"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    unblockContact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id used to perform the live action. The session must be connected. */
+                session: string;
+                /** @description A WhatsApp JID — the address of a user (e.g. "14155550123@s.whatsapp.net"), group ("...@g.us"), or channel. For contact picture/about/block/unblock this is the target user's JID. */
+                jid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getContact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id that owns the stored contact. */
+                session: string;
+                /** @description The contact's LID — WhatsApp's stable per-account identifier for a person. Served from stored data, so the value must already be known to this session (e.g. from a prior list response). */
+                lid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContactDetail"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listGroups: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id whose groups to list. */
+                session: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListGroup"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    createGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id — one attached WhatsApp number. The new group is created on this session's account, which becomes the group's first admin/owner. */
+                session: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateGroupInputBody"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupInfo"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id that the group belongs to. */
+                session: string;
+                /** @description The group's JID (Jabber ID) — WhatsApp's address for the group, always ending in @g.us. Percent-encode the @ as %40 in the URL path; the gateway URL-decodes it. */
+                gid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Group"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    updateGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id that owns the group; must be connected for this live action. */
+                session: string;
+                /** @description The group's JID, ending in @g.us. Percent-encode the @ as %40 in the URL path. */
+                gid: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateGroupInputBody"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getGroupInvite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id that owns the group; must be connected for this live lookup. */
+                session: string;
+                /** @description The group's JID, ending in @g.us. Percent-encode the @ as %40 in the URL path. */
+                gid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InviteOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    revokeGroupInvite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id that owns the group; must be connected for this live action. */
+                session: string;
+                /** @description The group's JID, ending in @g.us. Percent-encode the @ as %40 in the URL path. */
+                gid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InviteOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listGroupMembers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id that the group belongs to. */
+                session: string;
+                /** @description The group's JID, ending in @g.us. Percent-encode the @ as %40 in the URL path; the gateway URL-decodes it. */
+                gid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListGroupMember"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    addGroupMembers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id that owns the group; must be connected for this live action. */
+                session: string;
+                /** @description The group's JID, ending in @g.us. Percent-encode the @ as %40 in the URL path; the gateway URL-decodes it. */
+                gid: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddGroupMembersInputBody"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    removeGroupMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id that owns the group; must be connected for this live action. */
+                session: string;
+                /** @description The group's JID, ending in @g.us. Percent-encode the @ as %40 in the URL path. */
+                gid: string;
+                /** @description The member's user JID to remove (ending in @s.whatsapp.net). Percent-encode the @ as %40 in the URL path. */
+                jid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    demoteGroupMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id that owns the group; must be connected for this live action. */
+                session: string;
+                /** @description The group's JID, ending in @g.us. Percent-encode the @ as %40 in the URL path. */
+                gid: string;
+                /** @description The admin's user JID to demote back to a regular member (ending in @s.whatsapp.net). Percent-encode the @ as %40 in the URL path. */
+                jid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    promoteGroupMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id that owns the group; must be connected for this live action. */
+                session: string;
+                /** @description The group's JID, ending in @g.us. Percent-encode the @ as %40 in the URL path. */
+                gid: string;
+                /** @description The member's user JID to promote to admin (ending in @s.whatsapp.net). Percent-encode the @ as %40 in the URL path. */
+                jid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    approveGroupMembers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id that owns the group. Note: this endpoint is not implemented in v2 and always returns 501 not_implemented regardless of input. */
+                session: string;
+                /** @description The group's JID, ending in @g.us. Not implemented in v2 (always 501). */
+                gid: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApproveGroupMembersInputBody"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    leaveGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id whose account will leave the group; must be connected for this live action. */
+                session: string;
+                /** @description The group's JID, ending in @g.us. Percent-encode the @ as %40 in the URL path. */
+                gid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    joinGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id whose account will join the group; must be connected for this live action. */
+                session: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JoinGroupInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JoinGroupOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    sessionMe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The session id — a session is one attached (or to-be-attached) WhatsApp number, scoped to your organization. A session in another organization is reported as not_found (404), never forbidden. */
+                session: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Me"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
         };
     };
     sendMessage: {
         parameters: {
             query?: {
-                /** @description Enqueue and return immediately instead of sending inline. */
+                /** @description Delivery mode. When **false** (the default) the call blocks until WhatsApp acknowledges the send and the response is **200** with the final SendResult. When **true** the gateway enqueues the send, returns immediately with **202** (status "queued"), and the final delivery status arrives later as a "message.status" event on the event stream. Async also changes rate-limit behavior: an over-limit synchronous send returns 429, whereas an async send stays queued instead of failing. */
                 async?: boolean;
             };
             header?: {
+                /** @description Optional client-supplied idempotency token, scoped to your organization. If you retry a send with the same key, the gateway returns the result of the first send and does **not** dispatch a second message to WhatsApp. Use a fresh UUID per logical send and reuse it on retries. Omit it to send unconditionally. */
                 "Idempotency-Key"?: string;
             };
             path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
+                /** @description The WhatsApp session id (a session is one attached WhatsApp number) that performs the send. Must be a session your organization owns and that is currently connected. */
+                session: string;
             };
             cookie?: never;
         };
@@ -2336,7 +5007,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Sent (or accepted when async). */
+            /** @description OK */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2345,10 +5016,15 @@ export interface operations {
                     "application/json": components["schemas"]["SendResult"];
                 };
             };
-            400: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            429: components["responses"]["Error"];
-            501: components["responses"]["Error"];
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
         };
     };
     revokeMessage: {
@@ -2356,17 +5032,37 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description The WhatsApp message id (the per-message stable id assigned by WhatsApp). */
-                mid: components["parameters"]["MessageID"];
+                /** @description The WhatsApp session id used to issue the revoke. Must be a connected session your organization owns. */
+                session: string;
+                /** @description The WhatsApp message id (the per-message stable id assigned by WhatsApp) of the message to delete for everyone. */
+                mid: string;
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RevokeMessageInputBody"];
+            };
+        };
         responses: {
-            200: components["responses"]["SendResultOK"];
-            404: components["responses"]["Error"];
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SendResult"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
         };
     };
     editMessage: {
@@ -2374,66 +5070,37 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description The WhatsApp message id (the per-message stable id assigned by WhatsApp). */
-                mid: components["parameters"]["MessageID"];
+                /** @description The WhatsApp session id that originally sent the message. Must be a connected session your organization owns. */
+                session: string;
+                /** @description The WhatsApp message id (the per-message stable id assigned by WhatsApp) of the message to edit. Must be a text message previously sent by this session. */
+                mid: string;
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": {
-                    text: string;
+                "application/json": components["schemas"]["EditMessageInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SendResult"];
                 };
             };
-        };
-        responses: {
-            200: components["responses"]["SendResultOK"];
-            404: components["responses"]["Error"];
-        };
-    };
-    addReaction: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description The WhatsApp message id (the per-message stable id assigned by WhatsApp). */
-                mid: components["parameters"]["MessageID"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    /** @example 👍 */
-                    emoji: string;
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
                 };
             };
-        };
-        responses: {
-            200: components["responses"]["SendResultOK"];
-            404: components["responses"]["Error"];
-        };
-    };
-    removeReaction: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description The WhatsApp message id (the per-message stable id assigned by WhatsApp). */
-                mid: components["parameters"]["MessageID"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: components["responses"]["SendResultOK"];
-            404: components["responses"]["Error"];
         };
     };
     forwardMessage: {
@@ -2441,24 +5108,113 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description The WhatsApp message id (the per-message stable id assigned by WhatsApp). */
-                mid: components["parameters"]["MessageID"];
+                /** @description The WhatsApp session id used to forward the message. Must be a connected session your organization owns. */
+                session: string;
+                /** @description The WhatsApp message id (the per-message stable id assigned by WhatsApp) of the message to forward. */
+                mid: string;
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": {
-                    /** @description Recipient JID */
-                    to: string;
-                };
+                "application/json": components["schemas"]["ForwardInputBody"];
             };
         };
         responses: {
-            200: components["responses"]["SendResultOK"];
-            404: components["responses"]["Error"];
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SendResult"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    addReaction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id that owns the reaction. Must be a connected session your organization owns. */
+                session: string;
+                /** @description The WhatsApp message id (the per-message stable id assigned by WhatsApp) of the message being reacted to. */
+                mid: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReactionInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SendResult"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    removeReaction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id that owns the reaction. Must be a connected session your organization owns. */
+                session: string;
+                /** @description The WhatsApp message id (the per-message stable id assigned by WhatsApp) of the message being reacted to. */
+                mid: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReactionInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SendResult"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
         };
     };
     voteMessage: {
@@ -2466,928 +5222,73 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description The WhatsApp message id (the per-message stable id assigned by WhatsApp). */
-                mid: components["parameters"]["MessageID"];
+                /** @description The WhatsApp session id casting the vote. Must be a connected session your organization owns. */
+                session: string;
+                /** @description The WhatsApp message id (the per-message stable id assigned by WhatsApp) of the poll message being voted on. */
+                mid: string;
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": {
-                    options: string[];
-                };
+                "application/json": components["schemas"]["VoteInputBody"];
             };
         };
         responses: {
-            200: components["responses"]["SendResultOK"];
-            404: components["responses"]["Error"];
-        };
-    };
-    listChats: {
-        parameters: {
-            query?: {
-                /** @description Maximum number of items to return on one page (clamped to 1–200; defaults to 50). */
-                limit?: components["parameters"]["Limit"];
-                /** @description Page cursor. Pass the `nextCursor` value from the previous response to fetch the next page. The value is opaque — treat it as a token, do not parse it. Omit it to get the first page. */
-                cursor?: components["parameters"]["Cursor"];
-            };
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description A page of chats. */
+            /** @description OK */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChatPage"];
+                    "application/json": components["schemas"]["SendResult"];
                 };
             };
-            404: components["responses"]["Error"];
-        };
-    };
-    getChat: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description The chat's JID. A JID (Jabber ID) is WhatsApp's address for a conversation or user — e.g. `123...@s.whatsapp.net` for a direct chat or `123...@g.us` for a group. */
-                cid: components["parameters"]["ChatID"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The chat. */
-            200: {
+            /** @description Error */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Chat"];
+                    "application/json": components["schemas"]["ApiError"];
                 };
             };
-            404: components["responses"]["Error"];
         };
     };
-    deleteChat: {
+    sessionPairingCode: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description The chat's JID. A JID (Jabber ID) is WhatsApp's address for a conversation or user — e.g. `123...@s.whatsapp.net` for a direct chat or `123...@g.us` for a group. */
-                cid: components["parameters"]["ChatID"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Deleted. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            404: components["responses"]["Error"];
-        };
-    };
-    updateChat: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description The chat's JID. A JID (Jabber ID) is WhatsApp's address for a conversation or user — e.g. `123...@s.whatsapp.net` for a direct chat or `123...@g.us` for a group. */
-                cid: components["parameters"]["ChatID"];
+                /** @description The session id to pair. Must be an existing, not-yet-paired session in your organization; a session in another organization is reported as not_found (404). */
+                session: string;
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["UpdateChatRequest"];
+                "application/json": components["schemas"]["PairingCodeInputBody"];
             };
         };
         responses: {
-            /** @description Updated chat. */
+            /** @description OK */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Chat"];
+                    "application/json": components["schemas"]["PairingCodeOutputBody"];
                 };
             };
-            404: components["responses"]["Error"];
-        };
-    };
-    listChatMessages: {
-        parameters: {
-            query?: {
-                /** @description Maximum number of items to return on one page (clamped to 1–200; defaults to 50). */
-                limit?: components["parameters"]["Limit"];
-                /** @description Page cursor. Pass the `nextCursor` value from the previous response to fetch the next page. The value is opaque — treat it as a token, do not parse it. Omit it to get the first page. */
-                cursor?: components["parameters"]["Cursor"];
-            };
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description The chat's JID. A JID (Jabber ID) is WhatsApp's address for a conversation or user — e.g. `123...@s.whatsapp.net` for a direct chat or `123...@g.us` for a group. */
-                cid: components["parameters"]["ChatID"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description A page of messages. */
-            200: {
+            /** @description Error */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MessagePage"];
+                    "application/json": components["schemas"]["ApiError"];
                 };
             };
-            404: components["responses"]["Error"];
-        };
-    };
-    readChat: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description The chat's JID. A JID (Jabber ID) is WhatsApp's address for a conversation or user — e.g. `123...@s.whatsapp.net` for a direct chat or `123...@g.us` for a group. */
-                cid: components["parameters"]["ChatID"];
-            };
-            cookie?: never;
-        };
-        requestBody?: {
-            content: {
-                "application/json": {
-                    messageIds?: string[];
-                };
-            };
-        };
-        responses: {
-            /** @description Marked read. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            404: components["responses"]["Error"];
-        };
-    };
-    chatPresence: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description The chat's JID. A JID (Jabber ID) is WhatsApp's address for a conversation or user — e.g. `123...@s.whatsapp.net` for a direct chat or `123...@g.us` for a group. */
-                cid: components["parameters"]["ChatID"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    /** @enum {string} */
-                    state: "composing" | "paused" | "recording";
-                };
-            };
-        };
-        responses: {
-            /** @description Presence sent. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            400: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            501: components["responses"]["Error"];
-        };
-    };
-    listContacts: {
-        parameters: {
-            query?: {
-                /** @description Maximum number of items to return on one page (clamped to 1–200; defaults to 50). */
-                limit?: components["parameters"]["Limit"];
-                /** @description Page cursor. Pass the `nextCursor` value from the previous response to fetch the next page. The value is opaque — treat it as a token, do not parse it. Omit it to get the first page. */
-                cursor?: components["parameters"]["Cursor"];
-                source?: "dm" | "group";
-                /** @description Filter to members of this group JID. */
-                group?: string;
-                /** @description Free-text search over name/number. */
-                q?: string;
-            };
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description A page of contacts. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ContactPage"];
-                };
-            };
-            404: components["responses"]["Error"];
-        };
-    };
-    checkContact: {
-        parameters: {
-            query: {
-                phone: string;
-            };
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description On-WhatsApp result. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OnWhatsApp"];
-                };
-            };
-            400: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            501: components["responses"]["Error"];
-        };
-    };
-    getContact: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                lid: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The contact detail. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ContactDetail"];
-                };
-            };
-            404: components["responses"]["Error"];
-        };
-    };
-    contactPicture: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description A WhatsApp JID — the address of a user, group, or channel. */
-                jid: components["parameters"]["JID"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Profile picture URL/metadata. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProfilePicture"];
-                };
-            };
-            404: components["responses"]["Error"];
-            501: components["responses"]["Error"];
-        };
-    };
-    contactAbout: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description A WhatsApp JID — the address of a user, group, or channel. */
-                jid: components["parameters"]["JID"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description About text. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        about?: string;
-                    };
-                };
-            };
-            404: components["responses"]["Error"];
-            501: components["responses"]["Error"];
-        };
-    };
-    blockContact: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description A WhatsApp JID — the address of a user, group, or channel. */
-                jid: components["parameters"]["JID"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Blocked. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            404: components["responses"]["Error"];
-            501: components["responses"]["Error"];
-        };
-    };
-    unblockContact: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description A WhatsApp JID — the address of a user, group, or channel. */
-                jid: components["parameters"]["JID"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Unblocked. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            404: components["responses"]["Error"];
-            501: components["responses"]["Error"];
-        };
-    };
-    listGroups: {
-        parameters: {
-            query?: {
-                /** @description Maximum number of items to return on one page (clamped to 1–200; defaults to 50). */
-                limit?: components["parameters"]["Limit"];
-                /** @description Page cursor. Pass the `nextCursor` value from the previous response to fetch the next page. The value is opaque — treat it as a token, do not parse it. Omit it to get the first page. */
-                cursor?: components["parameters"]["Cursor"];
-            };
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description A page of groups. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["GroupPage"];
-                };
-            };
-            404: components["responses"]["Error"];
-        };
-    };
-    createGroup: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    subject: string;
-                    participants: string[];
-                };
-            };
-        };
-        responses: {
-            /** @description Created group. */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["GroupInfo"];
-                };
-            };
-            400: components["responses"]["Error"];
-            501: components["responses"]["Error"];
-        };
-    };
-    joinGroup: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    invite: string;
-                };
-            };
-        };
-        responses: {
-            /** @description Joined. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["GroupInfo"];
-                };
-            };
-            501: components["responses"]["Error"];
-        };
-    };
-    getGroup: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description The group's JID (ends in `@g.us`). */
-                gid: components["parameters"]["GroupID"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The group. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["GroupInfo"];
-                };
-            };
-            404: components["responses"]["Error"];
-        };
-    };
-    updateGroup: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description The group's JID (ends in `@g.us`). */
-                gid: components["parameters"]["GroupID"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["GroupSettings"];
-            };
-        };
-        responses: {
-            /** @description Updated. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            404: components["responses"]["Error"];
-            501: components["responses"]["Error"];
-        };
-    };
-    leaveGroup: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description The group's JID (ends in `@g.us`). */
-                gid: components["parameters"]["GroupID"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Left. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            404: components["responses"]["Error"];
-            501: components["responses"]["Error"];
-        };
-    };
-    listGroupMembers: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description The group's JID (ends in `@g.us`). */
-                gid: components["parameters"]["GroupID"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Members. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["GroupMember"][];
-                };
-            };
-            404: components["responses"]["Error"];
-        };
-    };
-    addGroupMembers: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description The group's JID (ends in `@g.us`). */
-                gid: components["parameters"]["GroupID"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    participants: string[];
-                };
-            };
-        };
-        responses: {
-            /** @description Added. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            404: components["responses"]["Error"];
-            501: components["responses"]["Error"];
-        };
-    };
-    approveGroupMembers: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description The group's JID (ends in `@g.us`). */
-                gid: components["parameters"]["GroupID"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            501: components["responses"]["Error"];
-        };
-    };
-    removeGroupMember: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description The group's JID (ends in `@g.us`). */
-                gid: components["parameters"]["GroupID"];
-                /** @description A WhatsApp JID — the address of a user, group, or channel. */
-                jid: components["parameters"]["JID"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Removed. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            404: components["responses"]["Error"];
-            501: components["responses"]["Error"];
-        };
-    };
-    promoteGroupMember: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description The group's JID (ends in `@g.us`). */
-                gid: components["parameters"]["GroupID"];
-                /** @description A WhatsApp JID — the address of a user, group, or channel. */
-                jid: components["parameters"]["JID"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Promoted. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            404: components["responses"]["Error"];
-            501: components["responses"]["Error"];
-        };
-    };
-    demoteGroupMember: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description The group's JID (ends in `@g.us`). */
-                gid: components["parameters"]["GroupID"];
-                /** @description A WhatsApp JID — the address of a user, group, or channel. */
-                jid: components["parameters"]["JID"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Demoted. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            404: components["responses"]["Error"];
-            501: components["responses"]["Error"];
-        };
-    };
-    getGroupInvite: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description The group's JID (ends in `@g.us`). */
-                gid: components["parameters"]["GroupID"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Invite link. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        invite?: string;
-                    };
-                };
-            };
-            404: components["responses"]["Error"];
-            501: components["responses"]["Error"];
-        };
-    };
-    revokeGroupInvite: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description The group's JID (ends in `@g.us`). */
-                gid: components["parameters"]["GroupID"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description New invite link. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        invite?: string;
-                    };
-                };
-            };
-            404: components["responses"]["Error"];
-            501: components["responses"]["Error"];
-        };
-    };
-    createChannel: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            501: components["responses"]["Error"];
-        };
-    };
-    followChannel: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description A WhatsApp JID — the address of a user, group, or channel. */
-                jid: components["parameters"]["JID"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            501: components["responses"]["Error"];
-        };
-    };
-    unfollowChannel: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description A WhatsApp JID — the address of a user, group, or channel. */
-                jid: components["parameters"]["JID"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            501: components["responses"]["Error"];
-        };
-    };
-    muteChannel: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description A WhatsApp JID — the address of a user, group, or channel. */
-                jid: components["parameters"]["JID"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            501: components["responses"]["Error"];
-        };
-    };
-    listChannelMessages: {
-        parameters: {
-            query?: {
-                /** @description Maximum number of items to return on one page (clamped to 1–200; defaults to 50). */
-                limit?: components["parameters"]["Limit"];
-                /** @description Page cursor. Pass the `nextCursor` value from the previous response to fetch the next page. The value is opaque — treat it as a token, do not parse it. Omit it to get the first page. */
-                cursor?: components["parameters"]["Cursor"];
-            };
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-                /** @description A WhatsApp JID — the address of a user, group, or channel. */
-                jid: components["parameters"]["JID"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description A page of messages. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MessagePage"];
-                };
-            };
-            404: components["responses"]["Error"];
-        };
-    };
-    postStatus: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    /**
-                     * @example text
-                     * @enum {string}
-                     */
-                    type: "text" | "image";
-                    text?: string;
-                };
-            };
-        };
-        responses: {
-            200: components["responses"]["SendResultOK"];
-            400: components["responses"]["Error"];
-            501: components["responses"]["Error"];
         };
     };
     setPresence: {
@@ -3395,56 +5296,258 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
+                /** @description The WhatsApp session id — one attached WhatsApp number whose account-wide availability is being set. Must be a session owned by the caller's organization; an unknown or cross-org id yields not_found (404). */
+                session: string;
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": {
-                    /** @enum {string} */
-                    state: "online" | "offline";
-                };
+                "application/json": components["schemas"]["SetPresenceInputBody"];
             };
         };
         responses: {
-            /** @description Presence set. */
+            /** @description No Content */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            400: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            501: components["responses"]["Error"];
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    sessionQR: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The session id — a session is one attached (or to-be-attached) WhatsApp number, scoped to your organization. A session in another organization is reported as not_found (404), never forbidden. */
+                session: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QR"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    postStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The WhatsApp session id — one attached WhatsApp number. The status is posted from this account's "My Status" story. Must be a session owned by the caller's organization; an unknown or cross-org id yields not_found (404). */
+                session: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PostStatusInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostStatusOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    logoutSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The session id — a session is one attached (or to-be-attached) WhatsApp number, scoped to your organization. A session in another organization is reported as not_found (404), never forbidden. */
+                session: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WASession"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    restartSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The session id — a session is one attached (or to-be-attached) WhatsApp number, scoped to your organization. A session in another organization is reported as not_found (404), never forbidden. */
+                session: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WASession"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    startSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The session id — a session is one attached (or to-be-attached) WhatsApp number, scoped to your organization. A session in another organization is reported as not_found (404), never forbidden. */
+                session: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WASession"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    stopSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The session id — a session is one attached (or to-be-attached) WhatsApp number, scoped to your organization. A session in another organization is reported as not_found (404), never forbidden. */
+                session: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WASession"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
         };
     };
     listWebhooks: {
         parameters: {
-            query?: {
-                /** @description Maximum number of items to return on one page (clamped to 1–200; defaults to 50). */
-                limit?: components["parameters"]["Limit"];
-                /** @description Page cursor. Pass the `nextCursor` value from the previous response to fetch the next page. The value is opaque — treat it as a token, do not parse it. Omit it to get the first page. */
-                cursor?: components["parameters"]["Cursor"];
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description A page of webhooks. */
+            /** @description OK */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["WebhookPage"];
+                    "application/json": components["schemas"]["ListWebhook"];
                 };
             };
-            403: components["responses"]["Error"];
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
         };
     };
     createWebhook: {
@@ -3456,11 +5559,11 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["WebhookRequest"];
+                "application/json": components["schemas"]["WebhookBody"];
             };
         };
         responses: {
-            /** @description The created webhook. */
+            /** @description Created */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -3469,7 +5572,15 @@ export interface operations {
                     "application/json": components["schemas"]["Webhook"];
                 };
             };
-            400: components["responses"]["Error"];
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
         };
     };
     getWebhook: {
@@ -3477,14 +5588,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description Resource id in the path (e.g. a webhook id). */
-                id: components["parameters"]["ID"];
+                /** @description The webhook id. Must reference a webhook owned by the caller's organization, otherwise the request fails with a 404 "not_found". */
+                id: string;
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description The webhook. */
+            /** @description OK */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -3493,7 +5604,15 @@ export interface operations {
                     "application/json": components["schemas"]["Webhook"];
                 };
             };
-            404: components["responses"]["Error"];
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
         };
     };
     deleteWebhook: {
@@ -3501,21 +5620,29 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description Resource id in the path (e.g. a webhook id). */
-                id: components["parameters"]["ID"];
+                /** @description The webhook id. Must reference a webhook owned by the caller's organization, otherwise the request fails with a 404 "not_found". */
+                id: string;
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Deleted. */
+            /** @description No Content */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            404: components["responses"]["Error"];
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
         };
     };
     updateWebhook: {
@@ -3523,18 +5650,18 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description Resource id in the path (e.g. a webhook id). */
-                id: components["parameters"]["ID"];
+                /** @description The webhook id to update. Must reference a webhook owned by the caller's organization, otherwise the request fails with a 404 "not_found". */
+                id: string;
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["WebhookRequest"];
+                "application/json": components["schemas"]["WebhookBody"];
             };
         };
         responses: {
-            /** @description The updated webhook. */
+            /** @description OK */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -3543,83 +5670,38 @@ export interface operations {
                     "application/json": components["schemas"]["Webhook"];
                 };
             };
-            404: components["responses"]["Error"];
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
         };
     };
-    adminListSessions: {
+    event: {
         parameters: {
-            query?: {
-                /** @description Maximum number of items to return on one page (clamped to 1–200; defaults to 50). */
-                limit?: components["parameters"]["Limit"];
-                /** @description Page cursor. Pass the `nextCursor` value from the previous response to fetch the next page. The value is opaque — treat it as a token, do not parse it. Omit it to get the first page. */
-                cursor?: components["parameters"]["Cursor"];
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        /** @description The event envelope. Exactly one of the listed event shapes, selected by `event`. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MessageEvent"] | components["schemas"]["MessageStatusEvent"] | components["schemas"]["SessionStatusEvent"] | components["schemas"]["AuthQREvent"] | components["schemas"]["AuthCodeEvent"] | components["schemas"]["PresenceEvent"] | components["schemas"]["GroupEvent"] | components["schemas"]["ChatUpdateEvent"] | components["schemas"]["ContactUpdateEvent"] | components["schemas"]["CallEvent"] | components["schemas"]["NewsletterEvent"];
+            };
+        };
         responses: {
-            /** @description A page of sessions across all organizations. */
+            /** @description Return any 2xx to acknowledge receipt. Non-2xx (or a timeout) makes the gateway retry with backoff. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": components["schemas"]["SessionPage"];
-                };
+                content?: never;
             };
-            403: components["responses"]["Error"];
-        };
-    };
-    adminStartSessionBackfill: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Backfill accepted and running. */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BackfillJob"];
-                };
-            };
-            404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
-            501: components["responses"]["Error"];
-        };
-    };
-    adminSessionBackfillStatus: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The WhatsApp session id (a session is one attached WhatsApp number). */
-                session: components["parameters"]["Session"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The current or latest backfill job for this session. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BackfillJob"];
-                };
-            };
-            404: components["responses"]["Error"];
         };
     };
 }

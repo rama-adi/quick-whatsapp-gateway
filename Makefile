@@ -35,9 +35,9 @@ test:
 	go test ./...
 tidy:
 	go mod tidy && cd web && pnpm install
-openapi:     ## generate the OpenAPI spec from the shared Go types (code-first, D11)
-	go run ./cmd/genopenapi docs/openapi.gen.yaml
-openapi-check: openapi ## CI drift guard: fail if the generated spec is stale
-	git diff --exit-code docs/openapi.gen.yaml
-gen:         ## regen typed API client + docs pages from openapi.yaml
+openapi:     ## generate the OpenAPI contract from the shared Go types (code-first, D11)
+	go run ./cmd/genopenapi docs/openapi.yaml
+openapi-check: openapi ## CI drift guard: fail if docs/openapi.yaml is stale vs the Go types
+	git diff --exit-code docs/openapi.yaml
+gen: openapi ## regen the contract + typed API client + docs pages (run after changing API Go types)
 	cd web && pnpm gen:api && pnpm docs:openapi

@@ -2,15 +2,13 @@
   "title": "API reference",
   "pages": [
     "index",
-    "health",
+    "admin",
     "sessions",
-    "messages",
+    "channels",
     "chats",
     "contacts",
     "groups",
-    "channels",
-    "status-&-presence",
-    "webhooks",
-    "admin"
+    "messages",
+    "webhooks"
   ]
 }

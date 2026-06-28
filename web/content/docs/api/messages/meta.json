@@ -1,12 +1,13 @@
 {
   "title": "Messages",
+  "description": "Send and act on messages: send (text/poll/location/contact; media is 501 in v1), edit, revoke, react, forward, and vote on polls (send capability).",
   "pages": [
     "sendMessage",
     "editMessage",
     "revokeMessage",
+    "forwardMessage",
     "addReaction",
     "removeReaction",
-    "forwardMessage",
     "voteMessage"
   ]
 }

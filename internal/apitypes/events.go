@@ -159,9 +159,9 @@ type NewsletterPayload struct {
 
 // --- Typed event envelopes (the documented webhook/WS messages) ---
 
-// eventMeta is the common envelope every event shares. It is embedded into each
+// EventMeta is the common envelope every event shares. It is embedded into each
 // typed event so the generated schemas all carry the same documented header.
-type eventMeta struct {
+type EventMeta struct {
 	Schema       string `json:"schema" doc:"Envelope schema version, so consumers can adapt if the shape changes." enum:"v1" example:"v1"`
 	ID           string `json:"id" doc:"Unique event id. Webhook deliveries repeat it in the X-Webhook-Request-Id header so receivers can drop duplicate redeliveries; the realtime client uses it as the ?since resume cursor." example:"evt_01J9ZX..."`
 	Session      string `json:"session" doc:"Id of the WhatsApp session the event came from." example:"wa_sess_01J9..."`
@@ -171,77 +171,77 @@ type eventMeta struct {
 
 // MessageEvent is the envelope for the message-family events.
 type MessageEvent struct {
-	eventMeta
+	EventMeta
 	Event   string         `json:"event" doc:"The event type." enum:"message,message.from_me,message.reaction,message.edited,message.revoked,poll.vote" example:"message"`
 	Payload MessagePayload `json:"payload"`
 }
 
 // MessageStatusEvent is the envelope for a delivery-receipt event.
 type MessageStatusEvent struct {
-	eventMeta
+	EventMeta
 	Event   string               `json:"event" enum:"message.status" example:"message.status"`
 	Payload MessageStatusPayload `json:"payload"`
 }
 
 // SessionStatusEvent is the envelope for a session lifecycle event.
 type SessionStatusEvent struct {
-	eventMeta
+	EventMeta
 	Event   string               `json:"event" enum:"session.status" example:"session.status"`
 	Payload SessionStatusPayload `json:"payload"`
 }
 
 // AuthQREvent is the envelope for a QR-code event.
 type AuthQREvent struct {
-	eventMeta
+	EventMeta
 	Event   string        `json:"event" enum:"auth.qr" example:"auth.qr"`
 	Payload AuthQRPayload `json:"payload"`
 }
 
 // AuthCodeEvent is the envelope for a pairing-success event.
 type AuthCodeEvent struct {
-	eventMeta
+	EventMeta
 	Event   string          `json:"event" enum:"auth.code" example:"auth.code"`
 	Payload AuthCodePayload `json:"payload"`
 }
 
 // PresenceEvent is the envelope for a presence-update event.
 type PresenceEvent struct {
-	eventMeta
+	EventMeta
 	Event   string          `json:"event" enum:"presence.update" example:"presence.update"`
 	Payload PresencePayload `json:"payload"`
 }
 
 // GroupEvent is the envelope for group metadata/participant events.
 type GroupEvent struct {
-	eventMeta
+	EventMeta
 	Event   string       `json:"event" enum:"group.update,group.participant" example:"group.update"`
 	Payload GroupPayload `json:"payload"`
 }
 
 // ChatUpdateEvent is the envelope for a chat-update event.
 type ChatUpdateEvent struct {
-	eventMeta
+	EventMeta
 	Event   string            `json:"event" enum:"chat.update" example:"chat.update"`
 	Payload ChatUpdatePayload `json:"payload"`
 }
 
 // ContactUpdateEvent is the envelope for a contact-update event.
 type ContactUpdateEvent struct {
-	eventMeta
+	EventMeta
 	Event   string               `json:"event" enum:"contact.update" example:"contact.update"`
 	Payload ContactUpdatePayload `json:"payload"`
 }
 
 // CallEvent is the envelope for an incoming-call event.
 type CallEvent struct {
-	eventMeta
+	EventMeta
 	Event   string      `json:"event" enum:"call.incoming" example:"call.incoming"`
 	Payload CallPayload `json:"payload"`
 }
 
 // NewsletterEvent is the envelope for a newsletter/channel event.
 type NewsletterEvent struct {
-	eventMeta
+	EventMeta
 	Event   string            `json:"event" enum:"newsletter.update" example:"newsletter.update"`
 	Payload NewsletterPayload `json:"payload"`
 }

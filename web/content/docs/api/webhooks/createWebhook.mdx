@@ -2,23 +2,38 @@
 title: Create a webhook
 description: >-
   Register a webhook endpoint for the caller's organization. Requires the
-  `manage` capability. When a matching event fires, the gateway POSTs the event
-  envelope (the `Event` JSON shape, also delivered over the realtime WebSocket)
-  to `url`. Set `events` to the event types to receive (`["*"]` for all) and
-  `sessionId` to scope to one session (null = all of the organization's
-  sessions).
+  `manage` capability.
 
-  If you set a `secret`, the gateway signs each POST: it sends the lowercase-hex
-  HMAC-SHA512 of the exact request body in the `X-Webhook-Hmac` header (with
-  `X-Webhook-Hmac-Algorithm: sha512`). Recompute it on your end with the same
-  secret to confirm the request really came from the gateway. Every POST also
-  carries `X-Webhook-Request-Id` (the event id, so you can drop duplicate
-  redeliveries) and `X-Webhook-Timestamp` (epoch milliseconds).
 
-  Failed deliveries (a non-2xx response or a connection error) are retried on
+  When a matching event fires, the gateway sends an HTTP `POST` to `url` whose
+  body is the event envelope — the same JSON shape delivered over the realtime
+  WebSocket. Use `events` to choose the event types to receive (`["*"]` for all)
+  and `sessionId` to scope deliveries to one session (null/omitted = all of the
+  organization's sessions).
+
+
+  **Signing.** If you set a `secret`, every `POST` is signed: the gateway sends
+  the lowercase-hex HMAC-SHA512 of the exact raw request body in the
+  `X-Webhook-Hmac` header (with `X-Webhook-Hmac-Algorithm: sha512`). Recompute
+  it on your end with the same secret to confirm the request really came from
+  the gateway. The secret is stored encrypted and is never returned in any
+  response.
+
+
+  **Delivery headers.** Every `POST` also carries `X-Webhook-Request-Id` (the
+  event id — use it to drop duplicate redeliveries) and `X-Webhook-Timestamp`
+  (epoch milliseconds). Any `customHeaders` are applied last and can override
+  the defaults.
+
+
+  **Retries.** A delivery that returns non-2xx or fails to connect is retried on
   the `retryPolicy` schedule — by default exponential backoff (2s, 4s, 8s, …)
-  for up to 15 attempts, after which the delivery is given up on. The secret is
-  stored encrypted and never returned in responses.
+  for up to 15 attempts, after which it is given up (dead-lettered).
+
+
+  On success returns `201` with the created webhook. Errors: `422
+  validation_error` if the body is malformed (e.g. `url` missing or not a valid
+  URL); `403 forbidden` if the caller lacks the `manage` capability.
 full: true
 _openapi:
   preload:
@@ -31,25 +46,40 @@ _openapi:
     contents:
       - content: >-
           Register a webhook endpoint for the caller's organization. Requires
-          the `manage` capability. When a matching event fires, the gateway
-          POSTs the event envelope (the `Event` JSON shape, also delivered over
-          the realtime WebSocket) to `url`. Set `events` to the event types to
-          receive (`["*"]` for all) and `sessionId` to scope to one session
-          (null = all of the organization's sessions).
+          the `manage` capability.
 
-          If you set a `secret`, the gateway signs each POST: it sends the
-          lowercase-hex HMAC-SHA512 of the exact request body in the
-          `X-Webhook-Hmac` header (with `X-Webhook-Hmac-Algorithm: sha512`).
-          Recompute it on your end with the same secret to confirm the request
-          really came from the gateway. Every POST also carries
-          `X-Webhook-Request-Id` (the event id, so you can drop duplicate
-          redeliveries) and `X-Webhook-Timestamp` (epoch milliseconds).
 
-          Failed deliveries (a non-2xx response or a connection error) are
+          When a matching event fires, the gateway sends an HTTP `POST` to `url`
+          whose body is the event envelope — the same JSON shape delivered over
+          the realtime WebSocket. Use `events` to choose the event types to
+          receive (`["*"]` for all) and `sessionId` to scope deliveries to one
+          session (null/omitted = all of the organization's sessions).
+
+
+          **Signing.** If you set a `secret`, every `POST` is signed: the
+          gateway sends the lowercase-hex HMAC-SHA512 of the exact raw request
+          body in the `X-Webhook-Hmac` header (with `X-Webhook-Hmac-Algorithm:
+          sha512`). Recompute it on your end with the same secret to confirm the
+          request really came from the gateway. The secret is stored encrypted
+          and is never returned in any response.
+
+
+          **Delivery headers.** Every `POST` also carries `X-Webhook-Request-Id`
+          (the event id — use it to drop duplicate redeliveries) and
+          `X-Webhook-Timestamp` (epoch milliseconds). Any `customHeaders` are
+          applied last and can override the defaults.
+
+
+          **Retries.** A delivery that returns non-2xx or fails to connect is
           retried on the `retryPolicy` schedule — by default exponential backoff
-          (2s, 4s, 8s, …) for up to 15 attempts, after which the delivery is
-          given up on. The secret is stored encrypted and never returned in
-          responses.
+          (2s, 4s, 8s, …) for up to 15 attempts, after which it is given up
+          (dead-lettered).
+
+
+          On success returns `201` with the created webhook. Errors: `422
+          validation_error` if the body is malformed (e.g. `url` missing or not
+          a valid URL); `403 forbidden` if the caller lacks the `manage`
+          capability.
 ---
 
 {/* This file was generated by Fumadocs. Do not edit this file directly. Any changes should be made by running the generation command again. */}
@@ -61,7 +91,7 @@ export default function Layout(props) {
   return (
     <>
       {props.children}
-      <Comp document="../docs/openapi.yaml" operations={[{"path":"/webhooks","method":"post"}]} />
+      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/webhooks","method":"post"}]} />
     </>
   );
 }

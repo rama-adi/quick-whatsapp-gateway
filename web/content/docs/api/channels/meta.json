@@ -1,10 +1,11 @@
 {
   "title": "Channels",
+  "description": "WhatsApp channels (newsletters). All channel operations return 501 not_implemented in v1.",
   "pages": [
     "createChannel",
+    "listChannelMessages",
     "followChannel",
-    "unfollowChannel",
     "muteChannel",
-    "listChannelMessages"
+    "unfollowChannel"
   ]
 }

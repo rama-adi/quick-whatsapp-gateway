@@ -1,8 +1,6 @@
 // Shared error + pagination envelopes (openapi §11).
 // FROZEN — owned by the foundation agent. Surface agents import, never edit.
 
-import type { components } from "./schema";
-
 /** The closed set of error codes the API returns in {error:{code}}. */
 export type ErrorCode =
   | "rate_limited"
@@ -78,8 +76,18 @@ export type Page<T> = {
   nextCursor: string | null;
 };
 
-/** Raw error-envelope shape as it comes off the wire. */
-type ErrorEnvelope = components["schemas"]["Error"];
+/**
+ * Raw error-envelope shape as it comes off the wire. The generated `ApiError`
+ * schema is intentionally an open object (`Record<string, never>`), so the
+ * concrete `{error:{code,message,details?}}` body is described locally here.
+ */
+type ErrorEnvelope = {
+  error: {
+    code?: string;
+    message?: string;
+    details?: unknown;
+  };
+};
 
 /**
  * Parse a JSON error body into an ApiError. Tolerant of malformed bodies:

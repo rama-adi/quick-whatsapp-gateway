@@ -1,12 +1,13 @@
 {
   "title": "Chats",
+  "description": "Read chat history and manage chats: list/get chats and messages (read), mark read, update flags, delete, and set typing presence (send).",
   "pages": [
     "listChats",
     "getChat",
     "updateChat",
     "deleteChat",
     "listChatMessages",
-    "readChat",
-    "chatPresence"
+    "setChatPresence",
+    "readChat"
   ]
 }

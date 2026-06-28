@@ -1,8 +1,0 @@
-{
-  "title": "Health",
-  "pages": [
-    "healthz",
-    "readyz",
-    "openapi"
-  ]
-}
