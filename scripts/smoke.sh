@@ -4,7 +4,9 @@
 # "e2e smoke (login -> mint JWT -> start session -> pair -> send -> stream)").
 #
 # It drives the AUTOMATABLE slice of that path against an already-running stack
-# (frontend better-auth + gateway, e.g. `docker compose up` from deploy/):
+# (frontend better-auth + router + gateway, e.g. `docker compose up` from deploy/).
+# GATEWAY_URL is the ROUTER's URL — the single public front door — since the
+# gateway no longer authenticates callers directly:
 #
 #   1. register a user           POST {BETTER_AUTH_URL}/api/auth/sign-up/email
 #   2. mint a short-lived JWT    GET  {BETTER_AUTH_URL}/api/auth/token   (session cookie)
@@ -13,7 +15,8 @@
 #   5. fetch its pairing QR      GET  {GATEWAY_URL}/api/v1/sessions/{id}/qr -> assert 200
 #
 # Steps 1-5 prove the seam end to end: a better-auth identity -> a JWKS-verified
-# JWT -> an org-scoped, CORS-fronted gateway call that mutates WA-plane state.
+# JWT -> the router authenticates, mints an internal assertion, and proxies an
+# org-scoped call that mutates WA-plane state on the owning gateway.
 #
 # The remaining masterplan steps (pair -> send -> stream) need a REAL phone to
 # scan the QR / link the device and are therefore MANUAL — printed as instructions
@@ -23,12 +26,12 @@
 # a dumped response body. Referenced from README.md ("Smoke test").
 #
 # Usage:
-#   BETTER_AUTH_URL=http://localhost:3000 GATEWAY_URL=http://localhost:8080 \
+#   BETTER_AUTH_URL=http://localhost:3000 GATEWAY_URL=http://localhost:8090 \
 #     scripts/smoke.sh
 #
 # Env (all optional, with the defaults below):
 #   BETTER_AUTH_URL   frontend origin that serves /api/auth/*   (default http://localhost:3000)
-#   GATEWAY_URL       gateway origin that serves /api/v1/*       (default http://localhost:8080)
+#   GATEWAY_URL       router origin that serves /api/v1/*        (default http://localhost:8090)
 #   SMOKE_EMAIL       account to register (default smoke+<epoch>@example.test)
 #   SMOKE_PASSWORD    account password    (default smoke-Passw0rd!)
 #   SMOKE_NAME        display name        (default Smoke Test)
@@ -38,7 +41,7 @@
 set -euo pipefail
 
 BETTER_AUTH_URL="${BETTER_AUTH_URL:-http://localhost:3000}"
-GATEWAY_URL="${GATEWAY_URL:-http://localhost:8080}"
+GATEWAY_URL="${GATEWAY_URL:-http://localhost:8090}"
 SMOKE_EMAIL="${SMOKE_EMAIL:-smoke+$(date +%s)@example.test}"
 SMOKE_PASSWORD="${SMOKE_PASSWORD:-smoke-Passw0rd!}"
 SMOKE_NAME="${SMOKE_NAME:-Smoke Test}"
@@ -201,11 +204,12 @@ ${c_ylw}MANUAL STEPS (require a real phone — not automatable here)${c_off}
 -----------------------------------------------------------------
 The masterplan path continues "pair -> send -> stream". Finish it by hand:
 
-  a. PAIR: render the QR string above as a QR image and scan it from
+  a. PAIR: render the QR "code" string above as a QR image and scan it from
      WhatsApp on a phone (Settings -> Linked Devices -> Link a Device).
-     The QR rotates; refetch with:
+     The QR rotates; refetch the JSON (it returns {"code":...,"expiresAt":...})
+     with:
        curl -H "Authorization: Bearer \$JWT" \\
-         "$GATEWAY_URL/api/v1/sessions/$SESSION_ID/qr?format=image"
+         "$GATEWAY_URL/api/v1/sessions/$SESSION_ID/qr"
      Alternatively request a pairing code instead of scanning:
        curl -X POST -H "Authorization: Bearer \$JWT" \\
          -H 'Content-Type: application/json' --data '{"phone":"<E.164>"}' \\
@@ -218,8 +222,13 @@ The masterplan path continues "pair -> send -> stream". Finish it by hand:
          --data '{"type":"text","to":"<E.164>@s.whatsapp.net","text":"hello from smoke"}' \\
          "$GATEWAY_URL/api/v1/sessions/$SESSION_ID/messages"
 
-  c. STREAM: watch live events (NDJSON) while the send lands:
-       curl -N -H "Authorization: Bearer \$JWT" "$GATEWAY_URL/api/v1/events"
+  c. STREAM: watch live events over the realtime WebSocket while the send lands.
+     First mint a single-use ticket, then connect with it (use a WS client such
+     as websocat):
+       TICKET=\$(curl -s -X POST -H "Authorization: Bearer \$JWT" \\
+         -H 'Content-Type: application/json' --data '{"scope":"organization"}' \\
+         "$GATEWAY_URL/api/v1/realtime/ticket" | jq -r .ticket)
+       websocat "\${GATEWAY_URL/http/ws}/api/v1/realtime?ticket=\$TICKET"
 
 Cleanup when finished:
        curl -X DELETE -H "Authorization: Bearer \$JWT" \\

@@ -3,36 +3,42 @@ title: Repo layout
 description: Where the gateway packages and the frontend app live, and what each directory is responsible for.
 ---
 
-This is one repo holding two services. The gateway (Go) lives at the root. The frontend (TanStack Start) lives under `web/`.
+This is one repo holding two codebases: the Go backend at the root (which runs as two processes — the router and the gateway) and the frontend (TanStack Start) under `web/`.
 
 ```
 .
+├── cmd/router/main.go     router entrypoint — the public front door + trust boundary
 ├── cmd/server/main.go     gateway entrypoint (also: server migrate up|down)
-├── internal/              gateway packages (Go)
+├── internal/              backend packages (Go), shared by the router and gateway
 ├── migrations/            golang-migrate — WA app-data schema only
 ├── web/                   frontend — TanStack Start + better-auth
-├── deploy/                Dockerfile · Dockerfile.web · compose files · .env.example
+├── deploy/                Dockerfile · Dockerfile.router · Dockerfile.web · compose files · .env.example
 ├── docs/                  openapi.yaml · specs/*.md · mvp-progress.md
 └── masterplan-mvp.md      full v2 design
 ```
 
-## Gateway packages (`internal/`)
+## Backend packages (`internal/`)
 
-| Package | What it does |
-|---|---|
-| `config/` | Reads configuration from environment variables and applies defaults. |
-| `domain/` | Core entities, enums, IDs, and errors. No I/O. |
-| `authz/` | Verifies who is calling. Checks better-auth JWTs against the JWKS, checks better-auth api-keys, runs the request middleware that accepts either one, enforces capability checks, and sets CORS. (A JWT is a signed token proving identity; JWKS is the public-key set used to verify its signature.) |
-| `controlbus/` | Subscribes to the Redis `ctrl:*` channels. On a revocation message, evicts the api-key from the cache and drops any live event streams for that caller. |
-| `http/` | The chi router, middleware, and REST handlers. No embedded frontend. |
-| `httpx/` | HTTP helpers: request decoding, JSON responses, pagination. |
-| `wa/` | The WhatsApp engine. Holds the `manager` and `session` lifecycle, the SQLite keystore (`store/`), and the `inbound/`, `outbound/`, and `events/` pipelines. |
-| `store/` | MySQL repositories. Every query is keyed by `organization_id`. |
-| `stream/` | The NDJSON event stream — its client registry, filtering, and publisher. (NDJSON is newline-delimited JSON: one JSON event per line.) |
-| `queue/` | The asynq job queue on the work Redis. Runs outbound sends, webhook delivery, and retention jobs. |
-| `webhooks/` | Outbound webhooks: matches events to configured endpoints, persists a pending delivery, then POSTs it with HMAC-signed headers, retries, and dead-letters exhausted deliveries. |
-| `crypto/` | AES-GCM encryption for webhook secrets at rest, plus api-key hashing. |
-| `service/` | The layer between handlers and stores. Wires the pieces together and holds the application logic. |
+These are shared by both Go processes. Some run only on the router (the front
+door), some only on the gateway (the engine); the "Runs on" column says which.
+
+| Package | Runs on | What it does |
+|---|---|---|
+| `config/` | both | Reads configuration from environment variables and applies defaults. |
+| `domain/` | both | Core entities, enums, IDs, and errors. No I/O. |
+| `router/` | router | The front door: the REST broker (resolve the session's owning gateway, enforce org isolation, reverse-proxy), session placement, the realtime WebSocket + ticket mint, and the gateway registry. |
+| `authz/` | router | Verifies who is calling — better-auth JWTs against the JWKS, and better-auth api-keys — and resolves the caller's capabilities. The router runs this at the front door; it then proxies on. (A JWT is a signed token proving identity; JWKS is the public-key set used to verify its signature.) |
+| `assertion/` | both | The router→gateway internal assertion. The router-side `Minter` signs a per-request Ed25519 token; the gateway-side `Verifier` checks its signature, binding (method/path/body), and one-time nonce before trusting it. |
+| `controlbus/` | router | Subscribes to the Redis `ctrl:*` channels. On a revocation message, evicts the api-key from the router's cache. |
+| `http/` | gateway | The chi router, middleware (including the assertion verifier), and REST handlers (huma operations). No embedded frontend. |
+| `httpx/` | both | HTTP helpers: request decoding, JSON responses, pagination, error mapping. |
+| `wa/` | gateway | The WhatsApp engine. Holds the `manager` and `session` lifecycle, the SQLite keystore (`store/`), and the `inbound/`, `outbound/`, and `events/` pipelines. |
+| `store/` | both | MySQL repositories (sessions, gateways registry, messages, …). Every query is keyed by `organization_id`. |
+| `stream/` | both | The realtime event stream: the durable replay log, filtering, and the transport-agnostic pump the router's WebSocket drives. (The old NDJSON wire framing was removed.) |
+| `queue/` | gateway | The asynq job queue on the work Redis. Runs outbound sends, webhook delivery, and retention jobs. |
+| `webhooks/` | gateway | Outbound webhooks: matches events to configured endpoints, persists a pending delivery, then POSTs it with HMAC-signed headers, retries, and dead-letters exhausted deliveries. |
+| `crypto/` | both | AES-GCM encryption for webhook secrets at rest, plus api-key hashing. |
+| `service/` | gateway | The layer between handlers and stores. Wires the pieces together and holds the application logic. |
 
 What was removed from v1: the embedded auth package, the embedded React SPA, and the custom MySQL whatsmeow keystore. `internal/authz` and the gateway-local SQLite keystore replaced them.
 
@@ -58,7 +64,7 @@ web/app/
     ├── auth/               better-auth client + server config, session, token, middleware
     ├── api/                gateway client, generated OpenAPI types, React Query hooks, query keys
     ├── db/                 Drizzle: auth-schema.ts (generated) + wa.ts (read-only WA mirror)
-    ├── events/             NDJSON stream consumer, eventBus, cacheBridge reducer
+    ├── events/             realtime WebSocket client, eventBus, cacheBridge reducer
     ├── server/             control-bus publisher (publishes ctrl:* only)
     ├── source.ts           Fumadocs content loader
     └── openapi.ts          OpenAPI page config for the reference docs

@@ -1,22 +1,24 @@
 ---
 title: Local development
-description: Run MySQL and Redis in Docker, run the gateway and frontend on your machine, and get a fast edit-reload loop.
+description: Run MySQL and Redis in Docker, run the router, gateway, and frontend on your machine, and get a fast edit-reload loop.
 ---
 
 The setup that gives the fastest edit loop is: run MySQL and Redis in Docker, and
-run both apps directly on your machine. The gateway reloads on file change with
-[`air`](https://github.com/air-verse/air); the frontend runs the Vite dev server,
-which hot-reloads in the browser.
+run the three app processes directly on your machine — the **router** (the public
+front door), the **gateway** (the WhatsApp engine), and the **frontend**. The
+gateway reloads on file change with [`air`](https://github.com/air-verse/air);
+the frontend runs the Vite dev server, which hot-reloads in the browser; the
+router is small and stateless, so you restart it by hand when you change it.
 
 ## Prerequisites
 
 | Tool | Why | Notes |
 |---|---|---|
-| Go 1.26+ | Build and run the gateway | The Go toolchain auto-switches to the version pinned in `go.mod` (`GOTOOLCHAIN=auto`). |
+| Go 1.26+ | Build and run the router and gateway | The Go toolchain auto-switches to the version pinned in `go.mod` (`GOTOOLCHAIN=auto`). |
 | Node 22+ with pnpm | Build and run the frontend | Run `corepack enable` once to get pnpm. |
-| Docker | Run MySQL and Redis | Used for local infrastructure only; both apps run on the host. |
-| `air` | Gateway hot reload | Watches Go files and rebuilds on change. |
-| `golangci-lint` | Gateway linter | Run with `make lint`. |
+| Docker | Run MySQL and Redis | Used for local infrastructure only; the apps run on the host. |
+| `air` | Gateway hot reload | Watches Go files and rebuilds `./cmd/server` on change. |
+| `golangci-lint` | Go linter | Run with `make lint`. |
 
 You do **not** need a C compiler. The gateway's WhatsApp keystore uses a pure-Go
 SQLite driver, so everything builds with `CGO_ENABLED=0`.
@@ -27,19 +29,23 @@ Run these once, from the repo root, to set up config, start infrastructure, and
 create the database tables:
 
 ```sh
-cp deploy/.env.example deploy/.env    # gateway env — fill APP_ENCRYPTION_KEY, WHATSAPP_ADMIN_NUMBER, …
-cp web/.env.example web/.env          # frontend env — fill BETTER_AUTH_SECRET, …
+cp deploy/.env.example deploy/.env    # router + gateway env — fill the three secrets below
+cp web/.env.example web/.env          # frontend env — fill BETTER_AUTH_SECRET
 make infra-up                         # start MySQL + Redis (ports bound to localhost)
 make migrate                          # create WA app-data tables (runs `server migrate up`)
 cd web && pnpm install && pnpm db:migrate && cd ..   # create the auth tables (drizzle-kit)
 ```
 
-Two values have no usable default and must be filled in before the apps start:
+Three values have no usable default and must be filled in before the apps start:
 
 | Variable | File | What to set |
 |---|---|---|
+| `ROUTER_ED25519_PRIVATE_KEY` | `deploy/.env` | The Ed25519 key the router signs internal assertions with. Generate with `openssl rand 32 | base64`. Required — the router won't start without it. |
 | `APP_ENCRYPTION_KEY` | `deploy/.env` | A base64-encoded 32-byte AES-GCM key. Generate with `openssl rand -base64 32`. Encrypts webhook secrets at rest. |
 | `BETTER_AUTH_SECRET` | `web/.env` | The better-auth signing secret (32+ chars). Generate with `openssl rand -base64 32`. |
+
+`deploy/.env` is one file read by **both** Go processes: the router reads the
+`ROUTER_*` keys plus the better-auth trust-seam inputs; the gateway reads the rest.
 
 There are two separate migration tools, one per set of tables — don't mix them up:
 
@@ -50,64 +56,84 @@ There are two separate migration tools, one per set of tables — don't mix them
 
 ## Day to day
 
-After the first run, start the infrastructure once, then run each app in its own
-terminal:
+After the first run, start the infrastructure once, then run each process in its
+own terminal:
 
 ```sh
 make infra-up    # MySQL + Redis (skip if already running)
 make dev         # terminal 1: gateway under air; reloads on change
-make web         # terminal 2: frontend dev server (pnpm dev) on :3000
+make router      # terminal 2: the router (front door); restart after router edits
+make web         # terminal 3: frontend dev server (pnpm dev) on :3000
 ```
 
-The gateway listens on `:8080` by default. Open `http://localhost:3000` for the
-frontend. The browser calls the gateway directly on `:8080`; the gateway's CORS
-config already allows `http://localhost:3000` (via `FRONTEND_ORIGINS`), so the
-two work together with no extra setup.
+The router listens on `:8090` (the public front door) and the gateway on `:8080`
+(internal). Open `http://localhost:3000` for the frontend. The browser calls the
+**router** at `:8090`, never the gateway directly; the router's CORS config
+already allows `http://localhost:3000` (via `FRONTEND_ORIGINS`), so the three work
+together with no extra setup.
+
+<Callout type="info">
+`make dev` runs `air`, which builds and watches **`./cmd/server`** (the gateway)
+only. The router is a separate process — `make router` runs it with `go run
+./cmd/router`, with no hot reload, so restart that terminal after you change
+router code. The gateway still hot-reloads on every save.
+</Callout>
 
 To wipe the dev database and start clean, run `make infra-reset` (this removes the
 Docker volumes), then re-run the two migrate steps from the [first run](#first-run).
 
-## Running the gateway in Docker instead
+## Running the gateway or router in Docker instead
 
-By default the gateway runs on your host under `air`. If you want it to run inside
-a container instead — for example to match the production OS and Go toolchain
-without installing Go locally — the dev compose file has two profiles. The
-frontend still runs on your host under Vite in both cases.
+By default you run the Go processes on your host. If you want one to run inside a
+container instead — for example to match the production OS and Go toolchain
+without installing Go locally — the dev compose file has three profiles. The
+frontend always stays on your host under Vite.
 
 | Command | What it does |
 |---|---|
 | `docker compose -f deploy/docker-compose.dev.yml --profile gateway up -d --build` | Runs the gateway from the production image (`deploy/Dockerfile`). Rebuild to pick up code changes. |
 | `docker compose -f deploy/docker-compose.dev.yml --profile gateway-dev up -d --build` | Runs the gateway under `air` with the repo source mounted. Edit Go on the host; the container rebuilds. |
+| `docker compose -f deploy/docker-compose.dev.yml --profile router up -d --build` | Runs the router from its production image (`deploy/Dockerfile.router`), publishing `:8090`. |
 
-Both profiles publish `:8080`, so run only one at a time. Both reach the
-host-side frontend's JWKS endpoint through `host.docker.internal` and apply the
-WA migrations automatically on start. They read the same `deploy/.env` as the
-host gateway; the compose file overrides only the values that must differ inside
-a container (the MySQL and Redis hostnames, the JWKS host, and the keystore
-path on a named volume).
+The two gateway profiles both publish `:8080`, so run only one at a time. Each
+profile reaches the host-side frontend's JWKS endpoint through
+`host.docker.internal` and applies the WA migrations automatically on start. They
+read the same `deploy/.env` as the host processes; the compose file overrides only
+the values that must differ inside a container (the MySQL and Redis hostnames, the
+JWKS host, and the keystore path on a named volume).
 
 ## Environment variables
 
-Gateway settings live in `deploy/.env` (template: `deploy/.env.example`).
-Frontend settings live in `web/.env` (template: `web/.env.example`). Both
-templates document every variable with its default. The ones a contributor
-usually cares about first:
+Router and gateway settings live in `deploy/.env` (template:
+`deploy/.env.example`); frontend settings live in `web/.env` (template:
+`web/.env.example`). Both templates document every variable with its default. The
+ones a contributor usually cares about first:
 
-### Gateway (`deploy/.env`)
+### Router + gateway (`deploy/.env`)
 
-| Variable | Default | What it does |
-|---|---|---|
-| `HTTP_ADDR` | `:8080` | Address the gateway listens on. |
-| `GATEWAY_ID` | `gw-1` | This gateway's id, stamped on the sessions it owns. |
-| `PUBLIC_URL` | `http://localhost:8080` | External base URL clients use to reach this gateway. |
-| `BETTER_AUTH_URL` | `http://localhost:3000` | The frontend's base URL. The gateway only trusts JWTs whose issuer and audience match it. No trailing slash. |
-| `FRONTEND_ORIGINS` | `http://localhost:3000` | Comma-separated list of browser origins the gateway allows (CORS). |
-| `APP_ENCRYPTION_KEY` | — | Base64 32-byte AES-GCM key; encrypts webhook secrets at rest. Required. |
-| `MYSQL_DSN` | `gw:gwpass@tcp(127.0.0.1:3306)/gateway?…` | Shared MySQL. The gateway reads/writes the WA tables and reads the `apikey`/`user` tables. |
-| `WHATSMEOW_STORE_DSN` | `file:store.db?…` | SQLite file holding the WhatsApp device keys. A local file in dev; the `/data/keystore` volume in Docker. |
-| `REDIS_URL` | `redis://127.0.0.1:6379` | Redis for the work queue, rate limiting, idempotency, and event fan-out. |
-| `PUBSUB_REDIS_URL` | falls back to `REDIS_URL` | Redis channel the gateway listens on for key/user revocations from the frontend. |
-| `WHATSAPP_ADMIN_NUMBER` | — | Admin number the gateway pairs on boot. |
+One file, both processes. The first block is the router's; the rest is the
+gateway's.
+
+| Variable | Default | Read by | What it does |
+|---|---|---|---|
+| `ROUTER_HTTP_ADDR` | `:8090` | router | Address the router (the public front door) listens on. |
+| `ROUTER_PUBLIC_URL` | `http://localhost:8090` | router | The router's external base URL — what browsers and clients use. |
+| `ROUTER_ISSUER` | `router` | router | The `iss` the router stamps on its internal assertions. Must match the gateway's `ROUTER_ASSERTION_ISSUER`. |
+| `ROUTER_ED25519_PRIVATE_KEY` | — | router | Ed25519 key for signing internal assertions. Required. `openssl rand 32 | base64`. |
+| `BETTER_AUTH_URL` | `http://localhost:3000` | router | The frontend's base URL. The router only trusts JWTs whose issuer and audience match it. No trailing slash. |
+| `BETTER_AUTH_JWKS_URL` | `${BETTER_AUTH_URL}/api/auth/jwks` | router | Where the router fetches the frontend's signing keys. Set it when the internal frontend URL differs from the public one. |
+| `FRONTEND_ORIGINS` | `http://localhost:3000` | router | Comma-separated browser origins the router allows (CORS). |
+| `HTTP_ADDR` | `:8080` | gateway | Address the gateway listens on (internal). |
+| `GATEWAY_ID` | `gw-1` | gateway | This gateway's id, stamped on the sessions it owns; also the assertion `aud` it requires. |
+| `PUBLIC_URL` | `http://localhost:8080` | gateway | The gateway's internal base URL — the address the router proxies to (not the browser). |
+| `ROUTER_JWKS_URL` | `http://localhost:8090/.well-known/router-jwks.json` | gateway | The router's JWKS, used to verify internal assertions. Required for the gateway. |
+| `ROUTER_ASSERTION_ISSUER` | `router` | gateway | The `iss` the gateway requires on assertions; must match `ROUTER_ISSUER`. |
+| `APP_ENCRYPTION_KEY` | — | gateway | Base64 32-byte AES-GCM key; encrypts webhook secrets at rest. Required. |
+| `MYSQL_DSN` | `gw:gwpass@tcp(127.0.0.1:3306)/gateway?…` | both | Shared MySQL: the WA tables (gateway writes), the `gateways` registry, and the `apikey`/`user` tables (read). |
+| `WHATSMEOW_STORE_DSN` | `file:store.db?…` | gateway | SQLite file holding the WhatsApp device keys. A local file in dev; the `/data/keystore` volume in Docker. |
+| `REDIS_URL` | `redis://127.0.0.1:6379` | both | Work Redis: the queue, rate limiting, idempotency, event fan-out, realtime tickets, and the api-key cache. |
+| `PUBSUB_REDIS_URL` | falls back to `REDIS_URL` | router | Control-bus Redis the router subscribes to for key/user revocations the frontend publishes. |
+| `WHATSAPP_ADMIN_NUMBER` | — | gateway | Admin number the gateway pairs on boot. Requires `WHATSAPP_ADMIN_ORG_ID`. |
 
 ### Frontend (`web/.env`)
 
@@ -116,9 +142,9 @@ usually cares about first:
 | `BETTER_AUTH_SECRET` | — | better-auth signing/encryption secret (32+ chars). Required. |
 | `BETTER_AUTH_URL` | `http://localhost:3000` | The frontend's own base URL, used as the JWT issuer and audience. |
 | `DATABASE_URL` | `mysql://…@localhost:3306/wa_gateway` | MySQL connection for the frontend's Drizzle client: better-auth tables (read/write) plus read-only WA queries. |
-| `GATEWAY_URL` | `http://localhost:8080` | Gateway base URL the frontend server calls. |
-| `VITE_GATEWAY_URL` | `http://localhost:8080` | Same gateway URL exposed to the browser (Vite inlines `VITE_*` vars). |
-| `PUBSUB_REDIS_URL` | `redis://localhost:6379` | Redis the frontend publishes revocations to (must match the gateway's `PUBSUB_REDIS_URL`). |
+| `GATEWAY_URL` | `http://localhost:8090` | The **router** base URL the frontend's server code calls (action proxying, server functions). |
+| `VITE_GATEWAY_URL` | `http://localhost:8090` | The same **router** URL exposed to the browser (Vite inlines `VITE_*` vars). The browser calls the router, not the gateway. |
+| `PUBSUB_REDIS_URL` | `redis://localhost:6379` | Redis the frontend publishes revocations to (must match the router's `PUBSUB_REDIS_URL`). |
 | `USER_REGISTRATION_ENABLED` | `true` | Whether people can sign themselves up. Set `false` to lock it down. |
 
 <Callout type="warn">
@@ -130,11 +156,15 @@ file in dev; in production keep it on a persistent named volume and back it up.
 ## Smoke test
 
 `scripts/smoke.sh` runs the automatable part of the auth flow against a running
-stack: it registers a user, gets a JWT from better-auth, calls the gateway with
-that token, creates a session, and fetches the session's pairing QR code. It
-stops with an error on any unexpected HTTP status. The steps that need a real
-phone (pair, send, stream) are printed as manual instructions at the end.
+stack **through the router**: it registers a user, gets a JWT from better-auth,
+calls the router with that token, creates a session, and fetches the session's
+pairing QR code. It stops with an error on any unexpected HTTP status. The steps
+that need a real phone (pair, send, subscribe) are printed as manual instructions
+at the end.
 
 ```sh
-BETTER_AUTH_URL=http://localhost:3000 GATEWAY_URL=http://localhost:8080 scripts/smoke.sh
+BETTER_AUTH_URL=http://localhost:3000 GATEWAY_URL=http://localhost:8090 scripts/smoke.sh
 ```
+
+`GATEWAY_URL` here is the **router's** URL (`:8090`) — the public front door —
+since the gateway no longer authenticates callers directly.

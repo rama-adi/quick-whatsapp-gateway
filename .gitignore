@@ -1,6 +1,7 @@
 # Build output
 tmp/
 /gateway
+/router
 
 # Frontend
 web/node_modules/

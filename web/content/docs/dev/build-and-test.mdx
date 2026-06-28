@@ -62,7 +62,7 @@ pnpm test
 |---|---|
 | `pnpm build` | Vite build into `.output` (the Nitro server bundle). This also runs the TanStack Router code generator, which writes `app/routeTree.gen.ts`. |
 | `pnpm typecheck` | `tsc --noEmit`. It reads the generated `app/routeTree.gen.ts`, so the route tree must exist first (see below). |
-| `pnpm test` | Vitest. Covers the NDJSON parser (`app/lib/events/ndjson.test.ts`) and the `cacheBridge` event reducer (`app/lib/events/cacheBridge.test.ts`). |
+| `pnpm test` | Vitest. Covers the realtime frame parser (`app/lib/events/frames.test.ts`) and the `cacheBridge` event reducer (`app/lib/events/cacheBridge.test.ts`). |
 
 <Callout type="warn">
 On a fresh checkout, run `pnpm build` (or start `pnpm dev`) **before** `pnpm typecheck`.

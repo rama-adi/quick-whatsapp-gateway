@@ -3,7 +3,7 @@ COMPOSE_DEV = docker compose -f deploy/docker-compose.dev.yml
 # for MySQL + Redis to be healthy before starting the gateway, so one `up` is enough.
 COMPOSE_GW  = $(COMPOSE_DEV) --profile gateway-dev
 
-.PHONY: infra-up infra-down infra-reset up up-logs down dev web migrate build lint test tidy gen openapi openapi-check
+.PHONY: infra-up infra-down infra-reset up up-logs down dev router web migrate build lint test tidy gen openapi openapi-check
 
 infra-up:    ## start mysql + redis only (run the gateway on the host with `make dev`)
 	$(COMPOSE_DEV) up -d
@@ -19,8 +19,10 @@ up-logs:     ## follow the dockerized gateway logs (e.g. to read the admin pairi
 down:        ## stop the full dockerized dev stack (keep data; add `-v` target to wipe)
 	$(COMPOSE_GW) down
 
-dev:         ## backend hot-reload on the HOST (run infra-up first)
+dev:         ## gateway hot-reload on the HOST under air (run infra-up first; air builds ./cmd/server)
 	air
+router:      ## run the central router (the public front door) on the HOST (run infra-up first)
+	go run ./cmd/router
 web:         ## frontend dev server (HMR)
 	cd web && pnpm dev
 

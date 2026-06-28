@@ -34,8 +34,8 @@ through Drizzle (TanStack Start loaders run the queries). It only reads them. To
 change anything, it calls the gateway. So:
 
 - **Showing data** (dashboards, the message viewer, contacts) → the frontend queries MySQL directly, no extra network hop.
-- **Doing something** (send a message, start or stop a session, fetch a QR code, register a webhook) → the frontend calls the gateway's REST API.
-- **Live updates** → the frontend reads the gateway's event stream (NDJSON: newline-delimited JSON, one event per line).
+- **Doing something** (send a message, start or stop a session, fetch a QR code, register a webhook) → the frontend calls the REST API on the **router**, which authenticates the caller and proxies to the owning gateway.
+- **Live updates** → the frontend opens the **router's realtime WebSocket** (mint a single-use ticket, then connect; events arrive as discrete JSON frames). See [Receive events](/docs/guides/receiving).
 
 The frontend describes the WhatsApp tables as **read-only** Drizzle definitions in
 `web/app/lib/db/wa.ts`. These definitions mirror the schema the gateway owns. Generate
@@ -80,13 +80,13 @@ instance; in production they can be split.
 
 | Job | Env var | What it carries | Who connects |
 |---|---|---|---|
-| **Work** | `REDIS_URL` | the asynq job queue, rate-limit counters, idempotency keys, event-stream fan-out, the API-key cache | gateways only |
-| **Control bus** | `PUBSUB_REDIS_URL` (falls back to `REDIS_URL`) | low-volume `ctrl:*` pub/sub messages for revoking access | frontend (publishes) and every gateway (subscribes) |
+| **Work** | `REDIS_URL` | the asynq job queue, rate-limit counters, idempotency keys, event fan-out, realtime tickets, the API-key cache | gateways and the router |
+| **Control bus** | `PUBSUB_REDIS_URL` (falls back to `REDIS_URL`) | low-volume `ctrl:*` pub/sub messages for revoking access | frontend (publishes) and the router (subscribes) |
 
 How to configure them:
 
 - **One instance** (dev, or a single server): leave `PUBSUB_REDIS_URL` unset. It falls back to `REDIS_URL`, so one Redis handles both jobs.
-- **Split** (production, or more than one gateway): point `PUBSUB_REDIS_URL` at a shared Redis (it can be a managed one) that the frontend and every gateway can reach. Keep the high-traffic work Redis local to each gateway. The control bus is the frontend's **only** connection to Redis, and the frontend only ever publishes to it.
+- **Split** (production, or more than one gateway): point `PUBSUB_REDIS_URL` at a shared Redis (it can be a managed one) that the frontend and the router can both reach. Keep the high-traffic work Redis close to the gateways and router. The control bus is the frontend's **only** connection to Redis, and the frontend only ever publishes to it.
 
 More detail: [`docs/specs/store.md`](https://github.com/ramaadi/quick-whatsapp-gateway/blob/main/docs/specs/store.md),
 [`docs/specs/whatsmeow-store.md`](https://github.com/ramaadi/quick-whatsapp-gateway/blob/main/docs/specs/whatsmeow-store.md),

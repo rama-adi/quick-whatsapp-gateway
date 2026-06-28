@@ -1,37 +1,45 @@
 ---
 title: Deploying
-description: Run the gateway and frontend as two Docker images over one MySQL and one Redis. Covers migrations, the volume to back up, the full environment-variable reference, and how to host the two halves separately.
+description: Run the router, gateway, and frontend as Docker images over one MySQL and one Redis. Covers migrations, the volume to back up, the full environment-variable reference, and how to host the halves separately.
 ---
 
-The system is two services. They share one MySQL database and one Redis. The
-gateway also keeps its WhatsApp keystore in a SQLite file on a volume.
+The system runs as three app services — the router, the gateway, and the frontend
+— plus one MySQL database and one Redis they share. The gateway also keeps its
+WhatsApp keystore in a SQLite file on a volume.
 
 | Service | Image | Port | Owns |
 |---|---|---|---|
-| Gateway | `deploy/Dockerfile` (Go, ~52 MB, no CGO) | `8080` | WhatsApp sessions; writes the WA tables; the SQLite keystore |
+| Router | `deploy/Dockerfile.router` (Go, no CGO) | `8090` | The public front door + trust boundary: authenticates callers, routes to the owning gateway, serves the realtime WebSocket and the OpenAPI contract |
+| Gateway | `deploy/Dockerfile` (Go, ~52 MB, no CGO) | `8080` (internal) | WhatsApp sessions; writes the WA tables; the SQLite keystore |
 | Frontend | `deploy/Dockerfile.web` (Node 22, TanStack Start) | `3000` | better-auth; writes the auth tables; reads the WA tables for display |
 | MySQL | `mysql:8.4` | `3306` | both table sets in one database |
-| Redis | `redis:7-alpine` | `6379` | the work queue and the control bus |
+| Redis | `redis:7-alpine` | `6379` | the work bus and the control bus |
+
+The **router** is the only service clients reach. Publish its port; keep the
+gateway internal (the compose file publishes `8080` only for local inspection).
 
 ## Run it with Docker Compose
 
-`deploy/docker-compose.yml` runs all four services. Put the three secrets in
+`deploy/docker-compose.yml` runs all five services. Put the secrets in
 `deploy/.env`, then build and start:
 
 ```bash
 cd deploy
 cat > .env <<'EOF'
-APP_ENCRYPTION_KEY=...   # openssl rand -base64 32 — encrypts webhook secrets at rest
-BETTER_AUTH_SECRET=...   # openssl rand -base64 32 — signs sessions, encrypts the JWKS private key
-WHATSAPP_ADMIN_NUMBER=   # optional — the number paired on boot; leave empty to skip
+ROUTER_ED25519_PRIVATE_KEY=...   # openssl rand 32 | base64 — signs the router's internal assertions
+APP_ENCRYPTION_KEY=...           # openssl rand -base64 32 — encrypts webhook secrets at rest
+BETTER_AUTH_SECRET=...           # openssl rand -base64 32 — signs sessions, encrypts the JWKS private key
+WHATSAPP_ADMIN_NUMBER=           # optional — the number paired on boot; leave empty to skip
 EOF
 docker compose up --build -d
 ```
 
-The browser uses `http://localhost:3000` (frontend) and `http://localhost:8080`
-(gateway). Inside the Docker network the frontend calls the gateway at
-`gateway:8080`, and the gateway fetches the frontend's signing keys at
-`frontend:3000/api/auth/jwks`.
+The browser uses `http://localhost:3000` (frontend) and `http://localhost:8090`
+(router); it never calls the gateway directly. Inside the Docker network: the
+frontend calls the router at `router:8090`, the router fetches the frontend's
+signing keys at `frontend:3000/api/auth/jwks` and proxies to the gateway at
+`gateway:8080`, and the gateway fetches the router's keys at
+`router:8090/.well-known/router-jwks.json` to verify the router's assertions.
 
 ## Migrations
 
@@ -76,50 +84,69 @@ session to a specific gateway. Always keep it on a named volume in production.
 Every gateway variable is listed in `deploy/.env.example`; every frontend
 variable in `web/.env.example`. The full tables are [below](#environment-variable-reference).
 
-A few variables must hold matching values across the two services. Get these
-right first:
+A few variables must hold matching values across the services. Get these right
+first:
 
 | Variable | Set on | Value |
 |---|---|---|
-| `BETTER_AUTH_URL` | both | the frontend's public URL — the JWT `iss`/`aud` the gateway enforces |
-| `FRONTEND_ORIGINS` | gateway | the browser origin(s) allowed to call the gateway (CORS) |
-| `BETTER_AUTH_JWKS_URL` | gateway | where the gateway fetches the signing keys — the *internal* frontend URL when it differs from the public one (e.g. `http://frontend:3000/api/auth/jwks`) |
-| `GATEWAY_URL` / `VITE_GATEWAY_URL` | frontend | the gateway URL for server code / for the browser |
-| `PUBSUB_REDIS_URL` | both | the shared control-bus Redis — the frontend publishes key/user revocations, the gateway subscribes |
+| `ROUTER_ED25519_PRIVATE_KEY` | router | the Ed25519 key the router signs internal assertions with (`openssl rand 32 | base64`). Required — the router won't start without it. |
+| `ROUTER_ISSUER` / `ROUTER_ASSERTION_ISSUER` | router / gateway | the assertion `iss` the router stamps and the gateway requires — these two must be equal |
+| `ROUTER_JWKS_URL` | gateway | where the gateway fetches the router's public keys to verify assertions (the *internal* router URL, e.g. `http://router:8090/.well-known/router-jwks.json`) |
+| `BETTER_AUTH_URL` | router + frontend | the frontend's public URL — the JWT `iss`/`aud` the router enforces |
+| `BETTER_AUTH_JWKS_URL` | router | where the router fetches the frontend's signing keys — the *internal* frontend URL when it differs from the public one (e.g. `http://frontend:3000/api/auth/jwks`) |
+| `FRONTEND_ORIGINS` | router | the browser origin(s) allowed to call the router (CORS) |
+| `GATEWAY_URL` / `VITE_GATEWAY_URL` | frontend | the **router** URL for server code / for the browser |
+| `PUBSUB_REDIS_URL` | router + frontend | the shared control-bus Redis — the frontend publishes key/user revocations, the router subscribes |
 
 A JWT (JSON Web Token) is the signed login token the frontend issues to the
-browser. JWKS (JSON Web Key Set) is the public-key document the gateway fetches
-to verify those tokens. `iss`/`aud` are the issuer and audience fields inside
-the token; the gateway only accepts tokens whose `iss`/`aud` equal
-`BETTER_AUTH_URL`.
+browser. JWKS (JSON Web Key Set) is the public-key document the router fetches to
+verify those tokens. `iss`/`aud` are the issuer and audience fields inside the
+token; the router only accepts tokens whose `iss`/`aud` equal `BETTER_AUTH_URL`.
+The router→gateway assertion uses a *second* JWKS — the router's own keys, which
+the gateway fetches from `ROUTER_JWKS_URL`.
 
 <Callout type="info">
 `BETTER_AUTH_URL` and `BETTER_AUTH_JWKS_URL` can hold different hosts. The first
 is the public URL the token's `iss`/`aud` must match; the second is only where
-the gateway fetches the keys. When the gateway reaches the frontend by an
-internal name, set `BETTER_AUTH_JWKS_URL` to that name and leave
-`BETTER_AUTH_URL` as the public URL.
+the router fetches the keys. When the router reaches the frontend by an internal
+name, set `BETTER_AUTH_JWKS_URL` to that name and leave `BETTER_AUTH_URL` as the
+public URL. The same split applies to the gateway's `ROUTER_JWKS_URL`.
 </Callout>
 
 ### Environment-variable reference
+
+`deploy/.env.example` is one file read by both Go processes. The first block is
+the router's; the rest is the gateway's.
+
+**Router** (`deploy/.env.example`):
+
+| Variable | Default | What it does |
+|---|---|---|
+| `ROUTER_HTTP_ADDR` | `:8090` | Address the router (the public front door) listens on. |
+| `ROUTER_PUBLIC_URL` | — | The router's external base URL — what clients use; the realtime WebSocket URL is derived from it. |
+| `ROUTER_ISSUER` | `router` | The `iss` the router stamps on its internal assertions. Must match the gateway's `ROUTER_ASSERTION_ISSUER`. |
+| `ROUTER_ED25519_PRIVATE_KEY` | — | Ed25519 key for signing internal assertions (`openssl rand 32 | base64`). Required. |
+| `BETTER_AUTH_URL` | — | The frontend's base URL. The router only trusts JWTs issued by it. |
+| `BETTER_AUTH_JWKS_URL` | `${BETTER_AUTH_URL}/api/auth/jwks` | Where the router fetches the frontend's signing keys. Set it when the internal frontend URL differs from the public one. |
+| `FRONTEND_ORIGINS` | — | Comma-separated browser origins allowed to call the router (CORS). |
 
 **Gateway** (`deploy/.env.example`):
 
 | Variable | Default | What it does |
 |---|---|---|
-| `HTTP_ADDR` | `:8080` | Address the gateway listens on. |
-| `GATEWAY_ID` | `gw-1` | This gateway's id, stamped on the sessions it holds. |
-| `PUBLIC_URL` | — | External base URL clients use to reach this gateway. |
-| `BETTER_AUTH_URL` | — | The frontend's base URL. The gateway only trusts tokens issued by it. |
-| `BETTER_AUTH_JWKS_URL` | `${BETTER_AUTH_URL}/api/auth/jwks` | Where the gateway fetches the signing keys. Set it when the internal frontend URL differs from the public one. |
-| `FRONTEND_ORIGINS` | — | Comma-separated browser origins allowed to call the gateway (CORS). |
+| `HTTP_ADDR` | `:8080` | Address the gateway listens on (internal). |
+| `GATEWAY_ID` | `gw-1` | This gateway's id, stamped on the sessions it holds; also the assertion `aud` it requires. |
+| `PUBLIC_URL` | — | The gateway's internal base URL — the address the router proxies to (not a client-facing URL). |
+| `ROUTER_JWKS_URL` | — | The router's JWKS, used to verify internal assertions. Required for the gateway. |
+| `ROUTER_ASSERTION_ISSUER` | `router` | The `iss` the gateway requires on assertions; must match the router's `ROUTER_ISSUER`. |
 | `APP_ENCRYPTION_KEY` | — | Base64 32-byte AES-GCM key (`openssl rand -base64 32`). Encrypts webhook secrets at rest. |
 | `MYSQL_DSN` | — | Shared database. The gateway writes WhatsApp data and reads auth data. |
 | `WHATSMEOW_STORE_DSN` | `file:store.db?...` | SQLite file holding the WhatsApp device keys. In containers, point it at `/data/keystore/store.db` on a persistent volume. |
-| `REDIS_URL` | — | Redis for the send queue, rate limiting, idempotency, and event fan-out. |
-| `PUBSUB_REDIS_URL` | falls back to `REDIS_URL` | Control-bus Redis for cross-service key/user revocation. Same as `REDIS_URL` on a single-instance deploy. |
+| `REDIS_URL` | — | Work Redis for the send queue, rate limiting, idempotency, and event fan-out. |
+| `PUBSUB_REDIS_URL` | falls back to `REDIS_URL` | Control-bus Redis (the router subscribes; defaults to `REDIS_URL` on a single-instance deploy). |
 | `REDIS_PREFIX` | `gw` | Key/channel namespace, so several stacks can share one Redis. |
 | `WHATSAPP_ADMIN_NUMBER` | — | A number the gateway pairs automatically on boot. See [the admin number](#the-admin-number). |
+| `WHATSAPP_ADMIN_ORG_ID` | — | The organization that owns the admin session. Required when `WHATSAPP_ADMIN_NUMBER` is set. |
 | `WHATSAPP_ADMIN_CMD_PREFIX` | `am` | Command prefix on the admin session's private channel. See [the admin number](#the-admin-number). |
 | `DEFAULT_RATE_PER_MIN` / `DEFAULT_RATE_PER_HOUR` | `20` / `200` | Default send limits per session. |
 | `DEFAULT_AUTO_READ` | `true` | Mark incoming messages read before replying. |
@@ -137,8 +164,8 @@ a named volume and back it up.
 | `BETTER_AUTH_SECRET` | Secret used to sign sessions and tokens. |
 | `BETTER_AUTH_URL` | The frontend's own base URL. |
 | `DATABASE_URL` | The shared database (the same one the gateway uses). |
-| `GATEWAY_URL` | Base URL the frontend's server code calls for actions and the event stream. |
-| `VITE_GATEWAY_URL` | Same gateway URL, but exposed to the browser. |
+| `GATEWAY_URL` | The **router** base URL the frontend's server code calls for actions and server functions. |
+| `VITE_GATEWAY_URL` | The same **router** URL, exposed to the browser. The browser calls the router, not the gateway. |
 | `PUBSUB_REDIS_URL` | Control-bus Redis the frontend publishes revocations to. |
 | `USER_REGISTRATION_ENABLED` | Whether people can sign themselves up. See [Lock down self-registration](#lock-down-self-registration). |
 | `ADMIN_USER_IDS` | Comma-separated better-auth user ids granted platform super-admin. See [Create the first admin](#create-the-first-admin). |
@@ -172,54 +199,61 @@ are handled internally — they are **not** stored, emitted as events, or counte
 against rate limits. In this release that channel is reserved but does nothing;
 commands arrive in a later version.
 
-## Hosting the gateway and frontend separately
+## Hosting the services separately
 
-The frontend can run anywhere it can reach MySQL and the gateway. The gateway
-runs near WhatsApp with its keystore volume. The gateway verifies callers
-against the signing keys (JWKS) and the shared `apikey` table, so it never calls
-back to the frontend on a request.
+The frontend can run anywhere it can reach MySQL and the router. The router and
+gateway run near WhatsApp with the keystore volume. The router verifies callers
+against the frontend's signing keys (JWKS) and the shared `apikey` table, so it
+never calls back to the frontend on a request; the gateway verifies only the
+router's assertion.
 
 | Goal | What to do |
 |---|---|
-| Run the frontend on a separate host or serverless | Point `DATABASE_URL` at the shared MySQL (use a connection pooler on serverless) and `GATEWAY_URL`/`VITE_GATEWAY_URL` at the gateway. The browser talks to the gateway directly. |
-| Bring your own MySQL/Redis | `deploy/docker-compose.external.yml` runs the two app images against services you provide. |
-| Gateway fetches signing keys from a different host | If the gateway fetches JWKS from a host other than `BETTER_AUTH_URL`, add that host to the frontend's `TRUSTED_ORIGINS`. |
+| Run the frontend on a separate host or serverless | Point `DATABASE_URL` at the shared MySQL (use a connection pooler on serverless) and `GATEWAY_URL`/`VITE_GATEWAY_URL` at the **router**. The browser talks to the router; the router reaches the gateway. |
+| Bring your own MySQL/Redis | `deploy/docker-compose.external.yml` runs the app images against services you provide. |
+| Router fetches signing keys from a different host | If the router fetches the frontend JWKS from a host other than `BETTER_AUTH_URL`, add that host to the frontend's `TRUSTED_ORIGINS`. |
 
 ## Health checks
 
-The gateway serves three endpoints:
+Both Go services expose health endpoints:
 
-| Endpoint | Purpose |
-|---|---|
-| `GET /healthz` | Liveness. |
-| `GET /readyz` | Readiness — checks MySQL and Redis. Use this for the container healthcheck. |
-| `GET /metrics` | Prometheus metrics. |
+| Service | Endpoint | Purpose |
+|---|---|---|
+| Router | `GET /healthz` | Liveness. |
+| Router | `GET /readyz` | Readiness — checks MySQL and Redis. Use this for the router's container healthcheck. |
+| Gateway | `GET /healthz` | Liveness. |
+| Gateway | `GET /readyz` | Readiness — checks MySQL and Redis. Use this for the gateway's container healthcheck. |
+| Gateway | `GET /metrics` | Prometheus metrics. |
 
-## Running the gateway in Docker for development
+## Running the gateway or router in Docker for development
 
-Day to day you run both apps on the host (see
-[Local development](/docs/dev/local-development)). To run the gateway in a
-container instead — same OS and toolchain as production, with the frontend still
-on the host under Vite — use one of two compose profiles:
+Day to day you run the Go processes on the host (see
+[Local development](/docs/dev/local-development)). To run one in a container
+instead — same OS and toolchain as production, with the frontend still on the
+host under Vite — use one of these compose profiles:
 
 ```bash
-# Hot reload: air watches the mounted source and rebuilds in the container.
+# Gateway, hot reload: air watches the mounted source and rebuilds in the container.
 docker compose -f deploy/docker-compose.dev.yml --profile gateway-dev up -d --build
 
-# Or the production image (rebuild to pick up code changes):
+# Gateway, production image (rebuild to pick up code changes):
 docker compose -f deploy/docker-compose.dev.yml --profile gateway up -d --build
+
+# Router, production image (publishes :8090):
+docker compose -f deploy/docker-compose.dev.yml --profile router up -d --build
 ```
 
-Both profiles reach the host frontend's signing keys through
-`host.docker.internal` (already allowed in `vite.config.ts`) and apply the WA
-migrations on boot. Run only one at a time — both bind port 8080.
+Each profile reaches the host frontend's signing keys through
+`host.docker.internal` (already allowed in `vite.config.ts`) and applies the WA
+migrations on boot. The two gateway profiles both bind port 8080 — run only one
+at a time.
 
-Both profiles read the **same** gateway env file the host gateway uses,
-`deploy/.env` (copy it from `deploy/.env.example`), so there is one place to set
-gateway config. The compose `environment:` block overrides only the variables
-that must differ inside a container: `MYSQL_DSN` and `REDIS_URL` (the service
-hostnames), `BETTER_AUTH_JWKS_URL` (the frontend is on the host), and
-`WHATSMEOW_STORE_DSN` (a named volume). Change anything else in `deploy/.env`.
+Every profile reads the **same** `deploy/.env` the host processes use (copy it
+from `deploy/.env.example`), so there is one place to set config. The compose
+`environment:` block overrides only the variables that must differ inside a
+container: `MYSQL_DSN` and `REDIS_URL` (the service hostnames),
+`BETTER_AUTH_JWKS_URL` (the frontend is on the host), and `WHATSMEOW_STORE_DSN`
+(a named volume). Change anything else in `deploy/.env`.
 
 ## Pairing a WhatsApp number
 

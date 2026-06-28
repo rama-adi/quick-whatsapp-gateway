@@ -1,94 +1,130 @@
 ---
-title: How the two services fit together
-description: The gateway and the frontend — what each owns, how they talk, and how the gateway decides a request is legitimate. Read this before changing code.
+title: How the services fit together
+description: The router, the gateway, and the frontend — what each owns, how they talk, and how a request is proven legitimate. Read this before changing code.
 ---
 
-This repo is two services. They deploy independently and share one MySQL database.
+This repo holds two codebases: the Go backend at the root and the web frontend
+under `web/`. The Go backend runs as **two processes** — the router and the
+gateway — so at runtime there are three services, sharing one MySQL database and
+one Redis.
 
 | Service | Location | Stack | What it does |
 |---|---|---|---|
-| **Gateway** | repo root (`cmd/`, `internal/`, `migrations/`) | Go, whatsmeow | Holds the live WhatsApp connections. Exposes a JSON REST API, an NDJSON event stream, and outbound webhooks. Has no human login and serves no UI. |
+| **Router** | `cmd/router`, `internal/router` | Go | The single public front door and trust boundary. Authenticates every caller, finds the gateway that owns the target session, and reverse-proxies to it. Serves the realtime WebSocket and the OpenAPI contract. |
+| **Gateway** | `cmd/server`, `internal/` | Go, whatsmeow | Holds the live WhatsApp connections and runs the REST handlers. Internal: it trusts the router and is not exposed to the public. |
 | **Frontend** | `web/` | TanStack Start, better-auth | The dashboard plus the identity service: login, registration, 2FA, organizations, and API-key management. Renders the dashboard, viewer, and contacts UI. |
 
-Splitting them lets the frontend run on serverless hosting while the gateway runs
-close to WhatsApp. They do not need to be co-located.
+The router and gateway are separate processes so you can run several gateways
+behind one router later; today a single gateway is the norm. Splitting the
+frontend off lets it run on serverless hosting while the Go backend runs close to
+WhatsApp. None of the three need to be co-located.
 
-## How the browser, frontend, and gateway connect
+## How the browser, frontend, router, and gateway connect
 
 ```
-              better-auth JWT / api-key (Bearer)
-  Browser ──────────────────────────────────────────►  Gateway (Go, whatsmeow)
-     │  ▲                                                 │  ├─ REST API   /api/v1
-     │  │ session cookie + mint JWT (/api/auth/token)     │  ├─ NDJSON     /events
-     ▼  │                                                 │  └─ webhooks (outbound)  ──ws──► WhatsApp
-  Frontend (TanStack Start + better-auth)                 │
-     ├─ /api/auth/* (JWKS, token, admin, api-keys, orgs)  │  keystore → SQLite (gateway-local volume)
-     └─ direct read-only Drizzle reads ──┐                │
-                                         ▼                ▼
-                              MySQL  (auth tables ⇄ WA app-data tables)
-                                         ▲                │
-   control bus: frontend PUBLISH ctrl:*  └── Redis ───────┘  work: queue / rate-limit / stream fan-out
+        Authorization: Bearer <JWT | api-key>
+  Browser ──────────────────────────────────►  Router  (front door + trust boundary)
+     │  ▲                                          │  • authenticates the caller (JWKS JWT / api-key)
+     │  │ session cookie                           │  • resolves the gateway that owns the session
+     │  │ mint JWT (/api/auth/token)               │  • mints a request-bound Ed25519 assertion
+     ▼  │                                          ▼
+  Frontend (TanStack Start + better-auth)       Gateway (Go, whatsmeow)  ──ws──► WhatsApp
+     ├─ /api/auth/* (JWKS, token, orgs, keys)      │  • verifies the router's assertion (only)
+     └─ read-only Drizzle reads ──┐                │  keystore → SQLite (gateway-local volume)
+                                   ▼                ▼
+                    MySQL  (auth tables ⇄ WA tables ⇄ gateways registry)
+                                   ▲                │
+   control bus: frontend PUBLISH ctrl:*  └── Redis ─┘  router SUBSCRIBES · work: queue / cache / fan-out
 ```
 
-The browser calls the gateway **directly** — for both actions and the NDJSON
-stream — attaching a Bearer token. The frontend server never proxies gateway
-traffic. Its only server-side work is:
+The browser talks to **one** base URL — the router — attaching a Bearer token.
+The router authenticates the caller and proxies to the owning gateway; the
+browser never addresses a gateway directly. The realtime feed is also on the
+router (a WebSocket, see [Event shape](/docs/guides/event-shape)). The frontend
+server does no gateway proxying. Its only server-side work is:
 
 - the better-auth endpoints under `/api/auth/*`,
 - minting short-lived gateway JWTs, and
 - reading MySQL directly for server-side rendering.
 
-## How the gateway authenticates a request
+## The trust seam: two boundaries, not one
 
-The frontend issues identity; the gateway only verifies it. The gateway never
-calls the frontend during a request — it caches the JWKS (the frontend's public
-signing keys) and reads the shared database directly.
+Authentication happens **once, on the router**. The gateway never sees an
+end-user credential — it trusts only a token the router mints per request.
 
-There are exactly two kinds of caller. One middleware
-(`internal/authz/middleware.go`) resolves both, trying two acceptors in order:
+### 1. The router authenticates the caller
 
-| Caller | Credential | Gateway verifies by | Resolves to |
+The frontend issues identity; the router verifies it. The router caches the JWKS
+(the frontend's public signing keys) and reads the shared database directly, so
+it never calls the frontend during a request. One middleware
+(`internal/authz`) resolves both caller kinds, trying two acceptors in order:
+
+| Caller | Credential | Router verifies by | Resolves to |
 |---|---|---|---|
 | **Human** (browser) | `Authorization: Bearer <JWT>` | JWKS signature + checking `iss` / `aud` / `exp`, all local and cached | user id, active org, org role, platform role |
 | **Machine** (programmatic) | `Bearer <api-key>` or `x-api-key`, prefix `wa_` | SHA-256 hashing the key, then looking up the row in the shared `apikey` table | org id, key id, key permissions (no user) |
 
-If neither acceptor matches, the request is rejected with `401`. The resolved
-identity is attached to the request context. Handlers then scope every query to
-the caller's organization and gate the action by capability (`read` / `send` /
-`manage` / `events`).
+If neither acceptor matches, the request is rejected with `401`. The router then
+finds the gateway that owns the target session, checks the caller's organization
+owns it, and proxies on.
 
-Two things a contributor will run into:
+### 2. The gateway trusts the router's assertion
 
-- **JWTs are short-lived (~5 min) EdDSA tokens.** A JWT (JSON Web Token) is a
-  signed identity token. The browser holds the long-lived better-auth session
-  cookie on the frontend's domain, calls `/api/auth/token` to mint a JWT from it,
-  and attaches that JWT to gateway calls. There is no separate refresh token: the
-  session is the revocable credential, and the JWT is a short access token minted
-  from it.
-- **The api-key path re-implements better-auth's hash.** The `apikey.key` column
-  stores `base64url(SHA-256(rawKey))`, unpadded — not hex, not padded base64.
-  The `reference_id` column holds the owning org id. This hash and column layout
-  are pinned by contract tests in `internal/authz/` that mint a real better-auth
-  credential and verify it in the gateway. Bumping better-auth to a new major
-  version means re-running those tests.
+The router strips the end-user credential and attaches a request-bound
+**internal assertion** in the `X-Internal-Assertion` header. This is a single-use
+Ed25519-signed token (`internal/assertion`) that binds the caller's identity and
+capabilities to *this exact request*: it carries the method, path, and a hash of
+the body, an issuer (`iss`) and the target gateway's id (`aud`), a short expiry,
+and a one-time nonce (`jti`).
+
+The gateway holds only the router's **public** key — fetched from the router's
+JWKS endpoint (`ROUTER_JWKS_URL`, default `/.well-known/router-jwks.json`) and
+cached. Its `assertion.Middleware` verifies, in order: the signature, that `aud`
+matches its own `GATEWAY_ID` and `iss` matches `ROUTER_ASSERTION_ISSUER`, the
+expiry, that the method/path/body-hash match the request, and that the `jti` has
+not been seen before (anti-replay). It then rebuilds the same `authz.Principal`
+from the asserted claims and applies its capability gates and org-scoped queries
+**exactly as before** — only the source of the principal changed, not the
+downstream logic.
+
+So the gateway does **no** JWKS or api-key verification anymore, and it mounts no
+CORS — both moved to the router.
 
 ### Revoking access immediately
 
 The short JWT TTL and a ~60 s cache TTL on validated keys bound how long stale
-access can last on their own. To cut access off sooner, the frontend publishes
-on a Redis **control bus** and every gateway subscribes:
+access can last on their own. To cut access off sooner, the frontend publishes on
+a Redis **control bus** and the **router** subscribes:
 
-| Channel | Gateway action |
+| Channel | Router action |
 |---|---|
-| `ctrl:apikey.revoked` | Drop the cached key and any live streams it authenticated. |
-| `ctrl:user.banned` | Drop the user's cached keys, drop all their live streams, and deny-list their in-flight JWTs until the JWT TTL ages out. |
-| `ctrl:member.removed` | Deny the `(user, org)` pair until the JWT TTL ages out and drop that user's streams for the org. |
+| `ctrl:apikey.revoked` | Drop the cached key so the next request re-validates and fails closed. |
+| `ctrl:user.banned` | Drop the user's cached keys and deny their in-flight JWTs until the JWT TTL ages out. |
+| `ctrl:member.removed` | Deny the `(user, org)` pair until the JWT TTL ages out. |
 
-Redis pub/sub is fire-and-forget: a gateway that is down when a message is
+Redis pub/sub is fire-and-forget: a router that is down when a message is
 published misses it. Two backstops cover that gap — the ~60 s cache TTL (the
 revoked row is gone, so the next lookup fails closed) and a one-time
 reconciliation sweep on boot. Full detail: the
-[trust model spec](https://github.com/ramaadi/quick-whatsapp-gateway/blob/main/docs/specs/trust-model.md).
+[trust model spec](https://github.com/ramaadi/quick-whatsapp-gateway/blob/main/docs/specs/trust-model.md)
+and the [router spec](https://github.com/ramaadi/quick-whatsapp-gateway/blob/main/docs/specs/router.md).
+
+## How the router finds the right gateway
+
+Every session is pinned to the gateway that holds its WhatsApp keys, recorded in
+`wa_sessions.gateway_id`. Gateways register themselves in a `gateways` table on
+boot and heartbeat into it; the router reads that registry to route. A gateway
+row moves through a lifecycle — `joining` → `active` → `draining` → `drained`,
+plus `unreachable`, which the router derives when a heartbeat goes stale.
+
+- **Routing an existing session:** the router looks up its `gateway_id` and
+  proxies there. If that gateway is missing, not `active`, or stale, the request
+  fails with `503 gateway_unavailable`.
+- **Creating a session:** the router places it on the least-loaded `active`
+  gateway.
+
+Today there is one gateway with one self-row; running more than one is supported
+by the schema but not the focus yet.
 
 ## Resources are owned by an organization, not a user
 
@@ -97,14 +133,15 @@ Each user gets a personal organization on signup, so solo use is just a
 one-member org, and "sharing a WhatsApp connection" means inviting someone into
 the org. A user reaches a resource through org membership.
 
-The gateway authorizes from the JWT's `activeOrganizationId` and `orgRole`
-claims (or, for an api-key, its `reference_id`). It does not join the `member`
-table during a request.
+The router authorizes from the JWT's `activeOrganizationId` and `orgRole` claims
+(or, for an api-key, its `reference_id`), carries them into the assertion, and the
+gateway scopes every query to that org. Neither service joins the `member` table
+during a request.
 
 Capabilities map to roles and permissions as follows:
 
 - **api-keys** carry explicit permission flags (`read` / `send` / `manage` /
-  `events`); the gateway checks the flag for the action.
+  `events`); the flag is checked for the action.
 - **JWT callers** map from org role: `owner` and `admin` get all four
   capabilities; `member` gets everything except `manage`.
 - The platform `super_admin` role (from the JWT `role` claim) is allowed
@@ -113,12 +150,12 @@ Capabilities map to roles and permissions as follows:
 ## Where to read next
 
 - [Data planes and the single-writer rule](/docs/dev/data-planes) — who writes which tables, and why cross-writes are banned.
-- [Local development](/docs/dev/local-development) — infra in Docker, both apps on the host.
-- [Build and test gates](/docs/dev/build-and-test) — the two commands each half must pass.
-- [Repo layout](/docs/dev/repo-layout) — the gateway packages and the `web/app` tree.
+- [Local development](/docs/dev/local-development) — infra in Docker, the three apps on the host.
+- [Build and test gates](/docs/dev/build-and-test) — the commands each half must pass.
+- [Repo layout](/docs/dev/repo-layout) — the router/gateway packages and the `web/app` tree.
 - [Regenerating code](/docs/dev/regenerating-code) — the typed client, auth schema, WA read-models, and these API docs.
-- [Event shape](/docs/guides/event-shape) — the versioned envelope and event catalog the stream and webhooks both emit.
+- [Event shape](/docs/guides/event-shape) — the versioned envelope and event catalog the realtime WebSocket and webhooks both emit.
 
 The masterplan (`masterplan-mvp.md` at the repo root) is the full design; the
-per-subsystem specs under `docs/specs/` are the detail; `docs/openapi.yaml` is
-the API contract of record.
+per-subsystem specs under `docs/specs/` are the detail (start with `router.md`
+and `trust-model.md`); `docs/openapi.yaml` is the API contract of record.
