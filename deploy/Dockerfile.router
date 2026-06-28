@@ -21,5 +21,10 @@ RUN CGO_ENABLED=0 go build -o /out/router ./cmd/router
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates tzdata
 COPY --from=build /out/router /usr/local/bin/router
+# Ship the generated API contract so the router can serve it at
+# /api/v1/openapi.yaml (OpenAPIPath defaults to the relative "docs/openapi.yaml",
+# resolved from the working directory).
+WORKDIR /app
+COPY --from=build /src/docs/openapi.yaml ./docs/openapi.yaml
 EXPOSE 8090
 ENTRYPOINT ["router"]
