@@ -4,6 +4,18 @@
 // decryption and zlib decompression, msgstore.go reads the resulting SQLite via
 // modernc.org/sqlite. Nothing here imports internal/* — callers translate the
 // errors into their own envelopes.
+//
+// crypt15 file layout (per ElDavoo/wa-crypt-tools):
+//
+//	[1 byte: protobuf header size N]
+//	[optional 1 byte: 0x01 feature-table flag, present on msgstore backups]
+//	[N bytes: BackupPrefix protobuf — carries the 16-byte AES-GCM IV in c15_iv.IV]
+//	[ciphertext .. | 16-byte GCM tag | 16-byte file checksum]
+//
+// The AES-256 key is HKDF-derived from the root key with info "backup encryption"
+// (the trailing 0x01 is the HKDF block counter). The header is NOT GCM AAD; the
+// trailing 16-byte checksum is stripped before GCM (a multifile backup omits it,
+// in which case the last 16 bytes are the tag — handled as a fallback).
 package backup
 
 import (
@@ -12,39 +24,49 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/hmac"
-	"crypto/md5"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 )
 
-// backupEncryptionInfo is the HKDF-style info string WhatsApp mixes into the
-// crypt15 key derivation.
+// backupEncryptionInfo is the HKDF info string WhatsApp mixes into the crypt15
+// key derivation (the 0x01 is the HKDF-Expand block counter for the single 32-byte
+// output block).
 const backupEncryptionInfo = "backup encryption\x01"
 
-// Default crypt15 single-file offsets: the 16-byte GCM nonce starts at 8, the
-// encrypted payload at 122. These are stable for msgstore.db.crypt15 backups.
+// protobuf field numbers in the crypt15 BackupPrefix header (proto from
+// wa-crypt-tools): BackupPrefix.c15_iv is field 3; C15_IV.IV is field 1.
 const (
-	defaultIVOffset   = 8
-	defaultDataOffset = 122
+	fieldC15IV = 3
+	fieldIV    = 1
 )
 
-// DecryptMsgstore is the orchestrator: it derives the AES key from the provided
-// crypt15 key, decrypts the ciphertext, and zlib-decompresses the result into a
-// raw SQLite database. key accepts a 64-char hex string, a raw 32-byte key, or a
-// WhatsApp Java-serialized encrypted_backup.key (see LoadRootKey). Any failure is
-// returned as a plain error — the caller maps it to a validation/4xx envelope,
-// since a failure here means a bad file or wrong key.
-func DecryptMsgstore(ciphertext []byte, key string) ([]byte, error) {
+// DecryptMsgstore is the orchestrator: it parses the crypt15 header, derives the
+// AES key, AES-GCM-decrypts the payload using the IV from the header, and
+// zlib-decompresses the result into a raw SQLite database. key accepts a 64-char
+// hex string, a raw 32-byte key, or a serialized encrypted_backup.key (see
+// LoadRootKey). Any failure is returned as a plain error — the caller maps it to a
+// validation/4xx envelope, since a failure here means a bad file or wrong key.
+func DecryptMsgstore(file []byte, key string) ([]byte, error) {
 	rootKey, err := LoadRootKey([]byte(key))
 	if err != nil {
 		return nil, fmt.Errorf("load key: %w", err)
 	}
 	aesKey := DeriveAESKey(rootKey)
 
-	plain, err := Decrypt(ciphertext, aesKey, defaultIVOffset, defaultDataOffset)
+	header, payload, err := parseCrypt15(file)
+	if err != nil {
+		return nil, fmt.Errorf("parse header: %w", err)
+	}
+	iv, err := extractIV(header)
+	if err != nil {
+		return nil, fmt.Errorf("iv: %w", err)
+	}
+
+	plain, err := gcmDecrypt(payload, aesKey, iv)
 	if err != nil {
 		return nil, fmt.Errorf("decrypt: %w", err)
 	}
@@ -66,7 +88,6 @@ func DecryptMsgstore(ciphertext []byte, key string) ([]byte, error) {
 //  3. a Java-serialized encrypted_backup.key file (the root key is the final 32
 //     bytes after the serialization header).
 func LoadRootKey(keyArg []byte) ([]byte, error) {
-	// Trim incidental whitespace/newlines so a pasted hex key still matches.
 	trimmed := bytes.TrimSpace(keyArg)
 
 	if len(trimmed) == 64 {
@@ -86,66 +107,133 @@ func LoadRootKey(keyArg []byte) ([]byte, error) {
 	return nil, fmt.Errorf("unrecognized key format: got %d bytes", len(trimmed))
 }
 
-// DeriveAESKey derives the AES-256 key from the 32-byte root key using the same
-// two-step HMAC-SHA256 chain WhatsApp uses for crypt15.
+// DeriveAESKey derives the AES-256 key from the 32-byte root key using WhatsApp's
+// HKDF-SHA256 chain (zero salt, info "backup encryption"). Equivalent to
+// wa-crypt-tools' encryptionloop with a single 32-byte output block.
 func DeriveAESKey(rootKey []byte) []byte {
 	zeroKey := make([]byte, 32)
 
-	mac1 := hmac.New(sha256.New, zeroKey)
-	mac1.Write(rootKey)
-	step1 := mac1.Sum(nil)
+	prk := hmac.New(sha256.New, zeroKey) // HKDF-Extract
+	prk.Write(rootKey)
+	step1 := prk.Sum(nil)
 
-	mac2 := hmac.New(sha256.New, step1)
-	mac2.Write([]byte(backupEncryptionInfo))
-	return mac2.Sum(nil)
+	expand := hmac.New(sha256.New, step1) // HKDF-Expand, first block
+	expand.Write([]byte(backupEncryptionInfo))
+	return expand.Sum(nil)
 }
 
-// Decrypt unwraps the crypt15 container: a header, a 16-byte GCM nonce at
-// ivOffset, then at dataOffset the AES-GCM payload. The normal single-file layout
-// is ciphertext | 16-byte GCM tag | 16-byte MD5 checksum (the checksum is
-// verified over header+ciphertext+tag); a multifile layout omits the checksum.
-func Decrypt(file, aesKey []byte, ivOffset, dataOffset int) ([]byte, error) {
-	if ivOffset < 0 || ivOffset+16 > len(file) {
-		return nil, errors.New("invalid IV offset")
+// parseCrypt15 splits a crypt15 file into its protobuf header and encrypted
+// payload. The first byte is the header size; an optional 0x01 feature-table flag
+// may precede the header on msgstore backups.
+func parseCrypt15(file []byte) (header, payload []byte, err error) {
+	if len(file) < 2 {
+		return nil, nil, errors.New("file too short")
 	}
-	if dataOffset <= ivOffset+16 || dataOffset >= len(file) {
-		return nil, errors.New("invalid data offset")
+	size := int(file[0])
+	off := 1
+	// A 0x01 here is the msgstore feature-table flag; consume it. A real protobuf
+	// header starts with a field tag (>= 0x08), so 0x01 is unambiguous.
+	if file[off] == 0x01 {
+		off++
 	}
+	if size <= 0 || off+size > len(file) {
+		return nil, nil, fmt.Errorf("protobuf header size %d exceeds file", size)
+	}
+	header = file[off : off+size]
+	payload = file[off+size:]
+	if len(payload) < 16 {
+		return nil, nil, errors.New("encrypted payload too short")
+	}
+	return header, payload, nil
+}
 
-	nonce := file[ivOffset : ivOffset+16]
-	header := file[:dataOffset]
-	payload := file[dataOffset:]
+// extractIV pulls the 16-byte AES-GCM IV out of the BackupPrefix protobuf header
+// (c15_iv.IV).
+func extractIV(header []byte) ([]byte, error) {
+	c15iv, err := pbFieldBytes(header, fieldC15IV)
+	if err != nil {
+		return nil, err
+	}
+	iv, err := pbFieldBytes(c15iv, fieldIV)
+	if err != nil {
+		return nil, err
+	}
+	if len(iv) != 16 {
+		return nil, fmt.Errorf("IV is %d bytes, want 16", len(iv))
+	}
+	return iv, nil
+}
 
+// gcmDecrypt AES-GCM-decrypts the crypt15 payload. The standard single-file
+// layout is ciphertext|tag|checksum, so the trailing 16-byte checksum is dropped
+// and GCM verifies the tag; a multifile backup omits the checksum (last 16 bytes
+// are then the tag) — tried as a fallback.
+func gcmDecrypt(payload, aesKey, iv []byte) ([]byte, error) {
 	block, err := aes.NewCipher(aesKey)
 	if err != nil {
 		return nil, err
 	}
-	gcm, err := cipher.NewGCMWithNonceSize(block, 16)
+	gcm, err := cipher.NewGCMWithNonceSize(block, len(iv))
 	if err != nil {
 		return nil, err
 	}
-
-	// Single-file layout with trailing MD5 checksum.
-	if len(payload) >= 32 {
-		ciphertext := payload[:len(payload)-32]
-		tag := payload[len(payload)-32 : len(payload)-16]
-		checksum := payload[len(payload)-16:]
-
-		h := md5.New()
-		h.Write(header)
-		h.Write(ciphertext)
-		h.Write(tag)
-		if hmac.Equal(h.Sum(nil), checksum) {
-			ciphertextWithTag := append(append([]byte{}, ciphertext...), tag...)
-			return gcm.Open(nil, nonce, ciphertextWithTag, nil)
+	// Single-file: strip the trailing 16-byte file checksum; payload[:-16] is the
+	// ciphertext+tag GCM expects.
+	if len(payload) >= 16+gcm.Overhead() {
+		if pt, err := gcm.Open(nil, iv, payload[:len(payload)-16], nil); err == nil {
+			return pt, nil
 		}
 	}
-
-	// Multifile layout (no checksum): ciphertext | 16-byte GCM tag.
-	if len(payload) >= 16 {
-		return gcm.Open(nil, nonce, payload, nil)
+	// Multifile: no checksum, the last 16 bytes are the GCM tag.
+	pt, err := gcm.Open(nil, iv, payload, nil)
+	if err != nil {
+		return nil, fmt.Errorf("cipher: %w", err)
 	}
-	return nil, errors.New("payload too small")
+	return pt, nil
+}
+
+// pbFieldBytes returns the bytes of the first length-delimited (wire type 2) field
+// with the given field number in a protobuf message, skipping other fields. Only
+// the wire types that can appear in the crypt15 header are handled.
+func pbFieldBytes(buf []byte, field int) ([]byte, error) {
+	i := 0
+	for i < len(buf) {
+		tag, n := binary.Uvarint(buf[i:])
+		if n <= 0 {
+			return nil, errors.New("malformed protobuf tag")
+		}
+		i += n
+		fieldNum := int(tag >> 3)
+		wire := int(tag & 0x7)
+		switch wire {
+		case 0: // varint
+			_, n := binary.Uvarint(buf[i:])
+			if n <= 0 {
+				return nil, errors.New("malformed protobuf varint")
+			}
+			i += n
+		case 1: // 64-bit
+			i += 8
+		case 5: // 32-bit
+			i += 4
+		case 2: // length-delimited
+			l, n := binary.Uvarint(buf[i:])
+			if n <= 0 {
+				return nil, errors.New("malformed protobuf length")
+			}
+			i += n
+			if i+int(l) > len(buf) {
+				return nil, errors.New("protobuf length out of range")
+			}
+			if fieldNum == field {
+				return buf[i : i+int(l)], nil
+			}
+			i += int(l)
+		default:
+			return nil, fmt.Errorf("unsupported protobuf wire type %d", wire)
+		}
+	}
+	return nil, fmt.Errorf("protobuf field %d not found", field)
 }
 
 // Decompress zlib-inflates the decrypted payload. A backup that is already raw

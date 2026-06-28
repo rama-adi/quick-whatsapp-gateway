@@ -6,16 +6,15 @@ import (
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
-	"crypto/md5"
 	"encoding/hex"
 	"os"
 	"testing"
 )
 
 // makeCrypt15 builds a valid single-file crypt15 container around plaintext,
-// mirroring the on-disk layout Decrypt expects: 122-byte header (16-byte nonce at
-// offset 8) | ciphertext | 16-byte GCM tag | 16-byte MD5 checksum.
-func makeCrypt15(t *testing.T, rootKey, plaintext []byte) []byte {
+// mirroring the real on-disk layout: [size byte][optional 0x01 flag][protobuf
+// header with c15_iv.IV] | ciphertext | 16-byte GCM tag | 16-byte checksum.
+func makeCrypt15(t *testing.T, rootKey, plaintext []byte, featureFlag bool) []byte {
 	t.Helper()
 	// Compress like a real msgstore (zlib).
 	var zbuf bytes.Buffer
@@ -37,17 +36,20 @@ func makeCrypt15(t *testing.T, rootKey, plaintext []byte) []byte {
 		t.Fatalf("gcm: %v", err)
 	}
 
-	header := make([]byte, defaultDataOffset)
-	nonce := bytes.Repeat([]byte{0x42}, 16)
-	copy(header[defaultIVOffset:], nonce)
+	iv := bytes.Repeat([]byte{0x42}, 16)
+	sealed := gcm.Seal(nil, iv, zbuf.Bytes(), nil) // ciphertext || tag
 
-	sealed := gcm.Seal(nil, nonce, zbuf.Bytes(), nil) // ciphertext || tag
-	h := md5.New()
-	h.Write(header)
-	h.Write(sealed)
-	checksum := h.Sum(nil)
+	// BackupPrefix protobuf: field 3 (c15_iv, LEN) { field 1 (IV, LEN) = 16 bytes }.
+	ivField := append([]byte{0x0A, 0x10}, iv...)                   // tag=field1/LEN, len=16
+	header := append([]byte{0x1A, byte(len(ivField))}, ivField...) // tag=field3/LEN
 
-	file := append([]byte{}, header...)
+	checksum := bytes.Repeat([]byte{0x00}, 16) // not verified (GCM tag authenticates)
+
+	file := []byte{byte(len(header))}
+	if featureFlag {
+		file = append(file, 0x01)
+	}
+	file = append(file, header...)
 	file = append(file, sealed...)
 	file = append(file, checksum...)
 	return file
@@ -58,21 +60,22 @@ func TestDecryptMsgstore_RoundTrip(t *testing.T) {
 	// A real decrypted msgstore starts with the SQLite magic.
 	plaintext := append([]byte("SQLite format 3\x00"), bytes.Repeat([]byte("payload-"), 64)...)
 
-	file := makeCrypt15(t, rootKey, plaintext)
-
-	got, err := DecryptMsgstore(file, hex.EncodeToString(rootKey))
-	if err != nil {
-		t.Fatalf("DecryptMsgstore: %v", err)
-	}
-	if !bytes.Equal(got, plaintext) {
-		t.Fatalf("round-trip mismatch: got %d bytes", len(got))
+	for _, flag := range []bool{false, true} {
+		file := makeCrypt15(t, rootKey, plaintext, flag)
+		got, err := DecryptMsgstore(file, hex.EncodeToString(rootKey))
+		if err != nil {
+			t.Fatalf("DecryptMsgstore(featureFlag=%v): %v", flag, err)
+		}
+		if !bytes.Equal(got, plaintext) {
+			t.Fatalf("round-trip mismatch (featureFlag=%v): got %d bytes", flag, len(got))
+		}
 	}
 }
 
 func TestDecryptMsgstore_WrongKey(t *testing.T) {
 	rootKey := bytes.Repeat([]byte{0x01}, 32)
 	plaintext := append([]byte("SQLite format 3\x00"), []byte("x")...)
-	file := makeCrypt15(t, rootKey, plaintext)
+	file := makeCrypt15(t, rootKey, plaintext, true)
 
 	wrong := hex.EncodeToString(bytes.Repeat([]byte{0x02}, 32))
 	if _, err := DecryptMsgstore(file, wrong); err == nil {

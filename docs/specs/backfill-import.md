@@ -37,9 +37,13 @@ Both routes are in the **sessions / `manage`** group ([`http-foundation.md`](htt
 ## Decryption (`internal/backup/crypt15.go`)
 
 Pure stdlib (CGO-free): `LoadRootKey` accepts a 64-char hex key, a raw 32-byte key, or a serialized
-`encrypted_backup.key`; `DeriveAESKey` runs WhatsApp's two-step HMAC-SHA256 chain with the
-`"backup encryption\x01"` info; `Decrypt` is AES-GCM (16-byte nonce, default offsets 8/122) with the
-MD5-checksum single-file layout and the checksum-less multifile fallback; `Decompress` zlib-inflates
+`encrypted_backup.key`; `DeriveAESKey` runs WhatsApp's HKDF-SHA256 chain (zero salt, info
+`"backup encryption"` + the `0x01` block counter — equivalent to wa-crypt-tools' `encryptionloop`).
+The file is parsed faithfully to the crypt15 layout (per `ElDavoo/wa-crypt-tools`): a 1-byte protobuf
+header size, an optional `0x01` msgstore feature-table flag, then the `BackupPrefix` protobuf — the
+16-byte AES-GCM **IV is read from `c15_iv.IV` (field 3 → field 1)**, not a fixed offset. AES-GCM
+(16-byte nonce) then decrypts the payload with the trailing 16-byte checksum stripped (single-file),
+falling back to treating the last 16 bytes as the tag (multifile). `Decompress` zlib-inflates
 (passing through already-raw SQLite/ZIP). `DecryptMsgstore` chains them and verifies the
 `SQLite format 3` magic. Any failure is a plain error → the service maps it to `validation_error`.
 
