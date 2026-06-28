@@ -5,6 +5,7 @@ go 1.26.4
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/alicebob/miniredis/v2 v2.38.0
+	github.com/coder/websocket v1.8.15
 	github.com/go-chi/chi/v5 v5.3.0
 	github.com/go-sql-driver/mysql v1.10.0
 	github.com/golang-migrate/migrate/v4 v4.18.3
@@ -26,7 +27,6 @@ require (
 	github.com/beeper/argo-go v1.1.2 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/coder/websocket v1.8.15 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1 // indirect
 	github.com/docker/go-connections v0.7.0 // indirect

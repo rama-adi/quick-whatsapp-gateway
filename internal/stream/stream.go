@@ -74,3 +74,10 @@ func sessionChannel(organization, session string) string {
 func organizationPattern(organization string) string {
 	return fmt.Sprintf("%s%s:*", channelPrefix, organization)
 }
+
+// firehosePattern returns the glob pattern the admin firehose subscribes on (every
+// org, every session). Because events are published per (org, session), "all
+// gateways" falls out of this naturally (D5a).
+func firehosePattern() string {
+	return channelPrefix + "*"
+}

@@ -53,6 +53,13 @@ func NewConnRegistry() *ConnRegistry {
 	return &ConnRegistry{conns: make(map[uint64]*registeredConn)}
 }
 
+// Register adds a connection and returns a deregister func the caller defers. It
+// is the exported entry point used by the router's WebSocket realtime handler;
+// the in-package NDJSON handler uses the unexported alias.
+func (r *ConnRegistry) Register(id ConnIdentity, cancel context.CancelFunc) func() {
+	return r.register(id, cancel)
+}
+
 // register adds a connection and returns a deregister func the handler defers.
 func (r *ConnRegistry) register(id ConnIdentity, cancel context.CancelFunc) func() {
 	h := atomic.AddUint64(&r.next, 1)

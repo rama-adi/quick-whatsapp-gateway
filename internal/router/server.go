@@ -22,6 +22,7 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/http/middleware"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/httpx"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/stream"
 )
 
 // defaultStaleAfter is how long after a gateway's last heartbeat the router treats
@@ -46,6 +47,15 @@ type Config struct {
 	Readiness   func() error
 	OpenAPIPath string // served at /api/v1/openapi.yaml; empty disables
 
+	// Realtime (Increment B). When Redis + Pump are present the router serves the
+	// single WebSocket endpoint + ticket mint; Registry lets the control bus drop
+	// live connections on revocation. PublicURL builds the wss:// ticket URL.
+	Redis       realtimeRedis
+	Pump        *stream.Pump
+	Registry    *stream.ConnRegistry
+	RedisPrefix string
+	PublicURL   string
+
 	StaleAfter time.Duration     // optional; <=0 => defaultStaleAfter
 	Transport  http.RoundTripper // optional; nil => http.DefaultTransport
 	Now        func() time.Time  // optional; nil => time.Now
@@ -63,6 +73,12 @@ type Server struct {
 	readiness   func() error
 	openAPIPath string
 	jwksJSON    []byte
+	redis       realtimeRedis
+	pump        *stream.Pump
+	registry    *stream.ConnRegistry
+	redisPrefix string
+	publicURL   string
+	wsOrigins   []string
 	staleAfter  time.Duration
 	transport   http.RoundTripper
 	now         func() time.Time
@@ -95,6 +111,12 @@ func NewServer(cfg Config) (*Server, error) {
 		readiness:   cfg.Readiness,
 		openAPIPath: cfg.OpenAPIPath,
 		jwksJSON:    jwksJSON,
+		redis:       cfg.Redis,
+		pump:        cfg.Pump,
+		registry:    cfg.Registry,
+		redisPrefix: cfg.RedisPrefix,
+		publicURL:   cfg.PublicURL,
+		wsOrigins:   cfg.CORSOrigins,
 		staleAfter:  cfg.StaleAfter,
 		transport:   cfg.Transport,
 		now:         cfg.Now,
@@ -145,8 +167,14 @@ func (s *Server) Handler() http.Handler {
 		if s.openAPIPath != "" {
 			api.Get("/openapi.yaml", s.serveFile(s.openAPIPath, "application/yaml"))
 		}
+		// Realtime WebSocket redeem is authenticated by its single-use ticket, not a
+		// bearer (a browser WS cannot set Authorization), so it sits OUTSIDE the
+		// bearer-authn group. The ticket mint below is bearer-authenticated.
+		api.Get("/realtime", s.handleRealtimeWS)
+
 		api.Group(func(authed chi.Router) {
 			authed.Use(authz.Authenticate(s.tokens, s.keys))
+			authed.Post("/realtime/ticket", s.handleTicketMint)
 			authed.Handle("/*", http.HandlerFunc(s.handleProxy))
 		})
 	})

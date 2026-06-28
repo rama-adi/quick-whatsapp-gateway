@@ -25,8 +25,10 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/config"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/controlbus"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/dbconn"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/router"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/stream"
 )
 
 func main() {
@@ -91,10 +93,31 @@ func run() error {
 		return fmt.Errorf("build assertion minter: %w", err)
 	}
 
-	// --- Control bus subscriber (§4.6): the router now owns the api-key cache, so
-	// it subscribes to ctrl:* and evicts on revocation. (Stream drop arrives with
-	// the realtime endpoint in Increment B.) ---
-	controlStop := startControlBus(ctx, cfg.PubSubRedisURL, keyVerifier, log)
+	// --- Realtime (Increment B): the router is the single client-facing realtime
+	// endpoint. It subscribes to the shared Redis evt:* fan-out (the gateways keep
+	// publishing there) and serves a WebSocket per single-use ticket. The live
+	// registry lets the control bus drop connections on revocation. ---
+	var (
+		pump     *stream.Pump
+		registry *stream.ConnRegistry
+	)
+	if rdb != nil {
+		registry = stream.NewConnRegistry()
+		pump = stream.NewPump(stream.PumpConfig{
+			Redis:     rdb,
+			LogReader: &eventLogReader{repo: st.EventLog},
+			Log:       log,
+		})
+	}
+
+	// --- Control bus subscriber (§4.6): the router owns the api-key cache and the
+	// live-connection registry, so it subscribes to ctrl:* and evicts the cache +
+	// drops live WebSocket connections on revocation (D7). ---
+	var dropper controlbus.StreamDropper
+	if registry != nil {
+		dropper = registry
+	}
+	controlStop := startControlBus(ctx, cfg.PubSubRedisURL, keyVerifier, dropper, log)
 	defer controlStop()
 
 	srv, err := router.NewServer(router.Config{
@@ -106,6 +129,11 @@ func run() error {
 		CORSOrigins: cfg.FrontendOrigins,
 		Readiness:   readiness(db, rdb),
 		OpenAPIPath: "docs/openapi.yaml",
+		Redis:       rdb,
+		Pump:        pump,
+		Registry:    registry,
+		RedisPrefix: cfg.RedisPrefix,
+		PublicURL:   cfg.PublicURL,
 		Log:         log,
 	})
 	if err != nil {
@@ -143,9 +171,9 @@ func run() error {
 }
 
 // startControlBus subscribes to the ctrl:* revocation bus and evicts the api-key
-// cache. A nil dropper is passed for now; the live-WS registry joins in Increment
-// B. Empty URL → no-op (the cache TTL is the revocation backstop).
-func startControlBus(ctx context.Context, pubsubURL string, cache controlbus.KeyCache, log *slog.Logger) func() {
+// cache + drops matching live WebSocket connections. Empty URL → no-op (the cache
+// TTL is the revocation backstop).
+func startControlBus(ctx context.Context, pubsubURL string, cache controlbus.KeyCache, dropper controlbus.StreamDropper, log *slog.Logger) func() {
 	if pubsubURL == "" {
 		log.Warn("control bus disabled: PUBSUB_REDIS_URL/REDIS_URL empty; relying on api-key cache TTL for revocation")
 		return func() {}
@@ -155,7 +183,7 @@ func startControlBus(ctx context.Context, pubsubURL string, cache controlbus.Key
 		log.Error("control bus disabled: open pubsub redis failed", "err", err)
 		return func() {}
 	}
-	sub := controlbus.New(crdb, cache, nil, log)
+	sub := controlbus.New(crdb, cache, dropper, log)
 	if err := sub.Start(ctx); err != nil {
 		log.Error("control bus disabled: subscribe failed", "err", err)
 		_ = crdb.Close()
@@ -165,6 +193,22 @@ func startControlBus(ctx context.Context, pubsubURL string, cache controlbus.Key
 		sub.Stop()
 		_ = crdb.Close()
 	}
+}
+
+// eventLogReader adapts *store.EventLogRepo to stream.EventLogReader for the
+// realtime pump's ?since= replay: it resolves the opaque event-id cursor to the
+// store's monotonic id, then pages. Kept here (rather than importing the service
+// graph) so the router binary stays lean.
+type eventLogReader struct{ repo *store.EventLogRepo }
+
+func (a *eventLogReader) ListSince(ctx context.Context, organization, session, afterEventID string, limit int) ([]domain.EventLogEntry, error) {
+	var afterID uint64
+	if afterEventID != "" {
+		if entry, err := a.repo.GetByEventID(ctx, afterEventID); err == nil {
+			afterID = entry.ID
+		}
+	}
+	return a.repo.ListSince(ctx, organization, session, afterID, limit)
 }
 
 func readiness(db interface{ PingContext(context.Context) error }, rdb *redis.Client) func() error {
