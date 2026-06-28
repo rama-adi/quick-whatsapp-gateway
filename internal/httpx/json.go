@@ -45,6 +45,8 @@ func statusForCode(code string) int {
 		return http.StatusConflict
 	case domain.CodeNotImplemented:
 		return http.StatusNotImplemented
+	case domain.CodeUnavailable:
+		return http.StatusServiceUnavailable
 	case domain.CodeInternal:
 		return http.StatusInternalServerError
 	default:

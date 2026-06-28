@@ -10,6 +10,7 @@ const (
 	CodeValidationError = "validation_error"
 	CodeConflict        = "conflict"
 	CodeNotImplemented  = "not_implemented"
+	CodeUnavailable     = "gateway_unavailable" // router: owning gateway is unreachable/draining (503)
 	CodeInternal        = "internal"
 )
 
@@ -50,4 +51,5 @@ func ErrForbidden(msg string) *APIError      { return NewAPIError(CodeForbidden,
 func ErrValidation(msg string) *APIError     { return NewAPIError(CodeValidationError, msg) }
 func ErrConflict(msg string) *APIError       { return NewAPIError(CodeConflict, msg) }
 func ErrNotImplemented(msg string) *APIError { return NewAPIError(CodeNotImplemented, msg) }
+func ErrUnavailable(msg string) *APIError     { return NewAPIError(CodeUnavailable, msg) }
 func ErrInternal(msg string) *APIError       { return NewAPIError(CodeInternal, msg) }

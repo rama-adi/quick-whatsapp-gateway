@@ -12,6 +12,7 @@ func clearEnv(t *testing.T) {
 	t.Helper()
 	keys := []string{
 		"HTTP_ADDR", "PUBLIC_URL", "GATEWAY_ID",
+		"ROUTER_JWKS_URL", "ROUTER_ASSERTION_ISSUER",
 		"BETTER_AUTH_URL", "BETTER_AUTH_JWKS_URL", "FRONTEND_ORIGINS",
 		"APP_ENCRYPTION_KEY", "MYSQL_DSN",
 		"WHATSMEOW_STORE_DSN", "REDIS_URL",
@@ -43,6 +44,8 @@ func TestLoad_Defaults(t *testing.T) {
 		HTTPAddr:               ":8080",
 		PublicURL:              "",
 		GatewayID:              "gw-1",
+		RouterJWKSURL:          "",
+		RouterAssertionIssuer:  DefaultRouterIssuer,
 		BetterAuthURL:          "",
 		BetterAuthJWKSURL:      "",
 		FrontendOrigins:        nil,

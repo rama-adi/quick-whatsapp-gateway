@@ -25,7 +25,16 @@ type Config struct {
 	// Gateway identity (session pinning, gateways registry — §4.5)
 	GatewayID string // GATEWAY_ID
 
-	// Trust model (§4.1/§4.4) — the gateway VERIFIES callers, it does not log them in.
+	// Trust model (§4.1/§4.4). After the central-router cutover the gateway no
+	// longer verifies end-user JWTs/api-keys directly: the router authenticates
+	// callers and vouches a resolved Principal via a request-bound Ed25519
+	// assertion. The gateway verifies that assertion against the router's JWKS
+	// (docs/specs/router.md, plan D3) — these are the gateway's trust inputs.
+	RouterJWKSURL         string // ROUTER_JWKS_URL: the router's public JWKS (assertion verify)
+	RouterAssertionIssuer string // ROUTER_ASSERTION_ISSUER: expected `iss` on assertions (default "router")
+
+	// Legacy better-auth inputs (still consumed in single-binary/dev fallbacks and
+	// kept for the trust-seam contract tests). The router is the primary consumer.
 	BetterAuthURL     string   // BETTER_AUTH_URL: frontend base URL; the JWT iss/aud to enforce
 	BetterAuthJWKSURL string   // BETTER_AUTH_JWKS_URL: defaults to ${BETTER_AUTH_URL}/api/auth/jwks
 	FrontendOrigins   []string // FRONTEND_ORIGINS: comma-list of allowed CORS origins
@@ -98,6 +107,8 @@ func Load() (*Config, error) {
 		HTTPAddr:               getString("HTTP_ADDR", ":8080"),
 		PublicURL:              getString("PUBLIC_URL", ""),
 		GatewayID:              getString("GATEWAY_ID", "gw-1"),
+		RouterJWKSURL:          getString("ROUTER_JWKS_URL", ""),
+		RouterAssertionIssuer:  getString("ROUTER_ASSERTION_ISSUER", DefaultRouterIssuer),
 		BetterAuthURL:          getString("BETTER_AUTH_URL", ""),
 		BetterAuthJWKSURL:      getString("BETTER_AUTH_JWKS_URL", ""),
 		FrontendOrigins:        getCSV("FRONTEND_ORIGINS"),
