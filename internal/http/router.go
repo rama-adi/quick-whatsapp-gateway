@@ -67,33 +67,18 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	r.Get("/readyz", readyz(cfg.Readiness))
 	r.Handle("/metrics", promhttp.Handler())
 
-	// JSON API under /api/v1. Every route is authenticated by cfg.Auth (the router
-	// assertion-verify middleware), then authorized by the capability gates.
-	r.Route("/api/v1", func(api chi.Router) {
-		if cfg.OpenAPIPath != "" {
+	// The OpenAPI contract (served by the gateway only when OpenAPIPath is set;
+	// normally the router serves it). Kept on the /api/v1 chi route.
+	if cfg.OpenAPIPath != "" {
+		r.Route("/api/v1", func(api chi.Router) {
 			api.Get("/openapi.yaml", serveFile(cfg.OpenAPIPath, "application/yaml"))
-		}
-
-		api.Group(func(authed chi.Router) {
-			if cfg.Auth != nil {
-				authed.Use(cfg.Auth)
-			}
-			if cfg.Limiter != nil {
-				authed.Use(middleware.RateLimit(cfg.Limiter, nil))
-			}
-
-			mountAPIRoutes(authed, h)
 		})
-	})
+	}
 
-	// Code-first operations (huma, D11): resources are migrating off the
-	// hand-mounted chi routes above to typed huma operations whose Go structs
-	// generate docs/openapi.yaml. huma operations declare their own full
-	// "/api/v1/…" paths (matching the generated spec), so they mount on the ROOT
-	// router rather than inside the chi.Route("/api/v1") group — otherwise chi
-	// would prepend a second "/api/v1". The same auth + rate-limit middleware is
-	// applied here so the assertion auth still runs first. Converted resources are
-	// removed from mountAPIRoutes.
+	// The whole JSON API is now code-first huma operations (D11): each declares its
+	// own full "/api/v1/…" path and capability gate, so they mount on the ROOT
+	// router (mounting inside chi.Route("/api/v1") would double-prefix). cfg.Auth
+	// (the assertion-verify middleware) + the optional edge limiter run first.
 	r.Group(func(authed chi.Router) {
 		if cfg.Auth != nil {
 			authed.Use(cfg.Auth)
@@ -111,38 +96,6 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	})
 
 	return r
-}
-
-// mountAPIRoutes wires every §11 resource onto the authenticated group, each
-// behind its authz capability gate.
-func mountAPIRoutes(r chi.Router, h *handlers.Handlers) {
-	// API-key management (create/list/revoke/rotate) lives in the frontend's
-	// better-auth api-key plugin (§6); the gateway only verifies keys. No /keys
-	// routes here.
-
-	// --- Webhooks (manage) --- converted to huma operations (RegisterWebhookOps);
-	// see NewRouter. Intentionally not mounted here.
-
-	// --- Admin (super-admin; cross-organization oversight, §4.3) --- converted to
-	// huma operations (RegisterAdminOps); see NewRouter. Intentionally not mounted here.
-
-	// --- Sessions (manage) --- converted to huma operations (RegisterSessionOps);
-	// see NewRouter. Intentionally not mounted here.
-
-	// --- Backup import (/backfill, manage) --- converted to huma — see RegisterBackupOps
-
-	// --- Messages (send) --- converted to huma operations (RegisterMessageOps);
-	// see NewRouter. Intentionally not mounted here.
-
-	// --- Chats (read for GET, send for mutations) --- converted to huma — see RegisterChatOps
-
-	// --- Contacts (read for GET, send for mutations) --- converted to huma — see RegisterContactOps
-
-	// --- Groups (read for GET, send for mutations) --- converted to huma — see RegisterGroupOps
-
-	// --- Channels (send) --- converted to huma — see RegisterChannelOps
-
-	// --- Status / Presence (send) --- converted to huma — see RegisterStatusOps
 }
 
 func healthz(w http.ResponseWriter, _ *http.Request) {

@@ -13,7 +13,6 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/httpx"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/service"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa/outbound"
@@ -188,18 +187,6 @@ func New(s *service.Services, log *slog.Logger) *Handlers {
 // ---------------------------------------------------------------------------
 // Shared helpers.
 // ---------------------------------------------------------------------------
-
-// organization pulls the authenticated organization id from the request context (set by the
-// API-key auth or cookie-session middleware). Returns false (and writes a 401)
-// when absent.
-func organization(w http.ResponseWriter, r *http.Request) (string, bool) {
-	id := httpx.OrganizationID(r.Context())
-	if id == "" {
-		httpx.WriteError(w, domain.ErrUnauthorized("authentication required"))
-		return "", false
-	}
-	return id, true
-}
 
 // param reads a chi URL parameter, URL-decoding it. chi routes on the raw
 // (escaped) path when URL.RawPath is set, so URLParam returns the still-encoded
