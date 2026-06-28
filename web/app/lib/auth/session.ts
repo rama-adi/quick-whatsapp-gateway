@@ -9,7 +9,9 @@
 //   - platform role super_admin -> roles ["super_admin","user"] (admins can also
 //     use the user panel); everyone else -> ["user"].
 //   - activeOrg carries the active org id + the caller's role in it.
-//   - userPanelEnabled comes from USER_REGISTRATION_ENABLED (matches the §12 gate).
+//   - userPanelEnabled is always true: the user panel is available to every
+//     signed-in user regardless of the registration gate. USER_REGISTRATION_ENABLED
+//     only controls self sign-up (disableSignUp), not panel access.
 //   - impersonating reflects an admin-plugin impersonated session.
 
 import { redirect } from "@tanstack/react-router";
@@ -66,7 +68,8 @@ export const getServerSession = createServerFn({ method: "GET" }).handler(
         roles,
       },
       activeOrg,
-      userPanelEnabled: process.env.USER_REGISTRATION_ENABLED !== "false",
+      // Always on — the user panel is independent of the sign-up gate.
+      userPanelEnabled: true,
       impersonating: Boolean(
         (session.session as { impersonatedBy?: string | null }).impersonatedBy,
       ),
