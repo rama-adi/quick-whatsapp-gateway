@@ -1,0 +1,223 @@
+components:
+  schemas:
+    ApiError:
+      additionalProperties: false
+      type: object
+    ListWebhook:
+      additionalProperties: false
+      properties:
+        data:
+          items:
+            $ref: "#/components/schemas/Webhook"
+          type:
+            - array
+            - "null"
+        nextCursor:
+          type: string
+      required:
+        - data
+      type: object
+    RetryPolicy:
+      additionalProperties: false
+      properties:
+        attempts:
+          format: int64
+          type: integer
+        delaySeconds:
+          format: int64
+          type: integer
+        policy:
+          type: string
+      required:
+        - policy
+        - delaySeconds
+        - attempts
+      type: object
+    Webhook:
+      additionalProperties: false
+      properties:
+        active:
+          type: boolean
+        createdAt:
+          format: int64
+          type: integer
+        customHeaders:
+          additionalProperties:
+            type: string
+          type: object
+        events:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        id:
+          type: string
+        organizationId:
+          type: string
+        retryPolicy:
+          $ref: "#/components/schemas/RetryPolicy"
+        sessionId:
+          type: string
+        updatedAt:
+          format: int64
+          type: integer
+        url:
+          type: string
+      required:
+        - id
+        - organizationId
+        - url
+        - events
+        - retryPolicy
+        - active
+        - createdAt
+        - updatedAt
+      type: object
+    WebhookBody:
+      additionalProperties: false
+      properties:
+        active:
+          type: boolean
+        customHeaders:
+          additionalProperties:
+            type: string
+          type: object
+        events:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        retryPolicy:
+          $ref: "#/components/schemas/RetryPolicy"
+        secret:
+          type: string
+        sessionId:
+          type: string
+        url:
+          type: string
+      type: object
+info:
+  title: WhatsApp Gateway API
+  version: v1
+openapi: 3.1.0
+paths:
+  /api/v1/webhooks:
+    get:
+      operationId: listWebhooks
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListWebhook"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: List webhooks
+      tags:
+        - Webhooks
+    post:
+      operationId: createWebhook
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebhookBody"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Webhook"
+          description: Created
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Create a webhook
+      tags:
+        - Webhooks
+  /api/v1/webhooks/{id}:
+    delete:
+      operationId: deleteWebhook
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Delete a webhook
+      tags:
+        - Webhooks
+    get:
+      operationId: getWebhook
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Webhook"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Get a webhook
+      tags:
+        - Webhooks
+    patch:
+      operationId: updateWebhook
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebhookBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Webhook"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Update a webhook
+      tags:
+        - Webhooks

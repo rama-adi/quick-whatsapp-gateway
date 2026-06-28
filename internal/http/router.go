@@ -13,6 +13,7 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/http/handlers"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/http/middleware"
 	shttpx "github.com/ramaadi/quick-whatsapp-gateway/internal/httpx"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/humax"
 )
 
 // RouterConfig groups everything the router needs from the composition root.
@@ -82,6 +83,14 @@ func NewRouter(cfg RouterConfig) http.Handler {
 				authed.Use(middleware.RateLimit(cfg.Limiter, nil))
 			}
 
+			// Code-first operations (huma, D11): resources are migrating off the
+			// hand-mounted chi routes below to typed huma operations whose Go
+			// structs generate docs/openapi.yaml. huma mounts on the same authed
+			// chi router, so the assertion auth + rate-limit middleware still run
+			// first. Converted resources are removed from mountAPIRoutes.
+			hapi := humax.NewAPI(authed)
+			handlers.RegisterAllOps(hapi, h)
+
 			mountAPIRoutes(authed, h)
 		})
 	})
@@ -101,15 +110,8 @@ func mountAPIRoutes(r chi.Router, h *handlers.Handlers) {
 	// better-auth api-key plugin (§6); the gateway only verifies keys. No /keys
 	// routes here.
 
-	// --- Webhooks (manage) ---
-	r.Group(func(g chi.Router) {
-		g.Use(authz.RequireManage())
-		g.Post("/webhooks", h.CreateWebhook)
-		g.Get("/webhooks", h.ListWebhooks)
-		g.Get("/webhooks/{id}", h.GetWebhook)
-		g.Patch("/webhooks/{id}", h.UpdateWebhook)
-		g.Delete("/webhooks/{id}", h.DeleteWebhook)
-	})
+	// --- Webhooks (manage) --- converted to huma operations (RegisterWebhookOps);
+	// see NewRouter. Intentionally not mounted here.
 
 	// --- Admin (super-admin; cross-organization oversight, §4.3) ---
 	r.Group(func(g chi.Router) {
