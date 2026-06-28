@@ -19,8 +19,8 @@ api-key `reference_id`, never by joining `member` on the hot path ([`trust-model
 
 | Table | Repo | Owning key |
 |---|---|---|
-| `gateways` | `GatewayRepo` | (registry; one self-row in v2) |
-| `wa_sessions` | `SessionRepo` | `organization_id` (+ `gateway_id` pin) |
+| `gateways` | `GatewayRepo` | (registry; lifecycle + routing table — the router reads it) |
+| `wa_sessions` | `SessionRepo` | `organization_id` (+ `gateway_id` pin, now authoritative for routing) |
 | `webhooks` | `WebhookRepo` | `organization_id` |
 | `webhook_deliveries` | `WebhookDeliveryRepo` | via `webhook_id` |
 | `whatsapp_identities` | `IdentityRepo` | global (central identity, canonical LID) |
@@ -49,10 +49,14 @@ The v1 `0001_init` + `0002_wmstore` migrations were **dropped** and replaced by 
 epoch-ms `BIGINT` timestamps, `VARCHAR(64)` ULID PKs (or surrogate `BIGINT UNSIGNED AUTO_INCREMENT`).
 
 ```sql
-CREATE TABLE gateways (            -- registry; one self-row in v2, rows added when sharding
+CREATE TABLE gateways (            -- registry + lifecycle; the router reads it to route
   id VARCHAR(64) PRIMARY KEY,      -- = GATEWAY_ID
   label VARCHAR(255) NULL, base_url TEXT NULL, last_seen_at BIGINT NULL,
-  created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL
+  status VARCHAR(16) NOT NULL DEFAULT 'active',   -- joining|active|draining|drained|unreachable (0004)
+  session_count INT UNSIGNED NOT NULL DEFAULT 0,  -- live session count, written by heartbeat (0004)
+  capacity INT UNSIGNED NULL,                      -- soft cap for placement; NULL = unbounded (0004)
+  created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
+  KEY idx_gateways_status_seen (status, last_seen_at)  -- (0004) active-gateway / stale-heartbeat scans
 );
 
 CREATE TABLE wa_sessions (
@@ -70,13 +74,45 @@ CREATE TABLE wa_sessions (
 
 - **`organization_id`** replaces v1 `tenant_id` on every owned table; `webhooks`, `event_log`,
   `outbox` carry it directly.
-- **`gateways` + `wa_sessions.gateway_id`** are new in v2 — the session-pinning seam
-  ([`whatsmeow-store.md`](whatsmeow-store.md), masterplan §4.5).
+- **`gateways` + `wa_sessions.gateway_id`** are the session-pinning seam
+  ([`whatsmeow-store.md`](whatsmeow-store.md), masterplan §4.5); with the central router (Increment A)
+  `gateways` is now the live **routing table** the router reads, and `wa_sessions.gateway_id` (already
+  `NOT NULL`) is **authoritative for routing** ([`router.md`](router.md), [`session-manager.md`](session-manager.md)).
 - **No `wmstore_*` in MySQL.** The whatsmeow keystore is gateway-local SQLite, auto-migrated by
   `sqlstore` — it is no longer part of this migration set.
 - better-auth's own tables (`user`/`session`/`apikey`/`organization`/`member`/…) are **not**
   defined here; they are frontend-owned (drizzle-kit). Match `organization_id`/`user_id` lengths
   to better-auth ids (`VARCHAR(64)`).
+
+## Gateways registry lifecycle (`migration 0004_gateways_lifecycle`)
+
+Migration **`0004_gateways_lifecycle.{up,down}.sql`** adds lifecycle/accounting to the existing
+`gateways` table (Layer 1 of the central-router work — [`router.md`](router.md),
+[`session-manager.md`](session-manager.md)):
+
+- **`status`** `VARCHAR(16) NOT NULL DEFAULT 'active'` — `joining | active | draining | drained |
+  unreachable`.
+- **`session_count`** `INT UNSIGNED NOT NULL DEFAULT 0` — live sessions on the gateway, refreshed by
+  its heartbeat.
+- **`capacity`** `INT UNSIGNED NULL` — soft placement cap; `NULL` = unbounded.
+- **`INDEX idx_gateways_status_seen (status, last_seen_at)`** — backs active-gateway selection,
+  placement, and stale-heartbeat (`unreachable`) detection.
+
+`GatewayRepo` gains the lifecycle methods:
+
+- **`Heartbeat`** — touch `last_seen_at` + `session_count` (the 30s gateway loop).
+- **`SetStatus`** — move through the lifecycle (`joining → active`, `draining → drained` on SIGTERM).
+- **`ListActive`** — the `active` gateways (gateway-agnostic routing target).
+- **`PickForPlacement`** — choose the least-loaded `active` gateway for a new session
+  (`POST /sessions` placement).
+
+`SessionRepo` gains **`CountByGateway`** (feeds `session_count` in the heartbeat).
+`wa_sessions.gateway_id` is unchanged (already `NOT NULL`) and is now **authoritative for routing**.
+
+A session pinned to a gateway that is missing / not `active` / has a stale heartbeat is a *stranded*
+session: the router returns the new **`gateway_unavailable` (HTTP 503)** domain error rather than
+hanging. After running the migration, `cd web && pnpm db:introspect` refreshes the read-only WA
+Drizzle models.
 
 ## Migrations tooling — the binary applies them
 

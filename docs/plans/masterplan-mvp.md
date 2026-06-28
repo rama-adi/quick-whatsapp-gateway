@@ -110,9 +110,13 @@ Two services, one shared database, one keystore that lives with the gateway.
 - **Frontend:** TanStack Start (Vite + TanStack Router + server functions / API routes),
   shadcn components copied over from the v1 SPA, TanStack Query for data, better-auth for
   identity.
-- **Trust direction:** the frontend is the *issuer*; the gateway is a *verifier*. The gateway
-  never calls the frontend on the request hot path (it caches the JWKS and reads the shared DB
-  directly).
+- **Trust direction:** the frontend is the *issuer*; the **router** is the *verifier* and the
+  system's **single trust boundary** + front door. The router never calls the frontend on the
+  request hot path (it caches the JWKS and reads the shared DB directly), then brokers each call to
+  the gateway that owns the session. The gateway itself authenticates nothing end-user-facing — it
+  trusts the router's signed internal assertion. (Central router, Increment A — see
+  [`specs/router.md`](../specs/router.md) and [`plan-router-impl.md`](./plan-router-impl.md). The
+  realtime WebSocket move is Increment B, not done yet.)
 
 ---
 
@@ -144,9 +148,16 @@ rows.
 
 ## 4. Trust & auth model (JWKS + API keys)
 
-This is the heart of the v2 design and the answer to "how does the gateway know a request is
-legitimate?". There are exactly **two** caller identities, both verified by the gateway with
-**no per-request callback to the frontend**.
+This is the heart of the v2 design and the answer to "how does the platform know a request is
+legitimate?". There are exactly **two** caller identities, both verified with **no per-request
+callback to the frontend**.
+
+> **Central router (Increment A) — the trust boundary moved.** This verification now runs at the
+> **router** (the single front door + trust boundary), not at each gateway. The router authenticates
+> the caller, then brokers the request to the owning gateway carrying a request-bound Ed25519
+> internal assertion the gateway verifies. Read the two-acceptor description below as "what the
+> router does"; the gateway only trusts the router's assertion. Details:
+> [`specs/router.md`](../specs/router.md), [`specs/trust-model.md`](../specs/trust-model.md).
 
 ### 4.1 Humans — better-auth JWT verified via JWKS
 
@@ -765,14 +776,17 @@ in the Go binary); v2 is **fullstack TanStack Start** (SSR + server functions). 
 **Server vs client (serverless-friendly — the gateway owns long-lived connections):** The
 frontend server does **only short-lived work** — better-auth endpoints, **minting JWTs**
 (`/api/auth/token`), and **direct MySQL reads via Drizzle** for SSR/loaders (§6.2). It does **not proxy
-gateway traffic**. The **browser talks to the gateway directly** (CORS + `Bearer` JWT) for
-**both actions and the NDJSON stream**. This is what lets the frontend run on **serverless**
-(Vercel/Cloudflare/Netlify), where a function can't hold a long-lived streaming proxy open:
-the stream lives in the gateway, and the browser connects to it directly.
+gateway traffic**. The **browser talks to the router directly** (CORS + `Bearer` JWT) for
+**both actions and the realtime stream** — the router authenticates and brokers to the owning gateway
+(central router, Increment A). This is what lets the frontend run on **serverless**
+(Vercel/Cloudflare/Netlify), where a function can't hold a long-lived streaming proxy open: the
+realtime endpoint lives in the platform (the router; the gateway's NDJSON stream is proxied through
+it today, with a WebSocket cutover in Increment B), and the browser connects to it directly.
 
 - **Server** (serverless): auth, token mint, direct MySQL reads. No streaming, no proxy.
 - **Client:** TanStack Query for data; the **fetch+ReadableStream NDJSON** consumer for
-  realtime — both hitting the gateway with a `Bearer` JWT, refreshed per §4.7.
+  realtime — both hitting the **router** with a `Bearer` JWT, refreshed per §4.7 (the router brokers
+  to the owning gateway; central router, Increment A).
 - *(Optional, non-serverless only:)* a long-running frontend host can proxy gateway calls
   server-side to hide the gateway URL / avoid client-side JWTs. Not required, and incompatible
   with serverless for the stream.
@@ -1141,8 +1155,9 @@ Fast inner loop: **infra in Docker, both apps on the host.**
 - **Gateway** runs under `air` (hot reload, `CGO_ENABLED=0`, SQLite keystore at a local path).
 - **Frontend** runs under the TanStack Start dev server (HMR); better-auth migrations applied
   via its CLI; `GATEWAY_URL` points at the local gateway.
-- The browser hits the frontend; the frontend reads MySQL directly and calls the gateway for
-  actions/stream. CORS allows `http://localhost:3000`.
+- The browser hits the frontend; the frontend reads MySQL directly; the browser calls the
+  **router** for actions/stream (the router brokers to the gateway; central router, Increment A).
+  CORS allows `http://localhost:3000`.
 
 **Host prerequisites:** Go 1.26+ (toolchain auto-switch per `go.mod`), Node 22+ with pnpm
 (`corepack enable`), `air`, `golangci-lint`, Docker (infra). No C compiler needed (pure-Go

@@ -1,0 +1,25 @@
+# syntax=docker/dockerfile:1
+# ROUTER image (Go / central router). Build context is the repo root:
+#   docker build -t whatsmeow-router -f deploy/Dockerfile.router .
+#
+# The router is the single public front door / trust boundary in front of the
+# gateways: it authenticates end-user callers (better-auth JWT or api-key),
+# resolves session->owning gateway, and reverse-proxies with a request-bound
+# Ed25519 internal assertion. It is STATELESS — no keystore volume.
+
+# --- Stage 1: build the Go binary (pure-Go, no CGO) ---
+# Pinned to golang:1.26-alpine to match go.mod. CGO_ENABLED=0 yields a fully
+# static binary with no gcc/musl-dev needed.
+FROM golang:1.26-alpine AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -o /out/router ./cmd/router
+
+# --- Stage 2: minimal runtime ---
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates tzdata
+COPY --from=build /out/router /usr/local/bin/router
+EXPOSE 8090
+ENTRYPOINT ["router"]

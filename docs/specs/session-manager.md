@@ -11,9 +11,18 @@ per attached number, each holding a live WebSocket. Responsibilities:
   matching `wa_sessions` rows; resume sessions that were meant to be running.
 - **Pin** each adopted session to this gateway (§4.5): record `GATEWAY_ID` onto the
   session's `gateway_id` so a session stays bound to the one gateway whose local
-  keystore holds its crypto material. The gateway also keeps a self-row in the
-  `gateways` registry (one row for now); session responses surface `gatewayId`
-  (resources.md).
+  keystore holds its crypto material. With the central router (Increment A) this pin
+  is **authoritative for routing** — the router resolves a session → its owning
+  gateway from `wa_sessions.gateway_id`, so adoption must reliably record it.
+  Session responses surface `gatewayId` (resources.md).
+- **Registry lifecycle (Layer 1, Increment A).** The gateway maintains its own row in
+  the `gateways` registry through a lifecycle: on boot it registers `status=joining`
+  then `active`; a **30s heartbeat** writes `last_seen_at` + `session_count`
+  (`SessionRepo.CountByGateway`); on `SIGTERM` it marks `draining`, finishes in-flight
+  work, then `drained` and exits. New-session **placement** is the router's call —
+  it picks the least-loaded `active` gateway via `GatewayRepo.PickForPlacement`. A
+  session whose owning gateway is missing/not `active`/stale is *stranded* → the router
+  returns `503 gateway_unavailable`. See [`store.md`](store.md), [`router.md`](router.md).
 - **Boot orphan-guard** (§4.6 boot reconciliation): before resuming a session, check
   its **owning organization** still exists and is enabled in MySQL; **skip + mark
   `STOPPED`** any session whose org was deleted/disabled while the gateway was down.
@@ -81,10 +90,13 @@ Core types:
     to `max`, then **full jitter** (`uniform[0, ceiling]`). Deterministic given a
     seeded `*rand.Rand`. Production default: 1s base, ×2, cap 2m.
   - `adminNeedsPairing(number, deviceJIDs, adminJID)` — the bootstrap decision.
-- **Gateway pinning is best-effort.** Adoption records `gateway_id = GATEWAY_ID`
-  only when configured and not already pinned; a pin-write failure is logged, not
-  fatal (the session still resumes locally — pinning is forward-compat for §4.5
-  multi-gateway routing, not a correctness gate today).
+- **Gateway pinning is now authoritative for routing.** Adoption records
+  `gateway_id = GATEWAY_ID` so the central router can resolve a session → its owning
+  gateway (Increment A). The session still resumes locally regardless, but a missing/
+  wrong pin now means the router cannot reach the session (stranded → `503
+  gateway_unavailable`), so the pin write matters for correctness, not just
+  forward-compat. (Local-keystore binding is unchanged; live re-homing is Layer 2,
+  deferred — see [`whatsmeow-store.md`](whatsmeow-store.md).)
 - **Boot orphan-guard runs before resume.** `bootResumeDecision` consults the
   injected `orgExists` predicate; a session whose org is gone/disabled is **not**
   connected and is marked `STOPPED` (closing the window for `ctrl:*` org-deletion

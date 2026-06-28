@@ -1,27 +1,57 @@
-# Local, all-in-one v2 stack: gateway + frontend + MySQL + Redis.
+# Local, all-in-one v2 stack: router + gateway + frontend + MySQL + Redis.
 # Build context is the repo root (one level up from this file), so run:
 #   docker compose -f deploy/docker-compose.yml up --build
 #
 # Single-instance topology: one shared MySQL (WA tables rw + better-auth tables)
-# and one shared Redis used as BOTH the work bus (gateway REDIS_URL) and the
-# control bus (gateway PUBSUB_REDIS_URL defaults to REDIS_URL; the frontend
-# publishes ctrl:* revocations to the same Redis via PUBSUB_REDIS_URL).
+# and one shared Redis used as BOTH the work bus (REDIS_URL) and the control bus
+# (PUBSUB_REDIS_URL defaults to REDIS_URL; the router subscribes to ctrl:* and
+# the frontend publishes revocations to the same Redis via PUBSUB_REDIS_URL).
 # Secrets come from a sibling .env (see deploy/.env.example).
+#
+# Topology: the ROUTER is the single public front door (port 8090). Browsers and
+# clients hit the router, which authenticates the caller and reverse-proxies to
+# the owning gateway with a request-bound internal assertion. The gateway stays
+# INTERNAL (no longer authenticates end users); :8080 is published only for local
+# inspection — production should not expose it.
 services:
+  router:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.router
+    # Public entrypoint: browsers/clients hit the router here, NOT the gateway.
+    ports: ["8090:8090"]
+    environment:
+      ROUTER_HTTP_ADDR: ":8090"
+      ROUTER_PUBLIC_URL: "http://localhost:8090"
+      ROUTER_ISSUER: "router"
+      ROUTER_ED25519_PRIVATE_KEY: "${ROUTER_ED25519_PRIVATE_KEY}"
+      # End-user authn inputs (better-auth JWKS + api-key table). The frontend's
+      # base URL = JWT iss/aud the router enforces; the browser reaches the
+      # frontend at localhost:3000, so iss/aud must match that.
+      BETTER_AUTH_URL: "http://localhost:3000"
+      BETTER_AUTH_JWKS_URL: "http://frontend:3000/api/auth/jwks"
+      # Browser origins allowed to call the router (CORS lives on the router now).
+      FRONTEND_ORIGINS: "http://localhost:3000"
+      MYSQL_DSN: "gw:gwpass@tcp(mysql:3306)/gateway?parseTime=true&charset=utf8mb4&clientFoundRows=true"
+      REDIS_URL: "redis://redis:6379"
+      REDIS_PREFIX: "gw"
+      LOG_LEVEL: "info"
+    depends_on: [mysql, redis]
   gateway:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
+    # Internal: the router proxies here. Published only for local inspection.
     ports: ["8080:8080"]
     environment:
       HTTP_ADDR: ":8080"
       GATEWAY_ID: "gw-1"
-      PUBLIC_URL: "http://localhost:8080"
-      # The frontend's base URL = JWT iss/aud the gateway enforces. The browser
-      # reaches the frontend at localhost:3000, so iss/aud must match that.
-      BETTER_AUTH_URL: "http://localhost:3000"
-      BETTER_AUTH_JWKS_URL: "http://frontend:3000/api/auth/jwks"
-      FRONTEND_ORIGINS: "http://localhost:3000"
+      # base_url the router proxies to (must be reachable from the router).
+      PUBLIC_URL: "http://gateway:8080"
+      # The gateway no longer authenticates end users — it verifies the router's
+      # assertion against the router's JWKS, scoped to its own GATEWAY_ID (aud).
+      ROUTER_JWKS_URL: "http://router:8090/.well-known/router-jwks.json"
+      ROUTER_ASSERTION_ISSUER: "router"
       APP_ENCRYPTION_KEY: "${APP_ENCRYPTION_KEY}"
       MYSQL_DSN: "gw:gwpass@tcp(mysql:3306)/gateway?parseTime=true&charset=utf8mb4&clientFoundRows=true"
       WHATSMEOW_STORE_DSN: "file:/data/keystore/store.db?_pragma=foreign_keys(on)&_pragma=journal_mode(WAL)"
@@ -40,11 +70,13 @@ services:
       BETTER_AUTH_SECRET: "${BETTER_AUTH_SECRET}"
       BETTER_AUTH_URL: "http://localhost:3000"
       DATABASE_URL: "mysql://gw:gwpass@mysql:3306/gateway"
-      # Server-side base URL for the gateway (action proxying, server fns).
-      GATEWAY_URL: "http://gateway:8080"
-      # Browser-facing gateway URL (Vite inlines VITE_*); the browser calls the
-      # gateway directly with a Bearer JWT for actions + the NDJSON stream.
-      VITE_GATEWAY_URL: "http://localhost:8080"
+      # Server-side base URL for the API (action proxying, server fns) — the
+      # router, not the gateway. The router is the single front door.
+      GATEWAY_URL: "http://router:8090"
+      # Browser-facing API URL (Vite inlines VITE_*); the browser calls the
+      # ROUTER directly (port 8090) with a Bearer JWT for actions + the stream,
+      # NOT the gateway.
+      VITE_GATEWAY_URL: "http://localhost:8090"
       # Publish-only control bus: the same Redis the gateway subscribes to.
       PUBSUB_REDIS_URL: "redis://redis:6379"
       USER_REGISTRATION_ENABLED: "true"

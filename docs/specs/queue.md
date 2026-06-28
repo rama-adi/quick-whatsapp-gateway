@@ -25,8 +25,13 @@ collapsible to one instance:
 
 | Role | Env | Carries | Who connects |
 |---|---|---|---|
-| **Work** | `REDIS_URL` | asynq queue (this package), rate-limit buckets, idempotency, NDJSON stream fan-out, api-key cache | gateways only |
-| **Control bus** | `PUBSUB_REDIS_URL` (defaults to `REDIS_URL`) | low-volume `ctrl:*` pub/sub — `ctrl:apikey.revoked` / `ctrl:user.banned` / `ctrl:member.removed` | frontend (publish) + all gateways (subscribe) |
+| **Work** | `REDIS_URL` | asynq queue (this package), rate-limit buckets, idempotency, NDJSON stream fan-out | gateways (+ the router for `wa:rl:*` edge rate-limit) |
+| **Control bus** | `PUBSUB_REDIS_URL` (defaults to `REDIS_URL`) | low-volume `ctrl:*` pub/sub — `ctrl:apikey.revoked` / `ctrl:user.banned` / `ctrl:member.removed` | frontend (publish) + the **router** (subscribe) |
+
+> **Central-router (Increment A):** the `ctrl:*` **subscriber is the router now**, not the gateways
+> (it owns end-user authn + the api-key positive cache). The gateways no longer subscribe to the
+> control bus or hold a key cache. One Redis is still the default (`PUBSUB_REDIS_URL` falls back to
+> `REDIS_URL`); the dedicated-bus split remains a later env change, no code change.
 
 - **Single instance (dev / single server):** leave `PUBSUB_REDIS_URL` unset → it
   falls back to `REDIS_URL`; one Redis does everything.
@@ -45,11 +50,12 @@ collapsible to one instance:
 - a `REDIS_PREFIX` env isolates multiple independent stacks on one Redis.
 
 > The control-bus **subscriber** lives in `internal/controlbus`, not this package
-> (asynq is work-queue only). It evicts the **api-key cache** (`internal/authz`,
-> a ~60s positive cache keyed by SHA-256 of the raw key, indexed by keyId/userId/orgId)
-> and drops live NDJSON streams on revocation. Redis pub/sub is fire-and-forget; the
-> 60s cache TTL + boot reconciliation (§4.6) cover any `ctrl:*` message missed while a
-> gateway was down.
+> (asynq is work-queue only). With the central router (Increment A) it runs **on the
+> router**: it evicts the **api-key cache** (`internal/authz`, a ~60s positive cache
+> keyed by SHA-256 of the raw key, indexed by keyId/userId/orgId) on revocation. The
+> live **stream-drop** on revocation lands with the realtime WebSocket endpoint in
+> Increment B. Redis pub/sub is fire-and-forget; the 60s cache TTL covers any `ctrl:*`
+> message missed while the router was down.
 
 ## Key types
 

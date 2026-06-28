@@ -1,11 +1,21 @@
-# Trust & auth model (`internal/authz` + `internal/controlbus`)
+# Trust & auth model (`internal/authz` + `internal/controlbus` + `internal/assertion`)
 
 Status: implemented (R1/R2). Live-validated against better-auth 1.6.22.
 
-How the gateway decides a request is legitimate, **with no per-request callback to the
-frontend**. The gateway is a pure WhatsApp engine: it has **no human login**, no `/auth`
-surface, and serves no SPA. Identity is minted by the better-auth frontend; the gateway only
-*verifies* it. Masterplan §4.
+> **Central-router (Increment A) — read this first.** Authentication now **terminates at the
+> router**, not the gateway. The two-acceptor authn (`internal/authz.Authenticate` + the JWT /
+> api-key verifiers + the positive cache) and the `ctrl:*` control-bus subscriber run **only on the
+> router** ([`router.md`](router.md)). The gateway no longer verifies end-user JWTs or api-keys and
+> no longer wires `internal/controlbus`; it **trusts the router's request-bound Ed25519 internal
+> assertion** (`internal/assertion`) and rebuilds the principal from it (see "Router assertion"
+> below). The **authz split is unchanged in spirit** — *verify* at the router, *gate + scope* at the
+> gateway. The sections below describe the verifiers/cache/control-bus that the **router** now runs;
+> the gateway keeps only `gates.go` + `context.go` + the assertion-verify middleware.
+
+How a request is decided legitimate, **with no per-request callback to the frontend**. The gateway
+is a pure WhatsApp engine: it has **no human login**, no `/auth` surface, and serves no SPA. Identity
+is minted by the better-auth frontend; the **router** *verifies* it (the gateway only verifies the
+router). Masterplan §4.
 
 ## Two caller identities
 
@@ -51,8 +61,10 @@ their absence is not fatal (a user with no active org simply reaches no org-scop
 
 **Where the browser gets the JWT:** the TanStack Start server holds the better-auth session
 cookie and mints a token from `/api/auth/token`, handing it to the client. The browser then
-calls the gateway directly with `Bearer`. The NDJSON stream authenticates the same way (it is
-`fetch` + `ReadableStream`, not `EventSource`, so it can attach a header).
+calls the **router** with `Bearer` (the router authenticates, then brokers to the owning gateway —
+[`router.md`](router.md)). The NDJSON stream authenticates the same way (it is `fetch` +
+`ReadableStream`, not `EventSource`, so it can attach a header); the router proxies it to the gateway
+(streaming) until the WebSocket cutover lands in Increment B.
 
 ## 2. Machines — better-auth api-keys verified against the shared table
 
@@ -111,7 +123,41 @@ capability gate authorizes the action:
 - `RequireSuperAdmin` gates cross-org oversight (`/admin/sessions`, `GET /contacts/{lid}`),
   resolved from the JWT `role`.
 
-## Control bus, cache & instant revocation (`internal/controlbus`)
+> **Authz split (central-router, Increment A).** *Verify* runs at the **router**; *gate + scope*
+> runs at the **gateway**. The router authenticates the caller, resolves the `Principal`, and
+> enforces **org isolation** on session-scoped routes (session's `organization_id` must equal the
+> caller's org, else `404`; `super_admin` bypasses). The gateway then re-applies the **capability
+> gates** above (`RequireRead/Send/Manage/Events/SuperAdmin`, `gates.go`) and its **org-scoped store
+> queries** (`WHERE organization_id = ?`), reading the principal from the verified router assertion —
+> defense in depth at the data layer. These gates and queries are **unchanged**; only the source of
+> the principal changed (assertion, not direct JWT/api-key verify).
+
+## Router assertion (`internal/assertion`)
+
+The router → gateway trust seam. The router strips the caller's `Authorization`/`X-Api-Key` and
+attaches a **request-bound, single-use Ed25519 JWS** in the `X-Internal-Assertion` header; the
+gateway's `assertion.Middleware` (on `/api/v1`) verifies it and rebuilds the `Principal`. The router
+holds the Ed25519 **private** key (`Minter`); the gateway holds only the **public** key (`Verifier`,
+fetched from `ROUTER_JWKS_URL` via a cached `RemoteKeySet`), so a compromised gateway cannot forge an
+assertion. Full claim set + custody live in [`router.md`](router.md).
+
+**Gateway verification order:** signature (router JWKS) → `aud` == own `GATEWAY_ID` → `iss` ==
+`ROUTER_ASSERTION_ISSUER` (default `"router"`) → `exp`/`iat` within ~5s skew → `method`/`path`/
+`bodyHash` match the actual request → `jti` not seen before (in-memory `NonceCache` anti-replay).
+
+> **Note.** The gateway uses a **dedicated jwx-based verifier in `internal/assertion`** (not the
+> plain `JWTVerifier`) because it must extract the request-binding claims (`method`/`path`/
+> `bodyHash`/`session`/`jti`/principal) the plain verifier doesn't surface — reusing the same
+> JWKS-cache pattern repointed at `ROUTER_JWKS_URL`.
+
+## Control bus, cache & instant revocation (`internal/controlbus` — now the router's)
+
+> **Central-router (Increment A):** the `ctrl:*` subscriber + the api-key positive cache moved to
+> the **router**; the **gateway no longer wires `internal/controlbus`** or keeps a key cache (it
+> authenticates nothing). On `ctrl:apikey.revoked` the router evicts its positive cache. The live
+> **stream-drop** on `ctrl:user.banned`/`ctrl:member.removed` lands with the realtime WebSocket
+> endpoint in **Increment B**; today the router still proxies the gateway's NDJSON stream. The
+> description below is the behavior, now owned by the router.
 
 Each gateway keeps a small **positive cache** of validated keys (`internal/authz/apikey_cache.go`,
 TTL ~60 s, fail-closed) so a busy client isn't a DB lookup per request. The TTL is the
@@ -178,8 +224,9 @@ credential**, the JWT is a short access token minted from it.
 | `internal/authz/middleware.go` | `Authenticate` — two-acceptor middleware |
 | `internal/authz/gates.go` | `RequireRead/Send/Manage/Events/SuperAdmin` capability gates |
 | `internal/authz/context.go` | `Principal` + context accessors |
-| `internal/authz/cors.go` | CORS for `FRONTEND_ORIGINS` (browser → gateway) |
-| `internal/controlbus/controlbus.go` | `ctrl:*` subscriber → cache evict + stream drop |
+| `internal/authz/cors.go` | CORS for `FRONTEND_ORIGINS` (browser → **router**; the gateway no longer mounts CORS) |
+| `internal/controlbus/controlbus.go` | `ctrl:*` subscriber → cache evict (+ stream drop in Increment B) — **consumed by the router now**, not the gateway |
+| `internal/assertion` | router → gateway Ed25519 internal assertion: `Minter` (router, private key), `Verifier` + `NonceCache` (gateway, public key from `ROUTER_JWKS_URL`) |
 
 ## How it's tested
 

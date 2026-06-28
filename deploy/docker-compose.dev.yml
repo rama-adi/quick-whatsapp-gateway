@@ -12,12 +12,22 @@
 #     docker compose -f deploy/docker-compose.dev.yml --profile gateway-dev up -d --build
 # Use only one gateway profile at a time (both publish :8080).
 #
-# ONE env source: both gateway profiles read deploy/.env — the SAME file the
-# host gateway loads via `make dev`. The `environment:` block below overrides
-# only the vars that must differ inside a container: the MySQL/Redis service
+# The ROUTER (the public front door) normally runs on the HOST under `air`
+# alongside the gateway — it is stateless and only needs MySQL/Redis + the
+# host frontend's JWKS. To run it in Docker against this same dev infra, use:
+#   --profile router       prod image (deploy/Dockerfile.router); rebuild for code changes
+#     docker compose -f deploy/docker-compose.dev.yml --profile router up -d --build
+# The router publishes :8090 (browsers hit the router, not the gateway). When
+# running the router in Docker, it reaches the host gateway via
+# host.docker.internal:8080 (set GATEWAY base_url / PUBLIC_URL accordingly in
+# deploy/.env), or run the gateway profile too and point at http://gateway:8080.
+#
+# ONE env source: every profile reads deploy/.env — the SAME file the host
+# processes load via `make dev`. The `environment:` block below overrides only
+# the vars that must differ inside a container: the MySQL/Redis service
 # hostnames, the JWKS host (the frontend is on the host), and the keystore path
 # (a named volume). Everything else — secrets, GATEWAY_ID, BETTER_AUTH_URL,
-# FRONTEND_ORIGINS, rate limits, … — comes from deploy/.env. Edit it there.
+# FRONTEND_ORIGINS, ROUTER_*, rate limits, … — comes from deploy/.env. Edit it there.
 services:
   gateway:
     profiles: ["gateway"]
@@ -50,6 +60,22 @@ services:
       - gomod_cache:/go/pkg/mod
       - gobuild_cache:/root/.cache/go-build
       - keystore_dev:/data/keystore
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis: { condition: service_healthy }
+  router:
+    profiles: ["router"]
+    build: { context: .., dockerfile: deploy/Dockerfile.router }
+    image: whatsmeow-router:dev
+    # Public front door: browsers/clients hit the router here, not the gateway.
+    ports: ["8090:8090"]
+    env_file: [.env]
+    environment:
+      MYSQL_DSN: "gw:gwpass@tcp(mysql:3306)/gateway?parseTime=true&charset=utf8mb4&clientFoundRows=true"
+      REDIS_URL: "redis://redis:6379"
+      # The host frontend serves better-auth JWKS for end-user authn.
+      BETTER_AUTH_JWKS_URL: "http://host.docker.internal:3000/api/auth/jwks"
+    extra_hosts: ["host.docker.internal:host-gateway"]
     depends_on:
       mysql: { condition: service_healthy }
       redis: { condition: service_healthy }

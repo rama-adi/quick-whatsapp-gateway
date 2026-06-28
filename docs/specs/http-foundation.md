@@ -1,27 +1,36 @@
 # HTTP foundation & router
 
-Status: implemented (R1).
+Status: implemented (R1; central-router Increment A).
 
 Shared transport plumbing and the chi router. The gateway is a **pure WhatsApp engine with no
-human login**: no `/auth` surface, no embedded SPA, no cookie middleware. Every `/api/v1` route is
-gated by the two-acceptor authz middleware (JWKS-verified JWT **or** better-auth api-key); health/
-metrics probes stay open. Masterplan §4.3, §4.4, §13.
+human login**: no `/auth` surface, no embedded SPA, no cookie middleware.
+
+> **Central-router (Increment A).** The gateway **no longer authenticates end users** and **no longer
+> mounts CORS or serves the public OpenAPI spec** — browsers hit the **router**, which owns the
+> public route surface + CORS and serves `/api/v1/openapi.yaml` ([`router.md`](router.md)). Every
+> `/api/v1` route is now gated by the **internal-assertion middleware** (`assertion.Middleware`,
+> wired via `RouterConfig.Auth`): it verifies the router's request-bound Ed25519 assertion and
+> rebuilds the `Principal`. The capability gates (`RequireRead/Send/Manage/Events/SuperAdmin`) and
+> org-scoped store queries are **unchanged** — they read the asserted principal. Health/metrics
+> probes stay open. Masterplan §4.3, §4.4, §13; [`trust-model.md`](trust-model.md).
 
 ## Router (`internal/http/router.go`)
 
 `NewRouter(RouterConfig)` builds the chi tree:
 
-- **Base stack:** `Recover` (outermost) → `RequestID` → `Logger` → `CORS(FRONTEND_ORIGINS)` (only
-  when origins are configured).
+- **Base stack:** `Recover` (outermost) → `RequestID` → `Logger`. **CORS is no longer mounted on the
+  gateway** (central-router) — it lives on the router.
 - **Open probes:** `GET /healthz`, `GET /readyz`, `/metrics` (Prometheus) — unauthenticated.
-- **`/api/v1`** — an authenticated group wraps `authz.Authenticate(Tokens, Keys)` plus an optional
-  edge `RateLimit`; each resource group then composes its capability gate. `GET /events` (NDJSON
-  stream) sits behind `RequireEvents`. The OpenAPI spec is optionally served raw at
-  `/api/v1/openapi.yaml`.
+- **`/api/v1`** — an authenticated group wraps the **assertion middleware** (`RouterConfig.Auth`,
+  `assertion.Middleware`) plus an optional edge `RateLimit`; each resource group then composes its
+  capability gate. `GET /events` (NDJSON stream) sits behind `RequireEvents` and is proxied by the
+  router (the WebSocket cutover that replaces it is **Increment B**, not done yet).
 - **No SPA, no `/auth`:** any unmatched path is a JSON `404` via `WriteError(ErrNotFound)`.
 
-`RouterConfig` carries `Tokens authz.TokenVerifier`, `Keys authz.KeyVerifier`, `CORSOrigins`,
-`Limiter`, `Readiness`, `OpenAPIPath`, `Log`.
+`RouterConfig` carries `Auth func(http.Handler) http.Handler` (the assertion middleware),
+`Limiter`, `Readiness`, `Log`. **Dropped vs R1 (central-router):** `Tokens`/`Keys` (end-user
+verifiers — now on the router), `CORSOrigins` (CORS now on the router), and serving the OpenAPI spec
+(`OpenAPIPath` — the router serves `/api/v1/openapi.yaml`, plan D9).
 
 ### Route surface (capability per group)
 
@@ -41,14 +50,15 @@ metrics probes stay open. Masterplan §4.3, §4.4, §13.
 
 ## Authz middleware (`internal/authz`)
 
-Not in `internal/http/middleware` — auth lives in `internal/authz` and is detailed in
-[`trust-model.md`](trust-model.md). `Authenticate(tokens, keys)` is the single two-acceptor
-middleware: a `Bearer` that parses as a JWT → `TokenVerifier` (JWKS); otherwise the bearer /
-`x-api-key` → `KeyVerifier` (shared `apikey` table); neither → `401`. It puts the resolved
-`Principal` on the context; `RequireRead/Send/Manage/Events/SuperAdmin` (`gates.go`) authorize.
-`CORS(origins)` (`cors.go`) allows the configured `FRONTEND_ORIGINS` with `Authorization` for the
-browser → gateway calls (stream + actions). There is **no Authula cookie bridge** — that whole v1
-path is gone.
+Auth lives in `internal/authz` and is detailed in [`trust-model.md`](trust-model.md).
+
+> **Central-router (Increment A).** `authz.Authenticate(tokens, keys)` — the two-acceptor end-user
+> middleware (JWT via JWKS / api-key via the shared `apikey` table) — and `CORS(FRONTEND_ORIGINS)`
+> now run **on the router**, not the gateway. On the gateway the `/api/v1` group instead runs the
+> **internal-assertion middleware** (`assertion.Middleware`, `internal/assertion`): it verifies the
+> router's request-bound Ed25519 assertion, rebuilds the `Principal`, and puts it on the context.
+> `RequireRead/Send/Manage/Events/SuperAdmin` (`gates.go`) authorize from that principal, unchanged.
+> There is **no Authula cookie bridge** — that whole v1 path is gone.
 
 ## `internal/http/middleware`
 
@@ -81,7 +91,9 @@ func RequestID(ctx) string                 ; func SetRequestID(ctx, id) context.
 func WriteJSON(w, status int, v any)
 func WriteError(w, err error)              // *domain.APIError -> mapped status; else masked 500
 // not_found 404, unauthorized 401, forbidden 403, validation_error 400, rate_limited 429,
-// conflict 409, not_implemented 501, internal 500.
+// conflict 409, gateway_unavailable 503, not_implemented 501, internal 500.
+// (gateway_unavailable: a session's owning gateway is missing/not active/stale — the router
+//  returns it for a stranded session; central-router Increment A.)
 
 // Decode (1 MiB cap, unknown-field reject -> validation_error):
 func DecodeJSON[T any](r, dst *T) error    ; func DecodeJSONLimit[T any](r, dst *T, max int64) error

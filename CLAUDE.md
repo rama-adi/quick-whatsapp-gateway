@@ -20,12 +20,13 @@ rulebook: where things live, what to update alongside a change, and the gates th
 |---|---|
 | `masterplan-mvp.md` | The v2 design spec — the overview every other doc drills into. |
 | `docs/specs/*.md` | One living spec per subsystem (detail). Start at `_V2-STATUS.md` (index of all specs + their state). |
-| `docs/openapi.yaml` | The API contract of record for the gateway REST API. |
+| `docs/openapi.yaml` | The **public API contract of record, served by the router** at `/api/v1/openapi.yaml`. Co-authored: the gateway implements the resource schemas, the router adds the front door (auth framing, session routing). Stays at repo root (shared system contract). |
 | `docs/mvp-progress.md` | Milestone tracker (R0–R6) and the log of locked decisions. |
 | `web/content/docs/*` | The fumadocs site: hand-written user/dev guides (`guides/`) + generated API reference (`api/`). |
 | `web/` | Frontend — TanStack Start, better-auth, Drizzle, ported shadcn. |
 | `cmd/server/` | Gateway entrypoint; also `server migrate up\|down`. |
-| `internal/` | Gateway packages: `authz/` (JWKS+JWT+api-key verify), `controlbus/`, `http/`, `wa/` (manager, session, SQLite store), `store/` (MySQL repos, org-keyed), `webhooks/`, `stream/`, `queue/`. |
+| `cmd/router/` | Router entrypoint — the front door + single trust boundary in front of the gateways. |
+| `internal/` | Shared packages: `router/` (REST broker: authn, session→gateway resolve + org isolation, reverse proxy, placement), `assertion/` (router→gateway request-bound Ed25519 internal assertion: minter/verifier/nonce-cache), `authz/` (JWKS+JWT+api-key verify — **now consumed by the router**), `controlbus/` (`ctrl:*` subscriber — **now consumed by the router**), `dbconn/` (shared MySQL connection helper), `http/`, `wa/` (manager, session, SQLite store), `store/` (MySQL repos, org-keyed), `webhooks/`, `stream/`, `queue/`. |
 | `migrations/` | golang-migrate files for WA app-data tables (gateway-written MySQL). |
 | `deploy/` | Two Dockerfiles, compose files, `.env.example`. |
 
@@ -33,7 +34,8 @@ rulebook: where things live, what to update alongside a change, and the gates th
 
 | Spec | Covers |
 |---|---|
-| `trust-model.md` | The two caller identities, org ownership, control bus + cache + revocation, boot orphan-guard. |
+| `router.md` | The central router: front door + single trust boundary, REST broker (placement / session-owner routing / `503 gateway_unavailable`), Ed25519 internal assertion, registry lifecycle. |
+| `trust-model.md` | The two caller identities, org ownership, control bus + cache + revocation, boot orphan-guard. (Authn + control-bus now run on the router; the gateway trusts the router's assertion.) |
 | `api-keys.md` | Gateway verifying better-auth api-keys against the shared `apikey` table. |
 | `whatsmeow-store.md` | The whatsmeow keystore on gateway-local SQLite (`modernc.org/sqlite`, CGO=0). |
 | `session-manager.md` | Session lifecycle, `gateway_id` pinning, boot orphan-guard. |
@@ -62,7 +64,7 @@ Follow-on steps depend on what you touched. Run them in the same change as the b
 
 | You changed… | Then also run / write |
 |---|---|
-| The gateway REST API (paths, request/response shapes) | Edit `docs/openapi.yaml`, then `cd web && pnpm gen:api` (regen typed client `app/lib/api/schema.d.ts`) **and** `pnpm docs:openapi` (regen the fumadocs API reference pages under `content/docs/api/`). |
+| The public REST API (paths, request/response shapes — resource schemas on the gateway, front door on the router) | Edit `docs/openapi.yaml` (the public contract of record, served by the router at `/api/v1/openapi.yaml`), then `cd web && pnpm gen:api` (regen typed client `app/lib/api/schema.d.ts`) **and** `pnpm docs:openapi` (regen the fumadocs API reference pages under `content/docs/api/`). |
 | better-auth config (`web/app/lib/auth/server.ts`) | `cd web && pnpm auth:generate` (regen `app/lib/db/auth-schema.ts`), then `pnpm db:migrate` (drizzle-kit) to apply the auth tables. |
 | The gateway MySQL schema | Author a new `migrations/NNNN_*.{up,down}.sql` (golang-migrate), then `cd web && pnpm db:introspect` to refresh the read-only WA Drizzle models (`app/lib/db/wa.ts`). |
 
