@@ -79,6 +79,19 @@ only. The router is a separate process — `make router` runs it with `go run
 router code. The gateway still hot-reloads on every save.
 </Callout>
 
+Prefer the router in a container? Run the gateway in Docker and add the `router`
+profile — then only the frontend runs on the host:
+
+```sh
+docker compose -f deploy/docker-compose.dev.yml --profile gateway-dev --profile router up -d --build
+make web   # frontend on the host
+```
+
+The gateway and router talk over the compose network by service name (the gateway
+verifies assertions at `http://router:8090/...`; the router proxies to the
+gateway's registered `http://gateway-dev:8080`), both already wired in the compose
+file. The router still publishes `:8090`, so the browser is unchanged.
+
 To wipe the dev database and start clean, run `make infra-reset` (this removes the
 Docker volumes), then re-run the two migrate steps from the [first run](#first-run).
 

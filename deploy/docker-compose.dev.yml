@@ -12,15 +12,16 @@
 #     docker compose -f deploy/docker-compose.dev.yml --profile gateway-dev up -d --build
 # Use only one gateway profile at a time (both publish :8080).
 #
-# The ROUTER (the public front door) normally runs on the HOST under `air`
-# alongside the gateway — it is stateless and only needs MySQL/Redis + the
-# host frontend's JWKS. To run it in Docker against this same dev infra, use:
-#   --profile router       prod image (deploy/Dockerfile.router); rebuild for code changes
-#     docker compose -f deploy/docker-compose.dev.yml --profile router up -d --build
-# The router publishes :8090 (browsers hit the router, not the gateway). When
-# running the router in Docker, it reaches the host gateway via
-# host.docker.internal:8080 (set GATEWAY base_url / PUBLIC_URL accordingly in
-# deploy/.env), or run the gateway profile too and point at http://gateway:8080.
+# The ROUTER (the public front door) runs in Docker via its own profile,
+# alongside a dockerized gateway on the same compose network:
+#   docker compose -f deploy/docker-compose.dev.yml --profile gateway-dev --profile router up -d --build
+# The router publishes :8090 (browsers hit the router, not the gateway). The two
+# talk over the compose network by service name: the gateway verifies the
+# router's assertions at ROUTER_JWKS_URL=http://router:8090/... and the router
+# proxies to the gateway's registered base_url=PUBLIC_URL=http://gateway-dev:8080
+# (or http://gateway:8080 for the prod `gateway` profile). Both are set below.
+# (To instead run the router on the HOST under `make router`, point the gateway's
+# ROUTER_JWKS_URL at host.docker.internal:8090 and PUBLIC_URL back at localhost.)
 #
 # ONE env source: every profile reads deploy/.env — the SAME file the host
 # processes load via `make dev`. The `environment:` block below overrides only
@@ -40,10 +41,15 @@ services:
       REDIS_URL: "redis://redis:6379"
       WHATSMEOW_STORE_DSN: "file:/data/keystore/store.db?_pragma=foreign_keys(on)&_pragma=journal_mode(WAL)"
       BETTER_AUTH_JWKS_URL: "http://host.docker.internal:3000/api/auth/jwks"
-      # The router runs on the HOST under `make router`; the dockerized gateway
-      # reaches its JWKS (to verify internal assertions) via host.docker.internal,
-      # not the in-container localhost.
-      ROUTER_JWKS_URL: "http://host.docker.internal:8090/.well-known/router-jwks.json"
+      # The router runs in Docker (the `router` profile) on the same compose
+      # network, so the gateway reaches its JWKS (to verify internal assertions)
+      # by the service name. Bring the router up with this profile:
+      #   docker compose -f deploy/docker-compose.dev.yml --profile gateway-dev --profile router up -d --build
+      ROUTER_JWKS_URL: "http://router:8090/.well-known/router-jwks.json"
+      # The router proxies to the gateway by the base_url the gateway registers
+      # (= PUBLIC_URL). Inside the network that must be this service's name, not
+      # localhost. Overridden per-service below (gateway vs gateway-dev hostname).
+      PUBLIC_URL: "http://gateway:8080"
     extra_hosts: ["host.docker.internal:host-gateway"]
     volumes: ["keystore_dev:/data/keystore"]
     depends_on:
@@ -55,7 +61,11 @@ services:
     image: whatsmeow-gateway:airdev
     ports: ["8080:8080"]
     env_file: [.env]
-    environment: *gateway_container_overrides
+    environment:
+      <<: *gateway_container_overrides
+      # This service's hostname on the compose network is `gateway-dev`, so the
+      # router must proxy here, not to the `gateway` prod-profile hostname.
+      PUBLIC_URL: "http://gateway-dev:8080"
     extra_hosts: ["host.docker.internal:host-gateway"]
     volumes:
       # Mount the repo so host edits trigger an in-container `air` rebuild.
