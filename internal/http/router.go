@@ -19,15 +19,13 @@ import (
 type RouterConfig struct {
 	Handlers *handlers.Handlers
 
-	// Tokens verifies better-auth JWTs (humans) against the JWKS; Keys verifies
-	// better-auth api-keys (machines) against the shared `apikey` table (§4.1/§4.2).
-	// Both feed the single two-acceptor auth middleware (authz.Authenticate).
-	Tokens authz.TokenVerifier
-	Keys   authz.KeyVerifier
-
-	// CORSOrigins is the allow-list of frontend origins for the dashboard's
-	// browser calls (§4.4). Empty disables CORS.
-	CORSOrigins []string
+	// Auth authenticates every /api/v1 request and populates the request-context
+	// Principal the capability gates read. After the central-router cutover this is
+	// the internal-assertion middleware (assertion.Middleware): the gateway no
+	// longer verifies end-user JWTs/api-keys — the router does, then vouches a
+	// resolved Principal via a signed assertion (docs/specs/router.md, D2/D4). A
+	// nil Auth leaves the API surface ungated (tests only).
+	Auth func(http.Handler) http.Handler
 
 	// Limiter is the per-session/organization send limiter for API routes (optional;
 	// nil disables HTTP-edge rate limiting — the outbound pipeline still limits).
@@ -57,27 +55,29 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	r := chi.NewRouter()
 	// Base stack: Recover MUST be outermost so a panic anywhere below is caught.
+	// No CORS here: browsers reach the router, not the gateway — the gateway only
+	// serves the internal API (called by the router under a signed assertion) plus
+	// the unauthenticated health/metrics probes.
 	r.Use(middleware.Recover(log))
 	r.Use(middleware.RequestID())
 	r.Use(middleware.Logger(log))
-	if len(cfg.CORSOrigins) > 0 {
-		r.Use(authz.CORS(cfg.CORSOrigins))
-	}
 
 	// Health / readiness / metrics (unauthenticated).
 	r.Get("/healthz", healthz)
 	r.Get("/readyz", readyz(cfg.Readiness))
 	r.Handle("/metrics", promhttp.Handler())
 
-	// JSON API under /api/v1. Every route authenticates via the single
-	// two-acceptor middleware (authz.Authenticate); capability gates authorize.
+	// JSON API under /api/v1. Every route is authenticated by cfg.Auth (the router
+	// assertion-verify middleware), then authorized by the capability gates.
 	r.Route("/api/v1", func(api chi.Router) {
 		if cfg.OpenAPIPath != "" {
 			api.Get("/openapi.yaml", serveFile(cfg.OpenAPIPath, "application/yaml"))
 		}
 
 		api.Group(func(authed chi.Router) {
-			authed.Use(authz.Authenticate(cfg.Tokens, cfg.Keys))
+			if cfg.Auth != nil {
+				authed.Use(cfg.Auth)
+			}
 			if cfg.Limiter != nil {
 				authed.Use(middleware.RateLimit(cfg.Limiter, nil))
 			}

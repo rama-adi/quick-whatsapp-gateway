@@ -87,6 +87,10 @@ func bufferBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 func (s *Server) reverseProxy(target *url.URL, assertionToken string) *httputil.ReverseProxy {
 	return &httputil.ReverseProxy{
 		Transport: s.transport,
+		// Flush each write straight through so a proxied streaming response (the
+		// NDJSON event stream during the Increment-A transition) reaches the client
+		// without buffering. Harmless for ordinary JSON responses.
+		FlushInterval: -1,
 		Director: func(req *http.Request) {
 			req.URL.Scheme = target.Scheme
 			req.URL.Host = target.Host

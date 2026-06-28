@@ -29,9 +29,9 @@ import (
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/assertion"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/authz"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/config"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/controlbus"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/crypto"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 	gwhttp "github.com/ramaadi/quick-whatsapp-gateway/internal/http"
@@ -104,21 +104,21 @@ func run() error {
 	}
 	defer rdb.Close()
 
-	// --- Trust model (§4): the gateway VERIFIES callers, it does not log them in.
-	// JWTs (humans) verify locally against the better-auth JWKS; api-keys (machines)
-	// verify against the shared MySQL `apikey` table via the pinned hash scheme.
-	tokenVerifier, err := authz.NewJWTVerifier(cfg.BetterAuthJWKSURL, cfg.BetterAuthURL)
-	if err != nil {
-		return fmt.Errorf("build jwt verifier: %w", err)
+	// --- Trust seam (§4, D2/D3): the gateway no longer authenticates end users.
+	// The central router terminates authn and vouches a resolved Principal via a
+	// short-lived, request-bound Ed25519 assertion; the gateway verifies it against
+	// the router's JWKS (ROUTER_JWKS_URL) and rebuilds the Principal from it.
+	if cfg.RouterJWKSURL == "" {
+		return fmt.Errorf("ROUTER_JWKS_URL is required: the gateway verifies the router's internal assertion")
 	}
-	baseKeyVerifier, err := authz.NewAPIKeyVerifier(st.APIKeys, authz.DefaultHasher())
+	routerKeys, err := assertion.NewRemoteKeySet(cfg.RouterJWKSURL)
 	if err != nil {
-		return fmt.Errorf("build api-key verifier: %w", err)
+		return fmt.Errorf("build router jwks source: %w", err)
 	}
-	// Positive cache in front of the api-key verifier (§4.6): a busy client costs
-	// at most one MySQL lookup per ~60s, and the control bus evicts on revocation.
-	// FAIL-CLOSED — only successes are cached, and the TTL is the backstop.
-	keyVerifier := authz.NewCachingKeyVerifier(baseKeyVerifier, authz.DefaultKeyCacheTTL)
+	assertionVerifier, err := assertion.NewVerifier(routerKeys, cfg.RouterAssertionIssuer, cfg.GatewayID)
+	if err != nil {
+		return fmt.Errorf("build assertion verifier: %w", err)
+	}
 
 	// --- whatsmeow keystore (gateway-local SQLite, §6.1) ---
 	keystore, err := wastore.Open(ctx, cfg.WhatsmeowStoreDSN, nil)
@@ -192,11 +192,12 @@ func run() error {
 	sender := outbound.NewSender(service.NewRoutingWAClient(manager), outboxAdapter, limiter, outbound.SystemClock(),
 		outbound.WithMessageRecorder(msgRecorder))
 
-	// Register this gateway's self-row in the gateways registry (§4.5/§7) before
-	// the manager adopts sessions. Best-effort: a write failure is logged, not
-	// fatal — the HTTP surface should still come up.
-	if err := upsertGatewaySelfRow(ctx, st.Gateways, cfg); err != nil {
-		log.Error("upsert gateway self-row failed", "gateway", cfg.GatewayID, "err", err)
+	// Registry lifecycle (D8). Register as `joining` before the manager adopts
+	// sessions, flip to `active` once boot succeeds, then heartbeat last_seen_at +
+	// session_count on a timer so the router can route by liveness and load.
+	// Best-effort: a registry write failure is logged, not fatal.
+	if err := registerGateway(ctx, st.Gateways, cfg, domain.GatewayJoining); err != nil {
+		log.Error("register gateway (joining) failed", "gateway", cfg.GatewayID, "err", err)
 	}
 
 	adminCode, err := manager.Boot(ctx)
@@ -209,6 +210,22 @@ func run() error {
 		log.Info("admin session pairing code", "code", adminCode, "number", cfg.WhatsAppAdminNumber)
 		fmt.Printf("\n=== WhatsApp admin pairing code: %s (number %s) ===\n\n", adminCode, cfg.WhatsAppAdminNumber)
 	}
+
+	// Now reachable and adopting sessions → mark active and start heartbeating.
+	if err := registerGateway(ctx, st.Gateways, cfg, domain.GatewayActive); err != nil {
+		log.Error("register gateway (active) failed", "gateway", cfg.GatewayID, "err", err)
+	}
+	heartbeatStop := startGatewayHeartbeat(ctx, st.Gateways, st.Sessions, cfg, log)
+	defer heartbeatStop()
+	// Graceful drain on shutdown: stop taking new placements (draining), then mark
+	// drained once the process is on its way out, so the router stops routing here.
+	defer func() {
+		drainCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := st.Gateways.SetStatus(drainCtx, cfg.GatewayID, domain.GatewayDrained, domain.NowMs()); err != nil {
+			log.Warn("mark gateway drained failed", "err", err)
+		}
+	}()
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -247,8 +264,11 @@ func run() error {
 		Log:                  log,
 	})
 
-	// Live-connection registry: lets the control bus drop NDJSON streams by
-	// key/user/org on revocation (§4.6).
+	// Live-connection registry + stream handler. The control-bus subscriber (and
+	// thus revocation-driven stream drops) now lives on the router, which owns the
+	// realtime endpoint; the gateway keeps the registry so the handler still tracks
+	// connections (Increment B moves the client realtime transport off the gateway
+	// entirely).
 	streamRegistry := stream.NewConnRegistry()
 	streamHandler := stream.NewHandler(stream.HandlerConfig{
 		Redis:        rdb,
@@ -259,23 +279,14 @@ func run() error {
 		Log:          log,
 	})
 
-	// Control bus subscriber (§4.6): connects to PUBSUB_REDIS_URL (defaults to
-	// REDIS_URL via config) and reacts to ctrl:* revocation messages by evicting
-	// the api-key cache and dropping live streams. If both URLs are empty, skip
-	// gracefully — the cache TTL remains the revocation backstop.
-	controlStop := startControlBus(ctx, cfg.PubSubRedisURL, keyVerifier, streamRegistry, log)
-	defer controlStop()
-
 	h := handlers.New(services, streamHandler, log)
 	router := gwhttp.NewRouter(gwhttp.RouterConfig{
-		Handlers:    h,
-		Tokens:      tokenVerifier,
-		Keys:        keyVerifier,
-		CORSOrigins: cfg.FrontendOrigins,
-		Limiter:     nil, // HTTP-edge rate limiting optional; outbound limits sends.
-		Readiness:   readiness(db, rdb),
-		OpenAPIPath: "docs/openapi.yaml",
-		Log:         log,
+		Handlers:  h,
+		Auth:      assertion.Middleware(assertionVerifier),
+		Limiter:   nil, // HTTP-edge rate limiting optional; outbound limits sends.
+		Readiness: readiness(db, rdb),
+		// The router serves the public OpenAPI spec now (D9); the gateway does not.
+		Log: log,
 	})
 
 	srv := &http.Server{
@@ -298,6 +309,14 @@ func run() error {
 	case <-ctx.Done():
 		log.Info("shutdown signal received, draining connections")
 	}
+
+	// Mark draining so the router stops placing new sessions here while in-flight
+	// work finishes (the deferred drained transition runs after Shutdown returns).
+	drainCtx, drainCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	if err := st.Gateways.SetStatus(drainCtx, cfg.GatewayID, domain.GatewayDraining, domain.NowMs()); err != nil {
+		log.Warn("mark gateway draining failed", "err", err)
+	}
+	drainCancel()
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -330,14 +349,15 @@ func streamIdentityFromContext(ctx context.Context) (stream.ConnIdentity, bool) 
 	}, true
 }
 
-// upsertGatewaySelfRow registers this gateway in the gateways registry (§4.5/§7):
-// id=GATEWAY_ID, base_url=PUBLIC_URL, timestamps = epoch-ms now. created_at is
-// preserved on update by the repo.
-func upsertGatewaySelfRow(ctx context.Context, repo *store.GatewayRepo, cfg *config.Config) error {
+// registerGateway upserts this gateway's registry row with the given lifecycle
+// status (§7, D8): id=GATEWAY_ID, base_url=PUBLIC_URL, timestamps = epoch-ms now.
+// created_at is preserved on update by the repo; the heartbeat maintains
+// last_seen_at + session_count thereafter.
+func registerGateway(ctx context.Context, repo *store.GatewayRepo, cfg *config.Config, status domain.GatewayStatus) error {
 	now := domain.NowMs()
 	g := domain.Gateway{
 		ID:         cfg.GatewayID,
-		Status:     domain.GatewayActive,
+		Status:     status,
 		LastSeenAt: &now,
 		CreatedAt:  now,
 		UpdatedAt:  now,
@@ -349,30 +369,35 @@ func upsertGatewaySelfRow(ctx context.Context, repo *store.GatewayRepo, cfg *con
 	return repo.Upsert(ctx, g)
 }
 
-// startControlBus connects to the control-bus Redis (§4.6) and starts the ctrl:*
-// subscriber, returning a stop func for the shutdown sequence. When the URL is
-// empty (no PUBSUB_REDIS_URL or REDIS_URL) it logs a warning and returns a no-op
-// stop — the api-key cache TTL is the revocation backstop.
-func startControlBus(ctx context.Context, pubsubURL string, cache controlbus.KeyCache, dropper controlbus.StreamDropper, log *slog.Logger) func() {
-	if pubsubURL == "" {
-		log.Warn("control bus disabled: PUBSUB_REDIS_URL/REDIS_URL empty; relying on api-key cache TTL for revocation")
-		return func() {}
+// startGatewayHeartbeat refreshes last_seen_at + session_count on a timer so the
+// router can prune stale gateways and place new sessions on the least-loaded one
+// (D8). It returns a stop func for the shutdown sequence.
+func startGatewayHeartbeat(ctx context.Context, gateways *store.GatewayRepo, sessions *store.SessionRepo, cfg *config.Config, log *slog.Logger) func() {
+	loopCtx, cancel := context.WithCancel(ctx)
+	beat := func() {
+		count, err := sessions.CountByGateway(loopCtx, cfg.GatewayID)
+		if err != nil {
+			log.Warn("gateway heartbeat: count sessions failed", "err", err)
+			count = 0
+		}
+		if err := gateways.Heartbeat(loopCtx, cfg.GatewayID, domain.NowMs(), count); err != nil {
+			log.Warn("gateway heartbeat failed", "err", err)
+		}
 	}
-	crdb, err := openRedis(pubsubURL)
-	if err != nil {
-		log.Error("control bus disabled: open pubsub redis failed", "err", err)
-		return func() {}
-	}
-	sub := controlbus.New(crdb, cache, dropper, log)
-	if err := sub.Start(ctx); err != nil {
-		log.Error("control bus disabled: subscribe failed", "err", err)
-		_ = crdb.Close()
-		return func() {}
-	}
-	return func() {
-		sub.Stop()
-		_ = crdb.Close()
-	}
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		beat() // beat once immediately so load is current right after boot
+		for {
+			select {
+			case <-loopCtx.Done():
+				return
+			case <-ticker.C:
+				beat()
+			}
+		}
+	}()
+	return cancel
 }
 
 // startDispatchLoop runs the webhook dispatcher on a ticker until ctx is done.
