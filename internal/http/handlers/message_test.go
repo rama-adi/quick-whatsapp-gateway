@@ -4,23 +4,44 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/go-chi/chi/v5"
+
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/authz"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/humax"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa/outbound"
 )
 
-func newMessageHandlers(svc MessageSvc) *Handlers {
-	return &Handlers{Messages: svc}
+// sendOrgPrincipal is an api-key principal with the send capability in the test org.
+func sendOrgPrincipal() *authz.Principal {
+	return &authz.Principal{Kind: authz.KindAPIKey, OrganizationID: testOrganization, KeyPermissions: domain.Permissions{Send: true}}
+}
+
+// messageRouter builds a chi router with the huma message ops mounted behind a
+// middleware that injects the given principal (nil = unauthenticated).
+func messageRouter(svc MessageSvc, p *authz.Principal) http.Handler {
+	r := chi.NewRouter()
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			if p != nil {
+				req = req.WithContext(authz.SetPrincipal(req.Context(), p))
+			}
+			next.ServeHTTP(w, req)
+		})
+	})
+	api := humax.NewAPI(r)
+	RegisterMessageOps(api, &Handlers{Messages: svc})
+	return r
 }
 
 func TestSendMessage_SyncHappyPath(t *testing.T) {
 	svc := &fakeMessageSvc{result: outbound.SendResult{Mode: outbound.ModeSync, WAMessageID: "WA1", Status: domain.MessageSent}}
-	h := newMessageHandlers(svc)
+	h := messageRouter(svc, sendOrgPrincipal())
 	body := `{"type":"text","to":"628@s.whatsapp.net","text":"hi"}`
-	r := withOrganization(chiReq(http.MethodPost, "/api/v1/sessions/s1/messages", body, map[string]string{"session": "s1"}), testOrganization)
-	w := httptest.NewRecorder()
-	h.SendMessage(w, r)
+	w := doReq(h, http.MethodPost, "/api/v1/sessions/s1/messages", body)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
 	}
@@ -36,15 +57,15 @@ func TestSendMessage_SyncHappyPath(t *testing.T) {
 
 func TestSendMessage_AsyncIs202_AndOptionsThreaded(t *testing.T) {
 	svc := &fakeMessageSvc{result: outbound.SendResult{Mode: outbound.ModeAsync, OutboxID: "out_1"}}
-	h := newMessageHandlers(svc)
+	h := messageRouter(svc, sendOrgPrincipal())
 	body := `{"type":"text","to":"628@s.whatsapp.net","text":"hi"}`
-	r := chiReq(http.MethodPost, "/api/v1/sessions/s1/messages?async", body, map[string]string{"session": "s1"})
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/sessions/s1/messages?async", strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/json")
 	r.Header.Set("Idempotency-Key", "key-1")
-	r = withOrganization(r, testOrganization)
 	w := httptest.NewRecorder()
-	h.SendMessage(w, r)
+	h.ServeHTTP(w, r)
 	if w.Code != http.StatusAccepted {
-		t.Fatalf("status = %d, want 202", w.Code)
+		t.Fatalf("status = %d, want 202; body=%s", w.Code, w.Body.String())
 	}
 	if !svc.lastOpts.Async {
 		t.Error("Async option not set")
@@ -54,24 +75,23 @@ func TestSendMessage_AsyncIs202_AndOptionsThreaded(t *testing.T) {
 	}
 }
 
-func TestSendMessage_NoOrganization401(t *testing.T) {
-	h := newMessageHandlers(&fakeMessageSvc{})
-	r := chiReq(http.MethodPost, "/api/v1/sessions/s1/messages", `{"type":"text"}`, map[string]string{"session": "s1"})
-	w := httptest.NewRecorder()
-	h.SendMessage(w, r)
+func TestSendMessage_NoPrincipal401(t *testing.T) {
+	h := messageRouter(&fakeMessageSvc{}, nil)
+	w := doReq(h, http.MethodPost, "/api/v1/sessions/s1/messages", `{"type":"text"}`)
 	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want 401", w.Code)
+		t.Fatalf("status = %d, want 401; body=%s", w.Code, w.Body.String())
+	}
+	if got := decodeError(w.Body.String()).Error.Code; got != domain.CodeUnauthorized {
+		t.Errorf("code = %q, want %q", got, domain.CodeUnauthorized)
 	}
 }
 
 func TestSendMessage_ServiceValidationError(t *testing.T) {
 	svc := &fakeMessageSvc{err: domain.ErrValidation("text is required")}
-	h := newMessageHandlers(svc)
-	r := withOrganization(chiReq(http.MethodPost, "/api/v1/sessions/s1/messages", `{"type":"text","to":"x"}`, map[string]string{"session": "s1"}), testOrganization)
-	w := httptest.NewRecorder()
-	h.SendMessage(w, r)
+	h := messageRouter(svc, sendOrgPrincipal())
+	w := doReq(h, http.MethodPost, "/api/v1/sessions/s1/messages", `{"type":"text","to":"x"}`)
 	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", w.Code)
+		t.Fatalf("status = %d, want 400; body=%s", w.Code, w.Body.String())
 	}
 	if got := decodeError(w.Body.String()).Error.Code; got != domain.CodeValidationError {
 		t.Errorf("code = %q, want %q", got, domain.CodeValidationError)
@@ -80,21 +100,51 @@ func TestSendMessage_ServiceValidationError(t *testing.T) {
 
 func TestSendMessage_RateLimited429(t *testing.T) {
 	svc := &fakeMessageSvc{err: domain.ErrRateLimited("slow down")}
-	h := newMessageHandlers(svc)
-	r := withOrganization(chiReq(http.MethodPost, "/api/v1/sessions/s1/messages", `{"type":"text","to":"x","text":"y"}`, map[string]string{"session": "s1"}), testOrganization)
-	w := httptest.NewRecorder()
-	h.SendMessage(w, r)
+	h := messageRouter(svc, sendOrgPrincipal())
+	w := doReq(h, http.MethodPost, "/api/v1/sessions/s1/messages", `{"type":"text","to":"x","text":"y"}`)
 	if w.Code != http.StatusTooManyRequests {
-		t.Fatalf("status = %d, want 429", w.Code)
+		t.Fatalf("status = %d, want 429; body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestSendMessage_MissingCapability403(t *testing.T) {
+	// A read-only api-key principal must not send messages.
+	p := &authz.Principal{Kind: authz.KindAPIKey, OrganizationID: testOrganization, KeyPermissions: domain.Permissions{Read: true}}
+	h := messageRouter(&fakeMessageSvc{}, p)
+	w := doReq(h, http.MethodPost, "/api/v1/sessions/s1/messages", `{"type":"text","to":"x","text":"y"}`)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403; body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestEditMessage_Routes(t *testing.T) {
+	svc := &fakeMessageSvc{result: outbound.SendResult{Mode: outbound.ModeSync}}
+	h := messageRouter(svc, sendOrgPrincipal())
+	w := doReq(h, http.MethodPatch, "/api/v1/sessions/s1/messages/m1", `{"chat":"c1","text":"new"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	if svc.lastOp != "edit" {
+		t.Errorf("op = %q, want edit", svc.lastOp)
+	}
+}
+
+func TestRevokeMessage_Routes(t *testing.T) {
+	svc := &fakeMessageSvc{result: outbound.SendResult{Mode: outbound.ModeSync}}
+	h := messageRouter(svc, sendOrgPrincipal())
+	w := doReq(h, http.MethodDelete, "/api/v1/sessions/s1/messages/m1", `{"chat":"c1"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	if svc.lastOp != "revoke" {
+		t.Errorf("op = %q, want revoke", svc.lastOp)
 	}
 }
 
 func TestAddReaction_PassesEmoji(t *testing.T) {
 	svc := &fakeMessageSvc{result: outbound.SendResult{Mode: outbound.ModeSync}}
-	h := newMessageHandlers(svc)
-	r := withOrganization(chiReq(http.MethodPost, "/api/v1/sessions/s1/messages/m1/reaction", `{"chat":"c1","emoji":"👍"}`, map[string]string{"session": "s1", "mid": "m1"}), testOrganization)
-	w := httptest.NewRecorder()
-	h.AddReaction(w, r)
+	h := messageRouter(svc, sendOrgPrincipal())
+	w := doReq(h, http.MethodPost, "/api/v1/sessions/s1/messages/m1/reaction", `{"chat":"c1","emoji":"👍"}`)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
 	}
@@ -105,26 +155,34 @@ func TestAddReaction_PassesEmoji(t *testing.T) {
 
 func TestRemoveReaction_ClearsEmoji(t *testing.T) {
 	svc := &fakeMessageSvc{result: outbound.SendResult{Mode: outbound.ModeSync}}
-	h := newMessageHandlers(svc)
-	r := withOrganization(chiReq(http.MethodDelete, "/api/v1/sessions/s1/messages/m1/reaction", `{"chat":"c1","emoji":"👍"}`, map[string]string{"session": "s1", "mid": "m1"}), testOrganization)
-	w := httptest.NewRecorder()
-	h.RemoveReaction(w, r)
+	h := messageRouter(svc, sendOrgPrincipal())
+	w := doReq(h, http.MethodDelete, "/api/v1/sessions/s1/messages/m1/reaction", `{"chat":"c1","emoji":"👍"}`)
 	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", w.Code)
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
 	}
 	if svc.lastOp != "react:" {
 		t.Errorf("op = %q, want react: (empty emoji)", svc.lastOp)
 	}
 }
 
+func TestForwardMessage_Routes(t *testing.T) {
+	svc := &fakeMessageSvc{result: outbound.SendResult{Mode: outbound.ModeSync}}
+	h := messageRouter(svc, sendOrgPrincipal())
+	w := doReq(h, http.MethodPost, "/api/v1/sessions/s1/messages/m1/forward", `{"chat":"c1","to":"628@s.whatsapp.net"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	if svc.lastOp != "forward" {
+		t.Errorf("op = %q, want forward", svc.lastOp)
+	}
+}
+
 func TestVoteMessage_Routes(t *testing.T) {
 	svc := &fakeMessageSvc{result: outbound.SendResult{Mode: outbound.ModeSync}}
-	h := newMessageHandlers(svc)
-	r := withOrganization(chiReq(http.MethodPost, "/api/v1/sessions/s1/messages/m1/vote", `{"chat":"c1","options":["A"]}`, map[string]string{"session": "s1", "mid": "m1"}), testOrganization)
-	w := httptest.NewRecorder()
-	h.VoteMessage(w, r)
+	h := messageRouter(svc, sendOrgPrincipal())
+	w := doReq(h, http.MethodPost, "/api/v1/sessions/s1/messages/m1/vote", `{"chat":"c1","options":["A"]}`)
 	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", w.Code)
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
 	}
 	if svc.lastOp != "vote" {
 		t.Errorf("op = %q, want vote", svc.lastOp)

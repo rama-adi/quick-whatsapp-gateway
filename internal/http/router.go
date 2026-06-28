@@ -8,7 +8,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/authz"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/http/handlers"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/http/middleware"
@@ -83,16 +82,27 @@ func NewRouter(cfg RouterConfig) http.Handler {
 				authed.Use(middleware.RateLimit(cfg.Limiter, nil))
 			}
 
-			// Code-first operations (huma, D11): resources are migrating off the
-			// hand-mounted chi routes below to typed huma operations whose Go
-			// structs generate docs/openapi.yaml. huma mounts on the same authed
-			// chi router, so the assertion auth + rate-limit middleware still run
-			// first. Converted resources are removed from mountAPIRoutes.
-			hapi := humax.NewAPI(authed)
-			handlers.RegisterAllOps(hapi, h)
-
 			mountAPIRoutes(authed, h)
 		})
+	})
+
+	// Code-first operations (huma, D11): resources are migrating off the
+	// hand-mounted chi routes above to typed huma operations whose Go structs
+	// generate docs/openapi.yaml. huma operations declare their own full
+	// "/api/v1/…" paths (matching the generated spec), so they mount on the ROOT
+	// router rather than inside the chi.Route("/api/v1") group — otherwise chi
+	// would prepend a second "/api/v1". The same auth + rate-limit middleware is
+	// applied here so the assertion auth still runs first. Converted resources are
+	// removed from mountAPIRoutes.
+	r.Group(func(authed chi.Router) {
+		if cfg.Auth != nil {
+			authed.Use(cfg.Auth)
+		}
+		if cfg.Limiter != nil {
+			authed.Use(middleware.RateLimit(cfg.Limiter, nil))
+		}
+		hapi := humax.NewAPI(authed)
+		handlers.RegisterAllOps(hapi, h)
 	})
 
 	// No SPA, no /auth: any other path is a JSON 404.
@@ -113,116 +123,26 @@ func mountAPIRoutes(r chi.Router, h *handlers.Handlers) {
 	// --- Webhooks (manage) --- converted to huma operations (RegisterWebhookOps);
 	// see NewRouter. Intentionally not mounted here.
 
-	// --- Admin (super-admin; cross-organization oversight, §4.3) ---
-	r.Group(func(g chi.Router) {
-		g.Use(authz.RequireSuperAdmin())
-		g.Get("/admin/sessions", h.AdminListSessions)
-		g.Post("/admin/sessions/{session}:backfill", h.AdminStartSessionBackfill)
-		g.Get("/admin/sessions/{session}/backfill", h.AdminSessionBackfillStatus)
-	})
+	// --- Admin (super-admin; cross-organization oversight, §4.3) --- converted to
+	// huma operations (RegisterAdminOps); see NewRouter. Intentionally not mounted here.
 
-	// --- Sessions (manage) ---
-	r.Group(func(g chi.Router) {
-		g.Use(authz.RequireManage())
-		g.Post("/sessions", h.CreateSession)
-		g.Get("/sessions", h.ListSessions)
-		g.Get("/sessions/{session}", h.GetSession)
-		g.Post("/sessions/{session}:start", h.StartSession)
-		g.Post("/sessions/{session}:stop", h.StopSession)
-		g.Post("/sessions/{session}:restart", h.RestartSession)
-		g.Post("/sessions/{session}:logout", h.LogoutSession)
-		g.Delete("/sessions/{session}", h.DeleteSession)
-		g.Get("/sessions/{session}/me", h.SessionMe)
-		g.Get("/sessions/{session}/qr", h.SessionQR)
-		g.Post("/sessions/{session}/pairing-code", h.SessionPairingCode)
+	// --- Sessions (manage) --- converted to huma operations (RegisterSessionOps);
+	// see NewRouter. Intentionally not mounted here.
 
-		// Backup import: upload a WhatsApp msgstore.db.crypt15 to backfill the
-		// session's chats/messages/identities/groups. Once per 24h per session for
-		// non-admins; super_admins bypass (gates already let super_admin through).
-		g.Post("/sessions/{session}/backfill", h.ImportBackup)
-		g.Get("/sessions/{session}/backfill", h.BackupStatus)
-	})
+	// --- Backup import (/backfill, manage) --- converted to huma — see RegisterBackupOps
 
-	// --- Messages (send) ---
-	r.Group(func(g chi.Router) {
-		g.Use(authz.RequireSend())
-		g.Post("/sessions/{session}/messages", h.SendMessage)
-		g.Patch("/sessions/{session}/messages/{mid}", h.EditMessage)
-		g.Delete("/sessions/{session}/messages/{mid}", h.RevokeMessage)
-		g.Post("/sessions/{session}/messages/{mid}/reaction", h.AddReaction)
-		g.Delete("/sessions/{session}/messages/{mid}/reaction", h.RemoveReaction)
-		g.Post("/sessions/{session}/messages/{mid}/forward", h.ForwardMessage)
-		g.Post("/sessions/{session}/messages/{mid}/vote", h.VoteMessage)
-	})
+	// --- Messages (send) --- converted to huma operations (RegisterMessageOps);
+	// see NewRouter. Intentionally not mounted here.
 
-	// --- Chats (read for GET, send for mutations) ---
-	r.Group(func(g chi.Router) {
-		g.Use(authz.RequireRead())
-		g.Get("/sessions/{session}/chats", h.ListChats)
-		g.Get("/sessions/{session}/chats/{cid}", h.GetChat)
-		g.Get("/sessions/{session}/chats/{cid}/messages", h.ListChatMessages)
-	})
-	r.Group(func(g chi.Router) {
-		g.Use(authz.RequireSend())
-		g.Post("/sessions/{session}/chats/{cid}/read", h.ReadChat)
-		g.Patch("/sessions/{session}/chats/{cid}", h.UpdateChat)
-		g.Delete("/sessions/{session}/chats/{cid}", h.DeleteChat)
-		g.Put("/sessions/{session}/chats/{cid}/presence", h.ChatPresence)
-	})
+	// --- Chats (read for GET, send for mutations) --- converted to huma — see RegisterChatOps
 
-	// --- Contacts (read for GET, send for mutations) ---
-	r.Group(func(g chi.Router) {
-		g.Use(authz.RequireRead())
-		g.Get("/sessions/{session}/contacts", h.ListContacts)
-		g.Get("/sessions/{session}/contacts/check", h.CheckContact)
-		g.Get("/sessions/{session}/contacts/{lid}", h.GetContact)
-		g.Get("/sessions/{session}/contacts/{jid}/picture", h.ContactPicture)
-		g.Get("/sessions/{session}/contacts/{jid}/about", h.ContactAbout)
-	})
-	r.Group(func(g chi.Router) {
-		g.Use(authz.RequireSend())
-		g.Post("/sessions/{session}/contacts/{jid}/block", h.BlockContact)
-		g.Post("/sessions/{session}/contacts/{jid}/unblock", h.UnblockContact)
-	})
+	// --- Contacts (read for GET, send for mutations) --- converted to huma — see RegisterContactOps
 
-	// --- Groups (read for GET, send for mutations) ---
-	r.Group(func(g chi.Router) {
-		g.Use(authz.RequireRead())
-		g.Get("/sessions/{session}/groups", h.ListGroups)
-		g.Get("/sessions/{session}/groups/{gid}", h.GetGroup)
-		g.Get("/sessions/{session}/groups/{gid}/members", h.ListGroupMembers)
-		g.Get("/sessions/{session}/groups/{gid}/invite", h.GetGroupInvite)
-	})
-	r.Group(func(g chi.Router) {
-		g.Use(authz.RequireSend())
-		g.Post("/sessions/{session}/groups", h.CreateGroup)
-		g.Post("/sessions/{session}/groups/{gid}/members", h.AddGroupMembers)
-		g.Delete("/sessions/{session}/groups/{gid}/members/{jid}", h.RemoveGroupMember)
-		g.Post("/sessions/{session}/groups/{gid}/members/{jid}/promote", h.PromoteGroupMember)
-		g.Post("/sessions/{session}/groups/{gid}/members/{jid}/demote", h.DemoteGroupMember)
-		g.Patch("/sessions/{session}/groups/{gid}", h.UpdateGroup)
-		g.Delete("/sessions/{session}/groups/{gid}/invite", h.RevokeGroupInvite)
-		g.Post("/sessions/{session}/groups:join", h.JoinGroup)
-		g.Post("/sessions/{session}/groups/{gid}:leave", h.LeaveGroup)
-		g.Post("/sessions/{session}/groups/{gid}/members:approve", h.ApproveGroupMembers)
-	})
+	// --- Groups (read for GET, send for mutations) --- converted to huma — see RegisterGroupOps
 
-	// --- Channels (send) ---
-	r.Group(func(g chi.Router) {
-		g.Use(authz.RequireSend())
-		g.Post("/sessions/{session}/channels", h.CreateChannel)
-		g.Post("/sessions/{session}/channels/{jid}:follow", h.FollowChannel)
-		g.Post("/sessions/{session}/channels/{jid}:unfollow", h.UnfollowChannel)
-		g.Post("/sessions/{session}/channels/{jid}:mute", h.MuteChannel)
-		g.Get("/sessions/{session}/channels/{jid}/messages", h.ListChannelMessages)
-	})
+	// --- Channels (send) --- converted to huma — see RegisterChannelOps
 
-	// --- Status / Presence (send) ---
-	r.Group(func(g chi.Router) {
-		g.Use(authz.RequireSend())
-		g.Post("/sessions/{session}/status", h.PostStatus)
-		g.Put("/sessions/{session}/presence", h.SetPresence)
-	})
+	// --- Status / Presence (send) --- converted to huma — see RegisterStatusOps
 }
 
 func healthz(w http.ResponseWriter, _ *http.Request) {

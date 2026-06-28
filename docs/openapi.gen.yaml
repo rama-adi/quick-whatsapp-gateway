@@ -1,7 +1,531 @@
 components:
   schemas:
+    AddGroupMembersInputBody:
+      additionalProperties: false
+      properties:
+        participants:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+      type: object
     ApiError:
       additionalProperties: false
+      type: object
+    ApproveGroupMembersInputBody:
+      additionalProperties: false
+      properties:
+        participants:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+      type: object
+    BackfillImport:
+      additionalProperties: false
+      properties:
+        chats:
+          format: int64
+          type: integer
+        createdAt:
+          format: int64
+          type: integer
+        error:
+          type: string
+        finishedAt:
+          format: int64
+          type: integer
+        groupMembers:
+          format: int64
+          type: integer
+        groups:
+          format: int64
+          type: integer
+        id:
+          type: string
+        identities:
+          format: int64
+          type: integer
+        messages:
+          format: int64
+          type: integer
+        organizationId:
+          type: string
+        schemaFingerprint:
+          type: string
+        sessionId:
+          type: string
+        source:
+          type: string
+        status:
+          type: string
+      required:
+        - id
+        - sessionId
+        - organizationId
+        - source
+        - status
+        - chats
+        - messages
+        - identities
+        - groups
+        - groupMembers
+        - createdAt
+      type: object
+    BackfillJob:
+      additionalProperties: false
+      properties:
+        contacts:
+          format: int64
+          type: integer
+        error:
+          type: string
+        finishedAt:
+          format: int64
+          type: integer
+        groupMembers:
+          format: int64
+          type: integer
+        groups:
+          format: int64
+          type: integer
+        id:
+          type: string
+        organizationId:
+          type: string
+        sessionId:
+          type: string
+        startedAt:
+          format: int64
+          type: integer
+        status:
+          type: string
+      required:
+        - id
+        - sessionId
+        - organizationId
+        - status
+        - contacts
+        - groups
+        - groupMembers
+        - startedAt
+      type: object
+    Chat:
+      additionalProperties: false
+      properties:
+        archived:
+          type: boolean
+        id:
+          format: int64
+          minimum: 0
+          type: integer
+        jid:
+          type: string
+        lastMessageAt:
+          format: int64
+          type: integer
+        mutedUntil:
+          format: int64
+          type: integer
+        name:
+          type: string
+        pinned:
+          type: boolean
+        sessionId:
+          type: string
+        type:
+          type: string
+        unreadCount:
+          format: int64
+          type: integer
+      required:
+        - id
+        - sessionId
+        - jid
+        - type
+        - unreadCount
+        - archived
+        - pinned
+      type: object
+    ChatPresenceInputBody:
+      additionalProperties: false
+      properties:
+        state:
+          type: string
+      type: object
+    Contact:
+      additionalProperties: false
+      properties:
+        businessName:
+          type: string
+        lid:
+          type: string
+        name:
+          type: string
+        phoneNumber:
+          type: string
+        source:
+          type: string
+      required:
+        - lid
+        - source
+      type: object
+    ContactAboutOutputBody:
+      additionalProperties: false
+      properties:
+        about:
+          type: string
+      required:
+        - about
+      type: object
+    ContactCard:
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+        phone:
+          type: string
+        vcard:
+          type: string
+      type: object
+    ContactDetail:
+      additionalProperties: false
+      properties:
+        dm:
+          type: boolean
+        groups:
+          items:
+            $ref: "#/components/schemas/ContactGroup"
+          type:
+            - array
+            - "null"
+        identity:
+          $ref: "#/components/schemas/Identity"
+      required:
+        - dm
+        - groups
+      type: object
+    ContactGroup:
+      additionalProperties: false
+      properties:
+        jid:
+          type: string
+        lastSeen:
+          format: int64
+          type: integer
+        name:
+          type: string
+        role:
+          type: string
+        tag:
+          type: string
+      required:
+        - jid
+        - role
+        - lastSeen
+      type: object
+    CreateChannelInputBody:
+      additionalProperties: false
+      properties:
+        description:
+          type: string
+        name:
+          type: string
+      type: object
+    CreateChannelOutputBody:
+      additionalProperties: false
+      properties:
+        jid:
+          type: string
+      required:
+        - jid
+      type: object
+    CreateGroupInputBody:
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+        participants:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+      type: object
+    CreateSessionInputBody:
+      additionalProperties: false
+      properties:
+        autoRead:
+          type: boolean
+        label:
+          type: string
+        presenceTyping:
+          type: boolean
+        start:
+          type: boolean
+      type: object
+    EditMessageInputBody:
+      additionalProperties: false
+      properties:
+        chat:
+          type: string
+        text:
+          type: string
+      type: object
+    FormFile:
+      additionalProperties: false
+      properties:
+        ContentType:
+          type: string
+        Filename:
+          type: string
+        IsSet:
+          type: boolean
+        Size:
+          format: int64
+          type: integer
+      required:
+        - ContentType
+        - IsSet
+        - Size
+        - Filename
+      type: object
+    ForwardInputBody:
+      additionalProperties: false
+      properties:
+        chat:
+          type: string
+        sender:
+          type: string
+        to:
+          type: string
+      type: object
+    Group:
+      additionalProperties: false
+      properties:
+        createdAtWa:
+          format: int64
+          type: integer
+        description:
+          type: string
+        firstSeenAt:
+          format: int64
+          type: integer
+        groupJid:
+          type: string
+        id:
+          format: int64
+          minimum: 0
+          type: integer
+        isAnnounce:
+          type: boolean
+        isLocked:
+          type: boolean
+        ownerJid:
+          type: string
+        participantCount:
+          format: int64
+          type: integer
+        subject:
+          type: string
+        updatedAt:
+          format: int64
+          type: integer
+      required:
+        - id
+        - groupJid
+        - firstSeenAt
+        - updatedAt
+      type: object
+    GroupInfo:
+      additionalProperties: false
+      properties:
+        description:
+          type: string
+        groupJid:
+          type: string
+        isAnnounce:
+          type: boolean
+        isLocked:
+          type: boolean
+        ownerJid:
+          type: string
+        participants:
+          format: int64
+          type: integer
+        subject:
+          type: string
+      required:
+        - groupJid
+      type: object
+    GroupMember:
+      additionalProperties: false
+      properties:
+        firstSeenAt:
+          format: int64
+          type: integer
+        groupJid:
+          type: string
+        id:
+          format: int64
+          minimum: 0
+          type: integer
+        lastSeenAt:
+          format: int64
+          type: integer
+        lid:
+          type: string
+        role:
+          type: string
+        sessionId:
+          type: string
+        tag:
+          type: string
+      required:
+        - id
+        - sessionId
+        - groupJid
+        - lid
+        - role
+        - firstSeenAt
+        - lastSeenAt
+      type: object
+    Identity:
+      additionalProperties: false
+      properties:
+        businessName:
+          type: string
+        firstSeenAt:
+          format: int64
+          type: integer
+        id:
+          format: int64
+          minimum: 0
+          type: integer
+        lid:
+          type: string
+        name:
+          type: string
+        phoneJid:
+          type: string
+        phoneNumber:
+          type: string
+        updatedAt:
+          format: int64
+          type: integer
+      required:
+        - id
+        - lid
+        - firstSeenAt
+        - updatedAt
+      type: object
+    InviteOutputBody:
+      additionalProperties: false
+      properties:
+        invite:
+          type: string
+      required:
+        - invite
+      type: object
+    JoinGroupInputBody:
+      additionalProperties: false
+      properties:
+        invite:
+          type: string
+      type: object
+    JoinGroupOutputBody:
+      additionalProperties: false
+      properties:
+        groupJid:
+          type: string
+      required:
+        - groupJid
+      type: object
+    ListChat:
+      additionalProperties: false
+      properties:
+        data:
+          items:
+            $ref: "#/components/schemas/Chat"
+          type:
+            - array
+            - "null"
+        nextCursor:
+          type: string
+      required:
+        - data
+      type: object
+    ListContact:
+      additionalProperties: false
+      properties:
+        data:
+          items:
+            $ref: "#/components/schemas/Contact"
+          type:
+            - array
+            - "null"
+        nextCursor:
+          type: string
+      required:
+        - data
+      type: object
+    ListGroup:
+      additionalProperties: false
+      properties:
+        data:
+          items:
+            $ref: "#/components/schemas/Group"
+          type:
+            - array
+            - "null"
+        nextCursor:
+          type: string
+      required:
+        - data
+      type: object
+    ListGroupMember:
+      additionalProperties: false
+      properties:
+        data:
+          items:
+            $ref: "#/components/schemas/GroupMember"
+          type:
+            - array
+            - "null"
+        nextCursor:
+          type: string
+      required:
+        - data
+      type: object
+    ListMessage:
+      additionalProperties: false
+      properties:
+        data:
+          items:
+            $ref: "#/components/schemas/Message"
+          type:
+            - array
+            - "null"
+        nextCursor:
+          type: string
+      required:
+        - data
+      type: object
+    ListWASession:
+      additionalProperties: false
+      properties:
+        data:
+          items:
+            $ref: "#/components/schemas/WASession"
+          type:
+            - array
+            - "null"
+        nextCursor:
+          type: string
+      required:
+        - data
       type: object
     ListWebhook:
       additionalProperties: false
@@ -16,6 +540,182 @@ components:
           type: string
       required:
         - data
+      type: object
+    Me:
+      additionalProperties: false
+      properties:
+        connected:
+          type: boolean
+        phoneNumber:
+          type: string
+        sessionId:
+          type: string
+        status:
+          type: string
+        waJid:
+          type: string
+        waLid:
+          type: string
+      required:
+        - sessionId
+        - status
+        - connected
+      type: object
+    MediaMeta:
+      additionalProperties: false
+      properties:
+        filename:
+          type: string
+        mimetype:
+          type: string
+        size:
+          format: int64
+          type: integer
+      type: object
+    Message:
+      additionalProperties: false
+      properties:
+        ackLevel:
+          format: int64
+          type: integer
+        body:
+          type: string
+        chatJid:
+          type: string
+        createdAt:
+          format: int64
+          type: integer
+        deleted:
+          type: boolean
+        direction:
+          type: string
+        edited:
+          type: boolean
+        error:
+          type: string
+        fromMe:
+          type: boolean
+        hasMedia:
+          type: boolean
+        id:
+          type: string
+        media:
+          $ref: "#/components/schemas/MediaMeta"
+        mentionNames:
+          additionalProperties:
+            type: string
+          type: object
+        mentions: {}
+        quotedMessageId:
+          type: string
+        senderJid:
+          type: string
+        senderLid:
+          type: string
+        senderName:
+          type: string
+        sessionId:
+          type: string
+        status:
+          type: string
+        timestamp:
+          format: int64
+          type: integer
+        type:
+          type: string
+        waMessageId:
+          type: string
+      required:
+        - id
+        - sessionId
+        - waMessageId
+        - chatJid
+        - fromMe
+        - direction
+        - type
+        - hasMedia
+        - edited
+        - deleted
+        - timestamp
+        - createdAt
+      type: object
+    MuteChannelInputBody:
+      additionalProperties: false
+      properties:
+        mute:
+          type: boolean
+      type: object
+    OnWhatsApp:
+      additionalProperties: false
+      properties:
+        isOnWhatsApp:
+          type: boolean
+        jid:
+          type: string
+        query:
+          type: string
+      required:
+        - query
+        - isOnWhatsApp
+      type: object
+    PairingCodeInputBody:
+      additionalProperties: false
+      properties:
+        phone:
+          type: string
+      type: object
+    PairingCodeOutputBody:
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+      required:
+        - code
+      type: object
+    PostStatusInputBody:
+      additionalProperties: false
+      properties:
+        text:
+          type: string
+        type:
+          type: string
+      type: object
+    PostStatusOutputBody:
+      additionalProperties: false
+      properties:
+        messageId:
+          type: string
+      required:
+        - messageId
+      type: object
+    ProfilePicture:
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        url:
+          type: string
+      type: object
+    QR:
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+        expiresAt:
+          format: int64
+          type: integer
+      required:
+        - code
+      type: object
+    ReactionInputBody:
+      additionalProperties: false
+      properties:
+        chat:
+          type: string
+        emoji:
+          type: string
+        sender:
+          type: string
       type: object
     RetryPolicy:
       additionalProperties: false
@@ -32,6 +732,173 @@ components:
         - policy
         - delaySeconds
         - attempts
+      type: object
+    RevokeMessageInputBody:
+      additionalProperties: false
+      properties:
+        chat:
+          type: string
+        sender:
+          type: string
+      type: object
+    SendRequest:
+      additionalProperties: false
+      properties:
+        contact:
+          $ref: "#/components/schemas/ContactCard"
+        latitude:
+          format: double
+          type: number
+        longitude:
+          format: double
+          type: number
+        mentions:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        name:
+          type: string
+        options:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        replyTo:
+          type: string
+        selectableCount:
+          format: int64
+          type: integer
+        text:
+          type: string
+        to:
+          type: string
+        type:
+          type: string
+      required:
+        - type
+        - to
+      type: object
+    SendResult:
+      additionalProperties: false
+      properties:
+        mode:
+          type: string
+        outboxId:
+          type: string
+        replayed:
+          type: boolean
+        status:
+          type: string
+        timestamp:
+          format: int64
+          type: integer
+        waMessageId:
+          type: string
+      required:
+        - mode
+      type: object
+    SetPresenceInputBody:
+      additionalProperties: false
+      properties:
+        state:
+          type: string
+      type: object
+    UpdateChatInputBody:
+      additionalProperties: false
+      properties:
+        archived:
+          type: boolean
+        mutedUntil:
+          format: int64
+          type: integer
+        pinned:
+          type: boolean
+        unmute:
+          type: boolean
+      type: object
+    UpdateGroupInputBody:
+      additionalProperties: false
+      properties:
+        announce:
+          type: boolean
+        description:
+          type: string
+        locked:
+          type: boolean
+        subject:
+          type: string
+      type: object
+    VoteInputBody:
+      additionalProperties: false
+      properties:
+        chat:
+          type: string
+        options:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        sender:
+          type: string
+      type: object
+    WASession:
+      additionalProperties: false
+      properties:
+        autoRead:
+          type: boolean
+        createdAt:
+          format: int64
+          type: integer
+        createdByUserId:
+          type: string
+        gatewayId:
+          type: string
+        id:
+          type: string
+        isAdminSession:
+          type: boolean
+        label:
+          type: string
+        lastConnectedAt:
+          format: int64
+          type: integer
+        organizationId:
+          type: string
+        phoneNumber:
+          type: string
+        presenceTyping:
+          type: boolean
+        ratePerHour:
+          format: int64
+          type: integer
+        ratePerMin:
+          format: int64
+          type: integer
+        status:
+          type: string
+        updatedAt:
+          format: int64
+          type: integer
+        waJid:
+          type: string
+        waLid:
+          type: string
+      required:
+        - id
+        - organizationId
+        - gatewayId
+        - status
+        - isAdminSession
+        - autoRead
+        - presenceTyping
+        - ratePerMin
+        - ratePerHour
+        - createdAt
+        - updatedAt
       type: object
     Webhook:
       additionalProperties: false
@@ -103,6 +970,1752 @@ info:
   version: v1
 openapi: 3.1.0
 paths:
+  /api/v1/admin/sessions:
+    get:
+      operationId: adminListSessions
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListWASession"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: List all sessions (admin)
+      tags:
+        - Admin
+  /api/v1/admin/sessions/{session}/backfill:
+    get:
+      operationId: adminSessionBackfillStatus
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BackfillJob"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Get session backfill status (admin)
+      tags:
+        - Admin
+  /api/v1/admin/sessions/{session}:backfill:
+    post:
+      operationId: adminStartSessionBackfill
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+      responses:
+        "202":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BackfillJob"
+          description: Accepted
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Start a session backfill (admin)
+      tags:
+        - Admin
+  /api/v1/sessions:
+    get:
+      operationId: listSessions
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListWASession"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: List sessions
+      tags:
+        - Sessions
+    post:
+      operationId: createSession
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSessionInputBody"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WASession"
+          description: Created
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Create a session
+      tags:
+        - Sessions
+  /api/v1/sessions/{session}:
+    delete:
+      operationId: deleteSession
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Delete a session
+      tags:
+        - Sessions
+    get:
+      operationId: getSession
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WASession"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Get a session
+      tags:
+        - Sessions
+  /api/v1/sessions/{session}/backfill:
+    get:
+      operationId: backupStatus
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BackfillImport"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Latest backup import status
+      tags:
+        - Backup
+    post:
+      operationId: importBackup
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          multipart/form-data:
+            encoding:
+              file:
+                contentType: application/octet-stream
+              key:
+                contentType: text/plain
+            schema:
+              properties:
+                file:
+                  contentEncoding: binary
+                  contentMediaType: application/octet-stream
+                  format: binary
+                  type: string
+                key:
+                  type: string
+              required:
+                - file
+                - key
+              type: object
+      responses:
+        "202":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BackfillImport"
+          description: Accepted
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Import a WhatsApp backup (crypt15)
+      tags:
+        - Backup
+  /api/v1/sessions/{session}/channels:
+    post:
+      operationId: createChannel
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateChannelInputBody"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateChannelOutputBody"
+          description: Created
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Create a channel
+      tags:
+        - Channels
+  /api/v1/sessions/{session}/channels/{jid}/messages:
+    get:
+      operationId: listChannelMessages
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: jid
+          required: true
+          schema:
+            type: string
+        - explode: false
+          in: query
+          name: limit
+          schema:
+            format: int64
+            type: integer
+        - explode: false
+          in: query
+          name: cursor
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListMessage"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: List channel messages
+      tags:
+        - Channels
+  /api/v1/sessions/{session}/channels/{jid}:follow:
+    post:
+      operationId: followChannel
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: jid
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Follow a channel
+      tags:
+        - Channels
+  /api/v1/sessions/{session}/channels/{jid}:mute:
+    post:
+      operationId: muteChannel
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: jid
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MuteChannelInputBody"
+        required: true
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Mute or unmute a channel
+      tags:
+        - Channels
+  /api/v1/sessions/{session}/channels/{jid}:unfollow:
+    post:
+      operationId: unfollowChannel
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: jid
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Unfollow a channel
+      tags:
+        - Channels
+  /api/v1/sessions/{session}/chats:
+    get:
+      operationId: listChats
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+        - explode: false
+          in: query
+          name: limit
+          schema:
+            format: int64
+            type: integer
+        - explode: false
+          in: query
+          name: cursor
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListChat"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: List chats
+      tags:
+        - Chats
+  /api/v1/sessions/{session}/chats/{cid}:
+    delete:
+      operationId: deleteChat
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: cid
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Delete a chat
+      tags:
+        - Chats
+    get:
+      operationId: getChat
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: cid
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Chat"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Get a chat
+      tags:
+        - Chats
+    patch:
+      operationId: updateChat
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: cid
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateChatInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Chat"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Update a chat (archive/pin/mute)
+      tags:
+        - Chats
+  /api/v1/sessions/{session}/chats/{cid}/messages:
+    get:
+      operationId: listChatMessages
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: cid
+          required: true
+          schema:
+            type: string
+        - explode: false
+          in: query
+          name: limit
+          schema:
+            format: int64
+            type: integer
+        - explode: false
+          in: query
+          name: cursor
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListMessage"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: List chat messages
+      tags:
+        - Chats
+  /api/v1/sessions/{session}/chats/{cid}/presence:
+    put:
+      operationId: setChatPresence
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: cid
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatPresenceInputBody"
+        required: true
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Set chat presence (typing/recording)
+      tags:
+        - Chats
+  /api/v1/sessions/{session}/chats/{cid}/read:
+    post:
+      operationId: readChat
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: cid
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Chat"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Mark a chat as read
+      tags:
+        - Chats
+  /api/v1/sessions/{session}/contacts:
+    get:
+      operationId: listContacts
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+        - explode: false
+          in: query
+          name: source
+          schema:
+            type: string
+        - explode: false
+          in: query
+          name: group
+          schema:
+            type: string
+        - explode: false
+          in: query
+          name: q
+          schema:
+            type: string
+        - explode: false
+          in: query
+          name: limit
+          schema:
+            format: int64
+            type: integer
+        - explode: false
+          in: query
+          name: cursor
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListContact"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: List contacts (found users)
+      tags:
+        - Contacts
+  /api/v1/sessions/{session}/contacts/check:
+    get:
+      operationId: checkContact
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+        - explode: false
+          in: query
+          name: phone
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OnWhatsApp"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Check if a phone is on WhatsApp
+      tags:
+        - Contacts
+  /api/v1/sessions/{session}/contacts/{jid}/about:
+    get:
+      operationId: getContactAbout
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: jid
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContactAboutOutputBody"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Get a contact's about text
+      tags:
+        - Contacts
+  /api/v1/sessions/{session}/contacts/{jid}/block:
+    post:
+      operationId: blockContact
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: jid
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Block a contact
+      tags:
+        - Contacts
+  /api/v1/sessions/{session}/contacts/{jid}/picture:
+    get:
+      operationId: getContactPicture
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: jid
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfilePicture"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Get a contact's profile picture
+      tags:
+        - Contacts
+  /api/v1/sessions/{session}/contacts/{jid}/unblock:
+    post:
+      operationId: unblockContact
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: jid
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Unblock a contact
+      tags:
+        - Contacts
+  /api/v1/sessions/{session}/contacts/{lid}:
+    get:
+      operationId: getContact
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: lid
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContactDetail"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Get a contact
+      tags:
+        - Contacts
+  /api/v1/sessions/{session}/groups:
+    get:
+      operationId: listGroups
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListGroup"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: List groups
+      tags:
+        - Groups
+    post:
+      operationId: createGroup
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateGroupInputBody"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupInfo"
+          description: Created
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Create a group
+      tags:
+        - Groups
+  /api/v1/sessions/{session}/groups/{gid}:
+    get:
+      operationId: getGroup
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: gid
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Group"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Get a group
+      tags:
+        - Groups
+    patch:
+      operationId: updateGroup
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: gid
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateGroupInputBody"
+        required: true
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Update group settings
+      tags:
+        - Groups
+  /api/v1/sessions/{session}/groups/{gid}/invite:
+    delete:
+      operationId: revokeGroupInvite
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: gid
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InviteOutputBody"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Revoke and reissue the group invite link
+      tags:
+        - Groups
+    get:
+      operationId: getGroupInvite
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: gid
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InviteOutputBody"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Get the group invite link
+      tags:
+        - Groups
+  /api/v1/sessions/{session}/groups/{gid}/members:
+    get:
+      operationId: listGroupMembers
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: gid
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListGroupMember"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: List group members
+      tags:
+        - Groups
+    post:
+      operationId: addGroupMembers
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: gid
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddGroupMembersInputBody"
+        required: true
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Add group members
+      tags:
+        - Groups
+  /api/v1/sessions/{session}/groups/{gid}/members/{jid}:
+    delete:
+      operationId: removeGroupMember
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: gid
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: jid
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Remove a group member
+      tags:
+        - Groups
+  /api/v1/sessions/{session}/groups/{gid}/members/{jid}/demote:
+    post:
+      operationId: demoteGroupMember
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: gid
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: jid
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Demote a group admin
+      tags:
+        - Groups
+  /api/v1/sessions/{session}/groups/{gid}/members/{jid}/promote:
+    post:
+      operationId: promoteGroupMember
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: gid
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: jid
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Promote a group member to admin
+      tags:
+        - Groups
+  /api/v1/sessions/{session}/groups/{gid}/members:approve:
+    post:
+      operationId: approveGroupMembers
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: gid
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApproveGroupMembersInputBody"
+        required: true
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Approve pending group join requests
+      tags:
+        - Groups
+  /api/v1/sessions/{session}/groups/{gid}:leave:
+    post:
+      operationId: leaveGroup
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: gid
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Leave a group
+      tags:
+        - Groups
+  /api/v1/sessions/{session}/groups:join:
+    post:
+      operationId: joinGroup
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JoinGroupInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JoinGroupOutputBody"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Join a group by invite link
+      tags:
+        - Groups
+  /api/v1/sessions/{session}/me:
+    get:
+      operationId: sessionMe
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Me"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Get the attached WhatsApp identity
+      tags:
+        - Sessions
+  /api/v1/sessions/{session}/messages:
+    post:
+      operationId: sendMessage
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+        - explode: false
+          in: query
+          name: async
+          schema:
+            type: boolean
+        - in: header
+          name: Idempotency-Key
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendResult"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Send a message
+      tags:
+        - Messages
+  /api/v1/sessions/{session}/messages/{mid}:
+    delete:
+      operationId: revokeMessage
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: mid
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RevokeMessageInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendResult"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Revoke (delete) a message
+      tags:
+        - Messages
+    patch:
+      operationId: editMessage
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: mid
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditMessageInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendResult"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Edit a message
+      tags:
+        - Messages
+  /api/v1/sessions/{session}/messages/{mid}/forward:
+    post:
+      operationId: forwardMessage
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: mid
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ForwardInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendResult"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Forward a message
+      tags:
+        - Messages
+  /api/v1/sessions/{session}/messages/{mid}/reaction:
+    delete:
+      operationId: removeReaction
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: mid
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReactionInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendResult"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Remove a reaction
+      tags:
+        - Messages
+    post:
+      operationId: addReaction
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: mid
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReactionInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendResult"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Add a reaction
+      tags:
+        - Messages
+  /api/v1/sessions/{session}/messages/{mid}/vote:
+    post:
+      operationId: voteMessage
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: mid
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VoteInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendResult"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Vote in a poll
+      tags:
+        - Messages
+  /api/v1/sessions/{session}/pairing-code:
+    post:
+      operationId: sessionPairingCode
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PairingCodeInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PairingCodeOutputBody"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Request a pairing code
+      tags:
+        - Sessions
+  /api/v1/sessions/{session}/presence:
+    put:
+      operationId: setPresence
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetPresenceInputBody"
+        required: true
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Set account presence
+      tags:
+        - Presence
+  /api/v1/sessions/{session}/qr:
+    get:
+      operationId: sessionQR
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QR"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Get the current pairing QR code
+      tags:
+        - Sessions
+  /api/v1/sessions/{session}/status:
+    post:
+      operationId: postStatus
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostStatusInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostStatusOutputBody"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Post a status update
+      tags:
+        - Status
+  /api/v1/sessions/{session}:logout:
+    post:
+      operationId: logoutSession
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WASession"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Log out a session
+      tags:
+        - Sessions
+  /api/v1/sessions/{session}:restart:
+    post:
+      operationId: restartSession
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WASession"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Restart a session
+      tags:
+        - Sessions
+  /api/v1/sessions/{session}:start:
+    post:
+      operationId: startSession
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WASession"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Start a session
+      tags:
+        - Sessions
+  /api/v1/sessions/{session}:stop:
+    post:
+      operationId: stopSession
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WASession"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Stop a session
+      tags:
+        - Sessions
   /api/v1/webhooks:
     get:
       operationId: listWebhooks

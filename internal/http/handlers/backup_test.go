@@ -10,7 +10,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/authz"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/humax"
 )
 
 // --- Fake BackupSvc ---
@@ -32,16 +34,34 @@ func (f *fakeBackupSvc) StartImport(_ context.Context, _, _ string, isSuperAdmin
 	return f.started, nil
 }
 
-func (f *fakeBackupSvc) ImportStatus(_ context.Context, _, _ string, _ bool) (domain.BackfillImport, error) {
+func (f *fakeBackupSvc) ImportStatus(_ context.Context, _, _ string, isSuperAdmin bool) (domain.BackfillImport, error) {
+	f.gotSuperAdmin = isSuperAdmin
 	if f.err != nil {
 		return domain.BackfillImport{}, f.err
 	}
 	return f.status, nil
 }
 
-// multipartReq builds a POST .../backfill request with the given file bytes and
-// key field (omit either by passing nil/empty), with chi param session=sess_1.
-func multipartReq(t *testing.T, fileContent []byte, includeFile bool, key string) *http.Request {
+// backupRouter mounts the huma backup ops behind a principal-injecting middleware,
+// mirroring how the assertion middleware populates the principal in production.
+func backupRouter(svc BackupSvc, p *authz.Principal) http.Handler {
+	r := chi.NewRouter()
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			if p != nil {
+				req = req.WithContext(authz.SetPrincipal(req.Context(), p))
+			}
+			next.ServeHTTP(w, req)
+		})
+	})
+	api := humax.NewAPI(r)
+	RegisterBackupOps(api, &Handlers{Backup: svc})
+	return r
+}
+
+// multipartUploadReq builds a POST .../backfill request with the given file bytes
+// and key field (omit either by passing false/empty).
+func multipartUploadReq(t *testing.T, fileContent []byte, includeFile bool, key string) *http.Request {
 	t.Helper()
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
@@ -59,17 +79,19 @@ func multipartReq(t *testing.T, fileContent []byte, includeFile bool, key string
 
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/sessions/sess_1/backfill", &buf)
 	r.Header.Set("Content-Type", mw.FormDataContentType())
-	rctx := chi.NewRouteContext()
-	rctx.URLParams.Add("session", "sess_1")
-	return r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
+	return r
+}
+
+func doBackupReq(h http.Handler, r *http.Request) *httptest.ResponseRecorder {
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	return w
 }
 
 func TestImportBackup_HappyPath(t *testing.T) {
 	svc := &fakeBackupSvc{started: domain.BackfillImport{ID: "bfi_1", Status: "running"}}
-	h := &Handlers{Backup: svc}
-	r := withOrganization(multipartReq(t, []byte("ciphertext"), true, "deadbeef"), testOrganization)
-	w := httptest.NewRecorder()
-	h.ImportBackup(w, r)
+	h := backupRouter(svc, manageOrgPrincipal())
+	w := doBackupReq(h, multipartUploadReq(t, []byte("ciphertext"), true, "deadbeef"))
 
 	if w.Code != http.StatusAccepted {
 		t.Fatalf("status = %d, want 202; body=%s", w.Code, w.Body.String())
@@ -78,45 +100,69 @@ func TestImportBackup_HappyPath(t *testing.T) {
 		t.Fatalf("not threaded: key=%q data=%q", svc.gotKey, svc.gotData)
 	}
 	if svc.gotSuperAdmin {
-		t.Errorf("expected non-super-admin for an unauthenticated test principal")
+		t.Errorf("expected non-super-admin for a plain owner principal")
 	}
 }
 
-func TestImportBackup_NoOrganization401(t *testing.T) {
-	h := &Handlers{Backup: &fakeBackupSvc{}}
-	w := httptest.NewRecorder()
-	h.ImportBackup(w, multipartReq(t, []byte("x"), true, "key"))
+func TestImportBackup_SuperAdminThreaded(t *testing.T) {
+	svc := &fakeBackupSvc{started: domain.BackfillImport{ID: "bfi_1", Status: "running"}}
+	h := backupRouter(svc, superAdminPrincipal())
+	w := doBackupReq(h, multipartUploadReq(t, []byte("ciphertext"), true, "deadbeef"))
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202; body=%s", w.Code, w.Body.String())
+	}
+	if !svc.gotSuperAdmin {
+		t.Errorf("expected super-admin flag threaded for a super_admin principal")
+	}
+}
+
+func TestImportBackup_NoPrincipal401(t *testing.T) {
+	h := backupRouter(&fakeBackupSvc{}, nil)
+	w := doBackupReq(h, multipartUploadReq(t, []byte("x"), true, "key"))
 	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want 401", w.Code)
+		t.Fatalf("status = %d, want 401; body=%s", w.Code, w.Body.String())
+	}
+	if got := decodeError(w.Body.String()).Error.Code; got != domain.CodeUnauthorized {
+		t.Errorf("code = %q, want %q", got, domain.CodeUnauthorized)
+	}
+}
+
+func TestImportBackup_MissingCapability403(t *testing.T) {
+	// A read-only api-key principal must not import backups.
+	p := &authz.Principal{Kind: authz.KindAPIKey, OrganizationID: testOrganization, KeyPermissions: domain.Permissions{Read: true}}
+	h := backupRouter(&fakeBackupSvc{}, p)
+	w := doBackupReq(h, multipartUploadReq(t, []byte("x"), true, "key"))
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403; body=%s", w.Code, w.Body.String())
 	}
 }
 
 func TestImportBackup_MissingKey400(t *testing.T) {
-	h := &Handlers{Backup: &fakeBackupSvc{}}
-	r := withOrganization(multipartReq(t, []byte("x"), true, ""), testOrganization)
-	w := httptest.NewRecorder()
-	h.ImportBackup(w, r)
+	h := backupRouter(&fakeBackupSvc{}, manageOrgPrincipal())
+	w := doBackupReq(h, multipartUploadReq(t, []byte("x"), true, ""))
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400; body=%s", w.Code, w.Body.String())
+	}
+	if got := decodeError(w.Body.String()).Error.Code; got != domain.CodeValidationError {
+		t.Errorf("code = %q, want %q", got, domain.CodeValidationError)
 	}
 }
 
 func TestImportBackup_MissingFile400(t *testing.T) {
-	h := &Handlers{Backup: &fakeBackupSvc{}}
-	r := withOrganization(multipartReq(t, nil, false, "key"), testOrganization)
-	w := httptest.NewRecorder()
-	h.ImportBackup(w, r)
+	h := backupRouter(&fakeBackupSvc{}, manageOrgPrincipal())
+	w := doBackupReq(h, multipartUploadReq(t, nil, false, "key"))
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400; body=%s", w.Code, w.Body.String())
+	}
+	if got := decodeError(w.Body.String()).Error.Code; got != domain.CodeValidationError {
+		t.Errorf("code = %q, want %q", got, domain.CodeValidationError)
 	}
 }
 
 func TestImportBackup_RateLimited429(t *testing.T) {
 	svc := &fakeBackupSvc{err: domain.ErrRateLimited("once per day")}
-	h := &Handlers{Backup: svc}
-	r := withOrganization(multipartReq(t, []byte("x"), true, "key"), testOrganization)
-	w := httptest.NewRecorder()
-	h.ImportBackup(w, r)
+	h := backupRouter(svc, manageOrgPrincipal())
+	w := doBackupReq(h, multipartUploadReq(t, []byte("x"), true, "key"))
 	if w.Code != http.StatusTooManyRequests {
 		t.Fatalf("status = %d, want 429; body=%s", w.Code, w.Body.String())
 	}
@@ -124,10 +170,9 @@ func TestImportBackup_RateLimited429(t *testing.T) {
 
 func TestBackupStatus_HappyPath(t *testing.T) {
 	svc := &fakeBackupSvc{status: domain.BackfillImport{ID: "bfi_1", Status: "succeeded", Messages: 100}}
-	h := &Handlers{Backup: svc}
-	r := withOrganization(chiReq(http.MethodGet, "/api/v1/sessions/sess_1/backfill", "", map[string]string{"session": "sess_1"}), testOrganization)
-	w := httptest.NewRecorder()
-	h.BackupStatus(w, r)
+	h := backupRouter(svc, manageOrgPrincipal())
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/sessions/sess_1/backfill", nil)
+	w := doBackupReq(h, r)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
 	}

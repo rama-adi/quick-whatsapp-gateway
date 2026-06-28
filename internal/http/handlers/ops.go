@@ -10,4 +10,13 @@ import "github.com/danielgtaylor/huma/v2"
 // removed from mountAPIRoutes.
 func RegisterAllOps(api huma.API, h *Handlers) {
 	RegisterWebhookOps(api, h)
+	RegisterSessionOps(api, h)
+	RegisterMessageOps(api, h)
+	RegisterChatOps(api, h)
+	RegisterContactOps(api, h)
+	RegisterGroupOps(api, h)
+	RegisterChannelOps(api, h)
+	RegisterStatusOps(api, h)
+	RegisterAdminOps(api, h)
+	RegisterBackupOps(api, h)
 }
