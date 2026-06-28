@@ -71,6 +71,8 @@ func (a *MessageRecorderAdapter) RecordSent(ctx context.Context, m outbound.Sent
 		Body:            stringPtr(m.Body),
 		QuotedMessageID: stringPtr(m.ReplyTo),
 		Mentions:        mentions,
+		HasMedia:        m.HasMedia,
+		MediaMeta:       m.MediaMeta,
 		Status:          &status,
 		Timestamp:       m.TimestampMs,
 		CreatedAt:       now,

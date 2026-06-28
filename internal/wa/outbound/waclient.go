@@ -3,11 +3,14 @@ package outbound
 import (
 	"context"
 	"fmt"
+	"net/http"
 
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
+
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 )
 
 // whatsmeowAdapter implements WAClient over a real *whatsmeow.Client, translating
@@ -122,6 +125,108 @@ func (a *whatsmeowAdapter) SendContact(ctx context.Context, to, name, phone, vca
 func buildVCard(name, phone string) string {
 	return fmt.Sprintf("BEGIN:VCARD\nVERSION:3.0\nFN:%s\nTEL;type=CELL;type=VOICE;waid=%s:%s\nEND:VCARD",
 		name, phone, phone)
+}
+
+// SendMedia uploads media bytes to WhatsApp and sends the matching message kind
+// (image/video/audio/document/sticker). mediaType is a domain.SendType* constant.
+// mimetype is detected from the bytes when empty; caption applies to image/video/
+// document, filename to document; replyTo/mentions become ContextInfo.
+func (a *whatsmeowAdapter) SendMedia(ctx context.Context, to, mediaType string, data []byte, mimetype, caption, filename, replyTo string, mentions []string) (string, int64, error) {
+	toJID, err := parseJID(to)
+	if err != nil {
+		return "", 0, err
+	}
+	if mimetype == "" {
+		mimetype = http.DetectContentType(data)
+	}
+	up, err := a.cli.Upload(ctx, data, uploadMediaType(mediaType))
+	if err != nil {
+		return "", 0, fmt.Errorf("whatsmeow upload %s: %w", mediaType, err)
+	}
+	ctxInfo := buildContextInfo(replyTo, mentions)
+
+	var msg *waE2E.Message
+	switch mediaType {
+	case domain.SendTypeImage:
+		m := &waE2E.ImageMessage{
+			URL: proto.String(up.URL), DirectPath: proto.String(up.DirectPath), Mimetype: proto.String(mimetype),
+			MediaKey: up.MediaKey, FileEncSHA256: up.FileEncSHA256, FileSHA256: up.FileSHA256,
+			FileLength: proto.Uint64(up.FileLength), ContextInfo: ctxInfo,
+		}
+		if caption != "" {
+			m.Caption = proto.String(caption)
+		}
+		msg = &waE2E.Message{ImageMessage: m}
+	case domain.SendTypeVideo:
+		m := &waE2E.VideoMessage{
+			URL: proto.String(up.URL), DirectPath: proto.String(up.DirectPath), Mimetype: proto.String(mimetype),
+			MediaKey: up.MediaKey, FileEncSHA256: up.FileEncSHA256, FileSHA256: up.FileSHA256,
+			FileLength: proto.Uint64(up.FileLength), ContextInfo: ctxInfo,
+		}
+		if caption != "" {
+			m.Caption = proto.String(caption)
+		}
+		msg = &waE2E.Message{VideoMessage: m}
+	case domain.SendTypeAudio:
+		msg = &waE2E.Message{AudioMessage: &waE2E.AudioMessage{
+			URL: proto.String(up.URL), DirectPath: proto.String(up.DirectPath), Mimetype: proto.String(mimetype),
+			MediaKey: up.MediaKey, FileEncSHA256: up.FileEncSHA256, FileSHA256: up.FileSHA256,
+			FileLength: proto.Uint64(up.FileLength), ContextInfo: ctxInfo,
+		}}
+	case domain.SendTypeDocument:
+		m := &waE2E.DocumentMessage{
+			URL: proto.String(up.URL), DirectPath: proto.String(up.DirectPath), Mimetype: proto.String(mimetype),
+			MediaKey: up.MediaKey, FileEncSHA256: up.FileEncSHA256, FileSHA256: up.FileSHA256,
+			FileLength: proto.Uint64(up.FileLength), ContextInfo: ctxInfo,
+		}
+		if filename != "" {
+			m.FileName = proto.String(filename)
+			m.Title = proto.String(filename)
+		}
+		if caption != "" {
+			m.Caption = proto.String(caption)
+		}
+		msg = &waE2E.Message{DocumentMessage: m}
+	case domain.SendTypeSticker:
+		msg = &waE2E.Message{StickerMessage: &waE2E.StickerMessage{
+			URL: proto.String(up.URL), DirectPath: proto.String(up.DirectPath), Mimetype: proto.String(mimetype),
+			MediaKey: up.MediaKey, FileEncSHA256: up.FileEncSHA256, FileSHA256: up.FileSHA256,
+			FileLength: proto.Uint64(up.FileLength), ContextInfo: ctxInfo,
+		}}
+	default:
+		return "", 0, domain.ErrValidation(fmt.Sprintf("unsupported media type %q", mediaType))
+	}
+	return a.send(ctx, toJID, msg)
+}
+
+// uploadMediaType maps a domain media send type onto whatsmeow's upload key set.
+// Stickers upload under the image key set (whatsmeow's classToMediaType).
+func uploadMediaType(mediaType string) whatsmeow.MediaType {
+	switch mediaType {
+	case domain.SendTypeVideo:
+		return whatsmeow.MediaVideo
+	case domain.SendTypeAudio:
+		return whatsmeow.MediaAudio
+	case domain.SendTypeDocument:
+		return whatsmeow.MediaDocument
+	default: // image, sticker
+		return whatsmeow.MediaImage
+	}
+}
+
+// buildContextInfo assembles reply + mention context, or nil when neither is set.
+func buildContextInfo(replyTo string, mentions []string) *waE2E.ContextInfo {
+	if replyTo == "" && len(mentions) == 0 {
+		return nil
+	}
+	ci := &waE2E.ContextInfo{}
+	if replyTo != "" {
+		ci.StanzaID = proto.String(replyTo)
+	}
+	if len(mentions) > 0 {
+		ci.MentionedJID = mentions
+	}
+	return ci
 }
 
 func (a *whatsmeowAdapter) React(ctx context.Context, chat, sender, msgID, emoji string) (string, int64, error) {

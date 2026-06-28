@@ -79,6 +79,14 @@ func (c *RoutingWAClient) SendContact(ctx context.Context, to, name, phone, vcar
 	return w.SendContact(ctx, to, name, phone, vcard)
 }
 
+func (c *RoutingWAClient) SendMedia(ctx context.Context, to, mediaType string, data []byte, mimetype, caption, filename, replyTo string, mentions []string) (string, int64, error) {
+	w, err := c.client(ctx)
+	if err != nil {
+		return "", 0, err
+	}
+	return w.SendMedia(ctx, to, mediaType, data, mimetype, caption, filename, replyTo, mentions)
+}
+
 func (c *RoutingWAClient) React(ctx context.Context, chat, sender, msgID, emoji string) (string, int64, error) {
 	w, err := c.client(ctx)
 	if err != nil {

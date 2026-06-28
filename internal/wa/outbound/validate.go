@@ -6,27 +6,17 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 )
 
-// mediaTypes are the send types that parse but are not implemented in v1 (§8:
-// media sends return 501). Kept as a set so validate can give a precise error.
-var mediaTypes = map[string]struct{}{
-	domain.SendTypeImage:    {},
-	domain.SendTypeVideo:    {},
-	domain.SendTypeAudio:    {},
-	domain.SendTypeDocument: {},
-	domain.SendTypeSticker:  {},
-}
+// MaxMediaBytes caps the decoded size of an inline (base64) media send. It bounds
+// memory use and the size of the JSON payload stored on the outbox row for async
+// sends; it sits under WhatsApp's own media limits.
+const MaxMediaBytes = 16 * 1024 * 1024 // 16 MiB
 
 // validate checks a SendRequest's type and the per-type required fields,
-// returning a *domain.APIError (validation_error / not_implemented) on failure.
-// It is the single gate before any whatsmeow call: media types are rejected with
-// not_implemented (501) here so they never reach dispatch.
+// returning a *domain.APIError (validation_error) on failure. It is the single
+// gate before any whatsmeow call.
 func validate(req domain.SendRequest) error {
 	if req.Type == "" {
 		return domain.ErrValidation("send type is required")
-	}
-	if _, isMedia := mediaTypes[req.Type]; isMedia {
-		return domain.ErrNotImplemented(fmt.Sprintf("media send type %q is not implemented in v1", req.Type)).
-			WithDetails(map[string]any{"type": req.Type})
 	}
 	if req.To == "" {
 		return domain.ErrValidation("recipient 'to' is required")
@@ -61,10 +51,25 @@ func validate(req domain.SendRequest) error {
 		if req.Contact.VCard == "" && (req.Contact.Name == "" || req.Contact.Phone == "") {
 			return domain.ErrValidation("contact requires either a vcard or both name and phone")
 		}
+	case domain.SendTypeImage, domain.SendTypeVideo, domain.SendTypeAudio, domain.SendTypeDocument, domain.SendTypeSticker:
+		if req.Media == nil || req.Media.Data == "" {
+			return domain.ErrValidation(fmt.Sprintf("media.data (base64) is required for type '%s'", req.Type))
+		}
+		// Reject oversized payloads up front, from the base64 length, without
+		// decoding the whole thing (decoded bytes ≈ 3/4 of the encoded length).
+		if approxDecodedLen(req.Media.Data) > MaxMediaBytes {
+			return domain.ErrValidation(fmt.Sprintf("media exceeds the %d byte limit", MaxMediaBytes))
+		}
 	default:
 		return domain.ErrValidation(fmt.Sprintf("unknown send type %q", req.Type))
 	}
 	return nil
+}
+
+// approxDecodedLen estimates the byte length a base64 string decodes to (3 bytes
+// per 4 chars), ignoring padding nuances — close enough for an upper-bound check.
+func approxDecodedLen(b64 string) int {
+	return len(b64) / 4 * 3
 }
 
 // MessageOp identifies a message sub-resource operation (§11) routed through

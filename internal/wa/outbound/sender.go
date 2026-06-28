@@ -2,11 +2,13 @@ package outbound
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"strings"
 	"time"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
@@ -179,7 +181,10 @@ func (s *Sender) sendAsync(ctx context.Context, sess domain.WASession, req domai
 }
 
 // persistOutbox marshals the request and inserts an outbox row with the given
-// status, returning the populated entry.
+// status, returning the populated entry. For a media send the inline bytes are
+// stored here only transiently: the async worker needs them to perform the
+// upload, and the store strips them from the row once the send reaches a terminal
+// state (see store.OutboxRepo.UpdateStatus) so the file content is not retained.
 func (s *Sender) persistOutbox(ctx context.Context, sess domain.WASession, req domain.SendRequest, idemKey string, status domain.OutboxStatus) (*domain.OutboxEntry, error) {
 	payload, err := json.Marshal(req)
 	if err != nil {
@@ -234,6 +239,15 @@ func (s *Sender) dispatch(ctx context.Context, req domain.SendRequest) (waMessag
 			name, phone, vcard = req.Contact.Name, req.Contact.Phone, req.Contact.VCard
 		}
 		waMessageID, ts, err = s.wa.SendContact(ctx, req.To, name, phone, vcard)
+	case domain.SendTypeImage, domain.SendTypeVideo, domain.SendTypeAudio, domain.SendTypeDocument, domain.SendTypeSticker:
+		var data []byte
+		var mimetype string
+		data, mimetype, err = decodeMedia(req.Media)
+		if err != nil {
+			return "", 0, err
+		}
+		caption, filename := mediaCaptionFilename(req.Media)
+		waMessageID, ts, err = s.wa.SendMedia(ctx, req.To, req.Type, data, mimetype, caption, filename, req.ReplyTo, req.Mentions)
 	default:
 		// Unreachable for validated requests; guard anyway.
 		return "", 0, domain.ErrValidation(fmt.Sprintf("unsupported send type %q", req.Type))
@@ -262,6 +276,7 @@ func (s *Sender) recordSent(ctx context.Context, req domain.SendRequest, waMessa
 	if ts == 0 {
 		ts = s.clock.NowMs()
 	}
+	mediaMeta, hasMedia := outboundMedia(req)
 	if err := s.recorder.RecordSent(ctx, SentMessage{
 		SessionID:   sessionID,
 		WAMessageID: waMessageID,
@@ -270,6 +285,8 @@ func (s *Sender) recordSent(ctx context.Context, req domain.SendRequest, waMessa
 		Body:        outboundBody(req),
 		ReplyTo:     req.ReplyTo,
 		Mentions:    req.Mentions,
+		HasMedia:    hasMedia,
+		MediaMeta:   mediaMeta,
 		TimestampMs: ts,
 	}); err != nil {
 		s.log.WarnContext(ctx, "outbound: record sent message failed",
@@ -278,8 +295,8 @@ func (s *Sender) recordSent(ctx context.Context, req domain.SendRequest, waMessa
 }
 
 // outboundBody is the human-readable body stored for a send: the text for a text
-// message, the question for a poll, the label for a location; empty otherwise
-// (the type column carries the rest).
+// message, the question for a poll, the label for a location, the caption for
+// media; empty otherwise (the type column carries the rest).
 func outboundBody(req domain.SendRequest) string {
 	switch req.Type {
 	case domain.SendTypeText:
@@ -287,8 +304,86 @@ func outboundBody(req domain.SendRequest) string {
 	case domain.SendTypePoll, domain.SendTypeLocation:
 		return req.Name
 	default:
+		if isMediaType(req.Type) && req.Media != nil {
+			return req.Media.Caption
+		}
 		return ""
 	}
+}
+
+// isMediaType reports whether a send type carries a media file.
+func isMediaType(t string) bool {
+	switch t {
+	case domain.SendTypeImage, domain.SendTypeVideo, domain.SendTypeAudio, domain.SendTypeDocument, domain.SendTypeSticker:
+		return true
+	}
+	return false
+}
+
+// outboundMedia derives the media descriptor recorded on the messages row for a
+// media send (best-effort metadata; size is the approximate decoded length).
+func outboundMedia(req domain.SendRequest) (*domain.MediaMeta, bool) {
+	if !isMediaType(req.Type) || req.Media == nil {
+		return nil, false
+	}
+	return &domain.MediaMeta{
+		Mimetype: req.Media.Mimetype,
+		Size:     int64(approxDecodedLen(req.Media.Data)),
+		Filename: req.Media.Filename,
+	}, true
+}
+
+// mediaCaptionFilename pulls the caption + filename off a media payload (nil-safe).
+func mediaCaptionFilename(m *domain.MediaPayload) (caption, filename string) {
+	if m == nil {
+		return "", ""
+	}
+	return m.Caption, m.Filename
+}
+
+// decodeMedia decodes the base64 payload of a media send into raw bytes and
+// returns the declared mimetype. It accepts a bare base64 string or a data: URI
+// (pulling the mimetype from the URI when one isn't given), tolerates padded or
+// raw base64, and enforces MaxMediaBytes. Decode/size failures are validation
+// errors (400), never 500s.
+func decodeMedia(m *domain.MediaPayload) ([]byte, string, error) {
+	if m == nil || strings.TrimSpace(m.Data) == "" {
+		return nil, "", domain.ErrValidation("media.data (base64) is required")
+	}
+	raw := strings.TrimSpace(m.Data)
+	mimetype := m.Mimetype
+	if strings.HasPrefix(raw, "data:") {
+		if i := strings.IndexByte(raw, ','); i >= 0 {
+			header := raw[len("data:"):i] // e.g. "image/png;base64"
+			raw = raw[i+1:]
+			if mimetype == "" {
+				if j := strings.IndexByte(header, ';'); j >= 0 {
+					mimetype = header[:j]
+				} else {
+					mimetype = header
+				}
+			}
+		}
+	}
+	data, err := decodeBase64(raw)
+	if err != nil {
+		return nil, "", domain.ErrValidation("media.data must be valid base64")
+	}
+	if len(data) == 0 {
+		return nil, "", domain.ErrValidation("media.data decoded to empty")
+	}
+	if len(data) > MaxMediaBytes {
+		return nil, "", domain.ErrValidation(fmt.Sprintf("media exceeds the %d byte limit", MaxMediaBytes))
+	}
+	return data, mimetype, nil
+}
+
+// decodeBase64 accepts both standard (padded) and raw (unpadded) base64.
+func decodeBase64(s string) ([]byte, error) {
+	if b, err := base64.StdEncoding.DecodeString(s); err == nil {
+		return b, nil
+	}
+	return base64.RawStdEncoding.DecodeString(s)
 }
 
 // Dispatch is the exported entry point the async outbox worker uses to drive a

@@ -75,6 +75,12 @@ type WAClient interface {
 	// SendContact sends a contact card. vcard, when non-empty, is sent verbatim;
 	// otherwise the adapter builds one from name/phone.
 	SendContact(ctx context.Context, to, name, phone, vcard string) (waMessageID string, ts int64, err error)
+	// SendMedia uploads media bytes to WhatsApp and sends the matching message
+	// kind. mediaType is a domain.SendType* media constant (image/video/audio/
+	// document/sticker); mimetype is detected from the bytes when ""; caption
+	// (image/video/document), filename (document), replyTo and mentions are
+	// optional (replyTo is a quoted wa_message_id).
+	SendMedia(ctx context.Context, to, mediaType string, data []byte, mimetype, caption, filename, replyTo string, mentions []string) (waMessageID string, ts int64, err error)
 
 	// React adds (or, with emoji=="", removes) a reaction to a message
 	// (BuildReaction). chat is the target chat JID; sender is the original
@@ -133,12 +139,14 @@ type MessageRecorder interface {
 type SentMessage struct {
 	SessionID   string
 	WAMessageID string
-	ChatJID     string   // the recipient JID (req.To)
-	Type        string   // one of the domain.SendType* constants
-	Body        string   // text body / poll question / location label ("" for none)
-	ReplyTo     string   // quoted wa_message_id ("" for none)
-	Mentions    []string // mentioned JIDs
-	TimestampMs int64    // server timestamp of the send, epoch-ms
+	ChatJID     string            // the recipient JID (req.To)
+	Type        string            // one of the domain.SendType* constants
+	Body        string            // text body / poll question / location label / media caption ("" for none)
+	ReplyTo     string            // quoted wa_message_id ("" for none)
+	Mentions    []string          // mentioned JIDs
+	HasMedia    bool              // true for media sends (image, …)
+	MediaMeta   *domain.MediaMeta // media descriptor (mimetype/size/filename) when HasMedia
+	TimestampMs int64             // server timestamp of the send, epoch-ms
 }
 
 // RateLimiter enforces the per-session send budget (rate_per_min / rate_per_hour,

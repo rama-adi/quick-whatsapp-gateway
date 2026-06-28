@@ -173,6 +173,10 @@ invokes the binary. The auth plane is migrated separately by drizzle-kit in the 
   other DB errors wrapped with `%w` + a `store: <op>` prefix.
 - **Concurrency.** Work-claim queries (`OutboxRepo.ClaimQueued`, `WebhookDeliveryRepo.ClaimDue`)
   are documented as the multi-instance upgrade point (`FOR UPDATE SKIP LOCKED`).
+- **No retained media bytes.** An outbound media send carries its file inline (base64) in the
+  `outbox.payload`; `OutboxRepo.UpdateStatus` strips `$.media.data` (via `JSON_REMOVE`) when the
+  row is marked `sent`, so the bytes live only until the send is dispatched. A `failed` row keeps
+  the payload so the async worker can retry.
 
 ## How it's tested
 

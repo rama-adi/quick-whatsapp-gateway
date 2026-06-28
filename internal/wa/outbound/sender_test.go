@@ -24,6 +24,10 @@ type fakeWA struct {
 	err      error
 	lastText string
 	lastTo   string
+
+	lastMediaType string
+	lastMediaData []byte
+	lastMimetype  string
 }
 
 func newFakeWA() *fakeWA { return &fakeWA{id: "WAMSG1", ts: 1719400000000} }
@@ -49,6 +53,15 @@ func (f *fakeWA) SendLocation(_ context.Context, _ string, _, _ float64, _ strin
 }
 func (f *fakeWA) SendContact(_ context.Context, _, _, _, _ string) (string, int64, error) {
 	f.record("SendContact")
+	return f.id, f.ts, f.err
+}
+func (f *fakeWA) SendMedia(_ context.Context, _, mediaType string, data []byte, mimetype, _, _, _ string, _ []string) (string, int64, error) {
+	f.record("SendMedia")
+	f.mu.Lock()
+	f.lastMediaType = mediaType
+	f.lastMediaData = data
+	f.lastMimetype = mimetype
+	f.mu.Unlock()
 	return f.id, f.ts, f.err
 }
 func (f *fakeWA) React(_ context.Context, _, _, _, _ string) (string, int64, error) {
@@ -194,6 +207,11 @@ func TestSend_TypeRouting(t *testing.T) {
 		{"poll", domain.SendRequest{Type: domain.SendTypePoll, To: "g@g.us", Name: "Q", Options: []string{"A", "B"}, SelectableCount: 1}, "SendPoll"},
 		{"location", domain.SendRequest{Type: domain.SendTypeLocation, To: "a@s.whatsapp.net", Latitude: -8.65, Longitude: 115.21, Name: "Bali"}, "SendLocation"},
 		{"contact", domain.SendRequest{Type: domain.SendTypeContact, To: "a@s.whatsapp.net", Contact: &domain.ContactCard{Name: "Bob", Phone: "628"}}, "SendContact"},
+		{"image", domain.SendRequest{Type: domain.SendTypeImage, To: "a@s.whatsapp.net", Media: &domain.MediaPayload{Data: "aGVsbG8="}}, "SendMedia"},
+		{"video", domain.SendRequest{Type: domain.SendTypeVideo, To: "a@s.whatsapp.net", Media: &domain.MediaPayload{Data: "aGVsbG8="}}, "SendMedia"},
+		{"audio", domain.SendRequest{Type: domain.SendTypeAudio, To: "a@s.whatsapp.net", Media: &domain.MediaPayload{Data: "aGVsbG8="}}, "SendMedia"},
+		{"document", domain.SendRequest{Type: domain.SendTypeDocument, To: "a@s.whatsapp.net", Media: &domain.MediaPayload{Data: "aGVsbG8=", Filename: "f.pdf"}}, "SendMedia"},
+		{"sticker", domain.SendRequest{Type: domain.SendTypeSticker, To: "a@s.whatsapp.net", Media: &domain.MediaPayload{Data: "aGVsbG8="}}, "SendMedia"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -293,7 +311,7 @@ func TestSend_RecorderErrorDoesNotFailSend(t *testing.T) {
 	require.Equal(t, "WAMSG1", res.WAMessageID)
 }
 
-func TestSend_MediaTypesReturn501(t *testing.T) {
+func TestSend_MediaWithoutDataIsValidationError(t *testing.T) {
 	for _, typ := range []string{domain.SendTypeImage, domain.SendTypeVideo, domain.SendTypeAudio, domain.SendTypeDocument, domain.SendTypeSticker} {
 		t.Run(typ, func(t *testing.T) {
 			wa := newFakeWA()
@@ -303,10 +321,38 @@ func TestSend_MediaTypesReturn501(t *testing.T) {
 			require.Error(t, err)
 			var apiErr *domain.APIError
 			require.ErrorAs(t, err, &apiErr)
-			require.Equal(t, domain.CodeNotImplemented, apiErr.Code)
-			require.Zero(t, wa.callCount(), "media must never reach whatsmeow")
+			require.Equal(t, domain.CodeValidationError, apiErr.Code)
+			require.Zero(t, wa.callCount(), "an invalid send must never reach whatsmeow")
 		})
 	}
+}
+
+func TestSend_ImageDecodesAndForwardsBytes(t *testing.T) {
+	wa := newFakeWA()
+	s := NewSender(wa, newFakeOutbox(), &allowLimiter{}, fixedClock{ms: 1000})
+	_, err := s.Send(context.Background(), testSession(),
+		domain.SendRequest{Type: domain.SendTypeImage, To: "a@s.whatsapp.net",
+			Media: &domain.MediaPayload{Data: "aGVsbG8=", Mimetype: "image/png", Caption: "hi"}},
+		SendOptions{})
+	require.NoError(t, err)
+	require.Equal(t, []string{"SendMedia"}, wa.calls)
+	require.Equal(t, domain.SendTypeImage, wa.lastMediaType)
+	require.Equal(t, []byte("hello"), wa.lastMediaData)
+	require.Equal(t, "image/png", wa.lastMimetype)
+}
+
+func TestSend_ImageInvalidBase64IsValidationError(t *testing.T) {
+	wa := newFakeWA()
+	s := NewSender(wa, newFakeOutbox(), &allowLimiter{}, fixedClock{})
+	_, err := s.Send(context.Background(), testSession(),
+		domain.SendRequest{Type: domain.SendTypeImage, To: "a@s.whatsapp.net",
+			Media: &domain.MediaPayload{Data: "!!!not base64!!!"}},
+		SendOptions{})
+	require.Error(t, err)
+	var apiErr *domain.APIError
+	require.ErrorAs(t, err, &apiErr)
+	require.Equal(t, domain.CodeValidationError, apiErr.Code)
+	require.Zero(t, wa.callCount())
 }
 
 func TestSend_ValidationErrors(t *testing.T) {

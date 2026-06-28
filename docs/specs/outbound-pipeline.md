@@ -10,8 +10,14 @@ limiting, optional jittered pacing, and a sync/async split.
 
 - Unified typed send: `text`, `poll`, `location`, `contact`.
 - Message sub-resource ops (§13): `reaction`, `edit`, `revoke`, `vote`, `forward`.
-- Media types (`image|video|audio|document|sticker`) → `not_implemented` (501),
-  rejected before any WhatsApp call.
+- Media sends (`image|video|audio|document|sticker`): the file is supplied inline
+  as base64 in `media.data` (no server-side URL fetch). The adapter `Upload`s the
+  bytes to WhatsApp and builds the matching message (caption on image/video/
+  document, filename on document; `replyTo`/`mentions` become `ContextInfo`).
+  Decoded size is capped at `MaxMediaBytes` (16 MiB). **Media bytes are never
+  retained**: they live on the `outbox` row only until the send is dispatched,
+  and the store strips `media.data` from the payload once the row is marked
+  `sent` (kept on `failed` so the async worker can retry).
 - Sync mode (default): block on the whatsmeow ack, return
   `{waMessageId, status, timestamp}`.
 - Async mode (`?async=true`): persist a queued `outbox` row, return its id; the
@@ -51,8 +57,9 @@ All collaborators are small interfaces owned by this package — no sibling
 `internal/*` imports.
 
 - `WAClient` — narrow slice of whatsmeow: `SendText`, `SendPoll`, `SendLocation`,
-  `SendContact`, `React`, `Edit`, `Revoke`, `Vote`, `Forward`. Each returns
-  `(waMessageID string, ts int64, err error)`, `ts` in epoch-ms.
+  `SendContact`, `SendMedia` (image/video/audio/document/sticker via `Upload` +
+  the matching message), `React`, `Edit`, `Revoke`, `Vote`, `Forward`. Each
+  returns `(waMessageID string, ts int64, err error)`, `ts` in epoch-ms.
 - `OutboxRepo` — `Insert`, `GetByIdempotencyKey`, `UpdateStatus`, `ClaimQueued`.
   `Insert` MUST enforce `(organization_id, idempotency_key)` uniqueness and return a
   conflict-coded error on duplicates (the pipeline falls back to a replay).
@@ -89,6 +96,9 @@ whatsmeow. It maps each method to the recon §7 path:
   mentions are present.
 - poll → `BuildPollCreation`; location → `LocationMessage`; contact →
   `ContactMessage` (vcard verbatim, else built from name/phone).
+- media → `Upload(bytes, MediaType)` then the matching `ImageMessage`/
+  `VideoMessage`/`AudioMessage`/`DocumentMessage`/`StickerMessage` (sticker uploads
+  under the image key set). Mimetype is `http.DetectContentType`'d when omitted.
 - reaction → `BuildReaction`; edit → `BuildEdit`; revoke → `BuildRevoke`;
   vote → `BuildPollVote` (needs a synthesized poll `MessageInfo`).
 - All dispatched via `SendMessage`; `SendResponse.Timestamp` is `.UnixMilli()`d.
@@ -147,7 +157,12 @@ atomic op.
   `sending` row, then flip to `sent`/`failed` with the `wa_message_id` recorded,
   so a later replay reconstructs the original `SendResult`. A duplicate-insert
   race falls back to replaying the stored row.
-- **Media rejected in `validate`**, never reaching `dispatch` — a hard 501 gate.
+- **Media is base64-inline and never retained**: `validate` requires `media.data`
+  and enforces `MaxMediaBytes`; `dispatch` decodes it (a data: URI is accepted)
+  and hands the bytes to `SendMedia`. The bytes ride the `outbox` payload only
+  until dispatch — `store.OutboxRepo.UpdateStatus` strips `$.media.data` once the
+  row is `sent` (kept on `failed` for retry). The `messages` row records only the
+  caption + media metadata, never the bytes.
 - **Pacing** is opt-in jitter (`WithPacing`) applied before each sync dispatch;
   the RNG is injectable for deterministic tests.
 
@@ -159,8 +174,9 @@ Table-driven, all boundaries faked through the consumer interfaces:
   window reset via `FastForward`, per-session isolation, unlimited-when-zero.
 - `sender_test.go` (in-memory `fakeOutbox`, recording `fakeWA`, allow/deny
   limiters, `fixedClock`):
-  - type routing (text/poll/location/contact) hits the right WAClient method;
-  - media types → 501 and never dispatch;
+  - type routing (text/poll/location/contact, and media → `SendMedia`) hits the
+    right WAClient method; media base64 is decoded and the bytes forwarded;
+  - media without `data`, or invalid base64, → `validation_error`, no dispatch;
   - validation errors for each type;
   - sync rate-limited → `rate_limited` error + no dispatch;
   - async persists a queued row, defers under a deny limiter, no inline dispatch;

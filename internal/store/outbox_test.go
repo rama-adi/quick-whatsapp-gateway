@@ -76,12 +76,29 @@ func TestOutboxRepo_GetByIdempotency_NotFound(t *testing.T) {
 }
 
 func TestOutboxRepo_UpdateStatus(t *testing.T) {
+	// On success the payload's inline media bytes are stripped (JSON_REMOVE) so the
+	// file content is not retained once the row is drained.
 	db, mock := newMock(t)
 	repo := NewOutboxRepo(db)
-	mock.ExpectExec("UPDATE outbox SET status=., wa_message_id=., error=., updated_at=. WHERE id=.").
+	mock.ExpectExec("UPDATE outbox SET status=., wa_message_id=., error=., updated_at=., payload=JSON_REMOVE.* WHERE id=.").
 		WithArgs(domain.OutboxSent, strptr("wamid_9"), (*string)(nil), int64(300), "out_1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	if err := repo.UpdateStatus(context.Background(), "out_1", domain.OutboxSent, strptr("wamid_9"), nil, 300); err != nil {
+		t.Fatalf("UpdateStatus: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestOutboxRepo_UpdateStatus_FailedKeepsPayload(t *testing.T) {
+	// A failed row keeps its payload (no JSON_REMOVE) so the async worker can retry.
+	db, mock := newMock(t)
+	repo := NewOutboxRepo(db)
+	mock.ExpectExec("UPDATE outbox SET status=., wa_message_id=., error=., updated_at=. WHERE id=.").
+		WithArgs(domain.OutboxFailed, (*string)(nil), strptr("boom"), int64(300), "out_1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	if err := repo.UpdateStatus(context.Background(), "out_1", domain.OutboxFailed, nil, strptr("boom"), 300); err != nil {
 		t.Fatalf("UpdateStatus: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {

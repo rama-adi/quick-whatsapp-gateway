@@ -1388,6 +1388,32 @@ components:
           format: int64
           type: integer
       type: object
+    MediaPayload:
+      additionalProperties: false
+      properties:
+        caption:
+          description: Optional caption shown beneath the media.
+          examples:
+            - Here you go!
+          type: string
+        data:
+          description: The file's bytes, base64-encoded (standard encoding, padding optional). Required for media sends.
+          examples:
+            - iVBORw0KGgoAAAANSUhEUgAA...=
+          type: string
+        filename:
+          description: Optional original filename (used for documents). Optional.
+          examples:
+            - photo.jpg
+          type: string
+        mimetype:
+          description: The file's MIME type, e.g. image/jpeg. Detected from the bytes when omitted.
+          examples:
+            - image/jpeg
+          type: string
+      required:
+        - data
+      type: object
     Message:
       additionalProperties: false
       properties:
@@ -2100,6 +2126,9 @@ components:
             - 106.816666
           format: double
           type: number
+        media:
+          $ref: "#/components/schemas/MediaPayload"
+          description: The media file to send (base64). Required for the media types (image/video/audio/document/sticker). Caption, replyTo, and mentions apply.
         mentions:
           description: JIDs to @-mention in the message. Optional.
           examples:
@@ -2147,7 +2176,7 @@ components:
             - 6281234567890@s.whatsapp.net
           type: string
         type:
-          description: Which kind of message to send. Determines which other fields are required. **text** uses text (+ optional replyTo/mentions); **poll** uses name (question) + options + selectableCount; **location** uses latitude + longitude + optional name (label); **contact** uses contact. The media types **image**, **video**, **audio**, **document**, **sticker** parse but are not implemented in this build and return 501 (not_implemented).
+          description: Which kind of message to send. Determines which other fields are required. **text** uses text (+ optional replyTo/mentions); **poll** uses name (question) + options + selectableCount; **location** uses latitude + longitude + optional name (label); **contact** uses contact. The media types **image**, **video**, **audio**, **document**, **sticker** use media (a base64 file + optional caption/filename, replyTo, mentions).
           enum:
             - text
             - poll

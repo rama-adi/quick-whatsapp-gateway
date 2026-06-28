@@ -2647,6 +2647,28 @@ export interface components {
              */
             size?: number;
         };
+        MediaPayload: {
+            /**
+             * @description Optional caption shown beneath the media.
+             * @example Here you go!
+             */
+            caption?: string;
+            /**
+             * @description The file's bytes, base64-encoded (standard encoding, padding optional). Required for media sends.
+             * @example iVBORw0KGgoAAAANSUhEUgAA...=
+             */
+            data: string;
+            /**
+             * @description Optional original filename (used for documents). Optional.
+             * @example photo.jpg
+             */
+            filename?: string;
+            /**
+             * @description The file's MIME type, e.g. image/jpeg. Detected from the bytes when omitted.
+             * @example image/jpeg
+             */
+            mimetype?: string;
+        };
         Message: {
             /**
              * Format: int64
@@ -3152,6 +3174,8 @@ export interface components {
              * @example 106.816666
              */
             longitude?: number;
+            /** @description The media file to send (base64). Required for the media types (image/video/audio/document/sticker). Caption, replyTo, and mentions apply. */
+            media?: components["schemas"]["MediaPayload"];
             /**
              * @description JIDs to @-mention in the message. Optional.
              * @example [
@@ -3195,7 +3219,7 @@ export interface components {
              */
             to: string;
             /**
-             * @description Which kind of message to send. Determines which other fields are required. **text** uses text (+ optional replyTo/mentions); **poll** uses name (question) + options + selectableCount; **location** uses latitude + longitude + optional name (label); **contact** uses contact. The media types **image**, **video**, **audio**, **document**, **sticker** parse but are not implemented in this build and return 501 (not_implemented).
+             * @description Which kind of message to send. Determines which other fields are required. **text** uses text (+ optional replyTo/mentions); **poll** uses name (question) + options + selectableCount; **location** uses latitude + longitude + optional name (label); **contact** uses contact. The media types **image**, **video**, **audio**, **document**, **sticker** use media (a base64 file + optional caption/filename, replyTo, mentions).
              * @example text
              * @enum {string}
              */

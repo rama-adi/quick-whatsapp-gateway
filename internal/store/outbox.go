@@ -80,7 +80,15 @@ func (r *OutboxRepo) GetByIdempotency(ctx context.Context, organizationID, idemp
 // (wa_message_id on success, error on failure), bumping updated_at. waMessageID
 // and errMsg may be nil.
 func (r *OutboxRepo) UpdateStatus(ctx context.Context, id string, status domain.OutboxStatus, waMessageID, errMsg *string, updatedAt int64) error {
-	const q = `UPDATE outbox SET status=?, wa_message_id=?, error=?, updated_at=? WHERE id=?`
+	// Once a send has succeeded, strip any inline media bytes from the stored
+	// payload — the file content is only needed until the row is dispatched and
+	// must not be retained afterward. JSON_REMOVE is a no-op for non-media
+	// payloads (the '$.media.data' path simply isn't present). The bytes are kept
+	// on a failed row so the async worker can still retry it.
+	q := `UPDATE outbox SET status=?, wa_message_id=?, error=?, updated_at=? WHERE id=?`
+	if status == domain.OutboxSent {
+		q = `UPDATE outbox SET status=?, wa_message_id=?, error=?, updated_at=?, payload=JSON_REMOVE(payload, '$.media.data') WHERE id=?`
+	}
 	res, err := r.db.ExecContext(ctx, q, status, waMessageID, errMsg, updatedAt, id)
 	if err != nil {
 		return fmt.Errorf("store: update outbox status: %w", err)
