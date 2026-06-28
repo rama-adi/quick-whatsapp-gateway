@@ -28,7 +28,7 @@ api-key `reference_id`, never by joining `member` on the hot path ([`trust-model
 | `whatsapp_groups` | `GroupRepo` | global |
 | `whatsapp_group_members` | `GroupMemberRepo` | identity↔group pivot (role + `tag`), via `session_id` |
 | `chats` | `ChatRepo` | via `session_id` |
-| `messages` | `MessageRepo` | via `session_id` |
+| `messages` | `MessageRepo` | via `session_id` (inbound captures **and** the gateway's own sends — see below) |
 | `poll_votes` | `PollVoteRepo` | via `session_id` |
 | `outbox` | `OutboxRepo` | `organization_id` (idempotency) |
 | `event_log` | `EventLogRepo` | `organization_id` |
@@ -107,6 +107,15 @@ invokes the binary. The auth plane is migrated separately by drizzle-kit in the 
 - **NULL/JSON.** Nullable columns are `*T`; nullable JSON binds through `nullableJSON`; JSON reads
   as opaque `json.RawMessage` or typed structs (`permissions`, `retry_policy`, `media_meta`,
   `custom_headers`, `events`).
+- **`messages` has two writers.** The inbound pipeline writes received messages
+  (`direction='in'`, plus `from_me`/`out` rows for sends echoed from the account's
+  *other* devices); the outbound pipeline writes the gateway's own sends
+  (`from_me=true`, `direction='out'`, `status='sent'`) via
+  `MessageRecorderAdapter` on each successful dispatch — see
+  [`outbound-pipeline.md`](outbound-pipeline.md). Both go through
+  `MessageRepo.Upsert` keyed by `(session_id, wa_message_id)`, so the two paths
+  reconcile onto one row rather than duplicating (a self-send and any later echo
+  of it collapse to the same message).
 - **Message ids.** `messages.id` is a generated `msg_<ULID>` string, not an auto-incrementing
   integer. It stays lexicographically sortable for cursor pagination while avoiding a single
   hot monotonic database counter under high write throughput.

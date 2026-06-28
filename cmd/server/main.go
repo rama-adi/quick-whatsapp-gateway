@@ -185,7 +185,12 @@ func run() error {
 	// Real send path: the Sender routes each request to the live per-session
 	// whatsmeow client resolved from the manager (via outbound.WithSessionID on
 	// the context). Sessions without a connected client return not_implemented.
-	sender := outbound.NewSender(service.NewRoutingWAClient(manager), outboxAdapter, limiter, outbound.SystemClock())
+	// Record every successful send into the messages table (from_me/out/sent) so
+	// the gateway's own sends appear in chat history — whatsmeow never echoes a
+	// self-authored send back to the inbound pipeline on the same device.
+	msgRecorder := service.NewMessageRecorderAdapter(st.Messages, st.Chats, nil)
+	sender := outbound.NewSender(service.NewRoutingWAClient(manager), outboxAdapter, limiter, outbound.SystemClock(),
+		outbound.WithMessageRecorder(msgRecorder))
 
 	// Register this gateway's self-row in the gateways registry (§4.5/§7) before
 	// the manager adopts sessions. Best-effort: a write failure is logged, not

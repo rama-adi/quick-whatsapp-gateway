@@ -22,11 +22,18 @@ limiting, optional jittered pacing, and a sync/async split.
 - Rate limiting: per-session token budget in Redis (`rate_per_min` /
   `rate_per_hour`); sync over-limit → `rate_limited` error; async over-limit →
   defer (the row stays queued).
+- Message recording: every **successful** dispatch (sync or async-drained) is
+  written to the `messages` table as a `from_me` / `direction='out'` /
+  `status='sent'` row, so the gateway's own sends show up in chat history.
+  whatsmeow does not echo a self-authored send back as an `events.Message` on the
+  same device, so without this the inbound pipeline never sees it and the only
+  trace is the transient `outbox` row.
 
 ## Key types
 
 - `Sender` (sender.go) — the pipeline. `NewSender(wa, outbox, limits, clock,
-  opts...)`. Options: `WithPacing(max)`, `WithLogger(l)`.
+  opts...)`. Options: `WithPacing(max)`, `WithLogger(l)`,
+  `WithMessageRecorder(r)`.
   - `Send(ctx, sess, req, opts) (SendResult, error)` — validate → idempotency
     replay → async-persist OR sync-dispatch.
   - `SendOp(ctx, sess, OpRequest) (SendResult, error)` — synchronous message ops,
@@ -51,6 +58,27 @@ All collaborators are small interfaces owned by this package — no sibling
   conflict-coded error on duplicates (the pipeline falls back to a replay).
 - `RateLimiter` — `Allow(ctx, sessionID, perMin, perHour) (ok, retryAfter, err)`.
 - `Clock` — `NowMs() int64`. `SystemClock()` is the production impl.
+- `MessageRecorder` — `RecordSent(ctx, SentMessage) error`. Optional (wired via
+  `WithMessageRecorder`; nil disables recording). The `service`-package adapter
+  (`MessageRecorderAdapter`) upserts the chat then the message via the store
+  repos, keyed by `(session_id, wa_message_id)` — the **same** idempotent key the
+  inbound pipeline uses, so a later echo or receipt reconciles onto the row
+  instead of duplicating it.
+
+## Message recording (the bot's own sends)
+
+Recording happens inside the private `dispatch()` — the single chokepoint both
+the sync front-door and the async worker (via the exported `Dispatch`) funnel
+through, so every successful send is recorded exactly once. The row carries
+`from_me=true`, `direction='out'`, `status='sent'`, the recipient as `chat_jid`,
+and the body/quote/mentions from the request (`type` carries the rest). Sender
+identity columns are left NULL (own messages have no resolved sender name).
+
+Recording is **best-effort**: a recorder error is logged and swallowed, never
+returned. The WhatsApp send already succeeded, so surfacing the error would both
+mis-report the API result and flip the `outbox` row to `failed` (tripping a
+needless retry). It is also skipped when no recorder is wired or the session id /
+wa-message id is unknown (e.g. a unit-test dispatch with a fake client).
 
 ## The real adapter (waclient.go)
 

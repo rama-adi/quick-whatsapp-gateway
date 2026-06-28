@@ -209,6 +209,90 @@ func TestSend_TypeRouting(t *testing.T) {
 	}
 }
 
+// fakeRecorder captures the SentMessages handed to it, with an optional error.
+type fakeRecorder struct {
+	mu  sync.Mutex
+	got []SentMessage
+	err error
+}
+
+func (f *fakeRecorder) RecordSent(_ context.Context, m SentMessage) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.err != nil {
+		return f.err
+	}
+	f.got = append(f.got, m)
+	return nil
+}
+
+func (f *fakeRecorder) records() []SentMessage {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]SentMessage(nil), f.got...)
+}
+
+func TestSend_RecordsSentMessage(t *testing.T) {
+	wa := newFakeWA()
+	rec := &fakeRecorder{}
+	s := NewSender(wa, newFakeOutbox(), &allowLimiter{}, fixedClock{ms: 1000}, WithMessageRecorder(rec))
+
+	_, err := s.Send(context.Background(), testSession(),
+		domain.SendRequest{Type: domain.SendTypeText, To: "a@s.whatsapp.net", Text: "hi", ReplyTo: "WAQUOTE", Mentions: []string{"x@s.whatsapp.net"}},
+		SendOptions{})
+	require.NoError(t, err)
+
+	got := rec.records()
+	require.Len(t, got, 1)
+	require.Equal(t, "sess_1", got[0].SessionID)
+	require.Equal(t, "WAMSG1", got[0].WAMessageID)
+	require.Equal(t, "a@s.whatsapp.net", got[0].ChatJID)
+	require.Equal(t, domain.SendTypeText, got[0].Type)
+	require.Equal(t, "hi", got[0].Body)
+	require.Equal(t, "WAQUOTE", got[0].ReplyTo)
+	require.Equal(t, []string{"x@s.whatsapp.net"}, got[0].Mentions)
+	require.Equal(t, wa.ts, got[0].TimestampMs)
+}
+
+func TestSend_AsyncDrainRecordsSentMessage(t *testing.T) {
+	wa := newFakeWA()
+	rec := &fakeRecorder{}
+	s := NewSender(wa, newFakeOutbox(), &allowLimiter{}, fixedClock{ms: 1000}, WithMessageRecorder(rec))
+
+	// The async worker re-dispatches a persisted request via the exported
+	// Dispatch; recording must fire there too (it shares the dispatch chokepoint).
+	ctx := WithSessionID(context.Background(), "sess_1")
+	_, _, err := s.Dispatch(ctx, domain.SendRequest{Type: domain.SendTypeText, To: "a@s.whatsapp.net", Text: "drained"})
+	require.NoError(t, err)
+
+	got := rec.records()
+	require.Len(t, got, 1)
+	require.Equal(t, "drained", got[0].Body)
+}
+
+func TestSend_FailedSendDoesNotRecord(t *testing.T) {
+	wa := newFakeWA()
+	wa.err = errors.New("boom")
+	rec := &fakeRecorder{}
+	s := NewSender(wa, newFakeOutbox(), &allowLimiter{}, fixedClock{ms: 1000}, WithMessageRecorder(rec))
+
+	_, err := s.Send(context.Background(), testSession(),
+		domain.SendRequest{Type: domain.SendTypeText, To: "a@s.whatsapp.net", Text: "hi"}, SendOptions{})
+	require.Error(t, err)
+	require.Empty(t, rec.records(), "a failed send must not be recorded")
+}
+
+func TestSend_RecorderErrorDoesNotFailSend(t *testing.T) {
+	wa := newFakeWA()
+	rec := &fakeRecorder{err: errors.New("db down")}
+	s := NewSender(wa, newFakeOutbox(), &allowLimiter{}, fixedClock{ms: 1000}, WithMessageRecorder(rec))
+
+	res, err := s.Send(context.Background(), testSession(),
+		domain.SendRequest{Type: domain.SendTypeText, To: "a@s.whatsapp.net", Text: "hi"}, SendOptions{})
+	require.NoError(t, err, "the WhatsApp send succeeded; a recorder failure must not surface")
+	require.Equal(t, "WAMSG1", res.WAMessageID)
+}
+
 func TestSend_MediaTypesReturn501(t *testing.T) {
 	for _, typ := range []string{domain.SendTypeImage, domain.SendTypeVideo, domain.SendTypeAudio, domain.SendTypeDocument, domain.SendTypeSticker} {
 		t.Run(typ, func(t *testing.T) {

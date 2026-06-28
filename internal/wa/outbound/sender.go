@@ -16,11 +16,12 @@ import (
 // domain.SendRequest, enforces idempotency and per-session rate limiting, then
 // either blocks on the WhatsApp ack (sync) or persists to the outbox (async).
 type Sender struct {
-	wa     WAClient
-	outbox OutboxRepo
-	limits RateLimiter
-	clock  Clock
-	log    *slog.Logger
+	wa       WAClient
+	outbox   OutboxRepo
+	limits   RateLimiter
+	clock    Clock
+	recorder MessageRecorder
+	log      *slog.Logger
 
 	// pacing, when > 0, applies a random sleep in [0, pacing) before each sync
 	// send to mimic human cadence (the optional "jittered pacing" of §8).
@@ -41,6 +42,13 @@ func WithPacing(max time.Duration) SenderOption {
 // WithLogger sets the structured logger (defaults to slog.Default()).
 func WithLogger(l *slog.Logger) SenderOption {
 	return func(s *Sender) { s.log = l }
+}
+
+// WithMessageRecorder wires the recorder that writes each successful send into
+// the messages table (the gateway's own "bot messages"). Without it, sends are
+// tracked only in the outbox and never appear in chat history.
+func WithMessageRecorder(r MessageRecorder) SenderOption {
+	return func(s *Sender) { s.recorder = r }
 }
 
 // withRand overrides the jitter RNG (test hook).
@@ -207,26 +215,79 @@ func (s *Sender) pace() {
 	}
 }
 
-// dispatch routes a validated request to the right WAClient call. Media types
-// never reach here (validate rejects them). It is also the single place the
-// async worker can reuse to drive a persisted request to whatsmeow.
+// dispatch routes a validated request to the right WAClient call, then records
+// the sent message to the messages table. Media types never reach here (validate
+// rejects them). It is the single chokepoint both the sync front-door and the
+// async worker (via the exported Dispatch) funnel through, so recording here
+// covers every successful send exactly once.
 func (s *Sender) dispatch(ctx context.Context, req domain.SendRequest) (waMessageID string, ts int64, err error) {
 	switch req.Type {
 	case domain.SendTypeText:
-		return s.wa.SendText(ctx, req.To, req.Text, req.ReplyTo, req.Mentions)
+		waMessageID, ts, err = s.wa.SendText(ctx, req.To, req.Text, req.ReplyTo, req.Mentions)
 	case domain.SendTypePoll:
-		return s.wa.SendPoll(ctx, req.To, req.Name, req.Options, req.SelectableCount)
+		waMessageID, ts, err = s.wa.SendPoll(ctx, req.To, req.Name, req.Options, req.SelectableCount)
 	case domain.SendTypeLocation:
-		return s.wa.SendLocation(ctx, req.To, req.Latitude, req.Longitude, req.Name)
+		waMessageID, ts, err = s.wa.SendLocation(ctx, req.To, req.Latitude, req.Longitude, req.Name)
 	case domain.SendTypeContact:
 		var name, phone, vcard string
 		if req.Contact != nil {
 			name, phone, vcard = req.Contact.Name, req.Contact.Phone, req.Contact.VCard
 		}
-		return s.wa.SendContact(ctx, req.To, name, phone, vcard)
+		waMessageID, ts, err = s.wa.SendContact(ctx, req.To, name, phone, vcard)
 	default:
 		// Unreachable for validated requests; guard anyway.
 		return "", 0, domain.ErrValidation(fmt.Sprintf("unsupported send type %q", req.Type))
+	}
+	if err != nil {
+		return "", 0, err
+	}
+	s.recordSent(ctx, req, waMessageID, ts)
+	return waMessageID, ts, nil
+}
+
+// recordSent best-effort persists a messages-table row for a successful send
+// (from_me, direction=out, status=sent). A recorder failure is logged, never
+// returned: the WhatsApp send already succeeded and must not be reported as
+// failed (which would also flip the outbox row to failed and trip a needless
+// retry). No-op when no recorder is wired or the session id / message id is
+// unknown (e.g. a unit-test dispatch with a fake client).
+func (s *Sender) recordSent(ctx context.Context, req domain.SendRequest, waMessageID string, ts int64) {
+	if s.recorder == nil || waMessageID == "" {
+		return
+	}
+	sessionID := SessionIDFromContext(ctx)
+	if sessionID == "" {
+		return
+	}
+	if ts == 0 {
+		ts = s.clock.NowMs()
+	}
+	if err := s.recorder.RecordSent(ctx, SentMessage{
+		SessionID:   sessionID,
+		WAMessageID: waMessageID,
+		ChatJID:     req.To,
+		Type:        req.Type,
+		Body:        outboundBody(req),
+		ReplyTo:     req.ReplyTo,
+		Mentions:    req.Mentions,
+		TimestampMs: ts,
+	}); err != nil {
+		s.log.WarnContext(ctx, "outbound: record sent message failed",
+			"session", sessionID, "waMessageId", waMessageID, "err", err)
+	}
+}
+
+// outboundBody is the human-readable body stored for a send: the text for a text
+// message, the question for a poll, the label for a location; empty otherwise
+// (the type column carries the rest).
+func outboundBody(req domain.SendRequest) string {
+	switch req.Type {
+	case domain.SendTypeText:
+		return req.Text
+	case domain.SendTypePoll, domain.SendTypeLocation:
+		return req.Name
+	default:
+		return ""
 	}
 }
 

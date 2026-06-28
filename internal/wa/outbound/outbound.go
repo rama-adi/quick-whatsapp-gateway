@@ -112,6 +112,35 @@ type OutboxRepo interface {
 	ClaimQueued(ctx context.Context, sessionID string, limit int) ([]*domain.OutboxEntry, error)
 }
 
+// MessageRecorder persists a row in the messages table for a successfully
+// dispatched outbound send, so the gateway's own sends ("bot messages") show up
+// in chat history alongside inbound messages. whatsmeow does NOT echo a
+// self-authored send back as an events.Message on the same device, so without
+// this the inbound pipeline never sees it and the only trace is the transient
+// outbox row. Recording is best-effort (the Sender logs and swallows errors —
+// the WhatsApp send already succeeded) and optional (wired via
+// WithMessageRecorder; nil disables it). The store implementation upserts keyed
+// by (session_id, wa_message_id), the same key the inbound pipeline uses, so a
+// later echo or receipt reconciles onto the same row instead of duplicating it.
+type MessageRecorder interface {
+	RecordSent(ctx context.Context, m SentMessage) error
+}
+
+// SentMessage is the content-bearing slice of a successful send the recorder
+// needs to write a from_me/direction=out/status=sent messages row. Sender/ack
+// fields (session id, wa message id, timestamp) are filled by the Sender from
+// the dispatch result and request context.
+type SentMessage struct {
+	SessionID   string
+	WAMessageID string
+	ChatJID     string   // the recipient JID (req.To)
+	Type        string   // one of the domain.SendType* constants
+	Body        string   // text body / poll question / location label ("" for none)
+	ReplyTo     string   // quoted wa_message_id ("" for none)
+	Mentions    []string // mentioned JIDs
+	TimestampMs int64    // server timestamp of the send, epoch-ms
+}
+
 // RateLimiter enforces the per-session send budget (rate_per_min / rate_per_hour,
 // §8). Allow consumes one token from both windows atomically; it returns ok=false
 // (with a retryAfter hint) when either window is exhausted. A Redis-backed
