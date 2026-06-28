@@ -1,38 +1,40 @@
-// Event-stream transport: opens GET {GATEWAY_URL}/api/v1/events as an NDJSON
-// ReadableStream against the gateway DIRECTLY (R4) and dispatches decoded frames.
+// Event-stream transport: the realtime channel is a single WebSocket on the
+// CENTRAL ROUTER (docs/specs/router.md, plan D5). A browser WebSocket cannot set
+// an Authorization header, so authorization happens once at ticket mint (a normal
+// bearer-authenticated POST) and the WS handshake merely redeems a short-lived,
+// single-use ticket carried in the URL.
 //
-// v2 shape (§4, §12): the browser connects to the gateway with a Bearer JWT (NOT
-// the cookie session — the gateway is cross-origin). The existing fetch +
-// ReadableStream logic is preserved; only the URL + auth changed:
-//   - apiUrl() now points at VITE_GATEWAY_URL/api/v1.
-//   - we attach `Authorization: Bearer <jwt>` from the token provider; no
-//     credentials:"include".
-//   - the JWT is short-lived (5 min); the consumer (useEventStream) refreshes it
-//     and reconnects via since={lastEventId} (§4.7) so a token roll never tears
-//     the view.
+// Flow:
+//   1. POST {ROUTER}/api/v1/realtime/ticket with the bearer JWT + requested scope
+//      (session or organization), event filter, and ?since cursor. The router
+//      authorizes the scope and returns a single-use ticket.
+//   2. Open ws(s)://{ROUTER}/api/v1/realtime?ticket=… and pump frames.
 //
-// Verified against internal/stream/handler.go:
-//   - the filter param is `events` (NOT `types`); default "*".
-//   - `since={id}` replays event_log oldest-first and dedups the boundary,
-//     so callers do NOT need client-side dedup on normal reconnects.
-//   - the stream opens with a {"event":"connected","heartbeatSeconds":N} line.
-//   - heartbeat lines are {"event":"ping"} (~20s), no id/payload.
-//   - an in-band {"event":"error"} line signals replay/stream failure.
+// The frame shapes are unchanged from the previous NDJSON transport
+// (connected/ping/error/data), so the EventStreamProvider above is untouched:
+//   - opens with {"event":"connected","heartbeatSeconds":N}
+//   - heartbeat {"event":"ping"} (~20s)
+//   - in-band {"event":"error"} signals replay/stream failure
+//   - data frames are full event envelopes (carry an id used as the ?since cursor)
 
-import { apiUrl } from "../api/client";
-import { getGatewayToken } from "../api/token-provider";
+import { apiUrl, ApiError, fetchJSON } from "../api/client";
 import type { EventEnvelope } from "../api/types";
-import { parseNdjson, isConnectedFrame, isPingFrame, isErrorFrame } from "./ndjson";
+import {
+  isConnectedFrame,
+  isPingFrame,
+  isErrorFrame,
+  type StreamFrame,
+} from "./ndjson";
 
 /** Why the stream ended; the provider maps these to reconnect/polling. */
 export type StreamErrorKind = "replay_failed" | "http" | "eof" | "network";
 
 export interface OpenEventStreamOptions {
-  /** Event-type filter; default "*" (all). Sent as ?events=. */
+  /** Event-type filter; default "*" (all). */
   events?: string;
   /** Restrict to a single session id; omit for all of the tenant's sessions. */
   session?: string;
-  /** Replay cursor — last data-frame id seen. Sent as ?since= on reconnect. */
+  /** Replay cursor — last data-frame id seen; replayed via the ticket's since. */
   since?: string;
   signal: AbortSignal;
   /** Called for every data frame (NOT connected/pings/errors). */
@@ -46,64 +48,112 @@ export interface OpenEventStreamOptions {
   onError: (kind: StreamErrorKind, status?: number) => void;
 }
 
+interface TicketResponse {
+  ticket: string;
+  expiresInSeconds: number;
+  url: string;
+}
+
 /**
- * Open the stream and pump frames until it ends or the signal aborts. Resolves
- * when the stream is done; rejects nothing — terminal conditions are reported
- * via onError so the caller has one code path for reconnection.
+ * Mint a ticket then open the WebSocket and pump frames until it closes or the
+ * signal aborts. Resolves when done; terminal conditions are reported via onError
+ * so the caller has one reconnection code path.
  */
 export async function openEventStream(o: OpenEventStreamOptions): Promise<void> {
-  const qs = new URLSearchParams();
-  qs.set("events", o.events ?? "*");
-  if (o.session) qs.set("session", o.session);
-  if (o.since) qs.set("since", o.since);
-
-  const headers: Record<string, string> = { Accept: "application/x-ndjson" };
-  const token = await getGatewayToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
-
-  let res: Response;
+  // 1) Mint a single-use ticket (bearer-authenticated; authz happens here).
+  let ticket: TicketResponse;
   try {
-    res = await fetch(apiUrl(`/events?${qs.toString()}`), {
-      method: "GET",
-      headers,
-      signal: o.signal,
+    ticket = await fetchJSON<TicketResponse>(apiUrl("/realtime/ticket"), {
+      method: "POST",
+      body: JSON.stringify({
+        scope: o.session ? "session" : "organization",
+        session: o.session,
+        events: (o.events ?? "*").split(",").map((s) => s.trim()).filter(Boolean),
+        since: o.since,
+      }),
     });
   } catch (err) {
     if (o.signal.aborted) return;
-    o.onError("network");
+    o.onError("http", err instanceof ApiError ? err.status : undefined);
     return;
   }
 
-  if (!res.ok) {
-    o.onError("http", res.status);
-    return;
-  }
-  if (!res.body) {
-    o.onError("http", res.status);
-    return;
-  }
+  if (o.signal.aborted) return;
 
-  try {
-    for await (const frame of parseNdjson(res.body, o.signal)) {
-      // The leading `connected` frame and periodic pings are both liveness-only:
-      // they prove the socket is open without carrying a data event or cursor.
+  // 2) Redeem the ticket over the WebSocket. Build the ws(s):// URL from our own
+  // API base (not the server-advertised url, which may use an internal hostname).
+  const wsUrl = apiUrl(`/realtime?ticket=${encodeURIComponent(ticket.ticket)}`).replace(
+    /^http/,
+    "ws",
+  );
+
+  return new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = (kind?: StreamErrorKind, status?: number): void => {
+      if (settled) return;
+      settled = true;
+      o.signal.removeEventListener("abort", onAbort);
+      if (kind && !o.signal.aborted) o.onError(kind, status);
+      resolve();
+    };
+
+    let socket: WebSocket;
+    try {
+      socket = new WebSocket(wsUrl);
+    } catch {
+      o.onError("network");
+      resolve();
+      return;
+    }
+
+    const onAbort = (): void => {
+      try {
+        socket.close();
+      } catch {
+        /* ignore */
+      }
+      finish();
+    };
+    o.signal.addEventListener("abort", onAbort, { once: true });
+
+    socket.onmessage = (ev: MessageEvent): void => {
+      const frame = tryParse(typeof ev.data === "string" ? ev.data : "");
+      if (!frame) return;
       if (isConnectedFrame(frame) || isPingFrame(frame)) {
         o.onPing();
-        continue;
-      }
-      if (isErrorFrame(frame)) {
-        o.onError("replay_failed");
         return;
       }
-      // Data frame.
+      if (isErrorFrame(frame)) {
+        try {
+          socket.close();
+        } catch {
+          /* ignore */
+        }
+        finish("replay_failed");
+        return;
+      }
       o.onEvent(frame);
-    }
-    // Generator completed without an explicit error frame: the server closed.
-    if (!o.signal.aborted) {
-      o.onError("eof");
-    }
-  } catch (err) {
-    if (o.signal.aborted) return;
-    o.onError("network");
+    };
+
+    socket.onerror = (): void => {
+      finish("network");
+    };
+
+    socket.onclose = (): void => {
+      // A clean server close with no prior error frame looks like EOF; the
+      // provider reconnects with the cached since cursor.
+      finish("eof");
+    };
+  });
+}
+
+function tryParse(line: string): StreamFrame | null {
+  if (!line) return null;
+  try {
+    const obj = JSON.parse(line) as unknown;
+    if (obj && typeof obj === "object") return obj as StreamFrame;
+    return null;
+  } catch {
+    return null;
   }
 }
