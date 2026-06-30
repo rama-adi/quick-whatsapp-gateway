@@ -114,7 +114,7 @@ function senderKey(m: Message): string {
 }
 
 function messageId(m: Message): string {
-  return m.id ?? `${m.timestamp}-${senderKey(m)}`;
+  return m.waMessageId || m.id || `${m.timestamp}-${senderKey(m)}`;
 }
 
 /** Group an ascending message list into same-sender runs, tagging day breaks. */

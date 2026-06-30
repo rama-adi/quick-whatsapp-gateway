@@ -42,6 +42,28 @@ export function useChatMessages(
 
 type Infinite = InfiniteData<Page<Message>, string | undefined>;
 
+function messageKey(m: Message): string {
+  return m.waMessageId || m.id || `${m.chatJid}:${m.timestamp}:${m.direction}`;
+}
+
+function normalizeMessages(data: Infinite | undefined): Infinite | undefined {
+  if (!data) return data;
+  const seen = new Set<string>();
+  return {
+    ...data,
+    pages: data.pages.map((page) => {
+      const rows: Message[] = [];
+      for (const msg of page.data) {
+        const key = messageKey(msg);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        rows.push(msg);
+      }
+      return { ...page, data: rows };
+    }),
+  };
+}
+
 export function useSendMessage(
   s: string,
 ): UseMutationResult<
@@ -150,10 +172,10 @@ export function useSendMessage(
         }
         const [first, ...rest] = data.pages;
         if (!first) return data;
-        return {
+        return normalizeMessages({
           ...data,
           pages: [{ ...first, data: [optimistic, ...first.data] }, ...rest],
-        };
+        });
       });
       return { tmpId, chatJid };
     },
@@ -180,10 +202,13 @@ export function useSendMessage(
         // If the stream echo (message.from_me) already inserted the real
         // message before this resolved, drop the optimistic tmp instead of
         // renaming it — renaming would leave two rows sharing the real id.
-        const realExists =
-          realId != null &&
-          data.pages.some((p) => p.data.some((m) => m.id === realId));
-        return {
+        const realExists = Boolean(
+          realId &&
+            data.pages.some((p) =>
+              p.data.some((m) => messageKey(m) === realId),
+            ),
+        );
+        return normalizeMessages({
           ...data,
           pages: data.pages.map((p) => ({
             ...p,
@@ -194,13 +219,14 @@ export function useSendMessage(
                     ? {
                         ...m,
                         id: realId ?? m.id,
+                        waMessageId: realId ?? m.waMessageId,
                         status: (result.status as Message["status"]) ?? m.status,
                         timestamp: result.timestamp ?? m.timestamp,
                       }
                     : m,
                 ),
           })),
-        };
+        });
       });
     },
   });

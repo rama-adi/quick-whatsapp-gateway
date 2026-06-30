@@ -180,6 +180,7 @@ type Chat struct {
 	ID            uint64   `json:"id" doc:"The chat row id (internal numeric key)." example:"3344"`
 	SessionID     string   `json:"sessionId" doc:"Id of the session this chat belongs to." example:"01J9ZX8K2QHV0M3T6R7P4N5W8C"`
 	ChatJID       string   `json:"jid" doc:"The chat's WhatsApp JID — its stable identifier." example:"6281234567890@s.whatsapp.net"` // REST/OpenAPI contract field is `jid` (matches the frontend Chat type + SSR reads)
+	Aliases       []string `json:"aliases,omitempty" doc:"Equivalent JIDs for this chat. For DMs this can include both the canonical LID and linked phone JID, allowing clients to merge rows observed through either address." example:"205227043110953@lid"`
 	Type          ChatType `json:"type" enum:"dm,group,newsletter,broadcast,status" doc:"Kind of chat. **dm** = one-to-one direct message; **group** = a group chat; **newsletter** = a WhatsApp channel; **broadcast** = a broadcast list; **status** = the status (stories) feed." example:"dm"`
 	Name          *string  `json:"name,omitempty" doc:"The chat's display name (contact name for a DM, subject for a group). Optional; null when unknown." example:"Alice"`
 	LastMessageAt *int64   `json:"lastMessageAt,omitempty" doc:"When the most recent message in this chat arrived, in epoch milliseconds (UTC). Optional; null if the chat has no messages." example:"1719662400000"`

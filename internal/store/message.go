@@ -161,8 +161,15 @@ func (r *MessageRepo) ListByChat(ctx context.Context, sessionID, chatJID, cursor
 		return Page[domain.Message]{}, err
 	}
 	limit = normLimit(limit)
-	q := "SELECT " + messageCols + messageFrom + "WHERE m.session_id = ? AND m.chat_jid = ? AND m.id > ? ORDER BY m.id ASC LIMIT ?"
-	rows, err := r.db.QueryContext(ctx, q, sessionID, chatJID, afterID, limit)
+	q := "SELECT " + messageCols + messageFrom + `WHERE m.session_id = ? AND m.id > ? AND (
+		m.chat_jid = ? OR EXISTS (
+			SELECT 1
+			FROM whatsapp_identities i
+			WHERE (i.lid = ? OR i.phone_jid = ?)
+			  AND (m.chat_jid = i.lid OR m.chat_jid = i.phone_jid)
+		)
+	) ORDER BY m.id ASC LIMIT ?`
+	rows, err := r.db.QueryContext(ctx, q, sessionID, afterID, chatJID, chatJID, chatJID, limit)
 	if err != nil {
 		return Page[domain.Message]{}, fmt.Errorf("store: list messages: %w", err)
 	}

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -30,7 +31,14 @@ const chatCols = `c.id, c.session_id, c.chat_jid, c.type,
 		ORDER BY CASE WHEN i.lid = c.chat_jid THEN 0 ELSE 1 END, i.id DESC
 		LIMIT 1
 	), c.name) AS name, c.last_message_at,
-	c.unread_count, c.archived, c.pinned, c.muted_until`
+	c.unread_count, c.archived, c.pinned, c.muted_until,
+	(
+		SELECT JSON_ARRAY(i.lid, i.phone_jid)
+		FROM whatsapp_identities i
+		WHERE c.type = 'dm' AND (i.lid = c.chat_jid OR i.phone_jid = c.chat_jid)
+		ORDER BY CASE WHEN i.lid = c.chat_jid THEN 0 ELSE 1 END, i.id DESC
+		LIMIT 1
+	) AS aliases`
 
 // chatFrom is the FROM/JOIN clause paired with chatCols.
 const chatFrom = ` FROM chats c
@@ -38,12 +46,24 @@ const chatFrom = ` FROM chats c
 
 func scanChat(s rowScanner) (domain.Chat, error) {
 	var c domain.Chat
+	var aliases []byte
 	err := s.Scan(
 		&c.ID, &c.SessionID, &c.ChatJID, &c.Type, &c.Name, &c.LastMessageAt,
-		&c.UnreadCount, &c.Archived, &c.Pinned, &c.MutedUntil,
+		&c.UnreadCount, &c.Archived, &c.Pinned, &c.MutedUntil, &aliases,
 	)
 	if err != nil {
 		return domain.Chat{}, err
+	}
+	if len(aliases) > 0 {
+		var raw []*string
+		if err := json.Unmarshal(aliases, &raw); err != nil {
+			return domain.Chat{}, scanErr("chats.aliases", err)
+		}
+		for _, alias := range raw {
+			if alias != nil && *alias != "" {
+				c.Aliases = append(c.Aliases, *alias)
+			}
+		}
 	}
 	return c, nil
 }
@@ -72,8 +92,15 @@ ON DUPLICATE KEY UPDATE
 
 // Get fetches a chat by (session_id, chat_jid). Maps no-rows to not_found.
 func (r *ChatRepo) Get(ctx context.Context, sessionID, chatJID string) (domain.Chat, error) {
-	q := "SELECT " + chatCols + chatFrom + "WHERE c.session_id = ? AND c.chat_jid = ?"
-	c, err := scanChat(r.db.QueryRowContext(ctx, q, sessionID, chatJID))
+	q := "SELECT " + chatCols + chatFrom + `WHERE c.session_id = ? AND (
+		c.chat_jid = ? OR EXISTS (
+			SELECT 1
+			FROM whatsapp_identities i
+			WHERE (i.lid = ? OR i.phone_jid = ?)
+			  AND (c.chat_jid = i.lid OR c.chat_jid = i.phone_jid)
+		)
+	) ORDER BY CASE WHEN c.chat_jid = ? THEN 0 ELSE 1 END, c.last_message_at DESC, c.id DESC LIMIT 1`
+	c, err := scanChat(r.db.QueryRowContext(ctx, q, sessionID, chatJID, chatJID, chatJID, chatJID))
 	if err != nil {
 		return domain.Chat{}, notFound(err, "chat")
 	}
