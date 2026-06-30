@@ -1,0 +1,78 @@
+# Self-host, single-box stack: one app container + MySQL + Redis.
+#
+# Use this when one server owns the whole install and one gateway instance is
+# enough. The app image runs the router, gateway, and frontend together; MySQL,
+# Redis, and the WhatsApp keystore stay on separate persistent volumes.
+#
+#   docker compose -f deploy/docker-compose.selfhost.yml up --build -d
+#
+# Public app ports:
+#   - 3000: dashboard + better-auth
+#   - 8090: router API (the only public API front door)
+#
+# The gateway is intentionally not published. The router reaches it on localhost
+# inside the app container and signs every proxied request with its internal
+# assertion.
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.selfhost
+    ports:
+      - "3000:3000"
+      - "8090:8090"
+    environment:
+      # Router.
+      ROUTER_HTTP_ADDR: ":8090"
+      ROUTER_PUBLIC_URL: "${ROUTER_PUBLIC_URL:-http://localhost:8090}"
+      ROUTER_ISSUER: "${ROUTER_ISSUER:-router}"
+      ROUTER_ED25519_PRIVATE_KEY: "${ROUTER_ED25519_PRIVATE_KEY}"
+      BETTER_AUTH_URL: "${BETTER_AUTH_URL:-http://localhost:3000}"
+      BETTER_AUTH_JWKS_URL: "http://127.0.0.1:3000/api/auth/jwks"
+      FRONTEND_ORIGINS: "${FRONTEND_ORIGINS:-http://localhost:3000}"
+      MYSQL_DSN: "gw:gwpass@tcp(mysql:3306)/gateway?parseTime=true&charset=utf8mb4&clientFoundRows=true"
+      REDIS_URL: "redis://redis:6379"
+      REDIS_PREFIX: "${REDIS_PREFIX:-gw}"
+
+      # Gateway.
+      HTTP_ADDR: ":8080"
+      GATEWAY_ID: "${GATEWAY_ID:-gw-1}"
+      PUBLIC_URL: "http://127.0.0.1:8080"
+      ROUTER_JWKS_URL: "http://127.0.0.1:8090/.well-known/router-jwks.json"
+      ROUTER_ASSERTION_ISSUER: "${ROUTER_ASSERTION_ISSUER:-router}"
+      APP_ENCRYPTION_KEY: "${APP_ENCRYPTION_KEY}"
+      WHATSMEOW_STORE_DSN: "file:/data/keystore/store.db?_pragma=foreign_keys(on)&_pragma=journal_mode(WAL)"
+      WHATSAPP_ADMIN_NUMBER: "${WHATSAPP_ADMIN_NUMBER:-}"
+      WHATSAPP_ADMIN_ORG_ID: "${WHATSAPP_ADMIN_ORG_ID:-}"
+      WHATSAPP_ADMIN_CMD_PREFIX: "${WHATSAPP_ADMIN_CMD_PREFIX:-am}"
+
+      # Frontend.
+      BETTER_AUTH_SECRET: "${BETTER_AUTH_SECRET}"
+      DATABASE_URL: "mysql://gw:gwpass@mysql:3306/gateway"
+      GATEWAY_URL: "http://127.0.0.1:8090"
+      VITE_GATEWAY_URL: "${ROUTER_PUBLIC_URL:-http://localhost:8090}"
+      PUBSUB_REDIS_URL: "redis://redis:6379"
+      USER_REGISTRATION_ENABLED: "${USER_REGISTRATION_ENABLED:-false}"
+      ADMIN_USER_IDS: "${ADMIN_USER_IDS:-}"
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+    volumes: ["keystore_data:/data/keystore"]
+    depends_on: [mysql, redis]
+
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: gateway
+      MYSQL_USER: gw
+      MYSQL_PASSWORD: gwpass
+      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:-rootpass}"
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    volumes: ["mysql_data:/var/lib/mysql"]
+
+  redis:
+    image: redis:7-alpine
+    volumes: ["redis_data:/data"]
+
+volumes:
+  mysql_data: {}
+  redis_data: {}
+  keystore_data: {}

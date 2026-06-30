@@ -111,36 +111,40 @@ and does the WhatsApp work, so the two never have to sit on the same machine.
 
 | Service | Job | Stack |
 | --- | --- | --- |
-| **Gateway** (Go) | Holds the live WhatsApp sessions; serves the REST API, event stream, and webhooks. No human login — it verifies the frontend's JWTs (against the cached JWKS) and `wa_` api-keys locally, with no per-request callback. | whatsmeow, `CGO_ENABLED=0` |
-| **Frontend** (`web/`) | The dashboard and the only place humans log in. Owns identity: email/password, 2FA, api-keys, organizations. Reads WhatsApp data straight from MySQL for fast pages; acts through the gateway API. | TanStack Start, better-auth, Drizzle |
+| **Router** (Go) | The public API front door. Authenticates JWTs and `wa_` api-keys, resolves which gateway owns a session, and proxies with a request-bound internal assertion. | `CGO_ENABLED=0` |
+| **Gateway** (Go) | Holds the live WhatsApp sessions; serves the internal REST handlers, event stream, and webhooks. It trusts only the router assertion, not end-user credentials. | whatsmeow, `CGO_ENABLED=0` |
+| **Frontend** (`web/`) | The dashboard and the only place humans log in. Owns identity: email/password, 2FA, api-keys, organizations. Reads WhatsApp data straight from MySQL for fast pages; calls the router API. | TanStack Start, better-auth, Drizzle |
 
 Resources are owned by an organization, not a user, so sharing a connection means inviting someone
-into your org. Revoking a key or banning a user in the dashboard reaches every gateway within about
-a minute over a Redis control channel.
+into your org. Revoking a key or banning a user in the dashboard reaches the router immediately
+over a Redis control channel, with cache TTLs as a backstop.
 
 ## Deploying
 
-Two images, built and shipped on their own:
+Three app images, built and shipped on their own:
 
 ```sh
-make build                                                      # gateway (deploy/Dockerfile)
-docker build -f deploy/Dockerfile.web -t whatsmeow-frontend .   # frontend
+docker build -f deploy/Dockerfile.router -t whatsmeow-router .
+docker build -f deploy/Dockerfile -t whatsmeow-gateway .
+docker build -f deploy/Dockerfile.web -t whatsmeow-frontend .
 ```
 
-- `deploy/docker-compose.yml` — everything in one place (both services + MySQL + Redis).
-- `deploy/docker-compose.external.yml` — bring your own MySQL + Redis.
+- `deploy/docker-compose.selfhost.yml` — one-box self-host install: one app container (router + gateway + frontend) + MySQL + Redis.
+- `deploy/docker-compose.yml` — local all-in-one stack with the gateway port also published for inspection.
+- `deploy/docker-compose.external.yml` — modular app containers over your own MySQL + Redis.
 - `deploy/docker-compose.dev.yml` — infra only, for the host dev loop above.
 
-The frontend runs anywhere it can reach MySQL and the gateway. The gateway runs near WhatsApp with
-its `/data/keystore` volume. Gateway config is set through env vars (`HTTP_ADDR`, `MYSQL_DSN`,
-`WHATSMEOW_STORE_DSN`, `BETTER_AUTH_URL`, `FRONTEND_ORIGINS`, `APP_ENCRYPTION_KEY`, …); the full
-list with defaults lives in `deploy/.env.example`.
+The frontend runs anywhere it can reach MySQL and the router. The router is the public API base URL.
+Gateways run near WhatsApp with their `/data/keystore` volumes and a `PUBLIC_URL` reachable by the
+router. The full deployment guide is in `web/content/docs/dev/deploying.mdx`; the full env reference
+lives in `deploy/.env.example` and `web/.env.example`.
 
 ## Repo layout
 
 ```
+cmd/router/    router entrypoint
 cmd/server/    gateway entrypoint (also: server migrate up|down)
-internal/      gateway: authz/ · controlbus/ · http/ · wa/ · store/ · webhooks/ · stream/ · queue/
+internal/      router/ · assertion/ · authz/ · http/ · wa/ · store/ · webhooks/ · stream/ · queue/
 migrations/    WhatsApp data tables (golang-migrate)
 web/           frontend: TanStack Start + better-auth + Drizzle + shadcn; docs site under /docs
 deploy/        Dockerfiles · compose files · .env.example

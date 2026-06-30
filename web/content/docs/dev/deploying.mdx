@@ -1,27 +1,51 @@
 ---
 title: Deploying
-description: Run the router, gateway, and frontend as Docker images over one MySQL and one Redis. Covers migrations, the volume to back up, the full environment-variable reference, and how to host the halves separately.
+description: Choose a self-host single-box install or a modular scaler/SaaS topology. Covers Docker Compose, migrations, registration lockdown, backups, and the environment variables that must line up.
 ---
 
-The system runs as three app services — the router, the gateway, and the frontend
-— plus one MySQL database and one Redis they share. The gateway also keeps its
-WhatsApp keystore in a SQLite file on a volume.
+There are two supported deployment stories:
 
-| Service | Image | Port | Owns |
+| Mode | Use it when | Deploy shape |
+|---|---|---|
+| **Self-host single box** | You want one private WhatsApp gateway for yourself, a team, or a small internal app. | One server runs one app container (router + gateway + frontend), MySQL, Redis, and the gateway keystore volume. |
+| **Scaler / SaaS** | You are operating this as a product or a larger platform. | The frontend, router/API front door, database, Redis, and one or more gateways are independently hosted and scaled. |
+
+Both modes use the same runtime pieces. The difference is packaging and who owns
+the operational work. The self-host path stitches the router, gateway, and
+frontend into one app image, includes MySQL and Redis in Compose, and defaults
+self-registration off. The scaler path gives you the foundations: a modular
+frontend/identity service, a router API server, gateway processes that register
+and heartbeat into MySQL, organization-scoped data ownership, better-auth
+api-keys, and role/capability checks. You still own capacity automation, billing,
+tenant onboarding policy, and any ACL finer than the built-in org roles and
+api-key permissions.
+
+The system runs as three app services — the router, the gateway, and the
+frontend — plus one MySQL database and one Redis they share. The gateway also
+keeps its WhatsApp keystore in a SQLite file on a volume.
+
+| Piece | Image | Port | Owns |
 |---|---|---|---|
-| Router | `deploy/Dockerfile.router` (Go, no CGO) | `8090` | The public front door + trust boundary: authenticates callers, routes to the owning gateway, serves the realtime WebSocket and the OpenAPI contract |
-| Gateway | `deploy/Dockerfile` (Go, ~52 MB, no CGO) | `8080` (internal) | WhatsApp sessions; writes the WA tables; the SQLite keystore |
-| Frontend | `deploy/Dockerfile.web` (Node 22, TanStack Start) | `3000` | better-auth; writes the auth tables; reads the WA tables for display |
+| Self-host app | `deploy/Dockerfile.selfhost` (Node 22 + two Go binaries) | `3000`, `8090` | Runs the router, gateway, and frontend in one container. Gateway port `8080` is localhost-only inside the container. |
+| Router | `deploy/Dockerfile.router` (Go, no CGO) | `8090` | Scaler/SaaS image for the public front door + trust boundary: authenticates callers, routes to the owning gateway, serves the realtime WebSocket and the OpenAPI contract |
+| Gateway | `deploy/Dockerfile` (Go, no CGO) | `8080` (internal) | Scaler/SaaS image for WhatsApp sessions; writes the WA tables; the SQLite keystore |
+| Frontend | `deploy/Dockerfile.web` (Node 22, TanStack Start) | `3000` | Scaler/SaaS image for better-auth; writes the auth tables; reads the WA tables for display |
 | MySQL | `mysql:8.4` | `3306` | both table sets in one database |
 | Redis | `redis:7-alpine` | `6379` | the work bus and the control bus |
 
-The **router** is the only service clients reach. Publish its port; keep the
-gateway internal (the compose file publishes `8080` only for local inspection).
+The **router** is the only API service clients reach. Publish its port; keep the
+gateway internal.
 
-## Run it with Docker Compose
+## Self-host single box
 
-`deploy/docker-compose.yml` runs all five services. Put the secrets in
-`deploy/.env`, then build and start:
+Use `deploy/docker-compose.selfhost.yml` when you want one host to run
+everything. It builds one app container with the router, gateway, and frontend
+together. Compose still runs MySQL and Redis as separate services so their data
+has normal volumes and backup boundaries. The app publishes the dashboard on
+`3000` and the router API on `8090`; the gateway listens only on localhost
+inside the app container.
+
+Put the secrets in `deploy/.env`, then build and start:
 
 ```bash
 cd deploy
@@ -29,17 +53,64 @@ cat > .env <<'EOF'
 ROUTER_ED25519_PRIVATE_KEY=...   # openssl rand 32 | base64 — signs the router's internal assertions
 APP_ENCRYPTION_KEY=...           # openssl rand -base64 32 — encrypts webhook secrets at rest
 BETTER_AUTH_SECRET=...           # openssl rand -base64 32 — signs sessions, encrypts the JWKS private key
+USER_REGISTRATION_ENABLED=false  # recommended for private self-hosts
 WHATSAPP_ADMIN_NUMBER=           # optional — the number paired on boot; leave empty to skip
 EOF
-docker compose up --build -d
+docker compose -f docker-compose.selfhost.yml up --build -d
 ```
 
 The browser uses `http://localhost:3000` (frontend) and `http://localhost:8090`
-(router); it never calls the gateway directly. Inside the Docker network: the
-frontend calls the router at `router:8090`, the router fetches the frontend's
-signing keys at `frontend:3000/api/auth/jwks` and proxies to the gateway at
-`gateway:8080`, and the gateway fetches the router's keys at
-`router:8090/.well-known/router-jwks.json` to verify the router's assertions.
+(router); it never calls the gateway directly. Inside the app container: the
+frontend calls the router at `127.0.0.1:8090`, the router fetches the
+frontend's signing keys at `127.0.0.1:3000/api/auth/jwks` and proxies to the
+gateway at `127.0.0.1:8080`, and the gateway fetches the router's keys at
+`127.0.0.1:8090/.well-known/router-jwks.json` to verify the router's assertions.
+
+<Callout type="info">
+The self-host app container is not a single process. Its entrypoint supervises
+three processes: `router`, `gateway`, and the TanStack Start Node server. If any
+one exits, the container exits so Compose can restart the whole app.
+</Callout>
+
+### Lock down self-registration
+
+Self-registration is off by default in `docker-compose.selfhost.yml`. Keep
+`USER_REGISTRATION_ENABLED=false` if this is a private gateway and you do not
+want random people creating accounts or pairing WhatsApp numbers. Turn it on
+only when open sign-up is part of your operating model.
+
+After the first trusted user signs up, put their better-auth user id in
+`ADMIN_USER_IDS` and restart the frontend to grant platform super-admin rights.
+
+## Scaler / SaaS topology
+
+Use the modular topology when the install is a platform rather than one private
+gateway. In this mode:
+
+- The **frontend** can run separately, including serverless hosting, as long as
+  it can reach MySQL and publish control-bus messages to Redis.
+- The **router** is the single public API front door. It verifies better-auth
+  JWTs and api-keys from shared MySQL, resolves session ownership, and proxies
+  to gateways with request-bound Ed25519 assertions.
+- **Gateways** run close to their WhatsApp connections. Each gateway has a stable
+  `GATEWAY_ID`, a persistent SQLite keystore volume, and a `PUBLIC_URL` reachable
+  by the router. Gateways register and heartbeat through the `gateways` table.
+- New session creation is placed on the least-loaded active gateway. Existing
+  sessions are pinned by `wa_sessions.gateway_id`; if the owning gateway is not
+  active or has a stale heartbeat, the router returns `503 gateway_unavailable`.
+
+`deploy/docker-compose.external.yml` shows the split-hosting shape for app
+containers over your own MySQL and Redis:
+
+```bash
+docker compose -f deploy/docker-compose.external.yml up -d
+```
+
+For a SaaS product, the missing pieces are deliberately product-specific:
+gateway capacity automation, tenant onboarding, billing and quota policy,
+gateway lifecycle operations beyond the built-in register/heartbeat/drain
+states, and ACL finer than the current organization roles plus api-key
+permissions (`read`, `send`, `manage`, `events`).
 
 ## Migrations
 
@@ -96,7 +167,7 @@ first:
 | `BETTER_AUTH_JWKS_URL` | router | where the router fetches the frontend's signing keys — the *internal* frontend URL when it differs from the public one (e.g. `http://frontend:3000/api/auth/jwks`) |
 | `FRONTEND_ORIGINS` | router | the browser origin(s) allowed to call the router (CORS) |
 | `GATEWAY_URL` / `VITE_GATEWAY_URL` | frontend | the **router** URL for server code / for the browser |
-| `PUBSUB_REDIS_URL` | router + frontend | the shared control-bus Redis — the frontend publishes key/user revocations, the router subscribes |
+| `PUBSUB_REDIS_URL` | router + frontend | the shared control-bus Redis — the frontend publishes key/user revocations, the router subscribes; defaults to `REDIS_URL` on the router |
 
 A JWT (JSON Web Token) is the signed login token the frontend issues to the
 browser. JWKS (JSON Web Key Set) is the public-key document the router fetches to
@@ -129,6 +200,7 @@ the router's; the rest is the gateway's.
 | `BETTER_AUTH_URL` | — | The frontend's base URL. The router only trusts JWTs issued by it. |
 | `BETTER_AUTH_JWKS_URL` | `${BETTER_AUTH_URL}/api/auth/jwks` | Where the router fetches the frontend's signing keys. Set it when the internal frontend URL differs from the public one. |
 | `FRONTEND_ORIGINS` | — | Comma-separated browser origins allowed to call the router (CORS). |
+| `PUBSUB_REDIS_URL` | falls back to `REDIS_URL` | Control-bus Redis the router subscribes to for key/user/member revocations. |
 
 **Gateway** (`deploy/.env.example`):
 
@@ -143,7 +215,6 @@ the router's; the rest is the gateway's.
 | `MYSQL_DSN` | — | Shared database. The gateway writes WhatsApp data and reads auth data. |
 | `WHATSMEOW_STORE_DSN` | `file:store.db?...` | SQLite file holding the WhatsApp device keys. In containers, point it at `/data/keystore/store.db` on a persistent volume. |
 | `REDIS_URL` | — | Work Redis for the send queue, rate limiting, idempotency, and event fan-out. |
-| `PUBSUB_REDIS_URL` | falls back to `REDIS_URL` | Control-bus Redis (the router subscribes; defaults to `REDIS_URL` on a single-instance deploy). |
 | `REDIS_PREFIX` | `gw` | Key/channel namespace, so several stacks can share one Redis. |
 | `WHATSAPP_ADMIN_NUMBER` | — | A number the gateway pairs automatically on boot. See [the admin number](#the-admin-number). |
 | `WHATSAPP_ADMIN_ORG_ID` | — | The organization that owns the admin session. Required when `WHATSAPP_ADMIN_NUMBER` is set. |
@@ -169,12 +240,6 @@ a named volume and back it up.
 | `PUBSUB_REDIS_URL` | Control-bus Redis the frontend publishes revocations to. |
 | `USER_REGISTRATION_ENABLED` | Whether people can sign themselves up. See [Lock down self-registration](#lock-down-self-registration). |
 | `ADMIN_USER_IDS` | Comma-separated better-auth user ids granted platform super-admin. See [Create the first admin](#create-the-first-admin). |
-
-### Lock down self-registration
-
-Self-registration is on by default. To lock it down — so only an admin can add
-people — set `USER_REGISTRATION_ENABLED=false` on the frontend and create users
-from the admin surface instead.
 
 ## Create the first admin
 
@@ -212,6 +277,7 @@ router's assertion.
 | Run the frontend on a separate host or serverless | Point `DATABASE_URL` at the shared MySQL (use a connection pooler on serverless) and `GATEWAY_URL`/`VITE_GATEWAY_URL` at the **router**. The browser talks to the router; the router reaches the gateway. |
 | Bring your own MySQL/Redis | `deploy/docker-compose.external.yml` runs the app images against services you provide. |
 | Router fetches signing keys from a different host | If the router fetches the frontend JWKS from a host other than `BETTER_AUTH_URL`, add that host to the frontend's `TRUSTED_ORIGINS`. |
+| Add more gateways | Run another gateway with a unique `GATEWAY_ID`, its own persistent keystore volume, the same MySQL/Redis, and a `PUBLIC_URL` reachable by the router. The router will place new sessions on active gateways, but you must operate capacity and failover policy. |
 
 ## Health checks
 
