@@ -20,10 +20,6 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 )
 
-// pairDisplayName is the "Browser (OS)" string whatsmeow validates for pairing
-// codes; the server 400s on a malformed value (recon §3).
-const pairDisplayName = "Chrome (Linux)"
-
 // Config holds the manager's tunables, populated from ENV by the composition root.
 type Config struct {
 	// AdminNumber is WHATSAPP_ADMIN_NUMBER (digits only, no '+'). Empty disables
@@ -34,6 +30,9 @@ type Config struct {
 	// GatewayID is this gateway's id (GATEWAY_ID). Sessions this gateway adopts on
 	// boot are pinned to it (§4.5). Empty leaves the row's gateway_id untouched.
 	GatewayID string
+	// DeviceName is the OS/app label shown in WhatsApp's Linked devices list for
+	// newly paired companion devices.
+	DeviceName string
 	// DefaultRatePerMin / DefaultRatePerHour seed new sessions' rate limits.
 	DefaultRatePerMin  int
 	DefaultRatePerHour int
@@ -93,6 +92,8 @@ func NewManager(
 	if cfg.Backoff == (backoffConfig{}) {
 		cfg.Backoff = defaultBackoff
 	}
+	cfg.DeviceName = normalizedDeviceName(cfg.DeviceName, cfg.GatewayID)
+	store.SetOSInfo(cfg.DeviceName, [3]uint32{1, 0, 0})
 	m := &Manager{
 		keystore: keystore,
 		repo:     repo,
@@ -110,6 +111,16 @@ func NewManager(
 		return whatsmeow.NewClient(device, m.waLogger)
 	}
 	return m
+}
+
+func normalizedDeviceName(name, gatewayID string) string {
+	if name == "" {
+		if gatewayID == "" {
+			return "Linux - gateway"
+		}
+		return "Linux - " + gatewayID
+	}
+	return name
 }
 
 // SetClientFactory swaps the whatsmeow client constructor. Intended for tests.
@@ -790,7 +801,7 @@ func (m *Manager) startPairingCode(ctx context.Context, sess *domain.WASession, 
 		m.setStatus(loopCtx, ms, domain.SessionFailed)
 		return "", fmt.Errorf("connect for pairing: %w", err)
 	}
-	code, err := client.PairPhone(ctx, phone, true, whatsmeow.PairClientChrome, pairDisplayName)
+	code, err := client.PairPhone(ctx, phone, true, whatsmeow.PairClientChrome, pairDisplayName(m.cfg.DeviceName))
 	if err != nil {
 		m.teardown(ms)
 		m.setStatus(loopCtx, ms, domain.SessionFailed)
@@ -802,6 +813,12 @@ func (m *Manager) startPairingCode(ctx context.Context, sess *domain.WASession, 
 	}))
 	go m.reconnectLoopAfterPair(loopCtx, ms)
 	return code, nil
+}
+
+// pairDisplayName is the "Browser (OS)" string whatsmeow validates for pairing
+// codes; the server 400s on a malformed value.
+func pairDisplayName(deviceName string) string {
+	return fmt.Sprintf("Chrome (%s)", deviceName)
 }
 
 // reconnectLoopAfterPair keeps a freshly-connected pairing session alive: once

@@ -66,6 +66,10 @@ type Config struct {
 	// org-keyed) and the boot orphan-guard marks the session STOPPED on the next
 	// restart. Required whenever WHATSAPP_ADMIN_NUMBER is set.
 	WhatsAppAdminOrgID string // WHATSAPP_ADMIN_ORG_ID
+	// WhatsAppDeviceName overrides the OS/app label WhatsApp shows for newly
+	// linked companion devices. When empty, the manager derives "Linux -
+	// <GATEWAY_ID>" so Linked devices does not expose the whatsmeow library.
+	WhatsAppDeviceName string // WHATSAPP_DEVICE_NAME
 
 	// Per-session defaults
 	DefaultRatePerMin  int  // DEFAULT_RATE_PER_MIN
@@ -122,6 +126,7 @@ func Load() (*Config, error) {
 		WhatsAppAdminNumber:    getString("WHATSAPP_ADMIN_NUMBER", ""),
 		WhatsAppAdminCmdPrefix: getString("WHATSAPP_ADMIN_CMD_PREFIX", "am"),
 		WhatsAppAdminOrgID:     getString("WHATSAPP_ADMIN_ORG_ID", ""),
+		WhatsAppDeviceName:     getString("WHATSAPP_DEVICE_NAME", ""),
 		DefaultRatePerMin:      getInt("DEFAULT_RATE_PER_MIN", 20),
 		DefaultRatePerHour:     getInt("DEFAULT_RATE_PER_HOUR", 200),
 		DefaultAutoRead:        getBool("DEFAULT_AUTO_READ", true),

@@ -168,6 +168,7 @@ type fakeClient struct {
 	handler     whatsmeow.EventHandler
 	presence    []types.Presence
 	readIDs     []types.MessageID
+	pairDisplay string
 }
 
 func (c *fakeClient) Connect() error {
@@ -208,7 +209,10 @@ func (c *fakeClient) GetQRChannel(context.Context) (<-chan whatsmeow.QRChannelIt
 	close(ch)
 	return ch, nil
 }
-func (c *fakeClient) PairPhone(context.Context, string, bool, whatsmeow.PairClientType, string) (string, error) {
+func (c *fakeClient) PairPhone(_ context.Context, _ string, _ bool, _ whatsmeow.PairClientType, displayName string) (string, error) {
+	c.mu.Lock()
+	c.pairDisplay = displayName
+	c.mu.Unlock()
 	return "ABCD-1234", nil
 }
 func (c *fakeClient) SendPresence(_ context.Context, state types.Presence) error {
@@ -296,13 +300,23 @@ func TestBootstrapAdmin_AlreadyPaired_NoCode(t *testing.T) {
 }
 
 func TestBootstrapAdmin_NeedsPairing_ReturnsCode(t *testing.T) {
-	m, repo, sink, _, _ := newTestManager(t, Config{AdminNumber: "628111", AdminOrganizationID: "ten_admin"})
+	m, repo, sink, _, fc := newTestManager(t, Config{
+		AdminNumber:         "628111",
+		AdminOrganizationID: "ten_admin",
+		DeviceName:          "Acme Support",
+	})
 	code, err := m.bootstrapAdmin(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if code != "ABCD-1234" {
 		t.Fatalf("expected pairing code, got %q", code)
+	}
+	fc.mu.Lock()
+	pairDisplay := fc.pairDisplay
+	fc.mu.Unlock()
+	if pairDisplay != "Chrome (Acme Support)" {
+		t.Fatalf("pair display = %q, want %q", pairDisplay, "Chrome (Acme Support)")
 	}
 	// An is_admin_session row must have been created.
 	repo.mu.Lock()
@@ -319,6 +333,23 @@ func TestBootstrapAdmin_NeedsPairing_ReturnsCode(t *testing.T) {
 	// An auth.code event must have been emitted.
 	if sink.typeCount(domain.EventAuthCode) != 1 {
 		t.Fatalf("expected 1 auth.code event, got %d", sink.typeCount(domain.EventAuthCode))
+	}
+}
+
+func TestBootstrapAdmin_DefaultPairDisplayIncludesGatewayID(t *testing.T) {
+	m, _, _, _, fc := newTestManager(t, Config{
+		AdminNumber:         "628111",
+		AdminOrganizationID: "ten_admin",
+		GatewayID:           "gw-1",
+	})
+	if _, err := m.bootstrapAdmin(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
+	fc.mu.Lock()
+	pairDisplay := fc.pairDisplay
+	fc.mu.Unlock()
+	if pairDisplay != "Chrome (Linux - gw-1)" {
+		t.Fatalf("pair display = %q, want %q", pairDisplay, "Chrome (Linux - gw-1)")
 	}
 }
 

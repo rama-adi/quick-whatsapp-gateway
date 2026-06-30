@@ -19,6 +19,7 @@ func clearEnv(t *testing.T) {
 		"PUBSUB_REDIS_URL", "REDIS_PREFIX", "GATEWAY_ADMIN_USER_ID",
 		"WHATSAPP_ADMIN_NUMBER",
 		"WHATSAPP_ADMIN_CMD_PREFIX",
+		"WHATSAPP_ADMIN_ORG_ID", "WHATSAPP_DEVICE_NAME",
 		"DEFAULT_RATE_PER_MIN", "DEFAULT_RATE_PER_HOUR", "DEFAULT_AUTO_READ",
 		"IGNORE_STATUS", "IGNORE_GROUPS", "IGNORE_CHANNELS", "IGNORE_BROADCAST",
 		"WEBHOOK_URL", "WEBHOOK_EVENTS", "WEBHOOK_HMAC_KEY",
@@ -58,6 +59,8 @@ func TestLoad_Defaults(t *testing.T) {
 		GatewayAdminUserID:     "",
 		WhatsAppAdminNumber:    "",
 		WhatsAppAdminCmdPrefix: "am",
+		WhatsAppAdminOrgID:     "",
+		WhatsAppDeviceName:     "",
 		DefaultRatePerMin:      20,
 		DefaultRatePerHour:     200,
 		DefaultAutoRead:        true,
@@ -94,6 +97,7 @@ func TestLoad_EnvOverride(t *testing.T) {
 	t.Setenv("PUBSUB_REDIS_URL", "redis://control:6379")
 	t.Setenv("REDIS_PREFIX", "stack-a")
 	t.Setenv("GATEWAY_ADMIN_USER_ID", "user_admin_1")
+	t.Setenv("WHATSAPP_DEVICE_NAME", "Acme Support")
 	t.Setenv("DEFAULT_RATE_PER_MIN", "50")
 	t.Setenv("DEFAULT_RATE_PER_HOUR", "500")
 	t.Setenv("DEFAULT_AUTO_READ", "false")
@@ -128,6 +132,7 @@ func TestLoad_EnvOverride(t *testing.T) {
 		{"PubSubRedisURL", cfg.PubSubRedisURL, "redis://control:6379"},
 		{"RedisPrefix", cfg.RedisPrefix, "stack-a"},
 		{"GatewayAdminUserID", cfg.GatewayAdminUserID, "user_admin_1"},
+		{"WhatsAppDeviceName", cfg.WhatsAppDeviceName, "Acme Support"},
 		{"DefaultRatePerMin", cfg.DefaultRatePerMin, 50},
 		{"DefaultRatePerHour", cfg.DefaultRatePerHour, 500},
 		{"DefaultAutoRead", cfg.DefaultAutoRead, false},

@@ -148,6 +148,7 @@ func run() error {
 		AdminNumber:         cfg.WhatsAppAdminNumber,
 		AdminOrganizationID: cfg.WhatsAppAdminOrgID,
 		GatewayID:           cfg.GatewayID,
+		DeviceName:          cfg.WhatsAppDeviceName,
 		DefaultRatePerMin:   cfg.DefaultRatePerMin,
 		DefaultRatePerHour:  cfg.DefaultRatePerHour,
 		DefaultAutoRead:     cfg.DefaultAutoRead,

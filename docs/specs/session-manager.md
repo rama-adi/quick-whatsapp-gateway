@@ -116,8 +116,9 @@ Core types:
   channels through whatsmeow's event model.
 - **Boot resume policy** (`shouldResume`): `STOPPED`/`LOGGED_OUT`/`FAILED` stay
   down; anything that was live or mid-startup resumes (subject to the orphan-guard).
-- **Pairing display name** is `"Chrome (Linux)"` (whatsmeow validates the
-  `"Browser (OS)"` format and 400s otherwise).
+- **Pairing / linked-device display name** defaults to `"Chrome (Linux - <GATEWAY_ID>)"` and can
+  override the OS/app portion with `WHATSAPP_DEVICE_NAME`. The phone-code pairing string is still
+  formatted as `"Chrome (<device name>)"` because whatsmeow validates the `"Browser (OS)"` format.
 - **whatsmeow is imported directly** (external module): `whatsmeow`, `/store`,
   `/types`, `/types/events`, `/util/log`. No sibling internal packages.
 
