@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/store/storedb"
 )
 
 // PollRepo is the repository for polls (§5/§7): the option list of each
@@ -15,10 +16,13 @@ import (
 // SHA-256 hashes of the chosen options — can be resolved back to option text.
 type PollRepo struct {
 	db dbExecQuerier
+	q  *storedb.Queries
 }
 
 // NewPollRepo constructs a PollRepo.
-func NewPollRepo(db dbExecQuerier) *PollRepo { return &PollRepo{db: db} }
+func NewPollRepo(db storedb.DBTX) *PollRepo {
+	return &PollRepo{db: db, q: storedb.New(db)}
+}
 
 // Upsert records (or refreshes) a poll's options, keyed by session + poll
 // message id. Re-receiving the same poll creation is a no-op on the immutable
@@ -34,19 +38,17 @@ func (r *PollRepo) Upsert(ctx context.Context, p domain.Poll) error {
 	if err != nil {
 		return fmt.Errorf("store: marshal poll options: %w", err)
 	}
-	const q = `INSERT INTO polls
-(session_id, poll_message_id, chat_jid, name, options, selectable_count, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-ON DUPLICATE KEY UPDATE
-	chat_jid         = VALUES(chat_jid),
-	name             = VALUES(name),
-	options          = VALUES(options),
-	selectable_count = VALUES(selectable_count),
-	updated_at       = VALUES(updated_at)`
-	if _, err := r.db.ExecContext(ctx, q,
-		p.SessionID, p.PollMessageID, p.ChatJID, p.Name, options,
-		p.SelectableCount, p.CreatedAt, p.UpdatedAt,
-	); err != nil {
+	err = r.q.UpsertPoll(ctx, storedb.UpsertPollParams{
+		SessionID:       p.SessionID,
+		PollMessageID:   p.PollMessageID,
+		ChatJid:         p.ChatJID,
+		Name:            nullString(&p.Name),
+		Options:         options,
+		SelectableCount: int32(p.SelectableCount),
+		CreatedAt:       p.CreatedAt,
+		UpdatedAt:       p.UpdatedAt,
+	})
+	if err != nil {
 		return fmt.Errorf("store: upsert poll: %w", err)
 	}
 	return nil
@@ -56,9 +58,10 @@ ON DUPLICATE KEY UPDATE
 // poll is unknown (e.g. created before this session saw it). Callers treat the
 // empty result as "cannot resolve" and fall back to the raw vote hashes.
 func (r *PollRepo) GetOptions(ctx context.Context, sessionID, pollMessageID string) ([]string, error) {
-	const q = `SELECT options FROM polls WHERE session_id = ? AND poll_message_id = ?`
-	var raw []byte
-	err := r.db.QueryRowContext(ctx, q, sessionID, pollMessageID).Scan(&raw)
+	raw, err := r.q.GetPollOptions(ctx, storedb.GetPollOptionsParams{
+		SessionID:     sessionID,
+		PollMessageID: pollMessageID,
+	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}

@@ -80,7 +80,7 @@ func TestOutboxRepo_UpdateStatus(t *testing.T) {
 	// file content is not retained once the row is drained.
 	db, mock := newMock(t)
 	repo := NewOutboxRepo(db)
-	mock.ExpectExec("UPDATE outbox SET status=., wa_message_id=., error=., updated_at=., payload=JSON_REMOVE.* WHERE id=.").
+	mock.ExpectExec("UPDATE outbox\\s+SET status = \\?, wa_message_id = \\?, error = \\?, updated_at = \\?,\\s+payload = JSON_REMOVE.*WHERE id = \\?").
 		WithArgs(domain.OutboxSent, strptr("wamid_9"), (*string)(nil), int64(300), "out_1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	if err := repo.UpdateStatus(context.Background(), "out_1", domain.OutboxSent, strptr("wamid_9"), nil, 300); err != nil {
@@ -95,7 +95,7 @@ func TestOutboxRepo_UpdateStatus_FailedKeepsPayload(t *testing.T) {
 	// A failed row keeps its payload (no JSON_REMOVE) so the async worker can retry.
 	db, mock := newMock(t)
 	repo := NewOutboxRepo(db)
-	mock.ExpectExec("UPDATE outbox SET status=., wa_message_id=., error=., updated_at=. WHERE id=.").
+	mock.ExpectExec("UPDATE outbox\\s+SET status = \\?, wa_message_id = \\?, error = \\?, updated_at = \\?\\s+WHERE id = \\?").
 		WithArgs(domain.OutboxFailed, (*string)(nil), strptr("boom"), int64(300), "out_1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	if err := repo.UpdateStatus(context.Background(), "out_1", domain.OutboxFailed, nil, strptr("boom"), 300); err != nil {
@@ -111,14 +111,14 @@ func TestOutboxRepo_ClaimQueued(t *testing.T) {
 	repo := NewOutboxRepo(db)
 
 	// First the UPDATE marks the batch sending; then the SELECT reads it back.
-	mock.ExpectExec("UPDATE outbox SET status=., attempts=attempts.1, updated_at=. WHERE status=. ORDER BY created_at ASC LIMIT .").
+	mock.ExpectExec("UPDATE outbox\\s+SET status = \\?, attempts = attempts \\+ 1, updated_at = \\?\\s+WHERE status = \\?\\s+ORDER BY created_at ASC\\s+LIMIT \\?").
 		WithArgs(domain.OutboxSending, int64(777), domain.OutboxQueued, 5).
 		WillReturnResult(sqlmock.NewResult(0, 2))
 
 	rows := sqlmock.NewRows(outboxColRow()).
 		AddRow("out_1", "ten_1", "sess_1", nil, []byte(`{}`), "sending", 1, nil, nil, int64(1), int64(777)).
 		AddRow("out_2", "ten_1", "sess_1", nil, []byte(`{}`), "sending", 1, nil, nil, int64(2), int64(777))
-	mock.ExpectQuery("SELECT .* FROM outbox WHERE status=. AND updated_at=. ORDER BY created_at ASC LIMIT .").
+	mock.ExpectQuery("SELECT .* FROM outbox\\s+WHERE status = \\? AND updated_at = \\?\\s+ORDER BY created_at ASC\\s+LIMIT \\?").
 		WithArgs(domain.OutboxSending, int64(777), 5).WillReturnRows(rows)
 
 	got, err := repo.ClaimQueued(context.Background(), 5, 777)

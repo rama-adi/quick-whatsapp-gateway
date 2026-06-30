@@ -6,46 +6,41 @@ import (
 	"fmt"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/store/storedb"
 )
 
 // WebhookRepo is the repository for webhooks (§5). HMAC secrets are stored
 // AES-GCM encrypted by the caller; this repo only persists the opaque bytes.
 type WebhookRepo struct {
-	db dbExecQuerier
+	q *storedb.Queries
 }
 
 // NewWebhookRepo constructs a WebhookRepo.
-func NewWebhookRepo(db dbExecQuerier) *WebhookRepo { return &WebhookRepo{db: db} }
+func NewWebhookRepo(db storedb.DBTX) *WebhookRepo { return &WebhookRepo{q: storedb.New(db)} }
 
-const webhookCols = `id, organization_id, session_id, url, events, hmac_secret,
-	custom_headers, retry_policy, active, created_at, updated_at`
-
-func scanWebhook(s rowScanner) (domain.Webhook, error) {
-	var (
-		w            domain.Webhook
-		events       []byte
-		customHeader []byte
-		retryPolicy  []byte
-	)
-	err := s.Scan(
-		&w.ID, &w.OrganizationID, &w.SessionID, &w.URL, &events, &w.HMACSecret,
-		&customHeader, &retryPolicy, &w.Active, &w.CreatedAt, &w.UpdatedAt,
-	)
-	if err != nil {
-		return domain.Webhook{}, err
+func webhookFromRow(row storedb.Webhook) (domain.Webhook, error) {
+	w := domain.Webhook{
+		ID:             row.ID,
+		OrganizationID: row.OrganizationID,
+		SessionID:      stringPtrFromNull(row.SessionID),
+		URL:            row.Url,
+		HMACSecret:     append([]byte(nil), row.HmacSecret...),
+		Active:         row.Active,
+		CreatedAt:      row.CreatedAt,
+		UpdatedAt:      row.UpdatedAt,
 	}
-	if len(events) > 0 {
-		if err := json.Unmarshal(events, &w.Events); err != nil {
+	if len(row.Events) > 0 {
+		if err := json.Unmarshal(row.Events, &w.Events); err != nil {
 			return domain.Webhook{}, scanErr("webhooks.events", err)
 		}
 	}
-	if len(customHeader) > 0 {
-		if err := json.Unmarshal(customHeader, &w.CustomHeaders); err != nil {
+	if len(row.CustomHeaders) > 0 {
+		if err := json.Unmarshal(row.CustomHeaders, &w.CustomHeaders); err != nil {
 			return domain.Webhook{}, scanErr("webhooks.custom_headers", err)
 		}
 	}
-	if len(retryPolicy) > 0 {
-		if err := json.Unmarshal(retryPolicy, &w.RetryPolicy); err != nil {
+	if len(row.RetryPolicy) > 0 {
+		if err := json.Unmarshal(row.RetryPolicy, &w.RetryPolicy); err != nil {
 			return domain.Webhook{}, scanErr("webhooks.retry_policy", err)
 		}
 	}
@@ -75,14 +70,20 @@ func (r *WebhookRepo) Create(ctx context.Context, w domain.Webhook) error {
 	if err != nil {
 		return err
 	}
-	const q = `INSERT INTO webhooks
-(id, organization_id, session_id, url, events, hmac_secret, custom_headers,
- retry_policy, active, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-	if _, err := r.db.ExecContext(ctx, q,
-		w.ID, w.OrganizationID, w.SessionID, w.URL, events, w.HMACSecret, nullableJSON(customHeaders),
-		retryPolicy, w.Active, w.CreatedAt, w.UpdatedAt,
-	); err != nil {
+	err = r.q.CreateWebhook(ctx, storedb.CreateWebhookParams{
+		ID:             w.ID,
+		OrganizationID: w.OrganizationID,
+		SessionID:      nullString(w.SessionID),
+		Url:            w.URL,
+		Events:         events,
+		HmacSecret:     w.HMACSecret,
+		CustomHeaders:  nullableJSON(customHeaders),
+		RetryPolicy:    retryPolicy,
+		Active:         w.Active,
+		CreatedAt:      w.CreatedAt,
+		UpdatedAt:      w.UpdatedAt,
+	})
+	if err != nil {
 		return fmt.Errorf("store: create webhook: %w", err)
 	}
 	return nil
@@ -90,31 +91,28 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 // Get fetches a webhook by id. Maps no-rows to not_found.
 func (r *WebhookRepo) Get(ctx context.Context, id string) (domain.Webhook, error) {
-	q := "SELECT " + webhookCols + " FROM webhooks WHERE id = ?"
-	w, err := scanWebhook(r.db.QueryRowContext(ctx, q, id))
+	row, err := r.q.GetWebhook(ctx, storedb.GetWebhookParams{ID: id})
 	if err != nil {
 		return domain.Webhook{}, notFound(err, "webhook")
 	}
-	return w, nil
+	return webhookFromRow(row)
 }
 
 // ListByOrg returns all webhooks for a organization ordered by created_at desc.
 func (r *WebhookRepo) ListByOrg(ctx context.Context, organizationID string) ([]domain.Webhook, error) {
-	q := "SELECT " + webhookCols + " FROM webhooks WHERE organization_id = ? ORDER BY created_at DESC"
-	rows, err := r.db.QueryContext(ctx, q, organizationID)
+	rows, err := r.q.ListWebhooksByOrg(ctx, storedb.ListWebhooksByOrgParams{OrganizationID: organizationID})
 	if err != nil {
 		return nil, fmt.Errorf("store: list webhooks: %w", err)
 	}
-	defer rows.Close()
-	var out []domain.Webhook
-	for rows.Next() {
-		w, err := scanWebhook(rows)
+	out := make([]domain.Webhook, 0, len(rows))
+	for _, row := range rows {
+		w, err := webhookFromRow(row)
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, w)
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // ListActiveForEvent returns active webhooks for a organization whose session scope
@@ -122,23 +120,22 @@ func (r *WebhookRepo) ListByOrg(ctx context.Context, organizationID string) ([]d
 // dispatcher filters the `events` JSON in-process (it may contain "*"), so this
 // returns the candidate set rather than doing JSON matching in SQL.
 func (r *WebhookRepo) ListActiveForEvent(ctx context.Context, organizationID, sessionID string) ([]domain.Webhook, error) {
-	const q = `SELECT ` + webhookCols + ` FROM webhooks
-WHERE organization_id = ? AND active = 1 AND (session_id IS NULL OR session_id = ?)
-ORDER BY created_at DESC`
-	rows, err := r.db.QueryContext(ctx, q, organizationID, sessionID)
+	rows, err := r.q.ListActiveWebhooksForEvent(ctx, storedb.ListActiveWebhooksForEventParams{
+		OrganizationID: organizationID,
+		SessionID:      sqlString(sessionID),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("store: list active webhooks: %w", err)
 	}
-	defer rows.Close()
-	var out []domain.Webhook
-	for rows.Next() {
-		w, err := scanWebhook(rows)
+	out := make([]domain.Webhook, 0, len(rows))
+	for _, row := range rows {
+		w, err := webhookFromRow(row)
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, w)
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // Update writes the mutable fields of a webhook, keyed on id.
@@ -147,26 +144,28 @@ func (r *WebhookRepo) Update(ctx context.Context, w domain.Webhook) error {
 	if err != nil {
 		return err
 	}
-	const q = `UPDATE webhooks SET
-		session_id=?, url=?, events=?, hmac_secret=?, custom_headers=?,
-		retry_policy=?, active=?, updated_at=?
-	WHERE id=?`
-	res, err := r.db.ExecContext(ctx, q,
-		w.SessionID, w.URL, events, w.HMACSecret, nullableJSON(customHeaders),
-		retryPolicy, w.Active, w.UpdatedAt, w.ID,
-	)
+	n, err := r.q.UpdateWebhook(ctx, storedb.UpdateWebhookParams{
+		SessionID:     nullString(w.SessionID),
+		Url:           w.URL,
+		Events:        events,
+		HmacSecret:    w.HMACSecret,
+		CustomHeaders: nullableJSON(customHeaders),
+		RetryPolicy:   retryPolicy,
+		Active:        w.Active,
+		UpdatedAt:     w.UpdatedAt,
+		ID:            w.ID,
+	})
 	if err != nil {
 		return fmt.Errorf("store: update webhook: %w", err)
 	}
-	return affectedOrNotFound(res, "webhook")
+	return rowsAffectedOrNotFound(n, "webhook")
 }
 
 // Delete removes a webhook by id.
 func (r *WebhookRepo) Delete(ctx context.Context, id string) error {
-	const q = "DELETE FROM webhooks WHERE id=?"
-	res, err := r.db.ExecContext(ctx, q, id)
+	n, err := r.q.DeleteWebhook(ctx, storedb.DeleteWebhookParams{ID: id})
 	if err != nil {
 		return fmt.Errorf("store: delete webhook: %w", err)
 	}
-	return affectedOrNotFound(res, "webhook")
+	return rowsAffectedOrNotFound(n, "webhook")
 }

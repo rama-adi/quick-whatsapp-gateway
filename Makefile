@@ -3,7 +3,7 @@ COMPOSE_DEV = docker compose -f deploy/docker-compose.dev.yml
 # for MySQL + Redis to be healthy before starting the gateway, so one `up` is enough.
 COMPOSE_GW  = $(COMPOSE_DEV) --profile gateway-dev
 
-.PHONY: infra-up infra-down infra-reset up up-logs down dev router web migrate build lint test tidy gen openapi openapi-check
+.PHONY: infra-up infra-down infra-reset up up-logs down dev router web migrate build lint test tidy sqlc gen openapi openapi-check
 
 infra-up:    ## start mysql + redis only (run the gateway on the host with `make dev`)
 	$(COMPOSE_DEV) up -d
@@ -37,6 +37,8 @@ test:
 	go test ./...
 tidy:
 	go mod tidy && cd web && pnpm install
+sqlc:        ## generate typed MySQL store queries from migrations + internal/store/queries
+	go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate
 openapi:     ## generate the OpenAPI contract from the shared Go types (code-first, D11)
 	go run ./cmd/genopenapi docs/openapi.yaml
 openapi-check: openapi ## CI drift guard: fail if docs/openapi.yaml is stale vs the Go types

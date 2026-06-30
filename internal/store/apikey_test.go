@@ -113,7 +113,7 @@ func TestAPIKeyRepo_GetByID(t *testing.T) {
 func TestAPIKeyRepo_TouchLastRequest(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewAPIKeyRepo(db)
-	mock.ExpectExec("UPDATE apikey SET last_request=. WHERE id=.").
+	mock.ExpectExec("UPDATE apikey\\s+SET last_request = \\?\\s+WHERE id = \\?").
 		WithArgs(time.UnixMilli(123).UTC(), "key_1").WillReturnResult(sqlmock.NewResult(0, 1))
 	if err := repo.TouchLastRequest(context.Background(), "key_1", 123); err != nil {
 		t.Fatalf("TouchLastRequest: %v", err)

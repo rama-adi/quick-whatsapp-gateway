@@ -5,54 +5,51 @@ import (
 	"fmt"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/store/storedb"
 )
 
 // GroupRepo is the repository for whatsapp_groups (global group metadata, §5),
 // upserted by group_jid.
 type GroupRepo struct {
-	db dbExecQuerier
+	q *storedb.Queries
 }
 
 // NewGroupRepo constructs a GroupRepo.
-func NewGroupRepo(db dbExecQuerier) *GroupRepo { return &GroupRepo{db: db} }
+func NewGroupRepo(db storedb.DBTX) *GroupRepo { return &GroupRepo{q: storedb.New(db)} }
 
-const groupCols = `id, group_jid, subject, description, owner_jid,
-	participant_count, is_announce, is_locked, created_at_wa, first_seen_at, updated_at`
-
-func scanGroup(s rowScanner) (domain.Group, error) {
-	var g domain.Group
-	err := s.Scan(
-		&g.ID, &g.GroupJID, &g.Subject, &g.Description, &g.OwnerJID,
-		&g.ParticipantCount, &g.IsAnnounce, &g.IsLocked, &g.CreatedAtWA,
-		&g.FirstSeenAt, &g.UpdatedAt,
-	)
-	if err != nil {
-		return domain.Group{}, err
+func groupFromRow(row storedb.WhatsappGroup) domain.Group {
+	return domain.Group{
+		ID:               row.ID,
+		GroupJID:         row.GroupJid,
+		Subject:          stringPtrFromNull(row.Subject),
+		Description:      stringPtrFromNull(row.Description),
+		OwnerJID:         stringPtrFromNull(row.OwnerJid),
+		ParticipantCount: intPtrFromNull32(row.ParticipantCount),
+		IsAnnounce:       boolPtrFromNull(row.IsAnnounce),
+		IsLocked:         boolPtrFromNull(row.IsLocked),
+		CreatedAtWA:      int64PtrFromNull(row.CreatedAtWa),
+		FirstSeenAt:      row.FirstSeenAt,
+		UpdatedAt:        row.UpdatedAt,
 	}
-	return g, nil
 }
 
 // Upsert inserts or updates a group by group_jid. Mutable metadata refreshes
 // only when the new value is non-NULL (COALESCE) so a sparse sighting doesn't
 // wipe known fields; first_seen_at is preserved.
 func (r *GroupRepo) Upsert(ctx context.Context, g domain.Group) error {
-	const q = `INSERT INTO whatsapp_groups
-(group_jid, subject, description, owner_jid, participant_count, is_announce,
- is_locked, created_at_wa, first_seen_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON DUPLICATE KEY UPDATE
-	subject           = COALESCE(VALUES(subject), subject),
-	description       = COALESCE(VALUES(description), description),
-	owner_jid         = COALESCE(VALUES(owner_jid), owner_jid),
-	participant_count = COALESCE(VALUES(participant_count), participant_count),
-	is_announce       = COALESCE(VALUES(is_announce), is_announce),
-	is_locked         = COALESCE(VALUES(is_locked), is_locked),
-	created_at_wa     = COALESCE(VALUES(created_at_wa), created_at_wa),
-	updated_at        = VALUES(updated_at)`
-	if _, err := r.db.ExecContext(ctx, q,
-		g.GroupJID, g.Subject, g.Description, g.OwnerJID, g.ParticipantCount,
-		g.IsAnnounce, g.IsLocked, g.CreatedAtWA, g.FirstSeenAt, g.UpdatedAt,
-	); err != nil {
+	err := r.q.UpsertGroup(ctx, storedb.UpsertGroupParams{
+		GroupJid:         g.GroupJID,
+		Subject:          nullString(g.Subject),
+		Description:      nullString(g.Description),
+		OwnerJid:         nullString(g.OwnerJID),
+		ParticipantCount: nullInt32(g.ParticipantCount),
+		IsAnnounce:       nullBool(g.IsAnnounce),
+		IsLocked:         nullBool(g.IsLocked),
+		CreatedAtWa:      nullInt64(g.CreatedAtWA),
+		FirstSeenAt:      g.FirstSeenAt,
+		UpdatedAt:        g.UpdatedAt,
+	})
+	if err != nil {
 		return fmt.Errorf("store: upsert group: %w", err)
 	}
 	return nil
@@ -60,12 +57,11 @@ ON DUPLICATE KEY UPDATE
 
 // GetByJID fetches a group by its unique group_jid. Maps no-rows to not_found.
 func (r *GroupRepo) GetByJID(ctx context.Context, groupJID string) (domain.Group, error) {
-	q := "SELECT " + groupCols + " FROM whatsapp_groups WHERE group_jid = ?"
-	g, err := scanGroup(r.db.QueryRowContext(ctx, q, groupJID))
+	row, err := r.q.GetGroupByJID(ctx, storedb.GetGroupByJIDParams{GroupJid: groupJID})
 	if err != nil {
 		return domain.Group{}, notFound(err, "group")
 	}
-	return g, nil
+	return groupFromRow(row), nil
 }
 
 // ListBySession returns the groups a session has membership sightings for (§11
@@ -73,23 +69,13 @@ func (r *GroupRepo) GetByJID(ctx context.Context, groupJID string) (domain.Group
 // per-session group_members pivot to scope the result to the session. Ordered by
 // group id for stability.
 func (r *GroupRepo) ListBySession(ctx context.Context, sessionID string) ([]domain.Group, error) {
-	q := "SELECT " + prefixCols("g", groupCols) + ` FROM whatsapp_groups g
-		WHERE g.group_jid IN (
-			SELECT DISTINCT group_jid FROM whatsapp_group_members WHERE session_id = ?
-		)
-		ORDER BY g.id ASC`
-	rows, err := r.db.QueryContext(ctx, q, sessionID)
+	rows, err := r.q.ListGroupsBySession(ctx, storedb.ListGroupsBySessionParams{SessionID: sessionID})
 	if err != nil {
 		return nil, fmt.Errorf("store: list groups: %w", err)
 	}
-	defer rows.Close()
-	var out []domain.Group
-	for rows.Next() {
-		g, err := scanGroup(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, g)
+	out := make([]domain.Group, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, groupFromRow(row))
 	}
-	return out, rows.Err()
+	return out, nil
 }

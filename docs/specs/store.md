@@ -2,10 +2,10 @@
 
 Status: implemented (R1).
 
-The app-data persistence layer for the WA-domain plane. Plain `database/sql` (no ORM), one repo
-type per aggregate, each method returning `internal/domain` types. The gateway is the **sole
-writer** of these tables; the frontend reads them read-only via Drizzle ([`frontend.md`](frontend.md)
-§ hybrid reads). Masterplan §6, §7.
+The app-data persistence layer for the WA-domain plane. Repositories expose `internal/domain`
+types and use generated `sqlc` query bindings over `database/sql` internally; there is still no ORM
+and no ORM-owned migrations. The gateway is the **sole writer** of these tables; the frontend reads
+them read-only via Drizzle ([`frontend.md`](frontend.md) § hybrid reads). Masterplan §6, §7.
 
 ## Ownership — `organization_id`, not `tenant_id`
 
@@ -39,7 +39,9 @@ api-key `reference_id`, never by joining `member` on the hot path ([`trust-model
 (Drizzle). `APIKeyRepo` here is **read-only** (`GetByHash`) and used solely by `internal/authz`
 to verify keys ([`api-keys.md`](api-keys.md)); it is not a key-management repo.
 
-`Store` (`store.go`) aggregates the repos; `New(db *sql.DB)` builds the set. Org-scoped lists are
+`Store` (`store.go`) aggregates the repos; `New(db *sql.DB)` builds the set. The generated sqlc
+package lives under `internal/store/storedb` and is kept behind the repo boundary; callers should
+not import generated DB-shaped rows directly. Org-scoped lists are
 `ListByOrg(ctx, organizationID)` (sessions, webhooks); session-scoped tables resolve their owning
 org via `wa_sessions`.
 
@@ -125,6 +127,17 @@ The gateway **binary** owns the WA-data plane migrations via **golang-migrate** 
 invokes the binary. The auth plane is migrated separately by drizzle-kit in the frontend
 (masterplan §19 #5).
 
+`sqlc` consumes the same migration SQL as schema input plus named queries in
+`internal/store/queries/`; it generates typed query methods in `internal/store/storedb/`.
+Regenerate with `make sqlc` after changing store query files or WA migrations. The generated types
+are DB-shaped by design; repo methods map nullable values, JSON blobs, generated enums, and
+`RowsAffected` / `LastInsertId` results back to the stable `domain` API.
+
+The gateway also has read-only hot-path checks against frontend-owned Better Auth tables
+(`apikey`, `organization`). Those tables are still migrated only by the frontend Drizzle
+toolchain; `internal/store/sqlc_schema/auth.sql` is a sqlc-only schema stub so the gateway's typed
+read queries can compile without making the gateway a writer or migration owner for auth tables.
+
 ## Decisions (carried from v1, still apply)
 
 - **Upserts** via `ON DUPLICATE KEY UPDATE` on the natural unique key; capture upserts use
@@ -206,6 +219,6 @@ invokes the binary. The auth plane is migrated separately by drizzle-kit in the 
 
 ## How it's tested
 
-`go-sqlmock` (regexp matcher) drives every repo — SQL construction, arg binding, row scanning into
-`domain` (incl. `*T` nullables + typed JSON), cursor pagination, and `ErrNoRows`/zero-rows →
+`go-sqlmock` (regexp matcher) drives every repo — generated SQL execution, arg binding, row mapping
+into `domain` (incl. `*T` nullables + typed JSON), cursor pagination, and `ErrNoRows`/zero-rows →
 `not_found` mapping. `CGO_ENABLED=0 go test ./internal/store/...`.

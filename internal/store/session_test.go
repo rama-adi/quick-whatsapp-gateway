@@ -82,7 +82,7 @@ func TestSessionRepo_UpdateStatus(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewSessionRepo(db)
 
-	mock.ExpectExec("UPDATE wa_sessions SET status=., updated_at=. WHERE id=.").
+	mock.ExpectExec("UPDATE wa_sessions\\s+SET status = \\?, updated_at = \\?\\s+WHERE id = \\?").
 		WithArgs(domain.SessionWorking, int64(999), "sess_1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -98,7 +98,7 @@ func TestSessionRepo_UpdateStatus_NotFound(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewSessionRepo(db)
 
-	mock.ExpectExec("UPDATE wa_sessions SET status=").
+	mock.ExpectExec("UPDATE wa_sessions\\s+SET status = \\?").
 		WithArgs(domain.SessionWorking, int64(999), "missing").
 		WillReturnResult(sqlmock.NewResult(0, 0)) // zero rows affected -> not_found
 
@@ -132,7 +132,7 @@ func TestSessionRepo_Delete(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewSessionRepo(db)
 
-	mock.ExpectExec("DELETE FROM wa_sessions WHERE id=.").
+	mock.ExpectExec("DELETE FROM wa_sessions WHERE id = \\?").
 		WithArgs("sess_1").WillReturnResult(sqlmock.NewResult(0, 1))
 
 	if err := repo.Delete(context.Background(), "sess_1"); err != nil {

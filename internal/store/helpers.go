@@ -145,6 +145,10 @@ func affectedOrNotFound(res sql.Result, resource string) error {
 		// rather than guessing not_found.
 		return nil
 	}
+	return rowsAffectedOrNotFound(n, resource)
+}
+
+func rowsAffectedOrNotFound(n int64, resource string) error {
 	if n == 0 {
 		return domain.ErrNotFound(resource + " not found")
 	}

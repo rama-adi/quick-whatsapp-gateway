@@ -2,47 +2,48 @@ package store
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/store/storedb"
 )
 
 // WebhookDeliveryRepo is the repository for webhook_deliveries — the per-attempt
 // delivery ledger driving retries and dead-lettering (§5/§9).
 type WebhookDeliveryRepo struct {
-	db dbExecQuerier
+	q *storedb.Queries
 }
 
 // NewWebhookDeliveryRepo constructs a WebhookDeliveryRepo.
-func NewWebhookDeliveryRepo(db dbExecQuerier) *WebhookDeliveryRepo {
-	return &WebhookDeliveryRepo{db: db}
+func NewWebhookDeliveryRepo(db storedb.DBTX) *WebhookDeliveryRepo {
+	return &WebhookDeliveryRepo{q: storedb.New(db)}
 }
 
-const deliveryCols = `id, webhook_id, event_id, status, attempts, response_code,
-	next_retry_at, last_error, created_at`
-
-func scanDelivery(s rowScanner) (domain.WebhookDelivery, error) {
-	var d domain.WebhookDelivery
-	err := s.Scan(
-		&d.ID, &d.WebhookID, &d.EventID, &d.Status, &d.Attempts, &d.ResponseCode,
-		&d.NextRetryAt, &d.LastError, &d.CreatedAt,
-	)
-	if err != nil {
-		return domain.WebhookDelivery{}, err
+func deliveryFromRow(row storedb.WebhookDelivery) domain.WebhookDelivery {
+	return domain.WebhookDelivery{
+		ID:           row.ID,
+		WebhookID:    row.WebhookID,
+		EventID:      row.EventID,
+		Status:       domain.WebhookDeliveryStatus(row.Status),
+		Attempts:     int(row.Attempts),
+		ResponseCode: intPtrFromNull32(row.ResponseCode),
+		NextRetryAt:  int64PtrFromNull(row.NextRetryAt),
+		LastError:    stringPtrFromNull(row.LastError),
+		CreatedAt:    row.CreatedAt,
 	}
-	return d, nil
 }
 
 // Enqueue inserts a pending delivery for (webhook, event), due immediately
 // (next_retry_at = createdAt). Returns the auto-increment id. Dedup by event_id
 // is the dispatcher's job (it decides whether to enqueue); §9 dedups downstream.
 func (r *WebhookDeliveryRepo) Enqueue(ctx context.Context, webhookID, eventID string, createdAt int64) (uint64, error) {
-	const q = `INSERT INTO webhook_deliveries
-(webhook_id, event_id, status, attempts, next_retry_at, created_at)
-VALUES (?, ?, ?, 0, ?, ?)`
-	res, err := r.db.ExecContext(ctx, q, webhookID, eventID, domain.DeliveryPending, createdAt, createdAt)
+	res, err := r.q.EnqueueWebhookDelivery(ctx, storedb.EnqueueWebhookDeliveryParams{
+		WebhookID:   webhookID,
+		EventID:     eventID,
+		Status:      storedb.WebhookDeliveriesStatus(domain.DeliveryPending),
+		NextRetryAt: sqlNullInt64(createdAt),
+		CreatedAt:   createdAt,
+	})
 	if err != nil {
 		return 0, fmt.Errorf("store: enqueue delivery: %w", err)
 	}
@@ -59,37 +60,34 @@ VALUES (?, ?, ?, 0, ?, ?)`
 // would add row-locking, but v1 is single-instance (§3) so a read suffices.
 func (r *WebhookDeliveryRepo) ClaimDue(ctx context.Context, now int64, limit int) ([]domain.WebhookDelivery, error) {
 	limit = normLimit(limit)
-	const q = `SELECT ` + deliveryCols + ` FROM webhook_deliveries
-WHERE status IN (?, ?) AND next_retry_at IS NOT NULL AND next_retry_at <= ?
-ORDER BY next_retry_at ASC
-LIMIT ?`
-	rows, err := r.db.QueryContext(ctx, q, domain.DeliveryPending, domain.DeliveryFailed, now, limit)
+	rows, err := r.q.ClaimDueWebhookDeliveries(ctx, storedb.ClaimDueWebhookDeliveriesParams{
+		Status:      storedb.WebhookDeliveriesStatus(domain.DeliveryPending),
+		Status_2:    storedb.WebhookDeliveriesStatus(domain.DeliveryFailed),
+		NextRetryAt: sqlNullInt64(now),
+		Limit:       int32(limit),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("store: claim due deliveries: %w", err)
 	}
-	defer rows.Close()
-	var out []domain.WebhookDelivery
-	for rows.Next() {
-		d, err := scanDelivery(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, d)
+	out := make([]domain.WebhookDelivery, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, deliveryFromRow(row))
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // MarkDelivered records a successful delivery: status delivered, attempts++,
 // response code stamped, retry cleared.
 func (r *WebhookDeliveryRepo) MarkDelivered(ctx context.Context, id uint64, responseCode int) error {
-	const q = `UPDATE webhook_deliveries
-SET status=?, attempts=attempts+1, response_code=?, next_retry_at=NULL, last_error=NULL
-WHERE id=?`
-	res, err := r.db.ExecContext(ctx, q, domain.DeliveryDelivered, responseCode, id)
+	n, err := r.q.MarkWebhookDeliveryDelivered(ctx, storedb.MarkWebhookDeliveryDeliveredParams{
+		Status:       storedb.WebhookDeliveriesStatus(domain.DeliveryDelivered),
+		ResponseCode: sqlNullInt32(responseCode),
+		ID:           id,
+	})
 	if err != nil {
 		return fmt.Errorf("store: mark delivered: %w", err)
 	}
-	return affectedOrNotFound(res, "webhook delivery")
+	return rowsAffectedOrNotFound(n, "webhook delivery")
 }
 
 // MarkFailed records a failed attempt that will be retried: status failed,
@@ -97,14 +95,17 @@ WHERE id=?`
 // computed from the retry policy. responseCode may be nil (e.g. connection
 // error with no HTTP response).
 func (r *WebhookDeliveryRepo) MarkFailed(ctx context.Context, id uint64, responseCode *int, lastError string, nextRetryAt int64) error {
-	const q = `UPDATE webhook_deliveries
-SET status=?, attempts=attempts+1, response_code=?, last_error=?, next_retry_at=?
-WHERE id=?`
-	res, err := r.db.ExecContext(ctx, q, domain.DeliveryFailed, responseCode, lastError, nextRetryAt, id)
+	n, err := r.q.MarkWebhookDeliveryFailed(ctx, storedb.MarkWebhookDeliveryFailedParams{
+		Status:       storedb.WebhookDeliveriesStatus(domain.DeliveryFailed),
+		ResponseCode: nullInt32FromPtr(responseCode),
+		LastError:    sqlString(lastError),
+		NextRetryAt:  sqlNullInt64(nextRetryAt),
+		ID:           id,
+	})
 	if err != nil {
 		return fmt.Errorf("store: mark failed: %w", err)
 	}
-	return affectedOrNotFound(res, "webhook delivery")
+	return rowsAffectedOrNotFound(n, "webhook delivery")
 }
 
 // Create inserts a pending delivery from a domain.WebhookDelivery, populating
@@ -123,28 +124,29 @@ func (r *WebhookDeliveryRepo) Create(ctx context.Context, d *domain.WebhookDeliv
 // ExistsTerminal reports whether a delivery for (webhookID, eventID) is already
 // in a terminal state (delivered or dead) — the §9 dedup guard.
 func (r *WebhookDeliveryRepo) ExistsTerminal(ctx context.Context, webhookID, eventID string) (bool, error) {
-	const q = `SELECT 1 FROM webhook_deliveries
-WHERE webhook_id=? AND event_id=? AND status IN (?, ?) LIMIT 1`
-	var one int
-	err := r.db.QueryRowContext(ctx, q, webhookID, eventID, domain.DeliveryDelivered, domain.DeliveryDead).Scan(&one)
+	ok, err := r.q.WebhookDeliveryTerminalExists(ctx, storedb.WebhookDeliveryTerminalExistsParams{
+		WebhookID: webhookID,
+		EventID:   eventID,
+		Status:    storedb.WebhookDeliveriesStatus(domain.DeliveryDelivered),
+		Status_2:  storedb.WebhookDeliveriesStatus(domain.DeliveryDead),
+	})
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return false, nil
-		}
 		return false, fmt.Errorf("store: exists terminal delivery: %w", err)
 	}
-	return true, nil
+	return ok, nil
 }
 
 // MarkDead records retry exhaustion: status dead, attempts++, error stamped,
 // retry cleared so it is never picked up again.
 func (r *WebhookDeliveryRepo) MarkDead(ctx context.Context, id uint64, responseCode *int, lastError string) error {
-	const q = `UPDATE webhook_deliveries
-SET status=?, attempts=attempts+1, response_code=?, last_error=?, next_retry_at=NULL
-WHERE id=?`
-	res, err := r.db.ExecContext(ctx, q, domain.DeliveryDead, responseCode, lastError, id)
+	n, err := r.q.MarkWebhookDeliveryDead(ctx, storedb.MarkWebhookDeliveryDeadParams{
+		Status:       storedb.WebhookDeliveriesStatus(domain.DeliveryDead),
+		ResponseCode: nullInt32FromPtr(responseCode),
+		LastError:    sqlString(lastError),
+		ID:           id,
+	})
 	if err != nil {
 		return fmt.Errorf("store: mark dead: %w", err)
 	}
-	return affectedOrNotFound(res, "webhook delivery")
+	return rowsAffectedOrNotFound(n, "webhook delivery")
 }

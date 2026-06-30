@@ -6,30 +6,30 @@ import (
 	"strings"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/store/storedb"
 )
 
 // IdentityRepo is the repository for whatsapp_identities — global LID→phone/name
 // resolution, upserted by lid on every inbound capture (§7).
 type IdentityRepo struct {
-	db dbExecQuerier
+	db storedb.DBTX
+	q  *storedb.Queries
 }
 
 // NewIdentityRepo constructs an IdentityRepo.
-func NewIdentityRepo(db dbExecQuerier) *IdentityRepo { return &IdentityRepo{db: db} }
+func NewIdentityRepo(db storedb.DBTX) *IdentityRepo { return &IdentityRepo{db: db, q: storedb.New(db)} }
 
-const identityCols = `id, lid, phone_number, phone_jid, name, business_name,
-	first_seen_at, updated_at`
-
-func scanIdentity(s rowScanner) (domain.Identity, error) {
-	var i domain.Identity
-	err := s.Scan(
-		&i.ID, &i.LID, &i.PhoneNumber, &i.PhoneJID, &i.Name, &i.BusinessName,
-		&i.FirstSeenAt, &i.UpdatedAt,
-	)
-	if err != nil {
-		return domain.Identity{}, err
+func identityFromRow(row storedb.WhatsappIdentity) domain.Identity {
+	return domain.Identity{
+		ID:           row.ID,
+		LID:          row.Lid,
+		PhoneNumber:  stringPtrFromNull(row.PhoneNumber),
+		PhoneJID:     stringPtrFromNull(row.PhoneJid),
+		Name:         stringPtrFromNull(row.Name),
+		BusinessName: stringPtrFromNull(row.BusinessName),
+		FirstSeenAt:  row.FirstSeenAt,
+		UpdatedAt:    row.UpdatedAt,
 	}
-	return i, nil
 }
 
 // Upsert inserts or updates an identity by lid. On conflict the resolvable
@@ -37,18 +37,16 @@ func scanIdentity(s rowScanner) (domain.Identity, error) {
 // previously-known phone/name if a later sighting lacks it); first_seen_at is
 // preserved. This is the §7 "prefer push name / fill in resolution" behavior.
 func (r *IdentityRepo) Upsert(ctx context.Context, i domain.Identity) error {
-	const q = `INSERT INTO whatsapp_identities
-(lid, phone_number, phone_jid, name, business_name, first_seen_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?)
-ON DUPLICATE KEY UPDATE
-	phone_number  = COALESCE(VALUES(phone_number), phone_number),
-	phone_jid     = COALESCE(VALUES(phone_jid), phone_jid),
-	name          = COALESCE(VALUES(name), name),
-	business_name = COALESCE(VALUES(business_name), business_name),
-	updated_at    = VALUES(updated_at)`
-	if _, err := r.db.ExecContext(ctx, q,
-		i.LID, i.PhoneNumber, i.PhoneJID, i.Name, i.BusinessName, i.FirstSeenAt, i.UpdatedAt,
-	); err != nil {
+	err := r.q.UpsertIdentity(ctx, storedb.UpsertIdentityParams{
+		Lid:          i.LID,
+		PhoneNumber:  nullString(i.PhoneNumber),
+		PhoneJid:     nullString(i.PhoneJID),
+		Name:         nullString(i.Name),
+		BusinessName: nullString(i.BusinessName),
+		FirstSeenAt:  i.FirstSeenAt,
+		UpdatedAt:    i.UpdatedAt,
+	})
+	if err != nil {
 		return fmt.Errorf("store: upsert identity: %w", err)
 	}
 	if i.PhoneJID != nil {
@@ -70,10 +68,13 @@ func (r *IdentityRepo) FillNameByJID(ctx context.Context, jid, name string, nowM
 	if jid == "" || name == "" {
 		return nil
 	}
-	const q = `UPDATE whatsapp_identities
-SET name = ?, updated_at = ?
-WHERE (lid = ? OR phone_jid = ?) AND (name IS NULL OR name = '')`
-	if _, err := r.db.ExecContext(ctx, q, name, nowMs, jid, jid); err != nil {
+	err := r.q.FillIdentityNameByJID(ctx, storedb.FillIdentityNameByJIDParams{
+		Name:      sqlString(name),
+		UpdatedAt: nowMs,
+		Lid:       jid,
+		PhoneJid:  sqlString(jid),
+	})
+	if err != nil {
 		return fmt.Errorf("store: fill identity name: %w", err)
 	}
 	return nil
@@ -103,40 +104,28 @@ func (r *IdentityRepo) NamesForMentions(ctx context.Context, jids []string) (map
 		return nil, nil
 	}
 
-	ph := strings.TrimSuffix(strings.Repeat("?, ", len(uniq)), ", ")
-	args := make([]any, 0, len(uniq)*2)
-	for _, j := range uniq {
-		args = append(args, j)
-	}
-	args = append(args, args...) // bound twice: lid IN (...) OR phone_jid IN (...)
-	q := "SELECT lid, phone_jid, name FROM whatsapp_identities " +
-		"WHERE name IS NOT NULL AND name <> '' AND (lid IN (" + ph + ") OR phone_jid IN (" + ph + "))"
-
-	rows, err := r.db.QueryContext(ctx, q, args...)
+	jidList := strings.Join(uniq, ",")
+	rows, err := r.q.NamesForMentionJIDs(ctx, storedb.NamesForMentionJIDsParams{
+		FINDINSET:   jidList,
+		FINDINSET_2: jidList,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("store: resolve mention names: %w", err)
 	}
-	defer rows.Close()
 
 	// Map every known id (lid and phone_jid) -> name, then re-key by the mention's
 	// user-part so it lines up with the "@<userpart>" token in the body.
 	byID := make(map[string]string)
-	for rows.Next() {
-		var lid string
-		var phoneJID, name *string
-		if err := rows.Scan(&lid, &phoneJID, &name); err != nil {
-			return nil, scanErr("identity", err)
-		}
+	for _, row := range rows {
+		name := stringPtrFromNull(row.Name)
 		if name == nil {
 			continue
 		}
-		byID[lid] = *name
+		byID[row.Lid] = *name
+		phoneJID := stringPtrFromNull(row.PhoneJid)
 		if phoneJID != nil && *phoneJID != "" {
 			byID[*phoneJID] = *name
 		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("store: resolve mention names: %w", err)
 	}
 
 	out := make(map[string]string, len(uniq))
@@ -162,10 +151,9 @@ func mentionUserPart(jid string) string {
 
 // GetByLID fetches an identity by its unique lid. Maps no-rows to not_found.
 func (r *IdentityRepo) GetByLID(ctx context.Context, lid string) (domain.Identity, error) {
-	q := "SELECT " + identityCols + " FROM whatsapp_identities WHERE lid = ?"
-	i, err := scanIdentity(r.db.QueryRowContext(ctx, q, lid))
+	row, err := r.q.GetIdentityByLID(ctx, storedb.GetIdentityByLIDParams{Lid: lid})
 	if err != nil {
 		return domain.Identity{}, notFound(err, "identity")
 	}
-	return i, nil
+	return identityFromRow(row), nil
 }

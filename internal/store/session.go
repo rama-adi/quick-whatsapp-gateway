@@ -5,45 +5,60 @@ import (
 	"fmt"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/store/storedb"
 )
 
 // SessionRepo is the repository for wa_sessions (attached WhatsApp numbers, §7).
 type SessionRepo struct {
-	db dbExecQuerier
+	q *storedb.Queries
 }
 
 // NewSessionRepo constructs a SessionRepo.
-func NewSessionRepo(db dbExecQuerier) *SessionRepo { return &SessionRepo{db: db} }
+func NewSessionRepo(db storedb.DBTX) *SessionRepo { return &SessionRepo{q: storedb.New(db)} }
 
-const sessionCols = `id, organization_id, created_by_user_id, gateway_id, label, status,
-	wa_jid, wa_lid, phone_number, is_admin_session, auto_read, presence_typing,
-	rate_per_min, rate_per_hour, last_connected_at, created_at, updated_at`
-
-func scanSession(s rowScanner) (domain.WASession, error) {
-	var v domain.WASession
-	err := s.Scan(
-		&v.ID, &v.OrganizationID, &v.CreatedByUserID, &v.GatewayID, &v.Label, &v.Status,
-		&v.WAJID, &v.WALID, &v.PhoneNumber, &v.IsAdminSession, &v.AutoRead, &v.PresenceTyping,
-		&v.RatePerMin, &v.RatePerHour, &v.LastConnectedAt, &v.CreatedAt, &v.UpdatedAt,
-	)
-	if err != nil {
-		return domain.WASession{}, err
+func sessionFromRow(row storedb.WaSession) domain.WASession {
+	return domain.WASession{
+		ID:              row.ID,
+		OrganizationID:  row.OrganizationID,
+		CreatedByUserID: stringPtrFromNull(row.CreatedByUserID),
+		GatewayID:       row.GatewayID,
+		Label:           stringPtrFromNull(row.Label),
+		Status:          domain.SessionStatus(row.Status),
+		WAJID:           stringPtrFromNull(row.WaJid),
+		WALID:           stringPtrFromNull(row.WaLid),
+		PhoneNumber:     stringPtrFromNull(row.PhoneNumber),
+		IsAdminSession:  row.IsAdminSession,
+		AutoRead:        row.AutoRead,
+		PresenceTyping:  row.PresenceTyping,
+		RatePerMin:      int(row.RatePerMin),
+		RatePerHour:     int(row.RatePerHour),
+		LastConnectedAt: int64PtrFromNull(row.LastConnectedAt),
+		CreatedAt:       row.CreatedAt,
+		UpdatedAt:       row.UpdatedAt,
 	}
-	return v, nil
 }
 
 // Create inserts a new session row.
 func (r *SessionRepo) Create(ctx context.Context, s domain.WASession) error {
-	const q = `INSERT INTO wa_sessions
-(id, organization_id, created_by_user_id, gateway_id, label, status, wa_jid, wa_lid,
- phone_number, is_admin_session, auto_read, presence_typing, rate_per_min, rate_per_hour,
- last_connected_at, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-	_, err := r.db.ExecContext(ctx, q,
-		s.ID, s.OrganizationID, s.CreatedByUserID, s.GatewayID, s.Label, s.Status, s.WAJID, s.WALID,
-		s.PhoneNumber, s.IsAdminSession, s.AutoRead, s.PresenceTyping, s.RatePerMin, s.RatePerHour,
-		s.LastConnectedAt, s.CreatedAt, s.UpdatedAt,
-	)
+	err := r.q.CreateSession(ctx, storedb.CreateSessionParams{
+		ID:              s.ID,
+		OrganizationID:  s.OrganizationID,
+		CreatedByUserID: nullString(s.CreatedByUserID),
+		GatewayID:       s.GatewayID,
+		Label:           nullString(s.Label),
+		Status:          storedb.WaSessionsStatus(s.Status),
+		WaJid:           nullString(s.WAJID),
+		WaLid:           nullString(s.WALID),
+		PhoneNumber:     nullString(s.PhoneNumber),
+		IsAdminSession:  s.IsAdminSession,
+		AutoRead:        s.AutoRead,
+		PresenceTyping:  s.PresenceTyping,
+		RatePerMin:      int32(s.RatePerMin),
+		RatePerHour:     int32(s.RatePerHour),
+		LastConnectedAt: nullInt64(s.LastConnectedAt),
+		CreatedAt:       s.CreatedAt,
+		UpdatedAt:       s.UpdatedAt,
+	})
 	if err != nil {
 		return fmt.Errorf("store: create session: %w", err)
 	}
@@ -52,133 +67,118 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 // Get fetches a session by app id. Maps no-rows to not_found.
 func (r *SessionRepo) Get(ctx context.Context, id string) (domain.WASession, error) {
-	q := "SELECT " + sessionCols + " FROM wa_sessions WHERE id = ?"
-	v, err := scanSession(r.db.QueryRowContext(ctx, q, id))
+	row, err := r.q.GetSession(ctx, storedb.GetSessionParams{ID: id})
 	if err != nil {
 		return domain.WASession{}, notFound(err, "session")
 	}
-	return v, nil
+	return sessionFromRow(row), nil
 }
 
 // GetByJID fetches a session by its (unique) phone JID. Maps no-rows to not_found.
 func (r *SessionRepo) GetByJID(ctx context.Context, jid string) (domain.WASession, error) {
-	q := "SELECT " + sessionCols + " FROM wa_sessions WHERE wa_jid = ?"
-	v, err := scanSession(r.db.QueryRowContext(ctx, q, jid))
+	row, err := r.q.GetSessionByJID(ctx, storedb.GetSessionByJIDParams{WaJid: nullString(&jid)})
 	if err != nil {
 		return domain.WASession{}, notFound(err, "session")
 	}
-	return v, nil
+	return sessionFromRow(row), nil
 }
 
 // ListByOrg returns all sessions for an organization ordered by created_at desc.
 // Session counts per org are small, so this is unpaginated.
 func (r *SessionRepo) ListByOrg(ctx context.Context, organizationID string) ([]domain.WASession, error) {
-	q := "SELECT " + sessionCols + " FROM wa_sessions WHERE organization_id = ? ORDER BY created_at DESC"
-	rows, err := r.db.QueryContext(ctx, q, organizationID)
+	rows, err := r.q.ListSessionsByOrg(ctx, storedb.ListSessionsByOrgParams{OrganizationID: organizationID})
 	if err != nil {
 		return nil, fmt.Errorf("store: list sessions: %w", err)
 	}
-	defer rows.Close()
-	var out []domain.WASession
-	for rows.Next() {
-		v, err := scanSession(rows)
-		if err != nil {
-			return nil, scanErr("wa_sessions", err)
-		}
-		out = append(out, v)
+	out := make([]domain.WASession, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, sessionFromRow(row))
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // ListAll returns every session (platform super_admin cross-org oversight, §11).
 // Kept unpaginated for single-instance scale.
 func (r *SessionRepo) ListAll(ctx context.Context) ([]domain.WASession, error) {
-	q := "SELECT " + sessionCols + " FROM wa_sessions ORDER BY created_at DESC"
-	rows, err := r.db.QueryContext(ctx, q)
+	rows, err := r.q.ListAllSessions(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("store: list all sessions: %w", err)
 	}
-	defer rows.Close()
-	var out []domain.WASession
-	for rows.Next() {
-		v, err := scanSession(rows)
-		if err != nil {
-			return nil, scanErr("wa_sessions", err)
-		}
-		out = append(out, v)
+	out := make([]domain.WASession, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, sessionFromRow(row))
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // ListByGateway returns every session pinned to the given gateway_id, ordered by
 // created_at. The boot orphan-guard (Stage 4) uses this to reconcile the sessions
 // this gateway is responsible for against its local keystore.
 func (r *SessionRepo) ListByGateway(ctx context.Context, gatewayID string) ([]domain.WASession, error) {
-	q := "SELECT " + sessionCols + " FROM wa_sessions WHERE gateway_id = ? ORDER BY created_at ASC"
-	rows, err := r.db.QueryContext(ctx, q, gatewayID)
+	rows, err := r.q.ListSessionsByGateway(ctx, storedb.ListSessionsByGatewayParams{GatewayID: gatewayID})
 	if err != nil {
 		return nil, fmt.Errorf("store: list sessions by gateway: %w", err)
 	}
-	defer rows.Close()
-	var out []domain.WASession
-	for rows.Next() {
-		v, err := scanSession(rows)
-		if err != nil {
-			return nil, scanErr("wa_sessions", err)
-		}
-		out = append(out, v)
+	out := make([]domain.WASession, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, sessionFromRow(row))
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // CountByGateway returns how many sessions are pinned to the given gateway_id. The
 // gateway heartbeat reports this into the registry (gateways.session_count) so the
 // router can place new sessions on the least-loaded gateway (D8).
 func (r *SessionRepo) CountByGateway(ctx context.Context, gatewayID string) (int, error) {
-	const q = "SELECT COUNT(*) FROM wa_sessions WHERE gateway_id = ?"
-	var n int
-	if err := r.db.QueryRowContext(ctx, q, gatewayID).Scan(&n); err != nil {
+	n, err := r.q.CountSessionsByGateway(ctx, storedb.CountSessionsByGatewayParams{GatewayID: gatewayID})
+	if err != nil {
 		return 0, fmt.Errorf("store: count sessions by gateway: %w", err)
 	}
-	return n, nil
+	return int(n), nil
 }
 
 // Update writes the mutable fields of a session (settings + WA identity), keying
 // on id and refreshing updated_at from the struct.
 func (r *SessionRepo) Update(ctx context.Context, s domain.WASession) error {
-	const q = `UPDATE wa_sessions SET
-		label=?, status=?, wa_jid=?, wa_lid=?, phone_number=?, auto_read=?,
-		presence_typing=?, rate_per_min=?, rate_per_hour=?, last_connected_at=?,
-		updated_at=?
-	WHERE id=?`
-	res, err := r.db.ExecContext(ctx, q,
-		s.Label, s.Status, s.WAJID, s.WALID, s.PhoneNumber, s.AutoRead,
-		s.PresenceTyping, s.RatePerMin, s.RatePerHour, s.LastConnectedAt,
-		s.UpdatedAt, s.ID,
-	)
+	n, err := r.q.UpdateSession(ctx, storedb.UpdateSessionParams{
+		Label:           nullString(s.Label),
+		Status:          storedb.WaSessionsStatus(s.Status),
+		WaJid:           nullString(s.WAJID),
+		WaLid:           nullString(s.WALID),
+		PhoneNumber:     nullString(s.PhoneNumber),
+		AutoRead:        s.AutoRead,
+		PresenceTyping:  s.PresenceTyping,
+		RatePerMin:      int32(s.RatePerMin),
+		RatePerHour:     int32(s.RatePerHour),
+		LastConnectedAt: nullInt64(s.LastConnectedAt),
+		UpdatedAt:       s.UpdatedAt,
+		ID:              s.ID,
+	})
 	if err != nil {
 		return fmt.Errorf("store: update session: %w", err)
 	}
-	return affectedOrNotFound(res, "session")
+	return rowsAffectedOrNotFound(n, "session")
 }
 
 // UpdateStatus is the hot path for the session lifecycle (§3): flip status and
 // touch updated_at without rewriting the whole row.
 func (r *SessionRepo) UpdateStatus(ctx context.Context, id string, status domain.SessionStatus, updatedAt int64) error {
-	const q = "UPDATE wa_sessions SET status=?, updated_at=? WHERE id=?"
-	res, err := r.db.ExecContext(ctx, q, status, updatedAt, id)
+	n, err := r.q.UpdateSessionStatus(ctx, storedb.UpdateSessionStatusParams{
+		Status:    storedb.WaSessionsStatus(status),
+		UpdatedAt: updatedAt,
+		ID:        id,
+	})
 	if err != nil {
 		return fmt.Errorf("store: update session status: %w", err)
 	}
-	return affectedOrNotFound(res, "session")
+	return rowsAffectedOrNotFound(n, "session")
 }
 
 // Delete removes a session by id.
 func (r *SessionRepo) Delete(ctx context.Context, id string) error {
-	const q = "DELETE FROM wa_sessions WHERE id=?"
-	res, err := r.db.ExecContext(ctx, q, id)
+	n, err := r.q.DeleteSession(ctx, storedb.DeleteSessionParams{ID: id})
 	if err != nil {
 		return fmt.Errorf("store: delete session: %w", err)
 	}
-	return affectedOrNotFound(res, "session")
+	return rowsAffectedOrNotFound(n, "session")
 }

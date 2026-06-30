@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/store/storedb"
 )
 
 // APIKeyRepo is a READ-ONLY view of better-auth's `apikey` table (§4.2/§7). The
@@ -22,11 +23,11 @@ import (
 // authz package (Stage 3) supplies the hash and calls GetByHash. That keeps the
 // hashing scheme (which must match better-auth's pinned version) in one place.
 type APIKeyRepo struct {
-	db dbExecQuerier
+	q *storedb.Queries
 }
 
 // NewAPIKeyRepo constructs an APIKeyRepo.
-func NewAPIKeyRepo(db dbExecQuerier) *APIKeyRepo { return &APIKeyRepo{db: db} }
+func NewAPIKeyRepo(db storedb.DBTX) *APIKeyRepo { return &APIKeyRepo{q: storedb.New(db)} }
 
 // apiKeyCols maps better-auth's ACTUAL apikey columns (better-auth 1.6.x, Drizzle
 // MySQL adapter — verified live, see contract test) onto domain.APIKey. The `key`
@@ -36,22 +37,11 @@ func NewAPIKeyRepo(db dbExecQuerier) *APIKeyRepo { return &APIKeyRepo{db: db} }
 // `expires_at`/`created_at` are MySQL TIMESTAMP(3) (DATETIME), NOT epoch-ms BIGINT,
 // so they scan as time and convert to epoch-ms for the domain. refill/rateLimit/
 // metadata columns are ignored for now (§4.2).
-const apiKeyCols = "id, name, `key`, reference_id, enabled, expires_at, permissions, created_at"
-
-func scanAPIKey(s rowScanner) (domain.APIKey, error) {
-	var (
-		k         domain.APIKey
-		refID     sql.NullString
-		enabled   sql.NullBool
-		expiresAt sql.NullTime
-		createdAt sql.NullTime
-		perms     []byte
-	)
-	err := s.Scan(
-		&k.ID, &k.Name, &k.KeyHash, &refID, &enabled, &expiresAt, &perms, &createdAt,
-	)
-	if err != nil {
-		return domain.APIKey{}, err
+func apiKeyFromFields(id string, name sql.NullString, keyHash string, refID sql.NullString, enabled sql.NullBool, expiresAt sql.NullTime, permissions sql.NullString, createdAt sql.NullTime) (domain.APIKey, error) {
+	k := domain.APIKey{
+		ID:      id,
+		Name:    name.String,
+		KeyHash: keyHash,
 	}
 	// reference_id == the owning organization id (plugin `references:"organization"`).
 	if refID.Valid {
@@ -66,8 +56,8 @@ func scanAPIKey(s rowScanner) (domain.APIKey, error) {
 	if createdAt.Valid {
 		k.CreatedAt = createdAt.Time.UnixMilli()
 	}
-	if len(perms) > 0 {
-		p, err := parseAPIKeyPermissions(perms)
+	if permissions.Valid && permissions.String != "" {
+		p, err := parseAPIKeyPermissions([]byte(permissions.String))
 		if err != nil {
 			return domain.APIKey{}, scanErr("apikey.permissions", err)
 		}
@@ -110,22 +100,20 @@ func parseAPIKeyPermissions(raw []byte) (domain.Permissions, error) {
 // auth hot path. The caller (authz) hashes the presented secret with better-auth's
 // scheme and passes the digest here. Maps no-rows to not_found.
 func (r *APIKeyRepo) GetByHash(ctx context.Context, keyHash string) (domain.APIKey, error) {
-	q := "SELECT " + apiKeyCols + " FROM apikey WHERE `key` = ?"
-	k, err := scanAPIKey(r.db.QueryRowContext(ctx, q, keyHash))
+	row, err := r.q.GetAPIKeyByHash(ctx, storedb.GetAPIKeyByHashParams{Key: keyHash})
 	if err != nil {
 		return domain.APIKey{}, notFound(err, "api key")
 	}
-	return k, nil
+	return apiKeyFromFields(row.ID, row.Name, row.Key, row.ReferenceID, row.Enabled, row.ExpiresAt, row.Permissions, row.CreatedAt)
 }
 
 // GetByID fetches a key by id. Maps no-rows to not_found.
 func (r *APIKeyRepo) GetByID(ctx context.Context, id string) (domain.APIKey, error) {
-	q := "SELECT " + apiKeyCols + " FROM apikey WHERE id = ?"
-	k, err := scanAPIKey(r.db.QueryRowContext(ctx, q, id))
+	row, err := r.q.GetAPIKeyByID(ctx, storedb.GetAPIKeyByIDParams{ID: id})
 	if err != nil {
 		return domain.APIKey{}, notFound(err, "api key")
 	}
-	return k, nil
+	return apiKeyFromFields(row.ID, row.Name, row.Key, row.ReferenceID, row.Enabled, row.ExpiresAt, row.Permissions, row.CreatedAt)
 }
 
 // TouchLastRequest best-effort stamps better-auth's `last_request` column on use.
@@ -133,8 +121,11 @@ func (r *APIKeyRepo) GetByID(ctx context.Context, id string) (domain.APIKey, err
 // A missing row is not an error here. The frontend owns the column; this is a
 // courtesy write so the dashboard's "last used" reflects gateway traffic.
 func (r *APIKeyRepo) TouchLastRequest(ctx context.Context, id string, at int64) error {
-	const q = "UPDATE apikey SET last_request=? WHERE id=?"
-	if _, err := r.db.ExecContext(ctx, q, time.UnixMilli(at).UTC(), id); err != nil {
+	err := r.q.TouchAPIKeyLastRequest(ctx, storedb.TouchAPIKeyLastRequestParams{
+		LastRequest: sql.NullTime{Time: time.UnixMilli(at).UTC(), Valid: true},
+		ID:          id,
+	})
+	if err != nil {
 		return fmt.Errorf("store: touch apikey last_request: %w", err)
 	}
 	return nil

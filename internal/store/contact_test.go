@@ -50,9 +50,9 @@ func TestContactRepo_List_GroupAndQFilter(t *testing.T) {
 	repo := NewContactRepo(db)
 
 	rows := sqlmock.NewRows(contactProjRow()).
-		AddRow(uint64(3), "a@lid", nil, "Alice", nil, false, true)
+		AddRow(uint64(3), "a@lid", nil, "Alice", nil, false, int32(1))
 	mock.ExpectQuery("FROM whatsapp_identities i WHERE i.id > ..*whatsapp_group_members gm.*group_jid = ..*i.name LIKE .").
-		WithArgs("sess_1", "sess_1", uint64(2), "sess_1", "12@g.us", "%alice%", 1).
+		WithArgs("sess_1", uint64(2), "sess_1", "12@g.us", "%alice%", 1).
 		WillReturnRows(rows)
 
 	page, err := repo.List(context.Background(), "sess_1",
@@ -78,7 +78,7 @@ func TestContactRepo_List_DMFilter(t *testing.T) {
 	rows := sqlmock.NewRows(contactProjRow())
 	// DM filter: SELECT exists(dm), exists(group); WHERE id>? AND exists(dm).
 	mock.ExpectQuery("FROM whatsapp_identities i WHERE i.id > .").
-		WithArgs("sess_1", "sess_1", uint64(0), "sess_1", defaultLimit).
+		WithArgs("sess_1", uint64(0), "sess_1", defaultLimit).
 		WillReturnRows(rows)
 
 	if _, err := repo.List(context.Background(), "sess_1", ContactFilter{Source: "dm"}, "", 0); err != nil {

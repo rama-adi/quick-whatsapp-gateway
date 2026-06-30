@@ -5,41 +5,45 @@ import (
 	"fmt"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/store/storedb"
 )
 
 // EventLogRepo is the repository for event_log (§5/§9) — the durable, monotonic
 // event stream backing NDJSON ?since= resume. The surrogate id is the resume
 // cursor; event_id (ULID) is the value exposed to clients.
 type EventLogRepo struct {
-	db dbExecQuerier
+	q *storedb.Queries
 }
 
 // NewEventLogRepo constructs an EventLogRepo.
-func NewEventLogRepo(db dbExecQuerier) *EventLogRepo { return &EventLogRepo{db: db} }
+func NewEventLogRepo(db storedb.DBTX) *EventLogRepo { return &EventLogRepo{q: storedb.New(db)} }
 
-const eventLogCols = `id, event_id, organization_id, session_id, type, payload, created_at`
-
-func scanEventLog(s rowScanner) (domain.EventLogEntry, error) {
-	var (
-		e       domain.EventLogEntry
-		payload []byte
-	)
-	err := s.Scan(&e.ID, &e.EventID, &e.OrganizationID, &e.SessionID, &e.Type, &payload, &e.CreatedAt)
-	if err != nil {
-		return domain.EventLogEntry{}, err
+func eventLogFromRow(row storedb.EventLog) domain.EventLogEntry {
+	e := domain.EventLogEntry{
+		ID:             row.ID,
+		EventID:        row.EventID,
+		OrganizationID: row.OrganizationID,
+		SessionID:      row.SessionID,
+		Type:           row.Type,
+		CreatedAt:      row.CreatedAt,
 	}
-	if len(payload) > 0 {
-		e.Payload = append([]byte(nil), payload...)
+	if len(row.Payload) > 0 {
+		e.Payload = append([]byte(nil), row.Payload...)
 	}
-	return e, nil
+	return e
 }
 
 // Append writes an event to the log. event_id is unique (dedup); the surrogate
 // id is assigned by MySQL and returned for use as a resume cursor.
 func (r *EventLogRepo) Append(ctx context.Context, e domain.EventLogEntry) (uint64, error) {
-	const q = `INSERT INTO event_log (event_id, organization_id, session_id, type, payload, created_at)
-VALUES (?, ?, ?, ?, ?, ?)`
-	res, err := r.db.ExecContext(ctx, q, e.EventID, e.OrganizationID, e.SessionID, e.Type, []byte(e.Payload), e.CreatedAt)
+	res, err := r.q.AppendEventLog(ctx, storedb.AppendEventLogParams{
+		EventID:        e.EventID,
+		OrganizationID: e.OrganizationID,
+		SessionID:      e.SessionID,
+		Type:           e.Type,
+		Payload:        e.Payload,
+		CreatedAt:      e.CreatedAt,
+	})
 	if err != nil {
 		return 0, fmt.Errorf("store: append event: %w", err)
 	}
@@ -57,43 +61,40 @@ VALUES (?, ?, ?, ?, ?, ?)`
 func (r *EventLogRepo) ListSince(ctx context.Context, organizationID, sessionID string, afterID uint64, limit int) ([]domain.EventLogEntry, error) {
 	limit = normLimit(limit)
 
-	var (
-		q    string
-		args []any
-	)
+	var rows []storedb.EventLog
+	var err error
 	if sessionID == "" {
-		q = "SELECT " + eventLogCols + " FROM event_log WHERE organization_id = ? AND id > ? ORDER BY id ASC LIMIT ?"
-		args = []any{organizationID, afterID, limit}
+		rows, err = r.q.ListEventLogSinceForOrg(ctx, storedb.ListEventLogSinceForOrgParams{
+			OrganizationID: organizationID,
+			ID:             afterID,
+			Limit:          int32(limit),
+		})
 	} else {
-		q = "SELECT " + eventLogCols + " FROM event_log WHERE organization_id = ? AND session_id = ? AND id > ? ORDER BY id ASC LIMIT ?"
-		args = []any{organizationID, sessionID, afterID, limit}
+		rows, err = r.q.ListEventLogSinceForSession(ctx, storedb.ListEventLogSinceForSessionParams{
+			OrganizationID: organizationID,
+			SessionID:      sessionID,
+			ID:             afterID,
+			Limit:          int32(limit),
+		})
 	}
-
-	rows, err := r.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("store: list events: %w", err)
 	}
-	defer rows.Close()
-	var out []domain.EventLogEntry
-	for rows.Next() {
-		e, err := scanEventLog(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, e)
+	out := make([]domain.EventLogEntry, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, eventLogFromRow(row))
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // GetByEventID fetches a logged event by its public ULID event_id. Maps no-rows
 // to not_found.
 func (r *EventLogRepo) GetByEventID(ctx context.Context, eventID string) (domain.EventLogEntry, error) {
-	q := "SELECT " + eventLogCols + " FROM event_log WHERE event_id = ?"
-	e, err := scanEventLog(r.db.QueryRowContext(ctx, q, eventID))
+	row, err := r.q.GetEventLogByEventID(ctx, storedb.GetEventLogByEventIDParams{EventID: eventID})
 	if err != nil {
 		return domain.EventLogEntry{}, notFound(err, "event")
 	}
-	return e, nil
+	return eventLogFromRow(row), nil
 }
 
 // GetEvent loads a logged event and projects it onto the wire domain.Event

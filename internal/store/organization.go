@@ -2,9 +2,9 @@ package store
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
+
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/store/storedb"
 )
 
 // OrganizationReader is a READ-ONLY view of better-auth's `organization` table
@@ -21,12 +21,12 @@ import (
 // schema, so "enabled" collapses to "exists" here — if a later better-auth
 // version adds a soft-disable flag, extend the predicate.
 type OrganizationReader struct {
-	db dbExecQuerier
+	q *storedb.Queries
 }
 
 // NewOrganizationReader constructs an OrganizationReader over the shared DB.
-func NewOrganizationReader(db dbExecQuerier) *OrganizationReader {
-	return &OrganizationReader{db: db}
+func NewOrganizationReader(db storedb.DBTX) *OrganizationReader {
+	return &OrganizationReader{q: storedb.New(db)}
 }
 
 // Exists reports whether an organization id is present in better-auth's
@@ -37,15 +37,9 @@ func (r *OrganizationReader) Exists(ctx context.Context, organizationID string) 
 	if organizationID == "" {
 		return false, nil
 	}
-	const q = "SELECT 1 FROM organization WHERE id = ?"
-	var one int
-	err := r.db.QueryRowContext(ctx, q, organizationID).Scan(&one)
-	switch {
-	case errors.Is(err, sql.ErrNoRows):
-		return false, nil
-	case err != nil:
+	ok, err := r.q.OrganizationExists(ctx, storedb.OrganizationExistsParams{ID: organizationID})
+	if err != nil {
 		return false, fmt.Errorf("store: check organization exists: %w", err)
-	default:
-		return true, nil
 	}
+	return ok, nil
 }

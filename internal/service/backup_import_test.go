@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"testing"
 
@@ -79,9 +78,9 @@ func TestStartImport_Concurrency(t *testing.T) {
 	svc, mock := newBackupSvc(t)
 	svc.decrypt = func([]byte, string) ([]byte, error) { return []byte("db"), nil }
 	expectGetSession(mock, "sess_1", "org_1")
-	mock.ExpectQuery("SELECT 1 FROM backfill_imports WHERE session_id = . AND status = 'running'").
+	mock.ExpectQuery("SELECT EXISTS .*FROM backfill_imports.*status = 'running'.*created_at >= .").
 		WithArgs("sess_1", testNow-runningStaleMs).
-		WillReturnRows(sqlmock.NewRows([]string{"1"}).AddRow(1))
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
 	_, err := svc.StartImport(context.Background(), "org_1", "sess_1", false, []byte("x"), "key")
 	if got := apiCode(t, err); got != domain.CodeConflict {
@@ -93,8 +92,9 @@ func TestStartImport_QuotaExceeded(t *testing.T) {
 	svc, mock := newBackupSvc(t)
 	svc.decrypt = func([]byte, string) ([]byte, error) { return []byte("db"), nil }
 	expectGetSession(mock, "sess_1", "org_1")
-	mock.ExpectQuery("SELECT 1 FROM backfill_imports WHERE session_id = . AND status = 'running'").
-		WithArgs("sess_1", testNow-runningStaleMs).WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery("SELECT EXISTS .*FROM backfill_imports.*status = 'running'.*created_at >= .").
+		WithArgs("sess_1", testNow-runningStaleMs).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 	mock.ExpectQuery("SELECT created_at FROM backfill_imports WHERE session_id = . AND status = 'succeeded'").
 		WithArgs("sess_1").WillReturnRows(sqlmock.NewRows([]string{"created_at"}).AddRow(testNow - 1000))
 
@@ -112,8 +112,9 @@ func TestStartImport_SuperAdminBypassesQuotaAndOrg(t *testing.T) {
 	svc.open = func(string) (backupReader, error) { return &fakeReader{}, nil }
 	// Cross-org session; caller is super_admin from a different org.
 	expectGetSession(mock, "sess_1", "org_2")
-	mock.ExpectQuery("SELECT 1 FROM backfill_imports WHERE session_id = . AND status = 'running'").
-		WithArgs("sess_1", testNow-runningStaleMs).WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery("SELECT EXISTS .*FROM backfill_imports.*status = 'running'.*created_at >= .").
+		WithArgs("sess_1", testNow-runningStaleMs).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 	// No LastSuccessAt query expected (super_admin bypasses quota).
 	mock.ExpectExec("INSERT INTO backfill_imports").WillReturnResult(sqlmock.NewResult(0, 1))
 

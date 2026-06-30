@@ -129,7 +129,7 @@ func TestMessageRepo_UpdateStatus(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewMessageRepo(db)
 
-	mock.ExpectExec("UPDATE messages SET status=., ack_level=., error=.").
+	mock.ExpectExec("UPDATE messages SET status = ., ack_level = ., error = .").
 		WithArgs(domain.MessageRead, intptr(3), (*string)(nil), "sess_1", "wamid_1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -145,14 +145,14 @@ func TestMessageRepo_MarkEditedAndDeleted(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewMessageRepo(db)
 
-	mock.ExpectExec("UPDATE messages SET edited=1, body=. WHERE session_id=. AND wa_message_id=.").
+	mock.ExpectExec("UPDATE messages SET edited = 1, body = . WHERE session_id = . AND wa_message_id = .").
 		WithArgs("new", "sess_1", "wamid_1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	if err := repo.MarkEdited(context.Background(), "sess_1", "wamid_1", "new"); err != nil {
 		t.Fatalf("MarkEdited: %v", err)
 	}
 
-	mock.ExpectExec("UPDATE messages SET deleted=1 WHERE session_id=. AND wa_message_id=.").
+	mock.ExpectExec("UPDATE messages SET deleted = 1 WHERE session_id = . AND wa_message_id = .").
 		WithArgs("sess_1", "wamid_1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	if err := repo.MarkDeleted(context.Background(), "sess_1", "wamid_1"); err != nil {
@@ -171,8 +171,8 @@ func TestMessageRepo_ListByChat_Pagination(t *testing.T) {
 	// Page size 2, cursor "msg_...05" -> id > cursor, limit 2; return exactly 2 -> next cursor
 	// is the last id.
 	rows := sqlmock.NewRows(messageColRow()).
-		AddRow("msg_01TEST00000000000000000006", "sess_1", "w6", "c", nil, nil, false, "in", "text", nil, nil, nil, false, nil, nil, nil, nil, false, false, int64(1), nil, int64(1), nil).
-		AddRow("msg_01TEST00000000000000000009", "sess_1", "w9", "c", nil, nil, false, "in", "text", nil, nil, nil, false, nil, nil, nil, nil, false, false, int64(2), nil, int64(2), nil)
+		AddRow("msg_01TEST00000000000000000006", "sess_1", "w6", "c", nil, nil, false, "in", "text", nil, nil, []byte(""), false, []byte(""), nil, nil, nil, false, false, int64(1), []byte(""), int64(1), nil).
+		AddRow("msg_01TEST00000000000000000009", "sess_1", "w9", "c", nil, nil, false, "in", "text", nil, nil, []byte(""), false, []byte(""), nil, nil, nil, false, false, int64(2), []byte(""), int64(2), nil)
 	mock.ExpectQuery("SELECT .* FROM messages m .*WHERE m.session_id = . AND m.id > .*m.chat_jid = .*EXISTS.*ORDER BY m.id ASC LIMIT .").
 		WithArgs("sess_1", "msg_01TEST00000000000000000005", "c", "c", "c", 2).WillReturnRows(rows)
 

@@ -59,14 +59,14 @@ func TestGatewayRepo_HeartbeatAndSetStatus(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewGatewayRepo(db)
 
-	mock.ExpectExec("UPDATE gateways SET last_seen_at=., session_count=., updated_at=. WHERE id=.").
+	mock.ExpectExec("UPDATE gateways\\s+SET last_seen_at = \\?, session_count = \\?, updated_at = \\?\\s+WHERE id = \\?").
 		WithArgs(int64(100), 7, int64(100), "gw_1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	if err := repo.Heartbeat(context.Background(), "gw_1", 100, 7); err != nil {
 		t.Fatalf("Heartbeat: %v", err)
 	}
 
-	mock.ExpectExec("UPDATE gateways SET status=., updated_at=. WHERE id=.").
+	mock.ExpectExec("UPDATE gateways\\s+SET status = \\?, updated_at = \\?\\s+WHERE id = \\?").
 		WithArgs(domain.GatewayDraining, int64(200), "gw_1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	if err := repo.SetStatus(context.Background(), "gw_1", domain.GatewayDraining, 200); err != nil {
@@ -235,14 +235,14 @@ func TestWebhookDeliveryRepo_MarkFailedAndDead(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewWebhookDeliveryRepo(db)
 
-	mock.ExpectExec("UPDATE webhook_deliveries.*status=., attempts=attempts.1").
+	mock.ExpectExec("UPDATE webhook_deliveries\\s+SET status = \\?, attempts = attempts \\+ 1, response_code = \\?, last_error = \\?, next_retry_at = \\?\\s+WHERE id = \\?").
 		WithArgs(domain.DeliveryFailed, intptr(500), "err", int64(123), uint64(9)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	if err := repo.MarkFailed(context.Background(), 9, intptr(500), "err", 123); err != nil {
 		t.Fatalf("MarkFailed: %v", err)
 	}
 
-	mock.ExpectExec("UPDATE webhook_deliveries.*status=., attempts=attempts.1.*next_retry_at=NULL").
+	mock.ExpectExec("UPDATE webhook_deliveries\\s+SET status = \\?, attempts = attempts \\+ 1, response_code = \\?, last_error = \\?, next_retry_at = NULL\\s+WHERE id = \\?").
 		WithArgs(domain.DeliveryDead, (*int)(nil), "dead", uint64(9)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	if err := repo.MarkDead(context.Background(), 9, nil, "dead"); err != nil {
@@ -315,10 +315,10 @@ func TestIdentityRepo_NamesForMentions(t *testing.T) {
 	rows := sqlmock.NewRows([]string{"lid", "phone_jid", "name"}).
 		AddRow("205227043110953@lid", "628999@s.whatsapp.net", "Suci").
 		AddRow("111@lid", nil, "Alice")
-	mock.ExpectQuery(`SELECT lid, phone_jid, name FROM whatsapp_identities WHERE name IS NOT NULL AND name <> '' AND \(lid IN \(\?, \?\) OR phone_jid IN \(\?, \?\)\)`).
+	mock.ExpectQuery(`SELECT lid, phone_jid, name\s+FROM whatsapp_identities\s+WHERE name IS NOT NULL\s+AND name <> ''\s+AND \(FIND_IN_SET\(lid, \?\) > 0 OR FIND_IN_SET\(phone_jid, \?\) > 0\)`).
 		WithArgs(
-			"205227043110953@lid", "111@lid",
-			"205227043110953@lid", "111@lid",
+			"205227043110953@lid,111@lid",
+			"205227043110953@lid,111@lid",
 		).
 		WillReturnRows(rows)
 
@@ -427,7 +427,7 @@ func TestChatRepo_UpsertAndUpdateFlags(t *testing.T) {
 		t.Fatalf("Upsert: %v", err)
 	}
 
-	mock.ExpectExec("UPDATE chats SET archived=., pinned=., muted_until=., unread_count=. WHERE session_id=. AND chat_jid=.").
+	mock.ExpectExec("UPDATE chats SET archived = ., pinned = ., muted_until = ., unread_count = . WHERE session_id = . AND chat_jid = .").
 		WithArgs(true, false, i64ptr(999), 0, "sess_1", "628@s").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	if err := repo.UpdateFlags(context.Background(), "sess_1", "628@s", true, false, i64ptr(999), 0); err != nil {
@@ -503,7 +503,7 @@ func TestPollVoteRepo_InsertAndList(t *testing.T) {
 	}
 
 	rows := sqlmock.NewRows([]string{"id", "session_id", "poll_message_id", "voter_lid", "selected_options", "timestamp", "raw_json"}).
-		AddRow(uint64(3), "sess_1", "poll_1", "111@lid", []byte(`["Pizza"]`), int64(10), nil)
+		AddRow(uint64(3), "sess_1", "poll_1", "111@lid", []byte(`["Pizza"]`), int64(10), []byte(""))
 	mock.ExpectQuery("SELECT .* FROM poll_votes WHERE session_id = . AND poll_message_id = . ORDER BY id ASC").
 		WithArgs("sess_1", "poll_1").WillReturnRows(rows)
 	got, err := repo.ListByPoll(context.Background(), "sess_1", "poll_1")

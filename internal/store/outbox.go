@@ -5,50 +5,55 @@ import (
 	"fmt"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/store/storedb"
 )
 
 // OutboxRepo is the repository for outbox (async send queue, §5/§8). Idempotency
 // is enforced by the unique (organization_id, idempotency_key).
 type OutboxRepo struct {
-	db dbExecQuerier
+	q *storedb.Queries
 }
 
 // NewOutboxRepo constructs an OutboxRepo.
-func NewOutboxRepo(db dbExecQuerier) *OutboxRepo { return &OutboxRepo{db: db} }
+func NewOutboxRepo(db storedb.DBTX) *OutboxRepo { return &OutboxRepo{q: storedb.New(db)} }
 
-const outboxCols = `id, organization_id, session_id, idempotency_key, payload, status,
-	attempts, wa_message_id, error, created_at, updated_at`
-
-func scanOutbox(s rowScanner) (domain.OutboxEntry, error) {
-	var (
-		o       domain.OutboxEntry
-		payload []byte
-	)
-	err := s.Scan(
-		&o.ID, &o.OrganizationID, &o.SessionID, &o.IdempotencyKey, &payload, &o.Status,
-		&o.Attempts, &o.WAMessageID, &o.Error, &o.CreatedAt, &o.UpdatedAt,
-	)
-	if err != nil {
-		return domain.OutboxEntry{}, err
+func outboxFromRow(row storedb.Outbox) domain.OutboxEntry {
+	o := domain.OutboxEntry{
+		ID:             row.ID,
+		OrganizationID: row.OrganizationID,
+		SessionID:      row.SessionID,
+		IdempotencyKey: stringPtrFromNull(row.IdempotencyKey),
+		Status:         domain.OutboxStatus(row.Status),
+		Attempts:       int(row.Attempts),
+		WAMessageID:    stringPtrFromNull(row.WaMessageID),
+		Error:          stringPtrFromNull(row.Error),
+		CreatedAt:      row.CreatedAt,
+		UpdatedAt:      row.UpdatedAt,
 	}
-	if len(payload) > 0 {
-		o.Payload = append([]byte(nil), payload...)
+	if len(row.Payload) > 0 {
+		o.Payload = append([]byte(nil), row.Payload...)
 	}
-	return o, nil
+	return o
 }
 
 // Insert appends a queued outbox entry. The unique (organization_id, idempotency_key)
 // makes a duplicate idempotency key a conflict the caller resolves via
 // GetByIdempotency (§8 replay semantics).
 func (r *OutboxRepo) Insert(ctx context.Context, o domain.OutboxEntry) error {
-	const q = `INSERT INTO outbox
-(id, organization_id, session_id, idempotency_key, payload, status, attempts,
- wa_message_id, error, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-	if _, err := r.db.ExecContext(ctx, q,
-		o.ID, o.OrganizationID, o.SessionID, o.IdempotencyKey, []byte(o.Payload), o.Status,
-		o.Attempts, o.WAMessageID, o.Error, o.CreatedAt, o.UpdatedAt,
-	); err != nil {
+	err := r.q.InsertOutbox(ctx, storedb.InsertOutboxParams{
+		ID:             o.ID,
+		OrganizationID: o.OrganizationID,
+		SessionID:      o.SessionID,
+		IdempotencyKey: nullString(o.IdempotencyKey),
+		Payload:        o.Payload,
+		Status:         storedb.OutboxStatus(o.Status),
+		Attempts:       int32(o.Attempts),
+		WaMessageID:    nullString(o.WAMessageID),
+		Error:          nullString(o.Error),
+		CreatedAt:      o.CreatedAt,
+		UpdatedAt:      o.UpdatedAt,
+	})
+	if err != nil {
 		return fmt.Errorf("store: insert outbox: %w", err)
 	}
 	return nil
@@ -56,24 +61,25 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 // Get fetches an outbox entry by id. Maps no-rows to not_found.
 func (r *OutboxRepo) Get(ctx context.Context, id string) (domain.OutboxEntry, error) {
-	q := "SELECT " + outboxCols + " FROM outbox WHERE id = ?"
-	o, err := scanOutbox(r.db.QueryRowContext(ctx, q, id))
+	row, err := r.q.GetOutbox(ctx, storedb.GetOutboxParams{ID: id})
 	if err != nil {
 		return domain.OutboxEntry{}, notFound(err, "outbox entry")
 	}
-	return o, nil
+	return outboxFromRow(row), nil
 }
 
 // GetByIdempotency returns the prior entry for (organization_id, idempotency_key) — the
 // §8 idempotent replay lookup. Maps no-rows to not_found so the caller knows to
 // proceed with a fresh send.
 func (r *OutboxRepo) GetByIdempotency(ctx context.Context, organizationID, idempotencyKey string) (domain.OutboxEntry, error) {
-	q := "SELECT " + outboxCols + " FROM outbox WHERE organization_id = ? AND idempotency_key = ?"
-	o, err := scanOutbox(r.db.QueryRowContext(ctx, q, organizationID, idempotencyKey))
+	row, err := r.q.GetOutboxByIdempotency(ctx, storedb.GetOutboxByIdempotencyParams{
+		OrganizationID: organizationID,
+		IdempotencyKey: sqlString(idempotencyKey),
+	})
 	if err != nil {
 		return domain.OutboxEntry{}, notFound(err, "outbox entry")
 	}
-	return o, nil
+	return outboxFromRow(row), nil
 }
 
 // UpdateStatus transitions an entry's status and stamps the result fields
@@ -85,15 +91,31 @@ func (r *OutboxRepo) UpdateStatus(ctx context.Context, id string, status domain.
 	// must not be retained afterward. JSON_REMOVE is a no-op for non-media
 	// payloads (the '$.media.data' path simply isn't present). The bytes are kept
 	// on a failed row so the async worker can still retry it.
-	q := `UPDATE outbox SET status=?, wa_message_id=?, error=?, updated_at=? WHERE id=?`
+	var (
+		n   int64
+		err error
+	)
 	if status == domain.OutboxSent {
-		q = `UPDATE outbox SET status=?, wa_message_id=?, error=?, updated_at=?, payload=JSON_REMOVE(payload, '$.media.data') WHERE id=?`
+		n, err = r.q.UpdateOutboxStatusAndStripMedia(ctx, storedb.UpdateOutboxStatusAndStripMediaParams{
+			Status:      storedb.OutboxStatus(status),
+			WaMessageID: nullString(waMessageID),
+			Error:       nullString(errMsg),
+			UpdatedAt:   updatedAt,
+			ID:          id,
+		})
+	} else {
+		n, err = r.q.UpdateOutboxStatus(ctx, storedb.UpdateOutboxStatusParams{
+			Status:      storedb.OutboxStatus(status),
+			WaMessageID: nullString(waMessageID),
+			Error:       nullString(errMsg),
+			UpdatedAt:   updatedAt,
+			ID:          id,
+		})
 	}
-	res, err := r.db.ExecContext(ctx, q, status, waMessageID, errMsg, updatedAt, id)
 	if err != nil {
 		return fmt.Errorf("store: update outbox status: %w", err)
 	}
-	return affectedOrNotFound(res, "outbox entry")
+	return rowsAffectedOrNotFound(n, "outbox entry")
 }
 
 // ClaimQueued atomically moves up to limit queued entries to 'sending',
@@ -107,26 +129,26 @@ func (r *OutboxRepo) ClaimQueued(ctx context.Context, limit int, updatedAt int64
 
 	// Mark the batch as sending. We tag exactly this claim via updated_at so the
 	// read-back selects only the rows we just transitioned.
-	const claim = `UPDATE outbox SET status=?, attempts=attempts+1, updated_at=?
-WHERE status=? ORDER BY created_at ASC LIMIT ?`
-	if _, err := r.db.ExecContext(ctx, claim, domain.OutboxSending, updatedAt, domain.OutboxQueued, limit); err != nil {
+	if err := r.q.ClaimQueuedOutbox(ctx, storedb.ClaimQueuedOutboxParams{
+		Status:    storedb.OutboxStatus(domain.OutboxSending),
+		UpdatedAt: updatedAt,
+		Status_2:  storedb.OutboxStatus(domain.OutboxQueued),
+		Limit:     int32(limit),
+	}); err != nil {
 		return nil, fmt.Errorf("store: claim outbox: %w", err)
 	}
 
-	const sel = `SELECT ` + outboxCols + ` FROM outbox
-WHERE status=? AND updated_at=? ORDER BY created_at ASC LIMIT ?`
-	rows, err := r.db.QueryContext(ctx, sel, domain.OutboxSending, updatedAt, limit)
+	rows, err := r.q.ListClaimedOutbox(ctx, storedb.ListClaimedOutboxParams{
+		Status:    storedb.OutboxStatus(domain.OutboxSending),
+		UpdatedAt: updatedAt,
+		Limit:     int32(limit),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("store: read claimed outbox: %w", err)
 	}
-	defer rows.Close()
-	var out []domain.OutboxEntry
-	for rows.Next() {
-		o, err := scanOutbox(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, o)
+	out := make([]domain.OutboxEntry, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, outboxFromRow(row))
 	}
-	return out, rows.Err()
+	return out, nil
 }

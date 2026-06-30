@@ -47,7 +47,7 @@ func TestBackfillImportRepo_Finish(t *testing.T) {
 		ID: "bfi_1", Status: "succeeded", Chats: 5, Messages: 100, Identities: 10,
 		Groups: 2, GroupMembers: 20, SchemaFingerprint: &fp, FinishedAt: &fin,
 	}
-	mock.ExpectExec("UPDATE backfill_imports SET status=").
+	mock.ExpectExec("UPDATE backfill_imports\\s+SET status = \\?").
 		WithArgs("succeeded", 5, 100, 10, 2, 20, &fp, nil, &fin, "bfi_1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -122,16 +122,17 @@ func TestBackfillImportRepo_HasRunningSince(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewBackfillImportRepo(db)
 
-	rows := sqlmock.NewRows([]string{"1"}).AddRow(1)
-	mock.ExpectQuery("SELECT 1 FROM backfill_imports WHERE session_id = . AND status = 'running' AND created_at >= .").
+	rows := sqlmock.NewRows([]string{"exists"}).AddRow(true)
+	mock.ExpectQuery("SELECT EXISTS .*FROM backfill_imports.*status = 'running'.*created_at >= .").
 		WithArgs("sess_1", int64(500)).WillReturnRows(rows)
 	running, err := repo.HasRunningSince(context.Background(), "sess_1", 500)
 	if err != nil || !running {
 		t.Fatalf("HasRunningSince = %v, %v", running, err)
 	}
 
-	mock.ExpectQuery("SELECT 1 FROM backfill_imports WHERE session_id = . AND status = 'running' AND created_at >= .").
-		WithArgs("sess_2", int64(500)).WillReturnError(noRows())
+	rows = sqlmock.NewRows([]string{"exists"}).AddRow(false)
+	mock.ExpectQuery("SELECT EXISTS .*FROM backfill_imports.*status = 'running'.*created_at >= .").
+		WithArgs("sess_2", int64(500)).WillReturnRows(rows)
 	running, err = repo.HasRunningSince(context.Background(), "sess_2", 500)
 	if err != nil || running {
 		t.Fatalf("expected not running, got %v, %v", running, err)
