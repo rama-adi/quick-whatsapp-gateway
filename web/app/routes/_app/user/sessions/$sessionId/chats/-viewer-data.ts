@@ -9,9 +9,9 @@
 // frontend is gated to the active org: a session must belong to the caller's
 // active organization (wa_sessions.organization_id) before we expose its data.
 //
-// Pagination mirrors the gateway's cursor lists: limit + opaque cursor. We use a
-// opaque sortable row cursor (rows.id); nextCursor is the last row's id,
-// matching Page<T> = {data, nextCursor}.
+// Pagination mirrors the gateway's cursor lists: limit + opaque cursor. Chats
+// use a composite recency cursor (`lastMessageAt:id`); messages use the
+// sortable message id. Page<T> = {data, nextCursor}.
 
 import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "~/lib/auth/middleware";
@@ -66,13 +66,25 @@ export const fetchChatsPage = createServerFn({ method: "GET" })
 
     const { db } = await import("~/lib/db");
     const { chats, whatsappGroups } = await import("~/lib/db/wa");
-    const { and, eq, lt, desc, sql } = await import("drizzle-orm");
+    const { and, eq, lt, desc, sql, or, isNotNull } = await import(
+      "drizzle-orm"
+    );
 
-    const cursorId = cursor !== undefined ? Number(cursor) : undefined;
+    const parsedCursor = parseChatCursor(cursor);
     const where =
-      cursorId !== undefined && Number.isFinite(cursorId)
-        ? and(eq(chats.sessionId, sessionId), lt(chats.id, cursorId))
-        : eq(chats.sessionId, sessionId);
+      parsedCursor !== null
+        ? and(
+            eq(chats.sessionId, sessionId),
+            isNotNull(chats.lastMessageAt),
+            or(
+              lt(chats.lastMessageAt, parsedCursor.lastMessageAt),
+              and(
+                eq(chats.lastMessageAt, parsedCursor.lastMessageAt),
+                lt(chats.id, parsedCursor.id),
+              ),
+            ),
+          )
+        : and(eq(chats.sessionId, sessionId), isNotNull(chats.lastMessageAt));
 
     const rows = await db
       .select({
@@ -80,9 +92,15 @@ export const fetchChatsPage = createServerFn({ method: "GET" })
         sessionId: chats.sessionId,
         chatJid: chats.chatJid,
         type: chats.type,
-        // Groups display their subject (whatsapp_groups); non-groups fall back to
-        // chats.name. Mirrors the gateway REST resolution so SSR + live agree.
-        name: sql<string | null>`COALESCE(${whatsappGroups.subject}, ${chats.name})`,
+        // Groups display their subject; DMs resolve through identities so a LID
+        // row can show a known push/business/phone name instead of raw LID.
+        name: sql<string | null>`COALESCE(${whatsappGroups.subject}, (
+          SELECT COALESCE(i.name, i.business_name, i.phone_number)
+          FROM whatsapp_identities i
+          WHERE i.lid = ${chats.chatJid} OR i.phone_jid = ${chats.chatJid}
+          ORDER BY CASE WHEN i.lid = ${chats.chatJid} THEN 0 ELSE 1 END, i.id DESC
+          LIMIT 1
+        ), ${chats.name})`,
         unreadCount: chats.unreadCount,
         archived: chats.archived,
         pinned: chats.pinned,
@@ -92,7 +110,7 @@ export const fetchChatsPage = createServerFn({ method: "GET" })
       .from(chats)
       .leftJoin(whatsappGroups, eq(whatsappGroups.groupJid, chats.chatJid))
       .where(where)
-      .orderBy(desc(chats.id))
+      .orderBy(desc(chats.lastMessageAt), desc(chats.id))
       .limit(PAGE_LIMIT + 1);
 
     const hasMore = rows.length > PAGE_LIMIT;
@@ -100,7 +118,9 @@ export const fetchChatsPage = createServerFn({ method: "GET" })
 
     return {
       data: pageRows.map(rowToChat),
-      nextCursor: hasMore ? String(pageRows[pageRows.length - 1]?.id) : null,
+      nextCursor: hasMore
+        ? chatCursor(pageRows[pageRows.length - 1] ?? null)
+        : null,
     };
   });
 
@@ -126,7 +146,13 @@ export const fetchChat = createServerFn({ method: "GET" })
         sessionId: chats.sessionId,
         chatJid: chats.chatJid,
         type: chats.type,
-        name: sql<string | null>`COALESCE(${whatsappGroups.subject}, ${chats.name})`,
+        name: sql<string | null>`COALESCE(${whatsappGroups.subject}, (
+          SELECT COALESCE(i.name, i.business_name, i.phone_number)
+          FROM whatsapp_identities i
+          WHERE i.lid = ${chats.chatJid} OR i.phone_jid = ${chats.chatJid}
+          ORDER BY CASE WHEN i.lid = ${chats.chatJid} THEN 0 ELSE 1 END, i.id DESC
+          LIMIT 1
+        ), ${chats.name})`,
         unreadCount: chats.unreadCount,
         archived: chats.archived,
         pinned: chats.pinned,
@@ -287,6 +313,22 @@ type ChatRow = {
   mutedUntil: number | null;
   lastMessageAt: number | null;
 };
+
+function parseChatCursor(
+  cursor: string | undefined,
+): { lastMessageAt: number; id: number } | null {
+  if (!cursor) return null;
+  const [ts, id] = cursor.split(":");
+  const lastMessageAt = Number(ts);
+  const rowId = Number(id);
+  if (!Number.isFinite(lastMessageAt) || !Number.isFinite(rowId)) return null;
+  return { lastMessageAt, id: rowId };
+}
+
+function chatCursor(row: ChatRow | null): string | null {
+  if (!row?.lastMessageAt) return null;
+  return `${row.lastMessageAt}:${row.id}`;
+}
 
 function rowToChat(r: ChatRow): Chat {
   return {

@@ -19,7 +19,7 @@ import {
 } from "@tanstack/react-query";
 import { qk } from "../../query";
 import type { ApiError, Page } from "../envelope";
-import type { Message, SendRequest, SendResult } from "../types";
+import type { Chat, Message, SendRequest, SendResult } from "../types";
 import { apiUrl, fetchJSON, listPageFetcher, nextCursor } from "./_shared";
 
 export function useChatMessages(
@@ -80,6 +80,67 @@ export function useSendMessage(
         hasMedia: false,
         waMessageId: "",
       };
+      qc.setQueryData<Chat>(qk.chat(s, chatJid), (cur) =>
+        cur
+          ? { ...cur, lastMessageAt: now }
+          : {
+              id: 0,
+              sessionId: s,
+              jid: chatJid,
+              type: "dm",
+              unreadCount: 0,
+              archived: false,
+              pinned: false,
+              lastMessageAt: now,
+            },
+      );
+      qc.setQueryData<InfiniteData<Page<Chat>, string | undefined>>(
+        qk.chats(s),
+        (data) => {
+          if (!data || data.pages.length === 0) return data;
+          const header = qc.getQueryData<Chat>(qk.chat(s, chatJid));
+          let found = false;
+          const pages = data.pages.map((page) => ({
+            ...page,
+            data: page.data.map((chat) => {
+              if (chat.jid !== chatJid) return chat;
+              found = true;
+              return { ...chat, lastMessageAt: now };
+            }),
+          }));
+          const [first, ...rest] = pages;
+          if (!first) return data;
+          const firstRows = found
+            ? first.data
+            : [
+                {
+                  ...(header ?? {
+                    id: 0,
+                    sessionId: s,
+                    jid: chatJid,
+                    type: "dm",
+                    unreadCount: 0,
+                    archived: false,
+                    pinned: false,
+                  }),
+                  lastMessageAt: now,
+                } satisfies Chat,
+                ...first.data,
+              ];
+          return {
+            ...data,
+            pages: [
+              {
+                ...first,
+                data: [...firstRows].sort(
+                  (a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0),
+                ),
+              },
+              ...rest,
+            ],
+          };
+        },
+      );
       qc.setQueryData<Infinite>(key, (data) => {
         if (!data || data.pages.length === 0) {
           return {

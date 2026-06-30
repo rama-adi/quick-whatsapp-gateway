@@ -139,6 +139,12 @@ invokes the binary. The auth plane is migrated separately by drizzle-kit in the 
   so it lines up with the `@<number>` token in the body). Both are read-only
   projections — never stored columns — so a later name change is reflected without
   rewriting messages.
+- **Chat-list projection.** `ChatRepo.ListBySession` is an inbox view, not an
+  address book: it omits chat rows with no `last_message_at`, orders by
+  `last_message_at DESC, id DESC`, and resolves display names from
+  `whatsapp_groups` for groups or `whatsapp_identities` for DMs before falling
+  back to `chats.name`. Contacts that were only found in groups stay in the
+  contacts/new-chat flow until a message exists.
 - **Field ownership / no clobber.** Content upserts omit fields with dedicated mutators
   (`messages.status/edited/deleted`, `chats` user flags), so a redelivered capture can't regress a
   receipt.
@@ -167,8 +173,10 @@ invokes the binary. The auth plane is migrated separately by drizzle-kit in the 
 - **Message ids.** `messages.id` is a generated `msg_<ULID>` string, not an auto-incrementing
   integer. It stays lexicographically sortable for cursor pagination while avoiding a single
   hot monotonic database counter under high write throughput.
-- **Cursor pagination** opaque over the sortable `id` (`Page[T]{Items, NextCursor}`); limits
-  clamp to `[1,200]` (default 50); bad cursor → `validation_error`.
+- **Cursor pagination** uses opaque resource-specific cursors
+  (`lastMessageAt:id` for the chat inbox, sortable message ids for messages,
+  numeric ids elsewhere); limits clamp to `[1,200]` (default 50); bad cursor →
+  `validation_error`.
 - **Error mapping.** `sql.ErrNoRows` and zero-rows-affected updates/deletes → `domain.ErrNotFound`;
   other DB errors wrapped with `%w` + a `store: <op>` prefix.
 - **Concurrency.** Work-claim queries (`OutboxRepo.ClaimQueued`, `WebhookDeliveryRepo.ClaimDue`)

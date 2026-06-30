@@ -438,6 +438,51 @@ func TestChatRepo_UpsertAndUpdateFlags(t *testing.T) {
 	}
 }
 
+func TestChatRepo_ListBySession_InboxOrderAndCursor(t *testing.T) {
+	db, mock := newMock(t)
+	repo := NewChatRepo(db)
+
+	rows := sqlmock.NewRows([]string{
+		"id", "session_id", "chat_jid", "type", "name", "last_message_at",
+		"unread_count", "archived", "pinned", "muted_until",
+	}).
+		AddRow(uint64(12), "sess_1", "new@s.whatsapp.net", "dm", "New", int64(100), 2, false, false, nil).
+		AddRow(uint64(11), "sess_1", "old@s.whatsapp.net", "dm", "Old", int64(90), 0, false, false, nil)
+	mock.ExpectQuery("SELECT .* FROM chats c.*last_message_at IS NOT NULL.*ORDER BY c.last_message_at DESC, c.id DESC").
+		WithArgs("sess_1", int64(0), int64(0), int64(0), uint64(0), 2).
+		WillReturnRows(rows)
+
+	got, err := repo.ListBySession(context.Background(), "sess_1", "", 2)
+	if err != nil {
+		t.Fatalf("ListBySession: %v", err)
+	}
+	if len(got.Items) != 2 || got.Items[0].ChatJID != "new@s.whatsapp.net" {
+		t.Fatalf("unexpected chats: %+v", got.Items)
+	}
+	if got.NextCursor != "90:11" {
+		t.Fatalf("NextCursor = %q, want 90:11", got.NextCursor)
+	}
+
+	page2 := sqlmock.NewRows([]string{
+		"id", "session_id", "chat_jid", "type", "name", "last_message_at",
+		"unread_count", "archived", "pinned", "muted_until",
+	}).AddRow(uint64(9), "sess_1", "older@s.whatsapp.net", "dm", "Older", int64(80), 0, false, false, nil)
+	mock.ExpectQuery("SELECT .* FROM chats c.*last_message_at IS NOT NULL.*ORDER BY c.last_message_at DESC, c.id DESC").
+		WithArgs("sess_1", int64(90), int64(90), int64(90), uint64(11), 2).
+		WillReturnRows(page2)
+
+	got, err = repo.ListBySession(context.Background(), "sess_1", "90:11", 2)
+	if err != nil {
+		t.Fatalf("ListBySession page 2: %v", err)
+	}
+	if got.NextCursor != "" || len(got.Items) != 1 || got.Items[0].ChatJID != "older@s.whatsapp.net" {
+		t.Fatalf("unexpected page 2: %+v cursor=%q", got.Items, got.NextCursor)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestPollVoteRepo_InsertAndList(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewPollVoteRepo(db)

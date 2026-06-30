@@ -158,7 +158,7 @@ export function applyEvent(qc: QueryClient, e: EventEnvelope): void {
     }
 
     case "presence.update": {
-      const jid = str(p.jid);
+      const jid = str(p.chatJid) ?? str(p.jid) ?? str(p.from);
       if (s && jid) qc.setQueryData(qk.presence(s, jid), p);
       break;
     }
@@ -191,22 +191,38 @@ function bumpChat(
   );
   qc.setQueryData<Infinite<Chat>>(qk.chats(s), (data) => {
     if (!data || data.pages.length === 0) return data;
+    let found = false;
     const updated = mapPages(data, (chats) =>
-      chats.map((c) =>
-        c.jid === chatJid
-          ? {
-              ...c,
-              lastMessageAt: ts,
-              unreadCount: incoming ? (c.unreadCount ?? 0) + 1 : c.unreadCount,
-            }
-          : c,
-      ),
+      chats.map((c) => {
+        if (c.jid !== chatJid) return c;
+        found = true;
+        return {
+          ...c,
+          lastMessageAt: ts,
+          unreadCount: incoming ? (c.unreadCount ?? 0) + 1 : c.unreadCount,
+        };
+      }),
     );
     if (!updated) return data;
     // Resort page 0 by lastMessageAt desc so the active chat floats to top.
     const [first, ...rest] = updated.pages;
     if (!first) return updated;
-    const sorted = [...first.data].sort(
+    const firstRows = found
+      ? first.data
+      : [
+          {
+            id: 0,
+            sessionId: s,
+            jid: chatJid,
+            type: "dm",
+            lastMessageAt: ts,
+            unreadCount: incoming ? 1 : 0,
+            archived: false,
+            pinned: false,
+          } satisfies Chat,
+          ...first.data,
+        ];
+    const sorted = [...firstRows].sort(
       (a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0),
     );
     return { ...updated, pages: [{ ...first, data: sorted }, ...rest] };

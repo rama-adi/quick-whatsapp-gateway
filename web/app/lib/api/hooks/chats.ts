@@ -84,6 +84,23 @@ export function useMarkChatRead(
       qc.setQueryData<Chat>(qk.chat(s, chatId), (cur) =>
         cur ? { ...cur, unreadCount: 0 } : cur,
       );
+      qc.setQueryData<InfiniteData<Page<Chat>, string | undefined>>(
+        qk.chats(s),
+        (cur) =>
+          cur
+            ? {
+                ...cur,
+                pages: cur.pages.map((page) => ({
+                  ...page,
+                  data: page.data.map((chat) =>
+                    chat.jid === chatId
+                      ? { ...chat, unreadCount: 0 }
+                      : chat,
+                  ),
+                })),
+              }
+            : cur,
+      );
     },
   });
 }

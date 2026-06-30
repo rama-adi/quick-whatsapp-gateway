@@ -15,9 +15,9 @@
 //     media "not downloaded" placeholder is an Attachment (see -message-bubble).
 //   - Composer: send goes through useSendMessage (optimistic), text only.
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import type { InfiniteData } from "@tanstack/react-query";
+import { useQuery, type InfiniteData } from "@tanstack/react-query";
 import { SendHorizonal, MessageSquare, ChevronDown } from "lucide-react";
 import {
   MessageScroller,
@@ -153,6 +153,14 @@ function ViewerTimeline() {
   const markRead = useMarkChatRead(sessionId);
   const send = useSendMessage(sessionId);
   const pollMs = usePollingInterval();
+  const presence = useQuery<Record<string, unknown>>({
+    queryKey: qk.presence(sessionId, chatId),
+    enabled: false,
+    staleTime: Infinity,
+    queryFn: async () => ({}),
+  });
+  const lastReadKey = useRef<string | null>(null);
+  const loadingOlder = useRef(false);
 
   // Polling fallback when the live stream is degraded.
   useEffect(() => {
@@ -162,6 +170,10 @@ function ViewerTimeline() {
     }, pollMs);
     return () => window.clearInterval(id);
   }, [pollMs, messages]);
+
+  useEffect(() => {
+    loadingOlder.current = messages.isFetchingNextPage;
+  }, [messages.isFetchingNextPage]);
 
   // Flatten all pages (newest-first) → chronological (oldest-first) for display.
   const ordered = useMemo<Message[]>(() => {
@@ -188,11 +200,41 @@ function ViewerTimeline() {
   const canLoadOlder = Boolean(messages.hasNextPage);
   const isFetchingOlder = messages.isFetchingNextPage;
   const loadOlder = () => {
-    if (canLoadOlder && !isFetchingOlder) void messages.fetchNextPage();
+    if (canLoadOlder && !loadingOlder.current) {
+      loadingOlder.current = true;
+      void messages.fetchNextPage().finally(() => {
+        loadingOlder.current = false;
+      });
+    }
   };
 
   const title = chat.data?.name || chat.data?.jid || chatId;
   const unread = chat.data?.unreadCount ?? 0;
+  const presenceState =
+    typeof presence.data?.state === "string" ? presence.data.state : undefined;
+  const presenceMedia =
+    typeof presence.data?.media === "string" ? presence.data.media : undefined;
+  const typingText =
+    presenceState === "composing"
+      ? "typing..."
+      : presenceState === "recording" || presenceMedia === "audio"
+        ? "recording audio..."
+        : null;
+
+  useEffect(() => {
+    if (unread <= 0 || markRead.isPending) return;
+    const key = `${chatId}:${unread}`;
+    if (lastReadKey.current === key) return;
+    lastReadKey.current = key;
+    markRead.mutate(
+      { chatId },
+      {
+        onError: () => {
+          lastReadKey.current = null;
+        },
+      },
+    );
+  }, [chatId, markRead, unread]);
 
   return (
     <TooltipProvider>
@@ -202,6 +244,7 @@ function ViewerTimeline() {
       >
         <header className="flex items-center gap-3 border-b px-4 py-2">
           <ChatAvatar
+            sessionId={sessionId}
             name={chat.data?.name}
             jid={chat.data?.jid}
             type={chat.data?.type}
@@ -209,28 +252,9 @@ function ViewerTimeline() {
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-sm font-semibold">{title}</h2>
             <p className="truncate text-xs text-muted-foreground">
-              {chat.data?.jid ?? chatId}
+              {typingText ?? chat.data?.jid ?? chatId}
             </p>
           </div>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={markRead.isPending || unread === 0}
-            onClick={() =>
-              markRead.mutate(
-                { chatId },
-                {
-                  onSuccess: () => toast.success("Marked as read"),
-                  onError: (e) =>
-                    toast.error(
-                      isApiError(e) ? e.message : "Failed to mark read",
-                    ),
-                },
-              )
-            }
-          >
-            {unread > 0 ? `Mark read (${unread})` : "Read"}
-          </Button>
         </header>
 
         {/* Styled shadcn MessageScroller. Provider tracks scroll state;

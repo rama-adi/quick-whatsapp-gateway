@@ -50,6 +50,14 @@ yields nil ports and the services fall back to the `not_implemented` envelope.
 | DELETE | `/chats/{cid}` | store |
 | PUT | `/chats/{cid}/presence` | live `PresenceController.SetChatPresence` — `state` ∈ {composing,paused,recording} |
 
+`GET /chats` is the inbox projection: only chats with at least one stored
+message (`lastMessageAt` set) are returned, newest message first. Found users
+without a direct conversation are exposed through `/contacts` and can be opened
+by the frontend's new-chat picker; they do not clutter the inbox until a message
+is sent or received. The frontend clears the local unread counter automatically
+when a user opens a chat, so the read endpoint is an implementation detail rather
+than a primary viewer control.
+
 ## Groups (§13)
 
 Reads (`list`/`get`/`members`) are store-backed; `list` joins through the

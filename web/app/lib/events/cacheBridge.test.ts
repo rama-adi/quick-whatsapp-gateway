@@ -114,6 +114,31 @@ describe("applyEvent", () => {
     expect(msgs?.pages[0]?.data).toHaveLength(1);
   });
 
+  it("message creates a cached chat row when the inbox is already loaded", () => {
+    const chatJid = "new@s.whatsapp.net";
+    qc.setQueryData(qk.chatMessages(SESSION, chatJid), infinite<Message>([]));
+    qc.setQueryData(qk.chats(SESSION), infinite<Chat>([]));
+
+    applyEvent(
+      qc,
+      evt("message.from_me", {
+        id: "m1",
+        chatJid,
+        direction: "out",
+        type: "text",
+        body: "hi",
+        timestamp: 2000,
+      }),
+    );
+
+    const chats = qc.getQueryData<InfiniteData<Page<Chat>>>(qk.chats(SESSION));
+    expect(chats?.pages[0]?.data[0]).toMatchObject({
+      jid: chatJid,
+      lastMessageAt: 2000,
+      unreadCount: 0,
+    });
+  });
+
   it("message.status patches by messageId across chats (reconciles optimistic)", () => {
     const chatJid = "123@s.whatsapp.net";
     const m: Message = {
@@ -140,6 +165,22 @@ describe("applyEvent", () => {
       qk.chatMessages(SESSION, chatJid),
     );
     expect(msgs?.pages[0]?.data[0]?.status).toBe("read");
+  });
+
+  it("presence.update caches typing state by chatJid", () => {
+    const chatJid = "123@s.whatsapp.net";
+    applyEvent(
+      qc,
+      evt("presence.update", {
+        chatJid,
+        from: "123@s.whatsapp.net",
+        state: "composing",
+      }),
+    );
+
+    expect(qc.getQueryData(qk.presence(SESSION, chatJid))).toMatchObject({
+      state: "composing",
+    });
   });
 
   it("ignores unknown events without throwing", () => {

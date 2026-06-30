@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 )
@@ -17,10 +19,17 @@ func NewChatRepo(db dbExecQuerier) *ChatRepo { return &ChatRepo{db: db} }
 
 // chatCols selects from the chats table aliased `c`, resolving the display name
 // for group chats from whatsapp_groups.subject (joined as `g`) so a group shows
-// its real subject rather than whatever per-message name landed in chats.name.
-// For non-group chats g.subject is NULL and c.name is used unchanged.
+// its real subject, and for DMs from whatsapp_identities with a scalar lookup so
+// LID rows show the best known push/business/phone name without duplicating rows
+// when more than one identity shares a phone_jid.
 const chatCols = `c.id, c.session_id, c.chat_jid, c.type,
-	COALESCE(g.subject, c.name) AS name, c.last_message_at,
+	COALESCE(g.subject, (
+		SELECT COALESCE(i.name, i.business_name, i.phone_number)
+		FROM whatsapp_identities i
+		WHERE i.lid = c.chat_jid OR i.phone_jid = c.chat_jid
+		ORDER BY CASE WHEN i.lid = c.chat_jid THEN 0 ELSE 1 END, i.id DESC
+		LIMIT 1
+	), c.name) AS name, c.last_message_at,
 	c.unread_count, c.archived, c.pinned, c.muted_until`
 
 // chatFrom is the FROM/JOIN clause paired with chatCols.
@@ -71,17 +80,20 @@ func (r *ChatRepo) Get(ctx context.Context, sessionID, chatJID string) (domain.C
 	return c, nil
 }
 
-// ListBySession returns a page of chats for a session, ordered by id ASC for a
-// stable cursor. (Recency ordering for the viewer can be layered on later; the
-// cursor here is the surrogate id per §11.)
+// ListBySession returns a page of real conversations for a session, newest
+// activity first. Rows with no message timestamp are intentionally omitted:
+// found-but-never-messaged users belong in the contacts/new-chat picker, not the
+// chat inbox. The cursor is opaque "lastMessageAt:id" for the descending order.
 func (r *ChatRepo) ListBySession(ctx context.Context, sessionID, cursor string, limit int) (Page[domain.Chat], error) {
-	afterID, err := parseCursor(cursor)
+	afterTS, afterID, err := parseChatListCursor(cursor)
 	if err != nil {
 		return Page[domain.Chat]{}, err
 	}
 	limit = normLimit(limit)
-	q := "SELECT " + chatCols + chatFrom + "WHERE c.session_id = ? AND c.id > ? ORDER BY c.id ASC LIMIT ?"
-	rows, err := r.db.QueryContext(ctx, q, sessionID, afterID, limit)
+	q := "SELECT " + chatCols + chatFrom + `WHERE c.session_id = ? AND c.last_message_at IS NOT NULL
+		AND (? = 0 OR c.last_message_at < ? OR (c.last_message_at = ? AND c.id < ?))
+		ORDER BY c.last_message_at DESC, c.id DESC LIMIT ?`
+	rows, err := r.db.QueryContext(ctx, q, sessionID, afterTS, afterTS, afterTS, afterID, limit)
 	if err != nil {
 		return Page[domain.Chat]{}, fmt.Errorf("store: list chats: %w", err)
 	}
@@ -97,7 +109,40 @@ func (r *ChatRepo) ListBySession(ctx context.Context, sessionID, cursor string, 
 	if err := rows.Err(); err != nil {
 		return Page[domain.Chat]{}, err
 	}
-	return pageFrom(out, limit, func(c domain.Chat) uint64 { return c.ID }), nil
+	next := ""
+	if len(out) == limit && len(out) > 0 {
+		last := out[len(out)-1]
+		if last.LastMessageAt != nil {
+			next = encodeChatListCursor(*last.LastMessageAt, last.ID)
+		}
+	}
+	return Page[domain.Chat]{Items: out, NextCursor: next}, nil
+}
+
+func parseChatListCursor(cursor string) (int64, uint64, error) {
+	if cursor == "" {
+		return 0, 0, nil
+	}
+	if strings.TrimSpace(cursor) != cursor {
+		return 0, 0, domain.ErrValidation("invalid cursor")
+	}
+	parts := strings.Split(cursor, ":")
+	if len(parts) != 2 {
+		return 0, 0, domain.ErrValidation("invalid cursor")
+	}
+	ts, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil || ts < 0 {
+		return 0, 0, domain.ErrValidation("invalid cursor")
+	}
+	id, err := strconv.ParseUint(parts[1], 10, 64)
+	if err != nil {
+		return 0, 0, domain.ErrValidation("invalid cursor")
+	}
+	return ts, id, nil
+}
+
+func encodeChatListCursor(ts int64, id uint64) string {
+	return strconv.FormatInt(ts, 10) + ":" + strconv.FormatUint(id, 10)
 }
 
 // UpdateFlags sets the user-managed chat flags (§11 PATCH archive/pin/mute and

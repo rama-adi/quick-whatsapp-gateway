@@ -2,15 +2,20 @@
 // formatting, structured-message parsing). Kept inside the surface dir per the
 // contract; report in sharedGaps for the verify phase to hoist if reused.
 
-import { Avatar, AvatarFallback } from "~/components/ui/avatar";
+import { useQuery } from "@tanstack/react-query";
+import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
+import { apiUrl, fetchJSON } from "~/lib/api/client";
+import type { ApiError } from "~/lib/api/envelope";
 import type { Chat, Message } from "~/lib/api/types";
 
 /** Compact avatar with initials derived from a chat/contact name or JID. */
 export function ChatAvatar({
+  sessionId,
   name,
   jid,
   type,
 }: {
+  sessionId?: string;
   name?: string;
   jid?: string;
   type?: Chat["type"];
@@ -18,8 +23,12 @@ export function ChatAvatar({
   const label = name || jid || "?";
   const initials = deriveInitials(label);
   const isGroup = type === "group" || type === "broadcast";
+  const picture = useProfilePicture(sessionId, jid);
   return (
     <Avatar className="size-9 shrink-0">
+      {picture.data?.url ? (
+        <AvatarImage src={picture.data.url} alt={label} />
+      ) : null}
       <AvatarFallback
         className={isGroup ? "bg-primary/15 text-primary" : undefined}
         aria-hidden="true"
@@ -28,6 +37,21 @@ export function ChatAvatar({
       </AvatarFallback>
     </Avatar>
   );
+}
+
+function useProfilePicture(sessionId?: string, jid?: string) {
+  return useQuery<{ url?: string }, ApiError>({
+    queryKey: ["sessions", sessionId, "contacts", jid, "picture"],
+    enabled: Boolean(sessionId && jid),
+    retry: false,
+    staleTime: 10 * 60_000,
+    queryFn: () =>
+      fetchJSON<{ url?: string }>(
+        apiUrl(
+          `/sessions/${encodeURIComponent(sessionId ?? "")}/contacts/${encodeURIComponent(jid ?? "")}/picture`,
+        ),
+      ),
+  });
 }
 
 function deriveInitials(label: string): string {

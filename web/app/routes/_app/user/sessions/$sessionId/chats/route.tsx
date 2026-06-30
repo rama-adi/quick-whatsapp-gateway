@@ -11,7 +11,7 @@
 //   - useParams() -> Route.useParams(); NavLink -> @tanstack/react-router Link
 //     with activeProps; <Outlet/> from @tanstack/react-router.
 
-import { useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   createFileRoute,
   Link,
@@ -19,15 +19,27 @@ import {
   useParams,
 } from "@tanstack/react-router";
 import type { InfiniteData } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
+import { MessageCirclePlus } from "lucide-react";
 import { useChats } from "~/lib/api/hooks/chats";
+import { useContacts } from "~/lib/api/hooks/contacts";
 import { qk } from "~/lib/query";
-import type { Chat } from "~/lib/api/types";
+import type { Chat, Contact } from "~/lib/api/types";
 import type { Page } from "~/lib/api/envelope";
 import { isApiError } from "~/lib/api/envelope";
 import { usePollingInterval, useEventStream } from "~/lib/events/useEventStream";
 import { useFillMain } from "~/components/shell/page-chrome";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "~/components/ui/dialog";
+import { Input } from "~/components/ui/input";
 import { Skeleton } from "~/components/ui/skeleton";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { cn } from "~/lib/utils";
@@ -75,10 +87,23 @@ function ViewerChats() {
     return () => window.clearInterval(id);
   }, [pollMs, chats]);
 
-  const rows: Chat[] =
-    (chats.data as InfiniteData<Page<Chat>> | undefined)?.pages.flatMap(
-      (p) => p.data,
-    ) ?? [];
+  const rows: Chat[] = useMemo(() => {
+    const flat =
+      (chats.data as InfiniteData<Page<Chat>> | undefined)?.pages.flatMap(
+        (p) => p.data,
+      ) ?? [];
+    const byJid = new Map<string, Chat>();
+    for (const chat of flat) {
+      if (!chat.jid || !chat.lastMessageAt) continue;
+      const prev = byJid.get(chat.jid);
+      if (!prev || (chat.lastMessageAt ?? 0) >= (prev.lastMessageAt ?? 0)) {
+        byJid.set(chat.jid, chat);
+      }
+    }
+    return [...byJid.values()].sort(
+      (a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0),
+    );
+  }, [chats.data]);
 
   const degraded = status === "polling" || status === "reconnecting";
 
@@ -88,22 +113,30 @@ function ViewerChats() {
         aria-label="Chats"
         className="flex max-h-[45svh] min-h-0 flex-col overflow-hidden rounded-lg border bg-card md:max-h-none"
       >
-        {degraded ? (
-          <header className="flex items-center justify-between gap-2 border-b px-3 py-2">
-            <span className="text-xs font-medium text-muted-foreground">
-              Live updates {status === "polling" ? "paused" : "reconnecting…"}
-            </span>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 px-2 text-xs"
-              onClick={reconnectNow}
-              title="Reconnect the live stream"
-            >
-              Reconnect
-            </Button>
-          </header>
-        ) : null}
+        <header className="flex items-center justify-between gap-2 border-b px-3 py-2">
+          <div className="min-w-0">
+            <h1 className="text-sm font-semibold">Chats</h1>
+            {degraded ? (
+              <p className="truncate text-xs text-muted-foreground">
+                Live updates {status === "polling" ? "paused" : "reconnecting..."}
+              </p>
+            ) : null}
+          </div>
+          <div className="flex items-center gap-1">
+            {degraded ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 px-2 text-xs"
+                onClick={reconnectNow}
+                title="Reconnect the live stream"
+              >
+                Reconnect
+              </Button>
+            ) : null}
+            <NewChatDialog sessionId={sessionId} />
+          </div>
+        </header>
 
         <ScrollArea className="min-h-0 flex-1">
           <ChatListBody
@@ -197,7 +230,12 @@ function ChatListBody({
               )}
               aria-current={selected ? "true" : undefined}
             >
-              <ChatAvatar name={chat.name} jid={chat.jid} type={chat.type} />
+              <ChatAvatar
+                sessionId={sessionId}
+                name={chat.name}
+                jid={chat.jid}
+                type={chat.type}
+              />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="truncate text-sm font-medium">
@@ -236,6 +274,163 @@ function ChatListBody({
         );
       })}
     </ul>
+  );
+}
+
+function NewChatDialog({ sessionId }: { sessionId: string }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const qc = useQueryClient();
+  const contacts = useContacts(sessionId, { source: "group", q: q || undefined });
+  const rows = useMemo(() => {
+    const flat =
+      (contacts.data as InfiniteData<Page<Contact>> | undefined)?.pages.flatMap(
+        (p) => p.data,
+      ) ?? [];
+    return flat.filter((contact) => contact.source !== "dm");
+  }, [contacts.data]);
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button
+          size="icon"
+          variant="ghost"
+          className="size-8"
+          aria-label="New chat"
+          title="New chat"
+        >
+          <MessageCirclePlus className="size-4" aria-hidden />
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="p-0 sm:max-w-md">
+        <DialogHeader className="border-b px-4 py-3">
+          <DialogTitle className="text-base">New chat</DialogTitle>
+          <DialogDescription>
+            Pick a found contact to start a direct conversation.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3 p-3">
+          <Input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search contacts"
+            aria-label="Search contacts"
+          />
+          <ScrollArea className="h-72">
+            <NewChatRows
+              sessionId={sessionId}
+              rows={rows}
+              isLoading={contacts.isLoading}
+              isError={contacts.isError}
+              onPick={(contact) => {
+                const chatId = contact.lid;
+                qc.setQueryData<Chat>(qk.chat(sessionId, chatId), {
+                  id: 0,
+                  sessionId,
+                  jid: chatId,
+                  type: "dm",
+                  name: contactDisplayName(contact),
+                  unreadCount: 0,
+                  archived: false,
+                  pinned: false,
+                });
+                setOpen(false);
+              }}
+            />
+            {contacts.hasNextPage ? (
+              <div className="p-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  disabled={contacts.isFetchingNextPage}
+                  onClick={() => void contacts.fetchNextPage()}
+                >
+                  {contacts.isFetchingNextPage ? "Loading..." : "Load more"}
+                </Button>
+              </div>
+            ) : null}
+          </ScrollArea>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function NewChatRows({
+  sessionId,
+  rows,
+  isLoading,
+  isError,
+  onPick,
+}: {
+  sessionId: string;
+  rows: Contact[];
+  isLoading: boolean;
+  isError: boolean;
+  onPick: (contact: Contact) => void;
+}) {
+  if (isLoading) {
+    return (
+      <ul className="space-y-1 p-1">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <li key={i} className="flex items-center gap-3 px-2 py-2">
+            <Skeleton className="size-9 shrink-0 rounded-full" />
+            <Skeleton className="h-4 flex-1" />
+          </li>
+        ))}
+      </ul>
+    );
+  }
+  if (isError) {
+    return <p className="p-3 text-sm text-destructive">Failed to load contacts.</p>;
+  }
+  if (rows.length === 0) {
+    return (
+      <p className="p-3 text-sm text-muted-foreground">
+        No group contacts without direct chats found.
+      </p>
+    );
+  }
+  return (
+    <ul className="p-1">
+      {rows.map((contact) => (
+        <li key={contact.lid}>
+          <Link
+            to="/user/sessions/$sessionId/chats/$chatId"
+            params={{ sessionId, chatId: contact.lid }}
+            onClick={() => onPick(contact)}
+            className="flex items-center gap-3 rounded-md px-2 py-2 text-left transition-colors hover:bg-muted"
+          >
+            <ChatAvatar
+              sessionId={sessionId}
+              name={contactDisplayName(contact)}
+              jid={contact.lid}
+              type="dm"
+            />
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-medium">
+                {contactDisplayName(contact)}
+              </div>
+              <div className="truncate text-xs text-muted-foreground">
+                {contact.phoneNumber || contact.lid}
+              </div>
+            </div>
+          </Link>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function contactDisplayName(contact: Contact): string {
+  return (
+    contact.name ||
+    contact.businessName ||
+    contact.phoneNumber ||
+    contact.lid ||
+    "Unknown"
   );
 }
 
