@@ -1,29 +1,5 @@
 ---
 title: List stored channel messages
-description: >-
-  Return a page of **stored** messages for the channel identified by `jid` on
-  this session, newest-first.
-
-
-  This reads from the gateway's own message store — it returns what the gateway
-  has already received and persisted for the channel, not a live fetch from
-  WhatsApp. A channel the session has never received posts from yields an empty
-  page.
-
-
-  **Pagination:** use `limit` (1–200, default 50) and `cursor`. Omit `cursor`
-  for the first page; read `nextCursor` from the response and pass it back to
-  fetch the next page. The cursor is opaque — do not parse it. An empty
-  `nextCursor` means the last page has been reached.
-
-
-  **Authorization:** requires the `send` capability (`403` `forbidden`
-  otherwise; `401` without a valid principal). This is a safe, side-effect-free
-  read.
-
-
-  **Errors:** `403` `forbidden` (missing `send`), `404` `not_found` (session or
-  channel unknown).
 full: true
 _openapi:
   preload:
@@ -69,7 +45,7 @@ export default function Layout(props) {
   return (
     <>
       {props.children}
-      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/channels/{jid}/messages","method":"get"}]} />
+      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/channels/{jid}/messages","method":"get"}]} showDescription />
     </>
   );
 }

@@ -1,52 +1,5 @@
 ---
 title: Send a message
-description: >-
-  Sends one message from the given session. There is a **single** send endpoint
-  for every kind of message; the discriminated `type` field in the request body
-  chooses which one.
-
-
-  **Supported in v1:** `text`, `poll`, `location`, and `contact`.
-
-
-  **Not implemented yet:** the media types `image`, `video`, `audio`,
-  `document`, and `sticker` return **501 `not_implemented`** before any WhatsApp
-  call is made.
-
-
-  ### Delivery mode (`?async`)
-
-  - **Synchronous (default, `?async=false`):** the call blocks until WhatsApp
-  acknowledges the send and returns **200** with the final `SendResult`.
-
-  - **Asynchronous (`?async=true`):** the gateway persists the send to a queue
-  and returns **202** immediately with a queued `SendResult`. The final delivery
-  status arrives later as a `message.status` event on the event stream.
-
-
-  ### Idempotency (`Idempotency-Key` header)
-
-  Supply a stable key to make retries safe: replaying a send with a key already
-  seen for your organization returns the **original** result and does not
-  dispatch a second WhatsApp message.
-
-
-  ### Preconditions & errors
-
-  - Requires the **`send`** capability.
-
-  - The session must exist, be owned by your organization, and be connected.
-
-  - **400 `validation_error`** — malformed body or an unsupported/invalid field
-  for the chosen `type`.
-
-  - **404 `not_found`** — the session does not exist or is not owned by your
-  organization.
-
-  - **429 `rate_limited`** — over the per-session send rate limit. A synchronous
-  send is rejected with 429; an async send stays queued instead of failing.
-
-  - **501 `not_implemented`** — a media `type` that is not built yet.
 full: true
 _openapi:
   preload:
@@ -119,7 +72,7 @@ export default function Layout(props) {
   return (
     <>
       {props.children}
-      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/messages","method":"post"}]} />
+      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/messages","method":"post"}]} showDescription />
     </>
   );
 }

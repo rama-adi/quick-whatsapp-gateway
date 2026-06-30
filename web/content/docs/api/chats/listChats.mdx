@@ -1,25 +1,5 @@
 ---
 title: List chats
-description: >-
-  Returns a page of the session's chats, served from the gateway's **stored
-  copy** (not a live WhatsApp query), ordered for display.
-
-
-  Page through results with `limit` and `cursor`: send the `nextCursor` from the
-  previous response back as `cursor` to fetch the next page. When `nextCursor`
-  is `null` there are no more chats.
-
-
-  Requires the `read` capability.
-
-
-  **Errors**
-
-
-  - `not_found` (404): the session does not exist or is not owned by the
-  caller's organization.
-
-  - `forbidden` (403): the caller lacks the `read` capability.
 full: true
 _openapi:
   preload:
@@ -61,7 +41,7 @@ export default function Layout(props) {
   return (
     <>
       {props.children}
-      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/chats","method":"get"}]} />
+      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/chats","method":"get"}]} showDescription />
     </>
   );
 }

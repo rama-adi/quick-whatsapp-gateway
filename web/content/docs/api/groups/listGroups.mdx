@@ -1,25 +1,5 @@
 ---
 title: List a session's groups
-description: >-
-  Returns the groups this session belongs to.
-
-
-  **Capability:** requires `read`.
-
-
-  **Served from stored data:** the list comes from the gateway's stored WhatsApp
-  data, so it works even when the session is **not connected** (no live WhatsApp
-  round-trip).
-
-
-  **Response:** a `List` envelope (`{ "data": [...], "nextCursor": "" }`) of
-  group objects. The current implementation returns the full set in a single
-  page with an empty `nextCursor`.
-
-
-  **Errors:**
-
-  - **404 `not_found`** — no session with this id is owned by your organization.
 full: true
 _openapi:
   preload:
@@ -62,7 +42,7 @@ export default function Layout(props) {
   return (
     <>
       {props.children}
-      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/groups","method":"get"}]} />
+      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/groups","method":"get"}]} showDescription />
     </>
   );
 }

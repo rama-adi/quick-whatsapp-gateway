@@ -1,36 +1,5 @@
 ---
 title: List a session's contacts (found users)
-description: >-
-  Returns the people this session has seen, one page at a time.
-
-
-  Served entirely from the gateway's **stored** WhatsApp data, so it works even
-  when the session is currently disconnected — no live WhatsApp connection is
-  required.
-
-
-  **Filters** (all optional, combinable):
-
-  - `source=dm` — keep only people you have a direct chat with.
-
-  - `source=group` — keep only people seen in a group.
-
-  - `group={jid}` — keep only members of the given group JID.
-
-  - `q=` — case-insensitive substring search over each contact's name or number.
-
-
-  **Pagination:** results are cursor-paged. Use `limit` (1–200, default 50) to
-  size the page and pass the response's `nextCursor` back as `cursor` to fetch
-  the next page. An empty `nextCursor` means there are no more pages.
-
-
-  **Auth:** requires the `read` capability.
-
-
-  **Errors:** `404` (`not_found`) if the session does not exist or is not owned
-  by the caller's organization; `400` (`validation_error`) if a query parameter
-  is malformed.
 full: true
 _openapi:
   preload:
@@ -85,7 +54,7 @@ export default function Layout(props) {
   return (
     <>
       {props.children}
-      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/contacts","method":"get"}]} />
+      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/contacts","method":"get"}]} showDescription />
     </>
   );
 }

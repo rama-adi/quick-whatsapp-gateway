@@ -1,27 +1,5 @@
 ---
 title: Vote on a poll message
-description: >-
-  Casts a vote on the poll message identified by `mid` (located by
-  `chat`/`sender` in the body).
-
-
-  `options` is the **complete** set of poll choices you want selected — it
-  **replaces** your previous vote rather than adding to it. Send an empty array
-  to clear your vote; for a single-choice poll send exactly one option.
-
-
-  Returns **200** with a `SendResult`.
-
-
-  ### Preconditions & errors
-
-  - Requires the **`send`** capability.
-
-  - **400 `validation_error`** — the target is not a poll or an option does not
-  match the poll's choices.
-
-  - **404 `not_found`** — the session or poll message does not exist or is not
-  owned by your organization.
 full: true
 _openapi:
   preload:
@@ -66,7 +44,7 @@ export default function Layout(props) {
   return (
     <>
       {props.children}
-      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/messages/{mid}/vote","method":"post"}]} />
+      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/messages/{mid}/vote","method":"post"}]} showDescription />
     </>
   );
 }

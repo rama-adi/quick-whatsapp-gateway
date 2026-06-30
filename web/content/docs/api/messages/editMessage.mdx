@@ -1,30 +1,5 @@
 ---
 title: Edit a sent text message
-description: >-
-  Replaces the text body of a message you already sent, identified by `mid` in
-  the path and located by `chat` in the body.
-
-
-  **Constraints:**
-
-  - Only **text** messages can be edited; editing media or other kinds is not
-  supported.
-
-  - The message must have been sent by this session.
-
-
-  This is a synchronous send to WhatsApp and returns **200** with a
-  `SendResult`.
-
-
-  ### Preconditions & errors
-
-  - Requires the **`send`** capability.
-
-  - **400 `validation_error`** — missing/empty `text` or a non-text message.
-
-  - **404 `not_found`** — the session or message does not exist or is not owned
-  by your organization.
 full: true
 _openapi:
   preload:
@@ -72,7 +47,7 @@ export default function Layout(props) {
   return (
     <>
       {props.children}
-      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/messages/{mid}","method":"patch"}]} />
+      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/messages/{mid}","method":"patch"}]} showDescription />
     </>
   );
 }

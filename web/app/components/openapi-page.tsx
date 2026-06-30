@@ -3,4 +3,17 @@
 // generated pages import ("APIPage").
 import { createOpenAPIPage } from "fumadocs-openapi/ui";
 
-export const APIPage = createOpenAPIPage();
+export const APIPage = createOpenAPIPage({
+  shikiOptions: {
+    themes: {
+      light: "github-light",
+      dark: "github-dark",
+    },
+  },
+  schemaUI: {
+    showExample: true,
+  },
+  playground: {
+    enabled: true,
+  },
+});

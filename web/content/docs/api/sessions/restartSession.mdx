@@ -1,25 +1,5 @@
 ---
 title: Restart a session
-description: >-
-  Stops and then starts the session — a reconnect that keeps the number paired.
-
-
-  Requires the `manage` capability.
-
-
-  Use this to recover a session that is stuck or in a failed state. The number
-  stays attached throughout; no re-pairing is needed.
-
-
-  **Async.** The reconnect proceeds in the background; the response returns the
-  refreshed session row so you can observe its new status.
-
-
-  **Errors.** `not_found` (404) — no such session in your organization.
-  `unauthorized` (401) / `forbidden` (403) — credential / capability failures.
-
-
-  Returns **200** with the refreshed session.
 full: true
 _openapi:
   preload:
@@ -63,7 +43,7 @@ export default function Layout(props) {
   return (
     <>
       {props.children}
-      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}:restart","method":"post"}]} />
+      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}:restart","method":"post"}]} showDescription />
     </>
   );
 }

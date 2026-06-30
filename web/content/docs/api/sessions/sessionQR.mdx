@@ -1,30 +1,5 @@
 ---
 title: Get the current pairing QR code
-description: >-
-  Returns the QR code to scan from WhatsApp on the phone (Settings → Linked
-  devices → Link a device) to attach a number to this session.
-
-
-  Requires the `manage` capability.
-
-
-  **Behavior.** Returns the raw QR code string in the JSON body.
-
-
-  **Side effect.** If no code is ready yet, this endpoint *starts pairing* and
-  returns `not_found` (404) until a code exists. QR codes are short-lived and
-  refresh periodically; they also stream live over the event stream as `auth.qr`
-  events, so the recommended pattern is to subscribe there and follow the codes
-  as they rotate rather than polling.
-
-
-  **Precondition.** The session must be unpaired — requesting a QR for an
-  already-paired session returns an error.
-
-
-  **Errors.** `not_found` (404) — no code ready yet (pairing was started) or
-  session unknown. `unauthorized` (401) / `forbidden` (403) — credential /
-  capability failures.
 full: true
 _openapi:
   preload:
@@ -72,7 +47,7 @@ export default function Layout(props) {
   return (
     <>
       {props.children}
-      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/qr","method":"get"}]} />
+      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/qr","method":"get"}]} showDescription />
     </>
   );
 }

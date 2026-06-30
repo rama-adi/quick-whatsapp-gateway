@@ -1,34 +1,5 @@
 ---
 title: List sessions across all organizations (super_admin)
-description: >-
-  List WhatsApp sessions across **every** organization, for platform oversight.
-
-
-  Unlike the org-scoped session list, this is not limited to the caller's
-  organization — it returns sessions for all tenants in one flat list.
-
-
-  ### Preconditions
-
-
-  - Restricted to a platform **super_admin**. The caller must present a login
-  JWT that carries the `super_admin` platform role.
-
-  - api-keys (prefixed `wa_`) and ordinary org roles (owner/admin/member) are
-  **rejected** even if otherwise valid.
-
-
-  ### Side effects & semantics
-
-
-  - Read-only. No state is changed.
-
-
-  ### Errors
-
-
-  - `forbidden` (403) — the caller is authenticated but is not a platform
-  super_admin (e.g. an api-key, or a person without the super_admin role).
 full: true
 _openapi:
   preload:
@@ -82,7 +53,7 @@ export default function Layout(props) {
   return (
     <>
       {props.children}
-      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/admin/sessions","method":"get"}]} />
+      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/admin/sessions","method":"get"}]} showDescription />
     </>
   );
 }

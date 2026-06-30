@@ -1,27 +1,5 @@
 ---
 title: Delete a session
-description: >-
-  Permanently deletes a session and its stored data.
-
-
-  Requires the `manage` capability.
-
-
-  **Destructive and irreversible.** This removes the session row for good. If a
-  WhatsApp number is still attached, log it out first (`POST
-  /sessions/{session}:logout`) to unlink the device cleanly; deleting does not
-  guarantee the device is unlinked on WhatsApp's side.
-
-
-  **Idempotency.** Deleting a session that does not exist (or belongs to another
-  org) returns `not_found` (404).
-
-
-  **Errors.** `not_found` (404) — no such session in your organization.
-  `unauthorized` (401) / `forbidden` (403) — credential / capability failures.
-
-
-  Returns **204 No Content** on success.
 full: true
 _openapi:
   preload:
@@ -66,7 +44,7 @@ export default function Layout(props) {
   return (
     <>
       {props.children}
-      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}","method":"delete"}]} />
+      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}","method":"delete"}]} showDescription />
     </>
   );
 }

@@ -1,57 +1,5 @@
 ---
 title: Start a session data backfill (super_admin)
-description: >-
-  Start an in-memory background backfill for one WhatsApp session, re-pulling
-  the directly fetchable WhatsApp data for that number.
-
-
-  The job pulls only the data WhatsApp exposes through a direct fetch: **cached
-  contacts** and **joined group metadata/members**. Ordinary chat history is
-  **not** part of a backfill — message history arrives asynchronously through
-  WhatsApp `HistorySync` events, and there is no generic "fetch all messages"
-  API.
-
-
-  ### Asynchronous behavior
-
-
-  - Returns **202 Accepted** immediately with the created/running `BackfillJob`;
-  the work continues in the background.
-
-  - Poll `GET /admin/sessions/{session}/backfill` to observe progress and
-  completion.
-
-
-  ### Idempotency / concurrency
-
-
-  - At most **one** backfill may run per session at a time. If a backfill is
-  already in progress for this session, the request is rejected with **409**
-  rather than starting a second one — it is **not** a no-op merge into the
-  existing job.
-
-
-  ### Preconditions
-
-
-  - Requires the platform **super_admin** role (login JWT only; api-keys and org
-  roles are rejected with 403).
-
-  - The session must exist.
-
-
-  ### Errors
-
-
-  - `forbidden` (403) — caller is not a platform super_admin.
-
-  - `not_found` (404) — no session with the given id exists.
-
-  - `conflict` (409) — a backfill is already running for this session; wait for
-  it to finish (poll the status endpoint) before retrying.
-
-  - `not_implemented` (501) — backfill is unavailable in this
-  build/configuration for the requested session.
 full: true
 _openapi:
   preload:
@@ -125,7 +73,7 @@ export default function Layout(props) {
   return (
     <>
       {props.children}
-      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/admin/sessions/{session}:backfill","method":"post"}]} />
+      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/admin/sessions/{session}:backfill","method":"post"}]} showDescription />
     </>
   );
 }

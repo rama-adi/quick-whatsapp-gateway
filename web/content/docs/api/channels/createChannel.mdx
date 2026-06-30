@@ -1,30 +1,5 @@
 ---
 title: Create a channel (newsletter)
-description: >-
-  Create a WhatsApp **channel** (newsletter) owned by this session, returning
-  its newly minted JID.
-
-
-  **Not implemented in v1.** This endpoint is wired but the underlying WhatsApp
-  operation is not yet built, so it **always responds `501` with
-  `not_implemented`** — no channel is created and nothing is persisted. The
-  request body shape below documents the eventual contract; today it is accepted
-  but ignored.
-
-
-  **Authorization:** requires the `send` capability; callers lacking it get
-  `403` (`forbidden`). Requests without a valid principal get `401`.
-
-
-  **When implemented**, this will be a write that creates a brand-new channel on
-  the WhatsApp network; it is **not** idempotent (each successful call would
-  create a distinct channel) and on success returns `201` with the channel's
-  `jid`.
-
-
-  **Errors:** `403` `forbidden` (missing `send`), `404` `not_found` (session
-  unknown), `501` `not_implemented` (current behavior), and, once built, `400`
-  `validation_error` for a missing/invalid `name`.
 full: true
 _openapi:
   preload:
@@ -71,7 +46,7 @@ export default function Layout(props) {
   return (
     <>
       {props.children}
-      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/channels","method":"post"}]} />
+      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/channels","method":"post"}]} showDescription />
     </>
   );
 }

@@ -1,20 +1,5 @@
 ---
 title: Update a webhook
-description: >-
-  Update the webhook identified by `id` — its `url`, `events`, `sessionId`
-  scope, `secret`, `customHeaders`, `retryPolicy`, or `active` flag. Requires
-  the `manage` capability, and the webhook must belong to the caller's
-  organization.
-
-
-  **Secret rotation.** Send a new `secret` to rotate it; omit the field to leave
-  the stored secret unchanged. As elsewhere, the secret is never returned.
-
-
-  On success returns `200` with the updated webhook. Errors: `404 not_found` if
-  no webhook with that id is owned by the caller's organization; `422
-  validation_error` if the supplied fields are invalid (e.g. a malformed `url`);
-  `403 forbidden` if the caller lacks the `manage` capability.
 full: true
 _openapi:
   preload:
@@ -53,7 +38,7 @@ export default function Layout(props) {
   return (
     <>
       {props.children}
-      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/webhooks/{id}","method":"patch"}]} />
+      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/webhooks/{id}","method":"patch"}]} showDescription />
     </>
   );
 }

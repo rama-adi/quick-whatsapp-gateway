@@ -1,23 +1,5 @@
 ---
 title: Get a contact's profile picture
-description: >-
-  Fetches the contact's current profile picture from WhatsApp and returns its
-  URL and metadata.
-
-
-  This is a **live lookup** against WhatsApp — the session must be
-  **connected**. If the session is not connected the gateway responds `501`
-  (`not_implemented`). The returned URL points at WhatsApp's CDN and is
-  time-limited; fetch it promptly.
-
-
-  **Auth:** requires the `read` capability.
-
-
-  **Errors:** `404` (`not_found`) if the session does not exist or is not owned
-  by the caller's organization (also returned when the contact has no accessible
-  picture, depending on privacy settings); `501` (`not_implemented`) if the
-  session is not connected.
 full: true
 _openapi:
   preload:
@@ -57,7 +39,7 @@ export default function Layout(props) {
   return (
     <>
       {props.children}
-      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/contacts/{jid}/picture","method":"get"}]} />
+      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/contacts/{jid}/picture","method":"get"}]} showDescription />
     </>
   );
 }

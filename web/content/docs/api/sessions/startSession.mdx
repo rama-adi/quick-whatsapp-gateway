@@ -1,28 +1,5 @@
 ---
 title: Start a session
-description: >-
-  Connects an **already-paired** session to WhatsApp.
-
-
-  Requires the `manage` capability.
-
-
-  **Precondition.** The session must already have a number attached. To pair a
-  *new* session instead, use the QR (`GET /sessions/{session}/qr`) or
-  pairing-code (`POST /sessions/{session}/pairing-code`) endpoints.
-
-
-  **Async / idempotency.** Connecting happens in the background; the response
-  returns the refreshed session row so you can observe its new status (it may
-  still be transitioning). Calling start on a session that is already started is
-  a harmless no-op.
-
-
-  **Errors.** `not_found` (404) — no such session in your organization.
-  `unauthorized` (401) / `forbidden` (403) — credential / capability failures.
-
-
-  Returns **200** with the refreshed session.
 full: true
 _openapi:
   preload:
@@ -69,7 +46,7 @@ export default function Layout(props) {
   return (
     <>
       {props.children}
-      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}:start","method":"post"}]} />
+      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}:start","method":"post"}]} showDescription />
     </>
   );
 }

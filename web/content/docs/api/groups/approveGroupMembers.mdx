@@ -1,13 +1,5 @@
 ---
 title: Approve pending join requests (not implemented in v2)
-description: >-
-  **Not implemented in v2.** Approving people waiting to join a group is not
-  part of v2's live WhatsApp surface, so this endpoint **always responds 501
-  `not_implemented`** regardless of the request body. The route and
-  `participants` body shape are reserved for a future release.
-
-
-  **Capability:** requires `send` (checked before the 501 is returned).
 full: true
 _openapi:
   preload:
@@ -37,7 +29,7 @@ export default function Layout(props) {
   return (
     <>
       {props.children}
-      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/groups/{gid}/members:approve","method":"post"}]} />
+      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/groups/{gid}/members:approve","method":"post"}]} showDescription />
     </>
   );
 }

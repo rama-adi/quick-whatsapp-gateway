@@ -9,6 +9,7 @@
 // `preloaded` payload instead of trying to fetch the spec at runtime.
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import { DocsLayout } from "fumadocs-ui/layouts/docs";
+import { RootProvider } from "fumadocs-ui/provider/tanstack";
 import { createServerFn } from "@tanstack/react-start";
 // `~/lib/source` and `~/lib/openapi` pull in the fumadocs-mdx server runtime
 // (which uses node:path). They are imported for VALUES only inside the server
@@ -29,6 +30,7 @@ import { useFumadocsLoader } from "fumadocs-core/source/client";
 import { Suspense } from "react";
 import { useMDXComponents } from "~/components/mdx";
 import type { OpenAPIPageProps_Preloaded } from "fumadocs-openapi/ui";
+import docsCss from "~/docs.css?url";
 
 // The bundled-spec payload <APIPage> needs to render an OpenAPI page without a
 // runtime fetch. Its `docs` values are OpenAPI `Document`s — plain JSON that
@@ -51,6 +53,9 @@ type LoaderData = {
 };
 
 export const Route = createFileRoute("/docs/$")({
+  head: () => ({
+    links: [{ rel: "stylesheet", href: docsCss }],
+  }),
   component: Page,
   loader: async ({ params }) => {
     const slugs = params._splat?.split("/") ?? [];
@@ -145,10 +150,12 @@ function Page() {
   const data = useFumadocsLoader(Route.useLoaderData());
 
   return (
-    <DocsLayout {...baseOptions()} tree={data.pageTree}>
-      <Suspense>
-        {clientLoader.useContent(data.path, { preloaded: data.preloaded })}
-      </Suspense>
-    </DocsLayout>
+    <RootProvider>
+      <DocsLayout {...baseOptions()} tree={data.pageTree}>
+        <Suspense>
+          {clientLoader.useContent(data.path, { preloaded: data.preloaded })}
+        </Suspense>
+      </DocsLayout>
+    </RootProvider>
   );
 }

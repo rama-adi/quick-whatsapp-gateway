@@ -1,26 +1,5 @@
 ---
 title: Block a contact
-description: >-
-  Tells WhatsApp to block this contact so they can no longer message the
-  session.
-
-
-  This is a **live action** against WhatsApp — the session must be
-  **connected**. If the session is not connected the gateway responds `501`
-  (`not_implemented`).
-
-
-  The operation is **idempotent**: blocking an already-blocked contact succeeds
-  with the same `204` and no additional effect. On success the response body is
-  empty.
-
-
-  **Auth:** requires the `send` capability.
-
-
-  **Errors:** `404` (`not_found`) if the session does not exist or is not owned
-  by the caller's organization; `501` (`not_implemented`) if the session is not
-  connected.
 full: true
 _openapi:
   preload:
@@ -63,7 +42,7 @@ export default function Layout(props) {
   return (
     <>
       {props.children}
-      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/contacts/{jid}/block","method":"post"}]} />
+      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/contacts/{jid}/block","method":"post"}]} showDescription />
     </>
   );
 }

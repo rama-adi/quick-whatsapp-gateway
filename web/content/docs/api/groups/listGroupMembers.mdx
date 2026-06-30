@@ -1,25 +1,5 @@
 ---
 title: List a group's members
-description: >-
-  Returns the members of the group, each with their JID and role (member or
-  admin).
-
-
-  **Capability:** requires `read`.
-
-
-  **Served from stored data:** no live WhatsApp connection is needed.
-
-
-  **Response:** a `List` envelope of group-member objects. The current
-  implementation returns all members in a single page with an empty
-  `nextCursor`.
-
-
-  **Errors:**
-
-  - **404 `not_found`** — the session does not exist (or is not yours), or no
-  group with this `gid` is stored for it.
 full: true
 _openapi:
   preload:
@@ -61,7 +41,7 @@ export default function Layout(props) {
   return (
     <>
       {props.children}
-      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/groups/{gid}/members","method":"get"}]} />
+      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/groups/{gid}/members","method":"get"}]} showDescription />
     </>
   );
 }

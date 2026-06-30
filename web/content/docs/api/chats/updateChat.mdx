@@ -1,36 +1,5 @@
 ---
 title: Update a chat (archive/pin/mute)
-description: >-
-  Changes the archive, pin, and mute state of the chat in the path (`cid`) and
-  returns the updated chat.
-
-
-  **Partial update:** only the fields you send are changed; omitted fields stay
-  as they are.
-
-
-  - `archived` — set the chat's archived state.
-
-  - `pinned` — set whether the chat is pinned to the top.
-
-  - `mutedUntil` — mute until this instant, as Unix epoch **milliseconds**.
-
-  - `unmute` — when `true`, clears any existing mute. Takes precedence over
-  `mutedUntil`.
-
-
-  Requires the `send` capability.
-
-
-  **Errors**
-
-
-  - `not_found` (404): the session does not exist, is not owned by the caller's
-  organization, or no chat with that `cid` is stored.
-
-  - `validation_error` (422): the request body is malformed.
-
-  - `forbidden` (403): the caller lacks the `send` capability.
 full: true
 _openapi:
   preload:
@@ -84,7 +53,7 @@ export default function Layout(props) {
   return (
     <>
       {props.children}
-      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/chats/{cid}","method":"patch"}]} />
+      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/chats/{cid}","method":"patch"}]} showDescription />
     </>
   );
 }

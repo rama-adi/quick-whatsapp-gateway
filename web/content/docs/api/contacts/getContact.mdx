@@ -1,22 +1,5 @@
 ---
 title: Get one contact
-description: >-
-  Returns everything stored for one contact, addressed by its `lid` (WhatsApp's
-  stable per-account identifier for a person): their name, whether you have a
-  direct chat with them, and every group you have seen them in — including their
-  nickname and role in each group.
-
-
-  Served entirely from **stored** data, so no live WhatsApp connection is
-  needed.
-
-
-  **Auth:** requires the `read` capability.
-
-
-  **Errors:** `404` (`not_found`) if the session does not exist, is not owned by
-  the caller's organization, or no contact with the given `lid` is stored for
-  that session.
 full: true
 _openapi:
   preload:
@@ -55,7 +38,7 @@ export default function Layout(props) {
   return (
     <>
       {props.children}
-      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/contacts/{lid}","method":"get"}]} />
+      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/contacts/{lid}","method":"get"}]} showDescription />
     </>
   );
 }

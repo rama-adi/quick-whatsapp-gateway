@@ -1,26 +1,5 @@
 ---
 title: Check whether a phone number is on WhatsApp
-description: >-
-  Asks WhatsApp whether the given `phone` number has an account and, if so,
-  returns its JID (WhatsApp's internal address).
-
-
-  This is a **live lookup** against WhatsApp, not a read of stored data — the
-  session must be **connected**. If the session is not connected the gateway
-  responds `501` (`not_implemented`).
-
-
-  The lookup is read-only and has no side effects; it neither adds the number as
-  a contact nor notifies the other party.
-
-
-  **Auth:** requires the `read` capability.
-
-
-  **Errors:** `400` (`validation_error`) if `phone` is missing or malformed;
-  `404` (`not_found`) if the session does not exist or is not owned by the
-  caller's organization; `501` (`not_implemented`) if the session is not
-  connected so the live lookup cannot run.
 full: true
 _openapi:
   preload:
@@ -63,7 +42,7 @@ export default function Layout(props) {
   return (
     <>
       {props.children}
-      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/contacts/check","method":"get"}]} />
+      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/contacts/check","method":"get"}]} showDescription />
     </>
   );
 }

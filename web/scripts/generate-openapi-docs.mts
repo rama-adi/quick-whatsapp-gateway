@@ -22,6 +22,7 @@ await generateFiles({
   output: OUT,
   per: "operation",
   groupBy: "tag",
+  includeDescription: true,
   // Write meta.json per tag folder so the generated reference shows up as an
   // ordered tree in the docs sidebar.
   meta: true,

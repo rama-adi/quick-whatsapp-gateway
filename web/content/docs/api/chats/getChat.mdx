@@ -1,21 +1,5 @@
 ---
 title: Get a chat
-description: >-
-  Returns one chat by its id (`cid`, the chat JID), served from the gateway's
-  **stored copy**. Use this to read a single chat's archive/pin/mute flags and
-  unread count.
-
-
-  Requires the `read` capability.
-
-
-  **Errors**
-
-
-  - `not_found` (404): the session does not exist, is not owned by the caller's
-  organization, or no chat with that `cid` is stored for the session.
-
-  - `forbidden` (403): the caller lacks the `read` capability.
 full: true
 _openapi:
   preload:
@@ -54,7 +38,7 @@ export default function Layout(props) {
   return (
     <>
       {props.children}
-      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/chats/{cid}","method":"get"}]} />
+      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/chats/{cid}","method":"get"}]} showDescription />
     </>
   );
 }

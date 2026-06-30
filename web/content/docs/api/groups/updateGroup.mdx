@@ -1,37 +1,5 @@
 ---
 title: Update group settings
-description: >-
-  Changes the group's settings — **subject**, **description**, whether only
-  admins can post (**announce**), and whether only admins can edit group info
-  (**locked**).
-
-
-  **Partial update:** send only the fields you want to change; omitted fields
-  are left untouched. Each field maps to a separate WhatsApp operation, applied
-  in order.
-
-
-  **Capability:** requires `send`.
-
-
-  **Precondition (live action):** the session must be **connected** and (for
-  most settings) its account must be a group **admin**. If the session is not
-  connected the gateway responds **501 `not_implemented`**.
-
-
-  **Success:** **204 No Content**.
-
-
-  **Errors:**
-
-  - **400 `validation_error`** — malformed body.
-
-  - **404 `not_found`** — the session or group does not exist (or is not yours).
-
-  - **403 `forbidden`** — the session's account lacks the rights to change this
-  setting.
-
-  - **501 `not_implemented`** — the session is not connected.
 full: true
 _openapi:
   preload:
@@ -87,7 +55,7 @@ export default function Layout(props) {
   return (
     <>
       {props.children}
-      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/groups/{gid}","method":"patch"}]} />
+      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/groups/{gid}","method":"patch"}]} showDescription />
     </>
   );
 }

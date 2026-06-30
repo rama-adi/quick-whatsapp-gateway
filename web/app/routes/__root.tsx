@@ -13,7 +13,6 @@ import {
   createRootRouteWithContext,
 } from "@tanstack/react-router";
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
-import { RootProvider } from "fumadocs-ui/provider/tanstack";
 import { queryClient } from "~/lib/query";
 import { Toaster } from "~/components/ui/sonner";
 import appCss from "~/app.css?url";
@@ -54,15 +53,10 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <HeadContent />
       </head>
       <body>
-        {/* RootProvider gives the docs site its theme + search-dialog context;
-            it wraps the whole tree so /docs renders correctly while the app
-            routes inside keep their QueryClientProvider untouched. */}
-        <RootProvider>
-          <QueryClientProvider client={queryClient}>
-            {children}
-            <Toaster richColors position="top-right" />
-          </QueryClientProvider>
-        </RootProvider>
+        <QueryClientProvider client={queryClient}>
+          {children}
+          <Toaster richColors position="top-right" />
+        </QueryClientProvider>
         <Scripts />
       </body>
     </html>

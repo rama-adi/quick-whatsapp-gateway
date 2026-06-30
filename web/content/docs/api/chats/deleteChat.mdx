@@ -1,27 +1,5 @@
 ---
 title: Delete a chat
-description: >-
-  Removes the chat in the path (`cid`) from the gateway's **stored copy**, along
-  with its locally stored messages.
-
-
-  This is a **local delete only**: it does not delete the chat on WhatsApp, and
-  the chat may reappear if new activity is later ingested for it.
-
-
-  On success returns **204 No Content** with no body.
-
-
-  Requires the `send` capability.
-
-
-  **Errors**
-
-
-  - `not_found` (404): the session does not exist, is not owned by the caller's
-  organization, or no chat with that `cid` is stored.
-
-  - `forbidden` (403): the caller lacks the `send` capability.
 full: true
 _openapi:
   preload:
@@ -66,7 +44,7 @@ export default function Layout(props) {
   return (
     <>
       {props.children}
-      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/chats/{cid}","method":"delete"}]} />
+      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/chats/{cid}","method":"delete"}]} showDescription />
     </>
   );
 }

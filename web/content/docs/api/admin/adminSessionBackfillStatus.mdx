@@ -1,36 +1,5 @@
 ---
 title: Get the current or latest session backfill job (super_admin)
-description: >-
-  Return the **current or most recent** backfill job for one WhatsApp session.
-
-
-  Use this to poll a backfill started with `POST
-  /admin/sessions/{session}:backfill`: it reports the job's status and progress.
-  If a backfill is in progress, the running job is returned; otherwise the last
-  completed/failed job for the session is returned.
-
-
-  ### Semantics
-
-
-  - Read-only. Backfill state is held **in memory**, so a gateway restart clears
-  it: after a restart this returns 404 until a new backfill is started.
-
-
-  ### Preconditions
-
-
-  - Requires the platform **super_admin** role (login JWT only; api-keys and org
-  roles are rejected with 403).
-
-
-  ### Errors
-
-
-  - `forbidden` (403) — caller is not a platform super_admin.
-
-  - `not_found` (404) — the session does not exist, or no backfill job is on
-  record for it (e.g. none has been started since the last gateway restart).
 full: true
 _openapi:
   preload:
@@ -86,7 +55,7 @@ export default function Layout(props) {
   return (
     <>
       {props.children}
-      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/admin/sessions/{session}/backfill","method":"get"}]} />
+      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/admin/sessions/{session}/backfill","method":"get"}]} showDescription />
     </>
   );
 }

@@ -1,21 +1,5 @@
 ---
 title: Remove your reaction from a message
-description: >-
-  Clears the reaction you previously set on the message identified by `mid`
-  (located by `chat`/`sender` in the body). The gateway sends an **empty**
-  reaction to WhatsApp, so any `emoji` value in the body is ignored.
-
-
-  Idempotent: removing when no reaction is set is a no-op. Returns **200** with
-  a `SendResult`.
-
-
-  ### Preconditions & errors
-
-  - Requires the **`send`** capability.
-
-  - **404 `not_found`** — the session or message does not exist or is not owned
-  by your organization.
 full: true
 _openapi:
   preload:
@@ -54,7 +38,7 @@ export default function Layout(props) {
   return (
     <>
       {props.children}
-      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/messages/{mid}/reaction","method":"delete"}]} />
+      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/messages/{mid}/reaction","method":"delete"}]} showDescription />
     </>
   );
 }

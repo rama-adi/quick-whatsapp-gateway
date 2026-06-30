@@ -1,26 +1,5 @@
 ---
 title: Add a reaction to a message
-description: >-
-  Reacts to the message identified by `mid` (located by `chat`/`sender` in the
-  body) with a single emoji.
-
-
-  A reaction is **idempotent per message**: sending a new reaction replaces any
-  reaction you previously set on that message — there is at most one reaction
-  per (you, message) pair.
-
-
-  Returns **200** with a `SendResult`.
-
-
-  ### Preconditions & errors
-
-  - Requires the **`send`** capability.
-
-  - **400 `validation_error`** — missing/empty `emoji`.
-
-  - **404 `not_found`** — the session or message does not exist or is not owned
-  by your organization.
 full: true
 _openapi:
   preload:
@@ -63,7 +42,7 @@ export default function Layout(props) {
   return (
     <>
       {props.children}
-      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/messages/{mid}/reaction","method":"post"}]} />
+      <Comp document="../docs/openapi.yaml" operations={[{"path":"/api/v1/sessions/{session}/messages/{mid}/reaction","method":"post"}]} showDescription />
     </>
   );
 }
