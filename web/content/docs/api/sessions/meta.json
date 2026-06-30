@@ -1,6 +1,6 @@
 {
   "title": "Sessions",
-  "description": "Attach, pair, start/stop, and manage WhatsApp numbers. A session is one attached number; the create/lifecycle/QR/pairing operations live here (manage capability).",
+  "description": "Create, pair, start, stop, restart, and delete WhatsApp sessions. A session is one attached WhatsApp number.",
   "pages": [
     "listSessions",
     "createSession",

@@ -1,6 +1,6 @@
 {
   "title": "Groups",
-  "description": "Group lifecycle and membership: list/get/members/invite (read); create, add/remove/promote/demote members, edit, join/leave, and approve requests (send).",
+  "description": "List groups and members, read invites, create groups, add or remove members, promote or demote members, edit group info, join or leave groups, and approve join requests.",
   "pages": [
     "listGroups",
     "createGroup",

@@ -11,25 +11,17 @@ _openapi:
     headings: []
     contents:
       - content: >-
-          Permanently deletes a session and its stored data.
+          Permanently remove the session row and related session state.
 
 
-          Requires the `manage` capability.
+          If a number is still attached, call `:logout` first for clean
+          detachment.
 
 
-          **Destructive and irreversible.** This removes the session row for
-          good. If a WhatsApp number is still attached, log it out first (`POST
-          /sessions/{session}:logout`) to unlink the device cleanly; deleting
-          does not guarantee the device is unlinked on WhatsApp's side.
+          Requires `manage` capability.
 
 
-          **Idempotency.** Deleting a session that does not exist (or belongs to
-          another org) returns `not_found` (404).
-
-
-          **Errors.** `not_found` (404) — no such session in your organization.
-          `unauthorized` (401) / `forbidden` (403) — credential / capability
-          failures.
+          Errors: `not_found` (404), `unauthorized` (401), `forbidden` (403).
 
 
           Returns **204 No Content** on success.

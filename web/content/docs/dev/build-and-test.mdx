@@ -26,12 +26,12 @@ go test ./...
 The build and tests run with `CGO_ENABLED=0` because the gateway uses a pure-Go SQLite
 driver (no C compiler needed).
 
-### Contract tests for the trust seam
+### Contract tests for auth formats
 
-The gateway trusts two things minted by the frontend: better-auth api-keys, and EdDSA
-JWTs (signed JSON tokens that carry the caller's identity). If better-auth changes how it
-stores an api-key hash or shapes a JWT, the gateway would silently stop accepting valid
-callers. Tests in `internal/authz/` pin those formats so that drift fails a test instead.
+The router accepts two better-auth formats: api-keys and EdDSA JWTs (signed JSON
+tokens that carry the caller's identity). If better-auth changes how it stores an
+api-key hash or shapes a JWT, callers could stop working. Tests in
+`internal/authz/` pin those formats so drift fails a test.
 
 Run just those packages with:
 

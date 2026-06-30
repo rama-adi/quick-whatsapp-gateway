@@ -22,17 +22,17 @@ const maxBackupUpload = 256 << 20 // 256 MiB
 // validator — the handler maps missing key/empty file to domain.ErrValidation (400),
 // matching the old chi handler's §11 validation_error envelope.
 type backfillForm struct {
-	File huma.FormFile `form:"file" doc:"The WhatsApp end-to-end encrypted message-store backup file, named msgstore.db.crypt15 on the device. This is the raw, still-encrypted blob — do NOT decrypt it client-side. Required: the request fails with validation_error (400) if the part is absent or its body is empty. Bounded to 256 MiB; a larger upload trips the body cap and is rejected before reaching the handler."`
-	Key  string        `form:"key" doc:"The crypt15 decryption key for the uploaded backup. Accepts three forms: (1) a 64-character hex string — the human-readable code shown under WhatsApp > Settings > Chats > Chat backup > End-to-end encrypted backup; (2) a raw 32-byte key; or (3) a serialized encrypted_backup.key file. Leading/trailing whitespace is trimmed. Required: an empty or whitespace-only value fails with validation_error (400). The key is used inline to decrypt the file before the job is accepted, so a wrong key fails fast with 400 rather than failing the background job." example:"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"`
+	File huma.FormFile `form:"file" doc:"Encrypted WhatsApp backup file (msgstore.db.crypt15). Required. Empty file fails with validation_error (400). Max 256 MiB."`
+	Key  string        `form:"key" doc:"Crypt15 key for the uploaded backup. Accepts hex, raw key, or encrypted_backup.key content. Empty key fails with validation_error (400). Whitespace is trimmed." example:"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"`
 }
 
 type importBackupInput struct {
-	Session string `path:"session" doc:"Identifier of the WhatsApp session whose history the backup is imported into. The caller's organization must own this session (otherwise not_found, 404)." example:"sess_01HZX9..."`
+	Session string `path:"session" doc:"Session ID receiving the backup import. Must belong to your organization." example:"sess_01HZX9..."`
 	RawBody huma.MultipartFormFiles[backfillForm]
 }
 
 type backupStatusInput struct {
-	Session string `path:"session" doc:"Identifier of the WhatsApp session whose latest import job is reported. The caller's organization must own this session (otherwise not_found, 404)." example:"sess_01HZX9..."`
+	Session string `path:"session" doc:"Session ID whose latest backup job is returned. Must belong to your organization." example:"sess_01HZX9..."`
 }
 
 type backupOutput struct{ Body domain.BackfillImport }
@@ -47,30 +47,13 @@ func RegisterBackupOps(api huma.API, h *Handlers) {
 	huma.Register(api, huma.Operation{
 		OperationID: "importBackup", Method: "POST", Path: "/api/v1/sessions/{session}/backfill",
 		Summary: "Import a WhatsApp backup (crypt15) to backfill history", Tags: []string{"Backup"},
-		Description: `Uploads an end-to-end encrypted WhatsApp message-store backup (` + "`msgstore.db.crypt15`" + `) together with its decryption key, and backfills the session's chat history from it.
-
-**What it does.** The gateway decrypts the uploaded blob with the supplied key, opens the embedded SQLite database, and **upserts** the session's chats, messages, WhatsApp identities, groups, and group members. The import is **idempotent by message id**: re-running the same (or an overlapping) backup merges rather than duplicates, so it is safe to retry.
-
-**Use this** to seed or top up a freshly linked session with the history that already exists on the device — the live event stream only covers messages received after the session connected.
-
-**Preconditions.**
-- Requires the ` + "`manage`" + ` capability.
-- The session must exist and be owned by the caller's organization.
-- Both the ` + "`file`" + ` part (non-empty) and the ` + "`key`" + ` field (non-empty after trimming) are required.
-
-**Decryption is inline; import is asynchronous.** The key and file are validated and the backup is decrypted **synchronously** while handling the request, so a wrong key, corrupt file, or unreadable upload fails immediately with ` + "`400`" + `. Once decryption succeeds the request returns **202 Accepted** and the actual upsert runs in the **background**. Poll ` + "`GET /api/v1/sessions/{session}/backfill`" + ` for live progress counts and the terminal outcome.
-
-**Concurrency / idempotency.** Only one import may run per session at a time. A second import requested while one is still running is rejected with ` + "`409`" + ` (conflict). There is no ` + "`Idempotency-Key`" + ` header on this route; duplicate suppression comes from the per-session single-flight lock plus message-id upsert semantics.
-
-**Rate limit.** Ordinary callers may import at most **once per 24 hours per session**; exceeding this returns ` + "`429`" + `. Platform ` + "`super_admin`" + ` principals are exempt and have no limit.
-
-**Limits.** The upload is capped at **256 MiB**; a larger body is rejected by the body cap. The body-read timeout is disabled for this route because large msgstore backups can take well beyond the default read window to upload.
-
-**Errors.**
-- ` + "`validation_error`" + ` (400) — missing/empty ` + "`file`" + `, missing/empty ` + "`key`" + `, unreadable upload, wrong key, or an undecryptable/corrupt backup.
-- ` + "`not_found`" + ` (404) — the session does not exist or is not owned by the caller's organization.
-- ` + "`conflict`" + ` (409) — an import is already running for this session.
-- ` + "`rate_limited`" + ` (429) — the 24-hour-per-session limit was hit (non-super_admin callers).`,
+		Description: "Upload a crypt15 backup and start a background import.\n\n" +
+			"Decryption is performed in the request path. Wrong `key`, unreadable upload, or corrupt backup returns validation_error (400).\n\n" +
+			"On success, returns **202 Accepted** and runs import in the background.\n\n" +
+			"Only one import may run per session. A second request returns conflict (409).\n\n" +
+			"Ordinary callers are limited to one import per session every 24h. Super-admin callers are exempt.\n\n" +
+			"Requires `manage` and session ownership.\n\n" +
+			"Errors: `validation_error` (400), `not_found` (404), `conflict` (409), `rate_limited` (429).",
 		DefaultStatus: 202, Middlewares: manage,
 		// Cap the upload at 256 MiB (+1 MiB slack) and disable the body-read timeout —
 		// large msgstore backups need more than huma's 5s default.
@@ -114,18 +97,11 @@ func RegisterBackupOps(api huma.API, h *Handlers) {
 	huma.Register(api, huma.Operation{
 		OperationID: "backupStatus", Method: "GET", Path: "/api/v1/sessions/{session}/backfill",
 		Summary: "Get the latest backup import job for a session", Tags: []string{"Backup"}, Middlewares: manage,
-		Description: `Returns the **most recent** backup import for this session — whether it is still running, has succeeded, or has failed — along with its progress counts.
-
-**Use this** to poll the outcome of an import started via ` + "`POST /api/v1/sessions/{session}/backfill`" + `, which returns ` + "`202`" + ` and completes its work in the background.
-
-**Preconditions.**
-- Requires the ` + "`manage`" + ` capability.
-- The session must exist and be owned by the caller's organization.
-
-This is a read-only operation with no side effects; it is safe to call repeatedly. The returned job reflects the latest known state at read time.
-
-**Errors.**
-- ` + "`not_found`" + ` (404) — the session does not exist, is not owned by the caller's organization, or no import has ever been started for it.`,
+		Description: "Return the latest backup import job for this session.\n\n" +
+			"Use it to poll the result of `POST /api/v1/sessions/{session}/backfill`.\n\n" +
+			"Read-only; safe to poll repeatedly.\n\n" +
+			"Requires `manage` and session ownership.\n\n" +
+			"Errors: `not_found` (404) when the session is unknown or no import exists.",
 	}, func(ctx context.Context, in *backupStatusInput) (*backupOutput, error) {
 		org, err := humax.Org(ctx)
 		if err != nil {

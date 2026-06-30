@@ -19,7 +19,7 @@ and receive delivery and message events over webhooks.
 
 Every call carries one Bearer token, either:
 
-- a **user JWT** (minted by the dashboard, verified against the gateway's JWKS), or
+- a **user JWT** (issued by the frontend, verified by the router against the frontend JWKS), or
 - an **API key** (prefix `wa_`, for machines) — sent as `Authorization: Bearer …` or in the `x-api-key` header.
 
 Sessions belong to an organization. A token only reaches the sessions its

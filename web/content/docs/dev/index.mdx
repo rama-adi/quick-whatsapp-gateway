@@ -10,8 +10,8 @@ one Redis.
 
 | Service | Location | Stack | What it does |
 |---|---|---|---|
-| **Router** | `cmd/router`, `internal/router` | Go | The single public front door and trust boundary. Authenticates every caller, finds the gateway that owns the target session, and reverse-proxies to it. Serves the realtime WebSocket and the OpenAPI contract. |
-| **Gateway** | `cmd/server`, `internal/` | Go, whatsmeow | Holds the live WhatsApp connections and runs the REST handlers. Internal: it trusts the router and is not exposed to the public. |
+| **Router** | `cmd/router`, `internal/router` | Go | The public API service. It authenticates every caller, finds the gateway that owns the target session, forwards requests, and serves the realtime WebSocket and OpenAPI file. |
+| **Gateway** | `cmd/server`, `internal/` | Go, whatsmeow | Holds the live WhatsApp connections and runs the REST handlers. It only accepts requests forwarded by the router. |
 | **Frontend** | `web/` | TanStack Start, better-auth | The dashboard plus the identity service: login, registration, 2FA, organizations, and API-key management. Renders the dashboard, viewer, and contacts UI. |
 
 The router and gateway are separate processes so you can run several gateways
@@ -23,7 +23,7 @@ WhatsApp. None of the three need to be co-located.
 
 ```
         Authorization: Bearer <JWT | api-key>
-  Browser ──────────────────────────────────►  Router  (front door + trust boundary)
+  Browser ──────────────────────────────────►  Router  (public API)
      │  ▲                                          │  • authenticates the caller (JWKS JWT / api-key)
      │  │ session cookie                           │  • resolves the gateway that owns the session
      │  │ mint JWT (/api/auth/token)               │  • mints a request-bound Ed25519 assertion
@@ -47,7 +47,7 @@ server does no gateway proxying. Its only server-side work is:
 - minting short-lived gateway JWTs, and
 - reading MySQL directly for server-side rendering.
 
-## The trust seam: two boundaries, not one
+## How a request is trusted
 
 Authentication happens **once, on the router**. The gateway never sees an
 end-user credential — it trusts only a token the router mints per request.
@@ -68,7 +68,7 @@ If neither acceptor matches, the request is rejected with `401`. The router then
 finds the gateway that owns the target session, checks the caller's organization
 owns it, and proxies on.
 
-### 2. The gateway trusts the router's assertion
+### 2. The gateway checks the router's proof
 
 The router strips the end-user credential and attaches a request-bound
 **internal assertion** in the `X-Internal-Assertion` header. This is a single-use
@@ -135,8 +135,8 @@ the org. A user reaches a resource through org membership.
 
 The router authorizes from the JWT's `activeOrganizationId` and `orgRole` claims
 (or, for an api-key, its `reference_id`), carries them into the assertion, and the
-gateway scopes every query to that org. Neither service joins the `member` table
-during a request.
+gateway scopes every query to that org. Neither service reads the `member` table
+while handling the request.
 
 Capabilities map to roles and permissions as follows:
 

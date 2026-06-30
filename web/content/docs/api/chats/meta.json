@@ -1,6 +1,6 @@
 {
   "title": "Chats",
-  "description": "Read chat history and manage chats: list/get chats and messages (read), mark read, update flags, delete, and set typing presence (send).",
+  "description": "List chats, read messages, mark chats read, update chat flags, delete chats, and set typing or recording presence.",
   "pages": [
     "listChats",
     "getChat",

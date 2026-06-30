@@ -1,6 +1,6 @@
 {
   "title": "Webhooks",
-  "description": "Configure webhook endpoints that receive the event envelope over HTTP, with HMAC signing and retries (manage capability).",
+  "description": "Create webhook endpoints that receive events over HTTP. Optional HMAC signing lets receivers verify the request body.",
   "pages": [
     "listWebhooks",
     "createWebhook",

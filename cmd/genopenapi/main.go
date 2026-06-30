@@ -75,9 +75,9 @@ organization it is acting as. This document is the contract of record — it is
 **generated from the gateway's Go types** and served as-is at
 ` + "`/api/v1/openapi.yaml`" + ` by the central router (there is no Swagger UI).
 
-**One front door.** Clients talk to the central router at a single base URL; the
-router authenticates the caller, finds the gateway that owns the target session,
-and proxies the request. Host discovery is never the caller's problem.
+**One API URL.** Clients call the router. The router checks the token, finds the
+gateway that owns the target session, and forwards the request. Clients never
+need to know which gateway is holding a WhatsApp number.
 
 **Base path.** All endpoints below are under ` + "`/api/v1`" + `, except the
 unauthenticated probes ` + "`/healthz`, `/readyz`, and `/openapi.yaml`." + `
@@ -85,7 +85,7 @@ unauthenticated probes ` + "`/healthz`, `/readyz`, and `/openapi.yaml`." + `
 **Authenticating.** Send one ` + "`Authorization: Bearer <token>`" + ` header. The
 token is one of two kinds, and which one you send decides what you can do:
 
-- A **JWT** — a signed login token minted by the frontend for a logged-in person.
+- A **JWT** — a signed login token issued by the frontend for a logged-in person.
   The router verifies the signature against the frontend's public keys (JWKS).
   What the person can do follows their role in the organization: an owner or admin
   can do everything; a member can read and send.
@@ -132,24 +132,24 @@ location, and contact message types do work.`)
 	}
 	o.Components.SecuritySchemes["bearerAuth"] = &huma.SecurityScheme{
 		Type: "http", Scheme: "bearer", BearerFormat: "JWT",
-		Description: "Send `Authorization: Bearer <token>`. The router accepts two kinds of token and tries each in turn: a frontend-minted login **JWT** (verified against the frontend JWKS; the person's org + role are read from it), or an **api-key** for a script/service (carrying a fixed set of gateway permissions). The `bearerFormat: JWT` label describes the person-login case.",
+		Description: "Send `Authorization: Bearer <token>`. The token can be a login JWT from the frontend or an api-key for a script. JWT access comes from the person's organization role. Api-key access comes from the permissions saved on the key.",
 	}
 	o.Components.SecuritySchemes["apiKeyHeader"] = &huma.SecurityScheme{
 		Type: "apiKey", In: "header", Name: "x-api-key",
-		Description: "Alternative transport for a better-auth api-key, for clients that cannot set an `Authorization` header. Equivalent to sending the api-key as a Bearer token.",
+		Description: "Send an api-key here when your client cannot set `Authorization`. It is the same as sending the api-key as a Bearer token.",
 	}
 	o.Security = []map[string][]string{{"bearerAuth": {}}, {"apiKeyHeader": {}}}
 
 	o.Tags = []*huma.Tag{
-		{Name: "Sessions", Description: "Attach, pair, start/stop, and manage WhatsApp numbers. A session is one attached number; the create/lifecycle/QR/pairing operations live here (manage capability)."},
-		{Name: "Messages", Description: "Send and act on messages: send (text/poll/location/contact; media is 501 in v1), edit, revoke, react, forward, and vote on polls (send capability)."},
-		{Name: "Chats", Description: "Read chat history and manage chats: list/get chats and messages (read), mark read, update flags, delete, and set typing presence (send)."},
-		{Name: "Contacts", Description: "Look up and manage contacts: list/check/get contacts, profile picture and about (read); block/unblock (send)."},
-		{Name: "Groups", Description: "Group lifecycle and membership: list/get/members/invite (read); create, add/remove/promote/demote members, edit, join/leave, and approve requests (send)."},
+		{Name: "Sessions", Description: "Create, pair, start, stop, restart, and delete WhatsApp sessions. A session is one attached WhatsApp number."},
+		{Name: "Messages", Description: "Send text, polls, locations, and contacts. You can also edit, delete for everyone, react, forward, and vote on polls. Media sends return 501 in v1."},
+		{Name: "Chats", Description: "List chats, read messages, mark chats read, update chat flags, delete chats, and set typing or recording presence."},
+		{Name: "Contacts", Description: "List and check contacts, read profile info, fetch profile pictures and about text, and block or unblock contacts."},
+		{Name: "Groups", Description: "List groups and members, read invites, create groups, add or remove members, promote or demote members, edit group info, join or leave groups, and approve join requests."},
 		{Name: "Channels", Description: "WhatsApp channels (newsletters). All channel operations return 501 not_implemented in v1."},
-		{Name: "Status & Presence", Description: "Post status updates and set the session's presence (send). Image status is 501 in v1."},
-		{Name: "Webhooks", Description: "Configure webhook endpoints that receive the event envelope over HTTP, with HMAC signing and retries (manage capability)."},
-		{Name: "Admin", Description: "Cross-organization oversight for platform super-admins: list all sessions and trigger/inspect history backfills."},
+		{Name: "Status & Presence", Description: "Post text status updates and set whether the WhatsApp session is available, unavailable, typing, recording, or paused. Image status returns 501 in v1."},
+		{Name: "Webhooks", Description: "Create webhook endpoints that receive events over HTTP. Optional HMAC signing lets receivers verify the request body."},
+		{Name: "Admin", Description: "Platform super-admin endpoints for listing all sessions and starting or checking history backfills."},
 	}
 }
 
@@ -187,12 +187,10 @@ func registerEventWebhooks(api huma.API) {
 		Post: &huma.Operation{
 			OperationID: "event",
 			Summary:     "Gateway event",
-			Description: "The gateway POSTs this body to each configured webhook url when a matching " +
-				"event fires, and delivers the identical envelope over the realtime WebSocket as a " +
-				"discrete JSON message. The `event` field discriminates which payload shape applies. " +
-				"Webhook deliveries carry the event id in the `X-Webhook-Request-Id` header (and an " +
-				"HMAC signature in `X-Webhook-Signature` when a secret is configured) so receivers can " +
-				"verify and de-duplicate.",
+			Description: "The gateway sends this JSON body to each matching webhook and sends the same " +
+				"shape over the realtime WebSocket. Use the `event` field to choose the right payload " +
+				"schema. Webhooks include the event id in `X-Webhook-Request-Id`. If a secret is set, " +
+				"they also include `X-Webhook-Signature` so the receiver can verify the body.",
 			RequestBody: &huma.RequestBody{
 				Required:    true,
 				Description: "The event envelope. Exactly one of the listed event shapes, selected by `event`.",

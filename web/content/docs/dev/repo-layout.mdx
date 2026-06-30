@@ -7,7 +7,7 @@ This is one repo holding two codebases: the Go backend at the root (which runs a
 
 ```
 .
-├── cmd/router/main.go     router entrypoint — the public front door + trust boundary
+├── cmd/router/main.go     router entrypoint — the public API service
 ├── cmd/server/main.go     gateway entrypoint (also: server migrate up|down)
 ├── internal/              backend packages (Go), shared by the router and gateway
 ├── migrations/            golang-migrate — WA app-data schema only
@@ -19,15 +19,15 @@ This is one repo holding two codebases: the Go backend at the root (which runs a
 
 ## Backend packages (`internal/`)
 
-These are shared by both Go processes. Some run only on the router (the front
-door), some only on the gateway (the engine); the "Runs on" column says which.
+These are shared by both Go processes. Some run only on the router, some only on
+the gateway; the "Runs on" column says which.
 
 | Package | Runs on | What it does |
 |---|---|---|
 | `config/` | both | Reads configuration from environment variables and applies defaults. |
 | `domain/` | both | Core entities, enums, IDs, and errors. No I/O. |
-| `router/` | router | The front door: the REST broker (resolve the session's owning gateway, enforce org isolation, reverse-proxy), session placement, the realtime WebSocket + ticket mint, and the gateway registry. |
-| `authz/` | router | Verifies who is calling — better-auth JWTs against the JWKS, and better-auth api-keys — and resolves the caller's capabilities. The router runs this at the front door; it then proxies on. (A JWT is a signed token proving identity; JWKS is the public-key set used to verify its signature.) |
+| `router/` | router | Public API routing: finds the session's gateway, enforces org isolation, forwards requests, places new sessions, serves realtime WebSockets, and reads the gateway registry. |
+| `authz/` | router | Verifies who is calling — better-auth JWTs against the JWKS, and better-auth api-keys — and resolves the caller's permissions. A JWT is a signed token proving identity; JWKS is the public-key set used to verify its signature. |
 | `assertion/` | both | The router→gateway internal assertion. The router-side `Minter` signs a per-request Ed25519 token; the gateway-side `Verifier` checks its signature, binding (method/path/body), and one-time nonce before trusting it. |
 | `controlbus/` | router | Subscribes to the Redis `ctrl:*` channels. On a revocation message, evicts the api-key from the router's cache. |
 | `http/` | gateway | The chi router, middleware (including the assertion verifier), and REST handlers (huma operations). No embedded frontend. |

@@ -5,7 +5,7 @@ description: Run MySQL and Redis in Docker, run the router, gateway, and fronten
 
 The setup that gives the fastest edit loop is: run MySQL and Redis in Docker, and
 run the three app processes directly on your machine — the **router** (the public
-front door), the **gateway** (the WhatsApp engine), and the **frontend**. The
+API), the **gateway** (the WhatsApp engine), and the **frontend**. The
 gateway reloads on file change with [`air`](https://github.com/air-verse/air);
 the frontend runs the Vite dev server, which hot-reloads in the browser; the
 router is small and stateless, so you restart it by hand when you change it.
@@ -45,7 +45,7 @@ Three values have no usable default and must be filled in before the apps start:
 | `BETTER_AUTH_SECRET` | `web/.env` | The better-auth signing secret (32+ chars). Generate with `openssl rand -base64 32`. |
 
 `deploy/.env` is one file read by **both** Go processes: the router reads the
-`ROUTER_*` keys plus the better-auth trust-seam inputs; the gateway reads the rest.
+`ROUTER_*` keys plus the better-auth verification settings; the gateway reads the rest.
 
 There are two separate migration tools, one per set of tables — don't mix them up:
 
@@ -62,11 +62,11 @@ own terminal:
 ```sh
 make infra-up    # MySQL + Redis (skip if already running)
 make dev         # terminal 1: gateway under air; reloads on change
-make router      # terminal 2: the router (front door); restart after router edits
+make router      # terminal 2: the router; restart after router edits
 make web         # terminal 3: frontend dev server (pnpm dev) on :3000
 ```
 
-The router listens on `:8090` (the public front door) and the gateway on `:8080`
+The router listens on `:8090` (public API) and the gateway on `:8080`
 (internal). Open `http://localhost:3000` for the frontend. The browser calls the
 **router** at `:8090`, never the gateway directly; the router's CORS config
 already allows `http://localhost:3000` (via `FRONTEND_ORIGINS`), so the three work
@@ -129,7 +129,7 @@ gateway's.
 
 | Variable | Default | Read by | What it does |
 |---|---|---|---|
-| `ROUTER_HTTP_ADDR` | `:8090` | router | Address the router (the public front door) listens on. |
+| `ROUTER_HTTP_ADDR` | `:8090` | router | Address the router listens on. |
 | `ROUTER_PUBLIC_URL` | `http://localhost:8090` | router | The router's external base URL — what browsers and clients use. |
 | `ROUTER_ISSUER` | `router` | router | The `iss` the router stamps on its internal assertions. Must match the gateway's `ROUTER_ASSERTION_ISSUER`. |
 | `ROUTER_ED25519_PRIVATE_KEY` | — | router | Ed25519 key for signing internal assertions. Required. `openssl rand 32 | base64`. |
@@ -179,5 +179,5 @@ at the end.
 BETTER_AUTH_URL=http://localhost:3000 GATEWAY_URL=http://localhost:8090 scripts/smoke.sh
 ```
 
-`GATEWAY_URL` here is the **router's** URL (`:8090`) — the public front door —
+`GATEWAY_URL` here is the **router's** URL (`:8090`) —
 since the gateway no longer authenticates callers directly.

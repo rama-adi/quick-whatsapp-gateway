@@ -1,6 +1,6 @@
 ---
 title: Deploying
-description: Choose a self-host single-box install or a modular scaler/SaaS topology. Covers Docker Compose, migrations, registration lockdown, backups, and the environment variables that must line up.
+description: Choose a one-server self-host install or a split production install. Covers Docker Compose, migrations, sign-up lockdown, backups, and the environment variables that must match.
 ---
 
 There are two supported deployment stories:
@@ -8,7 +8,7 @@ There are two supported deployment stories:
 | Mode | Use it when | Deploy shape |
 |---|---|---|
 | **Self-host single box** | You want one private WhatsApp gateway for yourself, a team, or a small internal app. | One server runs one app container (router + gateway + frontend), MySQL, Redis, and the gateway keystore volume. |
-| **Scaler / SaaS** | You are operating this as a product or a larger platform. | The frontend, router/API front door, database, Redis, and one or more gateways are independently hosted and scaled. |
+| **Split production** | You are operating this as a product or a larger platform. | The frontend, router API server, database, Redis, and one or more gateways are hosted and scaled separately. |
 
 Both modes use the same runtime pieces. The difference is packaging and who owns
 the operational work. The self-host path stitches the router, gateway, and
@@ -27,14 +27,14 @@ keeps its WhatsApp keystore in a SQLite file on a volume.
 | Piece | Image | Port | Owns |
 |---|---|---|---|
 | Self-host app | `deploy/Dockerfile.selfhost` (Node 22 + two Go binaries) | `3000`, `8090` | Runs the router, gateway, and frontend in one container. Gateway port `8080` is localhost-only inside the container. |
-| Router | `deploy/Dockerfile.router` (Go, no CGO) | `8090` | Scaler/SaaS image for the public front door + trust boundary: authenticates callers, routes to the owning gateway, serves the realtime WebSocket and the OpenAPI contract |
-| Gateway | `deploy/Dockerfile` (Go, no CGO) | `8080` (internal) | Scaler/SaaS image for WhatsApp sessions; writes the WA tables; the SQLite keystore |
-| Frontend | `deploy/Dockerfile.web` (Node 22, TanStack Start) | `3000` | Scaler/SaaS image for better-auth; writes the auth tables; reads the WA tables for display |
+| Router | `deploy/Dockerfile.router` (Go, no CGO) | `8090` | Public API service: authenticates callers, routes to the owning gateway, serves the realtime WebSocket and the OpenAPI contract |
+| Gateway | `deploy/Dockerfile` (Go, no CGO) | `8080` (internal) | WhatsApp sessions; writes the WA tables; stores the SQLite keystore |
+| Frontend | `deploy/Dockerfile.web` (Node 22, TanStack Start) | `3000` | better-auth and dashboard; writes auth tables; reads WA tables for display |
 | MySQL | `mysql:8.4` | `3306` | both table sets in one database |
 | Redis | `redis:7-alpine` | `6379` | the work bus and the control bus |
 
-The **router** is the only API service clients reach. Publish its port; keep the
-gateway internal.
+The **router** is the only API service clients reach. Publish the router; keep
+the gateway internal.
 
 ## Self-host single box
 
@@ -82,14 +82,14 @@ only when open sign-up is part of your operating model.
 After the first trusted user signs up, put their better-auth user id in
 `ADMIN_USER_IDS` and restart the frontend to grant platform super-admin rights.
 
-## Scaler / SaaS topology
+## Split production topology
 
-Use the modular topology when the install is a platform rather than one private
-gateway. In this mode:
+Use the split topology when this is a platform rather than one private gateway.
+In this mode:
 
 - The **frontend** can run separately, including serverless hosting, as long as
   it can reach MySQL and publish control-bus messages to Redis.
-- The **router** is the single public API front door. It verifies better-auth
+- The **router** is the public API service. It verifies better-auth
   JWTs and api-keys from shared MySQL, resolves session ownership, and proxies
   to gateways with request-bound Ed25519 assertions.
 - **Gateways** run close to their WhatsApp connections. Each gateway has a stable
@@ -106,11 +106,9 @@ containers over your own MySQL and Redis:
 docker compose -f deploy/docker-compose.external.yml up -d
 ```
 
-For a SaaS product, the missing pieces are deliberately product-specific:
-gateway capacity automation, tenant onboarding, billing and quota policy,
-gateway lifecycle operations beyond the built-in register/heartbeat/drain
-states, and ACL finer than the current organization roles plus api-key
-permissions (`read`, `send`, `manage`, `events`).
+For a SaaS product, this repo does not decide your capacity automation, tenant
+onboarding, billing, quotas, extra gateway operations, or access rules beyond
+organization roles and api-key permissions (`read`, `send`, `manage`, `events`).
 
 ## Migrations
 
@@ -193,7 +191,7 @@ the router's; the rest is the gateway's.
 
 | Variable | Default | What it does |
 |---|---|---|
-| `ROUTER_HTTP_ADDR` | `:8090` | Address the router (the public front door) listens on. |
+| `ROUTER_HTTP_ADDR` | `:8090` | Address the router listens on. |
 | `ROUTER_PUBLIC_URL` | — | The router's external base URL — what clients use; the realtime WebSocket URL is derived from it. |
 | `ROUTER_ISSUER` | `router` | The `iss` the router stamps on its internal assertions. Must match the gateway's `ROUTER_ASSERTION_ISSUER`. |
 | `ROUTER_ED25519_PRIVATE_KEY` | — | Ed25519 key for signing internal assertions (`openssl rand 32 | base64`). Required. |

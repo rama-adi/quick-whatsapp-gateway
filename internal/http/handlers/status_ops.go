@@ -15,10 +15,10 @@ import (
 // type "text" is supported in v1; any other type returns not_implemented (501),
 // matching the chi handler.
 type postStatusInput struct {
-	Session string `path:"session" doc:"The WhatsApp session id — one attached WhatsApp number. The status is posted from this account's \"My Status\" story. Must be a session owned by the caller's organization; an unknown or cross-org id yields not_found (404)." example:"sess_01HZX9K3J7"`
+	Session string `path:"session" doc:"Session ID that owns this status. Must belong to your organization." example:"sess_01HZX9K3J7"`
 	Body    struct {
-		Type string `json:"type,omitempty" doc:"The kind of status to post. Optional on the wire (an empty value is treated as \"text\"), but the service still validates it.\n\n- **text** — a text-only \"My Status\" story. The only kind supported in v1.\n- **image** — an image status. Returns not_implemented (501) in v1; reserved for a later release.\n\nAny value other than these two also returns not_implemented (501)." enum:"text,image" example:"text"`
-		Text string `json:"text,omitempty" doc:"The status text. Required (non-empty) when type is \"text\" or omitted; an empty or whitespace-only value yields validation_error (400). Ignored for non-text types." example:"Out of office until Monday."`
+		Type string `json:"type,omitempty" doc:"Status type. Supported in v1: text (default if omitted). image or unknown values return not_implemented (501)." enum:"text,image" example:"text"`
+		Text string `json:"text,omitempty" doc:"Status text. Required for text status. Empty values return validation_error (400)." example:"Out of office until Monday."`
 	}
 }
 
@@ -31,9 +31,9 @@ type postStatusOutput struct {
 // setPresenceInput is PUT /sessions/{session}/presence. The state field is
 // optional on the wire so the service validates it (domain.ErrValidation → 400).
 type setPresenceInput struct {
-	Session string `path:"session" doc:"The WhatsApp session id — one attached WhatsApp number whose account-wide availability is being set. Must be a session owned by the caller's organization; an unknown or cross-org id yields not_found (404)." example:"sess_01HZX9K3J7"`
+	Session string `path:"session" doc:"Session ID for which to set account presence. Must belong to your organization." example:"sess_01HZX9K3J7"`
 	Body    struct {
-		State string `json:"state,omitempty" doc:"The account-wide presence to set, controlling whether the account appears available to its contacts. Optional on the wire, but the service validates it: any value other than the two below yields validation_error (400).\n\n- **online** — the account is shown as available/active.\n- **offline** — the account is shown as unavailable.\n\nThis is account-wide. To send a per-chat \"typing…\" or \"recording…\" indicator into a single conversation, use the chat presence endpoint instead." enum:"online,offline" example:"online"`
+		State string `json:"state,omitempty" doc:"Presence mode: online or offline. Any other value returns validation_error (400). This is account-wide; use chat presence endpoint for typing/recording indicators." enum:"online,offline" example:"online"`
 	}
 }
 
@@ -46,19 +46,12 @@ func RegisterStatusOps(api huma.API, h *Handlers) {
 
 	huma.Register(api, huma.Operation{
 		OperationID: "postStatus", Method: "POST", Path: "/api/v1/sessions/{session}/status",
-		Summary: "Post a status update (text; media returns 501)",
-		Description: "Post a status update — the \"My Status\" story — from this session's WhatsApp account.\n\n" +
-			"**When to use.** Publish a short text update visible to the account's contacts (subject to WhatsApp's own status-privacy settings).\n\n" +
-			"**Capability.** Requires the `send` capability on the caller's identity.\n\n" +
-			"**Preconditions.** The `{session}` must belong to the caller's organization and be paired/connected; an unknown or cross-org session yields `not_found` (404).\n\n" +
-			"**Supported types.** Only `type: text` works in v1. The `type` field may be omitted, in which case it defaults to `text`.\n\n" +
-			"**Side effects.** On success the status story is published on WhatsApp and a message id is returned. There is no built-in idempotency key for this endpoint — re-posting the same text publishes a new status each time, so callers that retry must dedupe themselves.\n\n" +
-			"**Result.** Returns `200` with the published WhatsApp message id (`messageId`).\n\n" +
-			"**Errors.**\n" +
-			"- `validation_error` (400) — empty/whitespace `text` for a text status.\n" +
-			"- `not_found` (404) — the session does not exist or is not owned by the caller's organization.\n" +
-			"- `forbidden` (403) — the caller lacks the `send` capability.\n" +
-			"- `not_implemented` (501) — `type: image` or any non-text type; media statuses are not implemented in v1 (consistent with media send).",
+		Summary: "Post a status update",
+		Description: "Publish a text status story from this session.\n\n" +
+			"Only `type: text` is implemented. Omit `type` to default to text; other values return `not_implemented` (501).\n\n" +
+			"Requires `send` capability. Session must belong to your organization.\n\n" +
+			"Returns `messageId` on success.\n\n" +
+			"Errors: `validation_error` (400), `not_found` (404), `forbidden` (403), `not_implemented` (501).",
 		Tags: []string{"Status"}, Middlewares: send,
 	}, func(ctx context.Context, in *postStatusInput) (*postStatusOutput, error) {
 		org, err := humax.Org(ctx)
@@ -82,18 +75,12 @@ func RegisterStatusOps(api huma.API, h *Handlers) {
 
 	huma.Register(api, huma.Operation{
 		OperationID: "setPresence", Method: "PUT", Path: "/api/v1/sessions/{session}/presence",
-		Summary: "Set account presence (online / offline)",
-		Description: "Set the session account's **global** presence to `online` or `offline` — whether the account's contacts see it as available.\n\n" +
-			"**When to use.** Mark the account available (`online`) or away (`offline`) account-wide. This is *not* per-chat: to send a \"typing…\" or \"recording…\" indicator into one conversation, use the chat presence endpoint (`PUT /sessions/{session}/chats/{cid}/presence`) instead.\n\n" +
-			"**Capability.** Requires the `send` capability on the caller's identity.\n\n" +
-			"**Preconditions.** The `{session}` must belong to the caller's organization and be paired/connected; an unknown or cross-org session yields `not_found` (404).\n\n" +
-			"**Idempotency.** Setting the presence to a value it already holds is a no-op as far as observers are concerned; the call is safe to repeat.\n\n" +
-			"**Result.** Returns `204 No Content` on success (empty body).\n\n" +
-			"**Errors.**\n" +
-			"- `validation_error` (400) — `state` is missing or not one of `online` / `offline`.\n" +
-			"- `not_found` (404) — the session does not exist or is not owned by the caller's organization.\n" +
-			"- `forbidden` (403) — the caller lacks the `send` capability.\n" +
-			"- `not_implemented` (501) — a presence mode not supported by the engine.",
+		Summary: "Set account presence",
+		Description: "Set account-wide presence for this session (`online` or `offline`).\n\n" +
+			"Use chat presence endpoint for per-conversation typing/recording indicators.\n\n" +
+			"Requires `send` capability. Session must belong to your organization.\n\n" +
+			"Returns `204 No Content` on success.\n\n" +
+			"Errors: `validation_error` (400), `not_found` (404), `forbidden` (403), `not_implemented` (501).",
 		Tags:          []string{"Presence"},
 		DefaultStatus: 204, Middlewares: send,
 	}, func(ctx context.Context, in *setPresenceInput) (*emptyOutput, error) {

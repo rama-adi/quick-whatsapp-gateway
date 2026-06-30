@@ -1,6 +1,6 @@
 {
   "title": "Contacts",
-  "description": "Look up and manage contacts: list/check/get contacts, profile picture and about (read); block/unblock (send).",
+  "description": "List and check contacts, read profile info, fetch profile pictures and about text, and block or unblock contacts.",
   "pages": [
     "listContacts",
     "checkContact",

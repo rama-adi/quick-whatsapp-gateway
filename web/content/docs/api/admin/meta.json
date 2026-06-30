@@ -1,6 +1,6 @@
 {
   "title": "Admin",
-  "description": "Cross-organization oversight for platform super-admins: list all sessions and trigger/inspect history backfills.",
+  "description": "Platform super-admin endpoints for listing all sessions and starting or checking history backfills.",
   "pages": [
     "adminListSessions",
     "adminSessionBackfillStatus",
