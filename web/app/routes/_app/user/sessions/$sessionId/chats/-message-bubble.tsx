@@ -16,6 +16,9 @@ import {
   Contact as ContactIcon,
   FileWarning,
   CornerUpLeft,
+  ExternalLink,
+  Phone,
+  Reply,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import type { Message, MessageStatus } from "~/lib/api/types";
@@ -88,6 +91,102 @@ function renderWithMentions(
   return parts;
 }
 
+function renderMarkdownText(
+  text: string,
+  mentionNames?: Record<string, string>,
+): ReactNode {
+  const lines = text.split("\n");
+  return lines.map((line, lineIndex) => {
+    const rendered = renderInlineMarkdown(line, mentionNames);
+    const isQuote = line.startsWith("> ");
+    const isList = /^[-*]\s+/.test(line);
+    const isNumbered = /^\d+\.\s+/.test(line);
+    const content = isQuote
+      ? line.slice(2)
+      : isList
+        ? line.replace(/^[-*]\s+/, "")
+        : isNumbered
+          ? line.replace(/^\d+\.\s+/, "")
+          : null;
+
+    if (isQuote) {
+      return (
+        <blockquote
+          key={lineIndex}
+          className="my-1 border-l-2 border-current/35 pl-2 opacity-80"
+        >
+          {renderInlineMarkdown(content ?? "", mentionNames)}
+        </blockquote>
+      );
+    }
+    if (isList || isNumbered) {
+      return (
+        <div key={lineIndex} className="flex gap-2">
+          <span className="mt-0.5 text-xs opacity-60">
+            {isList ? "•" : line.match(/^\d+/)?.[0] ?? "1"}.
+          </span>
+          <span>{renderInlineMarkdown(content ?? "", mentionNames)}</span>
+        </div>
+      );
+    }
+    return (
+      <span key={lineIndex}>
+        {rendered}
+        {lineIndex < lines.length - 1 ? <br /> : null}
+      </span>
+    );
+  });
+}
+
+function renderInlineMarkdown(
+  text: string,
+  mentionNames?: Record<string, string>,
+): ReactNode {
+  const nodes: ReactNode[] = [];
+  const token = /(\*\*[^*]+\*\*|__[^_]+__|\*[^*]+\*|_[^_]+_|`[^`]+`|\[[^\]]+\]\(https?:\/\/[^)]+\))/g;
+  let last = 0;
+  let match: RegExpExecArray | null;
+  let key = 0;
+  while ((match = token.exec(text)) !== null) {
+    if (match.index > last) {
+      nodes.push(renderWithMentions(text.slice(last, match.index), mentionNames));
+    }
+    const raw = match[0];
+    if (raw.startsWith("**") || raw.startsWith("__")) {
+      nodes.push(<strong key={key++}>{raw.slice(2, -2)}</strong>);
+    } else if (raw.startsWith("*") || raw.startsWith("_")) {
+      nodes.push(<em key={key++}>{raw.slice(1, -1)}</em>);
+    } else if (raw.startsWith("`")) {
+      nodes.push(
+        <code key={key++} className="rounded bg-current/10 px-1 py-0.5 text-[0.92em]">
+          {raw.slice(1, -1)}
+        </code>,
+      );
+    } else {
+      const link = /^\[([^\]]+)\]\((https?:\/\/[^)]+)\)$/.exec(raw);
+      if (link) {
+        nodes.push(
+          <a
+            key={key++}
+            href={link[2]}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 underline underline-offset-2"
+          >
+            {link[1]}
+            <ExternalLink className="size-3" aria-hidden />
+          </a>,
+        );
+      }
+    }
+    last = match.index + raw.length;
+  }
+  if (last < text.length) {
+    nodes.push(renderWithMentions(text.slice(last), mentionNames));
+  }
+  return nodes.length > 0 ? nodes : renderWithMentions(text, mentionNames);
+}
+
 const STATUS_LABEL: Record<MessageStatus, string> = {
   pending: "Pending",
   sent: "Sent",
@@ -100,10 +199,12 @@ const STATUS_LABEL: Record<MessageStatus, string> = {
 export function MessageBubble({
   message,
   showSender = true,
+  onReply,
 }: {
   message: Message;
   /** First message of a same-sender run shows the header; later ones don't. */
   showSender?: boolean;
+  onReply?: (message: Message) => void;
 }) {
   const parsed = parseMessage(message);
 
@@ -157,6 +258,16 @@ export function MessageBubble({
         </Bubble>
 
         <MessageFooter className="gap-1">
+          {onReply ? (
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded-sm px-1 outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
+              onClick={() => onReply(message)}
+            >
+              <Reply className="size-3" aria-hidden />
+              Reply
+            </button>
+          ) : null}
           {extras.edited ? <span className="italic">edited</span> : null}
           <Tooltip>
             <TooltipTrigger asChild>
@@ -233,7 +344,7 @@ function MessageBody({
     case "text":
       return parsed.text ? (
         <p className="whitespace-pre-wrap break-words">
-          {renderWithMentions(parsed.text, mentionNames)}
+          {renderMarkdownText(parsed.text, mentionNames)}
         </p>
       ) : (
         <p className="italic opacity-60">(empty message)</p>
@@ -262,7 +373,9 @@ function MessageBody({
             </AttachmentContent>
           </Attachment>
           {parsed.caption ? (
-            <p className="whitespace-pre-wrap break-words">{parsed.caption}</p>
+            <p className="whitespace-pre-wrap break-words">
+              {renderMarkdownText(parsed.caption, mentionNames)}
+            </p>
           ) : null}
         </div>
       );
@@ -275,18 +388,25 @@ function MessageBody({
             <span>{parsed.name || "Poll"}</span>
           </div>
           {parsed.options.length > 0 ? (
-            <ul className="space-y-1 pt-1">
+            <ul className="space-y-1.5 pt-1">
               {parsed.options.map((opt, i) => (
                 <li
                   key={`${i}-${opt}`}
                   className={cn(
-                    "rounded-md border px-2 py-1 text-xs",
+                    "relative overflow-hidden rounded-md border px-2 py-1.5 text-xs",
                     outgoing
                       ? "border-primary-foreground/30"
                       : "border-border",
                   )}
                 >
-                  {opt}
+                  <span
+                    className={cn(
+                      "absolute inset-y-0 left-0 w-1/3",
+                      outgoing ? "bg-primary-foreground/10" : "bg-primary/10",
+                    )}
+                    aria-hidden
+                  />
+                  <span className="relative">{opt}</span>
                 </li>
               ))}
             </ul>
@@ -305,14 +425,20 @@ function MessageBody({
           </div>
           {typeof parsed.latitude === "number" &&
           typeof parsed.longitude === "number" ? (
-            <a
-              href={`https://www.openstreetmap.org/?mlat=${parsed.latitude}&mlon=${parsed.longitude}#map=16/${parsed.latitude}/${parsed.longitude}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs underline opacity-80 hover:opacity-100"
-            >
-              {parsed.latitude.toFixed(5)}, {parsed.longitude.toFixed(5)}
-            </a>
+            <div className="overflow-hidden rounded-md border border-current/20">
+              <div className="h-16 bg-[linear-gradient(135deg,currentColor_0_1px,transparent_1px_12px),linear-gradient(45deg,currentColor_0_1px,transparent_1px_12px)] opacity-15" />
+              <a
+                href={`https://www.openstreetmap.org/?mlat=${parsed.latitude}&mlon=${parsed.longitude}#map=16/${parsed.latitude}/${parsed.longitude}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-between gap-2 px-2 py-1.5 text-xs underline-offset-2 hover:underline"
+              >
+                <span>
+                  {parsed.latitude.toFixed(5)}, {parsed.longitude.toFixed(5)}
+                </span>
+                <ExternalLink className="size-3" aria-hidden />
+              </a>
+            </div>
           ) : (
             <p className="text-xs opacity-70">Coordinates unavailable.</p>
           )}
@@ -321,12 +447,17 @@ function MessageBody({
 
     case "contact":
       return (
-        <div className="flex items-center gap-2">
-          <ContactIcon className="size-4 shrink-0 opacity-80" aria-hidden />
-          <div className="space-y-0.5">
+        <div className="flex min-w-56 items-center gap-2 rounded-md border border-current/20 p-2">
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-current/10">
+            <ContactIcon className="size-4 opacity-80" aria-hidden />
+          </span>
+          <div className="min-w-0 flex-1 space-y-0.5">
             <p className="font-medium">{parsed.name || "Shared contact"}</p>
             {parsed.phone ? (
-              <p className="text-xs opacity-70">{parsed.phone}</p>
+              <p className="inline-flex items-center gap-1 text-xs opacity-70">
+                <Phone className="size-3" aria-hidden />
+                {parsed.phone}
+              </p>
             ) : null}
           </div>
         </div>

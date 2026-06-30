@@ -20,7 +20,15 @@ import {
 } from "@tanstack/react-router";
 import type { InfiniteData } from "@tanstack/react-query";
 import { useQueryClient } from "@tanstack/react-query";
-import { MessageCirclePlus } from "lucide-react";
+import {
+  Archive,
+  Bell,
+  Megaphone,
+  MessageCirclePlus,
+  Pin,
+  Search,
+  Users,
+} from "lucide-react";
 import { useChats } from "~/lib/api/hooks/chats";
 import { useContacts } from "~/lib/api/hooks/contacts";
 import { qk } from "~/lib/query";
@@ -42,6 +50,7 @@ import {
 import { Input } from "~/components/ui/input";
 import { Skeleton } from "~/components/ui/skeleton";
 import { ScrollArea } from "~/components/ui/scroll-area";
+import { Tabs, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { cn } from "~/lib/utils";
 import { ChatAvatar, formatTimestamp } from "./-viewer-ui";
 import { fetchChatsPage } from "./-viewer-data";
@@ -106,10 +115,31 @@ function ViewerChats() {
     );
   }, [chats.data]);
 
+  const [filter, setFilter] = useState<"all" | "unread" | "groups" | "channels">(
+    "all",
+  );
+  const [query, setQuery] = useState("");
+  const filteredRows = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return rows.filter((chat) => {
+      if (filter === "unread" && (chat.unreadCount ?? 0) <= 0) return false;
+      if (filter === "groups" && chat.type !== "group") return false;
+      if (
+        filter === "channels" &&
+        chat.type !== "newsletter" &&
+        chat.type !== "broadcast"
+      ) {
+        return false;
+      }
+      if (!q) return true;
+      return `${chat.name ?? ""} ${chat.jid ?? ""}`.toLowerCase().includes(q);
+    });
+  }, [filter, query, rows]);
+
   const degraded = status === "polling" || status === "reconnecting";
 
   return (
-    <div className="grid h-full min-h-0 gap-4 overflow-y-auto p-4 md:grid-cols-[320px_1fr] md:grid-rows-[minmax(0,1fr)] md:overflow-hidden">
+    <div className="grid h-full min-h-0 gap-4 overflow-y-auto p-4 md:grid-cols-[360px_1fr] md:grid-rows-[minmax(0,1fr)] md:overflow-hidden">
       <section
         aria-label="Chats"
         className="flex max-h-[45svh] min-h-0 flex-col overflow-hidden rounded-lg border bg-card md:max-h-none"
@@ -139,11 +169,43 @@ function ViewerChats() {
           </div>
         </header>
 
+        <div className="space-y-2 border-b p-2">
+          <div className="relative">
+            <Search
+              className="pointer-events-none absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              className="h-9 pl-8"
+              placeholder="Search chats"
+              aria-label="Search chats"
+            />
+          </div>
+          <Tabs value={filter} onValueChange={(v) => setFilter(v as typeof filter)}>
+            <TabsList className="grid h-auto w-full grid-cols-4">
+              <TabsTrigger value="all" className="h-8 text-xs">
+                All
+              </TabsTrigger>
+              <TabsTrigger value="unread" className="h-8 text-xs">
+                Unread
+              </TabsTrigger>
+              <TabsTrigger value="groups" className="h-8 text-xs">
+                Groups
+              </TabsTrigger>
+              <TabsTrigger value="channels" className="h-8 text-xs">
+                Channels
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
+
         <ScrollArea className="min-h-0 flex-1">
           <ChatListBody
             sessionId={sessionId}
             chatId={chatId}
-            rows={rows}
+            rows={filteredRows}
             isLoading={chats.isLoading}
             isError={chats.isError}
             error={chats.error}
@@ -211,7 +273,11 @@ function ChatListBody({
   }
 
   if (rows.length === 0) {
-    return <p className="p-4 text-sm text-muted-foreground">No chats yet.</p>;
+    return (
+      <p className="p-4 text-sm text-muted-foreground">
+        No chats match this view.
+      </p>
+    );
   }
 
   return (
@@ -242,15 +308,8 @@ function ChatListBody({
                   <span className="truncate text-sm font-medium">
                     {chat.name || chat.jid || "Unknown"}
                   </span>
-                  {chat.pinned ? (
-                    <span
-                      className="text-xs text-muted-foreground"
-                      title="Pinned"
-                      aria-label="Pinned"
-                    >
-                      ◆
-                    </span>
-                  ) : null}
+                  <ChatTypeIcon chat={chat} />
+                  {chat.pinned ? <Pin className="size-3 text-muted-foreground" /> : null}
                 </div>
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <span className="truncate">{chatTypeLabel(chat.type)}</span>
@@ -261,6 +320,18 @@ function ChatListBody({
                   ) : null}
                 </div>
               </div>
+              {chat.archived ? (
+                <Archive
+                  className="size-3.5 shrink-0 text-muted-foreground"
+                  aria-label="Archived"
+                />
+              ) : null}
+              {chat.mutedUntil ? (
+                <Bell
+                  className="size-3.5 shrink-0 text-muted-foreground"
+                  aria-label="Muted"
+                />
+              ) : null}
               {chat.unreadCount && chat.unreadCount > 0 ? (
                 <Badge
                   variant="default"
@@ -276,6 +347,29 @@ function ChatListBody({
       })}
     </ul>
   );
+}
+
+function ChatTypeIcon({ chat }: { chat: Chat }) {
+  if (chat.type === "group") {
+    return <Users className="size-3.5 shrink-0 text-muted-foreground" aria-label="Group" />;
+  }
+  if (chat.type === "newsletter") {
+    return (
+      <Megaphone
+        className="size-3.5 shrink-0 text-muted-foreground"
+        aria-label="Announcement channel"
+      />
+    );
+  }
+  if (chat.type === "broadcast") {
+    return (
+      <Megaphone
+        className="size-3.5 shrink-0 text-muted-foreground"
+        aria-label="Broadcast list"
+      />
+    );
+  }
+  return null;
 }
 
 function NewChatDialog({ sessionId }: { sessionId: string }) {
@@ -442,7 +536,7 @@ function chatTypeLabel(type: Chat["type"]): string {
     case "group":
       return "Group";
     case "newsletter":
-      return "Newsletter";
+      return "Announcement channel";
     case "broadcast":
       return "Broadcast";
     case "status":

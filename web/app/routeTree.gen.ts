@@ -34,6 +34,7 @@ import { Route as AppUserSessionsSessionIdRouteImport } from './routes/_app/user
 import { Route as AppUserSessionsSessionIdIndexRouteImport } from './routes/_app/user/sessions.$sessionId.index'
 import { Route as AppUserSessionsSessionIdContactsRouteImport } from './routes/_app/user.sessions.$sessionId.contacts'
 import { Route as AppUserSessionsSessionIdChatsRouteRouteImport } from './routes/_app/user/sessions/$sessionId/chats/route'
+import { Route as AppUserSessionsSessionIdChatsIndexRouteImport } from './routes/_app/user/sessions/$sessionId/chats/index'
 import { Route as AppUserSessionsSessionIdContactsLidRouteImport } from './routes/_app/user.sessions.$sessionId.contacts.$lid'
 import { Route as AppUserSessionsSessionIdChatsChatIdRouteImport } from './routes/_app/user/sessions/$sessionId/chats/$chatId'
 
@@ -164,6 +165,12 @@ const AppUserSessionsSessionIdChatsRouteRoute =
     path: '/chats',
     getParentRoute: () => AppUserSessionsSessionIdRoute,
   } as any)
+const AppUserSessionsSessionIdChatsIndexRoute =
+  AppUserSessionsSessionIdChatsIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AppUserSessionsSessionIdChatsRouteRoute,
+  } as any)
 const AppUserSessionsSessionIdContactsLidRoute =
   AppUserSessionsSessionIdContactsLidRouteImport.update({
     id: '/$lid',
@@ -203,6 +210,7 @@ export interface FileRoutesByFullPath {
   '/user/sessions/$sessionId/': typeof AppUserSessionsSessionIdIndexRoute
   '/user/sessions/$sessionId/chats/$chatId': typeof AppUserSessionsSessionIdChatsChatIdRoute
   '/user/sessions/$sessionId/contacts/$lid': typeof AppUserSessionsSessionIdContactsLidRoute
+  '/user/sessions/$sessionId/chats/': typeof AppUserSessionsSessionIdChatsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -222,11 +230,11 @@ export interface FileRoutesByTo {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/admin': typeof AppAdminIndexRoute
   '/user/sessions': typeof AppUserSessionsIndexRoute
-  '/user/sessions/$sessionId/chats': typeof AppUserSessionsSessionIdChatsRouteRouteWithChildren
   '/user/sessions/$sessionId/contacts': typeof AppUserSessionsSessionIdContactsRouteWithChildren
   '/user/sessions/$sessionId': typeof AppUserSessionsSessionIdIndexRoute
   '/user/sessions/$sessionId/chats/$chatId': typeof AppUserSessionsSessionIdChatsChatIdRoute
   '/user/sessions/$sessionId/contacts/$lid': typeof AppUserSessionsSessionIdContactsLidRoute
+  '/user/sessions/$sessionId/chats': typeof AppUserSessionsSessionIdChatsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -257,6 +265,7 @@ export interface FileRoutesById {
   '/_app/user/sessions/$sessionId/': typeof AppUserSessionsSessionIdIndexRoute
   '/_app/user/sessions/$sessionId/chats/$chatId': typeof AppUserSessionsSessionIdChatsChatIdRoute
   '/_app/user/sessions/$sessionId/contacts/$lid': typeof AppUserSessionsSessionIdContactsLidRoute
+  '/_app/user/sessions/$sessionId/chats/': typeof AppUserSessionsSessionIdChatsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -286,6 +295,7 @@ export interface FileRouteTypes {
     | '/user/sessions/$sessionId/'
     | '/user/sessions/$sessionId/chats/$chatId'
     | '/user/sessions/$sessionId/contacts/$lid'
+    | '/user/sessions/$sessionId/chats/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -305,11 +315,11 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/admin'
     | '/user/sessions'
-    | '/user/sessions/$sessionId/chats'
     | '/user/sessions/$sessionId/contacts'
     | '/user/sessions/$sessionId'
     | '/user/sessions/$sessionId/chats/$chatId'
     | '/user/sessions/$sessionId/contacts/$lid'
+    | '/user/sessions/$sessionId/chats'
   id:
     | '__root__'
     | '/'
@@ -339,6 +349,7 @@ export interface FileRouteTypes {
     | '/_app/user/sessions/$sessionId/'
     | '/_app/user/sessions/$sessionId/chats/$chatId'
     | '/_app/user/sessions/$sessionId/contacts/$lid'
+    | '/_app/user/sessions/$sessionId/chats/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -527,6 +538,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppUserSessionsSessionIdChatsRouteRouteImport
       parentRoute: typeof AppUserSessionsSessionIdRoute
     }
+    '/_app/user/sessions/$sessionId/chats/': {
+      id: '/_app/user/sessions/$sessionId/chats/'
+      path: '/'
+      fullPath: '/user/sessions/$sessionId/chats/'
+      preLoaderRoute: typeof AppUserSessionsSessionIdChatsIndexRouteImport
+      parentRoute: typeof AppUserSessionsSessionIdChatsRouteRoute
+    }
     '/_app/user/sessions/$sessionId/contacts/$lid': {
       id: '/_app/user/sessions/$sessionId/contacts/$lid'
       path: '/$lid'
@@ -566,12 +584,15 @@ const AppAdminRouteRouteWithChildren = AppAdminRouteRoute._addFileChildren(
 
 interface AppUserSessionsSessionIdChatsRouteRouteChildren {
   AppUserSessionsSessionIdChatsChatIdRoute: typeof AppUserSessionsSessionIdChatsChatIdRoute
+  AppUserSessionsSessionIdChatsIndexRoute: typeof AppUserSessionsSessionIdChatsIndexRoute
 }
 
 const AppUserSessionsSessionIdChatsRouteRouteChildren: AppUserSessionsSessionIdChatsRouteRouteChildren =
   {
     AppUserSessionsSessionIdChatsChatIdRoute:
       AppUserSessionsSessionIdChatsChatIdRoute,
+    AppUserSessionsSessionIdChatsIndexRoute:
+      AppUserSessionsSessionIdChatsIndexRoute,
   }
 
 const AppUserSessionsSessionIdChatsRouteRouteWithChildren =

@@ -13,12 +13,35 @@
 //   - Components: the timeline is the styled shadcn MessageScroller set; each
 //     message is a Bubble inside a Message; day dividers are a Marker; the
 //     media "not downloaded" placeholder is an Attachment (see -message-bubble).
-//   - Composer: send goes through useSendMessage (optimistic), text only.
+//   - Composer: send goes through useSendMessage (optimistic), with text plus
+//     structured WhatsApp payload helpers.
 
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, type InfiniteData } from "@tanstack/react-query";
-import { SendHorizonal, MessageSquare, ChevronDown } from "lucide-react";
+import {
+  AtSign,
+  BellOff,
+  ChevronDown,
+  Contact,
+  Image,
+  ListChecks,
+  MapPin,
+  Megaphone,
+  MessageSquare,
+  Paperclip,
+  Phone,
+  SendHorizonal,
+  Shield,
+  Users,
+} from "lucide-react";
 import {
   MessageScroller,
   MessageScrollerProvider,
@@ -37,10 +60,28 @@ import { isApiError } from "~/lib/api/envelope";
 import { usePollingInterval } from "~/lib/events/useEventStream";
 import { Button } from "~/components/ui/button";
 import { Textarea } from "~/components/ui/textarea";
+import { Input } from "~/components/ui/input";
+import { Label } from "~/components/ui/label";
 import { Spinner } from "~/components/ui/spinner";
 import { TooltipProvider } from "~/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "~/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "~/components/ui/dialog";
 import { Marker, MarkerContent } from "~/components/ui/marker";
 import { BubbleGroup } from "~/components/ui/bubble";
+import { Badge } from "~/components/ui/badge";
+import { Separator } from "~/components/ui/separator";
 import {
   Empty,
   EmptyDescription,
@@ -52,6 +93,22 @@ import { toast } from "sonner";
 import { ChatAvatar, formatDayHeading, dayKey } from "./-viewer-ui";
 import { MessageBubble } from "./-message-bubble";
 import { fetchChat, fetchMessagesPage } from "./-viewer-data";
+
+type ViewerChat = Chat & {
+  participantCount?: number;
+  isAnnounce?: boolean;
+  isLocked?: boolean;
+};
+
+type ComposerSend =
+  | { type: "text"; text: string }
+  | { type: "poll"; name: string; options: string[]; selectableCount: number }
+  | { type: "location"; name?: string; latitude: number; longitude: number }
+  | { type: "contact"; contact: { name: string; phone?: string; jid?: string } }
+  | {
+      type: "image" | "video" | "audio" | "document" | "sticker";
+      media: { data: string; mimetype: string; filename?: string; caption?: string };
+    };
 
 export const Route = createFileRoute(
   "/_app/user/sessions/$sessionId/chats/$chatId",
@@ -161,6 +218,7 @@ function ViewerTimeline() {
   });
   const lastReadKey = useRef<string | null>(null);
   const loadingOlder = useRef(false);
+  const [replyTo, setReplyTo] = useState<Message | null>(null);
 
   // Polling fallback when the live stream is degraded.
   useEffect(() => {
@@ -208,7 +266,8 @@ function ViewerTimeline() {
     }
   };
 
-  const title = chat.data?.name || chat.data?.jid || chatId;
+  const viewerChat = chat.data as ViewerChat | undefined;
+  const title = viewerChat?.name || viewerChat?.jid || chatId;
   const unread = chat.data?.unreadCount ?? 0;
   const presenceState =
     typeof presence.data?.state === "string" ? presence.data.state : undefined;
@@ -220,6 +279,7 @@ function ViewerTimeline() {
       : presenceState === "recording" || presenceMedia === "audio"
         ? "recording audio..."
         : null;
+  const headerMeta = chatHeaderMeta(viewerChat, chatId, presenceState);
 
   useEffect(() => {
     if (unread <= 0 || markRead.isPending) return;
@@ -238,78 +298,128 @@ function ViewerTimeline() {
 
   return (
     <TooltipProvider>
-      <section
-        aria-label="Conversation"
-        className="flex h-full min-h-[60svh] flex-col rounded-lg border bg-card md:min-h-0"
-      >
-        <header className="flex items-center gap-3 border-b px-4 py-2">
-          <ChatAvatar
-            sessionId={sessionId}
-            name={chat.data?.name}
-            jid={chat.data?.jid}
-            type={chat.data?.type}
-          />
-          <div className="min-w-0 flex-1">
-            <h2 className="truncate text-sm font-semibold">{title}</h2>
-            <p className="truncate text-xs text-muted-foreground">
-              {typingText ?? chat.data?.jid ?? chatId}
-            </p>
-          </div>
-        </header>
+      <div className="grid h-full min-h-[60svh] gap-4 md:min-h-0 xl:grid-cols-[minmax(0,1fr)_280px]">
+        <section
+          aria-label="Conversation"
+          className="flex min-h-0 flex-col rounded-lg border bg-card"
+        >
+          <header className="flex items-center gap-3 border-b px-4 py-2">
+            <div className="relative">
+              <ChatAvatar
+                sessionId={sessionId}
+                name={viewerChat?.name}
+                jid={viewerChat?.jid}
+                type={viewerChat?.type}
+              />
+              {viewerChat?.type === "dm" ? (
+                <span
+                  className="absolute bottom-0 right-0 size-2.5 rounded-full border-2 border-card bg-emerald-500"
+                  aria-label={presenceState === "available" ? "Online" : "Presence unknown"}
+                />
+              ) : null}
+            </div>
+            <div className="min-w-0 flex-1">
+              <h2 className="truncate text-sm font-semibold">{title}</h2>
+              <p className="truncate text-xs text-muted-foreground">
+                {headerMeta}
+              </p>
+            </div>
+            {viewerChat?.type === "group" || viewerChat?.type === "newsletter" ? (
+              <Badge variant="secondary" className="hidden shrink-0 sm:inline-flex">
+                {viewerChat.type === "newsletter" ? "Channel" : "Group"}
+              </Badge>
+            ) : null}
+          </header>
 
-        {/* Styled shadcn MessageScroller. Provider tracks scroll state;
+          {/* Styled shadcn MessageScroller. Provider tracks scroll state;
             autoScroll follows the bottom on new arrivals only while the user is
             already at the end; defaultScrollPosition="end" opens pinned to the
             newest message. The Viewport is the scrollable element
             (preserveScrollOnPrepend keeps the position fixed when "Load older"
             prepends a page). */}
-        <MessageScrollerProvider autoScroll defaultScrollPosition="end">
-          <MessageScroller className="min-h-0 flex-1">
-            <MessageScrollerViewport
-              preserveScrollOnPrepend
-              role="log"
-              aria-label="Message timeline"
-              aria-live="polite"
-              tabIndex={0}
-              onScroll={(e) => {
-                // Near the top edge → pull the next (older) page. The library
-                // restores the offset afterward via preserveScrollOnPrepend.
-                if (e.currentTarget.scrollTop <= 32) loadOlder();
-              }}
-              className="outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            >
-              <MessageScrollerContent className="gap-2 p-4">
-                <TimelineBody
-                  runs={runs}
-                  isLoading={messages.isLoading}
-                  isError={messages.isError}
-                  error={messages.error}
+          <MessageScrollerProvider autoScroll defaultScrollPosition="end">
+            <MessageScroller className="min-h-0 flex-1">
+              <MessageScrollerViewport
+                preserveScrollOnPrepend
+                role="log"
+                aria-label="Message timeline"
+                aria-live="polite"
+                tabIndex={0}
+                onScroll={(e) => {
+                  // Near the top edge → pull the next (older) page. The library
+                  // restores the offset afterward via preserveScrollOnPrepend.
+                  if (e.currentTarget.scrollTop <= 32) loadOlder();
+                }}
+                className="outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                <MessageScrollerContent className="gap-2 p-4">
+                  <TimelineBody
+                    runs={runs}
+                    isLoading={messages.isLoading}
+                    isError={messages.isError}
+                    error={messages.error}
                   hasOlder={canLoadOlder}
                   isFetchingOlder={isFetchingOlder}
                   onLoadOlder={loadOlder}
+                  onReply={setReplyTo}
                 />
-              </MessageScrollerContent>
-            </MessageScrollerViewport>
+                  {typingText ? <TypingIndicator chat={viewerChat} text={typingText} /> : null}
+                </MessageScrollerContent>
+              </MessageScrollerViewport>
 
-            <JumpToLatest />
-          </MessageScroller>
-        </MessageScrollerProvider>
+              <JumpToLatest />
+            </MessageScroller>
+          </MessageScrollerProvider>
 
-        <Composer
-          disabled={send.isPending}
-          onSend={(text) =>
-            send.mutate(
-              { to: chatId, type: "text", text },
-              {
-                onError: (e) =>
-                  toast.error(isApiError(e) ? e.message : "Failed to send"),
-              },
-            )
-          }
-        />
-      </section>
+          <Composer
+            disabled={send.isPending}
+            chatType={viewerChat?.type}
+            replyTo={replyTo}
+            onCancelReply={() => setReplyTo(null)}
+            onSend={(payload) =>
+              send.mutate(
+                {
+                  to: chatId,
+                  ...payload,
+                  ...(replyTo ? { replyTo: messageId(replyTo) } : {}),
+                },
+                {
+                  onSuccess: () => setReplyTo(null),
+                  onError: (e) =>
+                    toast.error(isApiError(e) ? e.message : "Failed to send"),
+                },
+              )
+            }
+          />
+        </section>
+        <ChatDetails chat={viewerChat} chatId={chatId} />
+      </div>
     </TooltipProvider>
   );
+}
+
+function chatHeaderMeta(
+  chat: ViewerChat | undefined,
+  chatId: string,
+  presenceState?: string,
+): string {
+  if (chat?.type === "dm") {
+    if (presenceState === "available") return "Online";
+    if (presenceState === "unavailable") return "Offline";
+    return chat.jid ?? chatId;
+  }
+  if (chat?.type === "group") {
+    const count = chat.participantCount
+      ? `${chat.participantCount.toLocaleString()} members`
+      : "Group chat";
+    if (chat.isAnnounce) return `${count} · announcements only`;
+    if (chat.isLocked) return `${count} · admins manage settings`;
+    return count;
+  }
+  if (chat?.type === "newsletter") return "Announcement channel";
+  if (chat?.type === "broadcast") return "Broadcast list";
+  if (chat?.type === "status") return "Status updates";
+  return chatId;
 }
 
 function TimelineBody({
@@ -320,6 +430,7 @@ function TimelineBody({
   hasOlder,
   isFetchingOlder,
   onLoadOlder,
+  onReply,
 }: {
   runs: MessageRun[];
   isLoading: boolean;
@@ -328,6 +439,7 @@ function TimelineBody({
   hasOlder: boolean;
   isFetchingOlder: boolean;
   onLoadOlder: () => void;
+  onReply: (message: Message) => void;
 }) {
   if (isLoading) {
     return (
@@ -404,6 +516,7 @@ function TimelineBody({
                 key={messageId(m)}
                 message={m}
                 showSender={j === 0}
+                onReply={onReply}
               />
             ))}
           </BubbleGroup>
@@ -440,49 +553,385 @@ function JumpToLatest() {
 
 function Composer({
   disabled,
+  chatType,
+  replyTo,
+  onCancelReply,
   onSend,
 }: {
   disabled: boolean;
-  onSend: (text: string) => void;
+  chatType?: Chat["type"];
+  replyTo: Message | null;
+  onCancelReply: () => void;
+  onSend: (payload: ComposerSend) => void;
 }) {
   const [text, setText] = useState("");
+  const [dialog, setDialog] = useState<"poll" | "location" | "contact" | "media" | null>(
+    null,
+  );
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
     const trimmed = text.trim();
     if (!trimmed) return;
-    onSend(trimmed);
+    onSend({ type: "text", text: trimmed });
     setText("");
   };
 
   return (
-    <form
-      onSubmit={submit}
-      className="flex items-end gap-2 border-t p-3"
-      aria-label="Send a message"
-    >
-      <Textarea
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.shiftKey) {
-            e.preventDefault();
-            (e.currentTarget.form as HTMLFormElement | null)?.requestSubmit();
-          }
-        }}
-        placeholder="Type a message"
-        aria-label="Message"
-        rows={1}
-        className="max-h-32 min-h-9 flex-1 resize-none"
-      />
-      <Button
-        type="submit"
-        size="icon"
-        disabled={disabled || text.trim().length === 0}
-        aria-label="Send"
+    <>
+      <form
+        onSubmit={submit}
+        className="space-y-2 border-t p-3"
+        aria-label="Send a message"
       >
-        {disabled ? <Spinner /> : <SendHorizonal className="size-4" />}
-      </Button>
-    </form>
+        {replyTo ? (
+          <div className="flex items-start justify-between gap-3 rounded-md border bg-muted/40 px-3 py-2 text-xs">
+            <div className="min-w-0">
+              <p className="font-medium">Replying to {replyAuthor(replyTo)}</p>
+              <p className="truncate text-muted-foreground">{replyPreview(replyTo)}</p>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2"
+              onClick={onCancelReply}
+            >
+              Cancel
+            </Button>
+          </div>
+        ) : null}
+        <div className="flex items-end gap-2">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                size="icon"
+                variant="outline"
+                disabled={disabled}
+                aria-label="Attach or send rich content"
+              >
+                <Paperclip className="size-4" aria-hidden />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" side="top" className="w-56">
+              <DropdownMenuItem onClick={() => setDialog("poll")}>
+                <ListChecks /> Poll
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setDialog("location")}>
+                <MapPin /> Location
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setDialog("contact")}>
+                <Contact /> Contact
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setDialog("media")}>
+                <Image /> Media placeholder
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                (e.currentTarget.form as HTMLFormElement | null)?.requestSubmit();
+              }
+            }}
+            placeholder={
+              chatType === "newsletter"
+                ? "Write an announcement"
+                : "Type a message with markdown"
+            }
+            aria-label="Message"
+            rows={1}
+            className="max-h-32 min-h-9 flex-1 resize-none"
+          />
+          <Button
+            type="submit"
+            size="icon"
+            disabled={disabled || text.trim().length === 0}
+            aria-label="Send"
+          >
+            {disabled ? <Spinner /> : <SendHorizonal className="size-4" />}
+          </Button>
+        </div>
+      </form>
+      <RichSendDialog
+        kind={dialog}
+        onOpenChange={(open) => {
+          if (!open) setDialog(null);
+        }}
+        onSend={(payload) => {
+          onSend(payload);
+          setDialog(null);
+        }}
+      />
+    </>
   );
+}
+
+function RichSendDialog({
+  kind,
+  onOpenChange,
+  onSend,
+}: {
+  kind: "poll" | "location" | "contact" | "media" | null;
+  onOpenChange: (open: boolean) => void;
+  onSend: (payload: ComposerSend) => void;
+}) {
+  const [question, setQuestion] = useState("");
+  const [options, setOptions] = useState("Yes\nNo\nMaybe");
+  const [place, setPlace] = useState("");
+  const [lat, setLat] = useState("");
+  const [lng, setLng] = useState("");
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [caption, setCaption] = useState("");
+  const open = kind !== null;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{richDialogTitle(kind)}</DialogTitle>
+          <DialogDescription>
+            Compose a structured WhatsApp payload for this chat.
+          </DialogDescription>
+        </DialogHeader>
+        {kind === "poll" ? (
+          <div className="space-y-3">
+            <Field label="Question" value={question} onChange={setQuestion} />
+            <div className="space-y-1.5">
+              <Label>Options</Label>
+              <Textarea
+                value={options}
+                onChange={(e) => setOptions(e.target.value)}
+                rows={4}
+              />
+            </div>
+            <Button
+              onClick={() => {
+                const rows = options
+                  .split("\n")
+                  .map((x) => x.trim())
+                  .filter(Boolean);
+                if (!question.trim() || rows.length < 2) return;
+                onSend({
+                  type: "poll",
+                  name: question.trim(),
+                  options: rows,
+                  selectableCount: 1,
+                });
+              }}
+            >
+              Send poll
+            </Button>
+          </div>
+        ) : null}
+        {kind === "location" ? (
+          <div className="space-y-3">
+            <Field label="Place label" value={place} onChange={setPlace} />
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Latitude" value={lat} onChange={setLat} />
+              <Field label="Longitude" value={lng} onChange={setLng} />
+            </div>
+            <Button
+              onClick={() => {
+                const latitude = Number(lat);
+                const longitude = Number(lng);
+                if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
+                onSend({
+                  type: "location",
+                  name: place.trim() || undefined,
+                  latitude,
+                  longitude,
+                });
+              }}
+            >
+              Send location
+            </Button>
+          </div>
+        ) : null}
+        {kind === "contact" ? (
+          <div className="space-y-3">
+            <Field label="Name" value={name} onChange={setName} />
+            <Field label="Phone" value={phone} onChange={setPhone} />
+            <Button
+              onClick={() => {
+                if (!name.trim()) return;
+                onSend({
+                  type: "contact",
+                  contact: { name: name.trim(), phone: phone.trim() || undefined },
+                });
+              }}
+            >
+              Send contact
+            </Button>
+          </div>
+        ) : null}
+        {kind === "media" ? (
+          <div className="space-y-3">
+            <Field label="Caption" value={caption} onChange={setCaption} />
+            <Button
+              onClick={() =>
+                onSend({
+                  type: "document",
+                  media: {
+                    data: "",
+                    mimetype: "application/octet-stream",
+                    filename: "placeholder.txt",
+                    caption: caption.trim() || undefined,
+                  },
+                })
+              }
+            >
+              Queue placeholder
+            </Button>
+          </div>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function Field({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label>{label}</Label>
+      <Input value={value} onChange={(e) => onChange(e.target.value)} />
+    </div>
+  );
+}
+
+function richDialogTitle(kind: "poll" | "location" | "contact" | "media" | null) {
+  switch (kind) {
+    case "poll":
+      return "Send poll";
+    case "location":
+      return "Send location";
+    case "contact":
+      return "Send contact";
+    case "media":
+      return "Attach media";
+    default:
+      return "Send rich content";
+  }
+}
+
+function TypingIndicator({ chat, text }: { chat?: ViewerChat; text: string }) {
+  return (
+    <div className="flex items-center gap-2 px-1 py-1 text-xs text-muted-foreground">
+      <div className="flex -space-x-2">
+        <ChatAvatar
+          sessionId={chat?.sessionId}
+          name={chat?.name}
+          jid={chat?.jid}
+          type={chat?.type}
+        />
+      </div>
+      <span className="relative overflow-hidden rounded-full bg-muted px-3 py-1">
+        <span className="animate-pulse">{text}</span>
+      </span>
+    </div>
+  );
+}
+
+function ChatDetails({ chat, chatId }: { chat?: ViewerChat; chatId: string }) {
+  return (
+    <aside className="hidden min-h-0 rounded-lg border bg-card p-4 xl:block">
+      <div className="flex flex-col items-center text-center">
+        <ChatAvatar
+          sessionId={chat?.sessionId}
+          name={chat?.name}
+          jid={chat?.jid}
+          type={chat?.type}
+        />
+        <h3 className="mt-3 max-w-full truncate text-sm font-semibold">
+          {chat?.name || chat?.jid || chatId}
+        </h3>
+        <p className="mt-1 max-w-full truncate text-xs text-muted-foreground">
+          {chat?.jid ?? chatId}
+        </p>
+      </div>
+      <Separator className="my-4" />
+      <div className="space-y-2 text-sm">
+        <DetailRow icon={<Users />} label="Type" value={detailType(chat)} />
+        {chat?.participantCount ? (
+          <DetailRow
+            icon={<AtSign />}
+            label="Members"
+            value={chat.participantCount.toLocaleString()}
+          />
+        ) : null}
+        {chat?.isAnnounce ? (
+          <DetailRow icon={<Megaphone />} label="Mode" value="Announcement only" />
+        ) : null}
+        {chat?.isLocked ? (
+          <DetailRow icon={<Shield />} label="Settings" value="Admin controlled" />
+        ) : null}
+        {chat?.mutedUntil ? (
+          <DetailRow icon={<BellOff />} label="Muted" value="Notifications paused" />
+        ) : null}
+        {chat?.type === "dm" ? (
+          <DetailRow icon={<Phone />} label="Presence" value="Live presence unavailable" />
+        ) : null}
+      </div>
+    </aside>
+  );
+}
+
+function DetailRow({
+  icon,
+  label,
+  value,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="flex items-center gap-2 rounded-md bg-muted/50 px-3 py-2">
+      <span className="[&_svg]:size-4 [&_svg]:text-muted-foreground">{icon}</span>
+      <span className="text-muted-foreground">{label}</span>
+      <span className="ml-auto max-w-32 truncate font-medium">{value}</span>
+    </div>
+  );
+}
+
+function detailType(chat?: ViewerChat): string {
+  switch (chat?.type) {
+    case "dm":
+      return "Direct message";
+    case "group":
+      return "Group";
+    case "newsletter":
+      return "Announcement channel";
+    case "broadcast":
+      return "Broadcast";
+    case "status":
+      return "Status";
+    default:
+      return "Chat";
+  }
+}
+
+function replyAuthor(message: Message): string {
+  if (message.direction === "out") return "you";
+  return message.senderName || message.senderLid || message.senderJid || "sender";
+}
+
+function replyPreview(message: Message): string {
+  const body = message.body?.trim();
+  if (body) return body.length > 140 ? `${body.slice(0, 140)}...` : body;
+  return message.type ? `${message.type} message` : "Message";
 }

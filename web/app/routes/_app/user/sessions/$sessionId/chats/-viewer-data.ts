@@ -106,6 +106,9 @@ export const fetchChatsPage = createServerFn({ method: "GET" })
         pinned: chats.pinned,
         mutedUntil: chats.mutedUntil,
         lastMessageAt: chats.lastMessageAt,
+        participantCount: whatsappGroups.participantCount,
+        isAnnounce: whatsappGroups.isAnnounce,
+        isLocked: whatsappGroups.isLocked,
         aliases: sql<string | null>`(
           SELECT JSON_ARRAY(i.lid, i.phone_jid)
           FROM whatsapp_identities i
@@ -166,6 +169,9 @@ export const fetchChat = createServerFn({ method: "GET" })
         pinned: chats.pinned,
         mutedUntil: chats.mutedUntil,
         lastMessageAt: chats.lastMessageAt,
+        participantCount: whatsappGroups.participantCount,
+        isAnnounce: whatsappGroups.isAnnounce,
+        isLocked: whatsappGroups.isLocked,
         aliases: sql<string | null>`(
           SELECT JSON_ARRAY(i.lid, i.phone_jid)
           FROM whatsapp_identities i
@@ -361,6 +367,9 @@ type ChatRow = {
   pinned: number;
   mutedUntil: number | null;
   lastMessageAt: number | null;
+  participantCount: number | null;
+  isAnnounce: number | null;
+  isLocked: number | null;
   aliases: string | null;
 };
 
@@ -392,8 +401,11 @@ function rowToChat(r: ChatRow): Chat {
     pinned: Boolean(r.pinned),
     mutedUntil: r.mutedUntil ?? undefined,
     lastMessageAt: r.lastMessageAt ?? undefined,
+    participantCount: r.participantCount ?? undefined,
+    isAnnounce: r.isAnnounce == null ? undefined : Boolean(r.isAnnounce),
+    isLocked: r.isLocked == null ? undefined : Boolean(r.isLocked),
     aliases: parseAliases(r.aliases),
-  };
+  } as Chat;
 }
 
 function parseAliases(raw: unknown): string[] | undefined {
