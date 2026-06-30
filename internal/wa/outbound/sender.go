@@ -230,7 +230,7 @@ func (s *Sender) dispatch(ctx context.Context, req domain.SendRequest) (waMessag
 	case domain.SendTypeText:
 		waMessageID, ts, err = s.wa.SendText(ctx, req.To, req.Text, req.ReplyTo, req.Mentions)
 	case domain.SendTypePoll:
-		waMessageID, ts, err = s.wa.SendPoll(ctx, req.To, req.Name, req.Options, req.SelectableCount)
+		waMessageID, ts, err = s.wa.SendPoll(ctx, req.To, req.Name, req.Options, req.SelectableCount, req.PollEndTime, req.PollHideVotes)
 	case domain.SendTypeLocation:
 		waMessageID, ts, err = s.wa.SendLocation(ctx, req.To, req.Latitude, req.Longitude, req.Name)
 	case domain.SendTypeContact:
@@ -278,16 +278,20 @@ func (s *Sender) recordSent(ctx context.Context, req domain.SendRequest, waMessa
 	}
 	mediaMeta, hasMedia := outboundMedia(req)
 	if err := s.recorder.RecordSent(ctx, SentMessage{
-		SessionID:   sessionID,
-		WAMessageID: waMessageID,
-		ChatJID:     req.To,
-		Type:        req.Type,
-		Body:        outboundBody(req),
-		ReplyTo:     req.ReplyTo,
-		Mentions:    req.Mentions,
-		HasMedia:    hasMedia,
-		MediaMeta:   mediaMeta,
-		TimestampMs: ts,
+		SessionID:           sessionID,
+		WAMessageID:         waMessageID,
+		ChatJID:             req.To,
+		Type:                req.Type,
+		Body:                outboundBody(req),
+		ReplyTo:             req.ReplyTo,
+		Mentions:            req.Mentions,
+		HasMedia:            hasMedia,
+		MediaMeta:           mediaMeta,
+		PollOptions:         req.Options,
+		PollSelectableCount: req.SelectableCount,
+		PollEndTime:         req.PollEndTime,
+		PollHideVotes:       req.PollHideVotes,
+		TimestampMs:         ts,
 	}); err != nil {
 		s.log.WarnContext(ctx, "outbound: record sent message failed",
 			"session", sessionID, "waMessageId", waMessageID, "err", err)

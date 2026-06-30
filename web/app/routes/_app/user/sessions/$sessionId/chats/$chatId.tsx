@@ -16,31 +16,18 @@
 //   - Composer: send goes through useSendMessage (optimistic), with text plus
 //     structured WhatsApp payload helpers.
 
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type FormEvent,
-  type ReactNode,
-} from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, type InfiniteData } from "@tanstack/react-query";
 import {
-  AtSign,
-  BellOff,
   ChevronDown,
   Contact,
   Image,
   ListChecks,
   MapPin,
-  Megaphone,
   MessageSquare,
   Paperclip,
-  Phone,
   SendHorizonal,
-  Shield,
-  Users,
 } from "lucide-react";
 import {
   MessageScroller,
@@ -51,7 +38,11 @@ import {
   MessageScrollerButton,
   useMessageScrollerScrollable,
 } from "~/components/ui/message-scroller";
-import { useChatMessages, useSendMessage } from "~/lib/api/hooks/messages";
+import {
+  useChatMessages,
+  useSendMessage,
+  useVoteMessage,
+} from "~/lib/api/hooks/messages";
 import { useChat, useMarkChatRead } from "~/lib/api/hooks/chats";
 import { qk } from "~/lib/query";
 import type { Chat, Message } from "~/lib/api/types";
@@ -81,7 +72,6 @@ import {
 import { Marker, MarkerContent } from "~/components/ui/marker";
 import { BubbleGroup } from "~/components/ui/bubble";
 import { Badge } from "~/components/ui/badge";
-import { Separator } from "~/components/ui/separator";
 import {
   Empty,
   EmptyDescription,
@@ -102,7 +92,14 @@ type ViewerChat = Chat & {
 
 type ComposerSend =
   | { type: "text"; text: string }
-  | { type: "poll"; name: string; options: string[]; selectableCount: number }
+  | {
+      type: "poll";
+      name: string;
+      options: string[];
+      selectableCount: number;
+      pollEndTime?: number;
+      pollHideVotes?: boolean;
+    }
   | { type: "location"; name?: string; latitude: number; longitude: number }
   | { type: "contact"; contact: { name: string; phone?: string; jid?: string } }
   | {
@@ -209,6 +206,7 @@ function ViewerTimeline() {
   const messages = useChatMessages(sessionId, chatId);
   const markRead = useMarkChatRead(sessionId);
   const send = useSendMessage(sessionId);
+  const vote = useVoteMessage(sessionId);
   const pollMs = usePollingInterval();
   const presence = useQuery<Record<string, unknown>>({
     queryKey: qk.presence(sessionId, chatId),
@@ -219,6 +217,7 @@ function ViewerTimeline() {
   const lastReadKey = useRef<string | null>(null);
   const loadingOlder = useRef(false);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
+  const [activeTypingText, setActiveTypingText] = useState<string | null>(null);
 
   // Polling fallback when the live stream is degraded.
   useEffect(() => {
@@ -251,6 +250,15 @@ function ViewerTimeline() {
   }, [messages.data]);
 
   const runs = useMemo(() => groupRuns(ordered), [ordered]);
+  const messagesById = useMemo(() => {
+    const byId = new Map<string, Message>();
+    for (const message of ordered) {
+      byId.set(messageId(message), message);
+      if (message.waMessageId) byId.set(message.waMessageId, message);
+      if (message.id) byId.set(message.id, message);
+    }
+    return byId;
+  }, [ordered]);
 
   // "Load older" feeds the existing infinite-query. MessageScroller's
   // preserveScrollOnPrepend keeps the reading position fixed when the prepended
@@ -282,6 +290,16 @@ function ViewerTimeline() {
   const headerMeta = chatHeaderMeta(viewerChat, chatId, presenceState);
 
   useEffect(() => {
+    if (!typingText) {
+      setActiveTypingText(null);
+      return;
+    }
+    setActiveTypingText(typingText);
+    const id = window.setTimeout(() => setActiveTypingText(null), 4_500);
+    return () => window.clearTimeout(id);
+  }, [chatId, typingText]);
+
+  useEffect(() => {
     if (unread <= 0 || markRead.isPending) return;
     const key = `${chatId}:${unread}`;
     if (lastReadKey.current === key) return;
@@ -298,7 +316,7 @@ function ViewerTimeline() {
 
   return (
     <TooltipProvider>
-      <div className="grid h-full min-h-[60svh] gap-4 md:min-h-0 xl:grid-cols-[minmax(0,1fr)_280px]">
+      <div className="h-full min-h-[60svh] md:min-h-0">
         <section
           aria-label="Conversation"
           className="flex min-h-0 flex-col rounded-lg border bg-card"
@@ -358,12 +376,23 @@ function ViewerTimeline() {
                     isLoading={messages.isLoading}
                     isError={messages.isError}
                     error={messages.error}
-                  hasOlder={canLoadOlder}
-                  isFetchingOlder={isFetchingOlder}
-                  onLoadOlder={loadOlder}
-                  onReply={setReplyTo}
-                />
-                  {typingText ? <TypingIndicator chat={viewerChat} text={typingText} /> : null}
+                    hasOlder={canLoadOlder}
+                    isFetchingOlder={isFetchingOlder}
+                    onLoadOlder={loadOlder}
+                    onReply={setReplyTo}
+                    onVote={(message, options) =>
+                      vote.mutate(
+                        { messageId: messageId(message), chatId, options },
+                        {
+                          onError: (e) =>
+                            toast.error(
+                              isApiError(e) ? e.message : "Failed to vote",
+                            ),
+                        },
+                      )
+                    }
+                    messagesById={messagesById}
+                  />
                 </MessageScrollerContent>
               </MessageScrollerViewport>
 
@@ -374,6 +403,8 @@ function ViewerTimeline() {
           <Composer
             disabled={send.isPending}
             chatType={viewerChat?.type}
+            chat={viewerChat}
+            typingText={activeTypingText}
             replyTo={replyTo}
             onCancelReply={() => setReplyTo(null)}
             onSend={(payload) =>
@@ -392,7 +423,6 @@ function ViewerTimeline() {
             }
           />
         </section>
-        <ChatDetails chat={viewerChat} chatId={chatId} />
       </div>
     </TooltipProvider>
   );
@@ -431,6 +461,8 @@ function TimelineBody({
   isFetchingOlder,
   onLoadOlder,
   onReply,
+  onVote,
+  messagesById,
 }: {
   runs: MessageRun[];
   isLoading: boolean;
@@ -440,6 +472,8 @@ function TimelineBody({
   isFetchingOlder: boolean;
   onLoadOlder: () => void;
   onReply: (message: Message) => void;
+  onVote: (message: Message, options: string[]) => void;
+  messagesById: Map<string, Message>;
 }) {
   if (isLoading) {
     return (
@@ -485,6 +519,10 @@ function TimelineBody({
     <>
       {hasOlder ? (
         <div className="flex justify-center pb-1">
+          <TopLoadSentinel
+            disabled={isFetchingOlder}
+            onVisible={onLoadOlder}
+          />
           <Button
             size="sm"
             variant="ghost"
@@ -515,8 +553,12 @@ function TimelineBody({
               <MessageBubble
                 key={messageId(m)}
                 message={m}
+                quotedMessage={
+                  m.quotedMessageId ? messagesById.get(m.quotedMessageId) : undefined
+                }
                 showSender={j === 0}
                 onReply={onReply}
+                onVote={onVote}
               />
             ))}
           </BubbleGroup>
@@ -524,6 +566,29 @@ function TimelineBody({
       ))}
     </>
   );
+}
+
+function TopLoadSentinel({
+  disabled,
+  onVisible,
+}: {
+  disabled: boolean;
+  onVisible: () => void;
+}) {
+  const ref = useRef<HTMLSpanElement | null>(null);
+  useEffect(() => {
+    const node = ref.current;
+    if (!node || disabled) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) onVisible();
+      },
+      { root: node.closest("[data-slot='message-scroller-viewport']") },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [disabled, onVisible]);
+  return <span ref={ref} className="size-px" aria-hidden />;
 }
 
 // Floating "jump to latest" affordance. MessageScrollerButton(direction="end")
@@ -554,12 +619,16 @@ function JumpToLatest() {
 function Composer({
   disabled,
   chatType,
+  chat,
+  typingText,
   replyTo,
   onCancelReply,
   onSend,
 }: {
   disabled: boolean;
   chatType?: Chat["type"];
+  chat?: ViewerChat;
+  typingText: string | null;
   replyTo: Message | null;
   onCancelReply: () => void;
   onSend: (payload: ComposerSend) => void;
@@ -581,9 +650,10 @@ function Composer({
     <>
       <form
         onSubmit={submit}
-        className="space-y-2 border-t p-3"
+        className="space-y-2 border-t px-3 pb-3 pt-2"
         aria-label="Send a message"
       >
+        <TypingIndicator chat={chat} text={typingText} />
         {replyTo ? (
           <div className="flex items-start justify-between gap-3 rounded-md border bg-muted/40 px-3 py-2 text-xs">
             <div className="min-w-0">
@@ -683,6 +753,9 @@ function RichSendDialog({
 }) {
   const [question, setQuestion] = useState("");
   const [options, setOptions] = useState("Yes\nNo\nMaybe");
+  const [selectableCount, setSelectableCount] = useState("1");
+  const [pollEndTime, setPollEndTime] = useState("");
+  const [pollHideVotes, setPollHideVotes] = useState(false);
   const [place, setPlace] = useState("");
   const [lat, setLat] = useState("");
   const [lng, setLng] = useState("");
@@ -711,6 +784,29 @@ function RichSendDialog({
                 rows={4}
               />
             </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Field
+                label="Selectable"
+                value={selectableCount}
+                onChange={setSelectableCount}
+                type="number"
+              />
+              <Field
+                label="Ends at"
+                value={pollEndTime}
+                onChange={setPollEndTime}
+                type="datetime-local"
+              />
+            </div>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={pollHideVotes}
+                onChange={(e) => setPollHideVotes(e.currentTarget.checked)}
+                className="size-4 accent-primary"
+              />
+              Hide voter names
+            </label>
             <Button
               onClick={() => {
                 const rows = options
@@ -718,11 +814,20 @@ function RichSendDialog({
                   .map((x) => x.trim())
                   .filter(Boolean);
                 if (!question.trim() || rows.length < 2) return;
+                const selectable = Math.max(
+                  1,
+                  Math.min(Number(selectableCount) || 1, rows.length),
+                );
+                const endTime = pollEndTime ? new Date(pollEndTime).getTime() : 0;
                 onSend({
                   type: "poll",
                   name: question.trim(),
                   options: rows,
-                  selectableCount: 1,
+                  selectableCount: selectable,
+                  ...(Number.isFinite(endTime) && endTime > 0
+                    ? { pollEndTime: endTime }
+                    : {}),
+                  ...(pollHideVotes ? { pollHideVotes: true } : {}),
                 });
               }}
             >
@@ -800,15 +905,17 @@ function Field({
   label,
   value,
   onChange,
+  type = "text",
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
+  type?: string;
 }) {
   return (
     <div className="space-y-1.5">
       <Label>{label}</Label>
-      <Input value={value} onChange={(e) => onChange(e.target.value)} />
+      <Input type={type} value={value} onChange={(e) => onChange(e.target.value)} />
     </div>
   );
 }
@@ -828,101 +935,30 @@ function richDialogTitle(kind: "poll" | "location" | "contact" | "media" | null)
   }
 }
 
-function TypingIndicator({ chat, text }: { chat?: ViewerChat; text: string }) {
+function TypingIndicator({ chat, text }: { chat?: ViewerChat; text: string | null }) {
   return (
-    <div className="flex items-center gap-2 px-1 py-1 text-xs text-muted-foreground">
-      <div className="flex -space-x-2">
-        <ChatAvatar
-          sessionId={chat?.sessionId}
-          name={chat?.name}
-          jid={chat?.jid}
-          type={chat?.type}
-        />
-      </div>
-      <span className="relative overflow-hidden rounded-full bg-muted px-3 py-1">
-        <span className="animate-pulse">{text}</span>
-      </span>
+    <div
+      className="flex h-5 items-center gap-2 px-1 text-[11px] text-muted-foreground"
+      aria-live="polite"
+    >
+      {text ? (
+        <>
+          <div className="flex -space-x-1.5">
+            <ChatAvatar
+              sessionId={chat?.sessionId}
+              name={chat?.name}
+              jid={chat?.jid}
+              type={chat?.type}
+              className="size-5 border border-card text-[9px]"
+            />
+          </div>
+          <span className="relative overflow-hidden whitespace-nowrap">
+            <span className="animate-pulse">{text}</span>
+          </span>
+        </>
+      ) : null}
     </div>
   );
-}
-
-function ChatDetails({ chat, chatId }: { chat?: ViewerChat; chatId: string }) {
-  return (
-    <aside className="hidden min-h-0 rounded-lg border bg-card p-4 xl:block">
-      <div className="flex flex-col items-center text-center">
-        <ChatAvatar
-          sessionId={chat?.sessionId}
-          name={chat?.name}
-          jid={chat?.jid}
-          type={chat?.type}
-        />
-        <h3 className="mt-3 max-w-full truncate text-sm font-semibold">
-          {chat?.name || chat?.jid || chatId}
-        </h3>
-        <p className="mt-1 max-w-full truncate text-xs text-muted-foreground">
-          {chat?.jid ?? chatId}
-        </p>
-      </div>
-      <Separator className="my-4" />
-      <div className="space-y-2 text-sm">
-        <DetailRow icon={<Users />} label="Type" value={detailType(chat)} />
-        {chat?.participantCount ? (
-          <DetailRow
-            icon={<AtSign />}
-            label="Members"
-            value={chat.participantCount.toLocaleString()}
-          />
-        ) : null}
-        {chat?.isAnnounce ? (
-          <DetailRow icon={<Megaphone />} label="Mode" value="Announcement only" />
-        ) : null}
-        {chat?.isLocked ? (
-          <DetailRow icon={<Shield />} label="Settings" value="Admin controlled" />
-        ) : null}
-        {chat?.mutedUntil ? (
-          <DetailRow icon={<BellOff />} label="Muted" value="Notifications paused" />
-        ) : null}
-        {chat?.type === "dm" ? (
-          <DetailRow icon={<Phone />} label="Presence" value="Live presence unavailable" />
-        ) : null}
-      </div>
-    </aside>
-  );
-}
-
-function DetailRow({
-  icon,
-  label,
-  value,
-}: {
-  icon: ReactNode;
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="flex items-center gap-2 rounded-md bg-muted/50 px-3 py-2">
-      <span className="[&_svg]:size-4 [&_svg]:text-muted-foreground">{icon}</span>
-      <span className="text-muted-foreground">{label}</span>
-      <span className="ml-auto max-w-32 truncate font-medium">{value}</span>
-    </div>
-  );
-}
-
-function detailType(chat?: ViewerChat): string {
-  switch (chat?.type) {
-    case "dm":
-      return "Direct message";
-    case "group":
-      return "Group";
-    case "newsletter":
-      return "Announcement channel";
-    case "broadcast":
-      return "Broadcast";
-    case "status":
-      return "Status";
-    default:
-      return "Chat";
-  }
 }
 
 function replyAuthor(message: Message): string {

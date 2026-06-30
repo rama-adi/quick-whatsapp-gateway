@@ -1904,6 +1904,17 @@ components:
     PollData:
       additionalProperties: false
       properties:
+        endTime:
+          description: Poll closing time as epoch milliseconds, when WhatsApp provided one.
+          examples:
+            - 1719662400000
+          format: int64
+          type: integer
+        hideVotes:
+          description: True when WhatsApp hides participant names in the poll vote list.
+          examples:
+            - true
+          type: boolean
         name:
           description: The poll question.
           type: string
@@ -1924,6 +1935,110 @@ components:
         - name
         - options
         - selectableCount
+      type: object
+    PollRecapEvent:
+      additionalProperties: false
+      properties:
+        event:
+          enum:
+            - poll.recap
+          examples:
+            - poll.recap
+          type: string
+        id:
+          description: Unique event id. Webhook deliveries repeat it in the X-Webhook-Request-Id header so receivers can drop duplicate redeliveries; the realtime client uses it as the ?since resume cursor.
+          examples:
+            - evt_01J9ZX...
+          type: string
+        organization:
+          description: Id of the organization that owns the session.
+          examples:
+            - org_01J9...
+          type: string
+        payload:
+          $ref: "#/components/schemas/PollRecapPayload"
+        schema:
+          description: Envelope schema version, so consumers can adapt if the shape changes.
+          enum:
+            - v1
+          examples:
+            - v1
+          type: string
+        session:
+          description: Id of the WhatsApp session the event came from.
+          examples:
+            - wa_sess_01J9...
+          type: string
+        timestamp:
+          description: When the event happened, in epoch milliseconds.
+          examples:
+            - 1719400000000
+          format: int64
+          type: integer
+      required:
+        - event
+        - payload
+        - schema
+        - id
+        - session
+        - organization
+        - timestamp
+      type: object
+    PollRecapOption:
+      additionalProperties: false
+      properties:
+        count:
+          format: int64
+          type: integer
+        option:
+          type: string
+      required:
+        - option
+        - count
+      type: object
+    PollRecapPayload:
+      additionalProperties: false
+      properties:
+        chatJid:
+          description: JID of the chat the poll belongs to.
+          type: string
+        endTime:
+          description: Poll closing time as epoch milliseconds.
+          format: int64
+          type: integer
+        hideVotes:
+          description: True when participant names were hidden in the vote list.
+          type: boolean
+        name:
+          description: The poll question.
+          type: string
+        options:
+          description: Vote totals by option.
+          items:
+            $ref: "#/components/schemas/PollRecapOption"
+          type:
+            - array
+            - "null"
+        pollMessageId:
+          description: Id of the poll-creation message.
+          type: string
+        selectableCount:
+          description: How many options a voter could select.
+          format: int64
+          type: integer
+        totalVotes:
+          description: Number of latest voter records counted.
+          format: int64
+          type: integer
+      required:
+        - pollMessageId
+        - chatJid
+        - name
+        - options
+        - selectableCount
+        - endTime
+        - hideVotes
+        - totalVotes
       type: object
     PostStatusInputBody:
       additionalProperties: false
@@ -2157,6 +2272,17 @@ components:
           type:
             - array
             - "null"
+        pollEndTime:
+          description: Optional poll closing time as epoch milliseconds. Used for type poll when WhatsApp supports poll end times.
+          examples:
+            - 1719662400000
+          format: int64
+          type: integer
+        pollHideVotes:
+          description: When true, ask WhatsApp to hide participant names in the poll vote list. Used for type poll.
+          examples:
+            - true
+          type: boolean
         replyTo:
           description: Id of the message this one quotes/replies to (a wa_message_id). Optional.
           examples:
@@ -5435,12 +5561,14 @@ webhooks:
                   message.revoked: "#/components/schemas/MessageEvent"
                   message.status: "#/components/schemas/MessageStatusEvent"
                   newsletter.update: "#/components/schemas/NewsletterEvent"
+                  poll.recap: "#/components/schemas/PollRecapEvent"
                   poll.vote: "#/components/schemas/MessageEvent"
                   presence.update: "#/components/schemas/PresenceEvent"
                   session.status: "#/components/schemas/SessionStatusEvent"
                 propertyName: event
               oneOf:
                 - $ref: "#/components/schemas/MessageEvent"
+                - $ref: "#/components/schemas/PollRecapEvent"
                 - $ref: "#/components/schemas/MessageStatusEvent"
                 - $ref: "#/components/schemas/SessionStatusEvent"
                 - $ref: "#/components/schemas/AuthQREvent"

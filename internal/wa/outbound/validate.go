@@ -37,6 +37,9 @@ func validate(req domain.SendRequest) error {
 		if req.SelectableCount < 0 || req.SelectableCount > len(req.Options) {
 			return domain.ErrValidation("selectableCount must be between 0 and the number of options")
 		}
+		if req.PollEndTime < 0 {
+			return domain.ErrValidation("pollEndTime must be a positive epoch millisecond timestamp")
+		}
 	case domain.SendTypeLocation:
 		if req.Latitude < -90 || req.Latitude > 90 {
 			return domain.ErrValidation("latitude must be between -90 and 90")

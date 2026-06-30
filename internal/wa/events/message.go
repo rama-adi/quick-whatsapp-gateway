@@ -157,6 +157,8 @@ func fillPoll(pc *waE2E.PollCreationMessage, nm *NormalizedMessage) {
 		Name:            pc.GetName(),
 		Options:         names,
 		SelectableCount: int(pc.GetSelectableOptionsCount()),
+		EndTime:         pc.GetEndTime(),
+		HideVotes:       pc.GetHideParticipantName(),
 	}
 	nm.Body = pc.GetName()
 	applyContext(pc.GetContextInfo(), nm)

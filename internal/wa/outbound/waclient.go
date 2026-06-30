@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"go.mau.fi/util/random"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
@@ -81,12 +82,35 @@ func (a *whatsmeowAdapter) SendText(ctx context.Context, to, text, replyTo strin
 	})
 }
 
-func (a *whatsmeowAdapter) SendPoll(ctx context.Context, to, name string, options []string, selectableCount int) (string, int64, error) {
+func (a *whatsmeowAdapter) SendPoll(ctx context.Context, to, name string, options []string, selectableCount int, endTime int64, hideVotes bool) (string, int64, error) {
 	toJID, err := parseJID(to)
 	if err != nil {
 		return "", 0, err
 	}
-	msg := a.cli.BuildPollCreation(name, options, selectableCount)
+	if selectableCount < 0 || selectableCount > len(options) {
+		selectableCount = 0
+	}
+	pollOptions := make([]*waE2E.PollCreationMessage_Option, len(options))
+	for i, option := range options {
+		pollOptions[i] = &waE2E.PollCreationMessage_Option{OptionName: proto.String(option)}
+	}
+	poll := &waE2E.PollCreationMessage{
+		Name:                   proto.String(name),
+		Options:                pollOptions,
+		SelectableOptionsCount: proto.Uint32(uint32(selectableCount)),
+	}
+	if endTime > 0 {
+		poll.EndTime = proto.Int64(endTime)
+	}
+	if hideVotes {
+		poll.HideParticipantName = proto.Bool(true)
+	}
+	msg := &waE2E.Message{
+		PollCreationMessage: poll,
+		MessageContextInfo: &waE2E.MessageContextInfo{
+			MessageSecret: random.Bytes(32),
+		},
+	}
 	return a.send(ctx, toJID, msg)
 }
 

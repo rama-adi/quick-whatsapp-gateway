@@ -226,7 +226,7 @@ export const fetchMessagesPage = createServerFn({ method: "GET" })
     if (!ok) return { data: [], nextCursor: null };
 
     const { db } = await import("~/lib/db");
-    const { messages, whatsappIdentities } = await import("~/lib/db/wa");
+    const { messages, whatsappIdentities, polls } = await import("~/lib/db/wa");
     const { and, eq, lt, desc, or, inArray } = await import("drizzle-orm");
 
     // messages.id is a sortable string ULID, so the cursor is the id itself
@@ -266,6 +266,12 @@ export const fetchMessagesPage = createServerFn({ method: "GET" })
         direction: messages.direction,
         type: messages.type,
         body: messages.body,
+        quotedMessageId: messages.quotedMessageId,
+        pollName: polls.name,
+        pollOptions: polls.options,
+        pollSelectableCount: polls.selectableCount,
+        pollEndTime: polls.endTime,
+        pollHideVotes: polls.hideVotes,
         mentions: messages.mentions,
         status: messages.status,
         fromMe: messages.fromMe,
@@ -279,6 +285,13 @@ export const fetchMessagesPage = createServerFn({ method: "GET" })
       .leftJoin(
         whatsappIdentities,
         eq(whatsappIdentities.lid, messages.senderLid),
+      )
+      .leftJoin(
+        polls,
+        and(
+          eq(polls.sessionId, messages.sessionId),
+          eq(polls.pollMessageId, messages.waMessageId),
+        ),
       )
       .where(where)
       .orderBy(desc(messages.id))
@@ -423,6 +436,12 @@ type MessageRow = {
   direction: NonNullable<Message["direction"]>;
   type: string;
   body: string | null;
+  quotedMessageId: string | null;
+  pollName: string | null;
+  pollOptions: unknown;
+  pollSelectableCount: number | null;
+  pollEndTime: number | null;
+  pollHideVotes: number | null;
   mentions: unknown;
   status: Message["status"] | null;
   fromMe: number;
@@ -457,7 +476,8 @@ function rowToMessage(
     senderName: r.senderName ?? undefined,
     direction: r.direction,
     type: r.type,
-    body: r.body ?? undefined,
+    body: structuredBody(r),
+    quotedMessageId: r.quotedMessageId ?? undefined,
     mentions: mentions.length > 0 ? mentions : undefined,
     mentionNames,
     fromMe: Boolean(r.fromMe),
@@ -468,4 +488,17 @@ function rowToMessage(
     createdAt: r.createdAt,
     status: r.status ?? undefined,
   };
+}
+
+function structuredBody(r: MessageRow): string | undefined {
+  if (r.type === "poll" && Array.isArray(r.pollOptions)) {
+    return JSON.stringify({
+      name: r.pollName ?? r.body ?? undefined,
+      options: r.pollOptions.filter((x): x is string => typeof x === "string"),
+      selectableCount: r.pollSelectableCount ?? undefined,
+      endTime: r.pollEndTime ?? undefined,
+      hideVotes: r.pollHideVotes == null ? undefined : Boolean(r.pollHideVotes),
+    });
+  }
+  return r.body ?? undefined;
 }

@@ -55,6 +55,8 @@ type PollData struct {
 	Name            string   `json:"name" doc:"The poll question."`
 	Options         []string `json:"options" doc:"The poll answer options, in order."`
 	SelectableCount int      `json:"selectableCount" doc:"How many options a voter may select (1 = single choice)." example:"1"`
+	EndTime         int64    `json:"endTime,omitempty" doc:"Poll closing time as epoch milliseconds, when WhatsApp provided one." example:"1719662400000"`
+	HideVotes       bool     `json:"hideVotes,omitempty" doc:"True when WhatsApp hides participant names in the poll vote list." example:"true"`
 }
 
 // MessagePayload is the payload shared by the message-family events — `message`
@@ -176,6 +178,13 @@ type MessageEvent struct {
 	Payload MessagePayload `json:"payload"`
 }
 
+// PollRecapEvent is emitted once after a poll's configured end time is reached.
+type PollRecapEvent struct {
+	EventMeta
+	Event   string                  `json:"event" enum:"poll.recap" example:"poll.recap"`
+	Payload domain.PollRecapPayload `json:"payload"`
+}
+
 // MessageStatusEvent is the envelope for a delivery-receipt event.
 type MessageStatusEvent struct {
 	EventMeta
@@ -251,7 +260,7 @@ type NewsletterEvent struct {
 // OpenAPI 3.1 `webhooks` section (a oneOf over them, discriminated by `event`).
 func EventTypeSchemas() []any {
 	return []any{
-		MessageEvent{}, MessageStatusEvent{}, SessionStatusEvent{},
+		MessageEvent{}, PollRecapEvent{}, MessageStatusEvent{}, SessionStatusEvent{},
 		AuthQREvent{}, AuthCodeEvent{}, PresenceEvent{}, GroupEvent{},
 		ChatUpdateEvent{}, ContactUpdateEvent{}, CallEvent{}, NewsletterEvent{},
 	}

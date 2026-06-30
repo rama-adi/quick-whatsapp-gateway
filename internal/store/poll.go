@@ -45,6 +45,8 @@ func (r *PollRepo) Upsert(ctx context.Context, p domain.Poll) error {
 		Name:            nullString(&p.Name),
 		Options:         options,
 		SelectableCount: int32(p.SelectableCount),
+		EndTime:         pollNullInt64(p.EndTime),
+		HideVotes:       pollBoolInt8(p.HideVotes),
 		CreatedAt:       p.CreatedAt,
 		UpdatedAt:       p.UpdatedAt,
 	})
@@ -52,6 +54,72 @@ func (r *PollRepo) Upsert(ctx context.Context, p domain.Poll) error {
 		return fmt.Errorf("store: upsert poll: %w", err)
 	}
 	return nil
+}
+
+func pollNullInt64(v int64) sql.NullInt64 {
+	return sql.NullInt64{Int64: v, Valid: v != 0}
+}
+
+func pollBoolInt8(v bool) int8 {
+	if v {
+		return 1
+	}
+	return 0
+}
+
+// ListDueRecaps returns polls whose WhatsApp close time has passed and whose
+// recap event has not yet been emitted.
+func (r *PollRepo) ListDueRecaps(ctx context.Context, nowMs int64, limit int) ([]domain.PollRecapCandidate, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	rows, err := r.q.ListDuePollRecaps(ctx, storedb.ListDuePollRecapsParams{
+		EndTime: nowMs,
+		Limit:   int32(limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("store: list due poll recaps: %w", err)
+	}
+	out := make([]domain.PollRecapCandidate, 0, len(rows))
+	for _, row := range rows {
+		var options []string
+		if len(row.Options) > 0 {
+			if err := json.Unmarshal(row.Options, &options); err != nil {
+				return nil, fmt.Errorf("store: decode recap poll options: %w", err)
+			}
+		}
+		out = append(out, domain.PollRecapCandidate{
+			SessionID:       row.SessionID,
+			OrganizationID:  row.OrganizationID,
+			PollMessageID:   row.PollMessageID,
+			ChatJID:         row.ChatJid,
+			Name:            row.Name,
+			Options:         options,
+			SelectableCount: int(row.SelectableCount),
+			EndTime:         row.EndTime,
+			HideVotes:       row.HideVotes != 0,
+		})
+	}
+	return out, nil
+}
+
+// MarkRecapEmitted claims a poll recap for emission. It returns false when
+// another worker already claimed or emitted the recap.
+func (r *PollRepo) MarkRecapEmitted(ctx context.Context, sessionID, pollMessageID string, nowMs int64) (bool, error) {
+	res, err := r.q.MarkPollRecapEmitted(ctx, storedb.MarkPollRecapEmittedParams{
+		RecapEmittedAt: nowMs,
+		UpdatedAt:      nowMs,
+		SessionID:      sessionID,
+		PollMessageID:  pollMessageID,
+	})
+	if err != nil {
+		return false, fmt.Errorf("store: mark poll recap emitted: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("store: mark poll recap emitted affected: %w", err)
+	}
+	return affected > 0, nil
 }
 
 // GetOptions returns a poll's options in creation order, or (nil, nil) when the

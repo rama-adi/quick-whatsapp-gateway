@@ -7,6 +7,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import { apiUrl, fetchJSON } from "~/lib/api/client";
 import type { ApiError } from "~/lib/api/envelope";
 import type { Chat, Message } from "~/lib/api/types";
+import { cn } from "~/lib/utils";
 
 /** Compact avatar with initials derived from a chat/contact name or JID. */
 export function ChatAvatar({
@@ -14,18 +15,20 @@ export function ChatAvatar({
   name,
   jid,
   type,
+  className,
 }: {
   sessionId?: string;
   name?: string;
   jid?: string;
   type?: Chat["type"];
+  className?: string;
 }) {
   const label = name || jid || "?";
   const initials = deriveInitials(label);
   const isGroup = type === "group" || type === "broadcast";
   const picture = useProfilePicture(sessionId, jid);
   return (
-    <Avatar className="size-9 shrink-0">
+    <Avatar className={cn("size-9 shrink-0", className)}>
       {picture.data?.url ? (
         <AvatarImage src={picture.data.url} alt={label} />
       ) : null}
@@ -130,7 +133,14 @@ const MEDIA_TYPES = new Set([
 export type ParsedMessage =
   | { kind: "text"; text: string }
   | { kind: "media"; mediaType: string; caption?: string }
-  | { kind: "poll"; name?: string; options: string[] }
+  | {
+      kind: "poll";
+      name?: string;
+      options: string[];
+      selectableCount?: number;
+      endTime?: number;
+      hideVotes?: boolean;
+    }
   | { kind: "location"; latitude?: number; longitude?: number; name?: string }
   | { kind: "contact"; name?: string; phone?: string }
   | { kind: "system" }
@@ -173,6 +183,13 @@ export function parseMessage(m: Message): ParsedMessage {
       kind: "poll",
       name: name ?? (options.length === 0 ? body || undefined : undefined),
       options,
+      selectableCount:
+        struct && typeof struct.selectableCount === "number"
+          ? struct.selectableCount
+          : undefined,
+      endTime:
+        struct && typeof struct.endTime === "number" ? struct.endTime : undefined,
+      hideVotes: struct?.hideVotes === true,
     };
   }
 

@@ -64,6 +64,29 @@ function normalizeMessages(data: Infinite | undefined): Infinite | undefined {
   };
 }
 
+function optimisticBody(body: SendRequest): string {
+  switch (body.type) {
+    case "poll":
+      return JSON.stringify({
+        name: body.name ?? "",
+        options: body.options ?? [],
+        selectableCount: body.selectableCount ?? 1,
+        endTime: body.pollEndTime,
+        hideVotes: body.pollHideVotes,
+      });
+    case "location":
+      return JSON.stringify({
+        name: body.name,
+        latitude: body.latitude,
+        longitude: body.longitude,
+      });
+    case "contact":
+      return JSON.stringify(body.contact ?? {});
+    default:
+      return body.text ?? body.media?.caption ?? "";
+  }
+}
+
 export function useSendMessage(
   s: string,
 ): UseMutationResult<
@@ -93,7 +116,8 @@ export function useSendMessage(
         direction: "out",
         fromMe: true,
         type: body.type,
-        body: body.text ?? "",
+        body: optimisticBody(body),
+        quotedMessageId: body.replyTo,
         status: "pending",
         timestamp: now,
         createdAt: now,
@@ -229,5 +253,27 @@ export function useSendMessage(
         });
       });
     },
+  });
+}
+
+export function useVoteMessage(
+  s: string,
+): UseMutationResult<
+  SendResult,
+  ApiError,
+  { messageId: string; chatId: string; options: string[] },
+  unknown
+> {
+  return useMutation({
+    mutationFn: ({ messageId, chatId, options }) =>
+      fetchJSON<SendResult>(
+        apiUrl(
+          `/sessions/${encodeURIComponent(s)}/messages/${encodeURIComponent(messageId)}/vote`,
+        ),
+        {
+          method: "POST",
+          body: JSON.stringify({ chat: chatId, options }),
+        },
+      ),
   });
 }

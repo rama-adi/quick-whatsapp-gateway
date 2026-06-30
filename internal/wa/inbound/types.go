@@ -138,6 +138,8 @@ type NormalizedPoll struct {
 	Name            string
 	Options         []string
 	SelectableCount int
+	EndTime         int64
+	HideVotes       bool
 }
 
 // NormalizedPollVote carries the fields for a poll_votes insert.

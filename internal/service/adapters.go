@@ -269,10 +269,13 @@ func resolveSelectedOptions(options, selectedHashes []string) []string {
 }
 
 type InboundRepos struct {
-	store *store.Store
+	store     *store.Store
+	scheduler pollRecapScheduler
 }
 
-func NewInboundRepos(st *store.Store) *InboundRepos { return &InboundRepos{store: st} }
+func NewInboundRepos(st *store.Store, scheduler pollRecapScheduler) *InboundRepos {
+	return &InboundRepos{store: st, scheduler: scheduler}
+}
 
 var _ inbound.Repos = (*InboundRepos)(nil)
 
@@ -368,16 +371,24 @@ func (r *InboundRepos) UpdateMessageStatus(ctx context.Context, in inbound.Messa
 }
 
 func (r *InboundRepos) UpsertPoll(ctx context.Context, in inbound.PollUpsert) error {
-	return r.store.Polls.Upsert(ctx, domain.Poll{
+	if err := r.store.Polls.Upsert(ctx, domain.Poll{
 		SessionID:       in.SessionID,
 		PollMessageID:   in.PollMessageID,
 		ChatJID:         in.ChatJID,
 		Name:            in.Name,
 		Options:         in.Options,
 		SelectableCount: in.SelectableCount,
+		EndTime:         in.EndTime,
+		HideVotes:       in.HideVotes,
 		CreatedAt:       in.NowMs,
 		UpdatedAt:       in.NowMs,
-	})
+	}); err != nil {
+		return err
+	}
+	if r.scheduler != nil {
+		r.scheduler.Schedule(ctx, in.SessionID, in.PollMessageID, in.EndTime)
+	}
+	return nil
 }
 
 func (r *InboundRepos) InsertPollVote(ctx context.Context, in inbound.PollVoteInsert) error {
@@ -548,6 +559,8 @@ func inboundMessageFromEventsMessage(m *events.NormalizedMessage, kind inbound.M
 			Name:            m.Poll.Name,
 			Options:         m.Poll.Options,
 			SelectableCount: m.Poll.SelectableCount,
+			EndTime:         m.Poll.EndTime,
+			HideVotes:       m.Poll.HideVotes,
 		}
 	}
 	if nm.IsGroup {

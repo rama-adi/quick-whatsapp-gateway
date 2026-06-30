@@ -98,15 +98,106 @@ func (q *Queries) ListPollVotesByPoll(ctx context.Context, arg ListPollVotesByPo
 	return items, nil
 }
 
+const listDuePollRecaps = `-- name: ListDuePollRecaps :many
+SELECT
+  p.id, p.session_id, s.organization_id, p.poll_message_id, p.chat_jid,
+  COALESCE(p.name, '') AS name, p.options, p.selectable_count,
+  COALESCE(p.end_time, 0) AS end_time, p.hide_votes
+FROM polls p
+JOIN wa_sessions s ON s.id = p.session_id
+WHERE p.end_time IS NOT NULL
+  AND p.end_time > 0
+  AND p.end_time <= ?
+  AND p.recap_emitted_at IS NULL
+ORDER BY p.end_time ASC
+LIMIT ?
+`
+
+type ListDuePollRecapsParams struct {
+	EndTime int64 `db:"end_time" json:"end_time"`
+	Limit   int32 `db:"limit" json:"limit"`
+}
+
+type ListDuePollRecapsRow struct {
+	ID              uint64          `db:"id" json:"id"`
+	SessionID       string          `db:"session_id" json:"session_id"`
+	OrganizationID  string          `db:"organization_id" json:"organization_id"`
+	PollMessageID   string          `db:"poll_message_id" json:"poll_message_id"`
+	ChatJid         string          `db:"chat_jid" json:"chat_jid"`
+	Name            string          `db:"name" json:"name"`
+	Options         json.RawMessage `db:"options" json:"options"`
+	SelectableCount int32           `db:"selectable_count" json:"selectable_count"`
+	EndTime         int64           `db:"end_time" json:"end_time"`
+	HideVotes       int8            `db:"hide_votes" json:"hide_votes"`
+}
+
+func (q *Queries) ListDuePollRecaps(ctx context.Context, arg ListDuePollRecapsParams) ([]ListDuePollRecapsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listDuePollRecaps, arg.EndTime, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListDuePollRecapsRow{}
+	for rows.Next() {
+		var i ListDuePollRecapsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.SessionID,
+			&i.OrganizationID,
+			&i.PollMessageID,
+			&i.ChatJid,
+			&i.Name,
+			&i.Options,
+			&i.SelectableCount,
+			&i.EndTime,
+			&i.HideVotes,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const markPollRecapEmitted = `-- name: MarkPollRecapEmitted :execresult
+UPDATE polls
+SET recap_emitted_at = ?, updated_at = ?
+WHERE session_id = ? AND poll_message_id = ? AND recap_emitted_at IS NULL
+`
+
+type MarkPollRecapEmittedParams struct {
+	RecapEmittedAt int64  `db:"recap_emitted_at" json:"recap_emitted_at"`
+	UpdatedAt      int64  `db:"updated_at" json:"updated_at"`
+	SessionID      string `db:"session_id" json:"session_id"`
+	PollMessageID  string `db:"poll_message_id" json:"poll_message_id"`
+}
+
+func (q *Queries) MarkPollRecapEmitted(ctx context.Context, arg MarkPollRecapEmittedParams) (sql.Result, error) {
+	return q.db.ExecContext(ctx, markPollRecapEmitted,
+		arg.RecapEmittedAt,
+		arg.UpdatedAt,
+		arg.SessionID,
+		arg.PollMessageID,
+	)
+}
+
 const upsertPoll = `-- name: UpsertPoll :exec
 INSERT INTO polls
-(session_id, poll_message_id, chat_jid, name, options, selectable_count, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+(session_id, poll_message_id, chat_jid, name, options, selectable_count, end_time, hide_votes, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON DUPLICATE KEY UPDATE
 	chat_jid         = VALUES(chat_jid),
 	name             = VALUES(name),
 	options          = VALUES(options),
 	selectable_count = VALUES(selectable_count),
+	end_time         = VALUES(end_time),
+	hide_votes       = VALUES(hide_votes),
 	updated_at       = VALUES(updated_at)
 `
 
@@ -117,6 +208,8 @@ type UpsertPollParams struct {
 	Name            sql.NullString  `db:"name" json:"name"`
 	Options         json.RawMessage `db:"options" json:"options"`
 	SelectableCount int32           `db:"selectable_count" json:"selectable_count"`
+	EndTime         sql.NullInt64   `db:"end_time" json:"end_time"`
+	HideVotes       int8            `db:"hide_votes" json:"hide_votes"`
 	CreatedAt       int64           `db:"created_at" json:"created_at"`
 	UpdatedAt       int64           `db:"updated_at" json:"updated_at"`
 }
@@ -129,6 +222,8 @@ func (q *Queries) UpsertPoll(ctx context.Context, arg UpsertPollParams) error {
 		arg.Name,
 		arg.Options,
 		arg.SelectableCount,
+		arg.EndTime,
+		arg.HideVotes,
 		arg.CreatedAt,
 		arg.UpdatedAt,
 	)

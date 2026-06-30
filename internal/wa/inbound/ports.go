@@ -201,6 +201,8 @@ type PollUpsert struct {
 	Name            string
 	Options         []string
 	SelectableCount int
+	EndTime         int64
+	HideVotes       bool
 	NowMs           int64
 }
 

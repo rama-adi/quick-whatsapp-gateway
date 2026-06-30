@@ -264,6 +264,27 @@ export const messages = mysqlTable(
   ],
 );
 
+export const polls = mysqlTable(
+  "polls",
+  {
+    id: bigint("id", { mode: "number", unsigned: true })
+      .autoincrement()
+      .primaryKey(),
+    sessionId: varchar("session_id", { length: 64 }).notNull(),
+    pollMessageId: varchar("poll_message_id", { length: 255 }).notNull(),
+    chatJid: varchar("chat_jid", { length: 255 }).notNull(),
+    name: text("name"),
+    options: json("options").notNull(),
+    selectableCount: int("selectable_count").notNull().default(1),
+    endTime: bigint("end_time", { mode: "number" }),
+    hideVotes: tinyint("hide_votes").notNull().default(0),
+    recapEmittedAt: bigint("recap_emitted_at", { mode: "number" }),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (t) => [uniqueIndex("uq_poll").on(t.sessionId, t.pollMessageId)],
+);
+
 export const pollVotes = mysqlTable(
   "poll_votes",
   {

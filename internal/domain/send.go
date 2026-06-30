@@ -52,6 +52,8 @@ type SendRequest struct {
 	Name            string   `json:"name,omitempty" doc:"For a poll, the poll question; for a location, the place label. Required for poll; optional for location." example:"Lunch on Friday?"`
 	Options         []string `json:"options,omitempty" doc:"The poll's answer options. Required for type poll." example:"[\"Yes\",\"No\",\"Maybe\"]"`
 	SelectableCount int      `json:"selectableCount,omitempty" doc:"How many options a voter may pick in the poll (1 = single choice). Used for type poll." example:"1"`
+	PollEndTime     int64    `json:"pollEndTime,omitempty" doc:"Optional poll closing time as epoch milliseconds. Used for type poll when WhatsApp supports poll end times." example:"1719662400000"`
+	PollHideVotes   bool     `json:"pollHideVotes,omitempty" doc:"When true, ask WhatsApp to hide participant names in the poll vote list. Used for type poll." example:"true"`
 
 	// location
 	Latitude  float64 `json:"latitude,omitempty" doc:"Latitude of the shared location in decimal degrees. Required for type location." example:"-6.2"`

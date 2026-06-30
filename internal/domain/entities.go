@@ -328,6 +328,8 @@ type Poll struct {
 	Name            string   `json:"name" doc:"The poll question."`
 	Options         []string `json:"options" doc:"The poll answer options, in creation order."`
 	SelectableCount int      `json:"selectableCount" doc:"How many options a voter may select (1 = single choice)." example:"1"`
+	EndTime         int64    `json:"endTime,omitempty" doc:"Poll closing time as epoch milliseconds, when WhatsApp provided one." example:"1719662400000"`
+	HideVotes       bool     `json:"hideVotes,omitempty" doc:"True when WhatsApp hides participant names in the poll vote list." example:"true"`
 	CreatedAt       int64    `json:"createdAt" doc:"When the poll was first recorded, epoch milliseconds."`
 	UpdatedAt       int64    `json:"updatedAt" doc:"When the poll row was last updated, epoch milliseconds."`
 }
@@ -341,6 +343,34 @@ type PollVote struct {
 	SelectedOptions json.RawMessage `json:"selectedOptions" doc:"The option(s) the voter selected, as a JSON array of option identifiers." example:"[\"Yes\"]"`
 	Timestamp       int64           `json:"timestamp" doc:"When the vote was cast, in epoch milliseconds (UTC)." example:"1719662400000"`
 	RawJSON         json.RawMessage `json:"-"` // normalized event payload; never re-exposed
+}
+
+type PollRecapCandidate struct {
+	SessionID       string   `json:"sessionId"`
+	OrganizationID  string   `json:"organizationId"`
+	PollMessageID   string   `json:"pollMessageId"`
+	ChatJID         string   `json:"chatJid"`
+	Name            string   `json:"name"`
+	Options         []string `json:"options"`
+	SelectableCount int      `json:"selectableCount"`
+	EndTime         int64    `json:"endTime"`
+	HideVotes       bool     `json:"hideVotes"`
+}
+
+type PollRecapOption struct {
+	Option string `json:"option"`
+	Count  int    `json:"count"`
+}
+
+type PollRecapPayload struct {
+	PollMessageID   string            `json:"pollMessageId" doc:"Id of the poll-creation message."`
+	ChatJID         string            `json:"chatJid" doc:"JID of the chat the poll belongs to."`
+	Name            string            `json:"name" doc:"The poll question."`
+	Options         []PollRecapOption `json:"options" doc:"Vote totals by option."`
+	SelectableCount int               `json:"selectableCount" doc:"How many options a voter could select."`
+	EndTime         int64             `json:"endTime" doc:"Poll closing time as epoch milliseconds."`
+	HideVotes       bool              `json:"hideVotes" doc:"True when participant names were hidden in the vote list."`
+	TotalVotes      int               `json:"totalVotes" doc:"Number of latest voter records counted."`
 }
 
 // OutboxEntry mirrors the outbox table (async send queue).

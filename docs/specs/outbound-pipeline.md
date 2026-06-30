@@ -8,7 +8,9 @@ limiting, optional jittered pacing, and a sync/async split.
 
 ## Scope
 
-- Unified typed send: `text`, `poll`, `location`, `contact`.
+- Unified typed send: `text`, `poll`, `location`, `contact`. Poll sends support
+  `selectableCount`, optional `pollEndTime` (epoch-ms close time), and
+  `pollHideVotes`.
 - Message sub-resource ops (§13): `reaction`, `edit`, `revoke`, `vote`, `forward`.
 - Media sends (`image|video|audio|document|sticker`): the file is supplied inline
   as base64 in `media.data` (no server-side URL fetch). The adapter `Upload`s the
@@ -34,6 +36,9 @@ limiting, optional jittered pacing, and a sync/async split.
   whatsmeow does not echo a self-authored send back as an `events.Message` on the
   same device, so without this the inbound pipeline never sees it and the only
   trace is the transient `outbox` row.
+- Poll close recap: successful poll sends also upsert the `polls` metadata and
+  schedule the optional close time into Redis. MySQL remains the durable source:
+  the recap worker claims `polls.recap_emitted_at` before emitting `poll.recap`.
 
 ## Key types
 
@@ -94,7 +99,8 @@ whatsmeow. It maps each method to the recon §7 path:
 
 - text → `Conversation`, or `ExtendedTextMessage{ContextInfo}` when a reply or
   mentions are present.
-- poll → `BuildPollCreation`; location → `LocationMessage`; contact →
+- poll → a `PollCreationMessage` with option hashes, selectable count, optional
+  end time, and hidden-vote privacy flag; location → `LocationMessage`; contact →
   `ContactMessage` (vcard verbatim, else built from name/phone).
 - media → `Upload(bytes, MediaType)` then the matching `ImageMessage`/
   `VideoMessage`/`AudioMessage`/`DocumentMessage`/`StickerMessage` (sticker uploads

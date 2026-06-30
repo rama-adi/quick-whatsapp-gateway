@@ -35,6 +35,7 @@ const (
 	EventMessageEdited    = "message.edited"
 	EventMessageRevoked   = "message.revoked"
 	EventPollVote         = "poll.vote"
+	EventPollRecap        = "poll.recap"
 	EventPresenceUpdate   = "presence.update"
 	EventGroupUpdate      = "group.update"
 	EventGroupParticipant = "group.participant"

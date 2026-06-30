@@ -53,6 +53,7 @@ func Normalize(evt any, sessionID, organizationID string) (domain.Event, Persist
 | `*events.Message` edit (`IsEdit` / `ProtocolMessage{MESSAGE_EDIT}`) | `message.edited` | `PersistMessageEdit` |
 | `*events.Message` revoke (`ProtocolMessage{REVOKE}`) | `message.revoked` | `PersistMessageRevoke` |
 | `*events.Message` poll vote (`GetPollUpdateMessage`) | `poll.vote` | `PersistPollVote` |
+| timed poll close (`PollRecapWorker`) | `poll.recap` | synthetic / no inbound persist |
 | `*events.Receipt` (delivered/read/played) | `message.status` | `PersistMessageStatus` |
 | `*events.Connected` | `session.status` (working) | `PersistSessionStatus` |
 | `*events.Disconnected` | `session.status` (starting) | `PersistSessionStatus` |
@@ -84,9 +85,10 @@ Ephemeral/ViewOnce/DeviceSent/Edited). Detection order (control messages first):
    here — decryption + option-text resolution happen in the composition-layer normalizer,
    which holds the whatsmeow client and the stored poll options, see below).
 5. `GetPollCreationMessage()` **or** `GetPollCreationMessageV2()`/`V3()` → poll
-   (name/options/selectableCount). Current WhatsApp clients send the V3 field; checking only
-   the legacy field was why modern polls were misclassified as a content-less "system"
-   message and dropped. (V4+ wrap the poll in a `FutureProofMessage` and are not handled.)
+   (name/options/selectableCount/endTime/hideVotes). Current WhatsApp clients send the V3
+   field; checking only the legacy field was why modern polls were misclassified as a
+   content-less "system" message and dropped. (V4+ wrap the poll in a `FutureProofMessage`
+   and are not handled.)
 6. `GetLocationMessage()` → location (lat/long/name/address).
 7. `GetContactMessage()` → contact (displayName + vCard verbatim).
 8. Any media message (image/video/audio/document/sticker) → media **metadata only**.
@@ -140,6 +142,11 @@ unclassifiable data is worse than persisting an odd JID downstream can still rec
   hashes to option text against the `polls` table (populated when the poll creation was
   persisted), writing `selectedOptions` onto both the `poll.vote` envelope and the
   `poll_votes` row. An unresolvable hash (poll never seen) falls back to the raw hash.
+- Poll **recaps**: timed poll creation persists `polls.end_time` and schedules the close
+  timestamp into a Redis sorted set for near-realtime wakeups. `PollRecapWorker` still uses
+  MySQL as the source of truth: it sweeps due rows, claims `recap_emitted_at`, aggregates the
+  latest vote per voter from `poll_votes`, and emits one synthetic `poll.recap` event with
+  option counts, total voters, `selectableCount`, `endTime`, and `hideVotes`.
 
 ### How it's tested
 

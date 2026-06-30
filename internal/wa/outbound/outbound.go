@@ -68,8 +68,9 @@ type WAClient interface {
 	// SendText sends a plain/extended text message. replyTo is the quoted
 	// wa_message_id ("" for none); mentions are mentioned JID strings.
 	SendText(ctx context.Context, to, text, replyTo string, mentions []string) (waMessageID string, ts int64, err error)
-	// SendPoll creates a poll (BuildPollCreation + SendMessage).
-	SendPoll(ctx context.Context, to, name string, options []string, selectableCount int) (waMessageID string, ts int64, err error)
+	// SendPoll creates a poll. endTime is epoch-ms when non-zero; hideVotes asks
+	// WhatsApp to hide participant names in the poll vote list.
+	SendPoll(ctx context.Context, to, name string, options []string, selectableCount int, endTime int64, hideVotes bool) (waMessageID string, ts int64, err error)
 	// SendLocation sends a location pin.
 	SendLocation(ctx context.Context, to string, lat, lon float64, name string) (waMessageID string, ts int64, err error)
 	// SendContact sends a contact card. vcard, when non-empty, is sent verbatim;
@@ -137,16 +138,20 @@ type MessageRecorder interface {
 // fields (session id, wa message id, timestamp) are filled by the Sender from
 // the dispatch result and request context.
 type SentMessage struct {
-	SessionID   string
-	WAMessageID string
-	ChatJID     string            // the recipient JID (req.To)
-	Type        string            // one of the domain.SendType* constants
-	Body        string            // text body / poll question / location label / media caption ("" for none)
-	ReplyTo     string            // quoted wa_message_id ("" for none)
-	Mentions    []string          // mentioned JIDs
-	HasMedia    bool              // true for media sends (image, …)
-	MediaMeta   *domain.MediaMeta // media descriptor (mimetype/size/filename) when HasMedia
-	TimestampMs int64             // server timestamp of the send, epoch-ms
+	SessionID           string
+	WAMessageID         string
+	ChatJID             string            // the recipient JID (req.To)
+	Type                string            // one of the domain.SendType* constants
+	Body                string            // text body / poll question / location label / media caption ("" for none)
+	ReplyTo             string            // quoted wa_message_id ("" for none)
+	Mentions            []string          // mentioned JIDs
+	HasMedia            bool              // true for media sends (image, …)
+	MediaMeta           *domain.MediaMeta // media descriptor (mimetype/size/filename) when HasMedia
+	PollOptions         []string          // poll creation options, in order
+	PollSelectableCount int               // poll max selections
+	PollEndTime         int64             // poll close time, epoch-ms
+	PollHideVotes       bool              // hide participant names in votes
+	TimestampMs         int64             // server timestamp of the send, epoch-ms
 }
 
 // RateLimiter enforces the per-session send budget (rate_per_min / rate_per_hour,

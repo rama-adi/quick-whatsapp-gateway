@@ -39,7 +39,10 @@ func TestRoutingWAClient_UnresolvableSession_NotImplemented(t *testing.T) {
 	// client, and should have asked the resolver for the right session.
 	checks := []func() error{
 		func() error { _, _, e := c.SendText(ctx, "a@s.whatsapp.net", "hi", "", nil); return e },
-		func() error { _, _, e := c.SendPoll(ctx, "a@s.whatsapp.net", "q", []string{"x"}, 1); return e },
+		func() error {
+			_, _, e := c.SendPoll(ctx, "a@s.whatsapp.net", "q", []string{"x"}, 1, 0, false)
+			return e
+		},
 		func() error { _, _, e := c.SendLocation(ctx, "a@s.whatsapp.net", 1, 2, ""); return e },
 		func() error { _, _, e := c.SendContact(ctx, "a@s.whatsapp.net", "n", "p", ""); return e },
 		func() error { _, _, e := c.React(ctx, "a@s.whatsapp.net", "", "m", "👍"); return e },

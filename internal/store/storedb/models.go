@@ -641,6 +641,9 @@ type Poll struct {
 	Name            sql.NullString  `db:"name" json:"name"`
 	Options         json.RawMessage `db:"options" json:"options"`
 	SelectableCount int32           `db:"selectable_count" json:"selectable_count"`
+	EndTime         sql.NullInt64   `db:"end_time" json:"end_time"`
+	HideVotes       int8            `db:"hide_votes" json:"hide_votes"`
+	RecapEmittedAt  sql.NullInt64   `db:"recap_emitted_at" json:"recap_emitted_at"`
 	CreatedAt       int64           `db:"created_at" json:"created_at"`
 	UpdatedAt       int64           `db:"updated_at" json:"updated_at"`
 }

@@ -19,18 +19,24 @@ import (
 // keyed by (session_id, wa_message_id) — the same idempotent key inbound uses,
 // so a later echo or receipt reconciles onto this row rather than duplicating.
 type MessageRecorderAdapter struct {
-	messages *store.MessageRepo
-	chats    *store.ChatRepo
-	clock    func() int64
+	messages  *store.MessageRepo
+	chats     *store.ChatRepo
+	polls     *store.PollRepo
+	scheduler pollRecapScheduler
+	clock     func() int64
+}
+
+type pollRecapScheduler interface {
+	Schedule(ctx context.Context, sessionID, pollMessageID string, endTimeMs int64)
 }
 
 // NewMessageRecorderAdapter wraps the chat + message repos for the
 // outbound.Sender. clock may be nil (domain.NowMs is used).
-func NewMessageRecorderAdapter(messages *store.MessageRepo, chats *store.ChatRepo, clock func() int64) *MessageRecorderAdapter {
+func NewMessageRecorderAdapter(messages *store.MessageRepo, chats *store.ChatRepo, polls *store.PollRepo, scheduler pollRecapScheduler, clock func() int64) *MessageRecorderAdapter {
 	if clock == nil {
 		clock = domain.NowMs
 	}
-	return &MessageRecorderAdapter{messages: messages, chats: chats, clock: clock}
+	return &MessageRecorderAdapter{messages: messages, chats: chats, polls: polls, scheduler: scheduler, clock: clock}
 }
 
 var _ outbound.MessageRecorder = (*MessageRecorderAdapter)(nil)
@@ -58,6 +64,26 @@ func (a *MessageRecorderAdapter) RecordSent(ctx context.Context, m outbound.Sent
 			return err
 		}
 		mentions = b
+	}
+
+	if m.Type == domain.SendTypePoll && a.polls != nil {
+		if err := a.polls.Upsert(ctx, domain.Poll{
+			SessionID:       m.SessionID,
+			PollMessageID:   m.WAMessageID,
+			ChatJID:         m.ChatJID,
+			Name:            m.Body,
+			Options:         m.PollOptions,
+			SelectableCount: m.PollSelectableCount,
+			EndTime:         m.PollEndTime,
+			HideVotes:       m.PollHideVotes,
+			CreatedAt:       now,
+			UpdatedAt:       now,
+		}); err != nil {
+			return err
+		}
+		if a.scheduler != nil {
+			a.scheduler.Schedule(ctx, m.SessionID, m.WAMessageID, m.PollEndTime)
+		}
 	}
 
 	status := domain.MessageSent

@@ -55,12 +55,12 @@ func (c *RoutingWAClient) SendText(ctx context.Context, to, text, replyTo string
 	return w.SendText(ctx, to, text, replyTo, mentions)
 }
 
-func (c *RoutingWAClient) SendPoll(ctx context.Context, to, name string, options []string, selectableCount int) (string, int64, error) {
+func (c *RoutingWAClient) SendPoll(ctx context.Context, to, name string, options []string, selectableCount int, endTime int64, hideVotes bool) (string, int64, error) {
 	w, err := c.client(ctx)
 	if err != nil {
 		return "", 0, err
 	}
-	return w.SendPoll(ctx, to, name, options, selectableCount)
+	return w.SendPoll(ctx, to, name, options, selectableCount, endTime, hideVotes)
 }
 
 func (c *RoutingWAClient) SendLocation(ctx context.Context, to string, lat, lon float64, name string) (string, int64, error) {

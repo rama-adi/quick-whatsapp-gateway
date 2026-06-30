@@ -2690,6 +2690,17 @@ export interface components {
             code: string;
         };
         PollData: {
+            /**
+             * Format: int64
+             * @description Poll closing time as epoch milliseconds, when WhatsApp provided one.
+             * @example 1719662400000
+             */
+            endTime?: number;
+            /**
+             * @description True when WhatsApp hides participant names in the poll vote list.
+             * @example true
+             */
+            hideVotes?: boolean;
             /** @description The poll question. */
             name: string;
             /** @description The poll answer options, in order. */
@@ -2700,6 +2711,73 @@ export interface components {
              * @example 1
              */
             selectableCount: number;
+        };
+        PollRecapEvent: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            event: "poll.recap";
+            /**
+             * @description Unique event id. Webhook deliveries repeat it in the X-Webhook-Request-Id header so receivers can drop duplicate redeliveries; the realtime client uses it as the ?since resume cursor.
+             * @example evt_01J9ZX...
+             */
+            id: string;
+            /**
+             * @description Id of the organization that owns the session.
+             * @example org_01J9...
+             */
+            organization: string;
+            payload: components["schemas"]["PollRecapPayload"];
+            /**
+             * @description Envelope schema version, so consumers can adapt if the shape changes.
+             * @example v1
+             * @enum {string}
+             */
+            schema: "v1";
+            /**
+             * @description Id of the WhatsApp session the event came from.
+             * @example wa_sess_01J9...
+             */
+            session: string;
+            /**
+             * Format: int64
+             * @description When the event happened, in epoch milliseconds.
+             * @example 1719400000000
+             */
+            timestamp: number;
+        };
+        PollRecapOption: {
+            /** Format: int64 */
+            count: number;
+            option: string;
+        };
+        PollRecapPayload: {
+            /** @description JID of the chat the poll belongs to. */
+            chatJid: string;
+            /**
+             * Format: int64
+             * @description Poll closing time as epoch milliseconds.
+             */
+            endTime: number;
+            /** @description True when participant names were hidden in the vote list. */
+            hideVotes: boolean;
+            /** @description The poll question. */
+            name: string;
+            /** @description Vote totals by option. */
+            options: components["schemas"]["PollRecapOption"][] | null;
+            /** @description Id of the poll-creation message. */
+            pollMessageId: string;
+            /**
+             * Format: int64
+             * @description How many options a voter could select.
+             */
+            selectableCount: number;
+            /**
+             * Format: int64
+             * @description Number of latest voter records counted.
+             */
+            totalVotes: number;
         };
         PostStatusInputBody: {
             /**
@@ -2871,6 +2949,17 @@ export interface components {
              *     ]
              */
             options?: string[] | null;
+            /**
+             * Format: int64
+             * @description Optional poll closing time as epoch milliseconds. Used for type poll when WhatsApp supports poll end times.
+             * @example 1719662400000
+             */
+            pollEndTime?: number;
+            /**
+             * @description When true, ask WhatsApp to hide participant names in the poll vote list. Used for type poll.
+             * @example true
+             */
+            pollHideVotes?: boolean;
             /**
              * @description Id of the message this one quotes/replies to (a wa_message_id). Optional.
              * @example 3EB0C431C26A1916E001
@@ -5409,7 +5498,7 @@ export interface operations {
         /** @description The event envelope. Exactly one of the listed event shapes, selected by `event`. */
         requestBody: {
             content: {
-                "application/json": components["schemas"]["MessageEvent"] | components["schemas"]["MessageStatusEvent"] | components["schemas"]["SessionStatusEvent"] | components["schemas"]["AuthQREvent"] | components["schemas"]["AuthCodeEvent"] | components["schemas"]["PresenceEvent"] | components["schemas"]["GroupEvent"] | components["schemas"]["ChatUpdateEvent"] | components["schemas"]["ContactUpdateEvent"] | components["schemas"]["CallEvent"] | components["schemas"]["NewsletterEvent"];
+                "application/json": components["schemas"]["MessageEvent"] | components["schemas"]["PollRecapEvent"] | components["schemas"]["MessageStatusEvent"] | components["schemas"]["SessionStatusEvent"] | components["schemas"]["AuthQREvent"] | components["schemas"]["AuthCodeEvent"] | components["schemas"]["PresenceEvent"] | components["schemas"]["GroupEvent"] | components["schemas"]["ChatUpdateEvent"] | components["schemas"]["ContactUpdateEvent"] | components["schemas"]["CallEvent"] | components["schemas"]["NewsletterEvent"];
             };
         };
         responses: {

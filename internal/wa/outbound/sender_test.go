@@ -43,7 +43,7 @@ func (f *fakeWA) SendText(_ context.Context, to, text, _ string, _ []string) (st
 	f.lastTo, f.lastText = to, text
 	return f.id, f.ts, f.err
 }
-func (f *fakeWA) SendPoll(_ context.Context, _, _ string, _ []string, _ int) (string, int64, error) {
+func (f *fakeWA) SendPoll(_ context.Context, _, _ string, _ []string, _ int, _ int64, _ bool) (string, int64, error) {
 	f.record("SendPoll")
 	return f.id, f.ts, f.err
 }

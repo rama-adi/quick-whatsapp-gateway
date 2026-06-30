@@ -20,9 +20,10 @@ import {
   Phone,
   Reply,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { Message, MessageStatus } from "~/lib/api/types";
 import { cn } from "~/lib/utils";
+import { Button } from "~/components/ui/button";
 import {
   Tooltip,
   TooltipContent,
@@ -198,13 +199,17 @@ const STATUS_LABEL: Record<MessageStatus, string> = {
 
 export function MessageBubble({
   message,
+  quotedMessage,
   showSender = true,
   onReply,
+  onVote,
 }: {
   message: Message;
+  quotedMessage?: Message;
   /** First message of a same-sender run shows the header; later ones don't. */
   showSender?: boolean;
   onReply?: (message: Message) => void;
+  onVote?: (message: Message, options: string[]) => void;
 }) {
   const parsed = parseMessage(message);
 
@@ -216,6 +221,16 @@ export function MessageBubble({
 
   const outgoing = message.direction === "out";
   const extras = parseExtras(message);
+  const quoted =
+    extras.quoted ??
+    (message.quotedMessageId
+      ? {
+          author: quotedMessage ? senderLabel(quotedMessage) : undefined,
+          preview: quotedMessage
+            ? messagePreview(quotedMessage)
+            : `Quoted message ${message.quotedMessageId}`,
+        }
+      : undefined);
   const sender = !outgoing && showSender ? senderLabel(message) : undefined;
   const align = outgoing ? "end" : "start";
   const hasReactions = extras.reactions.length > 0;
@@ -235,14 +250,16 @@ export function MessageBubble({
           className={cn(hasReactions && "mb-3")}
         >
           <BubbleContent>
-            {extras.quoted ? (
-              <QuotedPreview quoted={extras.quoted} outgoing={outgoing} />
+            {quoted ? (
+              <QuotedPreview quoted={quoted} outgoing={outgoing} />
             ) : null}
 
             <MessageBody
               parsed={parsed}
               outgoing={outgoing}
               mentionNames={message.mentionNames}
+              message={message}
+              onVote={onVote}
             />
           </BubbleContent>
 
@@ -304,6 +321,12 @@ export function MessageBubble({
   );
 }
 
+function messagePreview(message: Message): string {
+  const body = message.body?.trim();
+  if (body) return body.length > 160 ? `${body.slice(0, 160)}...` : body;
+  return message.type ? `${message.type} message` : "Message";
+}
+
 function QuotedPreview({
   quoted,
   outgoing,
@@ -335,10 +358,14 @@ function MessageBody({
   parsed,
   outgoing,
   mentionNames,
+  message,
+  onVote,
 }: {
   parsed: ParsedMessage;
   outgoing: boolean;
   mentionNames?: Record<string, string>;
+  message: Message;
+  onVote?: (message: Message, options: string[]) => void;
 }) {
   switch (parsed.kind) {
     case "text":
@@ -382,38 +409,12 @@ function MessageBody({
 
     case "poll":
       return (
-        <div className="space-y-1">
-          <div className="flex items-center gap-1.5 font-medium">
-            <ListChecks className="size-4 shrink-0 opacity-80" aria-hidden />
-            <span>{parsed.name || "Poll"}</span>
-          </div>
-          {parsed.options.length > 0 ? (
-            <ul className="space-y-1.5 pt-1">
-              {parsed.options.map((opt, i) => (
-                <li
-                  key={`${i}-${opt}`}
-                  className={cn(
-                    "relative overflow-hidden rounded-md border px-2 py-1.5 text-xs",
-                    outgoing
-                      ? "border-primary-foreground/30"
-                      : "border-border",
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "absolute inset-y-0 left-0 w-1/3",
-                      outgoing ? "bg-primary-foreground/10" : "bg-primary/10",
-                    )}
-                    aria-hidden
-                  />
-                  <span className="relative">{opt}</span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-xs opacity-70">No options available.</p>
-          )}
-        </div>
+        <PollBody
+          parsed={parsed}
+          outgoing={outgoing}
+          message={message}
+          onVote={onVote}
+        />
       );
 
     case "location":
@@ -481,6 +482,96 @@ function MessageBody({
         </div>
       );
   }
+}
+
+function PollBody({
+  parsed,
+  outgoing,
+  message,
+  onVote,
+}: {
+  parsed: Extract<ParsedMessage, { kind: "poll" }>;
+  outgoing: boolean;
+  message: Message;
+  onVote?: (message: Message, options: string[]) => void;
+}) {
+  const selectableCount = parsed.selectableCount ?? 1;
+  const maxSelections =
+    selectableCount <= 0 ? parsed.options.length : Math.min(selectableCount, parsed.options.length);
+  const [selected, setSelected] = useState<string[]>([]);
+  const canVote = Boolean(onVote && parsed.options.length > 0);
+  return (
+    <div className="min-w-60 space-y-2">
+      <div className="space-y-0.5">
+        <div className="flex items-center gap-1.5 font-medium">
+            <ListChecks className="size-4 shrink-0 opacity-80" aria-hidden />
+            <span>{parsed.name || "Poll"}</span>
+          </div>
+        <p className="text-xs opacity-70">
+          {maxSelections > 1
+            ? `Choose up to ${maxSelections} options`
+            : "Choose one option"}
+          {parsed.hideVotes ? " · votes hidden" : ""}
+          {parsed.endTime ? ` · ends ${new Date(parsed.endTime).toLocaleString()}` : ""}
+        </p>
+      </div>
+          {parsed.options.length > 0 ? (
+            <ul className="space-y-1.5 pt-1">
+              {parsed.options.map((opt, i) => (
+                <button
+                  type="button"
+                  key={`${i}-${opt}`}
+                  disabled={!canVote}
+                  onClick={() =>
+                    setSelected((cur) => togglePollSelection(cur, opt, maxSelections))
+                  }
+                  className={cn(
+                    "relative w-full overflow-hidden rounded-md border px-2 py-1.5 text-left text-xs transition-colors",
+                    outgoing
+                      ? "border-primary-foreground/30"
+                      : "border-border",
+                    selected.includes(opt) &&
+                      (outgoing
+                        ? "bg-primary-foreground/15"
+                        : "bg-primary/10"),
+                    canVote && "hover:bg-current/10",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "absolute inset-y-0 left-0 w-1/3",
+                      outgoing ? "bg-primary-foreground/10" : "bg-primary/10",
+                    )}
+                    aria-hidden
+                  />
+                  <span className="relative">{opt}</span>
+                </button>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-xs opacity-70">No options available.</p>
+          )}
+      {canVote ? (
+        <Button
+          type="button"
+          size="sm"
+          variant={outgoing ? "secondary" : "outline"}
+          className="h-7 w-full text-xs"
+          disabled={selected.length === 0}
+          onClick={() => onVote?.(message, selected)}
+        >
+          Vote
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+function togglePollSelection(cur: string[], option: string, max: number): string[] {
+  if (cur.includes(option)) return cur.filter((x) => x !== option);
+  if (max <= 1) return [option];
+  if (cur.length >= max) return [...cur.slice(1), option];
+  return [...cur, option];
 }
 
 function StatusIcon({ status }: { status?: MessageStatus }) {

@@ -84,6 +84,8 @@ func (p *Pipeline) persistMessage(ctx context.Context, nm *NormalizedMessage, no
 			Name:            nm.Poll.Name,
 			Options:         nm.Poll.Options,
 			SelectableCount: nm.Poll.SelectableCount,
+			EndTime:         nm.Poll.EndTime,
+			HideVotes:       nm.Poll.HideVotes,
 			NowMs:           now,
 		}); err != nil {
 			return fmt.Errorf("upsert poll %q: %w", nm.WAMessageID, err)

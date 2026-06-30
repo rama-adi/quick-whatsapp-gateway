@@ -73,8 +73,10 @@ CREATE TABLE wa_sessions (
   UNIQUE KEY uq_sessions_jid (wa_jid)
 );
 -- webhooks/webhook_deliveries/whatsapp_*/chats/messages/polls/poll_votes/outbox/event_log follow §7
--- polls (0005): UNIQUE (session_id, poll_message_id); options JSON; the canonical
---   source of a poll's option list so incoming votes (option hashes) resolve to text.
+-- polls (0005): UNIQUE (session_id, poll_message_id); options JSON; selectable_count,
+--   optional end_time, hide_votes, and recap_emitted_at. It is the canonical source of
+--   a poll's option list so incoming votes (option hashes) resolve to text, and the
+--   durable guard for one poll.recap event after a timed poll closes.
 ```
 
 - **`organization_id`** replaces v1 `tenant_id` on every owned table; `webhooks`, `event_log`,
@@ -196,6 +198,13 @@ read queries can compile without making the gateway a writer or migration owner 
   `PollVoteRepo.Insert` uses `INSERT IGNORE` so duplicate delivery of the same
   poll-update event is a no-op while later re-votes with a new timestamp remain
   separate history rows.
+- **Poll close recaps.** `polls.end_time` stores WhatsApp's poll close time in
+  epoch-ms, `hide_votes` mirrors the poll privacy flag, and
+  `recap_emitted_at` is the durable exactly-once claim for the synthetic
+  `poll.recap` event. Redis holds a best-effort sorted-set timer for low-latency
+  wakeups, but MySQL remains authoritative; a periodic sweep over
+  `idx_poll_recap_due (end_time, recap_emitted_at)` catches missed Redis entries
+  after restarts.
 - **`backfill_imports` is the import quota's source of truth.** A user backup
   import is durably tracked here (status + counts + schema fingerprint); the
   once/24h-per-session limit is enforced by `LastSuccessAt` and the concurrency

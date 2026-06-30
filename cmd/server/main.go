@@ -139,7 +139,12 @@ func run() error {
 	whDeliveries := service.NewWebhookDeliveryRepoAdapter(st.WebhookDeliveries)
 	enqueuer := webhooks.NewEnqueuer(whRepo, whDeliveries, nil, log)
 	dispatcher := webhooks.NewDispatcher(whRepo, whDeliveries, st.EventLog, &http.Client{Timeout: 30 * time.Second}, aes, nil, log)
-	_ = enqueuer // fan-out enqueue is invoked by the inbound pipeline (next stage).
+	pollRecaps := service.NewPollRecapWorker(st, publisher, enqueuer, rdb, service.PollRecapConfig{
+		RedisPrefix: cfg.RedisPrefix,
+		Log:         log,
+	})
+	pollRecapStop := pollRecaps.Start(ctx)
+	defer pollRecapStop()
 
 	// --- Session manager (per-session whatsmeow clients) ---
 	managerRepo := service.NewManagerSessionRepo(st.Sessions, nil)
@@ -156,7 +161,7 @@ func run() error {
 	inboundPipeline := inbound.NewPipeline(
 		service.NewInboundNormalizer(manager.LiveOps(), st.Polls),
 		inbound.NewNoopCommandRegistry(),
-		service.NewInboundRepos(st),
+		service.NewInboundRepos(st, pollRecaps),
 		publisher,
 		service.NewInboundWebhookEnqueuerAdapter(enqueuer),
 		manager.LiveOps(),
@@ -187,7 +192,7 @@ func run() error {
 	// Record every successful send into the messages table (from_me/out/sent) so
 	// the gateway's own sends appear in chat history — whatsmeow never echoes a
 	// self-authored send back to the inbound pipeline on the same device.
-	msgRecorder := service.NewMessageRecorderAdapter(st.Messages, st.Chats, nil)
+	msgRecorder := service.NewMessageRecorderAdapter(st.Messages, st.Chats, st.Polls, pollRecaps, nil)
 	sender := outbound.NewSender(service.NewRoutingWAClient(manager), outboxAdapter, limiter, outbound.SystemClock(),
 		outbound.WithMessageRecorder(msgRecorder))
 
