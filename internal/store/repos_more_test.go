@@ -444,10 +444,10 @@ func TestChatRepo_ListBySession_InboxOrderAndCursor(t *testing.T) {
 
 	rows := sqlmock.NewRows([]string{
 		"id", "session_id", "chat_jid", "type", "name", "last_message_at",
-		"unread_count", "archived", "pinned", "muted_until",
+		"unread_count", "archived", "pinned", "muted_until", "aliases",
 	}).
-		AddRow(uint64(12), "sess_1", "new@s.whatsapp.net", "dm", "New", int64(100), 2, false, false, nil).
-		AddRow(uint64(11), "sess_1", "old@s.whatsapp.net", "dm", "Old", int64(90), 0, false, false, nil)
+		AddRow(uint64(12), "sess_1", "new@s.whatsapp.net", "dm", "New", int64(100), 2, false, false, nil, []byte(`["new@lid","new@s.whatsapp.net"]`)).
+		AddRow(uint64(11), "sess_1", "old@s.whatsapp.net", "dm", "Old", int64(90), 0, false, false, nil, nil)
 	mock.ExpectQuery("SELECT .* FROM chats c.*last_message_at IS NOT NULL.*ORDER BY c.last_message_at DESC, c.id DESC").
 		WithArgs("sess_1", int64(0), int64(0), int64(0), uint64(0), 2).
 		WillReturnRows(rows)
@@ -465,8 +465,8 @@ func TestChatRepo_ListBySession_InboxOrderAndCursor(t *testing.T) {
 
 	page2 := sqlmock.NewRows([]string{
 		"id", "session_id", "chat_jid", "type", "name", "last_message_at",
-		"unread_count", "archived", "pinned", "muted_until",
-	}).AddRow(uint64(9), "sess_1", "older@s.whatsapp.net", "dm", "Older", int64(80), 0, false, false, nil)
+		"unread_count", "archived", "pinned", "muted_until", "aliases",
+	}).AddRow(uint64(9), "sess_1", "older@s.whatsapp.net", "dm", "Older", int64(80), 0, false, false, nil, nil)
 	mock.ExpectQuery("SELECT .* FROM chats c.*last_message_at IS NOT NULL.*ORDER BY c.last_message_at DESC, c.id DESC").
 		WithArgs("sess_1", int64(90), int64(90), int64(90), uint64(11), 2).
 		WillReturnRows(page2)

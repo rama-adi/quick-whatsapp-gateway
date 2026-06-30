@@ -1998,6 +1998,13 @@ export interface components {
         };
         Chat: {
             /**
+             * @description Equivalent JIDs for this chat. For DMs this can include both the canonical LID and linked phone JID, allowing clients to merge rows observed through either address.
+             * @example [
+             *       "205227043110953@lid"
+             *     ]
+             */
+            aliases?: string[] | null;
+            /**
              * @description Whether the chat is archived.
              * @example false
              */

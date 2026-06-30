@@ -139,6 +139,97 @@ describe("applyEvent", () => {
     });
   });
 
+  it("message bump merges aliased chat rows", () => {
+    const lid = "abc@lid";
+    const phone = "123@s.whatsapp.net";
+    const oldChat: Chat = {
+      id: 1,
+      sessionId: SESSION,
+      jid: lid,
+      aliases: [lid, phone],
+      type: "dm",
+      name: "Alice",
+      unreadCount: 0,
+      archived: false,
+      pinned: false,
+      lastMessageAt: 1000,
+    };
+    const phoneChat: Chat = {
+      ...oldChat,
+      id: 2,
+      jid: phone,
+      unreadCount: 2,
+      lastMessageAt: 1500,
+    };
+    qc.setQueryData(qk.chatMessages(SESSION, phone), infinite<Message>([]));
+    qc.setQueryData(qk.chats(SESSION), infinite<Chat>([oldChat, phoneChat]));
+
+    applyEvent(
+      qc,
+      evt("message", {
+        id: "m2",
+        waMessageId: "m2",
+        chatJid: phone,
+        direction: "in",
+        type: "text",
+        body: "hi",
+        timestamp: 2000,
+      }),
+    );
+
+    const chats = qc.getQueryData<InfiniteData<Page<Chat>>>(qk.chats(SESSION));
+    expect(chats?.pages[0]?.data).toHaveLength(1);
+    expect(chats?.pages[0]?.data[0]).toMatchObject({
+      jid: phone,
+      aliases: [lid, phone],
+      unreadCount: 3,
+      lastMessageAt: 2000,
+    });
+  });
+
+  it("message replay dedupes by waMessageId", () => {
+    const chatJid = "123@s.whatsapp.net";
+    qc.setQueryData(
+      qk.chatMessages(SESSION, chatJid),
+      infinite<Message>([
+        {
+          id: "tmp_1",
+          waMessageId: "w1",
+          sessionId: SESSION,
+          chatJid,
+          direction: "out",
+          fromMe: true,
+          type: "text",
+          body: "hi",
+          timestamp: 1000,
+          createdAt: 1000,
+          deleted: false,
+          edited: false,
+          hasMedia: false,
+        },
+      ]),
+    );
+
+    applyEvent(
+      qc,
+      evt("message.from_me", {
+        id: "real_1",
+        waMessageId: "w1",
+        chatJid,
+        direction: "out",
+        type: "text",
+        body: "hi",
+        timestamp: 1000,
+      }),
+    );
+
+    const msgs = qc.getQueryData<InfiniteData<Page<Message>>>(
+      qk.chatMessages(SESSION, chatJid),
+    );
+    expect(msgs?.pages[0]?.data).toHaveLength(1);
+    expect(msgs?.pages[0]?.data[0]?.id).toBe("tmp_1");
+  });
+
   it("message.status patches by messageId across chats (reconciles optimistic)", () => {
     const chatJid = "123@s.whatsapp.net";
     const m: Message = {

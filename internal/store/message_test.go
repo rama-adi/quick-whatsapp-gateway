@@ -142,8 +142,8 @@ func TestMessageRepo_ListByChat_Pagination(t *testing.T) {
 	rows := sqlmock.NewRows(messageColRow()).
 		AddRow("msg_01TEST00000000000000000006", "sess_1", "w6", "c", nil, nil, false, "in", "text", nil, nil, nil, false, nil, nil, nil, nil, false, false, int64(1), nil, int64(1), nil).
 		AddRow("msg_01TEST00000000000000000009", "sess_1", "w9", "c", nil, nil, false, "in", "text", nil, nil, nil, false, nil, nil, nil, nil, false, false, int64(2), nil, int64(2), nil)
-	mock.ExpectQuery("SELECT .* FROM messages m .*WHERE m.session_id = . AND m.chat_jid = . AND m.id > . ORDER BY m.id ASC LIMIT .").
-		WithArgs("sess_1", "c", "msg_01TEST00000000000000000005", 2).WillReturnRows(rows)
+	mock.ExpectQuery("SELECT .* FROM messages m .*WHERE m.session_id = . AND m.id > .*m.chat_jid = .*EXISTS.*ORDER BY m.id ASC LIMIT .").
+		WithArgs("sess_1", "msg_01TEST00000000000000000005", "c", "c", "c", 2).WillReturnRows(rows)
 
 	page, err := repo.ListByChat(context.Background(), "sess_1", "c", "msg_01TEST00000000000000000005", 2)
 	if err != nil {

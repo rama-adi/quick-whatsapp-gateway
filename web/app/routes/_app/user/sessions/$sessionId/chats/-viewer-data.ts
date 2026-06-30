@@ -106,6 +106,14 @@ export const fetchChatsPage = createServerFn({ method: "GET" })
         pinned: chats.pinned,
         mutedUntil: chats.mutedUntil,
         lastMessageAt: chats.lastMessageAt,
+        aliases: sql<string | null>`(
+          SELECT JSON_ARRAY(i.lid, i.phone_jid)
+          FROM whatsapp_identities i
+          WHERE ${chats.type} = 'dm'
+            AND (i.lid = ${chats.chatJid} OR i.phone_jid = ${chats.chatJid})
+          ORDER BY CASE WHEN i.lid = ${chats.chatJid} THEN 0 ELSE 1 END, i.id DESC
+          LIMIT 1
+        )`,
       })
       .from(chats)
       .leftJoin(whatsappGroups, eq(whatsappGroups.groupJid, chats.chatJid))
@@ -138,7 +146,7 @@ export const fetchChat = createServerFn({ method: "GET" })
 
     const { db } = await import("~/lib/db");
     const { chats, whatsappGroups } = await import("~/lib/db/wa");
-    const { and, eq, sql } = await import("drizzle-orm");
+    const { and, desc, eq, or, sql } = await import("drizzle-orm");
 
     const rows = await db
       .select({
@@ -158,10 +166,36 @@ export const fetchChat = createServerFn({ method: "GET" })
         pinned: chats.pinned,
         mutedUntil: chats.mutedUntil,
         lastMessageAt: chats.lastMessageAt,
+        aliases: sql<string | null>`(
+          SELECT JSON_ARRAY(i.lid, i.phone_jid)
+          FROM whatsapp_identities i
+          WHERE ${chats.type} = 'dm'
+            AND (i.lid = ${chats.chatJid} OR i.phone_jid = ${chats.chatJid})
+          ORDER BY CASE WHEN i.lid = ${chats.chatJid} THEN 0 ELSE 1 END, i.id DESC
+          LIMIT 1
+        )`,
       })
       .from(chats)
       .leftJoin(whatsappGroups, eq(whatsappGroups.groupJid, chats.chatJid))
-      .where(and(eq(chats.sessionId, sessionId), eq(chats.chatJid, chatJid)))
+      .where(
+        and(
+          eq(chats.sessionId, sessionId),
+          or(
+            eq(chats.chatJid, chatJid),
+            sql<boolean>`EXISTS (
+              SELECT 1
+              FROM whatsapp_identities i
+              WHERE (i.lid = ${chatJid} OR i.phone_jid = ${chatJid})
+                AND (${chats.chatJid} = i.lid OR ${chats.chatJid} = i.phone_jid)
+            )`,
+          ),
+        ),
+      )
+      .orderBy(
+        sql`CASE WHEN ${chats.chatJid} = ${chatJid} THEN 0 ELSE 1 END`,
+        desc(chats.lastMessageAt),
+        desc(chats.id),
+      )
       .limit(1);
     const row = rows[0];
     return row ? rowToChat(row) : null;
@@ -191,9 +225,24 @@ export const fetchMessagesPage = createServerFn({ method: "GET" })
 
     // messages.id is a sortable string ULID, so the cursor is the id itself
     // (lexicographic compare) — no numeric parse.
+    const aliasRows = await db
+      .select({ lid: whatsappIdentities.lid, phoneJid: whatsappIdentities.phoneJid })
+      .from(whatsappIdentities)
+      .where(
+        or(
+          eq(whatsappIdentities.lid, chatJid),
+          eq(whatsappIdentities.phoneJid, chatJid),
+        ),
+      )
+      .limit(1);
+    const chatJids = new Set<string>([chatJid]);
+    const alias = aliasRows[0];
+    if (alias?.lid) chatJids.add(alias.lid);
+    if (alias?.phoneJid) chatJids.add(alias.phoneJid);
+
     const base = and(
       eq(messages.sessionId, sessionId),
-      eq(messages.chatJid, chatJid),
+      inArray(messages.chatJid, [...chatJids]),
     );
     const where = cursor ? and(base, lt(messages.id, cursor)) : base;
 
@@ -312,6 +361,7 @@ type ChatRow = {
   pinned: number;
   mutedUntil: number | null;
   lastMessageAt: number | null;
+  aliases: string | null;
 };
 
 function parseChatCursor(
@@ -342,7 +392,13 @@ function rowToChat(r: ChatRow): Chat {
     pinned: Boolean(r.pinned),
     mutedUntil: r.mutedUntil ?? undefined,
     lastMessageAt: r.lastMessageAt ?? undefined,
+    aliases: parseAliases(r.aliases),
   };
+}
+
+function parseAliases(raw: unknown): string[] | undefined {
+  const parsed = parseMentions(raw);
+  return parsed.length > 0 ? parsed : undefined;
 }
 
 type MessageRow = {

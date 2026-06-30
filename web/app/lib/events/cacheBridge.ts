@@ -86,14 +86,17 @@ export function applyEvent(qc: QueryClient, e: EventEnvelope): void {
       // Prepend to page 0 of the chat's message list (dedup by id).
       qc.setQueryData<Infinite<Message>>(qk.chatMessages(s, chatJid), (data) => {
         if (!data || data.pages.length === 0) return data;
-        const exists = data.pages.some((pg) => pg.data.some((m) => m.id === msg.id));
+        const msgKey = messageKey(msg);
+        const exists = data.pages.some((pg) =>
+          pg.data.some((m) => messageKey(m) === msgKey),
+        );
         if (exists) return data;
         const [first, ...rest] = data.pages;
         if (!first) return data;
-        return {
+        return normalizeMessagePages({
           ...data,
           pages: [{ ...first, data: [msg, ...first.data] }, ...rest],
-        };
+        });
       });
       // Bump the chat's lastMessageAt + unread, then resort chats page 0.
       bumpChat(qc, s, chatJid, msg, e.event === "message");
@@ -130,11 +133,16 @@ export function applyEvent(qc: QueryClient, e: EventEnvelope): void {
       qc.setQueryData<Chat>(qk.chat(s, chatJid), (cur) =>
         cur ? { ...cur, ...(p as Partial<Chat>) } : cur,
       );
-      patchRow<Chat>(
-        qc,
-        qk.chats(s),
-        (c) => c.jid === chatJid,
-        (c) => ({ ...c, ...(p as Partial<Chat>) }),
+      qc.setQueryData<Infinite<Chat>>(qk.chats(s), (data) =>
+        normalizeChatPages(
+          mapPages(
+            data,
+            (items) =>
+              items.map((c) =>
+                chatMatches(c, chatJid) ? { ...c, ...(p as Partial<Chat>) } : c,
+              ),
+          ),
+        ),
       );
       break;
     }
@@ -222,11 +230,96 @@ function bumpChat(
           } satisfies Chat,
           ...first.data,
         ];
-    const sorted = [...firstRows].sort(
-      (a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0),
-    );
-    return { ...updated, pages: [{ ...first, data: sorted }, ...rest] };
+    const sorted = normalizeChatRows(firstRows);
+    return normalizeChatPages({
+      ...updated,
+      pages: [{ ...first, data: sorted }, ...rest],
+    });
   });
+}
+
+function messageKey(m: Message): string {
+  return m.waMessageId || m.id || `${m.chatJid}:${m.timestamp}:${m.direction}`;
+}
+
+function normalizeMessagePages(
+  data: Infinite<Message> | undefined,
+): Infinite<Message> | undefined {
+  if (!data) return data;
+  const seen = new Set<string>();
+  return {
+    ...data,
+    pages: data.pages.map((page) => {
+      const rows: Message[] = [];
+      for (const msg of page.data) {
+        const key = messageKey(msg);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        rows.push(msg);
+      }
+      return { ...page, data: rows };
+    }),
+  };
+}
+
+function chatAliases(c: Chat): string[] {
+  const aliases = Array.isArray(c.aliases) ? c.aliases : [];
+  return [...new Set([c.jid, ...aliases].filter(Boolean) as string[])];
+}
+
+function chatKey(c: Chat): string {
+  const aliases = chatAliases(c);
+  return aliases.length > 0 ? aliases.sort().join("|") : c.jid ?? "";
+}
+
+function chatMatches(c: Chat, jid: string): boolean {
+  return chatAliases(c).includes(jid);
+}
+
+function normalizeChatRows(rows: Chat[]): Chat[] {
+  const byKey = new Map<string, Chat>();
+  for (const row of rows) {
+    const key = chatKey(row);
+    const prev = byKey.get(key);
+    if (!prev) {
+      byKey.set(key, row);
+      continue;
+    }
+    const newer = (row.lastMessageAt ?? 0) >= (prev.lastMessageAt ?? 0) ? row : prev;
+    byKey.set(key, {
+      ...prev,
+      ...newer,
+      aliases: [...new Set([...chatAliases(prev), ...chatAliases(row)])],
+      unreadCount: Math.max(prev.unreadCount ?? 0, row.unreadCount ?? 0),
+      pinned: Boolean(prev.pinned || row.pinned),
+      archived: Boolean(prev.archived && row.archived),
+      mutedUntil: row.mutedUntil ?? prev.mutedUntil,
+      name: row.name ?? prev.name,
+    });
+  }
+  return [...byKey.values()].sort(
+    (a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0),
+  );
+}
+
+function normalizeChatPages(
+  data: Infinite<Chat> | undefined,
+): Infinite<Chat> | undefined {
+  if (!data) return data;
+  const seen = new Set<string>();
+  return {
+    ...data,
+    pages: data.pages.map((page) => {
+      const rows = [];
+      for (const chat of normalizeChatRows(page.data)) {
+        const key = chatKey(chat);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        rows.push(chat);
+      }
+      return { ...page, data: rows };
+    }),
+  };
 }
 
 /**

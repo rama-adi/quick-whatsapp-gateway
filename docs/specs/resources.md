@@ -54,9 +54,11 @@ yields nil ports and the services fall back to the `not_implemented` envelope.
 message (`lastMessageAt` set) are returned, newest message first. Found users
 without a direct conversation are exposed through `/contacts` and can be opened
 by the frontend's new-chat picker; they do not clutter the inbox until a message
-is sent or received. The frontend clears the local unread counter automatically
-when a user opens a chat, so the read endpoint is an implementation detail rather
-than a primary viewer control.
+is sent or received. DM chat responses include `aliases` (`lid` plus linked
+phone JID when known), and message reads expand through those aliases so LID and
+`@s.whatsapp.net` captures render as one conversation. The frontend clears the
+local unread counter automatically when a user opens a chat, so the read
+endpoint is an implementation detail rather than a primary viewer control.
 
 ## Groups (§13)
 

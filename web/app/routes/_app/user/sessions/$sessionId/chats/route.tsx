@@ -92,15 +92,16 @@ function ViewerChats() {
       (chats.data as InfiniteData<Page<Chat>> | undefined)?.pages.flatMap(
         (p) => p.data,
       ) ?? [];
-    const byJid = new Map<string, Chat>();
+    const byChat = new Map<string, Chat>();
     for (const chat of flat) {
       if (!chat.jid || !chat.lastMessageAt) continue;
-      const prev = byJid.get(chat.jid);
+      const key = chatIdentityKey(chat);
+      const prev = byChat.get(key);
       if (!prev || (chat.lastMessageAt ?? 0) >= (prev.lastMessageAt ?? 0)) {
-        byJid.set(chat.jid, chat);
+        byChat.set(key, mergeChatRows(prev, chat));
       }
     }
-    return [...byJid.values()].sort(
+    return [...byChat.values()].sort(
       (a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0),
     );
   }, [chats.data]);
@@ -216,7 +217,7 @@ function ChatListBody({
   return (
     <ul className="p-1">
       {rows.map((chat) => {
-        const selected = chat.jid === chatId;
+        const selected = Boolean(chatId && chatAliases(chat).includes(chatId));
         return (
           <li key={chat.jid}>
             <Link
@@ -281,13 +282,13 @@ function NewChatDialog({ sessionId }: { sessionId: string }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const qc = useQueryClient();
-  const contacts = useContacts(sessionId, { source: "group", q: q || undefined });
+  const contacts = useContacts(sessionId, { q: q || undefined });
   const rows = useMemo(() => {
     const flat =
       (contacts.data as InfiniteData<Page<Contact>> | undefined)?.pages.flatMap(
         (p) => p.data,
       ) ?? [];
-    return flat.filter((contact) => contact.source !== "dm");
+    return flat;
   }, [contacts.data]);
 
   return (
@@ -389,7 +390,7 @@ function NewChatRows({
   if (rows.length === 0) {
     return (
       <p className="p-3 text-sm text-muted-foreground">
-        No group contacts without direct chats found.
+        No discovered contacts found.
       </p>
     );
   }
@@ -449,4 +450,31 @@ function chatTypeLabel(type: Chat["type"]): string {
     default:
       return "Chat";
   }
+}
+
+function chatIdentityKey(chat: Chat): string {
+  const aliases = chatAliases(chat);
+  if (aliases.length > 0) return aliases.sort().join("|");
+  return chat.jid ?? "";
+}
+
+function chatAliases(chat: Chat): string[] {
+  const aliases = Array.isArray(chat.aliases) ? chat.aliases : [];
+  return [...new Set([chat.jid, ...aliases].filter(Boolean) as string[])];
+}
+
+function mergeChatRows(prev: Chat | undefined, next: Chat): Chat {
+  if (!prev) return next;
+  const aliases = [...new Set([...chatAliases(prev), ...chatAliases(next)])];
+  const newer = (next.lastMessageAt ?? 0) >= (prev.lastMessageAt ?? 0) ? next : prev;
+  return {
+    ...prev,
+    ...newer,
+    aliases,
+    unreadCount: Math.max(prev.unreadCount ?? 0, next.unreadCount ?? 0),
+    pinned: Boolean(prev.pinned || next.pinned),
+    archived: Boolean(prev.archived && next.archived),
+    mutedUntil: next.mutedUntil ?? prev.mutedUntil,
+    name: next.name ?? prev.name,
+  };
 }

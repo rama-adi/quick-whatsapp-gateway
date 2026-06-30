@@ -144,7 +144,13 @@ invokes the binary. The auth plane is migrated separately by drizzle-kit in the 
   `last_message_at DESC, id DESC`, and resolves display names from
   `whatsapp_groups` for groups or `whatsapp_identities` for DMs before falling
   back to `chats.name`. Contacts that were only found in groups stay in the
-  contacts/new-chat flow until a message exists.
+  contacts/new-chat flow until a message exists. DM chat reads also expose
+  `aliases` from the matched identity (`lid` + linked `phone_jid`) so clients
+  can merge rows observed through both WhatsApp address forms.
+- **DM alias resolution.** Messages may be captured under either the contact's
+  LID or phone JID depending on the event/import source. `MessageRepo.ListByChat`
+  expands a DM chat id through `whatsapp_identities` and returns messages stored
+  under either alias, so opening either address shows one logical timeline.
 - **Field ownership / no clobber.** Content upserts omit fields with dedicated mutators
   (`messages.status/edited/deleted`, `chats` user flags), so a redelivered capture can't regress a
   receipt.
