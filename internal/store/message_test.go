@@ -29,10 +29,41 @@ func TestMessageRepo_Upsert(t *testing.T) {
 		HasMedia: false, Timestamp: 1000, CreatedAt: 1000,
 	}
 	// Upsert must use ON DUPLICATE KEY UPDATE keyed on the unique (session,wamid).
+	mock.ExpectQuery("SELECT lid FROM whatsapp_identities").
+		WithArgs(m.ChatJID).
+		WillReturnRows(sqlmock.NewRows([]string{"lid"}))
 	mock.ExpectExec("INSERT INTO messages.*ON DUPLICATE KEY UPDATE").
 		WithArgs(
 			m.ID, m.SessionID, m.WAMessageID, m.ChatJID, m.SenderLID, m.SenderJID, m.FromMe,
 			m.Direction, m.Type, m.Body, m.QuotedMessageID, []byte(m.Mentions),
+			m.HasMedia, nil, m.Status, m.AckLevel, m.Error, m.Edited, m.Deleted,
+			m.Timestamp, nil, m.CreatedAt,
+		).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	if err := repo.Upsert(context.Background(), m); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMessageRepo_UpsertCanonicalizesPhoneChatAlias(t *testing.T) {
+	db, mock := newMock(t)
+	repo := NewMessageRepo(db)
+
+	m := domain.Message{
+		ID: "msg_01TEST00000000000000000001", SessionID: "sess_1", WAMessageID: "wamid_2", ChatJID: "628@s.whatsapp.net",
+		FromMe: false, Direction: domain.DirectionIn, Type: "text", Timestamp: 1000, CreatedAt: 1000,
+	}
+	mock.ExpectQuery("SELECT lid FROM whatsapp_identities").
+		WithArgs(m.ChatJID).
+		WillReturnRows(sqlmock.NewRows([]string{"lid"}).AddRow("111@lid"))
+	mock.ExpectExec("INSERT INTO messages.*ON DUPLICATE KEY UPDATE").
+		WithArgs(
+			m.ID, m.SessionID, m.WAMessageID, "111@lid", m.SenderLID, m.SenderJID, m.FromMe,
+			m.Direction, m.Type, m.Body, m.QuotedMessageID, nil,
 			m.HasMedia, nil, m.Status, m.AckLevel, m.Error, m.Edited, m.Deleted,
 			m.Timestamp, nil, m.CreatedAt,
 		).

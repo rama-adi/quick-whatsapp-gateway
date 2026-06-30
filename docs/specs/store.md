@@ -151,6 +151,10 @@ invokes the binary. The auth plane is migrated separately by drizzle-kit in the 
   LID or phone JID depending on the event/import source. `MessageRepo.ListByChat`
   expands a DM chat id through `whatsapp_identities` and returns messages stored
   under either alias, so opening either address shows one logical timeline.
+  Write paths also canonicalize phone-JID DM chats to the mapped LID when exactly
+  one `whatsapp_identities.phone_jid` match exists; identity upserts merge any
+  existing phone-JID chat/message/poll rows into the LID row once that mapping is
+  discovered. Ambiguous or unknown phone JIDs are left unchanged.
 - **Field ownership / no clobber.** Content upserts omit fields with dedicated mutators
   (`messages.status/edited/deleted`, `chats` user flags), so a redelivered capture can't regress a
   receipt.
@@ -171,6 +175,14 @@ invokes the binary. The auth plane is migrated separately by drizzle-kit in the 
   import (`BackupImportService`), which upserts historical messages/chats through
   the same repos — also idempotent by `(session_id, wa_message_id)`, so an import
   merges with live capture (see [`backfill-import.md`](backfill-import.md)).
+  Backup imports never key identities or group members by phone JID; unresolved
+  phone-only people are skipped until a canonical LID is known.
+- **Poll vote idempotency.** `poll_votes` keeps vote history, but WhatsApp event
+  replay should not append the same vote twice. The table has a replay key on
+  `(session_id, poll_message_id, voter_lid, timestamp)`, and
+  `PollVoteRepo.Insert` uses `INSERT IGNORE` so duplicate delivery of the same
+  poll-update event is a no-op while later re-votes with a new timestamp remain
+  separate history rows.
 - **`backfill_imports` is the import quota's source of truth.** A user backup
   import is durably tracked here (status + counts + schema fingerprint); the
   once/24h-per-session limit is enforced by `LastSuccessAt` and the concurrency

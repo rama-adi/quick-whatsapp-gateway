@@ -37,11 +37,11 @@ func scanPollVote(s rowScanner) (domain.PollVote, error) {
 	return v, nil
 }
 
-// Insert appends a poll vote. The poll_votes table has no unique key (a voter
-// can re-vote and we keep the history), so this is a plain insert. Returns the
-// auto-increment id.
+// Insert appends a poll vote idempotently. A voter can re-vote and we keep the
+// history, but a replay of the same WhatsApp poll-update event has the same
+// poll/voter/timestamp tuple and is ignored by the schema unique key.
 func (r *PollVoteRepo) Insert(ctx context.Context, v domain.PollVote) (uint64, error) {
-	const q = `INSERT INTO poll_votes
+	const q = `INSERT IGNORE INTO poll_votes
 (session_id, poll_message_id, voter_lid, selected_options, timestamp, raw_json)
 VALUES (?, ?, ?, ?, ?, ?)`
 	res, err := r.db.ExecContext(ctx, q,
@@ -49,6 +49,13 @@ VALUES (?, ?, ?, ?, ?, ?)`
 	)
 	if err != nil {
 		return 0, fmt.Errorf("store: insert poll vote: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("store: insert poll vote affected: %w", err)
+	}
+	if affected == 0 {
+		return 0, nil
 	}
 	id, err := res.LastInsertId()
 	if err != nil {

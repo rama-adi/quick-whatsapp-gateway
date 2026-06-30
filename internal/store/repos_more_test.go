@@ -491,7 +491,7 @@ func TestPollVoteRepo_InsertAndList(t *testing.T) {
 		SessionID: "sess_1", PollMessageID: "poll_1", VoterLID: "111@lid",
 		SelectedOptions: json.RawMessage(`["Pizza"]`), Timestamp: 10,
 	}
-	mock.ExpectExec("INSERT INTO poll_votes").
+	mock.ExpectExec("INSERT IGNORE INTO poll_votes").
 		WithArgs(v.SessionID, v.PollMessageID, v.VoterLID, []byte(v.SelectedOptions), v.Timestamp, nil).
 		WillReturnResult(sqlmock.NewResult(3, 1))
 	id, err := repo.Insert(context.Background(), v)

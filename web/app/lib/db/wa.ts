@@ -277,7 +277,15 @@ export const pollVotes = mysqlTable(
     timestamp: bigint("timestamp", { mode: "number" }).notNull(),
     rawJson: json("raw_json"),
   },
-  (t) => [index("idx_pollvote").on(t.sessionId, t.pollMessageId)],
+  (t) => [
+    uniqueIndex("uq_pollvote_event").on(
+      t.sessionId,
+      t.pollMessageId,
+      t.voterLid,
+      t.timestamp,
+    ),
+    index("idx_pollvote").on(t.sessionId, t.pollMessageId),
+  ],
 );
 
 export const outbox = mysqlTable(

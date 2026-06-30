@@ -74,6 +74,13 @@ func scanChat(s rowScanner) (domain.Chat, error) {
 // (archived/pinned/muted) are managed via UpdateFlags, not here, so a message-
 // driven upsert doesn't clobber a user's pin/archive state.
 func (r *ChatRepo) Upsert(ctx context.Context, c domain.Chat) error {
+	if c.Type == domain.ChatDM {
+		chatJID, err := canonicalDMChatJID(ctx, r.db, c.ChatJID)
+		if err != nil {
+			return err
+		}
+		c.ChatJID = chatJID
+	}
 	const q = `INSERT INTO chats
 (session_id, chat_jid, type, name, last_message_at, unread_count, archived, pinned, muted_until)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)

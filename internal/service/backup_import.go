@@ -202,10 +202,7 @@ func (s *BackupImportService) importAll(ctx context.Context, db backupReader, se
 
 	if err := db.EachIdentity(ctx, func(id backup.Identity) error {
 		lid := id.LID
-		if lid == "" {
-			lid = id.PhoneJID // key phone-only identities by their phone JID
-		}
-		if lid == "" {
+		if !isLID(lid) {
 			return nil
 		}
 		if err := s.store.Identities.Upsert(ctx, domain.Identity{
@@ -243,7 +240,7 @@ func (s *BackupImportService) importAll(ctx context.Context, db backupReader, se
 	}
 
 	if err := db.EachGroupMember(ctx, func(m backup.GroupMember) error {
-		if m.GroupJID == "" || m.LID == "" {
+		if m.GroupJID == "" || !isLID(m.LID) {
 			return nil
 		}
 		if err := s.store.GroupMembers.Upsert(ctx, domain.GroupMember{
@@ -302,12 +299,21 @@ func (s *BackupImportService) importAll(ctx context.Context, db backupReader, se
 		if m.FromMe {
 			dir = domain.DirectionOut
 		}
+		senderLID := m.SenderLID
+		senderJID := m.SenderJID
+		if !isLID(senderLID) {
+			if isLID(senderJID) {
+				senderLID, senderJID = senderJID, ""
+			} else {
+				senderLID = ""
+			}
+		}
 		if err := s.store.Messages.Upsert(ctx, domain.Message{
 			SessionID:       sessionID,
 			WAMessageID:     m.WAMessageID,
 			ChatJID:         m.ChatJID,
-			SenderLID:       stringPtr(m.SenderLID),
-			SenderJID:       stringPtr(m.SenderJID),
+			SenderLID:       stringPtr(senderLID),
+			SenderJID:       stringPtr(senderJID),
 			FromMe:          m.FromMe,
 			Direction:       dir,
 			Type:            m.Type,

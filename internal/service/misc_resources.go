@@ -302,7 +302,7 @@ func (s *AdminService) persistBackfill(ctx context.Context, sessionID string, sn
 	now := domain.NowMs()
 	contactCount := 0
 	for _, c := range snapshot.Contacts {
-		if c.LID == "" {
+		if !isLID(c.LID) {
 			continue
 		}
 		// name is left NULL when unknown so a real push name captured later wins
@@ -353,7 +353,7 @@ func (s *AdminService) persistBackfill(ctx context.Context, sessionID string, sn
 		}
 		groupCount++
 		for _, m := range g.Members {
-			if m.LID == "" {
+			if !isLID(m.LID) {
 				continue
 			}
 			// Seed an identity for every participant so group senders resolve to a

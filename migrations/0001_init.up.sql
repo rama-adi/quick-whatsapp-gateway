@@ -184,6 +184,7 @@ CREATE TABLE poll_votes (
   selected_options JSON NOT NULL,
   timestamp        BIGINT NOT NULL,
   raw_json         JSON NULL,
+  UNIQUE KEY uq_pollvote_event (session_id, poll_message_id, voter_lid, timestamp),
   KEY idx_pollvote (session_id, poll_message_id)
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 

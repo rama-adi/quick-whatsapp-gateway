@@ -122,6 +122,10 @@ fail. Identity capture is the reliability focus (`wa.LiveOps.BackfillSessionData
   `phone_jid` columns are populated from the phone, and the LID↔phone direction is
   filled with `GetPNForLID`. A contact with no resolvable LID is skipped (real
   participants are still captured from group membership + message capture).
+- **Backup imports follow the same rule.** A crypt15 backup can expose phone JIDs
+  without a matching LID. Those phone-only rows are not inserted as identities or
+  group members; chat/message writes only collapse to a LID when the central
+  identity table already has an unambiguous `phone_jid → lid` mapping.
 - **Group participants seed identities too.** The previous backfill only mirrored the
   contact store, so most group members had no identity row and their messages showed
   no sender. Each participant now upserts a LID-keyed identity (phone from

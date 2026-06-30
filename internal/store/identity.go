@@ -51,6 +51,11 @@ ON DUPLICATE KEY UPDATE
 	); err != nil {
 		return fmt.Errorf("store: upsert identity: %w", err)
 	}
+	if i.PhoneJID != nil {
+		if err := mergeDMChatAlias(ctx, r.db, "", i.LID, *i.PhoneJID); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

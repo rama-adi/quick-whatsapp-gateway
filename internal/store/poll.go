@@ -24,6 +24,12 @@ func NewPollRepo(db dbExecQuerier) *PollRepo { return &PollRepo{db: db} }
 // message id. Re-receiving the same poll creation is a no-op on the immutable
 // fields and just bumps updated_at.
 func (r *PollRepo) Upsert(ctx context.Context, p domain.Poll) error {
+	chatJID, err := canonicalDMChatJID(ctx, r.db, p.ChatJID)
+	if err != nil {
+		return err
+	}
+	p.ChatJID = chatJID
+
 	options, err := json.Marshal(p.Options)
 	if err != nil {
 		return fmt.Errorf("store: marshal poll options: %w", err)

@@ -69,6 +69,12 @@ func scanMessage(s rowScanner) (domain.Message, error) {
 // Status/ack/edit/delete are owned by their dedicated methods and NOT touched on
 // conflict, so a late content upsert can't regress a delivery receipt.
 func (r *MessageRepo) Upsert(ctx context.Context, m domain.Message) error {
+	chatJID, err := canonicalDMChatJID(ctx, r.db, m.ChatJID)
+	if err != nil {
+		return err
+	}
+	m.ChatJID = chatJID
+
 	const q = `INSERT INTO messages
 (id, session_id, wa_message_id, chat_jid, sender_lid, sender_jid, from_me, direction,
  type, body, quoted_message_id, mentions, has_media, media_meta, status,

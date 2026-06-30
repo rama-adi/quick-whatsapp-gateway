@@ -37,7 +37,9 @@ fan-out).
 4. **Persist** (§9) — upsert `chats`; insert `messages` (incl. `raw_json`); a poll
    creation also upserts `polls` (its options, so later votes can be resolved);
    `edit`/`revoke` flip flags on the target; receipts update `status`/`ack_level`;
-   poll updates insert `poll_votes` (with the resolved `selected_options`). **Content-less system messages are dropped
+   poll updates insert `poll_votes` idempotently (with the resolved
+   `selected_options`; replay of the same poll-update event is ignored by the
+   store). **Content-less system messages are dropped
    here** — the classifier's unrecognized-content fallthrough (`MsgType=="system"`:
    E2E-encryption notices, ephemeral settings, sender-key distribution, …) carries
    no displayable body, so after identity capture it is dropped (not persisted, not
