@@ -86,7 +86,7 @@ const serverLoader = createServerFn({ method: "GET" })
     // spec so <APIPage> can render without a runtime fetch.
     const isOpenAPI = "_openapi" in page.data;
     const preloaded = isOpenAPI
-      ? (await openapi.preloadOpenAPIPage(page)).preloaded
+      ? withRuntimeOpenAPIServer((await openapi.preloadOpenAPIPage(page)).preloaded)
       : null;
 
     const tree = source.getPageTree();
@@ -102,6 +102,34 @@ const serverLoader = createServerFn({ method: "GET" })
       // serializer check is over-strict, so we assert the wire shape here.
     } as LoaderData;
   });
+
+function withRuntimeOpenAPIServer(preloaded: PreloadedDocs): PreloadedDocs {
+  const apiBaseURL = runtimeOpenAPIBaseURL();
+  if (!apiBaseURL) return preloaded;
+
+  return {
+    ...preloaded,
+    docs: Object.fromEntries(
+      Object.entries(preloaded.docs).map(([key, doc]) => [
+        key,
+        {
+          ...doc,
+          servers: [
+            {
+              description: "Configured API base URL",
+              url: apiBaseURL,
+            },
+          ],
+        },
+      ]),
+    ),
+  };
+}
+
+function runtimeOpenAPIBaseURL(): string | null {
+  const origin = process.env.VITE_GATEWAY_URL?.replace(/\/+$/, "");
+  return origin ? `${origin}/api/v1` : null;
+}
 
 // A page-tree node belongs to the developer wiki if it (or any descendant)
 // lives under /docs/dev. Used to drop that folder from the nav when
