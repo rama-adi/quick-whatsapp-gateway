@@ -73,10 +73,11 @@ CREATE TABLE wa_sessions (
   UNIQUE KEY uq_sessions_jid (wa_jid)
 );
 -- webhooks/webhook_deliveries/whatsapp_*/chats/messages/polls/poll_votes/outbox/event_log follow §7
--- polls (0005): UNIQUE (session_id, poll_message_id); options JSON; selectable_count,
---   optional end_time, hide_votes, and recap_emitted_at. It is the canonical source of
---   a poll's option list so incoming votes (option hashes) resolve to text, and the
---   durable guard for one poll.recap event after a timed poll closes.
+-- polls (0005): UNIQUE (session_id, poll_message_id); options JSON; selectable_count.
+-- poll recap metadata (0006): optional end_time, hide_votes, and recap_emitted_at.
+--   It is the canonical source of a poll's option list so incoming votes (option
+--   hashes) resolve to text, and the durable guard for one poll.recap event after
+--   a timed poll closes.
 ```
 
 - **`organization_id`** replaces v1 `tenant_id` on every owned table; `webhooks`, `event_log`,

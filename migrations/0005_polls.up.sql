@@ -13,11 +13,7 @@ CREATE TABLE polls (
   name             TEXT NULL,                        -- the poll question
   options          JSON NOT NULL,                    -- ["Yes","No"] in creation order
   selectable_count INT NOT NULL DEFAULT 1,
-  end_time         BIGINT NULL,                       -- WhatsApp poll close time, epoch ms
-  hide_votes       TINYINT(1) NOT NULL DEFAULT 0,     -- hide participant names in votes
-  recap_emitted_at BIGINT NULL,                       -- poll.recap emitted once after end_time
   created_at       BIGINT NOT NULL,
   updated_at       BIGINT NOT NULL,
-  UNIQUE KEY uq_poll (session_id, poll_message_id),
-  KEY idx_poll_recap_due (end_time, recap_emitted_at)
+  UNIQUE KEY uq_poll (session_id, poll_message_id)
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

@@ -225,6 +225,8 @@ function ViewerTimeline() {
   const loadingOlder = useRef(false);
   const lastRequestedOlderCursor = useRef<string | null>(null);
   const wasNearTop = useRef(false);
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const pinnedInitialChat = useRef<string | null>(null);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [activeTypingText, setActiveTypingText] = useState<string | null>(null);
 
@@ -268,6 +270,23 @@ function ViewerTimeline() {
     }
     return byId;
   }, [ordered]);
+
+  useEffect(() => {
+    pinnedInitialChat.current = null;
+    wasNearTop.current = false;
+    lastRequestedOlderCursor.current = null;
+  }, [chatId]);
+
+  useEffect(() => {
+    if (ordered.length === 0 || pinnedInitialChat.current === chatId) return;
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    pinnedInitialChat.current = chatId;
+    requestAnimationFrame(() => {
+      viewport.scrollTop = viewport.scrollHeight;
+      wasNearTop.current = false;
+    });
+  }, [chatId, ordered.length]);
 
   // "Load older" feeds the existing infinite-query. MessageScroller's
   // preserveScrollOnPrepend keeps the reading position fixed when the prepended
@@ -340,12 +359,12 @@ function ViewerTimeline() {
 
   return (
     <TooltipProvider>
-      <div className="h-full min-h-[60svh] md:min-h-0">
+      <div className="h-full min-h-[60svh] overflow-hidden md:min-h-0">
         <section
           aria-label="Conversation"
-          className="flex min-h-0 flex-col rounded-lg border bg-card"
+          className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border bg-card"
         >
-          <header className="flex items-center gap-3 border-b px-4 py-2">
+          <header className="flex shrink-0 items-center gap-3 border-b px-4 py-2">
             <div className="relative">
               <ChatAvatar
                 sessionId={sessionId}
@@ -382,6 +401,7 @@ function ViewerTimeline() {
           <MessageScrollerProvider autoScroll defaultScrollPosition="end">
             <MessageScroller className="min-h-0 flex-1">
               <MessageScrollerViewport
+                ref={viewportRef}
                 preserveScrollOnPrepend
                 role="log"
                 aria-label="Message timeline"
@@ -655,7 +675,7 @@ function Composer({
     <>
       <form
         onSubmit={submit}
-        className="space-y-2 border-t px-3 pb-3 pt-2"
+        className="shrink-0 space-y-2 border-t px-3 pb-3 pt-2"
         aria-label="Send a message"
       >
         <TypingIndicator chat={chat} text={typingText} />
