@@ -248,6 +248,8 @@ function ChatListBody({
   isError: boolean;
   error: unknown;
 }) {
+  const queryClient = useQueryClient();
+
   if (isLoading) {
     return (
       <ul className="space-y-1 p-2">
@@ -289,6 +291,12 @@ function ChatListBody({
             <Link
               to="/user/sessions/$sessionId/chats/$chatId"
               params={{ sessionId, chatId: chat.jid ?? "" }}
+              preload={false}
+              onClick={() => {
+                if (chat.jid) {
+                  queryClient.setQueryData(qk.chat(sessionId, chat.jid), chat);
+                }
+              }}
               className={cn(
                 "flex items-center gap-3 rounded-md px-2 py-2 text-left transition-colors",
                 selected
@@ -466,6 +474,8 @@ function NewChatRows({
   isError: boolean;
   onPick: (contact: Contact) => void;
 }) {
+  const queryClient = useQueryClient();
+
   if (isLoading) {
     return (
       <ul className="space-y-1 p-1">
@@ -495,7 +505,20 @@ function NewChatRows({
           <Link
             to="/user/sessions/$sessionId/chats/$chatId"
             params={{ sessionId, chatId: contact.lid }}
-            onClick={() => onPick(contact)}
+            preload={false}
+            onClick={() => {
+              queryClient.setQueryData(qk.chat(sessionId, contact.lid), {
+                id: 0,
+                sessionId,
+                jid: contact.lid,
+                type: "dm",
+                name: contactDisplayName(contact),
+                unreadCount: 0,
+                archived: false,
+                pinned: false,
+              } satisfies Chat);
+              onPick(contact);
+            }}
             className="flex items-center gap-3 rounded-md px-2 py-2 text-left transition-colors hover:bg-muted"
           >
             <ChatAvatar

@@ -89,7 +89,6 @@ import {
 import { toast } from "sonner";
 import { ChatAvatar, formatDayHeading, dayKey } from "./-viewer-ui";
 import { MessageBubble } from "./-message-bubble";
-import { fetchChat, fetchMessagesPage } from "./-viewer-data";
 
 type ViewerChat = Chat & {
   participantCount?: number;
@@ -117,45 +116,6 @@ type ComposerSend =
 export const Route = createFileRoute(
   "/_app/user/sessions/$sessionId/chats/$chatId",
 )({
-  loader: async ({ params, context }) => {
-    const { sessionId, chatId } = params;
-    try {
-      await Promise.all([
-        context.queryClient.ensureQueryData({
-          queryKey: qk.chat(sessionId, chatId),
-          queryFn: async (): Promise<Chat> => {
-            const chat = await fetchChat({
-              data: { sessionId, chatJid: chatId },
-            });
-            // ensureQueryData must resolve a value; a minimal stub lets the client
-            // hook refetch + the header render the jid until the gateway answers.
-            // The non-jid fields are placeholders, overwritten by the real fetch.
-            return (
-              chat ?? {
-                id: 0,
-                sessionId,
-                jid: chatId,
-                type: "dm",
-                unreadCount: 0,
-                archived: false,
-                pinned: false,
-              }
-            );
-          },
-        }),
-        context.queryClient.ensureInfiniteQueryData({
-          queryKey: qk.chatMessages(sessionId, chatId),
-          initialPageParam: undefined as string | undefined,
-          queryFn: () =>
-            fetchMessagesPage({ data: { sessionId, chatJid: chatId } }),
-          getNextPageParam: (last: unknown) =>
-            (last as Page<Message>).nextCursor ?? undefined,
-        }),
-      ]);
-    } catch (err) {
-      console.warn("[viewer] failed to preload chat timeline:", err);
-    }
-  },
   component: ViewerTimeline,
 });
 
