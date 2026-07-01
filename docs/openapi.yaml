@@ -5568,8 +5568,8 @@ security:
   - bearerAuth: []
   - apiKeyHeader: []
 servers:
-  - description: API base path on the central router
-    url: /api/v1
+  - description: Central router origin; operation paths include /api/v1
+    url: /
 tags:
   - description: Create, pair, start, stop, restart, and delete WhatsApp sessions. A session is one attached WhatsApp number.
     name: Sessions

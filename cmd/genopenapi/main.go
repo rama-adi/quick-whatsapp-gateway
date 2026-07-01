@@ -125,7 +125,7 @@ sending media (image, video, audio, document, sticker), posting an image status,
 all channel operations, and approving pending group join requests. Text, poll,
 location, and contact message types do work.`)
 
-	o.Servers = []*huma.Server{{URL: "/api/v1", Description: "API base path on the central router"}}
+	o.Servers = []*huma.Server{{URL: "/", Description: "Central router origin; operation paths include /api/v1"}}
 
 	if o.Components.SecuritySchemes == nil {
 		o.Components.SecuritySchemes = map[string]*huma.SecurityScheme{}
