@@ -16,7 +16,14 @@
 //   - Composer: send goes through useSendMessage (optimistic), with text plus
 //     structured WhatsApp payload helpers.
 
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, type InfiniteData } from "@tanstack/react-query";
 import {
@@ -216,6 +223,8 @@ function ViewerTimeline() {
   });
   const lastReadKey = useRef<string | null>(null);
   const loadingOlder = useRef(false);
+  const lastRequestedOlderCursor = useRef<string | null>(null);
+  const wasNearTop = useRef(false);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [activeTypingText, setActiveTypingText] = useState<string | null>(null);
 
@@ -265,14 +274,29 @@ function ViewerTimeline() {
   // page lands, so no manual scroll-offset bookkeeping is needed here.
   const canLoadOlder = Boolean(messages.hasNextPage);
   const isFetchingOlder = messages.isFetchingNextPage;
-  const loadOlder = () => {
-    if (canLoadOlder && !loadingOlder.current) {
+  const nextOlderCursor =
+    (messages.data as InfiniteData<Page<Message>> | undefined)?.pages.at(-1)
+      ?.nextCursor ?? null;
+
+  useEffect(() => {
+    lastRequestedOlderCursor.current = null;
+  }, [nextOlderCursor]);
+
+  const loadOlder = useCallback(() => {
+    if (canLoadOlder && !loadingOlder.current && nextOlderCursor) {
+      if (lastRequestedOlderCursor.current === nextOlderCursor) return;
+      lastRequestedOlderCursor.current = nextOlderCursor;
       loadingOlder.current = true;
-      void messages.fetchNextPage().finally(() => {
-        loadingOlder.current = false;
-      });
+      void messages
+        .fetchNextPage()
+        .catch(() => {
+          lastRequestedOlderCursor.current = null;
+        })
+        .finally(() => {
+          loadingOlder.current = false;
+        });
     }
-  };
+  }, [canLoadOlder, messages, nextOlderCursor]);
 
   const viewerChat = chat.data as ViewerChat | undefined;
   const title = viewerChat?.name || viewerChat?.jid || chatId;
@@ -366,7 +390,15 @@ function ViewerTimeline() {
                 onScroll={(e) => {
                   // Near the top edge → pull the next (older) page. The library
                   // restores the offset afterward via preserveScrollOnPrepend.
-                  if (e.currentTarget.scrollTop <= 32) loadOlder();
+                  const top = e.currentTarget.scrollTop;
+                  if (top > 96) {
+                    wasNearTop.current = false;
+                    return;
+                  }
+                  if (top <= 32 && !wasNearTop.current) {
+                    wasNearTop.current = true;
+                    loadOlder();
+                  }
                 }}
                 className="outline-none focus-visible:ring-1 focus-visible:ring-ring"
               >
@@ -519,10 +551,6 @@ function TimelineBody({
     <>
       {hasOlder ? (
         <div className="flex justify-center pb-1">
-          <TopLoadSentinel
-            disabled={isFetchingOlder}
-            onVisible={onLoadOlder}
-          />
           <Button
             size="sm"
             variant="ghost"
@@ -566,29 +594,6 @@ function TimelineBody({
       ))}
     </>
   );
-}
-
-function TopLoadSentinel({
-  disabled,
-  onVisible,
-}: {
-  disabled: boolean;
-  onVisible: () => void;
-}) {
-  const ref = useRef<HTMLSpanElement | null>(null);
-  useEffect(() => {
-    const node = ref.current;
-    if (!node || disabled) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry?.isIntersecting) onVisible();
-      },
-      { root: node.closest("[data-slot='message-scroller-viewport']") },
-    );
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [disabled, onVisible]);
-  return <span ref={ref} className="size-px" aria-hidden />;
 }
 
 // Floating "jump to latest" affordance. MessageScrollerButton(direction="end")
