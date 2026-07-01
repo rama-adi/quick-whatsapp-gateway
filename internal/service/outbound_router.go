@@ -47,12 +47,12 @@ func (c *RoutingWAClient) client(ctx context.Context) (outbound.WAClient, error)
 	return outbound.NewWhatsmeowClient(cli), nil
 }
 
-func (c *RoutingWAClient) SendText(ctx context.Context, to, text, replyTo string, mentions []string) (string, int64, error) {
+func (c *RoutingWAClient) SendText(ctx context.Context, to, text string, quote outbound.QuoteInfo, mentions []string) (string, int64, error) {
 	w, err := c.client(ctx)
 	if err != nil {
 		return "", 0, err
 	}
-	return w.SendText(ctx, to, text, replyTo, mentions)
+	return w.SendText(ctx, to, text, quote, mentions)
 }
 
 func (c *RoutingWAClient) SendPoll(ctx context.Context, to, name string, options []string, selectableCount int, endTime int64, hideVotes bool) (string, int64, error) {
@@ -79,12 +79,12 @@ func (c *RoutingWAClient) SendContact(ctx context.Context, to, name, phone, vcar
 	return w.SendContact(ctx, to, name, phone, vcard)
 }
 
-func (c *RoutingWAClient) SendMedia(ctx context.Context, to, mediaType string, data []byte, mimetype, caption, filename, replyTo string, mentions []string) (string, int64, error) {
+func (c *RoutingWAClient) SendMedia(ctx context.Context, to, mediaType string, data []byte, mimetype, caption, filename string, quote outbound.QuoteInfo, mentions []string) (string, int64, error) {
 	w, err := c.client(ctx)
 	if err != nil {
 		return "", 0, err
 	}
-	return w.SendMedia(ctx, to, mediaType, data, mimetype, caption, filename, replyTo, mentions)
+	return w.SendMedia(ctx, to, mediaType, data, mimetype, caption, filename, quote, mentions)
 }
 
 func (c *RoutingWAClient) React(ctx context.Context, chat, sender, msgID, emoji string) (string, int64, error) {

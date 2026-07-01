@@ -54,7 +54,7 @@ func parseSenderJID(s string) (types.JID, error) {
 	return parseJID(s)
 }
 
-func (a *whatsmeowAdapter) SendText(ctx context.Context, to, text, replyTo string, mentions []string) (string, int64, error) {
+func (a *whatsmeowAdapter) SendText(ctx context.Context, to, text string, quote QuoteInfo, mentions []string) (string, int64, error) {
 	toJID, err := parseJID(to)
 	if err != nil {
 		return "", 0, err
@@ -62,18 +62,11 @@ func (a *whatsmeowAdapter) SendText(ctx context.Context, to, text, replyTo strin
 
 	// A plain Conversation suffices when there is no reply context and no
 	// mentions; otherwise use ExtendedTextMessage so we can attach ContextInfo.
-	if replyTo == "" && len(mentions) == 0 {
+	if quote.Empty() && len(mentions) == 0 {
 		return a.send(ctx, toJID, &waE2E.Message{Conversation: proto.String(text)})
 	}
 
-	ctxInfo := &waE2E.ContextInfo{}
-	if replyTo != "" {
-		ctxInfo.StanzaID = proto.String(replyTo)
-		// Participant is the quoted sender; for a self-reply we leave it unset.
-	}
-	if len(mentions) > 0 {
-		ctxInfo.MentionedJID = mentions
-	}
+	ctxInfo := buildContextInfo(quote, mentions)
 	return a.send(ctx, toJID, &waE2E.Message{
 		ExtendedTextMessage: &waE2E.ExtendedTextMessage{
 			Text:        proto.String(text),
@@ -155,7 +148,7 @@ func buildVCard(name, phone string) string {
 // (image/video/audio/document/sticker). mediaType is a domain.SendType* constant.
 // mimetype is detected from the bytes when empty; caption applies to image/video/
 // document, filename to document; replyTo/mentions become ContextInfo.
-func (a *whatsmeowAdapter) SendMedia(ctx context.Context, to, mediaType string, data []byte, mimetype, caption, filename, replyTo string, mentions []string) (string, int64, error) {
+func (a *whatsmeowAdapter) SendMedia(ctx context.Context, to, mediaType string, data []byte, mimetype, caption, filename string, quote QuoteInfo, mentions []string) (string, int64, error) {
 	toJID, err := parseJID(to)
 	if err != nil {
 		return "", 0, err
@@ -167,7 +160,7 @@ func (a *whatsmeowAdapter) SendMedia(ctx context.Context, to, mediaType string, 
 	if err != nil {
 		return "", 0, fmt.Errorf("whatsmeow upload %s: %w", mediaType, err)
 	}
-	ctxInfo := buildContextInfo(replyTo, mentions)
+	ctxInfo := buildContextInfo(quote, mentions)
 
 	var msg *waE2E.Message
 	switch mediaType {
@@ -239,18 +232,43 @@ func uploadMediaType(mediaType string) whatsmeow.MediaType {
 }
 
 // buildContextInfo assembles reply + mention context, or nil when neither is set.
-func buildContextInfo(replyTo string, mentions []string) *waE2E.ContextInfo {
-	if replyTo == "" && len(mentions) == 0 {
+func buildContextInfo(quote QuoteInfo, mentions []string) *waE2E.ContextInfo {
+	if quote.Empty() && len(mentions) == 0 {
 		return nil
 	}
 	ci := &waE2E.ContextInfo{}
-	if replyTo != "" {
-		ci.StanzaID = proto.String(replyTo)
+	if !quote.Empty() {
+		ci.StanzaID = proto.String(quote.ID)
+		if quote.ChatJID != "" {
+			ci.RemoteJID = proto.String(quote.ChatJID)
+		}
+		if quote.SenderJID != "" {
+			ci.Participant = proto.String(quote.SenderJID)
+		}
+		if quoted := quotedMessageProto(quote); quoted != nil {
+			ci.QuotedMessage = quoted
+		}
 	}
 	if len(mentions) > 0 {
 		ci.MentionedJID = mentions
 	}
 	return ci
+}
+
+func quotedMessageProto(quote QuoteInfo) *waE2E.Message {
+	if quote.Body == "" {
+		return nil
+	}
+	switch quote.Type {
+	case domain.SendTypeImage:
+		return &waE2E.Message{ImageMessage: &waE2E.ImageMessage{Caption: proto.String(quote.Body)}}
+	case domain.SendTypeVideo:
+		return &waE2E.Message{VideoMessage: &waE2E.VideoMessage{Caption: proto.String(quote.Body)}}
+	case domain.SendTypeDocument:
+		return &waE2E.Message{DocumentMessage: &waE2E.DocumentMessage{Caption: proto.String(quote.Body)}}
+	default:
+		return &waE2E.Message{Conversation: proto.String(quote.Body)}
+	}
 }
 
 func (a *whatsmeowAdapter) React(ctx context.Context, chat, sender, msgID, emoji string) (string, int64, error) {

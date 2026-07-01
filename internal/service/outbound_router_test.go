@@ -26,7 +26,7 @@ func (f *fakeResolver) ClientFor(sessionID string) (*whatsmeow.Client, bool) {
 func TestRoutingWAClient_NoSessionOnContext_NotImplemented(t *testing.T) {
 	c := NewRoutingWAClient(&fakeResolver{ok: false})
 	// No outbound.WithSessionID on the context.
-	_, _, err := c.SendText(context.Background(), "a@s.whatsapp.net", "hi", "", nil)
+	_, _, err := c.SendText(context.Background(), "a@s.whatsapp.net", "hi", outbound.QuoteInfo{}, nil)
 	assertNotImplemented(t, err)
 }
 
@@ -38,7 +38,10 @@ func TestRoutingWAClient_UnresolvableSession_NotImplemented(t *testing.T) {
 	// Every method should surface not_implemented when the session has no live
 	// client, and should have asked the resolver for the right session.
 	checks := []func() error{
-		func() error { _, _, e := c.SendText(ctx, "a@s.whatsapp.net", "hi", "", nil); return e },
+		func() error {
+			_, _, e := c.SendText(ctx, "a@s.whatsapp.net", "hi", outbound.QuoteInfo{}, nil)
+			return e
+		},
 		func() error {
 			_, _, e := c.SendPoll(ctx, "a@s.whatsapp.net", "q", []string{"x"}, 1, 0, false)
 			return e

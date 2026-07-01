@@ -98,7 +98,11 @@ wa-message id is unknown (e.g. a unit-test dispatch with a fake client).
 whatsmeow. It maps each method to the recon §7 path:
 
 - text → `Conversation`, or `ExtendedTextMessage{ContextInfo}` when a reply or
-  mentions are present.
+  mentions are present. `replyTo` first resolves the quoted row from
+  `messages` by `(session_id, wa_message_id)` and enriches WhatsApp
+  `ContextInfo` with `stanzaID`, `remoteJID`, `participant`, and a lightweight
+  `quotedMessage`; if lookup misses, the adapter still sends a stanza-only
+  quote rather than failing the send.
 - poll → a `PollCreationMessage` with option hashes, selectable count, optional
   end time, and hidden-vote privacy flag; location → `LocationMessage`; contact →
   `ContactMessage` (vcard verbatim, else built from name/phone).

@@ -67,7 +67,7 @@ type SendOptions struct {
 type WAClient interface {
 	// SendText sends a plain/extended text message. replyTo is the quoted
 	// wa_message_id ("" for none); mentions are mentioned JID strings.
-	SendText(ctx context.Context, to, text, replyTo string, mentions []string) (waMessageID string, ts int64, err error)
+	SendText(ctx context.Context, to, text string, quote QuoteInfo, mentions []string) (waMessageID string, ts int64, err error)
 	// SendPoll creates a poll. endTime is epoch-ms when non-zero; hideVotes asks
 	// WhatsApp to hide participant names in the poll vote list.
 	SendPoll(ctx context.Context, to, name string, options []string, selectableCount int, endTime int64, hideVotes bool) (waMessageID string, ts int64, err error)
@@ -81,7 +81,7 @@ type WAClient interface {
 	// document/sticker); mimetype is detected from the bytes when ""; caption
 	// (image/video/document), filename (document), replyTo and mentions are
 	// optional (replyTo is a quoted wa_message_id).
-	SendMedia(ctx context.Context, to, mediaType string, data []byte, mimetype, caption, filename, replyTo string, mentions []string) (waMessageID string, ts int64, err error)
+	SendMedia(ctx context.Context, to, mediaType string, data []byte, mimetype, caption, filename string, quote QuoteInfo, mentions []string) (waMessageID string, ts int64, err error)
 
 	// React adds (or, with emoji=="", removes) a reaction to a message
 	// (BuildReaction). chat is the target chat JID; sender is the original
@@ -99,6 +99,20 @@ type WAClient interface {
 	// identify the original.
 	Forward(ctx context.Context, to, sourceChat, sourceSender, sourceMsgID string) (waMessageID string, ts int64, err error)
 }
+
+// QuoteInfo is the WhatsApp quote context attached to outbound sends.
+// ID is always the quoted wa_message_id; the other fields are best-effort
+// enrichments resolved from the local message store.
+type QuoteInfo struct {
+	ID        string
+	ChatJID   string
+	SenderJID string
+	Type      string
+	Body      string
+}
+
+// Empty reports whether no quote was requested.
+func (q QuoteInfo) Empty() bool { return q.ID == "" }
 
 // OutboxRepo is the persistence boundary for the async outbox table (§5). The
 // MySQL implementation in the store package satisfies it.
@@ -131,6 +145,12 @@ type OutboxRepo interface {
 // later echo or receipt reconciles onto the same row instead of duplicating it.
 type MessageRecorder interface {
 	RecordSent(ctx context.Context, m SentMessage) error
+}
+
+// QuoteResolver resolves a reply target from the message store so WhatsApp gets
+// the participant + quoted payload it needs to render a native quote.
+type QuoteResolver interface {
+	GetByWAID(ctx context.Context, sessionID, waMessageID string) (domain.Message, error)
 }
 
 // SentMessage is the content-bearing slice of a successful send the recorder

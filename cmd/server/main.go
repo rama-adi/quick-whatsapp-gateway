@@ -194,7 +194,8 @@ func run() error {
 	// self-authored send back to the inbound pipeline on the same device.
 	msgRecorder := service.NewMessageRecorderAdapter(st.Messages, st.Chats, st.Polls, pollRecaps, nil)
 	sender := outbound.NewSender(service.NewRoutingWAClient(manager), outboxAdapter, limiter, outbound.SystemClock(),
-		outbound.WithMessageRecorder(msgRecorder))
+		outbound.WithMessageRecorder(msgRecorder),
+		outbound.WithQuoteResolver(st.Messages))
 
 	// Registry lifecycle (D8). Register as `joining` before the manager adopts
 	// sessions, flip to `active` once boot succeeds, then heartbeat last_seen_at +

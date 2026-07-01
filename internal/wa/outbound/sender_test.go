@@ -17,13 +17,14 @@ import (
 
 // fakeWA records the last call per method and returns a canned (id, ts, err).
 type fakeWA struct {
-	mu       sync.Mutex
-	calls    []string // method names, in order
-	id       string
-	ts       int64
-	err      error
-	lastText string
-	lastTo   string
+	mu        sync.Mutex
+	calls     []string // method names, in order
+	id        string
+	ts        int64
+	err       error
+	lastText  string
+	lastTo    string
+	lastQuote QuoteInfo
 
 	lastMediaType string
 	lastMediaData []byte
@@ -38,9 +39,10 @@ func (f *fakeWA) record(name string) {
 	f.mu.Unlock()
 }
 
-func (f *fakeWA) SendText(_ context.Context, to, text, _ string, _ []string) (string, int64, error) {
+func (f *fakeWA) SendText(_ context.Context, to, text string, quote QuoteInfo, _ []string) (string, int64, error) {
 	f.record("SendText")
 	f.lastTo, f.lastText = to, text
+	f.lastQuote = quote
 	return f.id, f.ts, f.err
 }
 func (f *fakeWA) SendPoll(_ context.Context, _, _ string, _ []string, _ int, _ int64, _ bool) (string, int64, error) {
@@ -55,12 +57,13 @@ func (f *fakeWA) SendContact(_ context.Context, _, _, _, _ string) (string, int6
 	f.record("SendContact")
 	return f.id, f.ts, f.err
 }
-func (f *fakeWA) SendMedia(_ context.Context, _, mediaType string, data []byte, mimetype, _, _, _ string, _ []string) (string, int64, error) {
+func (f *fakeWA) SendMedia(_ context.Context, _ string, mediaType string, data []byte, mimetype, _, _ string, quote QuoteInfo, _ []string) (string, int64, error) {
 	f.record("SendMedia")
 	f.mu.Lock()
 	f.lastMediaType = mediaType
 	f.lastMediaData = data
 	f.lastMimetype = mimetype
+	f.lastQuote = quote
 	f.mu.Unlock()
 	return f.id, f.ts, f.err
 }
@@ -250,6 +253,15 @@ func (f *fakeRecorder) records() []SentMessage {
 	return append([]SentMessage(nil), f.got...)
 }
 
+type fakeQuoteResolver struct {
+	msg domain.Message
+	err error
+}
+
+func (f fakeQuoteResolver) GetByWAID(context.Context, string, string) (domain.Message, error) {
+	return f.msg, f.err
+}
+
 func TestSend_RecordsSentMessage(t *testing.T) {
 	wa := newFakeWA()
 	rec := &fakeRecorder{}
@@ -270,6 +282,38 @@ func TestSend_RecordsSentMessage(t *testing.T) {
 	require.Equal(t, "WAQUOTE", got[0].ReplyTo)
 	require.Equal(t, []string{"x@s.whatsapp.net"}, got[0].Mentions)
 	require.Equal(t, wa.ts, got[0].TimestampMs)
+}
+
+func TestSend_ResolvesReplyQuoteContext(t *testing.T) {
+	wa := newFakeWA()
+	body := "quoted body"
+	sender := "107082225311887@lid"
+	s := NewSender(wa, newFakeOutbox(), &allowLimiter{}, fixedClock{ms: 1000},
+		WithQuoteResolver(fakeQuoteResolver{msg: domain.Message{
+			WAMessageID: "3A39B767976D4B5D4766",
+			ChatJID:     "107082225311887@lid",
+			SenderLID:   &sender,
+			FromMe:      false,
+			Type:        domain.SendTypeText,
+			Body:        &body,
+		}}))
+
+	_, err := s.Send(context.Background(), testSession(),
+		domain.SendRequest{
+			Type:    domain.SendTypeText,
+			To:      "107082225311887@lid",
+			Text:    "reply",
+			ReplyTo: "3A39B767976D4B5D4766",
+		},
+		SendOptions{})
+	require.NoError(t, err)
+	require.Equal(t, QuoteInfo{
+		ID:        "3A39B767976D4B5D4766",
+		ChatJID:   "107082225311887@lid",
+		SenderJID: "107082225311887@lid",
+		Type:      domain.SendTypeText,
+		Body:      "quoted body",
+	}, wa.lastQuote)
 }
 
 func TestSend_AsyncDrainRecordsSentMessage(t *testing.T) {

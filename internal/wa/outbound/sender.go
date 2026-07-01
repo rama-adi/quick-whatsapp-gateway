@@ -23,6 +23,7 @@ type Sender struct {
 	limits   RateLimiter
 	clock    Clock
 	recorder MessageRecorder
+	quotes   QuoteResolver
 	log      *slog.Logger
 
 	// pacing, when > 0, applies a random sleep in [0, pacing) before each sync
@@ -51,6 +52,12 @@ func WithLogger(l *slog.Logger) SenderOption {
 // tracked only in the outbox and never appear in chat history.
 func WithMessageRecorder(r MessageRecorder) SenderOption {
 	return func(s *Sender) { s.recorder = r }
+}
+
+// WithQuoteResolver wires lookup of reply targets so outgoing messages can carry
+// WhatsApp-native quote metadata.
+func WithQuoteResolver(r QuoteResolver) SenderOption {
+	return func(s *Sender) { s.quotes = r }
 }
 
 // withRand overrides the jitter RNG (test hook).
@@ -226,9 +233,10 @@ func (s *Sender) pace() {
 // async worker (via the exported Dispatch) funnel through, so recording here
 // covers every successful send exactly once.
 func (s *Sender) dispatch(ctx context.Context, req domain.SendRequest) (waMessageID string, ts int64, err error) {
+	quote := s.resolveQuote(ctx, req)
 	switch req.Type {
 	case domain.SendTypeText:
-		waMessageID, ts, err = s.wa.SendText(ctx, req.To, req.Text, req.ReplyTo, req.Mentions)
+		waMessageID, ts, err = s.wa.SendText(ctx, req.To, req.Text, quote, req.Mentions)
 	case domain.SendTypePoll:
 		waMessageID, ts, err = s.wa.SendPoll(ctx, req.To, req.Name, req.Options, req.SelectableCount, req.PollEndTime, req.PollHideVotes)
 	case domain.SendTypeLocation:
@@ -247,7 +255,7 @@ func (s *Sender) dispatch(ctx context.Context, req domain.SendRequest) (waMessag
 			return "", 0, err
 		}
 		caption, filename := mediaCaptionFilename(req.Media)
-		waMessageID, ts, err = s.wa.SendMedia(ctx, req.To, req.Type, data, mimetype, caption, filename, req.ReplyTo, req.Mentions)
+		waMessageID, ts, err = s.wa.SendMedia(ctx, req.To, req.Type, data, mimetype, caption, filename, quote, req.Mentions)
 	default:
 		// Unreachable for validated requests; guard anyway.
 		return "", 0, domain.ErrValidation(fmt.Sprintf("unsupported send type %q", req.Type))
@@ -257,6 +265,39 @@ func (s *Sender) dispatch(ctx context.Context, req domain.SendRequest) (waMessag
 	}
 	s.recordSent(ctx, req, waMessageID, ts)
 	return waMessageID, ts, nil
+}
+
+func (s *Sender) resolveQuote(ctx context.Context, req domain.SendRequest) QuoteInfo {
+	if req.ReplyTo == "" {
+		return QuoteInfo{}
+	}
+	quote := QuoteInfo{ID: req.ReplyTo}
+	if s.quotes == nil {
+		return quote
+	}
+	sessionID := SessionIDFromContext(ctx)
+	if sessionID == "" {
+		return quote
+	}
+	msg, err := s.quotes.GetByWAID(ctx, sessionID, req.ReplyTo)
+	if err != nil {
+		s.log.WarnContext(ctx, "outbound: resolve quoted message failed",
+			"session", sessionID, "replyTo", req.ReplyTo, "err", err)
+		return quote
+	}
+	quote.ChatJID = msg.ChatJID
+	quote.Type = msg.Type
+	if msg.Body != nil {
+		quote.Body = *msg.Body
+	}
+	if msg.FromMe {
+		quote.SenderJID = ""
+	} else if msg.SenderJID != nil && *msg.SenderJID != "" {
+		quote.SenderJID = *msg.SenderJID
+	} else if msg.SenderLID != nil {
+		quote.SenderJID = *msg.SenderLID
+	}
+	return quote
 }
 
 // recordSent best-effort persists a messages-table row for a successful send
