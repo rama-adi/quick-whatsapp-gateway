@@ -46,7 +46,7 @@ func (r *PollRepo) Upsert(ctx context.Context, p domain.Poll) error {
 		Options:         options,
 		SelectableCount: int32(p.SelectableCount),
 		EndTime:         pollNullInt64(p.EndTime),
-		HideVotes:       pollBoolInt8(p.HideVotes),
+		HideVotes:       p.HideVotes,
 		CreatedAt:       p.CreatedAt,
 		UpdatedAt:       p.UpdatedAt,
 	})
@@ -60,13 +60,6 @@ func pollNullInt64(v int64) sql.NullInt64 {
 	return sql.NullInt64{Int64: v, Valid: v != 0}
 }
 
-func pollBoolInt8(v bool) int8 {
-	if v {
-		return 1
-	}
-	return 0
-}
-
 // ListDueRecaps returns polls whose WhatsApp close time has passed and whose
 // recap event has not yet been emitted.
 func (r *PollRepo) ListDueRecaps(ctx context.Context, nowMs int64, limit int) ([]domain.PollRecapCandidate, error) {
@@ -74,7 +67,7 @@ func (r *PollRepo) ListDueRecaps(ctx context.Context, nowMs int64, limit int) ([
 		limit = 100
 	}
 	rows, err := r.q.ListDuePollRecaps(ctx, storedb.ListDuePollRecapsParams{
-		EndTime: nowMs,
+		EndTime: pollNullInt64(nowMs),
 		Limit:   int32(limit),
 	})
 	if err != nil {
@@ -97,7 +90,7 @@ func (r *PollRepo) ListDueRecaps(ctx context.Context, nowMs int64, limit int) ([
 			Options:         options,
 			SelectableCount: int(row.SelectableCount),
 			EndTime:         row.EndTime,
-			HideVotes:       row.HideVotes != 0,
+			HideVotes:       row.HideVotes,
 		})
 	}
 	return out, nil
@@ -107,7 +100,7 @@ func (r *PollRepo) ListDueRecaps(ctx context.Context, nowMs int64, limit int) ([
 // another worker already claimed or emitted the recap.
 func (r *PollRepo) MarkRecapEmitted(ctx context.Context, sessionID, pollMessageID string, nowMs int64) (bool, error) {
 	res, err := r.q.MarkPollRecapEmitted(ctx, storedb.MarkPollRecapEmittedParams{
-		RecapEmittedAt: nowMs,
+		RecapEmittedAt: pollNullInt64(nowMs),
 		UpdatedAt:      nowMs,
 		SessionID:      sessionID,
 		PollMessageID:  pollMessageID,

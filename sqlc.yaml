@@ -7,6 +7,7 @@ sql:
       - "migrations/0003_backfill_imports.up.sql"
       - "migrations/0004_gateways_lifecycle.up.sql"
       - "migrations/0005_polls.up.sql"
+      - "migrations/0006_poll_recaps.up.sql"
       - "internal/store/sqlc_schema/auth.sql"
     queries: "internal/store/queries"
     gen:

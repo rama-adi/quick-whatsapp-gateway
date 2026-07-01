@@ -213,7 +213,9 @@ read queries can compile without making the gateway a writer or migration owner 
   `session_id`; `super_admin` bypasses the quota.
 - **Message ids.** `messages.id` is a generated `msg_<ULID>` string, not an auto-incrementing
   integer. It stays lexicographically sortable for cursor pagination while avoiding a single
-  hot monotonic database counter under high write throughput.
+  hot monotonic database counter under high write throughput. Message timeline
+  pages are returned newest-first; the next cursor is the last row in the page
+  and loads older rows with `id < cursor`.
 - **Cursor pagination** uses opaque resource-specific cursors
   (`lastMessageAt:id` for the chat inbox, sortable message ids for messages,
   numeric ids elsewhere); limits clamp to `[1,200]` (default 50); bad cursor →

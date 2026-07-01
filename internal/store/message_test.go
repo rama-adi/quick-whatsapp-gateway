@@ -168,23 +168,44 @@ func TestMessageRepo_ListByChat_Pagination(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewMessageRepo(db)
 
-	// Page size 2, cursor "msg_...05" -> id > cursor, limit 2; return exactly 2 -> next cursor
-	// is the last id.
-	rows := sqlmock.NewRows(messageColRow()).
-		AddRow("msg_01TEST00000000000000000006", "sess_1", "w6", "c", nil, nil, false, "in", "text", nil, nil, []byte(""), false, []byte(""), nil, nil, nil, false, false, int64(1), []byte(""), int64(1), nil).
-		AddRow("msg_01TEST00000000000000000009", "sess_1", "w9", "c", nil, nil, false, "in", "text", nil, nil, []byte(""), false, []byte(""), nil, nil, nil, false, false, int64(2), []byte(""), int64(2), nil)
-	mock.ExpectQuery("SELECT .* FROM messages m .*WHERE m.session_id = . AND m.id > .*m.chat_jid = .*EXISTS.*ORDER BY m.id ASC LIMIT .").
-		WithArgs("sess_1", "msg_01TEST00000000000000000005", "c", "c", "c", 2).WillReturnRows(rows)
+	// Page 0 is newest-first. Empty cursor returns the latest rows; next cursor
+	// is the last row in that newest-first page.
+	firstRows := sqlmock.NewRows(messageColRow()).
+		AddRow("msg_01TEST00000000000000000009", "sess_1", "w9", "c", nil, nil, false, "in", "text", nil, nil, []byte(""), false, []byte(""), nil, nil, nil, false, false, int64(2), []byte(""), int64(2), nil).
+		AddRow("msg_01TEST00000000000000000006", "sess_1", "w6", "c", nil, nil, false, "in", "text", nil, nil, []byte(""), false, []byte(""), nil, nil, nil, false, false, int64(1), []byte(""), int64(1), nil)
+	mock.ExpectQuery("SELECT .* FROM messages m .*WHERE m.session_id = . AND .*m.id < .*m.chat_jid = .*EXISTS.*ORDER BY m.id DESC LIMIT .").
+		WithArgs("sess_1", "", "", "c", "c", "c", 2).WillReturnRows(firstRows)
 
-	page, err := repo.ListByChat(context.Background(), "sess_1", "c", "msg_01TEST00000000000000000005", 2)
+	first, err := repo.ListByChat(context.Background(), "sess_1", "c", "", 2)
+	if err != nil {
+		t.Fatalf("ListByChat first page: %v", err)
+	}
+	if got := []string{first.Items[0].ID, first.Items[1].ID}; got[0] != "msg_01TEST00000000000000000009" || got[1] != "msg_01TEST00000000000000000006" {
+		t.Fatalf("first page order = %v, want newest-first 09,06", got)
+	}
+	if first.NextCursor != "msg_01TEST00000000000000000006" {
+		t.Fatalf("want next cursor msg_...06, got %q", first.NextCursor)
+	}
+
+	// Older page uses id < cursor and keeps newest-first within that older slice.
+	rows := sqlmock.NewRows(messageColRow()).
+		AddRow("msg_01TEST00000000000000000005", "sess_1", "w5", "c", nil, nil, false, "in", "text", nil, nil, []byte(""), false, []byte(""), nil, nil, nil, false, false, int64(1), []byte(""), int64(1), nil).
+		AddRow("msg_01TEST00000000000000000003", "sess_1", "w3", "c", nil, nil, false, "in", "text", nil, nil, []byte(""), false, []byte(""), nil, nil, nil, false, false, int64(2), []byte(""), int64(2), nil)
+	mock.ExpectQuery("SELECT .* FROM messages m .*WHERE m.session_id = . AND .*m.id < .*m.chat_jid = .*EXISTS.*ORDER BY m.id DESC LIMIT .").
+		WithArgs("sess_1", "msg_01TEST00000000000000000006", "msg_01TEST00000000000000000006", "c", "c", "c", 2).WillReturnRows(rows)
+
+	page, err := repo.ListByChat(context.Background(), "sess_1", "c", "msg_01TEST00000000000000000006", 2)
 	if err != nil {
 		t.Fatalf("ListByChat: %v", err)
 	}
 	if len(page.Items) != 2 {
 		t.Fatalf("want 2 items, got %d", len(page.Items))
 	}
-	if page.NextCursor != "msg_01TEST00000000000000000009" {
-		t.Fatalf("want next cursor msg_...09, got %q", page.NextCursor)
+	if got := []string{page.Items[0].ID, page.Items[1].ID}; got[0] != "msg_01TEST00000000000000000005" || got[1] != "msg_01TEST00000000000000000003" {
+		t.Fatalf("older page order = %v, want newest-first 05,03", got)
+	}
+	if page.NextCursor != "msg_01TEST00000000000000000003" {
+		t.Fatalf("want next cursor msg_...03, got %q", page.NextCursor)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

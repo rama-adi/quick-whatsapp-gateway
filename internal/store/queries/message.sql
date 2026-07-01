@@ -46,12 +46,12 @@ SELECT m.id, m.session_id, m.wa_message_id, m.chat_jid, m.sender_lid,
 	COALESCE(m.raw_json, '') AS raw_json, m.created_at, i.name AS sender_name
 FROM messages m
 LEFT JOIN whatsapp_identities i ON i.lid = m.sender_lid
-WHERE m.session_id = ? AND m.id > ? AND (
+WHERE m.session_id = ? AND (sqlc.arg(message_cursor) = '' OR m.id < sqlc.arg(message_cursor)) AND (
 	m.chat_jid = ? OR EXISTS (
 		SELECT 1 FROM whatsapp_identities i2
 		WHERE (i2.lid = ? OR i2.phone_jid = ?)
 		  AND (m.chat_jid = i2.lid OR m.chat_jid = i2.phone_jid)
 	)
 )
-ORDER BY m.id ASC
+ORDER BY m.id DESC
 LIMIT ?;

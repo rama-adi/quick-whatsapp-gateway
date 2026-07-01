@@ -92,24 +92,24 @@ SELECT m.id, m.session_id, m.wa_message_id, m.chat_jid, m.sender_lid,
 	COALESCE(m.raw_json, '') AS raw_json, m.created_at, i.name AS sender_name
 FROM messages m
 LEFT JOIN whatsapp_identities i ON i.lid = m.sender_lid
-WHERE m.session_id = ? AND m.id > ? AND (
+WHERE m.session_id = ? AND (? = '' OR m.id < ?) AND (
 	m.chat_jid = ? OR EXISTS (
 		SELECT 1 FROM whatsapp_identities i2
 		WHERE (i2.lid = ? OR i2.phone_jid = ?)
 		  AND (m.chat_jid = i2.lid OR m.chat_jid = i2.phone_jid)
 	)
 )
-ORDER BY m.id ASC
+ORDER BY m.id DESC
 LIMIT ?
 `
 
 type ListMessagesByChatParams struct {
-	SessionID string         `db:"session_id" json:"session_id"`
-	ID        string         `db:"id" json:"id"`
-	ChatJid   string         `db:"chat_jid" json:"chat_jid"`
-	Lid       string         `db:"lid" json:"lid"`
-	PhoneJid  sql.NullString `db:"phone_jid" json:"phone_jid"`
-	Limit     int32          `db:"limit" json:"limit"`
+	SessionID     string         `db:"session_id" json:"session_id"`
+	MessageCursor string         `db:"message_cursor" json:"message_cursor"`
+	ChatJid       string         `db:"chat_jid" json:"chat_jid"`
+	Lid           string         `db:"lid" json:"lid"`
+	PhoneJid      sql.NullString `db:"phone_jid" json:"phone_jid"`
+	Limit         int32          `db:"limit" json:"limit"`
 }
 
 type ListMessagesByChatRow struct {
@@ -141,7 +141,8 @@ type ListMessagesByChatRow struct {
 func (q *Queries) ListMessagesByChat(ctx context.Context, arg ListMessagesByChatParams) ([]ListMessagesByChatRow, error) {
 	rows, err := q.db.QueryContext(ctx, listMessagesByChat,
 		arg.SessionID,
-		arg.ID,
+		arg.MessageCursor,
+		arg.MessageCursor,
 		arg.ChatJid,
 		arg.Lid,
 		arg.PhoneJid,

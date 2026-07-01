@@ -124,8 +124,8 @@ func (r *MessageRepo) MarkDeleted(ctx context.Context, sessionID, waMessageID st
 }
 
 // ListByChat returns a page of a chat's messages for a session (§11 GET
-// /chats/{cid}/messages). Ordered by id ASC so the opaque cursor is the last
-// returned id and pagination is stable under concurrent inserts.
+// /chats/{cid}/messages). Page 0 is newest-first; the opaque cursor is the last
+// returned id and the next page returns older rows (`id < cursor`).
 func (r *MessageRepo) ListByChat(ctx context.Context, sessionID, chatJID, cursor string, limit int) (Page[domain.Message], error) {
 	afterID, err := parseStringCursor(cursor)
 	if err != nil {
@@ -133,12 +133,12 @@ func (r *MessageRepo) ListByChat(ctx context.Context, sessionID, chatJID, cursor
 	}
 	limit = normLimit(limit)
 	rows, err := r.q.ListMessagesByChat(ctx, storedb.ListMessagesByChatParams{
-		SessionID: sessionID,
-		ID:        afterID,
-		ChatJid:   chatJID,
-		Lid:       chatJID,
-		PhoneJid:  sqlString(chatJID),
-		Limit:     int32(limit),
+		SessionID:     sessionID,
+		MessageCursor: afterID,
+		ChatJid:       chatJID,
+		Lid:           chatJID,
+		PhoneJid:      sqlString(chatJID),
+		Limit:         int32(limit),
 	})
 	if err != nil {
 		return Page[domain.Message]{}, fmt.Errorf("store: list messages: %w", err)

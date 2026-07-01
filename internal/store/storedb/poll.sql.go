@@ -55,6 +55,73 @@ func (q *Queries) InsertPollVote(ctx context.Context, arg InsertPollVoteParams) 
 	)
 }
 
+const listDuePollRecaps = `-- name: ListDuePollRecaps :many
+SELECT
+  p.id, p.session_id, s.organization_id, p.poll_message_id, p.chat_jid,
+  COALESCE(p.name, '') AS name, p.options, p.selectable_count,
+  COALESCE(p.end_time, 0) AS end_time, p.hide_votes
+FROM polls p
+JOIN wa_sessions s ON s.id = p.session_id
+WHERE p.end_time IS NOT NULL
+  AND p.end_time > 0
+  AND p.end_time <= ?
+  AND p.recap_emitted_at IS NULL
+ORDER BY p.end_time ASC
+LIMIT ?
+`
+
+type ListDuePollRecapsParams struct {
+	EndTime sql.NullInt64 `db:"end_time" json:"end_time"`
+	Limit   int32         `db:"limit" json:"limit"`
+}
+
+type ListDuePollRecapsRow struct {
+	ID              uint64          `db:"id" json:"id"`
+	SessionID       string          `db:"session_id" json:"session_id"`
+	OrganizationID  string          `db:"organization_id" json:"organization_id"`
+	PollMessageID   string          `db:"poll_message_id" json:"poll_message_id"`
+	ChatJid         string          `db:"chat_jid" json:"chat_jid"`
+	Name            string          `db:"name" json:"name"`
+	Options         json.RawMessage `db:"options" json:"options"`
+	SelectableCount int32           `db:"selectable_count" json:"selectable_count"`
+	EndTime         int64           `db:"end_time" json:"end_time"`
+	HideVotes       bool            `db:"hide_votes" json:"hide_votes"`
+}
+
+func (q *Queries) ListDuePollRecaps(ctx context.Context, arg ListDuePollRecapsParams) ([]ListDuePollRecapsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listDuePollRecaps, arg.EndTime, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListDuePollRecapsRow{}
+	for rows.Next() {
+		var i ListDuePollRecapsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.SessionID,
+			&i.OrganizationID,
+			&i.PollMessageID,
+			&i.ChatJid,
+			&i.Name,
+			&i.Options,
+			&i.SelectableCount,
+			&i.EndTime,
+			&i.HideVotes,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPollVotesByPoll = `-- name: ListPollVotesByPoll :many
 SELECT id, session_id, poll_message_id, voter_lid, selected_options, timestamp, COALESCE(raw_json, '') AS raw_json
 FROM poll_votes
@@ -98,73 +165,6 @@ func (q *Queries) ListPollVotesByPoll(ctx context.Context, arg ListPollVotesByPo
 	return items, nil
 }
 
-const listDuePollRecaps = `-- name: ListDuePollRecaps :many
-SELECT
-  p.id, p.session_id, s.organization_id, p.poll_message_id, p.chat_jid,
-  COALESCE(p.name, '') AS name, p.options, p.selectable_count,
-  COALESCE(p.end_time, 0) AS end_time, p.hide_votes
-FROM polls p
-JOIN wa_sessions s ON s.id = p.session_id
-WHERE p.end_time IS NOT NULL
-  AND p.end_time > 0
-  AND p.end_time <= ?
-  AND p.recap_emitted_at IS NULL
-ORDER BY p.end_time ASC
-LIMIT ?
-`
-
-type ListDuePollRecapsParams struct {
-	EndTime int64 `db:"end_time" json:"end_time"`
-	Limit   int32 `db:"limit" json:"limit"`
-}
-
-type ListDuePollRecapsRow struct {
-	ID              uint64          `db:"id" json:"id"`
-	SessionID       string          `db:"session_id" json:"session_id"`
-	OrganizationID  string          `db:"organization_id" json:"organization_id"`
-	PollMessageID   string          `db:"poll_message_id" json:"poll_message_id"`
-	ChatJid         string          `db:"chat_jid" json:"chat_jid"`
-	Name            string          `db:"name" json:"name"`
-	Options         json.RawMessage `db:"options" json:"options"`
-	SelectableCount int32           `db:"selectable_count" json:"selectable_count"`
-	EndTime         int64           `db:"end_time" json:"end_time"`
-	HideVotes       int8            `db:"hide_votes" json:"hide_votes"`
-}
-
-func (q *Queries) ListDuePollRecaps(ctx context.Context, arg ListDuePollRecapsParams) ([]ListDuePollRecapsRow, error) {
-	rows, err := q.db.QueryContext(ctx, listDuePollRecaps, arg.EndTime, arg.Limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListDuePollRecapsRow{}
-	for rows.Next() {
-		var i ListDuePollRecapsRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.SessionID,
-			&i.OrganizationID,
-			&i.PollMessageID,
-			&i.ChatJid,
-			&i.Name,
-			&i.Options,
-			&i.SelectableCount,
-			&i.EndTime,
-			&i.HideVotes,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const markPollRecapEmitted = `-- name: MarkPollRecapEmitted :execresult
 UPDATE polls
 SET recap_emitted_at = ?, updated_at = ?
@@ -172,10 +172,10 @@ WHERE session_id = ? AND poll_message_id = ? AND recap_emitted_at IS NULL
 `
 
 type MarkPollRecapEmittedParams struct {
-	RecapEmittedAt int64  `db:"recap_emitted_at" json:"recap_emitted_at"`
-	UpdatedAt      int64  `db:"updated_at" json:"updated_at"`
-	SessionID      string `db:"session_id" json:"session_id"`
-	PollMessageID  string `db:"poll_message_id" json:"poll_message_id"`
+	RecapEmittedAt sql.NullInt64 `db:"recap_emitted_at" json:"recap_emitted_at"`
+	UpdatedAt      int64         `db:"updated_at" json:"updated_at"`
+	SessionID      string        `db:"session_id" json:"session_id"`
+	PollMessageID  string        `db:"poll_message_id" json:"poll_message_id"`
 }
 
 func (q *Queries) MarkPollRecapEmitted(ctx context.Context, arg MarkPollRecapEmittedParams) (sql.Result, error) {
@@ -209,7 +209,7 @@ type UpsertPollParams struct {
 	Options         json.RawMessage `db:"options" json:"options"`
 	SelectableCount int32           `db:"selectable_count" json:"selectable_count"`
 	EndTime         sql.NullInt64   `db:"end_time" json:"end_time"`
-	HideVotes       int8            `db:"hide_votes" json:"hide_votes"`
+	HideVotes       bool            `db:"hide_votes" json:"hide_votes"`
 	CreatedAt       int64           `db:"created_at" json:"created_at"`
 	UpdatedAt       int64           `db:"updated_at" json:"updated_at"`
 }

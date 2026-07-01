@@ -108,7 +108,7 @@ export function formatDayHeading(ms?: number): string {
     weekday: "short",
     month: "short",
     day: "numeric",
-    ...(d.getFullYear() === now.getFullYear() ? {} : { year: "numeric" }),
+    year: "numeric",
   });
 }
 
