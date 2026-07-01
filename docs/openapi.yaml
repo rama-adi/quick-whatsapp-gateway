@@ -2085,7 +2085,7 @@ components:
             - org_01J9...
           type: string
         payload:
-          $ref: "#/components/schemas/PresencePayload"
+          $ref: "#/components/schemas/PresenceStatus"
         schema:
           description: Envelope schema version, so consumers can adapt if the shape changes.
           enum:
@@ -2113,17 +2113,23 @@ components:
         - organization
         - timestamp
       type: object
-    PresencePayload:
+    PresenceStatus:
       additionalProperties: false
       properties:
         chatJid:
           description: Chat the presence applies to, for chat (typing) presence.
+          examples:
+            - 6281234567890@s.whatsapp.net
           type: string
         from:
-          description: JID whose presence changed.
+          description: JID whose presence was requested or changed.
+          examples:
+            - 6281234567890@s.whatsapp.net
           type: string
         lastSeen:
           description: Last-seen time in epoch milliseconds, when the contact shares it.
+          examples:
+            - 1719662400000
           format: int64
           type: integer
         media:
@@ -2133,17 +2139,20 @@ components:
             - audio
           type: string
         state:
-          description: "Presence state: available (online), unavailable (offline), composing (typing), or paused (stopped typing)."
+          description: "Presence state: unknown until WhatsApp emits a subscribed update, then available (online), unavailable (offline), composing, or paused."
           enum:
+            - unknown
             - available
             - unavailable
             - composing
             - paused
           examples:
-            - composing
+            - available
           type: string
         unavailable:
           description: True when the contact went offline.
+          examples:
+            - false
           type: boolean
       required:
         - from
@@ -3629,6 +3638,50 @@ paths:
       tags:
         - Chats
   /api/v1/sessions/{session}/chats/{cid}/presence:
+    get:
+      description: |-
+        Subscribe to a contact's live WhatsApp presence and return the current presence snapshot.
+
+        WhatsApp presence is event-driven: this endpoint may return `state: unknown` immediately, then a later `presence.update` event updates the same chat/contact as available or unavailable. Requires `read` capability and a live connected session.
+
+        Errors: `validation_error` for a bad JID, `not_found` if the session is missing, `not_implemented` if the session is not connected, `forbidden` if missing `read`.
+      operationId: getChatPresence
+      parameters:
+        - description: WhatsApp session id. Must belong to the caller organization.
+          in: path
+          name: session
+          required: true
+          schema:
+            description: WhatsApp session id. Must belong to the caller organization.
+            examples:
+              - 01HF...
+            type: string
+        - description: Chat JID (for example 628...@s.whatsapp.net or 120...@g.us).
+          in: path
+          name: cid
+          required: true
+          schema:
+            description: Chat JID (for example 628...@s.whatsapp.net or 120...@g.us).
+            examples:
+              - 6281234567890@s.whatsapp.net
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PresenceStatus"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Get chat presence
+      tags:
+        - Chats
+        - Presence
     put:
       description: |-
         Send a typing/recording indicator (`state`) to a chat.

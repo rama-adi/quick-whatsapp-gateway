@@ -439,7 +439,15 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Get chat presence
+         * @description Subscribe to a contact's live WhatsApp presence and return the current presence snapshot.
+         *
+         *     WhatsApp presence is event-driven: this endpoint may return `state: unknown` immediately, then a later `presence.update` event updates the same chat/contact as available or unavailable. Requires `read` capability and a live connected session.
+         *
+         *     Errors: `validation_error` for a bad JID, `not_found` if the session is missing, `not_implemented` if the session is not connected, `forbidden` if missing `read`.
+         */
+        get: operations["getChatPresence"];
         /**
          * Set chat presence (typing/recording)
          * @description Send a typing/recording indicator (`state`) to a chat.
@@ -2811,7 +2819,7 @@ export interface components {
              * @example org_01J9...
              */
             organization: string;
-            payload: components["schemas"]["PresencePayload"];
+            payload: components["schemas"]["PresenceStatus"];
             /**
              * @description Envelope schema version, so consumers can adapt if the shape changes.
              * @example v1
@@ -2830,14 +2838,21 @@ export interface components {
              */
             timestamp: number;
         };
-        PresencePayload: {
-            /** @description Chat the presence applies to, for chat (typing) presence. */
+        PresenceStatus: {
+            /**
+             * @description Chat the presence applies to, for chat (typing) presence.
+             * @example 6281234567890@s.whatsapp.net
+             */
             chatJid?: string;
-            /** @description JID whose presence changed. */
+            /**
+             * @description JID whose presence was requested or changed.
+             * @example 6281234567890@s.whatsapp.net
+             */
             from: string;
             /**
              * Format: int64
              * @description Last-seen time in epoch milliseconds, when the contact shares it.
+             * @example 1719662400000
              */
             lastSeen?: number;
             /**
@@ -2846,12 +2861,15 @@ export interface components {
              */
             media?: "text" | "audio";
             /**
-             * @description Presence state: available (online), unavailable (offline), composing (typing), or paused (stopped typing).
-             * @example composing
+             * @description Presence state: unknown until WhatsApp emits a subscribed update, then available (online), unavailable (offline), composing, or paused.
+             * @example available
              * @enum {string}
              */
-            state: "available" | "unavailable" | "composing" | "paused";
-            /** @description True when the contact went offline. */
+            state: "unknown" | "available" | "unavailable" | "composing" | "paused";
+            /**
+             * @description True when the contact went offline.
+             * @example false
+             */
             unavailable?: boolean;
         };
         ProfilePicture: {
@@ -3951,6 +3969,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ListMessage"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getChatPresence: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description WhatsApp session id. Must belong to the caller organization. */
+                session: string;
+                /** @description Chat JID (for example 628...@s.whatsapp.net or 120...@g.us). */
+                cid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PresenceStatus"];
                 };
             };
             /** @description Error */

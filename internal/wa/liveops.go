@@ -45,6 +45,7 @@ type liveClient interface {
 	UpdateBlocklist(ctx context.Context, jid types.JID, action events.BlocklistChangeAction) (*types.Blocklist, error)
 	SendPresence(ctx context.Context, state types.Presence) error
 	SendChatPresence(ctx context.Context, jid types.JID, state types.ChatPresence, media types.ChatPresenceMedia) error
+	SubscribePresence(ctx context.Context, jid types.JID) error
 	MarkRead(ctx context.Context, ids []types.MessageID, timestamp time.Time, chat, sender types.JID, receiptTypeExtra ...types.ReceiptType) error
 }
 
@@ -642,6 +643,29 @@ func (l *LiveOps) SetChatPresence(ctx context.Context, sessionID, chatJID, state
 		return domain.ErrValidation("invalid chat presence state")
 	}
 	return c.SendChatPresence(ctx, j, cp, media)
+}
+
+// GetPresence subscribes to WhatsApp presence updates for a contact. WhatsApp
+// does not expose a synchronous "current presence" read; the subscription causes
+// subsequent *events.Presence frames to arrive through the normal inbound event
+// handler. The REST response is therefore an explicit unknown snapshot.
+func (l *LiveOps) GetPresence(ctx context.Context, sessionID, chatJID string) (domain.PresenceStatus, error) {
+	c, err := l.client(sessionID)
+	if err != nil {
+		return domain.PresenceStatus{}, err
+	}
+	j, err := parseJID(chatJID)
+	if err != nil {
+		return domain.PresenceStatus{}, err
+	}
+	if err := c.SubscribePresence(ctx, j); err != nil {
+		return domain.PresenceStatus{}, err
+	}
+	return domain.PresenceStatus{
+		ChatJID: chatJID,
+		From:    j.String(),
+		State:   "unknown",
+	}, nil
 }
 
 // SendReadReceipt marks one or more incoming messages as read.

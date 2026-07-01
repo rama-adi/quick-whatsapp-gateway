@@ -74,6 +74,7 @@ type ChatSvc interface {
 	List(ctx context.Context, organizationID, sessionID, cursor string, limit int) (store.Page[domain.Chat], error)
 	Get(ctx context.Context, organizationID, sessionID, chatJID string) (domain.Chat, error)
 	ListMessages(ctx context.Context, organizationID, sessionID, chatJID, cursor string, limit int) (store.Page[domain.Message], error)
+	GetPresence(ctx context.Context, organizationID, sessionID, chatJID string) (domain.PresenceStatus, error)
 	Read(ctx context.Context, organizationID, sessionID, chatJID string) (domain.Chat, error)
 	Update(ctx context.Context, organizationID, sessionID, chatJID string, in service.ChatUpdate) (domain.Chat, error)
 	Delete(ctx context.Context, organizationID, sessionID, chatJID string) error

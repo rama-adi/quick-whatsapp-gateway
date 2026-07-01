@@ -104,6 +104,37 @@ func TestListChatMessages_Envelope(t *testing.T) {
 	}
 }
 
+func TestGetChatPresence_HappyPath(t *testing.T) {
+	svc := &fakeChatSvc{presence: domain.PresenceStatus{
+		ChatJID: "1@s.whatsapp.net",
+		From:    "1@s.whatsapp.net",
+		State:   "unknown",
+	}}
+	h := chatRouter(svc, manageOrgPrincipal())
+	w := doReq(h, http.MethodGet, "/api/v1/sessions/sess_1/chats/1@s.whatsapp.net/presence", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	var body domain.PresenceStatus
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.State != "unknown" || body.From != "1@s.whatsapp.net" {
+		t.Errorf("unexpected body: %+v", body)
+	}
+	if svc.lastCID != "1@s.whatsapp.net" {
+		t.Errorf("cid not threaded: %q", svc.lastCID)
+	}
+}
+
+func TestGetChatPresence_ReadOnlyAllowed(t *testing.T) {
+	h := chatRouter(&fakeChatSvc{}, readOnlyPrincipal())
+	w := doReq(h, http.MethodGet, "/api/v1/sessions/sess_1/chats/c/presence", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+}
+
 func TestReadChat_HappyPath(t *testing.T) {
 	svc := &fakeChatSvc{one: domain.Chat{ChatJID: "1@s.whatsapp.net"}}
 	h := chatRouter(svc, manageOrgPrincipal())

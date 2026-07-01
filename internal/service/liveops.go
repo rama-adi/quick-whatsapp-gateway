@@ -62,6 +62,10 @@ type PresenceController interface {
 	SetPresence(ctx context.Context, sessionID, state string) error
 	// SetChatPresence sets the per-chat typing state: composing/paused/recording.
 	SetChatPresence(ctx context.Context, sessionID, chatJID, state string) error
+	// GetPresence subscribes to a contact's presence updates and returns the
+	// current REST snapshot. WhatsApp may not send a concrete state until a later
+	// presence.update event arrives.
+	GetPresence(ctx context.Context, sessionID, chatJID string) (domain.PresenceStatus, error)
 }
 
 // ChannelOps is the live channel/newsletter surface (§11 Channels).

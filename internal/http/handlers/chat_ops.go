@@ -84,6 +84,7 @@ type chatPresenceInput struct {
 type chatOutput struct{ Body domain.Chat }
 type chatListOutput struct{ Body apitypes.List[domain.Chat] }
 type chatMessageListOutput struct{ Body apitypes.List[domain.Message] }
+type chatPresenceOutput struct{ Body domain.PresenceStatus }
 
 // RegisterChatOps registers chat read/write operations.
 func RegisterChatOps(api huma.API, h *Handlers) {
@@ -142,6 +143,24 @@ func RegisterChatOps(api huma.API, h *Handlers) {
 			return nil, humax.Err(err)
 		}
 		return &chatMessageListOutput{Body: apitypes.NewList(page.Items, page.NextCursor)}, nil
+	})
+
+	huma.Register(api, huma.Operation{
+		OperationID: "getChatPresence", Method: "GET", Path: "/api/v1/sessions/{session}/chats/{cid}/presence",
+		Summary: "Get chat presence", Tags: []string{"Chats", "Presence"}, Middlewares: read,
+		Description: "Subscribe to a contact's live WhatsApp presence and return the current presence snapshot.\n\n" +
+			"WhatsApp presence is event-driven: this endpoint may return `state: unknown` immediately, then a later `presence.update` event updates the same chat/contact as available or unavailable. Requires `read` capability and a live connected session.\n\n" +
+			"Errors: `validation_error` for a bad JID, `not_found` if the session is missing, `not_implemented` if the session is not connected, `forbidden` if missing `read`.",
+	}, func(ctx context.Context, in *getChatInput) (*chatPresenceOutput, error) {
+		org, err := humax.Org(ctx)
+		if err != nil {
+			return nil, err
+		}
+		presence, err := h.Chats.GetPresence(ctx, org, in.Session, in.CID)
+		if err != nil {
+			return nil, humax.Err(err)
+		}
+		return &chatPresenceOutput{Body: presence}, nil
 	})
 
 	huma.Register(api, huma.Operation{

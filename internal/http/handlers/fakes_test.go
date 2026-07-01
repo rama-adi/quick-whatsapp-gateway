@@ -193,6 +193,7 @@ type fakeChatSvc struct {
 	chats    store.Page[domain.Chat]
 	one      domain.Chat
 	messages store.Page[domain.Message]
+	presence domain.PresenceStatus
 	err      error
 	lastIn   service.ChatUpdate
 	lastID   string
@@ -211,6 +212,13 @@ func (f *fakeChatSvc) Get(_ context.Context, _, _, cid string) (domain.Chat, err
 func (f *fakeChatSvc) ListMessages(_ context.Context, _, _, cid, _ string, _ int) (store.Page[domain.Message], error) {
 	f.lastCID = cid
 	return f.messages, f.err
+}
+func (f *fakeChatSvc) GetPresence(_ context.Context, _, _, cid string) (domain.PresenceStatus, error) {
+	f.lastCID = cid
+	if f.presence.From != "" {
+		return f.presence, f.err
+	}
+	return domain.PresenceStatus{ChatJID: cid, From: cid, State: "unknown"}, f.err
 }
 func (f *fakeChatSvc) Read(_ context.Context, _, _, cid string) (domain.Chat, error) {
 	f.lastCID = cid

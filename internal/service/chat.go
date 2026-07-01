@@ -70,6 +70,23 @@ func (s *ChatService) ListMessages(ctx context.Context, organizationID, sessionI
 	return page, nil
 }
 
+// GetPresence subscribes to live presence updates for a DM/contact JID and
+// returns the current REST snapshot. The initial state is often "unknown"; the
+// realtime stream patches the same qk.presence cache when WhatsApp emits a
+// presence.update event after the subscription.
+func (s *ChatService) GetPresence(ctx context.Context, organizationID, sessionID, chatJID string) (domain.PresenceStatus, error) {
+	if err := s.requireSession(ctx, organizationID, sessionID); err != nil {
+		return domain.PresenceStatus{}, err
+	}
+	if chatJID == "" {
+		return domain.PresenceStatus{}, domain.ErrValidation("chat jid is required")
+	}
+	if s.presence == nil {
+		return domain.PresenceStatus{}, errLiveUnavailable()
+	}
+	return s.presence.GetPresence(ctx, sessionID, chatJID)
+}
+
 // resolveMentionNames fills each message's MentionNames from whatsapp_identities so
 // a client can render "@<name>" instead of the raw "@<number>" the body carries. It
 // gathers the mention JIDs across the whole page and resolves them in one query; a

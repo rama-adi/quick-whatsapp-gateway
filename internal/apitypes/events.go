@@ -98,14 +98,7 @@ type MessageStatusPayload struct {
 
 // PresencePayload is the payload of a `presence.update` event (a contact's online
 // or typing state, or a chat presence such as typing/recording).
-type PresencePayload struct {
-	ChatJID     string `json:"chatJid,omitempty" doc:"Chat the presence applies to, for chat (typing) presence."`
-	From        string `json:"from" doc:"JID whose presence changed."`
-	State       string `json:"state" doc:"Presence state: available (online), unavailable (offline), composing (typing), or paused (stopped typing)." enum:"available,unavailable,composing,paused" example:"composing"`
-	Media       string `json:"media,omitempty" doc:"For chat presence, the kind being composed: text or audio." enum:"text,audio"`
-	Unavailable bool   `json:"unavailable,omitempty" doc:"True when the contact went offline."`
-	LastSeen    int64  `json:"lastSeen,omitempty" doc:"Last-seen time in epoch milliseconds, when the contact shares it."`
-}
+type PresencePayload = domain.PresenceStatus
 
 // GroupPayload is the payload of `group.update` (group metadata changed) and
 // `group.participant` (members joined/left/were promoted/demoted) events.

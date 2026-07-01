@@ -13,7 +13,7 @@ import {
 } from "@tanstack/react-query";
 import { qk } from "../../query";
 import type { ApiError, Page } from "../envelope";
-import type { Chat, UpdateChatRequest } from "../types";
+import type { Chat, PresenceStatus, UpdateChatRequest } from "../types";
 import { apiUrl, fetchJSON, listPageFetcher, nextCursor } from "./_shared";
 
 export function useChats(
@@ -35,6 +35,24 @@ export function useChat(s: string, c: string): UseQueryResult<Chat, ApiError> {
     queryFn: () =>
       fetchJSON<Chat>(
         apiUrl(`/sessions/${encodeURIComponent(s)}/chats/${encodeURIComponent(c)}`),
+      ),
+  });
+}
+
+export function useChatPresence(
+  s: string,
+  c: string,
+  enabled = true,
+): UseQueryResult<PresenceStatus, ApiError> {
+  return useQuery({
+    queryKey: qk.presence(s, c),
+    enabled: Boolean(enabled && s && c),
+    staleTime: 60_000,
+    queryFn: () =>
+      fetchJSON<PresenceStatus>(
+        apiUrl(
+          `/sessions/${encodeURIComponent(s)}/chats/${encodeURIComponent(c)}/presence`,
+        ),
       ),
   });
 }

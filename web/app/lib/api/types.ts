@@ -17,6 +17,7 @@ export type SendResult = components["schemas"]["SendResult"];
 export type ContactCard = components["schemas"]["ContactCard"];
 
 export type Chat = components["schemas"]["Chat"];
+export type PresenceStatus = components["schemas"]["PresenceStatus"];
 export type UpdateChatRequest = components["schemas"]["UpdateChatInputBody"];
 
 export type Contact = components["schemas"]["Contact"];

@@ -25,7 +25,7 @@ import {
   type FormEvent,
 } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery, type InfiniteData } from "@tanstack/react-query";
+import { type InfiniteData } from "@tanstack/react-query";
 import {
   ChevronDown,
   Contact,
@@ -50,12 +50,16 @@ import {
   useSendMessage,
   useVoteMessage,
 } from "~/lib/api/hooks/messages";
-import { useChat, useMarkChatRead } from "~/lib/api/hooks/chats";
-import { qk } from "~/lib/query";
+import {
+  useChat,
+  useChatPresence,
+  useMarkChatRead,
+} from "~/lib/api/hooks/chats";
 import type { Chat, Message } from "~/lib/api/types";
 import type { Page } from "~/lib/api/envelope";
 import { isApiError } from "~/lib/api/envelope";
 import { usePollingInterval } from "~/lib/events/useEventStream";
+import { cn } from "~/lib/utils";
 import { Button } from "~/components/ui/button";
 import { Textarea } from "~/components/ui/textarea";
 import { Input } from "~/components/ui/input";
@@ -175,12 +179,8 @@ function ViewerTimeline() {
   const send = useSendMessage(sessionId);
   const vote = useVoteMessage(sessionId);
   const pollMs = usePollingInterval();
-  const presence = useQuery<Record<string, unknown>>({
-    queryKey: qk.presence(sessionId, chatId),
-    enabled: false,
-    staleTime: Infinity,
-    queryFn: async () => ({}),
-  });
+  const isDirectChat = (chat.data as ViewerChat | undefined)?.type === "dm";
+  const presence = useChatPresence(sessionId, chatId, isDirectChat);
   const lastReadKey = useRef<string | null>(null);
   const loadingOlder = useRef(false);
   const lastRequestedOlderCursor = useRef<string | null>(null);
@@ -286,8 +286,10 @@ function ViewerTimeline() {
     typeof presence.data?.media === "string" ? presence.data.media : undefined;
   const typingText =
     presenceState === "composing"
-      ? "typing..."
-      : presenceState === "recording" || presenceMedia === "audio"
+      ? presenceMedia === "audio"
+        ? "recording audio..."
+        : "typing..."
+      : presenceMedia === "audio"
         ? "recording audio..."
         : null;
   const headerMeta = chatHeaderMeta(viewerChat, chatId, presenceState);
@@ -334,8 +336,21 @@ function ViewerTimeline() {
               />
               {viewerChat?.type === "dm" ? (
                 <span
-                  className="absolute bottom-0 right-0 size-2.5 rounded-full border-2 border-card bg-emerald-500"
-                  aria-label={presenceState === "available" ? "Online" : "Presence unknown"}
+                  className={cn(
+                    "absolute bottom-0 right-0 size-2.5 rounded-full border-2 border-card",
+                    presenceState === "available"
+                      ? "bg-emerald-500"
+                      : presenceState === "unavailable"
+                        ? "bg-muted-foreground"
+                        : "bg-amber-400",
+                  )}
+                  aria-label={
+                    presenceState === "available"
+                      ? "Online"
+                      : presenceState === "unavailable"
+                        ? "Offline"
+                        : "Presence unknown"
+                  }
                 />
               ) : null}
             </div>

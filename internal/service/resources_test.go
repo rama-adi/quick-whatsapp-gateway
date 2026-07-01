@@ -43,6 +43,7 @@ func expectSession(mock sqlmock.Sqlmock, sessionID, owner string) {
 type fakePresenceController struct {
 	state     string
 	chatState string
+	presence  domain.PresenceStatus
 	err       error
 }
 
@@ -53,6 +54,12 @@ func (f *fakePresenceController) SetPresence(_ context.Context, _, state string)
 func (f *fakePresenceController) SetChatPresence(_ context.Context, _, _, state string) error {
 	f.chatState = state
 	return f.err
+}
+func (f *fakePresenceController) GetPresence(_ context.Context, _, chatJID string) (domain.PresenceStatus, error) {
+	if f.presence.From != "" {
+		return f.presence, f.err
+	}
+	return domain.PresenceStatus{ChatJID: chatJID, From: chatJID, State: "unknown"}, f.err
 }
 
 type fakeStatusPoster struct {
@@ -170,6 +177,20 @@ func TestChatService_SetPresence_Delegates(t *testing.T) {
 	}
 	if ctrl.chatState != "composing" {
 		t.Errorf("chatState = %q, want composing", ctrl.chatState)
+	}
+}
+
+func TestChatService_GetPresence_Delegates(t *testing.T) {
+	st, mock := newStore(t)
+	expectSession(mock, "sess_1", "ten_1")
+	ctrl := &fakePresenceController{}
+	svc := NewChatService(st, ctrl, nil)
+	got, err := svc.GetPresence(context.Background(), "ten_1", "sess_1", "c@s.whatsapp.net")
+	if err != nil {
+		t.Fatalf("GetPresence: %v", err)
+	}
+	if got.State != "unknown" || got.From != "c@s.whatsapp.net" {
+		t.Errorf("presence = %+v, want unknown for c@s.whatsapp.net", got)
 	}
 }
 

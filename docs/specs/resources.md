@@ -45,6 +45,7 @@ yields nil ports and the services fall back to the `not_implemented` envelope.
 | Method | Path | Backed by |
 |---|---|---|
 | GET | `/chats` · `/chats/{cid}` · `/chats/{cid}/messages` | store (cursor pages) |
+| GET | `/chats/{cid}/presence` | live `PresenceController.GetPresence` — subscribes to WhatsApp presence updates and returns `state: unknown` until a `presence.update` event arrives |
 | POST | `/chats/{cid}/read` | store — zeroes `unread_count` (local read state; per-message WA receipts are out of scope for v2) |
 | PATCH | `/chats/{cid}` | store — `archived`/`pinned`/`mutedUntil`/`unmute` (nil = unchanged) |
 | DELETE | `/chats/{cid}` | store |
@@ -59,6 +60,13 @@ phone JID when known), and message reads expand through those aliases so LID and
 `@s.whatsapp.net` captures render as one conversation. The frontend clears the
 local unread counter automatically when a user opens a chat, so the read
 endpoint is an implementation detail rather than a primary viewer control.
+
+`GET /chats/{cid}/presence` is a live subscription kick, not a guaranteed
+synchronous last-seen lookup. WhatsApp only sends contact availability after the
+session subscribes to that user, so the response shape matches
+`presence.update` and commonly starts as `state: unknown`; the realtime stream
+then patches the same chat/contact when WhatsApp emits `available` or
+`unavailable`.
 
 ## Groups (§13)
 
@@ -89,6 +97,9 @@ media) returns `501 not_implemented`, matching the media send types.
 ## Presence (§13)
 
 `PUT /presence` — `state` ∈ {online,offline} via `PresenceController.SetPresence`.
+Per-contact online/offline reads live under the chat resource as
+`GET /chats/{cid}/presence` because they are scoped to a specific peer JID and
+share the `presence.update` event shape.
 
 ## Admin (§13)
 

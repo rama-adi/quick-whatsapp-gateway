@@ -49,6 +49,19 @@ type WASession struct {
 	UpdatedAt       int64         `json:"updatedAt" doc:"When the session was last updated, in epoch milliseconds (UTC)." example:"1719662400000"`
 }
 
+// PresenceStatus is the snapshot returned by the live presence lookup endpoint.
+// WhatsApp only pushes contact presence after a subscription; the initial GET may
+// therefore return state="unknown" and a later presence.update event carries the
+// available/unavailable transition.
+type PresenceStatus struct {
+	ChatJID     string `json:"chatJid,omitempty" doc:"Chat the presence applies to, for chat (typing) presence." example:"6281234567890@s.whatsapp.net"`
+	From        string `json:"from" doc:"JID whose presence was requested or changed." example:"6281234567890@s.whatsapp.net"`
+	State       string `json:"state" doc:"Presence state: unknown until WhatsApp emits a subscribed update, then available (online), unavailable (offline), composing, or paused." enum:"unknown,available,unavailable,composing,paused" example:"available"`
+	Media       string `json:"media,omitempty" doc:"For chat presence, the kind being composed: text or audio." enum:"text,audio"`
+	Unavailable bool   `json:"unavailable,omitempty" doc:"True when the contact went offline." example:"false"`
+	LastSeen    int64  `json:"lastSeen,omitempty" doc:"Last-seen time in epoch milliseconds, when the contact shares it." example:"1719662400000"`
+}
+
 // Permissions is the typed shape of api_keys.permissions JSON.
 type Permissions struct {
 	Read   bool `json:"read" doc:"Read scope: the key may read resources (sessions, chats, messages, contacts, groups). Required for all GET-style endpoints." example:"true"`
