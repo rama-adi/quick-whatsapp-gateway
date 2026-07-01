@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"math/rand/v2"
+	"net/http"
 	"strings"
 	"time"
 
@@ -228,10 +230,9 @@ func (s *Sender) pace() {
 }
 
 // dispatch routes a validated request to the right WAClient call, then records
-// the sent message to the messages table. Media types never reach here (validate
-// rejects them). It is the single chokepoint both the sync front-door and the
-// async worker (via the exported Dispatch) funnel through, so recording here
-// covers every successful send exactly once.
+// the sent message to the messages table. It is the single chokepoint both the
+// sync front-door and the async worker (via the exported Dispatch) funnel
+// through, so recording here covers every successful send exactly once.
 func (s *Sender) dispatch(ctx context.Context, req domain.SendRequest) (waMessageID string, ts int64, err error) {
 	quote := s.resolveQuote(ctx, req)
 	switch req.Type {
@@ -250,7 +251,7 @@ func (s *Sender) dispatch(ctx context.Context, req domain.SendRequest) (waMessag
 	case domain.SendTypeImage, domain.SendTypeVideo, domain.SendTypeAudio, domain.SendTypeDocument, domain.SendTypeSticker:
 		var data []byte
 		var mimetype string
-		data, mimetype, err = decodeMedia(req.Media)
+		data, mimetype, err = resolveMedia(ctx, req.Media)
 		if err != nil {
 			return "", 0, err
 		}
@@ -366,14 +367,18 @@ func isMediaType(t string) bool {
 }
 
 // outboundMedia derives the media descriptor recorded on the messages row for a
-// media send (best-effort metadata; size is the approximate decoded length).
+// media send (best-effort metadata; URL media size is only known during dispatch).
 func outboundMedia(req domain.SendRequest) (*domain.MediaMeta, bool) {
 	if !isMediaType(req.Type) || req.Media == nil {
 		return nil, false
 	}
+	size := int64(0)
+	if strings.TrimSpace(req.Media.Data) != "" {
+		size = int64(approxDecodedLen(req.Media.Data))
+	}
 	return &domain.MediaMeta{
 		Mimetype: req.Media.Mimetype,
-		Size:     int64(approxDecodedLen(req.Media.Data)),
+		Size:     size,
 		Filename: req.Media.Filename,
 	}, true
 }
@@ -386,6 +391,17 @@ func mediaCaptionFilename(m *domain.MediaPayload) (caption, filename string) {
 	return m.Caption, m.Filename
 }
 
+// resolveMedia returns the bytes for a media send, from base64 data or a URL.
+func resolveMedia(ctx context.Context, m *domain.MediaPayload) ([]byte, string, error) {
+	if m == nil {
+		return nil, "", domain.ErrValidation("media is required")
+	}
+	if strings.TrimSpace(m.URL) != "" {
+		return fetchMediaURL(ctx, m)
+	}
+	return decodeMedia(m)
+}
+
 // decodeMedia decodes the base64 payload of a media send into raw bytes and
 // returns the declared mimetype. It accepts a bare base64 string or a data: URI
 // (pulling the mimetype from the URI when one isn't given), tolerates padded or
@@ -393,7 +409,7 @@ func mediaCaptionFilename(m *domain.MediaPayload) (caption, filename string) {
 // errors (400), never 500s.
 func decodeMedia(m *domain.MediaPayload) ([]byte, string, error) {
 	if m == nil || strings.TrimSpace(m.Data) == "" {
-		return nil, "", domain.ErrValidation("media.data (base64) is required")
+		return nil, "", domain.ErrValidation("media.data (base64) is required when media.url is not provided")
 	}
 	raw := strings.TrimSpace(m.Data)
 	mimetype := m.Mimetype
@@ -421,6 +437,46 @@ func decodeMedia(m *domain.MediaPayload) ([]byte, string, error) {
 		return nil, "", domain.ErrValidation(fmt.Sprintf("media exceeds the %d byte limit", MaxMediaBytes))
 	}
 	return data, mimetype, nil
+}
+
+func fetchMediaURL(ctx context.Context, m *domain.MediaPayload) ([]byte, string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimSpace(m.URL), nil)
+	if err != nil {
+		return nil, "", domain.ErrValidation("media.url must be a valid http(s) URL")
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, "", domain.ErrValidation("media.url could not be downloaded")
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, "", domain.ErrValidation(fmt.Sprintf("media.url returned HTTP %d", resp.StatusCode))
+	}
+	if resp.ContentLength > MaxMediaBytes {
+		return nil, "", domain.ErrValidation(fmt.Sprintf("media exceeds the %d byte limit", MaxMediaBytes))
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, MaxMediaBytes+1))
+	if err != nil {
+		return nil, "", domain.ErrValidation("media.url could not be read")
+	}
+	if len(body) == 0 {
+		return nil, "", domain.ErrValidation("media.url downloaded an empty file")
+	}
+	if len(body) > MaxMediaBytes {
+		return nil, "", domain.ErrValidation(fmt.Sprintf("media exceeds the %d byte limit", MaxMediaBytes))
+	}
+	mimetype := m.Mimetype
+	if mimetype == "" {
+		mimetype = resp.Header.Get("Content-Type")
+		if i := strings.IndexByte(mimetype, ';'); i >= 0 {
+			mimetype = strings.TrimSpace(mimetype[:i])
+		}
+	}
+	return body, mimetype, nil
 }
 
 // decodeBase64 accepts both standard (padded) and raw (unpadded) base64.

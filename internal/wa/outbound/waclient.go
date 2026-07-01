@@ -1,8 +1,13 @@
 package outbound
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"image"
+	_ "image/gif"
+	"image/jpeg"
+	_ "image/png"
 	"net/http"
 
 	"go.mau.fi/util/random"
@@ -170,6 +175,11 @@ func (a *whatsmeowAdapter) SendMedia(ctx context.Context, to, mediaType string, 
 			MediaKey: up.MediaKey, FileEncSHA256: up.FileEncSHA256, FileSHA256: up.FileSHA256,
 			FileLength: proto.Uint64(up.FileLength), ContextInfo: ctxInfo,
 		}
+		if width, height, thumb := imageMetadata(data); width > 0 && height > 0 {
+			m.Width = proto.Uint32(width)
+			m.Height = proto.Uint32(height)
+			m.JPEGThumbnail = thumb
+		}
 		if caption != "" {
 			m.Caption = proto.String(caption)
 		}
@@ -214,6 +224,30 @@ func (a *whatsmeowAdapter) SendMedia(ctx context.Context, to, mediaType string, 
 		return "", 0, domain.ErrValidation(fmt.Sprintf("unsupported media type %q", mediaType))
 	}
 	return a.send(ctx, toJID, msg)
+}
+
+func imageMetadata(data []byte) (width, height uint32, jpegThumbnail []byte) {
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 {
+		return 0, 0, nil
+	}
+	thumb := data
+	if len(data) > 64*1024 {
+		return uint32(cfg.Width), uint32(cfg.Height), nil
+	}
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return uint32(cfg.Width), uint32(cfg.Height), nil
+	}
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 75}); err != nil {
+		return uint32(cfg.Width), uint32(cfg.Height), nil
+	}
+	thumb = buf.Bytes()
+	if len(thumb) > 64*1024 {
+		thumb = nil
+	}
+	return uint32(cfg.Width), uint32(cfg.Height), thumb
 }
 
 // uploadMediaType maps a domain media send type onto whatsmeow's upload key set.

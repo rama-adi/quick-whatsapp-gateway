@@ -16,11 +16,12 @@ const (
 )
 
 // MediaPayload is the payload for a media send (image/video/audio/document/
-// sticker). The file is supplied inline as base64 so the JSON endpoint stays
-// self-contained (no server-side URL fetching). The gateway decodes it, uploads
-// it to WhatsApp, and attaches the resulting media reference to the message.
+// sticker). The file is supplied either inline as base64 or by URL. The gateway
+// resolves it to bytes, uploads it to WhatsApp, and attaches the resulting media
+// reference to the message.
 type MediaPayload struct {
-	Data     string `json:"data" doc:"The file's bytes, base64-encoded (standard encoding, padding optional). Required for media sends." example:"iVBORw0KGgoAAAANSUhEUgAA...="`
+	Data     string `json:"data,omitempty" doc:"The file's bytes, base64-encoded (standard encoding, padding optional). Provide exactly one of data or url for media sends." example:"iVBORw0KGgoAAAANSUhEUgAA...="`
+	URL      string `json:"url,omitempty" doc:"Public HTTP(S) URL to download and send. Provide exactly one of data or url for media sends." example:"https://example.com/photo.jpg"`
 	Mimetype string `json:"mimetype,omitempty" doc:"The file's MIME type, e.g. image/jpeg. Detected from the bytes when omitted." example:"image/jpeg"`
 	Caption  string `json:"caption,omitempty" doc:"Optional caption shown beneath the media." example:"Here you go!"`
 	Filename string `json:"filename,omitempty" doc:"Optional original filename (used for documents). Optional." example:"photo.jpg"`
@@ -40,7 +41,7 @@ type ContactCard struct {
 // handler validates the subset required for each Type. JSON tags follow the §11
 // camelCase examples.
 type SendRequest struct {
-	Type string `json:"type" enum:"text,poll,location,contact,image,video,audio,document,sticker" doc:"Which kind of message to send. Determines which other fields are required. **text** uses text (+ optional replyTo/mentions); **poll** uses name (question) + options + selectableCount; **location** uses latitude + longitude + optional name (label); **contact** uses contact. The media types **image**, **video**, **audio**, **document**, **sticker** use media (a base64 file + optional caption/filename, replyTo, mentions)." example:"text"`
+	Type string `json:"type" enum:"text,poll,location,contact,image,video,audio,document,sticker" doc:"Which kind of message to send. Determines which other fields are required. **text** uses text (+ optional replyTo/mentions); **poll** uses name (question) + options + selectableCount; **location** uses latitude + longitude + optional name (label); **contact** uses contact. The media types **image**, **video**, **audio**, **document**, **sticker** use media (a base64 file or HTTP(S) URL + optional caption/filename, replyTo, mentions)." example:"text"`
 	To   string `json:"to" doc:"The recipient's JID: a user JID for a direct message (e.g. 6281234567890@s.whatsapp.net) or a group JID for a group (e.g. 120363021234567890@g.us). Required." example:"6281234567890@s.whatsapp.net"`
 
 	// text
@@ -63,5 +64,5 @@ type SendRequest struct {
 	Contact *ContactCard `json:"contact,omitempty" doc:"The contact card to share. Required for type contact."`
 
 	// media (image/video/audio/document/sticker)
-	Media *MediaPayload `json:"media,omitempty" doc:"The media file to send (base64). Required for the media types (image/video/audio/document/sticker). Caption, replyTo, and mentions apply."`
+	Media *MediaPayload `json:"media,omitempty" doc:"The media file to send. Required for the media types (image/video/audio/document/sticker); provide exactly one of media.data (base64) or media.url (HTTP(S)). Caption, replyTo, and mentions apply."`
 }

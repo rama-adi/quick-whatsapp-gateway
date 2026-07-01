@@ -12,14 +12,15 @@ limiting, optional jittered pacing, and a sync/async split.
   `selectableCount`, optional `pollEndTime` (epoch-ms close time), and
   `pollHideVotes`.
 - Message sub-resource ops (§13): `reaction`, `edit`, `revoke`, `vote`, `forward`.
-- Media sends (`image|video|audio|document|sticker`): the file is supplied inline
-  as base64 in `media.data` (no server-side URL fetch). The adapter `Upload`s the
-  bytes to WhatsApp and builds the matching message (caption on image/video/
-  document, filename on document; `replyTo`/`mentions` become `ContextInfo`).
-  Decoded size is capped at `MaxMediaBytes` (16 MiB). **Media bytes are never
-  retained**: they live on the `outbox` row only until the send is dispatched,
-  and the store strips `media.data` from the payload once the row is marked
-  `sent` (kept on `failed` so the async worker can retry).
+- Media sends (`image|video|audio|document|sticker`): the file is supplied as
+  exactly one of inline base64 (`media.data`) or HTTP(S) URL (`media.url`). The
+  sender resolves that to bytes, then the adapter `Upload`s the bytes to WhatsApp
+  and builds the matching message (caption on image/video/document, filename on
+  document; `replyTo`/`mentions` become `ContextInfo`). Resolved size is capped
+  at `MaxMediaBytes` (16 MiB). **Media bytes are never retained**: inline bytes
+  live on the `outbox` row only until the send is dispatched, and the store
+  strips `media.data` from the payload once the row is marked `sent` (kept on
+  `failed` so the async worker can retry). URL payloads retain only the URL.
 - Sync mode (default): block on the whatsmeow ack, return
   `{waMessageId, status, timestamp}`.
 - Async mode (`?async=true`): persist a queued `outbox` row, return its id; the
@@ -108,7 +109,9 @@ whatsmeow. It maps each method to the recon §7 path:
   `ContactMessage` (vcard verbatim, else built from name/phone).
 - media → `Upload(bytes, MediaType)` then the matching `ImageMessage`/
   `VideoMessage`/`AudioMessage`/`DocumentMessage`/`StickerMessage` (sticker uploads
-  under the image key set). Mimetype is `http.DetectContentType`'d when omitted.
+  under the image key set). Mimetype is `http.DetectContentType`'d when omitted;
+  image sends include width/height, plus a small JPEG thumbnail when cheap to
+  derive, so WhatsApp clients have aspect metadata for previews/replies.
 - reaction → `BuildReaction`; edit → `BuildEdit`; revoke → `BuildRevoke`;
   vote → `BuildPollVote` (needs a synthesized poll `MessageInfo`).
 - All dispatched via `SendMessage`; `SendResponse.Timestamp` is `.UnixMilli()`d.
@@ -167,12 +170,14 @@ atomic op.
   `sending` row, then flip to `sent`/`failed` with the `wa_message_id` recorded,
   so a later replay reconstructs the original `SendResult`. A duplicate-insert
   race falls back to replaying the stored row.
-- **Media is base64-inline and never retained**: `validate` requires `media.data`
-  and enforces `MaxMediaBytes`; `dispatch` decodes it (a data: URI is accepted)
-  and hands the bytes to `SendMedia`. The bytes ride the `outbox` payload only
-  until dispatch — `store.OutboxRepo.UpdateStatus` strips `$.media.data` once the
-  row is `sent` (kept on `failed` for retry). The `messages` row records only the
-  caption + media metadata, never the bytes.
+- **Media is data-or-URL and never retained as bytes**: `validate` requires
+  exactly one of `media.data` or `media.url` and enforces `MaxMediaBytes`.
+  `dispatch` decodes base64 (a data: URI is accepted) or downloads the HTTP(S)
+  URL, then hands the bytes to `SendMedia`. Inline bytes ride the `outbox`
+  payload only until dispatch — `store.OutboxRepo.UpdateStatus` strips
+  `$.media.data` once the row is `sent` (kept on `failed` for retry). URL sends
+  retain the URL in the request payload for retry. The `messages` row records
+  only the caption + media metadata, never the bytes.
 - **Pacing** is opt-in jitter (`WithPacing`) applied before each sync dispatch;
   the RNG is injectable for deterministic tests.
 
@@ -185,8 +190,9 @@ Table-driven, all boundaries faked through the consumer interfaces:
 - `sender_test.go` (in-memory `fakeOutbox`, recording `fakeWA`, allow/deny
   limiters, `fixedClock`):
   - type routing (text/poll/location/contact, and media → `SendMedia`) hits the
-    right WAClient method; media base64 is decoded and the bytes forwarded;
-  - media without `data`, or invalid base64, → `validation_error`, no dispatch;
+    right WAClient method; media base64 or URL is resolved and the bytes forwarded;
+  - media without a source, with both `data` and `url`, or invalid base64, →
+    `validation_error`, no dispatch;
   - validation errors for each type;
   - sync rate-limited → `rate_limited` error + no dispatch;
   - async persists a queued row, defers under a deny limiter, no inline dispatch;

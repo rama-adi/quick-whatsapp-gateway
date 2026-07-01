@@ -2,13 +2,15 @@ package outbound
 
 import (
 	"fmt"
+	"net/url"
+	"strings"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 )
 
-// MaxMediaBytes caps the decoded size of an inline (base64) media send. It bounds
-// memory use and the size of the JSON payload stored on the outbox row for async
-// sends; it sits under WhatsApp's own media limits.
+// MaxMediaBytes caps the decoded/fetched size of a media send. It bounds memory
+// use and the size of the JSON payload stored on the outbox row for async sends;
+// it sits under WhatsApp's own media limits.
 const MaxMediaBytes = 16 * 1024 * 1024 // 16 MiB
 
 // validate checks a SendRequest's type and the per-type required fields,
@@ -55,13 +57,24 @@ func validate(req domain.SendRequest) error {
 			return domain.ErrValidation("contact requires either a vcard or both name and phone")
 		}
 	case domain.SendTypeImage, domain.SendTypeVideo, domain.SendTypeAudio, domain.SendTypeDocument, domain.SendTypeSticker:
-		if req.Media == nil || req.Media.Data == "" {
-			return domain.ErrValidation(fmt.Sprintf("media.data (base64) is required for type '%s'", req.Type))
+		if req.Media == nil {
+			return domain.ErrValidation(fmt.Sprintf("media is required for type '%s'", req.Type))
+		}
+		hasData := strings.TrimSpace(req.Media.Data) != ""
+		hasURL := strings.TrimSpace(req.Media.URL) != ""
+		if hasData == hasURL {
+			return domain.ErrValidation(fmt.Sprintf("provide exactly one of media.data or media.url for type '%s'", req.Type))
 		}
 		// Reject oversized payloads up front, from the base64 length, without
 		// decoding the whole thing (decoded bytes ≈ 3/4 of the encoded length).
-		if approxDecodedLen(req.Media.Data) > MaxMediaBytes {
+		if hasData && approxDecodedLen(req.Media.Data) > MaxMediaBytes {
 			return domain.ErrValidation(fmt.Sprintf("media exceeds the %d byte limit", MaxMediaBytes))
+		}
+		if hasURL {
+			u, err := url.Parse(req.Media.URL)
+			if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+				return domain.ErrValidation("media.url must be a valid http(s) URL")
+			}
 		}
 	default:
 		return domain.ErrValidation(fmt.Sprintf("unknown send type %q", req.Type))

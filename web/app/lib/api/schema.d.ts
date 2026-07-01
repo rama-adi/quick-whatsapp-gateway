@@ -2341,10 +2341,10 @@ export interface components {
              */
             caption?: string;
             /**
-             * @description The file's bytes, base64-encoded (standard encoding, padding optional). Required for media sends.
+             * @description The file's bytes, base64-encoded (standard encoding, padding optional). Provide exactly one of data or url for media sends.
              * @example iVBORw0KGgoAAAANSUhEUgAA...=
              */
-            data: string;
+            data?: string;
             /**
              * @description Optional original filename (used for documents). Optional.
              * @example photo.jpg
@@ -2355,6 +2355,11 @@ export interface components {
              * @example image/jpeg
              */
             mimetype?: string;
+            /**
+             * @description Public HTTP(S) URL to download and send. Provide exactly one of data or url for media sends.
+             * @example https://example.com/photo.jpg
+             */
+            url?: string;
         };
         Message: {
             /**
@@ -2944,7 +2949,7 @@ export interface components {
              * @example 106.816666
              */
             longitude?: number;
-            /** @description The media file to send (base64). Required for the media types (image/video/audio/document/sticker). Caption, replyTo, and mentions apply. */
+            /** @description The media file to send. Required for the media types (image/video/audio/document/sticker); provide exactly one of media.data (base64) or media.url (HTTP(S)). Caption, replyTo, and mentions apply. */
             media?: components["schemas"]["MediaPayload"];
             /**
              * @description JIDs to @-mention in the message. Optional.
@@ -3000,7 +3005,7 @@ export interface components {
              */
             to: string;
             /**
-             * @description Which kind of message to send. Determines which other fields are required. **text** uses text (+ optional replyTo/mentions); **poll** uses name (question) + options + selectableCount; **location** uses latitude + longitude + optional name (label); **contact** uses contact. The media types **image**, **video**, **audio**, **document**, **sticker** use media (a base64 file + optional caption/filename, replyTo, mentions).
+             * @description Which kind of message to send. Determines which other fields are required. **text** uses text (+ optional replyTo/mentions); **poll** uses name (question) + options + selectableCount; **location** uses latitude + longitude + optional name (label); **contact** uses contact. The media types **image**, **video**, **audio**, **document**, **sticker** use media (a base64 file or HTTP(S) URL + optional caption/filename, replyTo, mentions).
              * @example text
              * @enum {string}
              */

@@ -3,6 +3,8 @@ package outbound
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
@@ -355,7 +357,7 @@ func TestSend_RecorderErrorDoesNotFailSend(t *testing.T) {
 	require.Equal(t, "WAMSG1", res.WAMessageID)
 }
 
-func TestSend_MediaWithoutDataIsValidationError(t *testing.T) {
+func TestSend_MediaWithoutSourceIsValidationError(t *testing.T) {
 	for _, typ := range []string{domain.SendTypeImage, domain.SendTypeVideo, domain.SendTypeAudio, domain.SendTypeDocument, domain.SendTypeSticker} {
 		t.Run(typ, func(t *testing.T) {
 			wa := newFakeWA()
@@ -371,6 +373,20 @@ func TestSend_MediaWithoutDataIsValidationError(t *testing.T) {
 	}
 }
 
+func TestSend_MediaWithDataAndURLIsValidationError(t *testing.T) {
+	wa := newFakeWA()
+	s := NewSender(wa, newFakeOutbox(), &allowLimiter{}, fixedClock{})
+	_, err := s.Send(context.Background(), testSession(),
+		domain.SendRequest{Type: domain.SendTypeImage, To: "a@s.whatsapp.net",
+			Media: &domain.MediaPayload{Data: "aGVsbG8=", URL: "https://example.com/photo.jpg"}},
+		SendOptions{})
+	require.Error(t, err)
+	var apiErr *domain.APIError
+	require.ErrorAs(t, err, &apiErr)
+	require.Equal(t, domain.CodeValidationError, apiErr.Code)
+	require.Zero(t, wa.callCount())
+}
+
 func TestSend_ImageDecodesAndForwardsBytes(t *testing.T) {
 	wa := newFakeWA()
 	s := NewSender(wa, newFakeOutbox(), &allowLimiter{}, fixedClock{ms: 1000})
@@ -382,6 +398,26 @@ func TestSend_ImageDecodesAndForwardsBytes(t *testing.T) {
 	require.Equal(t, []string{"SendMedia"}, wa.calls)
 	require.Equal(t, domain.SendTypeImage, wa.lastMediaType)
 	require.Equal(t, []byte("hello"), wa.lastMediaData)
+	require.Equal(t, "image/png", wa.lastMimetype)
+}
+
+func TestSend_ImageURLFetchesAndForwardsBytes(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write([]byte("hello from url"))
+	}))
+	defer srv.Close()
+
+	wa := newFakeWA()
+	s := NewSender(wa, newFakeOutbox(), &allowLimiter{}, fixedClock{ms: 1000})
+	_, err := s.Send(context.Background(), testSession(),
+		domain.SendRequest{Type: domain.SendTypeImage, To: "a@s.whatsapp.net",
+			Media: &domain.MediaPayload{URL: srv.URL, Caption: "hi"}},
+		SendOptions{})
+	require.NoError(t, err)
+	require.Equal(t, []string{"SendMedia"}, wa.calls)
+	require.Equal(t, domain.SendTypeImage, wa.lastMediaType)
+	require.Equal(t, []byte("hello from url"), wa.lastMediaData)
 	require.Equal(t, "image/png", wa.lastMimetype)
 }
 

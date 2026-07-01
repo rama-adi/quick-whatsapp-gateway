@@ -33,18 +33,20 @@ The reply is a `SendResult`: the WhatsApp message id (`messageId`), the delivery
 | `poll` | `name`, `options` | `selectableCount` — how many options one voter may pick. Votes come back as `poll.vote` [events](/docs/guides/receiving). |
 | `location` | `latitude`, `longitude` | `name` — a label for the pin |
 | `contact` | `contact` | — |
-| `image`, `video`, `audio`, `document`, `sticker` | `media.data` | `media.mimetype`, `media.caption` (image/video/document), `media.filename` (document), `replyTo`, `mentions` |
+| `image`, `video`, `audio`, `document`, `sticker` | exactly one of `media.data` or `media.url` | `media.mimetype`, `media.caption` (image/video/document), `media.filename` (document), `replyTo`, `mentions` |
 
 A `contact` is a card. Give it `{ name, phone }`, or supply a raw `vcard` string
 instead.
 
 ## Media
 
-Media is sent inline: put the file's bytes, base64-encoded, in `media.data`. The
-gateway decodes them, uploads them to WhatsApp, and sends the message — no URL
-fetching, so the request is self-contained. A `data:` URI (e.g. what a browser's
-`FileReader.readAsDataURL` produces) is accepted too; its MIME type is used when
-you don't set `media.mimetype` (otherwise the type is detected from the bytes).
+Media is sent from exactly one source:
+
+- `media.data` — the file's bytes, base64-encoded. A `data:` URI (e.g. what a
+  browser's `FileReader.readAsDataURL` produces) is accepted too; its MIME type
+  is used when you don't set `media.mimetype`.
+- `media.url` — a public HTTP(S) URL for the gateway to download before uploading
+  to WhatsApp.
 
 The decoded file must be **16 MiB or smaller**. `mimetype` is optional but
 recommended; `filename` shows on documents; `caption` shows under image, video,
@@ -62,13 +64,27 @@ and document messages.
 }
 ```
 
+URL media uses the same shape:
+
+```json
+{
+  "type": "image",
+  "to": "628123456789@s.whatsapp.net",
+  "media": {
+    "url": "https://example.com/photo.jpg",
+    "caption": "Here you go!"
+  }
+}
+```
+
 The same shape sends `video`, `audio`, `document`, and `sticker` — change `type`
 (and add `media.filename` for a document).
 
 The uploaded bytes are not retained: the gateway holds them only long enough to
 deliver the message (for an `async` send, until the queued row is drained), then
-drops them. The stored message keeps the caption and media metadata, never the
-file content.
+drops them. For URL sends, the outbox stores the URL for retry, not the downloaded
+file. The stored message keeps the caption and media metadata, never the file
+content.
 
 A poll request looks like this:
 

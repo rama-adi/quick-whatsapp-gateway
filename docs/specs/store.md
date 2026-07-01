@@ -224,9 +224,10 @@ read queries can compile without making the gateway a writer or migration owner 
   other DB errors wrapped with `%w` + a `store: <op>` prefix.
 - **Concurrency.** Work-claim queries (`OutboxRepo.ClaimQueued`, `WebhookDeliveryRepo.ClaimDue`)
   are documented as the multi-instance upgrade point (`FOR UPDATE SKIP LOCKED`).
-- **No retained media bytes.** An outbound media send carries its file inline (base64) in the
-  `outbox.payload`; `OutboxRepo.UpdateStatus` strips `$.media.data` (via `JSON_REMOVE`) when the
-  row is marked `sent`, so the bytes live only until the send is dispatched. A `failed` row keeps
+- **No retained media bytes.** An outbound media send carries either inline base64 in
+  `outbox.payload.media.data` or a URL in `outbox.payload.media.url`. `OutboxRepo.UpdateStatus`
+  strips `$.media.data` (via `JSON_REMOVE`) when the row is marked `sent`, so inline bytes live
+  only until the send is dispatched. URL sends retain only the URL for retry. A `failed` row keeps
   the payload so the async worker can retry.
 
 ## How it's tested
