@@ -71,20 +71,21 @@ func (f *fakeCommands) Handle(ctx context.Context, sessionID, body string) (bool
 type fakeRepos struct {
 	order *callOrder
 
-	identities []IdentityUpsert
-	nameFills  []IdentityNameFill
-	groups     []GroupUpsert
-	members    []GroupMemberUpsert
-	chats      []ChatUpsert
-	messages   []MessageInsert
-	edited     []string
-	deleted    []string
-	statusUpd  []MessageStatusUpdate
-	polls      []PollUpsert
-	pollVotes  []PollVoteInsert
-	eventLog   []domain.Event
-	failOn     string // method name to fail, e.g. "InsertMessage"
-	failErr    error
+	identities     []IdentityUpsert
+	nameFills      []IdentityNameFill
+	groups         []GroupUpsert
+	members        []GroupMemberUpsert
+	mentionDetails map[string]MentionDetail
+	chats          []ChatUpsert
+	messages       []MessageInsert
+	edited         []string
+	deleted        []string
+	statusUpd      []MessageStatusUpdate
+	polls          []PollUpsert
+	pollVotes      []PollVoteInsert
+	eventLog       []domain.Event
+	failOn         string // method name to fail, e.g. "InsertMessage"
+	failErr        error
 }
 
 func (r *fakeRepos) maybeFail(method string) error {
@@ -131,6 +132,18 @@ func (r *fakeRepos) UpsertGroupMember(ctx context.Context, in GroupMemberUpsert)
 	}
 	r.members = append(r.members, in)
 	return nil
+}
+
+func (r *fakeRepos) ResolveMentionDetails(ctx context.Context, sessionID, groupJID string, mentions []string) (map[string]MentionDetail, error) {
+	r.order.record("ResolveMentionDetails")
+	if err := r.maybeFail("ResolveMentionDetails"); err != nil {
+		return nil, err
+	}
+	out := make(map[string]MentionDetail, len(mentions))
+	for _, jid := range mentions {
+		out[jid] = r.mentionDetails[jid]
+	}
+	return out, nil
 }
 
 func (r *fakeRepos) UpsertChat(ctx context.Context, in ChatUpsert) error {

@@ -155,7 +155,7 @@ func TestNormalizeMessageSubtypes(t *testing.T) {
 				if nm.Body != "reply @x" {
 					t.Errorf("body = %q", nm.Body)
 				}
-				if p.QuotedMessageID != "quoted123" || len(p.Mentions) != 2 {
+				if p.QuotedMessageID != "quoted123" || len(p.Mentions) != 0 {
 					t.Errorf("payload quote/mentions wrong")
 				}
 			},

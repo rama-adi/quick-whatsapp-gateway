@@ -6,6 +6,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/apitypes"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -114,6 +115,45 @@ func TestProcess_GroupCapture(t *testing.T) {
 	assert.Equal(t, domain.RoleAdmin, f.repos.members[0].Role)
 	assert.Equal(t, "Bobby", f.repos.members[0].Tag)
 	assert.Equal(t, domain.RoleMember, f.repos.members[1].Role, "empty role defaults to member")
+}
+
+func TestProcess_GroupMentionEventUsesPushNameAndTagMap(t *testing.T) {
+	f := newFakes()
+	nm := groupMessage()
+	nm.Body = "hi @333"
+	nm.Mentions = []string{"333@lid"}
+	f.norm.evt = domain.NewEvent(domain.EventMessage, testSession, testOrganization, apitypes.MessagePayload{
+		WAMessageID: nm.WAMessageID,
+		ChatJID:     nm.ChatJID,
+		FromMe:      nm.FromMe,
+		Type:        nm.MsgType,
+		Body:        nm.Body,
+		Timestamp:   nm.TimestampMs,
+		PushName:    nm.PushName,
+	})
+	f.norm.nm = nm
+	f.repos.mentionDetails = map[string]MentionDetail{
+		"333@lid": {PushName: "Carla", Tag: "Caz"},
+	}
+	p := f.newPipeline()
+
+	require.NoError(t, p.Process(context.Background(), testSession, testOrganization, false, struct{}{}))
+
+	require.Len(t, f.repos.messages, 1)
+	assert.Equal(t, []string{"333@lid"}, f.repos.messages[0].Mentions)
+
+	require.Len(t, f.sink.published, 1)
+	payload, ok := f.sink.published[0].Payload.(apitypes.MessagePayload)
+	require.True(t, ok)
+	require.Equal(t, map[string]apitypes.MentionData{
+		"333@lid": {PushName: "Carla", Tag: "Caz"},
+	}, payload.Mentions)
+
+	var raw struct {
+		Mentions map[string]apitypes.MentionData `json:"mentions"`
+	}
+	require.NoError(t, json.Unmarshal(f.repos.messages[0].RawJSON, &raw))
+	assert.Equal(t, "Caz", raw.Mentions["333@lid"].Tag)
 }
 
 // TestProcess_InterceptorDrop verifies that a prefixed text on the admin session

@@ -99,9 +99,11 @@ Ephemeral/ViewOnce/DeviceSent/Edited). Detection order (control messages first):
 
 Maps ~1:1 onto the `messages` table plus identity/contacts capture inputs:
 chat JID + `ChatClass`, sender JID, sender LID (only when `SenderAlt` is on the `lid`
-server), `FromMe`, push name, epoch-ms timestamp, body/caption, quoted stanza id, mentioned
-JIDs, media flag + `MediaMeta` (mimetype/size/filename), reaction/edit/revoke target id,
-and structured `Location`/`Contact`/`Poll` bodies.
+server), `FromMe`, push name, epoch-ms timestamp, body/caption, quoted stanza id,
+mentioned JIDs (stored internally as a list, emitted on message events as a
+JID-keyed map containing `pushName` and per-group member `tag` when known), media
+flag + `MediaMeta` (mimetype/size/filename), reaction/edit/revoke target id, and
+structured `Location`/`Contact`/`Poll` bodies.
 
 ### Media policy (§11)
 

@@ -85,6 +85,9 @@ type Repos interface {
 	UpsertGroup(ctx context.Context, in GroupUpsert) error
 	// UpsertGroupMember records a participant's membership (tag + role).
 	UpsertGroupMember(ctx context.Context, in GroupMemberUpsert) error
+	// ResolveMentionDetails resolves display metadata for mentioned JIDs in a
+	// group message. The returned map is keyed by the original mentioned JID.
+	ResolveMentionDetails(ctx context.Context, sessionID, groupJID string, mentions []string) (map[string]MentionDetail, error)
 
 	// --- persist (§7.4) ---
 
@@ -152,6 +155,12 @@ type GroupMemberUpsert struct {
 	Tag   string
 	Role  domain.GroupRole
 	NowMs int64
+}
+
+// MentionDetail is the event-facing metadata for one mentioned group member.
+type MentionDetail struct {
+	PushName string
+	Tag      string
 }
 
 // ChatUpsert is the input to Repos.UpsertChat.

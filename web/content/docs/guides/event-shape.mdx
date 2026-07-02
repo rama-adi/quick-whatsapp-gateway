@@ -343,7 +343,8 @@ An inbound message. Pick a tab per content type.
 <Tab value="text">
 
 A plain text message. A reply also carries `quotedMessageId`; a message with mentions
-carries a `mentions` JID list (both shown here).
+carries a JID-keyed `mentions` object with the mentioned user's `pushName` and
+per-group member `tag` when known (both shown here).
 
 ```json
 {
@@ -362,7 +363,12 @@ carries a `mentions` JID list (both shown here).
     "type": "text",
     "body": "@628999 are we still on for tomorrow?",
     "quotedMessageId": "3EB0FEDCBA9876543210",
-    "mentions": ["628999@s.whatsapp.net"],
+    "mentions": {
+      "628999@s.whatsapp.net": {
+        "pushName": "Sam",
+        "tag": "Sam Ops"
+      }
+    },
     "hasMedia": false,
     "media": null,
     "timestamp": 1719400010000,
@@ -529,7 +535,7 @@ separately as [`poll.vote`](#pollvote).
 - `type` (string, required) — `text`, `image`, `video`, `audio`, `document`, `sticker`, `location`, `contact`, `poll`.
 - `body` (string, optional) — text / caption / poll name / contact display name.
 - `quotedMessageId` (string, optional) — set when the message is a reply.
-- `mentions` (string[], optional) — mentioned JIDs.
+- `mentions` (object, optional) — mentioned JIDs keyed to `{ pushName, tag }` metadata.
 - `hasMedia` (boolean, required) — `true` when an attachment exists; `media` is still `null`.
 - `media` (object|null) — always `null` in v1.
 - `timestamp` (integer, required) — epoch-ms.

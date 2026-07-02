@@ -322,6 +322,43 @@ func (r *InboundRepos) UpsertGroupMember(ctx context.Context, in inbound.GroupMe
 	})
 }
 
+func (r *InboundRepos) ResolveMentionDetails(ctx context.Context, sessionID, groupJID string, mentions []string) (map[string]inbound.MentionDetail, error) {
+	out := make(map[string]inbound.MentionDetail, len(mentions))
+	if len(mentions) == 0 {
+		return out, nil
+	}
+
+	names, err := r.store.Identities.NamesForMentions(ctx, mentions)
+	if err != nil {
+		return nil, err
+	}
+	members, err := r.store.GroupMembers.ListByGroup(ctx, sessionID, groupJID)
+	if err != nil {
+		return nil, err
+	}
+
+	tagsByLID := make(map[string]string, len(members))
+	for _, member := range members {
+		if member.Tag != nil {
+			tagsByLID[member.LID] = *member.Tag
+		}
+	}
+	for _, jid := range mentions {
+		out[jid] = inbound.MentionDetail{
+			PushName: names[mentionUserPart(jid)],
+			Tag:      tagsByLID[jid],
+		}
+	}
+	return out, nil
+}
+
+func mentionUserPart(jid string) string {
+	if i := strings.IndexAny(jid, "@:"); i >= 0 {
+		return jid[:i]
+	}
+	return jid
+}
+
 func (r *InboundRepos) UpsertChat(ctx context.Context, in inbound.ChatUpsert) error {
 	return r.store.Chats.Upsert(ctx, domain.Chat{
 		SessionID:     in.SessionID,

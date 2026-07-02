@@ -59,31 +59,39 @@ type PollData struct {
 	HideVotes       bool     `json:"hideVotes,omitempty" doc:"True when WhatsApp hides participant names in the poll vote list." example:"true"`
 }
 
+// MentionData is the resolved display metadata for one mentioned group member.
+// The surrounding map is keyed by the mentioned JID exactly as WhatsApp supplied
+// it after canonicalization (usually a LID in group chats).
+type MentionData struct {
+	PushName string `json:"pushName,omitempty" doc:"The mentioned user's WhatsApp display (push) name, when known." example:"Alice"`
+	Tag      string `json:"tag,omitempty" doc:"The mentioned user's per-group member tag, when WhatsApp exposes one." example:"Ali"`
+}
+
 // MessagePayload is the payload shared by the message-family events — `message`
 // (inbound), `message.from_me` (a message this account sent, including from other
 // linked devices), `message.reaction`, `message.edited`, `message.revoked`, and
 // `poll.vote`. One flat shape discriminated by the surrounding event type; only
 // the fields relevant to that type are populated.
 type MessagePayload struct {
-	WAMessageID     string            `json:"waMessageId" doc:"WhatsApp's message id (stanza id), unique within the chat." example:"3EB0..."`
-	ChatJID         string            `json:"chatJid" doc:"JID of the chat the message belongs to (a user, group, or broadcast list)." example:"6281234567890@s.whatsapp.net"`
-	SenderJID       string            `json:"senderJid,omitempty" doc:"JID of the sender (set for group messages; for DMs it equals the chat)."`
-	SenderLID       string            `json:"senderLid,omitempty" doc:"The sender's linked-device id, when available."`
-	FromMe          bool              `json:"fromMe" doc:"True if this account authored the message (the message.from_me event)."`
-	Type            string            `json:"type" doc:"Content type of the message: text, location, contact, poll, reaction, edit, revoke, media, and others." example:"text"`
-	Body            string            `json:"body,omitempty" doc:"Text body, for text and caption-bearing messages." example:"Hello!"`
-	QuotedMessageID string            `json:"quotedMessageId,omitempty" doc:"If this message quotes/replies to another, that message's id."`
-	Mentions        []string          `json:"mentions,omitempty" doc:"JIDs mentioned in the message body."`
-	HasMedia        bool              `json:"hasMedia" doc:"True if the message carried media. The media itself is metadata-only in v1 (no download)."`
-	Media           *domain.MediaMeta `json:"media" doc:"Media descriptor. Always null in v1 (metadata-only); see hasMedia."`
-	Timestamp       int64             `json:"timestamp" doc:"When WhatsApp timestamped the message, in epoch milliseconds."`
-	PushName        string            `json:"pushName,omitempty" doc:"The sender's WhatsApp display (push) name at send time."`
-	Reaction        string            `json:"reaction,omitempty" doc:"For message.reaction: the emoji reacted with; empty string means the reaction was removed."`
-	TargetID        string            `json:"targetId,omitempty" doc:"For reaction/edit/revoke: the id of the message being reacted to, edited, or revoked."`
-	Location        *LocationData     `json:"location,omitempty" doc:"Set when type is location."`
-	Contact         *ContactData      `json:"contact,omitempty" doc:"Set when type is contact."`
-	Poll            *PollData         `json:"poll,omitempty" doc:"Set when type is poll (poll creation)."`
-	SelectedOptions []string          `json:"selectedOptions,omitempty" doc:"For poll.vote: the option(s) the voter selected, resolved to the poll's option text. Falls back to the raw SHA-256 hash for any option that can't be resolved (e.g. the poll creation was never seen)." example:"[\"Yes\"]"`
+	WAMessageID     string                 `json:"waMessageId" doc:"WhatsApp's message id (stanza id), unique within the chat." example:"3EB0..."`
+	ChatJID         string                 `json:"chatJid" doc:"JID of the chat the message belongs to (a user, group, or broadcast list)." example:"6281234567890@s.whatsapp.net"`
+	SenderJID       string                 `json:"senderJid,omitempty" doc:"JID of the sender (set for group messages; for DMs it equals the chat)."`
+	SenderLID       string                 `json:"senderLid,omitempty" doc:"The sender's linked-device id, when available."`
+	FromMe          bool                   `json:"fromMe" doc:"True if this account authored the message (the message.from_me event)."`
+	Type            string                 `json:"type" doc:"Content type of the message: text, location, contact, poll, reaction, edit, revoke, media, and others." example:"text"`
+	Body            string                 `json:"body,omitempty" doc:"Text body, for text and caption-bearing messages." example:"Hello!"`
+	QuotedMessageID string                 `json:"quotedMessageId,omitempty" doc:"If this message quotes/replies to another, that message's id."`
+	Mentions        map[string]MentionData `json:"mentions,omitempty" doc:"Mentions in the message body, keyed by mentioned JID. Values contain the user's known pushName and per-group tag when available."`
+	HasMedia        bool                   `json:"hasMedia" doc:"True if the message carried media. The media itself is metadata-only in v1 (no download)."`
+	Media           *domain.MediaMeta      `json:"media" doc:"Media descriptor. Always null in v1 (metadata-only); see hasMedia."`
+	Timestamp       int64                  `json:"timestamp" doc:"When WhatsApp timestamped the message, in epoch milliseconds."`
+	PushName        string                 `json:"pushName,omitempty" doc:"The sender's WhatsApp display (push) name at send time."`
+	Reaction        string                 `json:"reaction,omitempty" doc:"For message.reaction: the emoji reacted with; empty string means the reaction was removed."`
+	TargetID        string                 `json:"targetId,omitempty" doc:"For reaction/edit/revoke: the id of the message being reacted to, edited, or revoked."`
+	Location        *LocationData          `json:"location,omitempty" doc:"Set when type is location."`
+	Contact         *ContactData           `json:"contact,omitempty" doc:"Set when type is contact."`
+	Poll            *PollData              `json:"poll,omitempty" doc:"Set when type is poll (poll creation)."`
+	SelectedOptions []string               `json:"selectedOptions,omitempty" doc:"For poll.vote: the option(s) the voter selected, resolved to the poll's option text. Falls back to the raw SHA-256 hash for any option that can't be resolved (e.g. the poll creation was never seen)." example:"[\"Yes\"]"`
 }
 
 // MessageStatusPayload is the payload of a `message.status` event: a delivery

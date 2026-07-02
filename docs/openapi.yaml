@@ -1426,6 +1426,20 @@ components:
             - https://example.com/photo.jpg
           type: string
       type: object
+    MentionData:
+      additionalProperties: false
+      properties:
+        pushName:
+          description: The mentioned user's WhatsApp display (push) name, when known.
+          examples:
+            - Alice
+          type: string
+        tag:
+          description: The mentioned user's per-group member tag, when WhatsApp exposes one.
+          examples:
+            - Ali
+          type: string
+      type: object
     Message:
       additionalProperties: false
       properties:
@@ -1653,12 +1667,10 @@ components:
           $ref: "#/components/schemas/MediaMeta"
           description: Media descriptor. Always null in v1 (metadata-only); see hasMedia.
         mentions:
-          description: JIDs mentioned in the message body.
-          items:
-            type: string
-          type:
-            - array
-            - "null"
+          additionalProperties:
+            $ref: "#/components/schemas/MentionData"
+          description: Mentions in the message body, keyed by mentioned JID. Values contain the user's known pushName and per-group tag when available.
+          type: object
         poll:
           $ref: "#/components/schemas/PollData"
           description: Set when type is poll (poll creation).

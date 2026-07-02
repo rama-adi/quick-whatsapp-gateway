@@ -2361,6 +2361,18 @@ export interface components {
              */
             url?: string;
         };
+        MentionData: {
+            /**
+             * @description The mentioned user's WhatsApp display (push) name, when known.
+             * @example Alice
+             */
+            pushName?: string;
+            /**
+             * @description The mentioned user's per-group member tag, when WhatsApp exposes one.
+             * @example Ali
+             */
+            tag?: string;
+        };
         Message: {
             /**
              * Format: int64
@@ -2542,8 +2554,10 @@ export interface components {
             location?: components["schemas"]["LocationData"];
             /** @description Media descriptor. Always null in v1 (metadata-only); see hasMedia. */
             media: components["schemas"]["MediaMeta"];
-            /** @description JIDs mentioned in the message body. */
-            mentions?: string[] | null;
+            /** @description Mentions in the message body, keyed by mentioned JID. Values contain the user's known pushName and per-group tag when available. */
+            mentions?: {
+                [key: string]: components["schemas"]["MentionData"];
+            };
             /** @description Set when type is poll (poll creation). */
             poll?: components["schemas"]["PollData"];
             /** @description The sender's WhatsApp display (push) name at send time. */

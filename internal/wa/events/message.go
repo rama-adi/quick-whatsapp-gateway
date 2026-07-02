@@ -328,7 +328,6 @@ func messagePayload(nm *NormalizedMessage) MessagePayload {
 		Type:            nm.MessageType,
 		Body:            nm.Body,
 		QuotedMessageID: nm.QuotedMessageID,
-		Mentions:        nm.Mentions,
 		HasMedia:        nm.HasMedia,
 		Media:           nil, // always null in v1
 		Timestamp:       nm.Timestamp,
