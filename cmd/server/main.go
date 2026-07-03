@@ -286,6 +286,14 @@ func run() error {
 		Addr:              cfg.HTTPAddr,
 		Handler:           router,
 		ReadHeaderTimeout: 10 * time.Second,
+		// WriteTimeout is a socket-level backstop above the per-request context
+		// deadline (middleware.Timeout, ~15s): the deadline cancels a wedged DB query
+		// and returns a 503 first; this only trips if a handler somehow blocks past
+		// it, guaranteeing the connection is never held open forever. The gateway
+		// serves only unary JSON (realtime/streaming lives on the router), so a write
+		// deadline is safe here.
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  120 * time.Second,
 	}
 
 	errCh := make(chan error, 1)

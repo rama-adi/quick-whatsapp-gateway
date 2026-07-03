@@ -101,6 +101,16 @@ type NormalizedMessage struct {
 	QuotedMessageID string   // reply target stanza id
 	Mentions        []string // mentioned JID strings
 
+	// Quoted-message context, extracted from the reply's ContextInfo when present.
+	// WhatsApp carries the quoted author (Participant) and the quoted message
+	// content inline in a genuine reply, so these are populated directly at
+	// normalize time with no store round-trip. QuotedFromMe is NOT set here — it is
+	// resolved authoritatively downstream from the locally stored quoted message
+	// (the protocol frame has no reliable "quoted was mine" flag).
+	QuotedSenderJID string // phone JID of the quoted message's author (@s.whatsapp.net)
+	QuotedSenderLID string // LID of the quoted message's author (@lid)
+	QuotedBody      string // text/caption of the quoted message (truncated)
+
 	// Media (metadata only — NEVER downloaded in v1).
 	HasMedia  bool
 	MediaInfo *MediaMeta

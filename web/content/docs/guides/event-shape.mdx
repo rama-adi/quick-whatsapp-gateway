@@ -342,9 +342,11 @@ An inbound message. Pick a tab per content type.
 
 <Tab value="text">
 
-A plain text message. A reply also carries `quotedMessageId`; a message with mentions
-carries a JID-keyed `mentions` object with the mentioned user's `pushName` and
-per-group member `tag` when known (both shown here).
+A plain text message. A reply also carries `quotedMessageId` plus quoted-message
+context — `quotedSenderJid`/`quotedSenderLid`, `quotedBody`, and `quotedFromMe` —
+so you can resolve who and what was quoted without a REST round-trip. A message
+with mentions carries a JID-keyed `mentions` object with the mentioned user's
+`pushName` and per-group member `tag` when known (all shown here).
 
 ```json
 {
@@ -363,6 +365,10 @@ per-group member `tag` when known (both shown here).
     "type": "text",
     "body": "@628999 are we still on for tomorrow?",
     "quotedMessageId": "3EB0FEDCBA9876543210",
+    "quotedFromMe": false,
+    "quotedSenderJid": "6289990001111@s.whatsapp.net",
+    "quotedSenderLid": "998877665544332@lid",
+    "quotedBody": "Yes, 3pm works for me.",
     "mentions": {
       "628999@s.whatsapp.net": {
         "pushName": "Sam",
@@ -535,6 +541,9 @@ separately as [`poll.vote`](#pollvote).
 - `type` (string, required) — `text`, `image`, `video`, `audio`, `document`, `sticker`, `location`, `contact`, `poll`.
 - `body` (string, optional) — text / caption / poll name / contact display name.
 - `quotedMessageId` (string, optional) — set when the message is a reply.
+- `quotedFromMe` (boolean, optional) — `true` when the quoted message was sent by this account. Best-effort: resolved from the locally stored quoted message, so `false` if the quote predates local retention.
+- `quotedSenderJid` / `quotedSenderLid` (string, optional) — the quoted message's author. Guaranteed from the reply's context for a genuine reply; else resolved from local storage.
+- `quotedBody` (string, optional) — the quoted message's text/caption (truncated to 4096 bytes). Guaranteed from the reply's context for text/caption replies; else the locally stored body.
 - `mentions` (object, optional) — mentioned JIDs keyed to `{ pushName, tag }` metadata.
 - `hasMedia` (boolean, required) — `true` when an attachment exists; `media` is still `null`.
 - `media` (object|null) — always `null` in v1.

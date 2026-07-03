@@ -1,6 +1,8 @@
 package events
 
 import (
+	"unicode/utf8"
+
 	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
@@ -253,7 +255,16 @@ func contextOf(msg *waE2E.Message) *waE2E.ContextInfo {
 	return msg.GetExtendedTextMessage().GetContextInfo()
 }
 
-// applyContext copies reply + mention metadata off a ContextInfo onto nm.
+// quotedBodyCap bounds the quoted-message body copied onto the event payload. The
+// quoted content is carried inline in every reply, so an unbounded copy would let a
+// single huge quoted message bloat every reply event; 4096 bytes matches the
+// documented cap (no repo-wide message-length convention exists to reuse).
+const quotedBodyCap = 4096
+
+// applyContext copies reply + mention metadata off a ContextInfo onto nm. For a
+// reply it also lifts the quoted author (Participant) and the quoted message's
+// text — both carried inline in the reply frame — so consumers get quote context
+// without a REST round-trip. QuotedFromMe is resolved later from local storage.
 func applyContext(ctx *waE2E.ContextInfo, nm *NormalizedMessage) {
 	if ctx == nil {
 		return
@@ -264,6 +275,33 @@ func applyContext(ctx *waE2E.ContextInfo, nm *NormalizedMessage) {
 	if m := ctx.GetMentionedJID(); len(m) > 0 {
 		nm.Mentions = canonicalMentions(m)
 	}
+	if p := ctx.GetParticipant(); p != "" {
+		if j, err := types.ParseJID(p); err == nil {
+			canon := jidString(j.ToNonAD())
+			if j.Server == types.HiddenUserServer {
+				nm.QuotedSenderLID = canon
+			} else {
+				nm.QuotedSenderJID = canon
+			}
+		} else {
+			nm.QuotedSenderJID = p
+		}
+	}
+	if q := ctx.GetQuotedMessage(); q != nil {
+		nm.QuotedBody = truncateUTF8(textOf(q), quotedBodyCap)
+	}
+}
+
+// truncateUTF8 caps s at max bytes without splitting a multi-byte rune.
+func truncateUTF8(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	cut := max
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut]
 }
 
 // canonicalMentions strips the ":device" suffix off each mentioned JID — the same
@@ -328,6 +366,9 @@ func messagePayload(nm *NormalizedMessage) MessagePayload {
 		Type:            nm.MessageType,
 		Body:            nm.Body,
 		QuotedMessageID: nm.QuotedMessageID,
+		QuotedSenderJID: nm.QuotedSenderJID,
+		QuotedSenderLID: nm.QuotedSenderLID,
+		QuotedBody:      nm.QuotedBody,
 		HasMedia:        nm.HasMedia,
 		Media:           nil, // always null in v1
 		Timestamp:       nm.Timestamp,

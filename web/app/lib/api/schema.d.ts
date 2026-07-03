@@ -2562,8 +2562,16 @@ export interface components {
             poll?: components["schemas"]["PollData"];
             /** @description The sender's WhatsApp display (push) name at send time. */
             pushName?: string;
+            /** @description For a reply: the text/caption of the quoted message, carried inline in the reply's context info (guaranteed for genuine text/caption replies), else the locally stored body. Truncated to 4096 bytes on a UTF-8 boundary. */
+            quotedBody?: string;
+            /** @description For a reply: true when the quoted message was sent by this account. Best-effort — resolved from the locally stored quoted message; false when the quoted message is not (or no longer) in local storage. Only meaningful when quotedMessageId is set. */
+            quotedFromMe?: boolean;
             /** @description If this message quotes/replies to another, that message's id. */
             quotedMessageId?: string;
+            /** @description For a reply: the phone JID of the quoted message's author, when WhatsApp includes it in the reply's context (guaranteed for genuine replies), else resolved from the locally stored quoted message. */
+            quotedSenderJid?: string;
+            /** @description For a reply: the LID identity of the quoted message's author, when available from the reply context or the locally stored quoted message. */
+            quotedSenderLid?: string;
             /** @description For message.reaction: the emoji reacted with; empty string means the reaction was removed. */
             reaction?: string;
             /**

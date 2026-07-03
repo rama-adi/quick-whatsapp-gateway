@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -37,6 +38,11 @@ type RouterConfig struct {
 	// OpenAPIPath is the on-disk path to docs/openapi.yaml (served at
 	// /api/v1/openapi.yaml). Empty disables the route.
 	OpenAPIPath string
+
+	// RequestTimeout bounds the lifetime of every authenticated API request; the
+	// deadline propagates into ctx-aware store queries so a wedged downstream call
+	// returns 503 instead of hanging. Zero uses middleware.DefaultRequestTimeout.
+	RequestTimeout time.Duration
 
 	Log *slog.Logger
 }
@@ -79,7 +85,17 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	// own full "/api/v1/…" path and capability gate, so they mount on the ROOT
 	// router (mounting inside chi.Route("/api/v1") would double-prefix). cfg.Auth
 	// (the assertion-verify middleware) + the optional edge limiter run first.
+	timeout := cfg.RequestTimeout
+	if timeout == 0 {
+		timeout = middleware.DefaultRequestTimeout
+	}
 	r.Group(func(authed chi.Router) {
+		// Bounded request lifetime FIRST (inside the base recover/logger stack, above
+		// auth): every API request gets a context deadline that flows into the
+		// ctx-aware store queries, so a wedged MySQL call is cancelled and surfaces as
+		// a 503 instead of hanging the caller indefinitely. Health/metrics/openapi
+		// routes above are intentionally excluded — they never touch the wedged path.
+		authed.Use(middleware.Timeout(timeout))
 		if cfg.Auth != nil {
 			authed.Use(cfg.Auth)
 		}

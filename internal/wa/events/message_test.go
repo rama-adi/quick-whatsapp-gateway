@@ -133,8 +133,10 @@ func TestNormalizeMessageSubtypes(t *testing.T) {
 			content: &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{
 				Text: proto.String("reply @x"),
 				ContextInfo: &waE2E.ContextInfo{
-					StanzaID:     proto.String("quoted123"),
-					MentionedJID: []string{"628999@s.whatsapp.net", "205227043110953:9@lid"},
+					StanzaID:      proto.String("quoted123"),
+					MentionedJID:  []string{"628999@s.whatsapp.net", "205227043110953:9@lid"},
+					Participant:   proto.String("628111@s.whatsapp.net"),
+					QuotedMessage: &waE2E.Message{Conversation: proto.String("the original message")},
 				},
 			}},
 			wantEvent:   domain.EventMessage,
@@ -157,6 +159,18 @@ func TestNormalizeMessageSubtypes(t *testing.T) {
 				}
 				if p.QuotedMessageID != "quoted123" || len(p.Mentions) != 0 {
 					t.Errorf("payload quote/mentions wrong")
+				}
+				// Quoted author + body are lifted from the reply's ContextInfo at
+				// normalize time (no store lookup). Participant on the phone server
+				// lands in QuotedSenderJID; the body comes from the inline quoted msg.
+				if nm.QuotedSenderJID != "628111@s.whatsapp.net" || nm.QuotedSenderLID != "" {
+					t.Errorf("quoted sender = jid=%q lid=%q", nm.QuotedSenderJID, nm.QuotedSenderLID)
+				}
+				if nm.QuotedBody != "the original message" {
+					t.Errorf("quoted body = %q", nm.QuotedBody)
+				}
+				if p.QuotedSenderJID != "628111@s.whatsapp.net" || p.QuotedBody != "the original message" {
+					t.Errorf("payload quoted fields not projected: jid=%q body=%q", p.QuotedSenderJID, p.QuotedBody)
 				}
 			},
 		},

@@ -81,6 +81,10 @@ type MessagePayload struct {
 	Type            string                 `json:"type" doc:"Content type of the message: text, location, contact, poll, reaction, edit, revoke, media, and others." example:"text"`
 	Body            string                 `json:"body,omitempty" doc:"Text body, for text and caption-bearing messages." example:"Hello!"`
 	QuotedMessageID string                 `json:"quotedMessageId,omitempty" doc:"If this message quotes/replies to another, that message's id."`
+	QuotedFromMe    bool                   `json:"quotedFromMe,omitempty" doc:"For a reply: true when the quoted message was sent by this account. Best-effort — resolved from the locally stored quoted message; false when the quoted message is not (or no longer) in local storage. Only meaningful when quotedMessageId is set."`
+	QuotedSenderJID string                 `json:"quotedSenderJid,omitempty" doc:"For a reply: the phone JID of the quoted message's author, when WhatsApp includes it in the reply's context (guaranteed for genuine replies), else resolved from the locally stored quoted message."`
+	QuotedSenderLID string                 `json:"quotedSenderLid,omitempty" doc:"For a reply: the LID identity of the quoted message's author, when available from the reply context or the locally stored quoted message."`
+	QuotedBody      string                 `json:"quotedBody,omitempty" doc:"For a reply: the text/caption of the quoted message, carried inline in the reply's context info (guaranteed for genuine text/caption replies), else the locally stored body. Truncated to 4096 bytes on a UTF-8 boundary."`
 	Mentions        map[string]MentionData `json:"mentions,omitempty" doc:"Mentions in the message body, keyed by mentioned JID. Values contain the user's known pushName and per-group tag when available."`
 	HasMedia        bool                   `json:"hasMedia" doc:"True if the message carried media. The media itself is metadata-only in v1 (no download)."`
 	Media           *domain.MediaMeta      `json:"media" doc:"Media descriptor. Always null in v1 (metadata-only); see hasMedia."`

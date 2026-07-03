@@ -126,7 +126,7 @@ func NewServer(cfg Config) (*Server, error) {
 		s.staleAfter = defaultStaleAfter
 	}
 	if s.transport == nil {
-		s.transport = http.DefaultTransport
+		s.transport = defaultProxyTransport()
 	}
 	if s.now == nil {
 		s.now = time.Now
@@ -135,6 +135,25 @@ func NewServer(cfg Config) (*Server, error) {
 		s.log = slog.Default()
 	}
 	return s, nil
+}
+
+// proxyResponseHeaderTimeout bounds how long the router waits for the owning
+// gateway to send response HEADERS before giving up. It is the router-side half of
+// the "no request ever hangs forever" guarantee (the gateway bounds its own
+// handlers via middleware.Timeout): if a gateway wedges, its ReverseProxy
+// RoundTrip fails with a timeout and the ErrorHandler renders a clean 503 instead
+// of leaving the client's connection open indefinitely. It bounds only the wait
+// for the first byte of the response, so a legitimate slow-but-progressing
+// upstream (or the proxied NDJSON stream, which flushes headers immediately) is
+// unaffected.
+const proxyResponseHeaderTimeout = 30 * time.Second
+
+// defaultProxyTransport clones http.DefaultTransport and adds a
+// ResponseHeaderTimeout so a hung gateway surfaces as a 503 rather than a hang.
+func defaultProxyTransport() http.RoundTripper {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.ResponseHeaderTimeout = proxyResponseHeaderTimeout
+	return t
 }
 
 func errMissing(what string) error { return &configError{what} }

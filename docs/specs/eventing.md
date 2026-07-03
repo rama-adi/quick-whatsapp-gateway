@@ -105,6 +105,25 @@ JID-keyed map containing `pushName` and per-group member `tag` when known), medi
 flag + `MediaMeta` (mimetype/size/filename), reaction/edit/revoke target id, and
 structured `Location`/`Contact`/`Poll` bodies.
 
+**Quoted-message context (replies).** A reply's `ContextInfo` carries the quoted
+message inline, so message events expose the quote without a REST round-trip:
+
+- `quotedSenderJid` / `quotedSenderLid` — the quoted message's author, from
+  `ContextInfo.Participant` (canonicalized to non-AD; routed to the JID or LID
+  field by server). **Guaranteed** from the protocol frame for a genuine reply;
+  back-filled from the locally stored quoted message when the frame omits it.
+- `quotedBody` — the quoted message's text/caption, from
+  `ContextInfo.QuotedMessage`, truncated to 4096 bytes on a UTF-8 boundary.
+  **Guaranteed** from the frame for text/caption replies; else the stored body.
+- `quotedFromMe` — true when the quoted message was sent by this account.
+  **Best-effort**: resolved authoritatively from the locally stored quoted
+  message (the protocol frame has no reliable "quoted was mine" flag), so it is
+  `false` when the quoted message predates local retention. The quote-enrichment
+  stage runs in the inbound pipeline (after mention enrichment, before persist);
+  the resolved fields are mirrored into the persisted `raw_json`.
+
+All quoted-* fields are `omitempty` and set only when `quotedMessageId` is present.
+
 ### Media policy (§11)
 
 Media is **never downloaded** in v1. For media messages `HasMedia=true` and `MediaInfo`

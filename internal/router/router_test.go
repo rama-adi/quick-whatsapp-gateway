@@ -293,3 +293,19 @@ func TestJWKSEndpoint(t *testing.T) {
 		t.Fatalf("jwks endpoint: status=%d body=%q", rec.Code, rec.Body.String())
 	}
 }
+
+// The default reverse-proxy transport must bound the wait for the upstream
+// gateway's response headers (Fix 1, router side): without ResponseHeaderTimeout a
+// wedged gateway would leave the client's connection open forever instead of
+// surfacing the ErrorHandler's 503. This asserts the transport is configured; the
+// 503 rendering on RoundTrip failure is covered by the ErrorHandler path.
+func TestDefaultProxyTransportBoundsResponseHeaders(t *testing.T) {
+	rt := defaultProxyTransport()
+	tr, ok := rt.(*http.Transport)
+	if !ok {
+		t.Fatalf("default proxy transport type = %T, want *http.Transport", rt)
+	}
+	if tr.ResponseHeaderTimeout <= 0 {
+		t.Fatal("default proxy transport must set a positive ResponseHeaderTimeout so a hung gateway cannot hang the client")
+	}
+}

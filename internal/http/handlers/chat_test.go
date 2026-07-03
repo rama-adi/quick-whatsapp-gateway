@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -101,6 +103,22 @@ func TestListChatMessages_Envelope(t *testing.T) {
 	}
 	if svc.lastCID != "1@s.whatsapp.net" {
 		t.Errorf("cid not threaded: %q", svc.lastCID)
+	}
+}
+
+// A wedged read whose ctx-aware store query is cancelled by the request deadline
+// surfaces as context.DeadlineExceeded (wrapped by the store) — the huma edge must
+// render it as a retryable 503 gateway_unavailable, NOT a masked 500 and never a
+// hang. This is the visible contract behind Fix 1.
+func TestListChatMessages_DeadlineExceededMapsTo503(t *testing.T) {
+	svc := &fakeChatSvc{err: fmt.Errorf("store: list messages: %w", context.DeadlineExceeded)}
+	h := chatRouter(svc, manageOrgPrincipal())
+	w := doReq(h, http.MethodGet, "/api/v1/sessions/sess_1/chats/1@s.whatsapp.net/messages", "")
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503; body=%s", w.Code, w.Body.String())
+	}
+	if got := decodeError(w.Body.String()).Error.Code; got != domain.CodeUnavailable {
+		t.Errorf("code = %q, want %q", got, domain.CodeUnavailable)
 	}
 }
 

@@ -88,6 +88,14 @@ type Repos interface {
 	// ResolveMentionDetails resolves display metadata for mentioned JIDs in a
 	// group message. The returned map is keyed by the original mentioned JID.
 	ResolveMentionDetails(ctx context.Context, sessionID, groupJID string, mentions []string) (map[string]MentionDetail, error)
+	// LookupQuotedContext resolves reply context from the locally stored quoted
+	// message (by session + its wa_message_id). ok=false when the quoted message is
+	// not in local storage — expected for quotes older than the retention window;
+	// callers keep whatever the reply's protocol frame supplied. This is the
+	// authoritative source of QuotedFromMe (the protocol frame has no reliable flag)
+	// and a best-effort fallback for the quoted author/body when the frame omitted
+	// them.
+	LookupQuotedContext(ctx context.Context, sessionID, quotedMessageID string) (QuotedContext, bool, error)
 
 	// --- persist (§7.4) ---
 
@@ -161,6 +169,15 @@ type GroupMemberUpsert struct {
 type MentionDetail struct {
 	PushName string
 	Tag      string
+}
+
+// QuotedContext is the locally stored view of a quoted (replied-to) message,
+// returned by Repos.LookupQuotedContext to enrich a reply event.
+type QuotedContext struct {
+	FromMe    bool
+	SenderJID string
+	SenderLID string
+	Body      string
 }
 
 // ChatUpsert is the input to Repos.UpsertChat.

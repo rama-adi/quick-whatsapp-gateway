@@ -158,6 +158,10 @@ func (p *Pipeline) Process(ctx context.Context, sessionID, organizationID string
 		return fmt.Errorf("inbound mention enrichment: %w", err)
 	}
 
+	if err := p.enrichQuote(ctx, &envelope, nm); err != nil {
+		return fmt.Errorf("inbound quote enrichment: %w", err)
+	}
+
 	// Stage 4: persist (chats, messages, poll votes, receipt status).
 	if err := p.persist(ctx, nm); err != nil {
 		return fmt.Errorf("inbound persist: %w", err)

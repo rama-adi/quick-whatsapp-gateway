@@ -57,8 +57,8 @@ func init() {
 // generated `ErrorDetail` schema, so the contract documents exactly what an error
 // body contains.
 type ErrorDetail struct {
-	Code string `json:"code" enum:"rate_limited,not_found,unauthorized,forbidden,validation_error,conflict,not_implemented,gateway_unavailable,internal" doc:"Stable, machine-readable error code. Branch on this, not on the HTTP status or the message text — the message may change wording, the code will not. Codes map to HTTP statuses: not_found→404, unauthorized→401, forbidden→403, validation_error→400, conflict→409, rate_limited→429, not_implemented→501, gateway_unavailable→503 (the owning gateway is draining or unreachable; retry), internal→500." example:"not_found"`
-	Message string `json:"message" doc:"Human-readable explanation of what went wrong, for logs and developers. Not localized and not meant to be shown verbatim to end users." example:"session not found"`
+	Code    string         `json:"code" enum:"rate_limited,not_found,unauthorized,forbidden,validation_error,conflict,not_implemented,gateway_unavailable,internal" doc:"Stable, machine-readable error code. Branch on this, not on the HTTP status or the message text — the message may change wording, the code will not. Codes map to HTTP statuses: not_found→404, unauthorized→401, forbidden→403, validation_error→400, conflict→409, rate_limited→429, not_implemented→501, gateway_unavailable→503 (the owning gateway is draining or unreachable; retry), internal→500." example:"not_found"`
+	Message string         `json:"message" doc:"Human-readable explanation of what went wrong, for logs and developers. Not localized and not meant to be shown verbatim to end users." example:"session not found"`
 	Details map[string]any `json:"details,omitempty" doc:"Optional structured context. For validation_error this carries an \"errors\" array of field-level messages; absent when there is nothing to add." additionalProperties:"true"`
 }
 
@@ -81,6 +81,15 @@ func Err(err error) error {
 	var ae *domain.APIError
 	if errors.As(err, &ae) {
 		return &apiError{Err: ErrorDetail{Code: ae.Code, Message: ae.Message, Details: ae.Details}}
+	}
+	// A request that exceeded its bounded lifetime (middleware.Timeout deadline) or
+	// was cancelled by the client surfaces here as context.DeadlineExceeded /
+	// context.Canceled after a ctx-aware store query unwinds. Report it as a
+	// retryable 503 rather than masking it as a generic 500 — this is the visible
+	// signal that a downstream (MySQL) call was wedged, and the reason the request
+	// no longer hangs indefinitely.
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return &apiError{Err: ErrorDetail{Code: domain.CodeUnavailable, Message: "request timed out"}}
 	}
 	return &apiError{Err: ErrorDetail{Code: domain.CodeInternal, Message: "internal server error"}}
 }

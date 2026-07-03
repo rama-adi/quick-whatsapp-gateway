@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -357,6 +358,35 @@ func mentionUserPart(jid string) string {
 		return jid[:i]
 	}
 	return jid
+}
+
+// LookupQuotedContext resolves reply context from the locally stored quoted
+// message. A missing quoted message (older than retention, or never captured)
+// maps not_found -> ok=false so the caller keeps the reply's protocol-frame
+// values; any other error propagates.
+func (r *InboundRepos) LookupQuotedContext(ctx context.Context, sessionID, quotedMessageID string) (inbound.QuotedContext, bool, error) {
+	m, err := r.store.Messages.GetByWAID(ctx, sessionID, quotedMessageID)
+	if err != nil {
+		var ae *domain.APIError
+		if errors.As(err, &ae) && ae.Code == domain.CodeNotFound {
+			return inbound.QuotedContext{}, false, nil
+		}
+		return inbound.QuotedContext{}, false, err
+	}
+	return inbound.QuotedContext{
+		FromMe:    m.FromMe,
+		SenderJID: strDeref(m.SenderJID),
+		SenderLID: strDeref(m.SenderLID),
+		Body:      strDeref(m.Body),
+	}, true, nil
+}
+
+// strDeref returns the pointed-to string or "".
+func strDeref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 func (r *InboundRepos) UpsertChat(ctx context.Context, in inbound.ChatUpsert) error {

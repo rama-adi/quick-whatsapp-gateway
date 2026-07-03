@@ -156,6 +156,75 @@ func TestProcess_GroupMentionEventUsesPushNameAndTagMap(t *testing.T) {
 	assert.Equal(t, "Caz", raw.Mentions["333@lid"].Tag)
 }
 
+// A reply enriches the event with quotedFromMe resolved from the locally stored
+// quoted message, and back-fills the quoted author/body only where the protocol
+// frame left them empty (here the frame supplied neither).
+func TestProcess_ReplyEnrichesQuoteFromStore(t *testing.T) {
+	f := newFakes()
+	nm := dmMessage()
+	nm.QuotedMessageID = "QUOTED1"
+	f.norm.evt = domain.NewEvent(domain.EventMessage, testSession, testOrganization, apitypes.MessagePayload{
+		WAMessageID:     nm.WAMessageID,
+		ChatJID:         nm.ChatJID,
+		Type:            nm.MsgType,
+		Body:            nm.Body,
+		Timestamp:       nm.TimestampMs,
+		QuotedMessageID: "QUOTED1",
+	})
+	f.norm.nm = nm
+	f.repos.quotedCtx = map[string]QuotedContext{
+		"QUOTED1": {FromMe: true, SenderJID: "628000@s.whatsapp.net", Body: "the quoted text"},
+	}
+	p := f.newPipeline()
+
+	require.NoError(t, p.Process(context.Background(), testSession, testOrganization, false, struct{}{}))
+
+	require.Len(t, f.sink.published, 1)
+	payload, ok := f.sink.published[0].Payload.(apitypes.MessagePayload)
+	require.True(t, ok)
+	assert.True(t, payload.QuotedFromMe)
+	assert.Equal(t, "628000@s.whatsapp.net", payload.QuotedSenderJID)
+	assert.Equal(t, "the quoted text", payload.QuotedBody)
+
+	// The persisted raw_json mirrors the enriched payload.
+	require.Len(t, f.repos.messages, 1)
+	var raw struct {
+		QuotedFromMe bool   `json:"quotedFromMe"`
+		QuotedBody   string `json:"quotedBody"`
+	}
+	require.NoError(t, json.Unmarshal(f.repos.messages[0].RawJSON, &raw))
+	assert.True(t, raw.QuotedFromMe)
+	assert.Equal(t, "the quoted text", raw.QuotedBody)
+}
+
+// When the quoted message is not in local storage (older than retention), the
+// event keeps whatever the protocol frame supplied and quotedFromMe stays false.
+func TestProcess_ReplyQuoteNotInStoreKeepsFrameValues(t *testing.T) {
+	f := newFakes()
+	nm := dmMessage()
+	nm.QuotedMessageID = "GONE"
+	f.norm.evt = domain.NewEvent(domain.EventMessage, testSession, testOrganization, apitypes.MessagePayload{
+		WAMessageID:     nm.WAMessageID,
+		ChatJID:         nm.ChatJID,
+		Type:            nm.MsgType,
+		Timestamp:       nm.TimestampMs,
+		QuotedMessageID: "GONE",
+		QuotedSenderJID: "628222@s.whatsapp.net", // supplied by the reply frame
+		QuotedBody:      "frame body",
+	})
+	f.norm.nm = nm
+	// quotedCtx has no entry for "GONE".
+	p := f.newPipeline()
+
+	require.NoError(t, p.Process(context.Background(), testSession, testOrganization, false, struct{}{}))
+
+	require.Len(t, f.sink.published, 1)
+	payload := f.sink.published[0].Payload.(apitypes.MessagePayload)
+	assert.False(t, payload.QuotedFromMe)
+	assert.Equal(t, "628222@s.whatsapp.net", payload.QuotedSenderJID)
+	assert.Equal(t, "frame body", payload.QuotedBody)
+}
+
 // TestProcess_InterceptorDrop verifies that a prefixed text on the admin session
 // is handed to the registry and dropped: nothing persisted/emitted/counted.
 func TestProcess_InterceptorDrop(t *testing.T) {

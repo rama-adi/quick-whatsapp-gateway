@@ -76,6 +76,7 @@ type fakeRepos struct {
 	groups         []GroupUpsert
 	members        []GroupMemberUpsert
 	mentionDetails map[string]MentionDetail
+	quotedCtx      map[string]QuotedContext // keyed by quoted wa_message_id
 	chats          []ChatUpsert
 	messages       []MessageInsert
 	edited         []string
@@ -144,6 +145,15 @@ func (r *fakeRepos) ResolveMentionDetails(ctx context.Context, sessionID, groupJ
 		out[jid] = r.mentionDetails[jid]
 	}
 	return out, nil
+}
+
+func (r *fakeRepos) LookupQuotedContext(ctx context.Context, sessionID, quotedMessageID string) (QuotedContext, bool, error) {
+	r.order.record("LookupQuotedContext")
+	if err := r.maybeFail("LookupQuotedContext"); err != nil {
+		return QuotedContext{}, false, err
+	}
+	qc, ok := r.quotedCtx[quotedMessageID]
+	return qc, ok, nil
 }
 
 func (r *fakeRepos) UpsertChat(ctx context.Context, in ChatUpsert) error {
