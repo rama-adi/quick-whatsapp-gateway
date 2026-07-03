@@ -71,7 +71,7 @@ func (a *whatsmeowAdapter) SendText(ctx context.Context, to, text string, quote 
 		return a.send(ctx, toJID, &waE2E.Message{Conversation: proto.String(text)})
 	}
 
-	ctxInfo := buildContextInfo(quote, mentions)
+	ctxInfo := buildContextInfo(a.fillOwnQuote(toJID, quote), mentions)
 	return a.send(ctx, toJID, &waE2E.Message{
 		ExtendedTextMessage: &waE2E.ExtendedTextMessage{
 			Text:        proto.String(text),
@@ -165,7 +165,7 @@ func (a *whatsmeowAdapter) SendMedia(ctx context.Context, to, mediaType string, 
 	if err != nil {
 		return "", 0, fmt.Errorf("whatsmeow upload %s: %w", mediaType, err)
 	}
-	ctxInfo := buildContextInfo(quote, mentions)
+	ctxInfo := buildContextInfo(a.fillOwnQuote(toJID, quote), mentions)
 
 	var msg *waE2E.Message
 	switch mediaType {
@@ -263,6 +263,32 @@ func uploadMediaType(mediaType string) whatsmeow.MediaType {
 	default: // image, sticker
 		return whatsmeow.MediaImage
 	}
+}
+
+// fillOwnQuote resolves the participant for a quoted message this session sent
+// itself. Group replies require an explicit participant — when it is missing,
+// receiving clients attribute the quote to the wrong author — so fill in the
+// session's own identity from the device store. Direct chats are left alone:
+// there an empty participant already means "own message".
+func (a *whatsmeowAdapter) fillOwnQuote(to types.JID, quote QuoteInfo) QuoteInfo {
+	return fillOwnQuoteParticipant(to, quote, a.cli.Store.GetLID(), a.cli.Store.GetJID())
+}
+
+// fillOwnQuoteParticipant is the pure core of fillOwnQuote. The LID is
+// preferred (modern groups are lid-addressed), falling back to the phone-number
+// JID for sessions that predate LID assignment.
+func fillOwnQuoteParticipant(to types.JID, quote QuoteInfo, ownLID, ownJID types.JID) QuoteInfo {
+	if !quote.FromMe || quote.SenderJID != "" || to.Server != types.GroupServer {
+		return quote
+	}
+	own := ownLID
+	if own.IsEmpty() {
+		own = ownJID
+	}
+	if !own.IsEmpty() {
+		quote.SenderJID = own.ToNonAD().String()
+	}
+	return quote
 }
 
 // buildContextInfo assembles reply + mention context, or nil when neither is set.

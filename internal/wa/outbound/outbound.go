@@ -109,6 +109,11 @@ type QuoteInfo struct {
 	SenderJID string
 	Type      string
 	Body      string
+	// FromMe marks a quoted message this session sent itself. SenderJID is left
+	// empty for those (the store has no sender columns for outbound rows); the
+	// adapter fills in the session's own JID for group sends, where an explicit
+	// participant is required for correct attribution.
+	FromMe bool
 }
 
 // Empty reports whether no quote was requested.

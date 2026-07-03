@@ -292,6 +292,7 @@ func (s *Sender) resolveQuote(ctx context.Context, req domain.SendRequest) Quote
 		quote.Body = *msg.Body
 	}
 	if msg.FromMe {
+		quote.FromMe = true
 		quote.SenderJID = ""
 	} else if msg.SenderJID != nil && *msg.SenderJID != "" {
 		quote.SenderJID = *msg.SenderJID
