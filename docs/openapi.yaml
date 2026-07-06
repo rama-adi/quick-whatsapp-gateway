@@ -2057,6 +2057,13 @@ components:
           description: Number of latest voter records counted.
           format: int64
           type: integer
+        voters:
+          description: Per-voter latest selections, included only when hideVotes is false.
+          items:
+            $ref: "#/components/schemas/PollRecapVoter"
+          type:
+            - array
+            - "null"
       required:
         - pollMessageId
         - chatJid
@@ -2066,6 +2073,34 @@ components:
         - endTime
         - hideVotes
         - totalVotes
+      type: object
+    PollRecapVoter:
+      additionalProperties: false
+      properties:
+        displayName:
+          description: Display name resolved from whatsapp_identities at read time. Empty when the voter has no known identity name.
+          examples:
+            - Sam Lee
+          type: string
+        selectedOptions:
+          description: Options selected by this voter's latest vote.
+          examples:
+            - - "Yes"
+              - Maybe
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        voterId:
+          description: "Stored voter key from poll_votes: the sender LID, or the sender phone JID when no LID was available."
+          examples:
+            - 205227043110953@lid
+          type: string
+      required:
+        - voterId
+        - displayName
+        - selectedOptions
       type: object
     PostStatusInputBody:
       additionalProperties: false

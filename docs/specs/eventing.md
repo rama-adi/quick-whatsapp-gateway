@@ -162,12 +162,21 @@ unclassifiable data is worse than persisting an odd JID downstream can still rec
   whatsmeow client (`cli.DecryptPollVote` → SHA-256 option hashes) and resolves those
   hashes to option text against the `polls` table (populated when the poll creation was
   persisted), writing `selectedOptions` onto both the `poll.vote` envelope and the
-  `poll_votes` row. An unresolvable hash (poll never seen) falls back to the raw hash.
+  `poll_votes` row. Poll vote persistence uses the normalized sender identity as the voter
+  key: canonical LID when available, otherwise the sender phone JID. The key must be
+  non-empty for a real vote so distinct voters do not collapse in replay de-dupe or recaps.
+  An unresolvable hash (poll never seen) falls back to the raw hash.
 - Poll **recaps**: timed poll creation persists `polls.end_time` and schedules the close
   timestamp into a Redis sorted set for near-realtime wakeups. `PollRecapWorker` still uses
   MySQL as the source of truth: it sweeps due rows, claims `recap_emitted_at`, aggregates the
-  latest vote per voter from `poll_votes`, and emits one synthetic `poll.recap` event with
-  option counts, total voters, `selectableCount`, `endTime`, and `hideVotes`.
+  latest vote per non-empty voter key from `poll_votes`, and emits one synthetic
+  `poll.recap` event with option counts, total voters, `selectableCount`, `endTime`, and
+  `hideVotes`. When `hideVotes=false`, the payload also includes a deterministic
+  `voters` array sorted by stored voter key; each entry carries the voter key, the display
+  name resolved at read time from `whatsapp_identities`, and the latest selected options.
+  When `hideVotes=true`, `voters` is omitted entirely so the synthetic recap does not leak
+  identities. Historical rows with an empty voter key are counted defensively as distinct
+  rows rather than being merged under the empty string.
 
 ### How it's tested
 

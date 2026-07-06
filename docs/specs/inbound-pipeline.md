@@ -136,7 +136,8 @@ assertions. Coverage ~84%, `-race` clean. Cases:
   off paths (flag off, no resolver, unknown session, echo, non-message kind).
 - Receipt → `UpdateMessageStatus` (no message insert, no count bump, no
   auto-read); poll creation → `UpsertPoll` (+ message insert); poll update →
-  `InsertPollVote`; edit/revoke flag flips.
+  `InsertPollVote` with a non-empty normalized voter key (canonical LID preferred,
+  otherwise sender phone JID); edit/revoke flag flips.
 - Normalize-drop runs no stages; from-me echo persists as `out`; sender-less
   events skip identity/contact but still fan out; capture-error aborts;
   fan-out errors joined while `event_log` still appended; auto-read error

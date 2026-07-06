@@ -2813,6 +2813,28 @@ export interface components {
              * @description Number of latest voter records counted.
              */
             totalVotes: number;
+            /** @description Per-voter latest selections, included only when hideVotes is false. */
+            voters?: components["schemas"]["PollRecapVoter"][] | null;
+        };
+        PollRecapVoter: {
+            /**
+             * @description Display name resolved from whatsapp_identities at read time. Empty when the voter has no known identity name.
+             * @example Sam Lee
+             */
+            displayName: string;
+            /**
+             * @description Options selected by this voter's latest vote.
+             * @example [
+             *       "Yes",
+             *       "Maybe"
+             *     ]
+             */
+            selectedOptions: string[] | null;
+            /**
+             * @description Stored voter key from poll_votes: the sender LID, or the sender phone JID when no LID was available.
+             * @example 205227043110953@lid
+             */
+            voterId: string;
         };
         PostStatusInputBody: {
             /**

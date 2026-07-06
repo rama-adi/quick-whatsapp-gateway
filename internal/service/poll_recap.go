@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"time"
 
@@ -13,6 +14,11 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
 )
+
+// missingVoterKeyPrefix marks synthetic per-row keys for legacy poll_votes rows
+// stored with an empty voter_lid, so they still count as distinct voters in the
+// aggregate without leaking a fake id into the public voters list.
+const missingVoterKeyPrefix = "__missing_voter_lid:"
 
 type pollRecapPublisher interface {
 	Publish(ctx context.Context, e domain.Event) error
@@ -28,6 +34,7 @@ type pollRecapEnqueuer interface {
 type PollRecapWorker struct {
 	polls     *store.PollRepo
 	votes     *store.PollVoteRepo
+	ids       *store.IdentityRepo
 	eventLog  *store.EventLogRepo
 	publisher pollRecapPublisher
 	webhooks  pollRecapEnqueuer
@@ -67,6 +74,7 @@ func NewPollRecapWorker(st *store.Store, publisher pollRecapPublisher, webhooks 
 	return &PollRecapWorker{
 		polls:     st.Polls,
 		votes:     st.PollVotes,
+		ids:       st.Identities,
 		eventLog:  st.EventLog,
 		publisher: publisher,
 		webhooks:  webhooks,
@@ -172,15 +180,31 @@ func (w *PollRecapWorker) buildPayload(ctx context.Context, poll domain.PollReca
 	if err != nil {
 		return domain.PollRecapPayload{}, err
 	}
+	names := map[string]string(nil)
+	if !poll.HideVotes && w.ids != nil {
+		voterIDs := pollRecapVoterIDs(votes)
+		names, err = w.ids.NamesForMentions(ctx, voterIDs)
+		if err != nil {
+			return domain.PollRecapPayload{}, err
+		}
+	}
+	return buildPollRecapPayload(poll, votes, names)
+}
+
+func buildPollRecapPayload(poll domain.PollRecapCandidate, votes []domain.PollVote, names map[string]string) (domain.PollRecapPayload, error) {
 	latest := make(map[string][]string)
-	for _, vote := range votes {
+	for i, vote := range votes {
 		var selected []string
 		if len(vote.SelectedOptions) > 0 {
 			if err := json.Unmarshal(vote.SelectedOptions, &selected); err != nil {
 				return domain.PollRecapPayload{}, fmt.Errorf("decode poll vote selection: %w", err)
 			}
 		}
-		latest[vote.VoterLID] = selected
+		voterKey := vote.VoterLID
+		if voterKey == "" {
+			voterKey = fmt.Sprintf("%s%d:%d", missingVoterKeyPrefix, vote.ID, i)
+		}
+		latest[voterKey] = selected
 	}
 
 	counts := make(map[string]int, len(poll.Options))
@@ -196,6 +220,27 @@ func (w *PollRecapWorker) buildPayload(ctx context.Context, poll domain.PollReca
 	for _, option := range poll.Options {
 		options = append(options, domain.PollRecapOption{Option: option, Count: counts[option]})
 	}
+	var voters []domain.PollRecapVoter
+	if !poll.HideVotes {
+		voterIDs := make([]string, 0, len(latest))
+		for voterID := range latest {
+			voterIDs = append(voterIDs, voterID)
+		}
+		sort.Strings(voterIDs)
+		voters = make([]domain.PollRecapVoter, 0, len(voterIDs))
+		for _, voterID := range voterIDs {
+			// Synthetic keys stand in for legacy rows persisted without a voter
+			// identity; they count toward the totals but carry no publishable id.
+			if strings.HasPrefix(voterID, missingVoterKeyPrefix) {
+				continue
+			}
+			voters = append(voters, domain.PollRecapVoter{
+				VoterID:         voterID,
+				DisplayName:     names[jidUserPart(voterID)],
+				SelectedOptions: latest[voterID],
+			})
+		}
+	}
 	return domain.PollRecapPayload{
 		PollMessageID:   poll.PollMessageID,
 		ChatJID:         poll.ChatJID,
@@ -205,5 +250,22 @@ func (w *PollRecapWorker) buildPayload(ctx context.Context, poll domain.PollReca
 		EndTime:         poll.EndTime,
 		HideVotes:       poll.HideVotes,
 		TotalVotes:      len(latest),
+		Voters:          voters,
 	}, nil
+}
+
+func pollRecapVoterIDs(votes []domain.PollVote) []string {
+	out := make([]string, 0, len(votes))
+	seen := make(map[string]struct{}, len(votes))
+	for _, vote := range votes {
+		if vote.VoterLID == "" {
+			continue
+		}
+		if _, ok := seen[vote.VoterLID]; ok {
+			continue
+		}
+		seen[vote.VoterLID] = struct{}{}
+		out = append(out, vote.VoterLID)
+	}
+	return out
 }

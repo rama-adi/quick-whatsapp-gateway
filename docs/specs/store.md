@@ -198,7 +198,10 @@ read queries can compile without making the gateway a writer or migration owner 
   `(session_id, poll_message_id, voter_lid, timestamp)`, and
   `PollVoteRepo.Insert` uses `INSERT IGNORE` so duplicate delivery of the same
   poll-update event is a no-op while later re-votes with a new timestamp remain
-  separate history rows.
+  separate history rows. `voter_lid` is the normalized per-voter key supplied by
+  the inbound adapter: canonical LID when present, otherwise the sender phone JID.
+  It must not be empty for real votes, otherwise same-timestamp votes from
+  different voters would share the replay key and recaps could not separate voters.
 - **Poll close recaps.** `polls.end_time` stores WhatsApp's poll close time in
   epoch-ms, `hide_votes` mirrors the poll privacy flag, and
   `recap_emitted_at` is the durable exactly-once claim for the synthetic

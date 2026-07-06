@@ -529,9 +529,13 @@ func inboundMessageFromPersistResult(pr events.PersistResult, ev domain.Event, s
 	case events.PersistPollVote:
 		nm := inboundMessageFromEventsMessage(pr.Message, inbound.KindPollVote, ev, sessionID, organizationID)
 		if nm != nil && pr.Message != nil {
+			voterKey := nm.SenderLID
+			if voterKey == "" {
+				voterKey = nm.SenderJID
+			}
 			nm.PollVote = &inbound.NormalizedPollVote{
 				PollMessageID: pr.Message.PollVoteTargetID,
-				VoterLID:      pr.Message.SenderLID,
+				VoterLID:      voterKey,
 				// Filled by InboundNormalizer.resolvePollVote (decrypt + resolve);
 				// default to an empty selection if resolution is unavailable.
 				SelectedOptions: json.RawMessage("[]"),

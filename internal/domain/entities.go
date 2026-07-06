@@ -375,6 +375,12 @@ type PollRecapOption struct {
 	Count  int    `json:"count"`
 }
 
+type PollRecapVoter struct {
+	VoterID         string   `json:"voterId" doc:"Stored voter key from poll_votes: the sender LID, or the sender phone JID when no LID was available." example:"205227043110953@lid"`
+	DisplayName     string   `json:"displayName" doc:"Display name resolved from whatsapp_identities at read time. Empty when the voter has no known identity name." example:"Sam Lee"`
+	SelectedOptions []string `json:"selectedOptions" doc:"Options selected by this voter's latest vote." example:"[\"Yes\",\"Maybe\"]"`
+}
+
 type PollRecapPayload struct {
 	PollMessageID   string            `json:"pollMessageId" doc:"Id of the poll-creation message."`
 	ChatJID         string            `json:"chatJid" doc:"JID of the chat the poll belongs to."`
@@ -384,6 +390,7 @@ type PollRecapPayload struct {
 	EndTime         int64             `json:"endTime" doc:"Poll closing time as epoch milliseconds."`
 	HideVotes       bool              `json:"hideVotes" doc:"True when participant names were hidden in the vote list."`
 	TotalVotes      int               `json:"totalVotes" doc:"Number of latest voter records counted."`
+	Voters          []PollRecapVoter  `json:"voters,omitempty" doc:"Per-voter latest selections, included only when hideVotes is false."`
 }
 
 // OutboxEntry mirrors the outbox table (async send queue).

@@ -99,6 +99,35 @@ func TestInboundNormalizer_PollVoteResolvesOptions(t *testing.T) {
 	}
 }
 
+func TestInboundMessageFromPersistPollVote_UsesNormalizedVoterKey(t *testing.T) {
+	ev := domain.NewEvent(domain.EventPollVote, "sess_1", "org_1", waevents.MessagePayload{})
+	nm := inboundMessageFromPersistResult(waevents.PersistResult{
+		Kind: waevents.PersistPollVote,
+		Message: &waevents.NormalizedMessage{
+			WAMessageID:      "VOTE1",
+			ChatJID:          "group-test@g.us",
+			ChatClass:        waevents.ChatClassGroup,
+			SenderJID:        "sender-test@lid",
+			SenderLID:        "",
+			PollVoteTargetID: "POLL1",
+			Timestamp:        1782554804000,
+			Subtype:          waevents.SubtypePollVote,
+			MessageType:      "poll_vote",
+		},
+		ChatJID: "group-test@g.us",
+	}, ev, "sess_1", "org_1")
+
+	if nm == nil || nm.PollVote == nil {
+		t.Fatalf("poll vote missing: %+v", nm)
+	}
+	if nm.PollVote.VoterLID != "sender-test@lid" {
+		t.Fatalf("VoterLID = %q, want normalized sender LID", nm.PollVote.VoterLID)
+	}
+	if nm.PollVote.VoterLID == "" {
+		t.Fatal("VoterLID must not be empty for a real vote")
+	}
+}
+
 func TestInboundMessageFromEventsMessage_LIDSenderAndGroupAccounting(t *testing.T) {
 	payload := waevents.MessagePayload{
 		WAMessageID:     "MSG_SYNTHETIC_GROUP_TEXT",
