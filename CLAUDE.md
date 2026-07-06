@@ -14,6 +14,91 @@ The system is two independently deployable services in one repo:
 Design rationale lives in [`masterplan-mvp.md`](./masterplan-mvp.md). This file is the bookkeeping
 rulebook: where things live, what to update alongside a change, and the gates that must pass.
 
+## Orchestration model
+
+You (Fable) are the orchestrator. Your job is to plan, decompose, and synthesize — not to do all
+the work yourself. Keep your own context lean: delegate the heavy lifting and pull back only the
+conclusions you need to act on.
+
+- Reasoning-heavy phases (architecture, complex debugging, algorithm design) → `deep-reasoner`.
+- Mechanical work (boilerplate, tests, formatting, simple edits) → `fast-worker`.
+- Codex (`/codex:rescue --background`) is a cracked engineer on par with `deep-reasoner`, bringing
+  a different perspective. Treat it as a peer, not a reviewer.
+- High-stakes decisions: task Opus (`deep-reasoner`) and Codex on the same problem **in parallel**,
+  without showing either the other's answer. Then synthesize the best of both yourself.
+
+## Picking the right models for workflows and subagents
+
+Rankings, higher = better. Cost reflects what I actually pay (OpenAI has really generous limits),
+not list price. Intelligence is how hard a problem you can hand the model unsupervised. Taste covers
+UI/UX, code quality, API design, and copy.
+
+| model | cost | intelligence | taste |
+|---|---:|---:|---:|
+| gpt-5.5 | 9 | 8 | 5 |
+| sonnet-5 | 5 | 5 | 7 |
+| opus-4.8 | 4 | 7 | 8 |
+| fable-5 | 2 | 9 | 9 |
+
+Character notes (how each model actually behaves):
+
+- **gpt-5.5** — Keen on making things not break, even at the expense of code cleanliness.
+  Prioritizes a running, unbroken app over elegance. Best safety net against regressions and excels
+  at high-logic work — debugging broken code, tracing root causes, complex algorithmic reasoning.
+  This includes _logic_ frontend work: debugging state, fixing data flow, wiring event handlers.
+  **Never** hand it UI creation (layout, styling, visual design); it's genuinely bad at it.
+- **sonnet-5** — Fast worker. Not as polished as gpt-5.5 or opus, but workable — a solid middle
+  option.
+- **opus-4.8** — High taste for frontend and docs. Code is more freeform, but it won't catch bugs as
+  aggressively as gpt-5.5.
+- **fable-5** — The best and most expensive model. Strong in every scenario, but super expensive —
+  reserve for when it's worth it.
+
+The gpt-5.5 + opus-4.8 synergy (left-brain / right-brain): these two are complementary opposites.
+Opus is the right brain — high taste, freeform, well-designed frontend/docs/architecture, but misses
+bugs. gpt-5.5 is the left brain — relentless about not breaking things, excellent at high-logic work
+(debugging, root-cause tracing, algorithmic reasoning), but bad at frontend and light on taste. Pair
+them: have opus create and design the UI, then hand gpt-5.5 the logic frontend work — debugging
+state, fixing data flow, wiring handlers — plus catching bugs and hardening against regressions.
+**Never** let gpt-5.5 create UI (layout, styling, visual design) — only let it fix the logic and
+harden it. For high-stakes decisions, run both in parallel on the same problem and synthesize.
+
+How to apply:
+
+- These are defaults, not limits. You have standing permission to override them: if a cheaper
+  model's output doesn't meet the bar, rerun or redo the work with a smarter model without asking.
+  Judge the output, not the price tag. Escalating costs less than shipping mediocre work.
+- Cost is a tie-breaker only; when axes conflict for anything that ships, intelligence > taste >
+  cost.
+- Bulk/mechanical work (clear-spec implementation, data analysis, migrations): gpt-5.5 — it's
+  effectively free.
+- Anything user-facing (UI, copy, API design) needs taste >= 7.
+- Reviews of plans/implementations: fable-5 or opus-4.8, optionally gpt-5.5 as an extra independent
+  perspective.
+- Never use Haiku.
+- Mechanics: gpt-5.5 is handled natively via the `openai/codex-plugin-cc` plugin inside Claude Code,
+  automatically adopting your user-level configurations from `~/.codex/config.toml`. Avoid writing
+  custom bash scripts; instead, utilize the plugin's built-in tools and skills:
+  - `/codex:review` — Run non-destructive, read-only code quality assessments. Supports
+    `--base <ref>` for branch analysis.
+  - `/codex:adversarial-review` — Perform a skeptical design review to pressure-test tradeoffs,
+    auth, and reliability. Append custom focus text at the end of the command to steer the focus.
+  - `/codex:rescue` — Subcontract active debugging, multi-file refactoring, or implementation loops
+    to Codex when a second pass is required.
+  - `/codex:status` / `/codex:result` / `/codex:cancel` — Use these to check, fetch, or abort
+    asynchronous jobs when using the `--background` flag on heavy tasks.
+- Claude models (sonnet-5, opus-4.8, fable-5) run via the Agent/Workflow model parameter.
+
+Using gpt-5.5 inside workflows and subagents:
+
+- Subagents and automated workflows should call the plugin's native slash commands or its exposed
+  `codex-cli-runtime` skills to delegate tasks directly, omitting the need for raw terminal
+  wrappers.
+- For closed-loop quality assurance, keep the review gate turned on via
+  `/codex:setup --enable-review-gate`. This ensures a stop hook automatically challenges Claude's
+  outputs using Codex before finalizing, preventing broken code or weak design assumptions from
+  reaching the main session unvetted.
+
 ## Where things live
 
 | Path | What it is |
