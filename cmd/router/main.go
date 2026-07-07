@@ -26,6 +26,7 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/controlbus"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/dbconn"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/oidp"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/router"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/stream"
@@ -45,6 +46,10 @@ func run() error {
 	}
 	setupLogging(cfg.LogLevel)
 	log := slog.Default()
+
+	if len(os.Args) >= 3 && os.Args[1] == "oidp" && os.Args[2] == "rotate-key" {
+		return runOIDPRotateKey(context.Background(), cfg, os.Args[3:])
+	}
 
 	if err := cfg.Validate(); err != nil {
 		return fmt.Errorf("validate config: %w", err)
@@ -92,6 +97,10 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("build assertion minter: %w", err)
 	}
+	oidpSigner, err := oidp.NewSigner(st.OAuthSigningKeys, cfg.OIDCKeyEncKey)
+	if err != nil {
+		return fmt.Errorf("build oidc signer: %w", err)
+	}
 
 	// --- Realtime (Increment B): the router is the single client-facing realtime
 	// endpoint. It subscribes to the shared Redis evt:* fan-out (the gateways keep
@@ -134,6 +143,8 @@ func run() error {
 		Registry:    registry,
 		RedisPrefix: cfg.RedisPrefix,
 		PublicURL:   cfg.PublicURL,
+		OIDCIssuer:  cfg.OIDCIssuer,
+		OIDPSigner:  oidpSigner,
 		Log:         log,
 	})
 	if err != nil {
@@ -168,6 +179,46 @@ func run() error {
 	}
 	log.Info("router stopped cleanly")
 	return nil
+}
+
+func runOIDPRotateKey(ctx context.Context, cfg *config.RouterConfig, args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: router oidp rotate-key generate-next|promote <kid>|retire <kid>")
+	}
+	if cfg.MySQLDSN == "" {
+		return fmt.Errorf("config: MYSQL_DSN is required")
+	}
+	if cfg.OIDCKeyEncKey == "" {
+		return fmt.Errorf("config: OIDC_KEY_ENC_KEY is required")
+	}
+	db, err := dbconn.OpenMySQL(cfg.MySQLDSN)
+	if err != nil {
+		return fmt.Errorf("open mysql: %w", err)
+	}
+	defer db.Close()
+	repo := store.New(db).OAuthSigningKeys
+	now := time.Now().UnixMilli()
+	switch args[0] {
+	case "generate-next":
+		kid, err := oidp.GenerateNextKey(ctx, repo, cfg.OIDCKeyEncKey, now)
+		if err != nil {
+			return err
+		}
+		fmt.Println(kid)
+		return nil
+	case "promote":
+		if len(args) != 2 {
+			return fmt.Errorf("usage: router oidp rotate-key promote <kid>")
+		}
+		return oidp.PromoteNextKey(ctx, repo, args[1], now)
+	case "retire":
+		if len(args) != 2 {
+			return fmt.Errorf("usage: router oidp rotate-key retire <kid>")
+		}
+		return oidp.RetireKey(ctx, repo, args[1], now)
+	default:
+		return fmt.Errorf("usage: router oidp rotate-key generate-next|promote <kid>|retire <kid>")
+	}
 }
 
 // startControlBus subscribes to the ctrl:* revocation bus and evicts the api-key

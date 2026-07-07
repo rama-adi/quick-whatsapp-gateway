@@ -22,6 +22,7 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/http/middleware"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/httpx"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/oidp"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/stream"
 )
 
@@ -55,6 +56,8 @@ type Config struct {
 	Registry    *stream.ConnRegistry
 	RedisPrefix string
 	PublicURL   string
+	OIDCIssuer  string
+	OIDPSigner  *oidp.Signer
 
 	StaleAfter time.Duration     // optional; <=0 => defaultStaleAfter
 	Transport  http.RoundTripper // optional; nil => http.DefaultTransport
@@ -78,6 +81,8 @@ type Server struct {
 	registry    *stream.ConnRegistry
 	redisPrefix string
 	publicURL   string
+	oidcIssuer  string
+	oidpSigner  *oidp.Signer
 	wsOrigins   []string
 	staleAfter  time.Duration
 	transport   http.RoundTripper
@@ -116,6 +121,8 @@ func NewServer(cfg Config) (*Server, error) {
 		registry:    cfg.Registry,
 		redisPrefix: cfg.RedisPrefix,
 		publicURL:   cfg.PublicURL,
+		oidcIssuer:  strings.TrimRight(cfg.OIDCIssuer, "/"),
+		oidpSigner:  cfg.OIDPSigner,
 		wsOrigins:   cfg.CORSOrigins,
 		staleAfter:  cfg.StaleAfter,
 		transport:   cfg.Transport,
@@ -181,6 +188,11 @@ func (s *Server) Handler() http.Handler {
 	})
 	r.Get("/readyz", s.handleReadyz)
 	r.Get(JWKSPath, s.handleJWKS)
+	if s.oidpSigner != nil {
+		r.Get("/.well-known/openid-configuration", s.handleOIDCDiscovery)
+		r.Get("/.well-known/oauth-authorization-server", s.handleOIDCDiscovery)
+		r.Get("/.well-known/oauth-jwks.json", s.handleOIDCJWKS)
+	}
 
 	r.Route("/api/v1", func(api chi.Router) {
 		if s.openAPIPath != "" {
@@ -202,6 +214,42 @@ func (s *Server) Handler() http.Handler {
 		httpx.WriteError(w, domain.ErrNotFound("route not found"))
 	})
 	return r
+}
+
+func (s *Server) handleOIDCDiscovery(w http.ResponseWriter, _ *http.Request) {
+	issuer := s.oidcIssuer
+	if issuer == "" {
+		issuer = strings.TrimRight(s.publicURL, "/")
+	}
+	body := map[string]any{
+		"issuer":                                issuer,
+		"authorization_endpoint":                issuer + "/oauth/authorize",
+		"token_endpoint":                        issuer + "/oauth/token",
+		"userinfo_endpoint":                     issuer + "/oauth/userinfo",
+		"revocation_endpoint":                   issuer + "/oauth/revoke",
+		"jwks_uri":                              issuer + "/.well-known/oauth-jwks.json",
+		"response_types_supported":              []string{"code"},
+		"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
+		"code_challenge_methods_supported":      []string{"S256"},
+		"id_token_signing_alg_values_supported": []string{"EdDSA"},
+		"subject_types_supported":               []string{"pairwise"},
+		"acr_values_supported":                  []string{"wa:dm", "wa:group"},
+		"scopes_supported":                      []string{"openid", "profile", "phone", "wa:group", "offline_access"},
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	_ = json.NewEncoder(w).Encode(body)
+}
+
+func (s *Server) handleOIDCJWKS(w http.ResponseWriter, r *http.Request) {
+	jwks, err := s.oidpSigner.JWKS(r.Context())
+	if err != nil {
+		httpx.WriteError(w, domain.ErrInternal("oidc jwks unavailable"))
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	_, _ = w.Write(jwks)
 }
 
 // handleProxy classifies the request and brokers it to the right gateway:

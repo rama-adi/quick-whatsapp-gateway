@@ -39,6 +39,10 @@ type RouterConfig struct {
 	PubSubRedisURL string // PUBSUB_REDIS_URL: control bus; defaults to REDIS_URL
 	RedisPrefix    string // REDIS_PREFIX: isolates stacks (default "gw")
 
+	// OIDC provider.
+	OIDCIssuer    string // OIDC_ISSUER: defaults to ROUTER_PUBLIC_URL
+	OIDCKeyEncKey string // OIDC_KEY_ENC_KEY: base64/raw 32-byte AES-GCM key
+
 	// Observability
 	LogLevel string // LOG_LEVEL
 }
@@ -60,7 +64,12 @@ func LoadRouter() (*RouterConfig, error) {
 		RedisURL:          getString("REDIS_URL", ""),
 		PubSubRedisURL:    getString("PUBSUB_REDIS_URL", ""),
 		RedisPrefix:       getString("REDIS_PREFIX", "gw"),
+		OIDCIssuer:        getString("OIDC_ISSUER", ""),
+		OIDCKeyEncKey:     getString("OIDC_KEY_ENC_KEY", ""),
 		LogLevel:          getString("LOG_LEVEL", "info"),
+	}
+	if cfg.OIDCIssuer == "" {
+		cfg.OIDCIssuer = cfg.PublicURL
 	}
 
 	if cfg.BetterAuthJWKSURL == "" && cfg.BetterAuthURL != "" {
@@ -90,6 +99,15 @@ func (c *RouterConfig) Validate() error {
 	}
 	if c.BetterAuthURL == "" || c.BetterAuthJWKSURL == "" {
 		return fmt.Errorf("config: BETTER_AUTH_URL (and JWKS) are required for the router to authenticate callers")
+	}
+	if c.PublicURL == "" {
+		return fmt.Errorf("config: ROUTER_PUBLIC_URL is required")
+	}
+	if c.OIDCIssuer == "" {
+		return fmt.Errorf("config: OIDC_ISSUER or ROUTER_PUBLIC_URL is required")
+	}
+	if c.OIDCKeyEncKey == "" {
+		return fmt.Errorf("config: OIDC_KEY_ENC_KEY is required for OIDC signing keys")
 	}
 	switch strings.ToLower(c.LogLevel) {
 	case "debug", "info", "warn", "error":

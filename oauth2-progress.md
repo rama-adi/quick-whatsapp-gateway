@@ -10,8 +10,8 @@ orchestration + reviews = Fable.
 | # | Increment | Owner | Status | Notes |
 |---|---|---|---|---|
 | 0 | Design synthesis + spec (`docs/specs/oauth.md`) + this tracker | Fable | ✅ done | Opus + gpt-5.5 parallel designs, arbitrated (spec §12). |
-| 1 | Migration `0007_oidc_provider` + `internal/store/oauth.go` repos + `pnpm db:introspect` | B | ⬜ pending | Four tables: clients, grants, refresh tokens, signing keys. |
-| 2 | Signing keys + `oidp.Signer` + `rotate-key` subcommand + discovery + JWKS | B | ⬜ pending | Dedicated EdDSA keyset, AES-GCM at rest, one JWKS across replicas. |
+| 1 | Migration `0007_oidc_provider` + `internal/store/oauth.go` repos + `pnpm db:introspect` | B | ✅ done | Four tables, plain-SQL repos, store tests. `pnpm db:introspect` attempted; skipped because local MySQL was unreachable (`EPERM 127.0.0.1:3306`). |
+| 2 | Signing keys + `oidp.Signer` + `rotate-key` subcommand + discovery + JWKS | B | ✅ done | Dedicated EdDSA keyset, AES-GCM at rest, one JWKS across replicas; focused signer/router tests pass. |
 | 3 | Management CRUD (huma ops) + org isolation + secret hashing + `make gen` | B | ⬜ pending | `/api/v1/oauth-apps*`; secret shown once. |
 | 4 | Dashboard OAuth-apps UI | F | ⬜ pending | List / editor (consent-card preview, login-command field) / secret-once modal / grants tab / integration-guide tab. |
 | 5 | `/oauth/authorize` + pending model + NDJSON wait stream + cancel + consent page | B (endpoints) + F (page) | ⬜ pending | Two-code model; stream = Pump core + NDJSON Sink; page at `web/app/routes/login.whatsapp.tsx`. |
@@ -26,3 +26,11 @@ orchestration + reviews = Fable.
   Key arbitrations (spec §12): Redis Lua claim over reverse assertion; auth code minted at
   browser-driven finalize; pairwise subs; dedicated EdDSA signing keys; per-app `login_command`
   with unconditional command-namespace interception.
+- **2026-07-08** — Milestone 1 landed: added `0007_oidc_provider` with the four spec tables,
+  plain-SQL OAuth repos under `internal/store/oauth.go`, Store wiring, and repo tests. Drizzle
+  introspection was attempted but skipped because local MySQL was not reachable from this sandbox
+  (`connect EPERM 127.0.0.1:3306`).
+- **2026-07-08** — Milestone 2 landed in the working tree: added `internal/oidp.Signer`,
+  AES-GCM encrypted private JWK storage, EdDSA JWT signing, JWKS publication, router-local OIDC
+  discovery endpoints, `cmd/router oidp rotate-key`, and env docs. Focused tests verify signed
+  JWTs against the served JWKS and the rotation state machine's one-active-key invariant.
