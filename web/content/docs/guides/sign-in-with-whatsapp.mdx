@@ -1,0 +1,307 @@
+---
+title: Sign in with WhatsApp
+description: Add "Sign in with WhatsApp" to your app — a standard OAuth 2.1 / OIDC login where users prove control of their WhatsApp number.
+---
+
+**Sign in with WhatsApp** lets your users log in to your app by proving they
+control a WhatsApp number — no password page. Under the hood it is a completely
+standard **OAuth 2.1 / OpenID Connect** authorization-code flow with PKCE, so you
+integrate it with any off-the-shelf OIDC client library. This guide is for a
+developer adding the button to a third-party ("relying") app.
+
+## What your users see
+
+When a user clicks your **Sign in with WhatsApp** button, they land on a branded
+consent page that shows your app's name and a short instruction:
+
+- **DM mode** — "Send `login 483920` to +62 812-xxxx". The page offers a
+  `wa.me` deep link and a QR code that pre-fills the message. The user sends it
+  from their own WhatsApp, the bot replies to confirm, and the browser redirects
+  back to your app signed in.
+- **Group mode** — "Mention the bot with `login 483920` in *Acme Support*". The
+  user posts the code in a specific group, which additionally proves they are a
+  member of that group.
+
+The 6-digit code is short-lived (10 minutes) and single-use. That's the whole
+login: no password, no OTP typed into a form — the WhatsApp message *is* the
+consent.
+
+<Callout type="warn">
+**Honest security note.** This factor proves the user **controls a WhatsApp
+number** — it does not prove *intent*. A determined attacker can start a login,
+get the code, and socially engineer a victim into sending it (a code-relay
+attack). We mitigate this: the bot's confirmation names your app and offers a
+`STOP` reply to abort, the code expires fast, and both the page and the chat show
+the same app identity so a mismatch is visible. But we do **not** market this as
+phishing-proof MFA. For money movement or sensitive PII, treat it as one factor
+and layer a second (e.g. a device check or step-up). Requiring
+`acr=wa:group` (below) shrinks the attack surface to known group members.
+</Callout>
+
+## Prerequisites: create an OAuth app
+
+The person who owns the WhatsApp number (the gateway customer) creates the OAuth
+app in the dashboard — you, the relying-app developer, receive the resulting
+credentials. In the dashboard's **OAuth apps** section they:
+
+1. **Name the app** and optionally add a logo. Both appear on the consent page and
+   in the bot's confirmation message, so users recognise who they're signing in to.
+2. **Bind it to one WhatsApp session** — that number becomes the "bot" users
+   message.
+3. **Choose the verification mode(s):** DM, Group, or both. Group mode requires
+   picking a pinned group.
+4. **Set the login command** — the keyword users type before the code (default
+   `login`, e.g. `masuk`). Messages starting with this word on the bound session
+   are intercepted for login and never reach the customer's own webhooks.
+5. **Add your redirect URI(s)** — exact-match, `https` only (`http://localhost`
+   allowed for development), no URL fragments.
+6. **Pick the client type and scopes** (see [Scopes and claims](#scopes-and-claims)).
+
+On create they get a **`client_id`** and, for confidential clients, a
+**`client_secret`** shown **once** — copy it then; it can't be read again (they
+can rotate it later). Hand these to your app. The dashboard's **Integration** tab
+also generates a ready-to-run version of the example below, pre-filled with the
+app's `client_id` and redirect URI.
+
+## The endpoints (via discovery)
+
+We are a standard OIDC provider. Point your library at the discovery document and
+it learns every endpoint automatically:
+
+```
+GET https://<gateway>/.well-known/openid-configuration
+```
+
+That advertises the authorization, token, userinfo, and revocation endpoints, the
+JWKS URI, and our capabilities:
+
+| Capability | Value |
+|---|---|
+| `response_types_supported` | `["code"]` |
+| `grant_types_supported` | `["authorization_code", "refresh_token"]` |
+| `code_challenge_methods_supported` | `["S256"]` (PKCE mandatory) |
+| `id_token_signing_alg_values_supported` | `["EdDSA"]` |
+| `subject_types_supported` | `["pairwise"]` |
+| `acr_values_supported` | `["wa:dm", "wa:group"]` |
+| `scopes_supported` | `openid`, `profile`, `phone`, `wa:group`, `offline_access` |
+
+The signing keys are published at the JWKS URI so your library can verify
+`id_token`s and access tokens offline. Because everything is RFC-shaped
+(authorization code + PKCE S256, `pairwise` subjects, EdDSA JWTs), **any compliant
+OIDC library works** — there is nothing WhatsApp-specific to special-case except
+the optional `acr_values`.
+
+## Worked example (Node, `openid-client`)
+
+This is a complete end-to-end integration using the standard
+[`openid-client`](https://github.com/panva/node-openid-client) library — the same
+one the dashboard's Integration tab generates. It builds the authorize URL with
+PKCE, state, and nonce, handles the redirect back, exchanges the code, and reads
+the claims.
+
+```bash
+npm install openid-client express
+```
+
+```js
+import express from "express";
+import * as client from "openid-client";
+
+const ISSUER = "https://<gateway>";
+const CLIENT_ID = "<your client_id>";
+const redirect_uri = "https://your-app.example.com/callback";
+
+// 1. Discover the provider (endpoints, JWKS, supported features).
+const config = await client.discovery(
+  new URL(`${ISSUER}/.well-known/openid-configuration`),
+  CLIENT_ID,
+  {
+    // Confidential client — read the secret from an env var, never inline it:
+    client_secret: process.env.WA_CLIENT_SECRET,
+    // Public client instead? Drop client_secret and use:
+    // token_endpoint_auth_method: "none", // PKCE only
+  },
+);
+
+const app = express();
+
+// 2. Kick off login: PKCE + state + nonce, then redirect to WhatsApp sign-in.
+app.get("/login", async (req, res) => {
+  const code_verifier = client.randomPKCECodeVerifier();
+  const code_challenge = await client.calculatePKCECodeChallenge(code_verifier);
+  const state = client.randomState();
+  const nonce = client.randomNonce();
+  req.session = { code_verifier, state, nonce }; // persist for the callback
+
+  const url = client.buildAuthorizationUrl(config, {
+    redirect_uri,
+    scope: "openid profile phone offline_access",
+    code_challenge,
+    code_challenge_method: "S256",
+    state,
+    nonce,
+    // Optional. Omit to use the app's default mode. Force group verification with:
+    // acr_values: "wa:group",
+  });
+  res.redirect(url.href);
+});
+
+// 3. Handle the callback: exchange the code, verify the id_token, read claims.
+app.get("/callback", async (req, res) => {
+  const { code_verifier, state, nonce } = req.session;
+  const tokens = await client.authorizationCodeGrant(
+    config,
+    new URL(req.url, "https://your-app.example.com"),
+    {
+      pkceCodeVerifier: code_verifier,
+      expectedState: state,
+      expectedNonce: nonce,
+    },
+  );
+
+  // id_token signature, iss, aud, exp, and nonce are verified for you.
+  const claims = tokens.claims(); // sub, acr, amr, auth_time, ...
+  const userinfo = await client.fetchUserInfo(
+    config,
+    tokens.access_token,
+    claims.sub,
+  );
+
+  // Persist tokens.refresh_token (see "Refresh tokens" below) if you requested
+  // offline_access, then start your own app session for this user.
+  res.json({ claims, userinfo });
+});
+
+app.listen(3000, () =>
+  console.log("Sign in with WhatsApp: http://localhost:3000/login"),
+);
+```
+
+That's the whole flow: `/login` sends the user to the consent page; they send the
+WhatsApp message; the browser comes back to `/callback` with a code; you exchange
+it and get verified claims.
+
+### Choosing DM vs group per login
+
+If the OAuth app enables both modes, pick per request with `acr_values`:
+
+- `acr_values: "wa:dm"` — DM verification.
+- `acr_values: "wa:group"` — group verification (proves membership).
+- Omitted — defaults to DM if enabled, otherwise group.
+
+The `acr` actually satisfied is echoed in the `id_token`, so you can **require**
+`claims.acr === "wa:group"` before trusting group membership. Requesting a mode the
+app doesn't enable returns an `invalid_request` error.
+
+## Scopes and claims
+
+Request scopes space-separated in the `scope` parameter. Each scope unlocks a set
+of claims, available on the `id_token` and from `/userinfo`.
+
+| Scope | Claims granted |
+|---|---|
+| `openid` | `sub`, `acr`, `amr: ["whatsapp"]`, `auth_time` — always required |
+| `profile` | `name` (WhatsApp push/business name) |
+| `phone` | `phone_number` (E.164), `phone_number_verified: true`, `wa_jid` |
+| `wa:group` | `wa_group_verified`, `wa_group_id`, `wa_group_name` |
+| `offline_access` | issues a `refresh_token` |
+
+What the claims mean:
+
+- **`sub`** — the user's stable identifier for *your app*. It is **pairwise**: the
+  same WhatsApp user gets a different `sub` in every OAuth app, so apps can't
+  correlate users across each other. It survives the user renaming themselves on
+  WhatsApp. Use it as your primary key for the account.
+- **`name`** — resolved fresh at each login from WhatsApp, so a display-name change
+  is reflected next time.
+- **`phone_number` / `wa_jid`** — request `phone` only if you actually need the
+  number. It is the one correlatable identifier across apps, so request it
+  deliberately.
+- **`acr`** — `"wa:dm"` or `"wa:group"`, the verification actually performed.
+- **`amr`** — always `["whatsapp"]`.
+
+<Callout type="info">
+The `wa_group_*` claims appear **only when `acr` is `wa:group`** — that is, the
+user verified inside the pinned group. Requesting the `wa:group` scope on a DM
+login yields no group claims, because no membership was proven. Always check
+`acr === "wa:group"` before relying on `wa_group_verified`.
+</Callout>
+
+## Refresh tokens
+
+Request the `offline_access` scope to receive a `refresh_token`, which you exchange
+at the token endpoint for fresh access and id tokens without sending the user back
+through WhatsApp.
+
+**Rotation is mandatory.** Every refresh returns a *new* refresh token and
+invalidates the one you sent. So:
+
+1. Always persist the **newest** refresh token from each response, replacing the
+   previous one.
+2. Never use a refresh token twice.
+
+```js
+// Refresh later, storing the rotated token:
+const refreshed = await client.refreshTokenGrant(config, storedRefreshToken);
+storedRefreshToken = refreshed.refresh_token; // persist the new one immediately
+```
+
+<Callout type="warn">
+**Reuse kills the whole family.** If a consumed refresh token is presented again,
+we treat it as a stolen-token replay and revoke the entire chain of tokens derived
+from that grant. The legitimate user is then signed out and must log in again. This
+is why you must persist the rotated token atomically — a crash between "receive new
+token" and "save it" can leave you presenting a stale one. Access tokens are
+short-lived (15 minutes by default) and self-contained; there is no separate
+access-token store to keep in sync.
+</Callout>
+
+## Revoking access
+
+Two ways a grant ends:
+
+- **Your app revokes it** (RFC 7009). Post the refresh or access token to the
+  revocation endpoint (your library exposes this — e.g.
+  `client.tokenRevocation(config, token)`). Do this at your app's logout.
+- **The app owner revokes it** from the dashboard's **Grants** tab — per user or
+  all at once. This immediately kills the user's refresh tokens; their access token
+  then dies at its short TTL.
+
+Either way the user has to sign in through WhatsApp again to get a new grant.
+
+## Troubleshooting & FAQ
+
+**"The code expired."** Login codes live for 10 minutes and are single-use. If the
+user is slow, or reloads the consent page, start a fresh login from your `/login`
+route — you can't reuse an old code.
+
+**`invalid_request` / redirect mismatch.** Redirect URIs are matched **exactly** —
+the `redirect_uri` you send to `/authorize` must byte-for-byte equal one registered
+on the app (scheme, host, port, path, trailing slash all count; fragments are
+rejected). Register every URI you use, including your localhost dev URL.
+
+**`invalid_grant` at the token endpoint.** The authorization code is single-use and
+lives ~60 seconds. This error also means the `code_verifier` didn't match the
+`code_challenge` (a PKCE mismatch — usually a lost or wrong `code_verifier` in
+session), or the code was already redeemed. Re-run the flow from `/login`.
+
+**`invalid_grant` when refreshing.** The refresh token was already used (rotation),
+was revoked, or you presented one from a family we killed after a reuse. Persist
+the *newest* token after every refresh; if you hit this, send the user back through
+login.
+
+**User removed from the group.** Group-mode logins require the message to arrive in
+the pinned group with the bot mentioned, and we cross-check membership. A user who
+has left the group can't complete a `wa:group` login — they need to be re-added, or
+use DM mode if the app enables it. Existing sessions aren't torn down mid-life, but
+the next `acr=wa:group` login will fail.
+
+**The bot never confirms / no reply in WhatsApp.** Check the code and command match
+exactly (`login 483920`, case-insensitive, the app's configured command word). Wrong
+or expired codes are silently dropped after a few attempts to avoid acting as a
+brute-force oracle — so no reply can also mean the per-sender attempt limit was hit.
+Wait and start a fresh login.
+
+**"This isn't me."** If a user sees a login they didn't start, the consent page has
+a cancel action and the bot accepts a `STOP` reply — both abort the flow. That's the
+built-in defence against the code-relay attack described at the top.
