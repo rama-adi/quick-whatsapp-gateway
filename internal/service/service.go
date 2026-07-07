@@ -22,10 +22,12 @@ import (
 // concrete types are constructed in cmd/server and handed in; the service
 // package never opens a DB, a Redis client, or a whatsmeow client itself.
 type Deps struct {
-	Store   *store.Store
-	Manager *wa.Manager
-	Sender  *outbound.Sender
-	Crypto  *crypto.AESGCM
+	Store                      *store.Store
+	Manager                    *wa.Manager
+	Sender                     *outbound.Sender
+	Crypto                     *crypto.AESGCM
+	OAuthClientSecretPepper    string
+	WhatsAppAdminCommandPrefix string
 
 	// DefaultRetryDelay / DefaultRetryAttempts seed a webhook's retry policy when
 	// the caller does not specify one (WEBHOOK_RETRIES_* config defaults).
@@ -38,18 +40,19 @@ type Deps struct {
 // Services is the aggregate of every business service, wired from Deps. The
 // router holds one of these and reads the field it needs per handler.
 type Services struct {
-	Sessions *SessionService
-	Messages *MessageService
-	Webhooks *WebhookService
-	Chats    *ChatService
-	Contacts *ContactService
-	Groups   *GroupService
-	Channels *ChannelService
-	Status   *StatusService
-	Presence *PresenceService
-	Admin    *AdminService
-	Events   *EventsService
-	Backup   *BackupImportService
+	Sessions  *SessionService
+	Messages  *MessageService
+	Webhooks  *WebhookService
+	Chats     *ChatService
+	Contacts  *ContactService
+	Groups    *GroupService
+	Channels  *ChannelService
+	Status    *StatusService
+	Presence  *PresenceService
+	Admin     *AdminService
+	Events    *EventsService
+	Backup    *BackupImportService
+	OAuthApps *OAuthAppService
 }
 
 // New builds every service from the shared Deps. It is the single wiring point
@@ -67,18 +70,19 @@ func New(d Deps) *Services {
 		live = d.Manager.LiveOps()
 	}
 	return &Services{
-		Sessions: NewSessionService(d.Store.Sessions, d.Manager, d.Log),
-		Messages: NewMessageService(d.Store.Sessions, d.Sender, d.Log),
-		Webhooks: NewWebhookService(d.Store.Webhooks, d.Crypto, d.DefaultRetryDelay, d.DefaultRetryAttempts, d.Log),
-		Chats:    NewChatService(d.Store, liveOrNilPresence(live), d.Log),
-		Contacts: NewContactService(d.Store, liveOrNilDirectory(live), d.Log),
-		Groups:   NewGroupService(d.Store, liveOrNilGroupOps(live), d.Log),
-		Channels: NewChannelService(d.Store, liveOrNilChannelOps(live), d.Log),
-		Status:   NewStatusService(d.Store, liveOrNilStatusPoster(live), d.Log),
-		Presence: NewPresenceService(d.Store, liveOrNilPresence(live), d.Log),
-		Admin:    NewAdminService(d.Store, liveOrNilBackfill(live), d.Log),
-		Events:   NewEventsService(d.Store.EventLog, d.Log),
-		Backup:   NewBackupImportService(d.Store, d.Log),
+		Sessions:  NewSessionService(d.Store.Sessions, d.Manager, d.Log),
+		Messages:  NewMessageService(d.Store.Sessions, d.Sender, d.Log),
+		Webhooks:  NewWebhookService(d.Store.Webhooks, d.Crypto, d.DefaultRetryDelay, d.DefaultRetryAttempts, d.Log),
+		Chats:     NewChatService(d.Store, liveOrNilPresence(live), d.Log),
+		Contacts:  NewContactService(d.Store, liveOrNilDirectory(live), d.Log),
+		Groups:    NewGroupService(d.Store, liveOrNilGroupOps(live), d.Log),
+		Channels:  NewChannelService(d.Store, liveOrNilChannelOps(live), d.Log),
+		Status:    NewStatusService(d.Store, liveOrNilStatusPoster(live), d.Log),
+		Presence:  NewPresenceService(d.Store, liveOrNilPresence(live), d.Log),
+		Admin:     NewAdminService(d.Store, liveOrNilBackfill(live), d.Log),
+		Events:    NewEventsService(d.Store.EventLog, d.Log),
+		Backup:    NewBackupImportService(d.Store, d.Log),
+		OAuthApps: NewOAuthAppService(d.Store, d.OAuthClientSecretPepper, d.WhatsAppAdminCommandPrefix),
 	}
 }
 

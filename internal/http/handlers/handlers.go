@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/apitypes"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/service"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
@@ -129,6 +130,18 @@ type PresenceSvc interface {
 	Set(ctx context.Context, organizationID, sessionID, state string) error
 }
 
+type OAuthAppSvc interface {
+	List(ctx context.Context, organizationID string, isSuperAdmin bool, cursor string, limit int) (store.Page[apitypes.OAuthApp], error)
+	Create(ctx context.Context, organizationID string, in service.OAuthAppCreateInput) (apitypes.OAuthAppWithSecret, error)
+	Get(ctx context.Context, organizationID, id string, isSuperAdmin bool) (apitypes.OAuthApp, error)
+	Update(ctx context.Context, organizationID, id string, isSuperAdmin bool, in service.OAuthAppUpdateInput) (apitypes.OAuthApp, error)
+	RotateSecret(ctx context.Context, organizationID, id string, isSuperAdmin bool) (apitypes.OAuthAppWithSecret, error)
+	Delete(ctx context.Context, organizationID, id string, isSuperAdmin bool) error
+	SetEnabled(ctx context.Context, organizationID, id string, isSuperAdmin bool, enabled bool) (apitypes.OAuthApp, error)
+	ListGrants(ctx context.Context, organizationID, appID string, isSuperAdmin bool, cursor string, limit int) (store.Page[apitypes.OAuthGrant], error)
+	RevokeGrant(ctx context.Context, organizationID, appID, grantID string, isSuperAdmin bool) error
+}
+
 // Compile-time proof that the concrete services satisfy the handler interfaces.
 var (
 	_ SessionSvc  = (*service.SessionService)(nil)
@@ -142,23 +155,25 @@ var (
 	_ ChannelSvc  = (*service.ChannelService)(nil)
 	_ StatusSvc   = (*service.StatusService)(nil)
 	_ PresenceSvc = (*service.PresenceService)(nil)
+	_ OAuthAppSvc = (*service.OAuthAppService)(nil)
 )
 
 // Handlers bundles the service dependencies and exposes one http.HandlerFunc
 // method per §11 endpoint. Realtime is no longer served here — the router owns
 // the WebSocket transport; the gateway only publishes events to Redis.
 type Handlers struct {
-	Sessions SessionSvc
-	Messages MessageSvc
-	Webhooks WebhookSvc
-	Admin    AdminSvc
-	Backup   BackupSvc
-	Chats    ChatSvc
-	Contacts ContactSvc
-	Groups   GroupSvc
-	Channels ChannelSvc
-	Status   StatusSvc
-	Presence PresenceSvc
+	Sessions  SessionSvc
+	Messages  MessageSvc
+	Webhooks  WebhookSvc
+	Admin     AdminSvc
+	Backup    BackupSvc
+	Chats     ChatSvc
+	Contacts  ContactSvc
+	Groups    GroupSvc
+	Channels  ChannelSvc
+	Status    StatusSvc
+	Presence  PresenceSvc
+	OAuthApps OAuthAppSvc
 
 	Log *slog.Logger
 }
@@ -170,18 +185,19 @@ func New(s *service.Services, log *slog.Logger) *Handlers {
 		log = slog.Default()
 	}
 	return &Handlers{
-		Sessions: s.Sessions,
-		Messages: s.Messages,
-		Webhooks: s.Webhooks,
-		Admin:    s.Admin,
-		Backup:   s.Backup,
-		Chats:    s.Chats,
-		Contacts: s.Contacts,
-		Groups:   s.Groups,
-		Channels: s.Channels,
-		Status:   s.Status,
-		Presence: s.Presence,
-		Log:      log,
+		Sessions:  s.Sessions,
+		Messages:  s.Messages,
+		Webhooks:  s.Webhooks,
+		Admin:     s.Admin,
+		Backup:    s.Backup,
+		Chats:     s.Chats,
+		Contacts:  s.Contacts,
+		Groups:    s.Groups,
+		Channels:  s.Channels,
+		Status:    s.Status,
+		Presence:  s.Presence,
+		OAuthApps: s.OAuthApps,
+		Log:       log,
 	}
 }
 

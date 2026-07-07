@@ -20,8 +20,10 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/assertion"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/authz"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	handlersapi "github.com/ramaadi/quick-whatsapp-gateway/internal/http/handlers"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/http/middleware"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/httpx"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/humax"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/oidp"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/stream"
 )
@@ -51,13 +53,14 @@ type Config struct {
 	// Realtime (Increment B). When Redis + Pump are present the router serves the
 	// single WebSocket endpoint + ticket mint; Registry lets the control bus drop
 	// live connections on revocation. PublicURL builds the wss:// ticket URL.
-	Redis       realtimeRedis
-	Pump        *stream.Pump
-	Registry    *stream.ConnRegistry
-	RedisPrefix string
-	PublicURL   string
-	OIDCIssuer  string
-	OIDPSigner  *oidp.Signer
+	Redis         realtimeRedis
+	Pump          *stream.Pump
+	Registry      *stream.ConnRegistry
+	RedisPrefix   string
+	PublicURL     string
+	OIDCIssuer    string
+	OIDPSigner    *oidp.Signer
+	OAuthHandlers *handlersapi.Handlers
 
 	StaleAfter time.Duration     // optional; <=0 => defaultStaleAfter
 	Transport  http.RoundTripper // optional; nil => http.DefaultTransport
@@ -67,27 +70,28 @@ type Config struct {
 
 // Server is the router's composed HTTP application.
 type Server struct {
-	sessions    SessionResolver
-	gateways    GatewayResolver
-	minter      *assertion.Minter
-	tokens      authz.TokenVerifier
-	keys        authz.KeyVerifier
-	corsOrigins []string
-	readiness   func() error
-	openAPIPath string
-	jwksJSON    []byte
-	redis       realtimeRedis
-	pump        *stream.Pump
-	registry    *stream.ConnRegistry
-	redisPrefix string
-	publicURL   string
-	oidcIssuer  string
-	oidpSigner  *oidp.Signer
-	wsOrigins   []string
-	staleAfter  time.Duration
-	transport   http.RoundTripper
-	now         func() time.Time
-	log         *slog.Logger
+	sessions      SessionResolver
+	gateways      GatewayResolver
+	minter        *assertion.Minter
+	tokens        authz.TokenVerifier
+	keys          authz.KeyVerifier
+	corsOrigins   []string
+	readiness     func() error
+	openAPIPath   string
+	jwksJSON      []byte
+	redis         realtimeRedis
+	pump          *stream.Pump
+	registry      *stream.ConnRegistry
+	redisPrefix   string
+	publicURL     string
+	oidcIssuer    string
+	oidpSigner    *oidp.Signer
+	oauthHandlers *handlersapi.Handlers
+	wsOrigins     []string
+	staleAfter    time.Duration
+	transport     http.RoundTripper
+	now           func() time.Time
+	log           *slog.Logger
 }
 
 // NewServer builds a router Server, precomputing the published JWKS.
@@ -107,27 +111,28 @@ func NewServer(cfg Config) (*Server, error) {
 		return nil, err
 	}
 	s := &Server{
-		sessions:    cfg.Sessions,
-		gateways:    cfg.Gateways,
-		minter:      cfg.Minter,
-		tokens:      cfg.Tokens,
-		keys:        cfg.Keys,
-		corsOrigins: cfg.CORSOrigins,
-		readiness:   cfg.Readiness,
-		openAPIPath: cfg.OpenAPIPath,
-		jwksJSON:    jwksJSON,
-		redis:       cfg.Redis,
-		pump:        cfg.Pump,
-		registry:    cfg.Registry,
-		redisPrefix: cfg.RedisPrefix,
-		publicURL:   cfg.PublicURL,
-		oidcIssuer:  strings.TrimRight(cfg.OIDCIssuer, "/"),
-		oidpSigner:  cfg.OIDPSigner,
-		wsOrigins:   cfg.CORSOrigins,
-		staleAfter:  cfg.StaleAfter,
-		transport:   cfg.Transport,
-		now:         cfg.Now,
-		log:         cfg.Log,
+		sessions:      cfg.Sessions,
+		gateways:      cfg.Gateways,
+		minter:        cfg.Minter,
+		tokens:        cfg.Tokens,
+		keys:          cfg.Keys,
+		corsOrigins:   cfg.CORSOrigins,
+		readiness:     cfg.Readiness,
+		openAPIPath:   cfg.OpenAPIPath,
+		jwksJSON:      jwksJSON,
+		redis:         cfg.Redis,
+		pump:          cfg.Pump,
+		registry:      cfg.Registry,
+		redisPrefix:   cfg.RedisPrefix,
+		publicURL:     cfg.PublicURL,
+		oidcIssuer:    strings.TrimRight(cfg.OIDCIssuer, "/"),
+		oidpSigner:    cfg.OIDPSigner,
+		oauthHandlers: cfg.OAuthHandlers,
+		wsOrigins:     cfg.CORSOrigins,
+		staleAfter:    cfg.StaleAfter,
+		transport:     cfg.Transport,
+		now:           cfg.Now,
+		log:           cfg.Log,
 	}
 	if s.staleAfter <= 0 {
 		s.staleAfter = defaultStaleAfter
@@ -188,6 +193,13 @@ func (s *Server) Handler() http.Handler {
 	})
 	r.Get("/readyz", s.handleReadyz)
 	r.Get(JWKSPath, s.handleJWKS)
+	if s.oauthHandlers != nil {
+		r.Group(func(authed chi.Router) {
+			authed.Use(authz.Authenticate(s.tokens, s.keys))
+			hapi := humax.NewAPI(authed)
+			handlersapi.RegisterOAuthAppOps(hapi, s.oauthHandlers)
+		})
+	}
 	if s.oidpSigner != nil {
 		r.Get("/.well-known/openid-configuration", s.handleOIDCDiscovery)
 		r.Get("/.well-known/oauth-authorization-server", s.handleOIDCDiscovery)

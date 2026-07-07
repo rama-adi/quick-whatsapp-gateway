@@ -260,13 +260,15 @@ func run() error {
 
 	// --- Services + handlers + router ---
 	services := service.New(service.Deps{
-		Store:                st,
-		Manager:              manager,
-		Sender:               sender,
-		Crypto:               aes,
-		DefaultRetryDelay:    cfg.WebhookRetryDelay,
-		DefaultRetryAttempts: cfg.WebhookRetryAttempts,
-		Log:                  log,
+		Store:                      st,
+		Manager:                    manager,
+		Sender:                     sender,
+		Crypto:                     aes,
+		OAuthClientSecretPepper:    os.Getenv("OAUTH_CLIENT_SECRET_PEPPER"),
+		WhatsAppAdminCommandPrefix: cfg.WhatsAppAdminCmdPrefix,
+		DefaultRetryDelay:          cfg.WebhookRetryDelay,
+		DefaultRetryAttempts:       cfg.WebhookRetryAttempts,
+		Log:                        log,
 	})
 
 	// Realtime is WebSocket-only and lives on the central router, which owns the

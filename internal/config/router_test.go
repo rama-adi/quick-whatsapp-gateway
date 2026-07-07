@@ -11,7 +11,8 @@ func TestLoadRouter_DefaultsAndValidate(t *testing.T) {
 		"ROUTER_HTTP_ADDR", "ROUTER_PUBLIC_URL", "ROUTER_ISSUER",
 		"ROUTER_ED25519_PRIVATE_KEY", "BETTER_AUTH_URL", "BETTER_AUTH_JWKS_URL",
 		"FRONTEND_ORIGINS", "MYSQL_DSN", "REDIS_URL", "PUBSUB_REDIS_URL",
-		"REDIS_PREFIX", "OIDC_ISSUER", "OIDC_KEY_ENC_KEY", "LOG_LEVEL",
+		"REDIS_PREFIX", "OIDC_ISSUER", "OIDC_KEY_ENC_KEY", "OAUTH_CLIENT_SECRET_PEPPER",
+		"WHATSAPP_ADMIN_CMD_PREFIX", "LOG_LEVEL",
 	}
 	for _, k := range keys {
 		t.Setenv(k, "")
@@ -42,6 +43,7 @@ func TestLoadRouter_DefaultsAndValidate(t *testing.T) {
 	cfg.PublicURL = "https://router.example.com"
 	cfg.OIDCIssuer = cfg.PublicURL
 	cfg.OIDCKeyEncKey = base64.StdEncoding.EncodeToString([]byte("12345678901234567890123456789012"))
+	cfg.OAuthClientSecretPepper = "test-pepper"
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate on complete config: %v", err)
 	}

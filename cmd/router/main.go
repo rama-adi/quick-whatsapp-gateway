@@ -26,8 +26,10 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/controlbus"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/dbconn"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/http/handlers"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/oidp"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/router"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/service"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/stream"
 )
@@ -101,6 +103,13 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("build oidc signer: %w", err)
 	}
+	services := service.New(service.Deps{
+		Store:                      st,
+		OAuthClientSecretPepper:    cfg.OAuthClientSecretPepper,
+		WhatsAppAdminCommandPrefix: cfg.WhatsAppAdminCmdPrefix,
+		Log:                        log,
+	})
+	apiHandlers := handlers.New(services, log)
 
 	// --- Realtime (Increment B): the router is the single client-facing realtime
 	// endpoint. It subscribes to the shared Redis evt:* fan-out (the gateways keep
@@ -130,22 +139,23 @@ func run() error {
 	defer controlStop()
 
 	srv, err := router.NewServer(router.Config{
-		Sessions:    st.Sessions,
-		Gateways:    st.Gateways,
-		Minter:      minter,
-		Tokens:      tokenVerifier,
-		Keys:        keyVerifier,
-		CORSOrigins: cfg.FrontendOrigins,
-		Readiness:   readiness(db, rdb),
-		OpenAPIPath: "docs/openapi.yaml",
-		Redis:       rdb,
-		Pump:        pump,
-		Registry:    registry,
-		RedisPrefix: cfg.RedisPrefix,
-		PublicURL:   cfg.PublicURL,
-		OIDCIssuer:  cfg.OIDCIssuer,
-		OIDPSigner:  oidpSigner,
-		Log:         log,
+		Sessions:      st.Sessions,
+		Gateways:      st.Gateways,
+		Minter:        minter,
+		Tokens:        tokenVerifier,
+		Keys:          keyVerifier,
+		CORSOrigins:   cfg.FrontendOrigins,
+		Readiness:     readiness(db, rdb),
+		OpenAPIPath:   "docs/openapi.yaml",
+		Redis:         rdb,
+		Pump:          pump,
+		Registry:      registry,
+		RedisPrefix:   cfg.RedisPrefix,
+		PublicURL:     cfg.PublicURL,
+		OIDCIssuer:    cfg.OIDCIssuer,
+		OIDPSigner:    oidpSigner,
+		OAuthHandlers: apiHandlers,
+		Log:           log,
 	})
 	if err != nil {
 		return fmt.Errorf("build router: %w", err)

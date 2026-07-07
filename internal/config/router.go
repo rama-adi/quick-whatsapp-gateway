@@ -40,8 +40,10 @@ type RouterConfig struct {
 	RedisPrefix    string // REDIS_PREFIX: isolates stacks (default "gw")
 
 	// OIDC provider.
-	OIDCIssuer    string // OIDC_ISSUER: defaults to ROUTER_PUBLIC_URL
-	OIDCKeyEncKey string // OIDC_KEY_ENC_KEY: base64/raw 32-byte AES-GCM key
+	OIDCIssuer              string // OIDC_ISSUER: defaults to ROUTER_PUBLIC_URL
+	OIDCKeyEncKey           string // OIDC_KEY_ENC_KEY: base64/raw 32-byte AES-GCM key
+	OAuthClientSecretPepper string // OAUTH_CLIENT_SECRET_PEPPER: pepper for SHA-256(client_secret+pepper)
+	WhatsAppAdminCmdPrefix  string // WHATSAPP_ADMIN_CMD_PREFIX: reserved command namespace prefix
 
 	// Observability
 	LogLevel string // LOG_LEVEL
@@ -53,20 +55,22 @@ func LoadRouter() (*RouterConfig, error) {
 	_ = godotenv.Load("deploy/.env", ".env")
 
 	cfg := &RouterConfig{
-		HTTPAddr:          getString("ROUTER_HTTP_ADDR", ":8090"),
-		PublicURL:         getString("ROUTER_PUBLIC_URL", ""),
-		BetterAuthURL:     getString("BETTER_AUTH_URL", ""),
-		BetterAuthJWKSURL: getString("BETTER_AUTH_JWKS_URL", ""),
-		FrontendOrigins:   getCSV("FRONTEND_ORIGINS"),
-		Ed25519PrivateKey: getString("ROUTER_ED25519_PRIVATE_KEY", ""),
-		Issuer:            getString("ROUTER_ISSUER", DefaultRouterIssuer),
-		MySQLDSN:          getString("MYSQL_DSN", ""),
-		RedisURL:          getString("REDIS_URL", ""),
-		PubSubRedisURL:    getString("PUBSUB_REDIS_URL", ""),
-		RedisPrefix:       getString("REDIS_PREFIX", "gw"),
-		OIDCIssuer:        getString("OIDC_ISSUER", ""),
-		OIDCKeyEncKey:     getString("OIDC_KEY_ENC_KEY", ""),
-		LogLevel:          getString("LOG_LEVEL", "info"),
+		HTTPAddr:                getString("ROUTER_HTTP_ADDR", ":8090"),
+		PublicURL:               getString("ROUTER_PUBLIC_URL", ""),
+		BetterAuthURL:           getString("BETTER_AUTH_URL", ""),
+		BetterAuthJWKSURL:       getString("BETTER_AUTH_JWKS_URL", ""),
+		FrontendOrigins:         getCSV("FRONTEND_ORIGINS"),
+		Ed25519PrivateKey:       getString("ROUTER_ED25519_PRIVATE_KEY", ""),
+		Issuer:                  getString("ROUTER_ISSUER", DefaultRouterIssuer),
+		MySQLDSN:                getString("MYSQL_DSN", ""),
+		RedisURL:                getString("REDIS_URL", ""),
+		PubSubRedisURL:          getString("PUBSUB_REDIS_URL", ""),
+		RedisPrefix:             getString("REDIS_PREFIX", "gw"),
+		OIDCIssuer:              getString("OIDC_ISSUER", ""),
+		OIDCKeyEncKey:           getString("OIDC_KEY_ENC_KEY", ""),
+		OAuthClientSecretPepper: getString("OAUTH_CLIENT_SECRET_PEPPER", ""),
+		WhatsAppAdminCmdPrefix:  getString("WHATSAPP_ADMIN_CMD_PREFIX", "am"),
+		LogLevel:                getString("LOG_LEVEL", "info"),
 	}
 	if cfg.OIDCIssuer == "" {
 		cfg.OIDCIssuer = cfg.PublicURL
@@ -108,6 +112,9 @@ func (c *RouterConfig) Validate() error {
 	}
 	if c.OIDCKeyEncKey == "" {
 		return fmt.Errorf("config: OIDC_KEY_ENC_KEY is required for OIDC signing keys")
+	}
+	if c.OAuthClientSecretPepper == "" {
+		return fmt.Errorf("config: OAUTH_CLIENT_SECRET_PEPPER is required for OAuth client secret hashing")
 	}
 	switch strings.ToLower(c.LogLevel) {
 	case "debug", "info", "warn", "error":

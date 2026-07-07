@@ -12,7 +12,7 @@ orchestration + reviews = Fable.
 | 0 | Design synthesis + spec (`docs/specs/oauth.md`) + this tracker | Fable | ✅ done | Opus + gpt-5.5 parallel designs, arbitrated (spec §12). |
 | 1 | Migration `0007_oidc_provider` + `internal/store/oauth.go` repos + `pnpm db:introspect` | B | ✅ done | Four tables, plain-SQL repos, store tests. `pnpm db:introspect` attempted; skipped because local MySQL was unreachable (`EPERM 127.0.0.1:3306`). |
 | 2 | Signing keys + `oidp.Signer` + `rotate-key` subcommand + discovery + JWKS | B | ✅ done | Dedicated EdDSA keyset, AES-GCM at rest, one JWKS across replicas; focused signer/router tests pass. |
-| 3 | Management CRUD (huma ops) + org isolation + secret hashing + `make gen` | B | ⬜ pending | `/api/v1/oauth-apps*`; secret shown once. |
+| 3 | Management CRUD (huma ops) + org isolation + secret hashing + `make gen` | B | ✅ done | Router-local `/api/v1/oauth-apps*`; secret shown once. `pnpm docs:openapi` blocked by local Node lacking `--experimental-strip-types`. |
 | 4 | Dashboard OAuth-apps UI | F | ⬜ pending | List / editor (consent-card preview, login-command field) / secret-once modal / grants tab / integration-guide tab. |
 | 5 | `/oauth/authorize` + pending model + NDJSON wait stream + cancel + consent page | B (endpoints) + F (page) | ⬜ pending | Two-code model; stream = Pump core + NDJSON Sink; page at `web/app/routes/login.whatsapp.tsx`. |
 | 6 | Inbound `LoginInterceptor` + Redis Lua claim + publish + bot reactions + STOP | B | ⬜ pending | Per-app `login_command`; unconditional interception; `-race` tests on claim. |
@@ -34,3 +34,9 @@ orchestration + reviews = Fable.
   AES-GCM encrypted private JWK storage, EdDSA JWT signing, JWKS publication, router-local OIDC
   discovery endpoints, `cmd/router oidp rotate-key`, and env docs. Focused tests verify signed
   JWTs against the served JWKS and the rotation state machine's one-active-key invariant.
+- **2026-07-08** — Milestone 3 landed in the working tree: added router-local, org-scoped
+  OAuth app management CRUD under `/api/v1/oauth-apps*`, including redirect URI and
+  `login_command` validation, session ownership checks, one-time confidential client secrets
+  hashed with `OAUTH_CLIENT_SECRET_PEPPER`, enable/disable, secret rotation, grant listing, and
+  grant/token revocation cascades. `make openapi` and `pnpm gen:api` completed; `pnpm
+  docs:openapi` was skipped because this sandbox's Node rejected `--experimental-strip-types`.
