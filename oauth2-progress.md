@@ -14,7 +14,7 @@ orchestration + reviews = Fable.
 | 2 | Signing keys + `oidp.Signer` + `rotate-key` subcommand + discovery + JWKS | B | ✅ done | Dedicated EdDSA keyset, AES-GCM at rest, one JWKS across replicas; focused signer/router tests pass. |
 | 3 | Management CRUD (huma ops) + org isolation + secret hashing + `make gen` | B | ✅ done | Router-local `/api/v1/oauth-apps*`; secret shown once. `pnpm docs:openapi` blocked by local Node lacking `--experimental-strip-types`. |
 | 4 | Dashboard OAuth-apps UI | F | ⬜ pending | List / editor (consent-card preview, login-command field) / secret-once modal / grants tab / integration-guide tab. |
-| 5 | `/oauth/authorize` + pending model + NDJSON wait stream + cancel + consent page | B (endpoints) + F (page) | 🔶 F done, B pending | Consent page merged (`web/app/routes/login.whatsapp.tsx` + `-oauth/` modules, 22 tests); wire contract pinned in spec §4.2 — backend must honor it (`expires_at` epoch **ms**, `target` shape, finalize → `{redirect}`). |
+| 5 | `/oauth/authorize` + pending model + NDJSON wait stream + cancel + consent page | B (endpoints) + F (page) | ✅ done | Consent page merged (22 tests) + router endpoints (`internal/oidp/provider.go`, `pending.go`): authorize validation matrix, two-code mint, NDJSON stream matching the pinned §4.2 contract frame-for-frame, cancel, mint rate limit. Live end-to-end visual pass deferred to M6/M7 integration. |
 | 6 | Inbound `LoginInterceptor` + Redis Lua claim + publish + bot reactions + STOP | B | ⬜ pending | Per-app `login_command`; unconditional interception; `-race` tests on claim. |
 | 7 | Finalize + `/oauth/token` (PKCE, refresh rotation + reuse-kill) + userinfo + revoke | B | ⬜ pending | Verified end-to-end with an off-the-shelf OIDC client. |
 | 8 | Grants dashboard + revocation cascades + `ctrl:oidp.*` propagation | F (UI) + B (cascades) | ⬜ pending | |
@@ -48,3 +48,9 @@ orchestration + reviews = Fable.
   Known gap: `.claude/launch.json` preview resolves against the main checkout, so worktree
   branches can't be preview-verified; consent card verified via unit tests + route smoke only —
   full visual pass due in milestone 5-B integration.
+- **2026-07-08** — Milestone 5-B landed: `/oauth/authorize` (full validation matrix, two-code
+  mint with pattern rejection + per-session mint rate limit), Redis pending store + reverse
+  index + pub/sub helpers, `GET /oauth/wait/{code}/stream` (NDJSON, snapshot frame asserted
+  key-for-key against the consent page's `protocol.ts`), `/cancel`, config for `WEB_LOGIN_URL`
+  + OIDC TTLs. Lua claim primitive scaffolded with the M6 signature (wrong-attempt accounting
+  deliberately deferred to M6).

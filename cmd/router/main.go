@@ -127,6 +127,18 @@ func run() error {
 			Log:       log,
 		})
 	}
+	var oidpProvider *oidp.Provider
+	if rdb != nil {
+		requestTTL := time.Duration(cfg.OIDCRequestTTLSeconds) * time.Second
+		oidpProvider = oidp.NewProvider(oidp.ProviderConfig{
+			Clients:     st.OAuthClients,
+			Sessions:    st.Sessions,
+			Groups:      st.Groups,
+			Pending:     oidp.NewPendingStore(rdb, cfg.RedisPrefix, requestTTL),
+			WebLoginURL: cfg.WebLoginURL,
+			RequestTTL:  requestTTL,
+		})
+	}
 
 	// --- Control bus subscriber (§4.6): the router owns the api-key cache and the
 	// live-connection registry, so it subscribes to ctrl:* and evicts the cache +
@@ -154,6 +166,7 @@ func run() error {
 		PublicURL:     cfg.PublicURL,
 		OIDCIssuer:    cfg.OIDCIssuer,
 		OIDPSigner:    oidpSigner,
+		OIDPProvider:  oidpProvider,
 		OAuthHandlers: apiHandlers,
 		Log:           log,
 	})

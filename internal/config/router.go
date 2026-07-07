@@ -44,6 +44,9 @@ type RouterConfig struct {
 	OIDCKeyEncKey           string // OIDC_KEY_ENC_KEY: base64/raw 32-byte AES-GCM key
 	OAuthClientSecretPepper string // OAUTH_CLIENT_SECRET_PEPPER: pepper for SHA-256(client_secret+pepper)
 	WhatsAppAdminCmdPrefix  string // WHATSAPP_ADMIN_CMD_PREFIX: reserved command namespace prefix
+	WebLoginURL             string // WEB_LOGIN_URL: public consent page URL
+	OIDCRequestTTLSeconds   int    // OIDC_REQUEST_TTL_SECONDS
+	OIDCAuthCodeTTLSeconds  int    // OIDC_AUTHCODE_TTL_SECONDS
 
 	// Observability
 	LogLevel string // LOG_LEVEL
@@ -70,6 +73,9 @@ func LoadRouter() (*RouterConfig, error) {
 		OIDCKeyEncKey:           getString("OIDC_KEY_ENC_KEY", ""),
 		OAuthClientSecretPepper: getString("OAUTH_CLIENT_SECRET_PEPPER", ""),
 		WhatsAppAdminCmdPrefix:  getString("WHATSAPP_ADMIN_CMD_PREFIX", "am"),
+		WebLoginURL:             getString("WEB_LOGIN_URL", ""),
+		OIDCRequestTTLSeconds:   getInt("OIDC_REQUEST_TTL_SECONDS", 600),
+		OIDCAuthCodeTTLSeconds:  getInt("OIDC_AUTHCODE_TTL_SECONDS", 60),
 		LogLevel:                getString("LOG_LEVEL", "info"),
 	}
 	if cfg.OIDCIssuer == "" {
@@ -81,6 +87,9 @@ func LoadRouter() (*RouterConfig, error) {
 	}
 	if cfg.PubSubRedisURL == "" {
 		cfg.PubSubRedisURL = cfg.RedisURL
+	}
+	if cfg.WebLoginURL == "" {
+		cfg.WebLoginURL = strings.TrimRight(getString("WEB_URL", ""), "/") + "/login/whatsapp"
 	}
 	return cfg, nil
 }
@@ -115,6 +124,12 @@ func (c *RouterConfig) Validate() error {
 	}
 	if c.OAuthClientSecretPepper == "" {
 		return fmt.Errorf("config: OAUTH_CLIENT_SECRET_PEPPER is required for OAuth client secret hashing")
+	}
+	if c.RedisURL == "" {
+		return fmt.Errorf("config: REDIS_URL is required for OAuth pending requests")
+	}
+	if c.WebLoginURL == "" || c.WebLoginURL == "/login/whatsapp" {
+		return fmt.Errorf("config: WEB_LOGIN_URL is required for OAuth consent redirects")
 	}
 	switch strings.ToLower(c.LogLevel) {
 	case "debug", "info", "warn", "error":

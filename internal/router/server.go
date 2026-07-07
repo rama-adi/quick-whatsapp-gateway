@@ -60,6 +60,7 @@ type Config struct {
 	PublicURL     string
 	OIDCIssuer    string
 	OIDPSigner    *oidp.Signer
+	OIDPProvider  *oidp.Provider
 	OAuthHandlers *handlersapi.Handlers
 
 	StaleAfter time.Duration     // optional; <=0 => defaultStaleAfter
@@ -86,6 +87,7 @@ type Server struct {
 	publicURL     string
 	oidcIssuer    string
 	oidpSigner    *oidp.Signer
+	oidpProvider  *oidp.Provider
 	oauthHandlers *handlersapi.Handlers
 	wsOrigins     []string
 	staleAfter    time.Duration
@@ -127,6 +129,7 @@ func NewServer(cfg Config) (*Server, error) {
 		publicURL:     cfg.PublicURL,
 		oidcIssuer:    strings.TrimRight(cfg.OIDCIssuer, "/"),
 		oidpSigner:    cfg.OIDPSigner,
+		oidpProvider:  cfg.OIDPProvider,
 		oauthHandlers: cfg.OAuthHandlers,
 		wsOrigins:     cfg.CORSOrigins,
 		staleAfter:    cfg.StaleAfter,
@@ -204,6 +207,9 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/.well-known/openid-configuration", s.handleOIDCDiscovery)
 		r.Get("/.well-known/oauth-authorization-server", s.handleOIDCDiscovery)
 		r.Get("/.well-known/oauth-jwks.json", s.handleOIDCJWKS)
+	}
+	if s.oidpProvider != nil {
+		s.oidpProvider.Mount(r)
 	}
 
 	r.Route("/api/v1", func(api chi.Router) {
