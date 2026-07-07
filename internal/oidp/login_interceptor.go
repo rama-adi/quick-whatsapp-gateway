@@ -207,11 +207,22 @@ func filterGroupCandidates(ctx context.Context, members GroupMemberChecker, nm *
 }
 
 func mentionedBot(nm *inbound.NormalizedMessage, _ domain.OAuthClient) bool {
-	// The normalizer reports raw mentioned JIDs; self JID/LID availability varies
-	// by pairing state. Until the session self identity is available to this
-	// hook, any explicit mention on the pinned group message satisfies the
-	// syntactic mention gate and the Redis claim remains the authority.
-	return len(nm.Mentions) > 0
+	self := map[string]struct{}{}
+	if nm.SelfJID != "" {
+		self[nm.SelfJID] = struct{}{}
+	}
+	if nm.SelfLID != "" {
+		self[nm.SelfLID] = struct{}{}
+	}
+	if len(self) == 0 {
+		return false
+	}
+	for _, mention := range nm.Mentions {
+		if _, ok := self[mention]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func (l *LoginInterceptor) feedback(ctx context.Context, nm *inbound.NormalizedMessage, res ClaimResult, app *domain.OAuthClient) error {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -16,6 +17,8 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/go-chi/chi/v5"
+	"github.com/lestrrat-go/jwx/v3/jwk"
+	"github.com/lestrrat-go/jwx/v3/jwt"
 	"github.com/redis/go-redis/v9"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
@@ -63,6 +66,16 @@ func testRedis(t *testing.T) (*miniredis.Miniredis, *redis.Client) {
 		mr.Close()
 	})
 	return mr, rdb
+}
+
+func testHTTPServer(t *testing.T, h http.Handler) *httptest.Server {
+	t.Helper()
+	defer func() {
+		if r := recover(); r != nil {
+			t.Skipf("httptest server unavailable in this sandbox: %v", r)
+		}
+	}()
+	return httptest.NewServer(h)
 }
 
 func testProvider(t *testing.T) (*Provider, *PendingStore) {
@@ -189,6 +202,70 @@ func TestWaitStreamSnapshotFrameShape(t *testing.T) {
 	target := frame["target"].(map[string]any)
 	if target["mode"] != "dm" || target["number"] != "+628123456789" || target["bot_name"] != "Bot" {
 		t.Fatalf("target=%#v", target)
+	}
+}
+
+func TestWaitStreamUnknownCodeIsGeneric404(t *testing.T) {
+	p, _ := testProvider(t)
+	rec := httptest.NewRecorder()
+	p.HandleWaitStream(rec, httptest.NewRequest(http.MethodGet, "/oauth/wait/missing/stream", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status=%d body=%q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestWaitStreamConcurrentConnectionCaps(t *testing.T) {
+	p, ps := testProvider(t)
+	req := PendingRequest{
+		ClientID: "client_1", BrowserCode: "browser", SessionID: "sess_1", UserCode: "483920",
+		LoginCommand: "login", AppName: "Acme", Status: PendingStatusPending,
+		ExpiresAt: time.Now().Add(time.Minute).UnixMilli(),
+	}
+	if err := ps.Create(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	r := chi.NewRouter()
+	p.Mount(r)
+	srv := testHTTPServer(t, r)
+	t.Cleanup(srv.Close)
+
+	resps := make([]*http.Response, 0, 3)
+	for i := 0; i < 3; i++ {
+		resp, err := http.Get(srv.URL + "/oauth/wait/browser/stream")
+		if err != nil {
+			t.Skipf("httptest stream unavailable in this sandbox: %v", err)
+		}
+		resps = append(resps, resp)
+		line, err := bufio.NewReader(resp.Body).ReadString('\n')
+		if err != nil || !strings.Contains(line, `"status":"pending"`) {
+			t.Fatalf("stream %d first line=%q err=%v", i, line, err)
+		}
+	}
+	t.Cleanup(func() {
+		for _, resp := range resps {
+			_ = resp.Body.Close()
+		}
+	})
+
+	resp, err := http.Get(srv.URL + "/oauth/wait/browser/stream")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusTooManyRequests {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status=%d body=%q", resp.StatusCode, string(body))
+	}
+
+	for i := 0; i < 30; i++ {
+		code := "ipcap_" + strconv.Itoa(i)
+		if !p.enterStream(code, "203.0.113.10") {
+			t.Fatalf("unexpected per-IP rejection at %d", i)
+		}
+		defer p.leaveStream(code, "203.0.113.10")
+	}
+	if p.enterStream("ipcap_over", "203.0.113.10") {
+		t.Fatal("per-IP cap accepted 31st stream")
 	}
 }
 
@@ -342,6 +419,7 @@ func fullProvider(t *testing.T) (*Provider, *PendingStore, *memGrants, *memRefre
 		t.Fatal(err)
 	}
 	pending := NewPendingStore(rdb, "test", 10*time.Minute)
+	pending.SetClock(func() time.Time { return now })
 	grants, refresh := newMemGrants(), newMemRefresh()
 	p := NewProvider(ProviderConfig{
 		Clients:    clients,
@@ -387,6 +465,23 @@ func TestPKCEMatrix(t *testing.T) {
 	}
 	if verifyPKCE(pkceChallenge("ok"), "wrong") || verifyPKCE(pkceChallenge("ok"), "") {
 		t.Fatal("bad PKCE verifier accepted")
+	}
+}
+
+func TestAuthorizeMintRateLimitPerSession(t *testing.T) {
+	p, _ := testProvider(t)
+	query := "response_type=code&client_id=client_1&redirect_uri=https://rp.example/cb&code_challenge=x&code_challenge_method=S256&state=s"
+	for i := 0; i < defaultMintLimit; i++ {
+		rec := httptest.NewRecorder()
+		p.HandleAuthorize(rec, httptest.NewRequest(http.MethodGet, "/oauth/authorize?"+query, nil))
+		if rec.Code != http.StatusFound || !strings.Contains(rec.Header().Get("Location"), "https://web.example/login/whatsapp#c=") {
+			t.Fatalf("attempt %d status=%d location=%q", i, rec.Code, rec.Header().Get("Location"))
+		}
+	}
+	rec := httptest.NewRecorder()
+	p.HandleAuthorize(rec, httptest.NewRequest(http.MethodGet, "/oauth/authorize?"+query, nil))
+	if rec.Code != http.StatusFound || !strings.Contains(rec.Header().Get("Location"), "error=temporarily_unavailable") {
+		t.Fatalf("rate limit status=%d location=%q", rec.Code, rec.Header().Get("Location"))
 	}
 }
 
@@ -440,6 +535,173 @@ func TestAuthCodeMatrix(t *testing.T) {
 	rec := postToken(p, url.Values{"grant_type": {"authorization_code"}, "client_id": {"client_1"}, "client_secret": {"super-secret"}, "code": {"expired"}, "redirect_uri": {"https://rp.example/cb"}, "code_verifier": {"v"}})
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expired status=%d", rec.Code)
+	}
+
+	_ = ps.StoreAuthCode(context.Background(), "plain-method", AuthCode{GrantID: grant.ID, ClientID: "client_1", RedirectURI: "https://rp.example/cb", CodeChallenge: "verifier", CodeChallengeMethod: "plain"}, time.Minute)
+	rec = postToken(p, url.Values{"grant_type": {"authorization_code"}, "client_id": {"client_1"}, "client_secret": {"super-secret"}, "code": {"plain-method"}, "redirect_uri": {"https://rp.example/cb"}, "code_verifier": {"verifier"}})
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "invalid_grant") {
+		t.Fatalf("plain auth code status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestOIDCEndToEndWithJWKSClientVerifier(t *testing.T) {
+	p, ps, _, _ := fullProvider(t)
+	r := chi.NewRouter()
+	p.Mount(r)
+	r.Get("/.well-known/oauth-jwks.json", func(w http.ResponseWriter, r *http.Request) {
+		jwks, err := p.signer.JWKS(r.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(jwks)
+	})
+	srv := testHTTPServer(t, r)
+	t.Cleanup(srv.Close)
+	p.issuer = srv.URL
+
+	verifier := "correct horse battery staple"
+	authURL := srv.URL + "/oauth/authorize?" + url.Values{
+		"response_type":         {"code"},
+		"client_id":             {"client_1"},
+		"redirect_uri":          {"https://rp.example/cb"},
+		"scope":                 {"openid profile phone offline_access"},
+		"state":                 {"st_123"},
+		"nonce":                 {"nonce_123"},
+		"code_challenge":        {pkceChallenge(verifier)},
+		"code_challenge_method": {"S256"},
+	}.Encode()
+	noRedirect := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := noRedirect.Get(authURL)
+	if err != nil {
+		t.Skipf("httptest server unavailable in this sandbox: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("authorize status=%d", resp.StatusCode)
+	}
+	loc := resp.Header.Get("Location")
+	u, err := url.Parse(loc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fragment, _ := url.ParseQuery(u.Fragment)
+	browserCode := fragment.Get("c")
+	if browserCode == "" {
+		t.Fatalf("missing browser code in %q", loc)
+	}
+	pendingReq, err := ps.Load(context.Background(), browserCode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim, err := ps.ClaimVerified(context.Background(), ClaimInput{
+		SessionID: "sess_1", UserCode: pendingReq.UserCode, Mode: "dm", LoginCommand: "login",
+		SenderLID: "42@lid", PhoneJID: "628111@s.whatsapp.net", PhoneNumber: "+628111", PushName: "Alice",
+		NowMs: p.now().UnixMilli(),
+	})
+	if err != nil || claim.Status != ClaimStatusVerified {
+		t.Fatalf("claim=%+v err=%v", claim, err)
+	}
+
+	resp, err = http.Post(srv.URL+"/oauth/wait/"+browserCode+"/finalize", "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var finalized map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&finalized); err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("finalize status=%d body=%v", resp.StatusCode, finalized)
+	}
+	redirect, err := url.Parse(finalized["redirect"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := redirect.Query().Get("code")
+	if code == "" || redirect.Query().Get("state") != "st_123" || redirect.Query().Get("iss") != srv.URL {
+		t.Fatalf("redirect=%s", finalized["redirect"])
+	}
+
+	form := url.Values{
+		"grant_type":    {"authorization_code"},
+		"client_id":     {"client_1"},
+		"client_secret": {"super-secret"},
+		"code":          {code},
+		"redirect_uri":  {"https://rp.example/cb"},
+		"code_verifier": {verifier},
+	}
+	resp, err = http.PostForm(srv.URL+"/oauth/token", form)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tokens map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&tokens); err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("token status=%d body=%v", resp.StatusCode, tokens)
+	}
+	if tokens["token_type"] != "Bearer" || tokens["refresh_token"] == "" {
+		t.Fatalf("token response=%v", tokens)
+	}
+
+	jwksResp, err := http.Get(srv.URL + "/.well-known/oauth-jwks.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	set, err := jwk.ParseReader(jwksResp.Body)
+	_ = jwksResp.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	idToken, err := jwt.Parse([]byte(tokens["id_token"].(string)),
+		jwt.WithKeySet(set),
+		jwt.WithValidate(true),
+		jwt.WithIssuer(srv.URL),
+		jwt.WithAudience("client_1"),
+		jwt.WithClock(jwt.ClockFunc(p.now)),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub, ok := idToken.Subject()
+	if !ok || sub == "" {
+		t.Fatal("id_token missing subject")
+	}
+	var nonce, name, phone string
+	_ = idToken.Get("nonce", &nonce)
+	_ = idToken.Get("name", &name)
+	_ = idToken.Get("phone_number", &phone)
+	if nonce != "nonce_123" || name != "Alice" || phone != "+628111" {
+		t.Fatalf("id claims nonce=%q name=%q phone=%q", nonce, name, phone)
+	}
+
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/oauth/userinfo", nil)
+	req.Header.Set("Authorization", "Bearer "+tokens["access_token"].(string))
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var userinfo map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&userinfo); err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || userinfo["sub"] != sub || userinfo["name"] != "Alice" || userinfo["phone_number"] != "+628111" || userinfo["wa_jid"] != "628111@s.whatsapp.net" {
+		t.Fatalf("userinfo status=%d body=%v", resp.StatusCode, userinfo)
+	}
+
+	resp, err = http.PostForm(srv.URL+"/oauth/token", form)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("second token status=%d", resp.StatusCode)
 	}
 }
 

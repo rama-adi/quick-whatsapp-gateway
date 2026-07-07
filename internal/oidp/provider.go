@@ -327,7 +327,7 @@ func (p *Provider) HandleToken(w http.ResponseWriter, r *http.Request) {
 
 func (p *Provider) tokenFromCode(w http.ResponseWriter, r *http.Request, client domain.OAuthClient) {
 	ac, err := p.pending.RedeemAuthCode(r.Context(), r.Form.Get("code"))
-	if err != nil || ac.ClientID != client.ClientID || ac.RedirectURI != r.Form.Get("redirect_uri") || !verifyPKCE(ac.CodeChallenge, r.Form.Get("code_verifier")) {
+	if err != nil || ac.ClientID != client.ClientID || ac.RedirectURI != r.Form.Get("redirect_uri") || ac.CodeChallengeMethod != "S256" || !verifyPKCE(ac.CodeChallenge, r.Form.Get("code_verifier")) {
 		oauthJSONError(w, http.StatusBadRequest, "invalid_grant")
 		return
 	}

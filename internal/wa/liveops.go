@@ -173,6 +173,23 @@ func (l *LiveOps) rawClient(sessionID string) (*whatsmeow.Client, *store.Device)
 	return c, c.Store
 }
 
+// OwnIDs returns the session's own canonical phone JID and LID, when available.
+func (l *LiveOps) OwnIDs(_ context.Context, sessionID string) (string, string) {
+	_, dev := l.rawClient(sessionID)
+	if dev == nil {
+		return "", ""
+	}
+	jid, lid := dev.GetJID(), dev.GetLID()
+	var jidStr, lidStr string
+	if !jid.IsEmpty() {
+		jidStr = jid.ToNonAD().String()
+	}
+	if !lid.IsEmpty() {
+		lidStr = lid.ToNonAD().String()
+	}
+	return jidStr, lidStr
+}
+
 func (l *LiveOps) backfillContacts(ctx context.Context, dev *store.Device, contacts map[types.JID]types.ContactInfo) []domain.BackfillContact {
 	out := make([]domain.BackfillContact, 0, len(contacts))
 	for jid, info := range contacts {

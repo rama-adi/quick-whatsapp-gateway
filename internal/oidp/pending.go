@@ -87,6 +87,7 @@ type PendingStore struct {
 	redis  *redis.Client
 	prefix string
 	ttl    time.Duration
+	now    func() time.Time
 }
 
 type AuthCode struct {
@@ -103,7 +104,22 @@ type AuthCode struct {
 }
 
 func NewPendingStore(rdb *redis.Client, prefix string, ttl time.Duration) *PendingStore {
-	return &PendingStore{redis: rdb, prefix: strings.TrimSuffix(prefix, ":"), ttl: ttl}
+	return &PendingStore{redis: rdb, prefix: strings.TrimSuffix(prefix, ":"), ttl: ttl, now: time.Now}
+}
+
+// SetClock overrides the store's time source. Production uses the default wall
+// clock; tests inject a fixed clock so ExpiresAt stamps and expiry checks agree.
+func (s *PendingStore) SetClock(now func() time.Time) {
+	if now != nil {
+		s.now = now
+	}
+}
+
+func (s *PendingStore) clock() time.Time {
+	if s.now == nil {
+		return time.Now()
+	}
+	return s.now()
 }
 
 func (s *PendingStore) Create(ctx context.Context, p PendingRequest) error {
@@ -126,7 +142,7 @@ func (s *PendingStore) Load(ctx context.Context, browserCode string) (PendingReq
 	if err != nil {
 		return PendingRequest{}, err
 	}
-	if p.ExpiresAt <= time.Now().UnixMilli() || p.Status == PendingStatusExpired {
+	if p.ExpiresAt <= s.clock().UnixMilli() || p.Status == PendingStatusExpired {
 		return PendingRequest{}, redis.Nil
 	}
 	return p, nil
@@ -277,7 +293,7 @@ return cjson.encode({ok=true, request=req})
 func (s *PendingStore) StoreAuthCode(ctx context.Context, code string, payload AuthCode, ttl time.Duration) error {
 	// Belt-and-braces: the Redis TTL is the primary expiry; the embedded stamp
 	// guards redemption if the key outlives it (e.g. clock-frozen test stores).
-	payload.ExpiresAtMS = time.Now().Add(ttl).UnixMilli()
+	payload.ExpiresAtMS = s.clock().Add(ttl).UnixMilli()
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return err
@@ -296,7 +312,7 @@ func (s *PendingStore) RedeemAuthCode(ctx context.Context, code string) (AuthCod
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return AuthCode{}, err
 	}
-	if payload.ExpiresAtMS != 0 && time.Now().UnixMilli() > payload.ExpiresAtMS {
+	if payload.ExpiresAtMS != 0 && s.clock().UnixMilli() > payload.ExpiresAtMS {
 		return AuthCode{}, errAuthCodeExpired
 	}
 	return payload, nil

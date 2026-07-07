@@ -462,7 +462,7 @@ namespaced `wa_*`.
 | Open redirect | Exact-match set, no wildcards/fragments; invalid client/redirect never redirects |
 | Mix-up | Single issuer; `iss` in id_token + RFC 9207 `iss` on the redirect |
 | PKCE downgrade | S256 only; required for confidential too |
-| Group-membership spoofing | Message must arrive in the pinned group with bot mention; sender from event metadata; member-cache cross-check; claim = membership at auth time (documented; short TTLs for continuous enforcement) |
+| Group-membership spoofing | Message must arrive in the pinned group with a mention of the session's own bot JID/LID; sender from event metadata; member-cache cross-check; claim = membership at auth time (documented; short TTLs for continuous enforcement) |
 | Refresh-token theft | Rotation + family-kill; hashed at rest; dashboard revoke |
 | DB dump | Signing keys encrypted at rest; secrets/tokens hashed |
 | Secret leak | SHA-256+pepper at rest, shown once, rotate op; public clients have no secret (PKCE only) |

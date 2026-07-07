@@ -188,6 +188,10 @@ type InboundNormalizer struct {
 	log       *slog.Logger
 }
 
+type ownIDResolver interface {
+	OwnIDs(ctx context.Context, sessionID string) (jid string, lid string)
+}
+
 func NewInboundNormalizer(decryptor pollVoteDecryptor, polls pollOptionStore) *InboundNormalizer {
 	return &InboundNormalizer{decryptor: decryptor, polls: polls, log: slog.Default()}
 }
@@ -206,6 +210,9 @@ func (n *InboundNormalizer) Normalize(ctx context.Context, evt any, sessionID, o
 			SessionID:      sessionID,
 			OrganizationID: organizationID,
 		}
+	}
+	if resolver, ok := n.decryptor.(ownIDResolver); ok {
+		nm.SelfJID, nm.SelfLID = resolver.OwnIDs(ctx, sessionID)
 	}
 	if nm.Kind == inbound.KindPollVote && nm.PollVote != nil {
 		n.resolvePollVote(ctx, sessionID, evt, &ev, nm)

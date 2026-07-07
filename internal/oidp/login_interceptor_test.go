@@ -75,6 +75,7 @@ func TestLoginInterceptorMatchingMatrix(t *testing.T) {
 	group := loginNM("login 222222", false, true)
 	group.ChatJID = "999@g.us"
 	group.Mentions = []string{"bot@s.whatsapp.net"}
+	group.SelfJID = "bot@s.whatsapp.net"
 	reactionsBefore := len(bot.reactions)
 	handled, err = li.HandleLogin(context.Background(), group)
 	require.NoError(t, err)
@@ -85,9 +86,66 @@ func TestLoginInterceptorMatchingMatrix(t *testing.T) {
 	group = loginNM("login 222222", false, true)
 	group.ChatJID = "120@g.us"
 	group.Mentions = nil
+	group.SelfJID = "bot@s.whatsapp.net"
 	handled, err = li.HandleLogin(context.Background(), group)
 	require.NoError(t, err)
 	require.True(t, handled)
+}
+
+func TestLoginInterceptorGroupRequiresBotMention(t *testing.T) {
+	_, rdb := testRedis(t)
+	ps := NewPendingStore(rdb, "libotmention", 10*time.Minute)
+	apps := &fakeActiveApps{apps: []domain.OAuthClient{{
+		ClientID: "client_1", SessionID: "sess_1", Name: "Acme", LoginCommand: "login",
+		Modes: "group", GroupJID: strp("120@g.us"), Status: "active",
+	}}}
+	li := NewLoginInterceptor(apps, ps, fakeMembers{ok: true}, nil, nil)
+	require.NoError(t, ps.Create(context.Background(), PendingRequest{
+		ClientID: "client_1", BrowserCode: "browser_1", SessionID: "sess_1", UserCode: "483920",
+		LoginCommand: "login", Mode: "group", AppName: "Acme", Status: PendingStatusPending,
+		ExpiresAt: time.Now().Add(time.Minute).UnixMilli(),
+	}))
+
+	other := loginNM("login 483920", false, true)
+	other.ChatJID = "120@g.us"
+	other.SelfJID = "628000@s.whatsapp.net"
+	other.SelfLID = "999@lid"
+	other.Mentions = []string{"111@lid"}
+	handled, err := li.HandleLogin(context.Background(), other)
+	require.NoError(t, err)
+	require.True(t, handled)
+	req, err := ps.Load(context.Background(), "browser_1")
+	require.NoError(t, err)
+	require.Equal(t, PendingStatusPending, req.Status)
+
+	botLID := loginNM("login 483920", false, true)
+	botLID.ChatJID = "120@g.us"
+	botLID.SelfJID = "628000@s.whatsapp.net"
+	botLID.SelfLID = "999@lid"
+	botLID.Mentions = []string{"999@lid"}
+	handled, err = li.HandleLogin(context.Background(), botLID)
+	require.NoError(t, err)
+	require.True(t, handled)
+	req, err = ps.Load(context.Background(), "browser_1")
+	require.NoError(t, err)
+	require.Equal(t, PendingStatusVerified, req.Status)
+
+	require.NoError(t, ps.Create(context.Background(), PendingRequest{
+		ClientID: "client_1", BrowserCode: "browser_2", SessionID: "sess_1", UserCode: "483921",
+		LoginCommand: "login", Mode: "group", AppName: "Acme", Status: PendingStatusPending,
+		ExpiresAt: time.Now().Add(time.Minute).UnixMilli(),
+	}))
+	botJID := loginNM("login 483920", false, true)
+	botJID.Body = "login 483921"
+	botJID.ChatJID = "120@g.us"
+	botJID.SelfJID = "628000@s.whatsapp.net"
+	botJID.Mentions = []string{"628000@s.whatsapp.net"}
+	handled, err = li.HandleLogin(context.Background(), botJID)
+	require.NoError(t, err)
+	require.True(t, handled)
+	req, err = ps.Load(context.Background(), "browser_2")
+	require.NoError(t, err)
+	require.Equal(t, PendingStatusVerified, req.Status)
 }
 
 func TestLoginInterceptorInvalidatesCommandCache(t *testing.T) {
