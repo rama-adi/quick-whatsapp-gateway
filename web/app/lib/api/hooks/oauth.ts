@@ -179,3 +179,22 @@ export function useRevokeOAuthAppGrant(
     },
   });
 }
+
+/** Server-side bulk revoke: one call revokes every grant for the app plus all
+ * refresh families under them (POST …/grants:revoke-all, 204). Replaces the old
+ * client-side loop over single revokes. */
+export function useRevokeAllOAuthAppGrants(
+  appId: string,
+): UseMutationResult<void, ApiError, void> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      fetchJSON<void>(
+        apiUrl(`/oauth-apps/${encodeURIComponent(appId)}/grants:revoke-all`),
+        { method: "POST" },
+      ),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: qk.oauthAppGrants(appId) });
+    },
+  });
+}

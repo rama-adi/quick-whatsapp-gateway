@@ -56,6 +56,7 @@ import {
   useSetOAuthAppStatus,
   useOAuthAppGrants,
   useRevokeOAuthAppGrant,
+  useRevokeAllOAuthAppGrants,
   type OAuthApp,
   type OAuthGrant,
   type OAuthAppPatchBody,
@@ -307,6 +308,7 @@ function CredRow({ label, value }: { label: string; value: string }) {
 function GrantsTab({ app }: { app: OAuthApp }) {
   const grants = useOAuthAppGrants(app.id);
   const revoke = useRevokeOAuthAppGrant(app.id);
+  const revokeAllMut = useRevokeAllOAuthAppGrants(app.id);
   const rows = (grants.data?.pages.flatMap((p) => p.data) ?? []).filter(
     (g) => !g.revokedAt,
   );
@@ -332,8 +334,13 @@ function GrantsTab({ app }: { app: OAuthApp }) {
       )
     )
       return;
-    rows.forEach((g) => revoke.mutate(g.id));
-    toast.success("Revoking all grants…");
+    // Single server-side call revokes every grant + all refresh families under
+    // them (the old client-side loop over single revokes is gone).
+    revokeAllMut.mutate(undefined, {
+      onError: (err) =>
+        toast.error(isApiError(err) ? err.message : "Revoke all failed"),
+      onSuccess: () => toast.success("All grants revoked"),
+    });
   };
 
   if (grants.isLoading) {
@@ -378,9 +385,10 @@ function GrantsTab({ app }: { app: OAuthApp }) {
           variant="outline"
           size="sm"
           className="text-destructive hover:text-destructive"
+          disabled={revokeAllMut.isPending}
           onClick={revokeAll}
         >
-          Revoke all
+          {revokeAllMut.isPending ? "Revoking…" : "Revoke all"}
         </Button>
       </div>
       <Card>
@@ -391,6 +399,7 @@ function GrantsTab({ app }: { app: OAuthApp }) {
                 <TableHead>User</TableHead>
                 <TableHead>Scopes</TableHead>
                 <TableHead>Method</TableHead>
+                <TableHead>Sessions</TableHead>
                 <TableHead>First login</TableHead>
                 <TableHead>Last login</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
@@ -400,12 +409,18 @@ function GrantsTab({ app }: { app: OAuthApp }) {
               {rows.map((g) => (
                 <TableRow key={g.id}>
                   <TableCell>
-                    <p className="font-mono text-xs text-muted-foreground">
-                      sub {truncateMiddle(g.sub, 14)}
+                    <p className="text-sm font-medium">
+                      {g.displayName || (
+                        <span className="font-mono text-xs text-muted-foreground">
+                          {truncateMiddle(g.sub, 14)}
+                        </span>
+                      )}
                     </p>
-                    <p className="text-xs text-muted-foreground">
-                      identity #{g.waIdentityId}
-                    </p>
+                    {g.phoneMasked ? (
+                      <p className="font-mono text-xs text-muted-foreground">
+                        {g.phoneMasked}
+                      </p>
+                    ) : null}
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1">
@@ -418,6 +433,9 @@ function GrantsTab({ app }: { app: OAuthApp }) {
                   </TableCell>
                   <TableCell>
                     <Badge variant="outline">{acrLabel(g.lastAcr)}</Badge>
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {refreshFamilyLabel(g.refreshFamilyCount)}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {formatTimestamp(g.createdAt)}
@@ -461,7 +479,12 @@ function GrantsTab({ app }: { app: OAuthApp }) {
 // --- Integration tab --------------------------------------------------------
 
 function IntegrationTab({ app }: { app: OAuthApp }) {
-  const issuer = ROUTER_ORIGIN || "https://your-gateway.example.com";
+  // The gateway resolves and returns the effective OIDC issuer on the app DTO —
+  // use it verbatim (no longer derived client-side from VITE_GATEWAY_URL).
+  const issuer = (app.issuer || ROUTER_ORIGIN || "https://your-gateway.example.com").replace(
+    /\/+$/,
+    "",
+  );
   const scopes = app.allowedScopes ?? ["openid"];
   const firstRedirect = app.redirectUris?.[0] ?? "https://app.example.com/callback";
   const modes = app.modes ?? [];
@@ -658,6 +681,12 @@ function DangerActions({ app }: { app: OAuthApp }) {
 
 function acrLabel(acr: OAuthGrant["lastAcr"]): string {
   return acr === "wa:group" ? "Group" : "DM";
+}
+
+/** "N active refresh families" — live refresh-token families under a grant (each
+ * family is one logged-in relying-app session). */
+function refreshFamilyLabel(count: number): string {
+  return `${count} active ${count === 1 ? "family" : "families"}`;
 }
 
 function truncateMiddle(s: string, keep: number): string {
