@@ -13,7 +13,7 @@ orchestration + reviews = Fable.
 | 1 | Migration `0007_oidc_provider` + `internal/store/oauth.go` repos + `pnpm db:introspect` | B | ✅ done | Four tables, plain-SQL repos, store tests. `pnpm db:introspect` attempted; skipped because local MySQL was unreachable (`EPERM 127.0.0.1:3306`). |
 | 2 | Signing keys + `oidp.Signer` + `rotate-key` subcommand + discovery + JWKS | B | ✅ done | Dedicated EdDSA keyset, AES-GCM at rest, one JWKS across replicas; focused signer/router tests pass. |
 | 3 | Management CRUD (huma ops) + org isolation + secret hashing + `make gen` | B | ✅ done | Router-local `/api/v1/oauth-apps*`; secret shown once. `pnpm docs:openapi` blocked by local Node lacking `--experimental-strip-types`. |
-| 4 | Dashboard OAuth-apps UI | F | ⬜ pending | List / editor (consent-card preview, login-command field) / secret-once modal / grants tab / integration-guide tab. |
+| 4 | Dashboard OAuth-apps UI | F | ✅ done | `/user/oauth-apps` list + detail (settings/grants/integration tabs), shared form with live `ConsentCard` preview, secret-once modal, group picker with JID fallback, Node quickstart. API gaps handed to M7/M8: grant display fields (`displayName`, `phoneMasked`, `refreshFamilyCount` on `OAuthGrant`), a bulk `revokeAllGrants` op, and surfacing `OIDC_ISSUER` to the client when it differs from the router URL. |
 | 5 | `/oauth/authorize` + pending model + NDJSON wait stream + cancel + consent page | B (endpoints) + F (page) | ✅ done | Consent page merged (22 tests) + router endpoints (`internal/oidp/provider.go`, `pending.go`): authorize validation matrix, two-code mint, NDJSON stream matching the pinned §4.2 contract frame-for-frame, cancel, mint rate limit. Live end-to-end visual pass deferred to M6/M7 integration. |
 | 6 | Inbound `LoginInterceptor` + Redis Lua claim + publish + bot reactions + STOP | B | ⬜ pending | Per-app `login_command`; unconditional interception; `-race` tests on claim. |
 | 7 | Finalize + `/oauth/token` (PKCE, refresh rotation + reuse-kill) + userinfo + revoke | B | ⬜ pending | Verified end-to-end with an off-the-shelf OIDC client. |
@@ -54,3 +54,7 @@ orchestration + reviews = Fable.
   key-for-key against the consent page's `protocol.ts`), `/cancel`, config for `WEB_LOGIN_URL`
   + OIDC TTLs. Lua claim primitive scaffolded with the M6 signature (wrong-attempt accounting
   deliberately deferred to M6).
+- **2026-07-08** — Milestone 4 merged: dashboard OAuth-apps UI (list, create sheet, detail with
+  settings/grants/integration tabs, live consent-card preview reusing `ConsentCard`, secret
+  copy-once modal, destructive-cascade confirms, workspace nav entry). 48/48 web tests green.
+  Backend follow-ups recorded for M7/M8: grant display fields, bulk revoke op, issuer surfacing.
