@@ -18,7 +18,7 @@ orchestration + reviews = Fable.
 | 6 | Inbound `LoginInterceptor` + Redis Lua claim + publish + bot reactions + STOP | B | ✅ done | Stage-2 interceptor with per-session command cache (`ctrl:oidp.app.changed` invalidation), atomic Lua claim (one winner under `-race`), attempt caps, STOP window, ✅/❌/⌛ feedback. **M9 follow-up:** group mention check requires non-empty mentions + pinned group + membership but can't yet compare against the bot's own JID (self identity not exposed to the inbound hook). |
 | 7 | Finalize + `/oauth/token` (PKCE, refresh rotation + reuse-kill) + userinfo + revoke | B | ✅ done | Full token surface + M4's API gaps (grant display fields, `grants:revoke-all`, `issuer` on app DTO). Review fixes by orchestrator: §7.6 claim mapping (group claims acr-gated, `wa_jid` added, internal `wa_identity_id` leak removed — Codex follow-up), injectable-clock JWT validation, embedded auth-code expiry stamp, two fake-clock test fixtures. **M8 follow-up: replace `KEYS`-based lookups in the finalize/cancel Lua scripts with a direct browser-code index (O(N) scan on a hot path).** Off-the-shelf OIDC client e2e still owed (M9). |
 | 8 | Grants dashboard + revocation cascades + `ctrl:oidp.*` propagation | F (UI) + B (cascades) | ✅ done | **8-B**: session logout/delete cascade (disable apps → revoke grants + refresh families), `ctrl:oidp.grant.revoked` + router revoked-grant set checked before DB on refresh, wait-stream termination on `ctrl:oidp.app.changed`, and the flagged `KEYS`-scan removed (re-keyed to `oauth2:req:<browser_code>`; spec §3.2/§7.9 updated). **8-F**: grants tab shows `displayName`/`phoneMasked`/`refreshFamilyCount`, server-side `revoke-all`, issuer from app DTO. |
-| 9 | Hardening (rate limits, stream caps, phishing copy) + `guides/sign-in-with-whatsapp.md` + spec finalization | B + F | ⬜ pending | Final adversarial review of spec §7 before ship. |
+| 9 | Hardening (rate limits, stream caps, phishing copy) + `guides/sign-in-with-whatsapp.md` + spec finalization | B + F | 🔶 impl done, security review running | **9-B**: bot-JID-specific group-mention check (self JID/LID threaded to interceptor), plain-PKCE rejected at token time, stream per-IP(30)/per-code(3) caps + generic 404, full OIDC e2e test (authorize→claim→finalize→token→JWKS-verify→userinfo→replay-fail). **9-F**: `guides/sign-in-with-whatsapp.mdx` integration guide (openid-client walkthrough). Orchestrator fix: injectable clock on `PendingStore` (Load/auth-code expiry used wall clock while authorize stamped a frozen clock — broke the e2e). Independent adversarial §7 review in progress before merge. |
 
 ## Log
 
@@ -84,3 +84,13 @@ orchestration + reviews = Fable.
   by re-keying pending requests to `oauth2:req:<browser_code>` (spec §3.2/§7.9 updated in-change).
   8-F: grants tab consumes `displayName`/`phoneMasked`/`refreshFamilyCount`, server-side
   `revoke-all`, issuer from the app DTO. Full gateway + web gates and `-race` green.
+- **2026-07-08** — Milestone 9 implementation landed (9-B backend + 9-F docs merged). 9-B: group
+  mode now requires the bot's own JID/LID in the mention (session self-IDs threaded through the
+  normalizer), plain-PKCE rejected at token time, stream per-IP/per-code connection caps + generic
+  404 verified, and a full off-the-shelf-OIDC-client e2e test (authorize → claim → finalize →
+  token → JWKS verify → userinfo → replay-fail). 9-F: `sign-in-with-whatsapp.mdx` integration
+  guide. Orchestrator fix: `PendingStore` got an injectable clock — Load and auth-code expiry
+  compared against the wall clock while authorize stamped ExpiresAt from the provider's (frozen,
+  in tests) clock, which failed the e2e with `redis: nil`. Full gateway + web gates and `-race`
+  green. Independent adversarial security review of §7 (fresh read-only Codex pass) running before
+  the branch is proposed for merge.
