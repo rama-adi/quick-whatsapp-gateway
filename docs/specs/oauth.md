@@ -462,7 +462,7 @@ namespaced `wa_*`.
 | Open redirect | Exact-match set, no wildcards/fragments; invalid client/redirect never redirects |
 | Mix-up | Single issuer; `iss` in id_token + RFC 9207 `iss` on the redirect |
 | PKCE downgrade | S256 only; required for confidential too |
-| Group-membership spoofing | Message must arrive in the pinned group with a mention of the session's own bot JID/LID; sender from event metadata; member-cache cross-check; claim = membership at auth time (documented; short TTLs for continuous enforcement) |
+| Group-membership spoofing | Message must arrive in the pinned group with a mention of the session's own bot JID/LID; sender from event metadata; member-cache cross-check. Membership is asserted **as of the stored `whatsapp_group_members` cache** (refreshed by group traffic + participant events), not a live participant fetch — a member removed since the last observed event may linger briefly. `wa_group_verified` therefore means "member per cache at auth time"; apps needing continuous enforcement use short `token_ttl` and re-auth. |
 | Refresh-token theft | Rotation + family-kill; hashed at rest; dashboard revoke |
 | DB dump | Signing keys encrypted at rest; secrets/tokens hashed |
 | Secret leak | SHA-256+pepper at rest, shown once, rotate op; public clients have no secret (PKCE only) |
@@ -476,7 +476,12 @@ login-command cache on app create/update/enable/disable/delete; later grant/toke
 - **App deleted** → soft-delete; revoke all grants + refresh families; publish
   `ctrl:oidp.app.changed` + `ctrl:oidp.grant.revoked`; open wait-streams for that client are
   denied on the router's app-change handling; outstanding codes/tokens refused.
-- **App disabled** → new authorizations and token grants refused; grants retained.
+- **App disabled** → **pause semantics**: new authorizations and token grants (incl. refresh) are
+  refused while disabled, because the token endpoint authenticates the client via
+  `GetActiveByClientID`. Grants and refresh tokens are **retained**, so re-enabling restores them —
+  disable is a reversible pause, **not** emergency invalidation. To permanently kill access
+  (e.g. a leaked secret or stolen refresh token), use **delete** or **revoke grants**, which
+  revoke the refresh families. (The dashboard's disable action states this.)
 - **Bound session logged out / deleted** → apps auto-disabled, grants + refresh tokens revoked,
   `ctrl:oidp.app.changed` + `ctrl:oidp.grant.revoked` published (dashboard confirms: "N apps use
   this session"). Transient session stop → authorize returns `temporarily_unavailable`; existing

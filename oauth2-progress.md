@@ -94,3 +94,14 @@ orchestration + reviews = Fable.
   in tests) clock, which failed the e2e with `redis: nil`. Full gateway + web gates and `-race`
   green. Independent adversarial security review of §7 (fresh read-only Codex pass) running before
   the branch is proposed for merge.
+- **2026-07-08** — Independent adversarial security review of §7 (fresh read-only Codex pass)
+  completed. Core protocol **enforced**: auth-code single-use/replay, PKCE S256 (no downgrade),
+  pairwise + scoped claims (no internal-id leak), open-redirect exact match, client-secret
+  hashing + constant-time compare, org isolation, phishing mitigations, 160-bit browser code.
+  Findings triaged: **fix now** (dispatched to Codex) — atomic refresh rotation (TOCTOU, #1 High),
+  idempotent finalize (#2 High), atomic user-code mint (#4), user-code TTL non-extension (#5),
+  XFF-aware per-IP stream cap (#6), acr_values exact-token match (#8), userinfo `typ==access`
+  enforcement, transactional signing-key promotion (#12). **Documented as by-design** (spec §7.9
+  / threat matrix updated in-change): app-disable = reversible pause not emergency invalidation
+  (use delete/revoke to kill tokens); group membership asserted as-of-cache; management DTO
+  exposes the owner's own identity ids. Full review report retained in scratchpad.
