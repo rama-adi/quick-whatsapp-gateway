@@ -235,6 +235,22 @@ codes get a generic `404`. Error taxonomy: invalid `client_id`/`redirect_uri` �
 **never** a redirect; other authorize errors → redirect with `error` + `state`; token endpoint
 returns standard OAuth JSON errors with no internal detail.
 
+**Pinned wire contract** (the consent page is implemented against exactly this; the backend must
+honor it):
+
+- Stream frames are one JSON object per line. First frame is the snapshot:
+  `{status:"pending", app:{name, logo}, user_code, login_command, target, scopes, expires_at}` —
+  `logo` nullable, `scopes` a string array, **`expires_at` epoch milliseconds**.
+- `target` = `{mode:"dm", number, bot_name?}` or `{mode:"group", group_name, number?, bot_name?}`;
+  `number` human-readable (the page strips to digits for the `wa.me` link).
+- Subsequent frames: `{status:"heartbeat"}` (~20s liveness) and terminal
+  `{status:"verified"|"denied"|"expired"}`. A reconnect to the same stream URL re-emits the
+  current snapshot first (idempotent).
+- Stream `404` = unknown/expired code (terminal for the page); any other non-2xx or dropped body
+  is transient → the page reconnects with capped backoff.
+- `POST …/finalize` → `200 {redirect:"<redirect_uri>?code=…&state=…"}`; `POST …/cancel` → any 2xx
+  (body ignored). Both cookie-less, no request body.
+
 ### 4.3 Mode selection — `acr_values`
 
 - `acr_values=wa:dm` → DM verification; `acr_values=wa:group` → group verification.
