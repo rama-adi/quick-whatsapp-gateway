@@ -72,6 +72,26 @@ func (r *OAuthClientRepo) GetActiveByClientID(ctx context.Context, clientID stri
 	return c, nil
 }
 
+func (r *OAuthClientRepo) ListActiveBySession(ctx context.Context, sessionID string) ([]domain.OAuthClient, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT `+oauthClientCols+` FROM oauth_clients WHERE session_id = ? AND status = 'active' AND deleted_at IS NULL ORDER BY id ASC`, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("store: list active oauth clients by session: %w", err)
+	}
+	defer rows.Close()
+	var items []domain.OAuthClient
+	for rows.Next() {
+		c, err := scanOAuthClient(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: list active oauth clients by session: %w", err)
+	}
+	return items, nil
+}
+
 func (r *OAuthClientRepo) ListByOrg(ctx context.Context, orgID, cursor string, limit int) (Page[domain.OAuthClient], error) {
 	limit = normLimit(limit)
 	cur, err := parseStringCursor(cursor)

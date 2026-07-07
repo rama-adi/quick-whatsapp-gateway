@@ -35,6 +35,7 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 	gwhttp "github.com/ramaadi/quick-whatsapp-gateway/internal/http"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/http/handlers"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/oidp"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/queue"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/service"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
@@ -158,6 +159,24 @@ func run() error {
 		DefaultRatePerHour:  cfg.DefaultRatePerHour,
 		DefaultAutoRead:     cfg.DefaultAutoRead,
 	})
+	msgRecorder := service.NewMessageRecorderAdapter(st.Messages, st.Chats, st.Polls, pollRecaps, nil)
+	sender := outbound.NewSender(service.NewRoutingWAClient(manager), outboxAdapter, limiter, outbound.SystemClock(),
+		outbound.WithMessageRecorder(msgRecorder),
+		outbound.WithQuoteResolver(st.Messages))
+	pending := oidp.NewPendingStore(rdb, cfg.RedisPrefix, 10*time.Minute)
+	loginInterceptor := oidp.NewLoginInterceptor(
+		st.OAuthClients,
+		pending,
+		service.NewOIDPGroupMemberChecker(st.GroupMembers),
+		service.NewOIDPBotFeedback(st.Sessions, sender),
+		log,
+	)
+	oidpAppChanges := oidp.NewAppChangeSubscriber(rdb, loginInterceptor, log)
+	if err := oidpAppChanges.Start(ctx); err != nil {
+		log.Warn("oidp app control-bus subscriber disabled", "err", err)
+	} else {
+		defer oidpAppChanges.Stop()
+	}
 	inboundPipeline := inbound.NewPipeline(
 		service.NewInboundNormalizer(manager.LiveOps(), st.Polls),
 		inbound.NewNoopCommandRegistry(),
@@ -167,6 +186,7 @@ func run() error {
 		manager.LiveOps(),
 		inbound.SystemClock{},
 		inbound.WithLogger(log),
+		inbound.WithLoginInterceptor(loginInterceptor),
 		inbound.WithSessionConfig(func(sessionID string) (inbound.SessionConfig, bool) {
 			s, err := st.Sessions.Get(context.Background(), sessionID)
 			if err != nil {
@@ -185,17 +205,6 @@ func run() error {
 	// `organization` table; orphaned sessions are marked STOPPED and not resumed.
 	orgReader := store.NewOrganizationReader(db)
 	manager.SetOrgExists(orgReader.Exists)
-
-	// Real send path: the Sender routes each request to the live per-session
-	// whatsmeow client resolved from the manager (via outbound.WithSessionID on
-	// the context). Sessions without a connected client return not_implemented.
-	// Record every successful send into the messages table (from_me/out/sent) so
-	// the gateway's own sends appear in chat history — whatsmeow never echoes a
-	// self-authored send back to the inbound pipeline on the same device.
-	msgRecorder := service.NewMessageRecorderAdapter(st.Messages, st.Chats, st.Polls, pollRecaps, nil)
-	sender := outbound.NewSender(service.NewRoutingWAClient(manager), outboxAdapter, limiter, outbound.SystemClock(),
-		outbound.WithMessageRecorder(msgRecorder),
-		outbound.WithQuoteResolver(st.Messages))
 
 	// Registry lifecycle (D8). Register as `joining` before the manager adopts
 	// sessions, flip to `active` once boot succeeds, then heartbeat last_seen_at +
@@ -266,6 +275,7 @@ func run() error {
 		Crypto:                     aes,
 		OAuthClientSecretPepper:    os.Getenv("OAUTH_CLIENT_SECRET_PEPPER"),
 		WhatsAppAdminCommandPrefix: cfg.WhatsAppAdminCmdPrefix,
+		ControlPublisher:           service.NewRedisControlPublisher(rdb),
 		DefaultRetryDelay:          cfg.WebhookRetryDelay,
 		DefaultRetryAttempts:       cfg.WebhookRetryAttempts,
 		Log:                        log,

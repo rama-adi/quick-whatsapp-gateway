@@ -325,6 +325,39 @@ func TestProcess_InterceptorRegistryError(t *testing.T) {
 	assert.Empty(t, f.sink.published)
 }
 
+func TestProcess_LoginInterceptorDropsBeforePersistAndFanout(t *testing.T) {
+	f := newFakes()
+	f.norm.evt = event(domain.EventMessage)
+	nm := dmMessage()
+	nm.Body = "login 483920"
+	f.norm.nm = nm
+	login := &fakeLoginInterceptor{handled: true}
+	p := f.newPipeline(WithLoginInterceptor(login))
+
+	require.NoError(t, p.Process(context.Background(), testSession, testOrganization, false, struct{}{}))
+
+	require.Equal(t, 1, login.calls)
+	assert.Empty(t, f.repos.identities)
+	assert.Empty(t, f.repos.messages)
+	assert.Empty(t, f.repos.eventLog)
+	assert.Empty(t, f.sink.published)
+	assert.Empty(t, f.webhooks.enqueued)
+}
+
+func TestProcess_LoginInterceptorPassThroughWhenNotMatched(t *testing.T) {
+	f := newFakes()
+	f.norm.evt = event(domain.EventMessage)
+	f.norm.nm = dmMessage()
+	login := &fakeLoginInterceptor{handled: false}
+	p := f.newPipeline(WithLoginInterceptor(login))
+
+	require.NoError(t, p.Process(context.Background(), testSession, testOrganization, false, struct{}{}))
+
+	require.Equal(t, 1, login.calls)
+	assert.Len(t, f.repos.messages, 1)
+	assert.Len(t, f.sink.published, 1)
+}
+
 // TestProcess_AutoReadBeforeFanout verifies the ordering guarantee: when
 // auto_read is on, the read receipt is sent strictly before any fan-out.
 func TestProcess_AutoReadBeforeFanout(t *testing.T) {

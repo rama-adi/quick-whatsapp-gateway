@@ -16,6 +16,7 @@ import (
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/apitypes"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/oidp"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
 )
 
@@ -32,11 +33,12 @@ type OAuthAppService struct {
 	grants       *store.OAuthGrantRepo
 	refresh      *store.OAuthRefreshTokenRepo
 	sessions     *store.SessionRepo
+	publisher    ControlPublisher
 	secretPepper string
 	adminPrefix  string
 }
 
-func NewOAuthAppService(st *store.Store, secretPepper, adminPrefix string) *OAuthAppService {
+func NewOAuthAppService(st *store.Store, secretPepper, adminPrefix string, publisher ControlPublisher) *OAuthAppService {
 	if secretPepper == "" {
 		secretPepper = os.Getenv("OAUTH_CLIENT_SECRET_PEPPER")
 	}
@@ -48,6 +50,7 @@ func NewOAuthAppService(st *store.Store, secretPepper, adminPrefix string) *OAut
 		grants:       st.OAuthGrants,
 		refresh:      st.OAuthRefresh,
 		sessions:     st.Sessions,
+		publisher:    publisher,
 		secretPepper: secretPepper,
 		adminPrefix:  strings.ToLower(adminPrefix),
 	}
@@ -153,6 +156,7 @@ func (s *OAuthAppService) Create(ctx context.Context, org string, in OAuthAppCre
 	if err := s.clients.Create(ctx, c); err != nil {
 		return apitypes.OAuthAppWithSecret{}, err
 	}
+	s.publishAppChanged(ctx, c.SessionID)
 	dto, err := mapOAuthClient(c)
 	if err != nil {
 		return apitypes.OAuthAppWithSecret{}, err
@@ -234,6 +238,7 @@ func (s *OAuthAppService) Update(ctx context.Context, org, id string, isSuperAdm
 	if err := s.clients.Update(ctx, c); err != nil {
 		return apitypes.OAuthApp{}, err
 	}
+	s.publishAppChanged(ctx, c.SessionID)
 	return mapOAuthClient(c)
 }
 
@@ -256,6 +261,7 @@ func (s *OAuthAppService) RotateSecret(ctx context.Context, org, id string, isSu
 	if err := s.clients.Update(ctx, c); err != nil {
 		return apitypes.OAuthAppWithSecret{}, err
 	}
+	s.publishAppChanged(ctx, c.SessionID)
 	dto, err := mapOAuthClient(c)
 	if err != nil {
 		return apitypes.OAuthAppWithSecret{}, err
@@ -275,7 +281,11 @@ func (s *OAuthAppService) Delete(ctx context.Context, org, id string, isSuperAdm
 	if err := s.grants.RevokeByClient(ctx, c.OrganizationID, c.ClientID, now); err != nil {
 		return err
 	}
-	return s.clients.SoftDelete(ctx, c.OrganizationID, c.ID, now)
+	err = s.clients.SoftDelete(ctx, c.OrganizationID, c.ID, now)
+	if err == nil {
+		s.publishAppChanged(ctx, c.SessionID)
+	}
+	return err
 }
 
 func (s *OAuthAppService) SetEnabled(ctx context.Context, org, id string, isSuperAdmin bool, enabled bool) (apitypes.OAuthApp, error) {
@@ -292,6 +302,7 @@ func (s *OAuthAppService) SetEnabled(ctx context.Context, org, id string, isSupe
 	if err := s.clients.Update(ctx, c); err != nil {
 		return apitypes.OAuthApp{}, err
 	}
+	s.publishAppChanged(ctx, c.SessionID)
 	return mapOAuthClient(c)
 }
 
@@ -335,6 +346,13 @@ func (s *OAuthAppService) getClient(ctx context.Context, org, id string, isSuper
 		return s.clients.GetAny(ctx, id)
 	}
 	return s.clients.GetByOrg(ctx, org, id)
+}
+
+func (s *OAuthAppService) publishAppChanged(ctx context.Context, sessionID string) {
+	if s.publisher == nil {
+		return
+	}
+	_ = s.publisher.Publish(ctx, oidp.ChannelOIDPAppChanged, map[string]string{"sessionId": sessionID})
 }
 
 func (s *OAuthAppService) assertSessionOrg(ctx context.Context, org, id string) error {

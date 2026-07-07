@@ -41,6 +41,13 @@ type CommandRegistry interface {
 	Handle(ctx context.Context, sessionID, body string) (handled bool, err error)
 }
 
+// LoginInterceptor consumes Sign in with WhatsApp login messages at the same
+// stage as admin commands. A handled message is always dropped from the
+// remainder of the inbound pipeline, including invalid or expired codes.
+type LoginInterceptor interface {
+	HandleLogin(ctx context.Context, nm *NormalizedMessage) (handled bool, err error)
+}
+
 // EventSink publishes the versioned envelope to live stream subscribers
 // (Redis pub/sub fan-out).
 type EventSink interface {

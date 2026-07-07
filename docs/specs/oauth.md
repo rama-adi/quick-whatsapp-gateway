@@ -281,8 +281,8 @@ Org isolation identical to sessions: `{id}` in another org → `404` (super_admi
 ### 5.1 Placement & matching
 
 A new `oidp.LoginInterceptor` at **stage 2 (command interceptor)** of `internal/wa/inbound` — runs
-on any session that owns ≥1 active OAuth app (cheap cached set, invalidated via control bus), and
-matched messages are **never persisted or fanned out**.
+on any session that owns ≥1 active OAuth app (cheap cached set, invalidated via
+`ctrl:oidp.app.changed`), and matched messages are **never persisted or fanned out**.
 
 Eligibility: `KindMessage`, `FromMe == false`, body matches
 `^\s*(<cmd1>|<cmd2>|…)\s+(\d{6})\s*$` (case-insensitive), where the alternation is the set of
@@ -321,9 +321,12 @@ the gateway mutates only the ephemeral pending request; grants, auth codes, and 
 exclusively by the router at finalize/token time. Fewer moving parts, same guarantees; router
 restarts don't lose verified state because Redis holds it.
 
-Bot feedback: on claim success → react ✅ + *"You're signed in to **<App name>**. Return to your
-browser."*; unknown/expired code → ❌ + generic "invalid or expired" (rate-limited, no oracle);
-already-used → ⌛. A **`STOP`** reply within the window flips the request to `denied` (§7.3).
+Claim result taxonomy: `verified`, `already_used`, `expired`, `wrong`, `rate_limited`,
+`mode_mismatch`, `command_mismatch`, `denied`. Bot feedback: on claim success → react ✅ +
+*"You're signed in to **<App name>**. Return to your browser."* plus the §7.3 warning naming the
+app and a `STOP` hint; unknown/expired/wrong/mismatch → ❌ + generic "invalid or expired"
+(rate-limited, no oracle); already-used → ⌛; rate-limited → silent. A **`STOP`** reply within the
+window flips the request to `denied` (§7.3).
 
 ### 5.3 Races / multi-gateway
 
@@ -466,7 +469,9 @@ namespaced `wa_*`.
 
 ### 7.9 Cascades & revocation
 
-Reuses the **control bus**: new channels `ctrl:oidp.app.disabled`, `ctrl:oidp.grant.revoked`.
+Reuses the **control bus**: `ctrl:oidp.app.changed` invalidates each gateway's per-session active
+login-command cache on app create/update/enable/disable/delete; later grant/token cascades use
+`ctrl:oidp.grant.revoked`.
 
 - **App deleted** → soft-delete; revoke all grants + refresh families; open wait-streams dropped;
   outstanding codes/tokens refused.

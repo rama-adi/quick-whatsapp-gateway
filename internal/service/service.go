@@ -10,6 +10,7 @@
 package service
 
 import (
+	"context"
 	"log/slog"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/crypto"
@@ -28,6 +29,7 @@ type Deps struct {
 	Crypto                     *crypto.AESGCM
 	OAuthClientSecretPepper    string
 	WhatsAppAdminCommandPrefix string
+	ControlPublisher           ControlPublisher
 
 	// DefaultRetryDelay / DefaultRetryAttempts seed a webhook's retry policy when
 	// the caller does not specify one (WEBHOOK_RETRIES_* config defaults).
@@ -82,8 +84,12 @@ func New(d Deps) *Services {
 		Admin:     NewAdminService(d.Store, liveOrNilBackfill(live), d.Log),
 		Events:    NewEventsService(d.Store.EventLog, d.Log),
 		Backup:    NewBackupImportService(d.Store, d.Log),
-		OAuthApps: NewOAuthAppService(d.Store, d.OAuthClientSecretPepper, d.WhatsAppAdminCommandPrefix),
+		OAuthApps: NewOAuthAppService(d.Store, d.OAuthClientSecretPepper, d.WhatsAppAdminCommandPrefix, d.ControlPublisher),
 	}
+}
+
+type ControlPublisher interface {
+	Publish(ctx context.Context, channel string, payload any) error
 }
 
 // The liveOrNil* helpers convert a possibly-nil *wa.LiveOps into a typed nil

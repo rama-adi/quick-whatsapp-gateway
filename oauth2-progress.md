@@ -15,7 +15,7 @@ orchestration + reviews = Fable.
 | 3 | Management CRUD (huma ops) + org isolation + secret hashing + `make gen` | B | ✅ done | Router-local `/api/v1/oauth-apps*`; secret shown once. `pnpm docs:openapi` blocked by local Node lacking `--experimental-strip-types`. |
 | 4 | Dashboard OAuth-apps UI | F | ✅ done | `/user/oauth-apps` list + detail (settings/grants/integration tabs), shared form with live `ConsentCard` preview, secret-once modal, group picker with JID fallback, Node quickstart. API gaps handed to M7/M8: grant display fields (`displayName`, `phoneMasked`, `refreshFamilyCount` on `OAuthGrant`), a bulk `revokeAllGrants` op, and surfacing `OIDC_ISSUER` to the client when it differs from the router URL. |
 | 5 | `/oauth/authorize` + pending model + NDJSON wait stream + cancel + consent page | B (endpoints) + F (page) | ✅ done | Consent page merged (22 tests) + router endpoints (`internal/oidp/provider.go`, `pending.go`): authorize validation matrix, two-code mint, NDJSON stream matching the pinned §4.2 contract frame-for-frame, cancel, mint rate limit. Live end-to-end visual pass deferred to M6/M7 integration. |
-| 6 | Inbound `LoginInterceptor` + Redis Lua claim + publish + bot reactions + STOP | B | ⬜ pending | Per-app `login_command`; unconditional interception; `-race` tests on claim. |
+| 6 | Inbound `LoginInterceptor` + Redis Lua claim + publish + bot reactions + STOP | B | ✅ done | Stage-2 interceptor with per-session command cache (`ctrl:oidp.app.changed` invalidation), atomic Lua claim (one winner under `-race`), attempt caps, STOP window, ✅/❌/⌛ feedback. **M9 follow-up:** group mention check requires non-empty mentions + pinned group + membership but can't yet compare against the bot's own JID (self identity not exposed to the inbound hook). |
 | 7 | Finalize + `/oauth/token` (PKCE, refresh rotation + reuse-kill) + userinfo + revoke | B | ⬜ pending | Verified end-to-end with an off-the-shelf OIDC client. |
 | 8 | Grants dashboard + revocation cascades + `ctrl:oidp.*` propagation | F (UI) + B (cascades) | ⬜ pending | |
 | 9 | Hardening (rate limits, stream caps, phishing copy) + `guides/sign-in-with-whatsapp.md` + spec finalization | B + F | ⬜ pending | Final adversarial review of spec §7 before ship. |
@@ -58,3 +58,12 @@ orchestration + reviews = Fable.
   settings/grants/integration tabs, live consent-card preview reusing `ConsentCard`, secret
   copy-once modal, destructive-cascade confirms, workspace nav entry). 48/48 web tests green.
   Backend follow-ups recorded for M7/M8: grant display fields, bulk revoke op, issuer surfacing.
+- **2026-07-08** — Milestone 6 landed: gateway stage-2 `LoginInterceptor` (unconditional
+  command-namespace interception, per-session cache invalidated by new `ctrl:oidp.app.changed`
+  channel published from management CRUD), completed Redis Lua claim (taxonomy: verified /
+  already_used / expired / wrong / rate_limited / mode_mismatch / command_mismatch / denied),
+  attempt caps + STOP denial window, bot reactions/replies with §7.3 phishing warning. Specs
+  (`oauth.md`, `inbound-pipeline.md`) updated in-change. Orchestrator fixed one test that
+  asserted against an accumulated reactions slice (hidden in Codex's no-TCP sandbox); full
+  gates + `-race` green. Follow-up for M9: expose the bot's own JID/LID to the inbound hook so
+  group mode can verify the mention targets the bot specifically.

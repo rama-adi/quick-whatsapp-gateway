@@ -19,6 +19,27 @@ const (
 	PendingStatusExpired   = "expired"
 )
 
+type ClaimStatus string
+
+const (
+	ClaimStatusVerified        ClaimStatus = "verified"
+	ClaimStatusDenied          ClaimStatus = "denied"
+	ClaimStatusExpired         ClaimStatus = "expired"
+	ClaimStatusWrong           ClaimStatus = "wrong"
+	ClaimStatusRateLimited     ClaimStatus = "rate_limited"
+	ClaimStatusAlreadyUsed     ClaimStatus = "already_used"
+	ClaimStatusModeMismatch    ClaimStatus = "mode_mismatch"
+	ClaimStatusCommandMismatch ClaimStatus = "command_mismatch"
+)
+
+type ClaimResult struct {
+	Status      ClaimStatus
+	BrowserCode string
+	ClientID    string
+	AppName     string
+	Attempts    int
+}
+
 type PendingRequest struct {
 	ClientID            string         `json:"client_id"`
 	OrganizationID      string         `json:"organization_id"`
@@ -184,48 +205,157 @@ type ClaimInput struct {
 // ARGV[1]=session_id, ARGV[2]=mode, ARGV[3]=login_command,
 // ARGV[4]=verified_json, ARGV[5]=now_ms, ARGV[6]=request_ttl_ms,
 // ARGV[7]=wrong_attempt_ttl_seconds.
-func (s *PendingStore) ClaimVerified(ctx context.Context, in ClaimInput) (string, error) {
+func (s *PendingStore) ClaimVerified(ctx context.Context, in ClaimInput) (ClaimResult, error) {
 	verified, _ := json.Marshal(VerifiedBlock{
 		LID: in.SenderLID, PhoneJID: in.PhoneJID, PhoneNumber: in.PhoneNumber,
 		PushName: in.PushName, GroupJID: stringPtr(in.GroupJID), VerifiedAt: in.NowMs,
 	})
 	keys := []string{s.userCodeKey(in.SessionID, in.UserCode), s.key("oauth2:rl:verify:" + shaKey(in.SenderLID))}
-	ref, _ := s.redis.Get(ctx, keys[0]).Result()
-	res, err := claimScript.Run(ctx, s.redis, keys, in.SessionID, in.Mode, in.LoginCommand, string(verified), in.NowMs, int64(s.ttl/time.Millisecond), int64(300)).Text()
-	if err == nil && res == PendingStatusVerified {
-		parts := strings.SplitN(ref, ":", 2)
-		if len(parts) == 2 {
-			_ = s.Publish(ctx, parts[1], PendingStatusVerified)
-		}
+	raw, err := claimScript.Run(ctx, s.redis, keys, in.SessionID, in.Mode, strings.ToLower(in.LoginCommand), string(verified), in.NowMs, int64(s.ttl/time.Millisecond), int64(300)).Result()
+	if err != nil {
+		return ClaimResult{}, err
 	}
-	return res, err
+	return decodeClaim(raw)
 }
 
 var claimScript = redis.NewScript(`
 local ref = redis.call("GET", KEYS[1])
-if not ref then return "expired" end
+if not ref then return cjson.encode({status="expired"}) end
+if string.sub(ref, 1, 9) == "__used__:" then
+  local used_ref = string.sub(ref, 10)
+  local used_split = string.find(used_ref, ":")
+  if not used_split then return cjson.encode({status="already_used"}) end
+  return cjson.encode({status="already_used", client_id=string.sub(used_ref, 1, used_split - 1), browser_code=string.sub(used_ref, used_split + 1)})
+end
 local split = string.find(ref, ":")
-if not split then return "expired" end
+if not split then return cjson.encode({status="expired"}) end
 local client_id = string.sub(ref, 1, split - 1)
 local browser_code = string.sub(ref, split + 1)
 local req_key = string.match(KEYS[1], "^(.*oauth2:)usercode:") .. "req:" .. client_id .. ":" .. browser_code
 local raw = redis.call("GET", req_key)
-if not raw then redis.call("DEL", KEYS[1]); return "expired" end
+if not raw then redis.call("DEL", KEYS[1]); return cjson.encode({status="expired", client_id=client_id, browser_code=browser_code}) end
 local req = cjson.decode(raw)
-if req.status ~= "pending" then return req.status end
-if req.session_id ~= ARGV[1] or req.mode ~= ARGV[2] or req.login_command ~= ARGV[3] then return "wrong" end
+local function bump(status)
+  local sender_wrong = redis.call("INCR", KEYS[2])
+  if sender_wrong == 1 then redis.call("EXPIRE", KEYS[2], ARGV[7]) end
+  if sender_wrong > 5 then
+    return cjson.encode({status="rate_limited", client_id=client_id, browser_code=browser_code, app_name=req.app_name or "", attempts=req.attempts or 0})
+  end
+  req.attempts = (req.attempts or 0) + 1
+  if req.attempts >= 10 then
+    req.status = "denied"
+    redis.call("SET", req_key, cjson.encode(req), "PX", ARGV[6])
+    redis.call("DEL", KEYS[1])
+    redis.call("PUBLISH", "oauth2:login:" .. browser_code, "denied")
+    return cjson.encode({status="denied", client_id=client_id, browser_code=browser_code, app_name=req.app_name or "", attempts=req.attempts})
+  end
+  redis.call("SET", req_key, cjson.encode(req), "PX", ARGV[6])
+  return cjson.encode({status=status, client_id=client_id, browser_code=browser_code, app_name=req.app_name or "", attempts=req.attempts})
+end
+if req.status == "verified" or req.status == "finalized" then
+  return cjson.encode({status="already_used", client_id=client_id, browser_code=browser_code, app_name=req.app_name or "", attempts=req.attempts or 0})
+end
+if req.status ~= "pending" then
+  return cjson.encode({status=req.status, client_id=client_id, browser_code=browser_code, app_name=req.app_name or "", attempts=req.attempts or 0})
+end
+if req.session_id ~= ARGV[1] or req.mode ~= ARGV[2] then
+  return bump("mode_mismatch")
+end
+if string.lower(req.login_command or "") ~= ARGV[3] then
+  return bump("command_mismatch")
+end
 req.status = "verified"
 req.verified = cjson.decode(ARGV[4])
 redis.call("SET", req_key, cjson.encode(req), "PX", ARGV[6])
-redis.call("DEL", KEYS[1])
-return "verified"
+redis.call("SET", KEYS[1], "__used__:" .. ref, "PX", 60000)
+redis.call("PUBLISH", "oauth2:login:" .. browser_code, "verified")
+return cjson.encode({status="verified", client_id=client_id, browser_code=browser_code, app_name=req.app_name or "", attempts=req.attempts or 0})
 `)
+
+func (s *PendingStore) ClaimWrongCode(ctx context.Context, sessionID, senderLID string, nowMs int64) (ClaimResult, error) {
+	raw, err := wrongCodeScript.Run(ctx, s.redis, []string{s.key("oauth2:rl:verify:" + shaKey(senderLID))}, sessionID, nowMs, int64(300)).Result()
+	if err != nil {
+		return ClaimResult{}, err
+	}
+	return decodeClaim(raw)
+}
+
+var wrongCodeScript = redis.NewScript(`
+local n = redis.call("INCR", KEYS[1])
+if n == 1 then redis.call("EXPIRE", KEYS[1], ARGV[3]) end
+if n > 5 then return cjson.encode({status="rate_limited", attempts=n}) end
+return cjson.encode({status="wrong", attempts=n})
+`)
+
+func (s *PendingStore) RememberStop(ctx context.Context, senderLID, browserCode string, ttl time.Duration) error {
+	return s.redis.Set(ctx, s.stopKey(senderLID), browserCode, ttl).Err()
+}
+
+func (s *PendingStore) DenyRecentForSender(ctx context.Context, senderLID string) (ClaimResult, error) {
+	key := s.stopKey(senderLID)
+	browserCode, err := s.redis.Get(ctx, key).Result()
+	if err != nil {
+		return ClaimResult{Status: ClaimStatusExpired}, nil
+	}
+	raw, err := stopScript.Run(ctx, s.redis, []string{s.key("oauth2:stop:block:" + shaKey(senderLID+":"+browserCode)), key}, browserCode, int64(300000)).Result()
+	if err != nil {
+		return ClaimResult{}, err
+	}
+	return decodeClaim(raw)
+}
+
+var stopScript = redis.NewScript(`
+local browser_code = ARGV[1]
+local req_key = nil
+local keys = redis.call("KEYS", "*oauth2:req:*:" .. browser_code)
+if #keys ~= 1 then return cjson.encode({status="expired", browser_code=browser_code}) end
+req_key = keys[1]
+local raw = redis.call("GET", req_key)
+if not raw then return cjson.encode({status="expired", browser_code=browser_code}) end
+local req = cjson.decode(raw)
+if req.status ~= "verified" then
+  return cjson.encode({status=req.status, client_id=req.client_id or "", browser_code=browser_code, app_name=req.app_name or "", attempts=req.attempts or 0})
+end
+req.status = "denied"
+redis.call("SET", req_key, cjson.encode(req), "PX", ARGV[2])
+redis.call("DEL", string.match(req_key, "^(.*oauth2:)req:") .. "usercode:" .. req.session_id .. ":" .. req.user_code)
+redis.call("DEL", KEYS[2])
+redis.call("SET", KEYS[1], "1", "PX", ARGV[2])
+redis.call("PUBLISH", "oauth2:login:" .. browser_code, "denied")
+return cjson.encode({status="denied", client_id=req.client_id or "", browser_code=browser_code, app_name=req.app_name or "", attempts=req.attempts or 0})
+`)
+
+func decodeClaim(raw any) (ClaimResult, error) {
+	var b []byte
+	switch v := raw.(type) {
+	case string:
+		b = []byte(v)
+	case []byte:
+		b = v
+	default:
+		b, _ = json.Marshal(v)
+	}
+	var out struct {
+		Status      ClaimStatus `json:"status"`
+		BrowserCode string      `json:"browser_code"`
+		ClientID    string      `json:"client_id"`
+		AppName     string      `json:"app_name"`
+		Attempts    int         `json:"attempts"`
+	}
+	if err := json.Unmarshal(b, &out); err != nil {
+		return ClaimResult{}, err
+	}
+	return ClaimResult(out), nil
+}
 
 func (s *PendingStore) reqKey(clientID, browserCode string) string {
 	return s.key("oauth2:req:" + clientID + ":" + browserCode)
 }
 func (s *PendingStore) userCodeKey(sessionID, userCode string) string {
 	return s.key("oauth2:usercode:" + sessionID + ":" + userCode)
+}
+func (s *PendingStore) stopKey(senderLID string) string {
+	return s.key("oauth2:stop:sender:" + shaKey(senderLID))
 }
 func (s *PendingStore) key(k string) string {
 	if s.prefix == "" {
