@@ -17,7 +17,7 @@ orchestration + reviews = Fable.
 | 5 | `/oauth/authorize` + pending model + NDJSON wait stream + cancel + consent page | B (endpoints) + F (page) | ✅ done | Consent page merged (22 tests) + router endpoints (`internal/oidp/provider.go`, `pending.go`): authorize validation matrix, two-code mint, NDJSON stream matching the pinned §4.2 contract frame-for-frame, cancel, mint rate limit. Live end-to-end visual pass deferred to M6/M7 integration. |
 | 6 | Inbound `LoginInterceptor` + Redis Lua claim + publish + bot reactions + STOP | B | ✅ done | Stage-2 interceptor with per-session command cache (`ctrl:oidp.app.changed` invalidation), atomic Lua claim (one winner under `-race`), attempt caps, STOP window, ✅/❌/⌛ feedback. **M9 follow-up:** group mention check requires non-empty mentions + pinned group + membership but can't yet compare against the bot's own JID (self identity not exposed to the inbound hook). |
 | 7 | Finalize + `/oauth/token` (PKCE, refresh rotation + reuse-kill) + userinfo + revoke | B | ✅ done | Full token surface + M4's API gaps (grant display fields, `grants:revoke-all`, `issuer` on app DTO). Review fixes by orchestrator: §7.6 claim mapping (group claims acr-gated, `wa_jid` added, internal `wa_identity_id` leak removed — Codex follow-up), injectable-clock JWT validation, embedded auth-code expiry stamp, two fake-clock test fixtures. **M8 follow-up: replace `KEYS`-based lookups in the finalize/cancel Lua scripts with a direct browser-code index (O(N) scan on a hot path).** Off-the-shelf OIDC client e2e still owed (M9). |
-| 8 | Grants dashboard + revocation cascades + `ctrl:oidp.*` propagation | F (UI) + B (cascades) | ⬜ pending | |
+| 8 | Grants dashboard + revocation cascades + `ctrl:oidp.*` propagation | F (UI) + B (cascades) | ✅ done | **8-B**: session logout/delete cascade (disable apps → revoke grants + refresh families), `ctrl:oidp.grant.revoked` + router revoked-grant set checked before DB on refresh, wait-stream termination on `ctrl:oidp.app.changed`, and the flagged `KEYS`-scan removed (re-keyed to `oauth2:req:<browser_code>`; spec §3.2/§7.9 updated). **8-F**: grants tab shows `displayName`/`phoneMasked`/`refreshFamilyCount`, server-side `revoke-all`, issuer from app DTO. |
 | 9 | Hardening (rate limits, stream caps, phishing copy) + `guides/sign-in-with-whatsapp.md` + spec finalization | B + F | ⬜ pending | Final adversarial review of spec §7 before ship. |
 
 ## Log
@@ -76,3 +76,11 @@ orchestration + reviews = Fable.
   expiry stamp (belt-and-braces vs Redis TTL), a chi route-context test helper, and fake-clock
   test fixtures. Full gateway + web gates and `-race` green. Flagged for M8: `KEYS`-scan in
   finalize/cancel Lua scripts must become a direct index.
+- **2026-07-08** — Milestone 8 landed (8-B backend + 8-F UI merged). 8-B: session logout/delete
+  cascade through SessionService→OAuthAppService (disable apps, revoke grants + refresh families),
+  `ctrl:oidp.grant.revoked` published on revoke/revoke-all/app-delete, router OIDC control-bus
+  subscriber (revoked-grant TTL set checked before the authoritative DB check on refresh;
+  `ctrl:oidp.app.changed` terminates affected wait-streams), and the hot-path `KEYS` scan removed
+  by re-keying pending requests to `oauth2:req:<browser_code>` (spec §3.2/§7.9 updated in-change).
+  8-F: grants tab consumes `displayName`/`phoneMasked`/`refreshFamilyCount`, server-side
+  `revoke-all`, issuer from the app DTO. Full gateway + web gates and `-race` green.
