@@ -156,6 +156,13 @@ func (r *OAuthGrantRepo) Upsert(ctx context.Context, g domain.OAuthGrant) error 
 	return nil
 }
 
+func (r *OAuthGrantRepo) UpsertAndGet(ctx context.Context, g domain.OAuthGrant) (domain.OAuthGrant, error) {
+	if err := r.Upsert(ctx, g); err != nil {
+		return domain.OAuthGrant{}, err
+	}
+	return r.GetActiveByClientIdentity(ctx, g.OrganizationID, g.ClientID, g.WAIdentityID)
+}
+
 func (r *OAuthGrantRepo) GetByOrg(ctx context.Context, orgID, id string) (domain.OAuthGrant, error) {
 	row := r.db.QueryRowContext(ctx, `SELECT `+oauthGrantCols+` FROM oauth_grants WHERE organization_id = ? AND id = ?`, orgID, id)
 	g, err := scanOAuthGrant(row)
@@ -200,6 +207,15 @@ func (r *OAuthGrantRepo) RevokeByClient(ctx context.Context, orgID, clientID str
 
 func (r *OAuthGrantRepo) GetActiveByClientIdentity(ctx context.Context, orgID, clientID string, identityID uint64) (domain.OAuthGrant, error) {
 	row := r.db.QueryRowContext(ctx, `SELECT `+oauthGrantCols+` FROM oauth_grants WHERE organization_id = ? AND client_id = ? AND wa_identity_id = ? AND revoked_at IS NULL`, orgID, clientID, identityID)
+	g, err := scanOAuthGrant(row)
+	if err != nil {
+		return domain.OAuthGrant{}, notFound(err, "oauth grant")
+	}
+	return g, nil
+}
+
+func (r *OAuthGrantRepo) GetActiveByID(ctx context.Context, id string) (domain.OAuthGrant, error) {
+	row := r.db.QueryRowContext(ctx, `SELECT `+oauthGrantCols+` FROM oauth_grants WHERE id = ? AND revoked_at IS NULL`, id)
 	g, err := scanOAuthGrant(row)
 	if err != nil {
 		return domain.OAuthGrant{}, notFound(err, "oauth grant")
@@ -260,6 +276,23 @@ func (r *OAuthRefreshTokenRepo) RevokeFamily(ctx context.Context, familyID strin
 		return fmt.Errorf("store: revoke oauth refresh token family: %w", err)
 	}
 	return nil
+}
+
+func (r *OAuthRefreshTokenRepo) RevokeTokenHash(ctx context.Context, tokenHash []byte, revokedAt int64) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE oauth_refresh_tokens SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL`, revokedAt, tokenHash)
+	if err != nil {
+		return fmt.Errorf("store: revoke oauth refresh token: %w", err)
+	}
+	return nil
+}
+
+func (r *OAuthRefreshTokenRepo) CountActiveFamiliesByGrant(ctx context.Context, orgID, grantID string) (int, error) {
+	var n int
+	err := r.db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT family_id) FROM oauth_refresh_tokens WHERE organization_id = ? AND grant_id = ? AND revoked_at IS NULL AND expires_at > ?`, orgID, grantID, domain.NowMs()).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("store: count oauth refresh families: %w", err)
+	}
+	return n, nil
 }
 
 func (r *OAuthRefreshTokenRepo) RevokeByGrant(ctx context.Context, orgID, grantID string, revokedAt int64) error {

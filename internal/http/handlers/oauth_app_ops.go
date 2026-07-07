@@ -294,4 +294,20 @@ func RegisterOAuthAppOps(api huma.API, h *Handlers) {
 		}
 		return &emptyOutput{}, nil
 	})
+
+	huma.Register(api, huma.Operation{
+		OperationID: "revokeAllOAuthAppGrants", Method: "POST", Path: "/api/v1/oauth-apps/{id}/grants:revoke-all",
+		Summary:     "Revoke all OAuth application grants",
+		Description: "Revoke all persistent grants for one OAuth application and all refresh tokens issued under them. Access JWTs expire naturally by their short TTL.\n\nRequires `manage` capability. Returns 204 on success.",
+		Tags:        []string{"OAuth Apps"}, DefaultStatus: 204, Middlewares: manage,
+	}, func(ctx context.Context, in *oauthAppIDInput) (*emptyOutput, error) {
+		p, err := humax.Principal(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if err := h.OAuthApps.RevokeAllGrants(ctx, p.OrganizationID, in.ID, p.IsSuperAdmin()); err != nil {
+			return nil, humax.Err(err)
+		}
+		return &emptyOutput{}, nil
+	})
 }

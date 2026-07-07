@@ -16,7 +16,7 @@ orchestration + reviews = Fable.
 | 4 | Dashboard OAuth-apps UI | F | ✅ done | `/user/oauth-apps` list + detail (settings/grants/integration tabs), shared form with live `ConsentCard` preview, secret-once modal, group picker with JID fallback, Node quickstart. API gaps handed to M7/M8: grant display fields (`displayName`, `phoneMasked`, `refreshFamilyCount` on `OAuthGrant`), a bulk `revokeAllGrants` op, and surfacing `OIDC_ISSUER` to the client when it differs from the router URL. |
 | 5 | `/oauth/authorize` + pending model + NDJSON wait stream + cancel + consent page | B (endpoints) + F (page) | ✅ done | Consent page merged (22 tests) + router endpoints (`internal/oidp/provider.go`, `pending.go`): authorize validation matrix, two-code mint, NDJSON stream matching the pinned §4.2 contract frame-for-frame, cancel, mint rate limit. Live end-to-end visual pass deferred to M6/M7 integration. |
 | 6 | Inbound `LoginInterceptor` + Redis Lua claim + publish + bot reactions + STOP | B | ✅ done | Stage-2 interceptor with per-session command cache (`ctrl:oidp.app.changed` invalidation), atomic Lua claim (one winner under `-race`), attempt caps, STOP window, ✅/❌/⌛ feedback. **M9 follow-up:** group mention check requires non-empty mentions + pinned group + membership but can't yet compare against the bot's own JID (self identity not exposed to the inbound hook). |
-| 7 | Finalize + `/oauth/token` (PKCE, refresh rotation + reuse-kill) + userinfo + revoke | B | ⬜ pending | Verified end-to-end with an off-the-shelf OIDC client. |
+| 7 | Finalize + `/oauth/token` (PKCE, refresh rotation + reuse-kill) + userinfo + revoke | B | ✅ done | Full token surface + M4's API gaps (grant display fields, `grants:revoke-all`, `issuer` on app DTO). Review fixes by orchestrator: §7.6 claim mapping (group claims acr-gated, `wa_jid` added, internal `wa_identity_id` leak removed — Codex follow-up), injectable-clock JWT validation, embedded auth-code expiry stamp, two fake-clock test fixtures. **M8 follow-up: replace `KEYS`-based lookups in the finalize/cancel Lua scripts with a direct browser-code index (O(N) scan on a hot path).** Off-the-shelf OIDC client e2e still owed (M9). |
 | 8 | Grants dashboard + revocation cascades + `ctrl:oidp.*` propagation | F (UI) + B (cascades) | ⬜ pending | |
 | 9 | Hardening (rate limits, stream caps, phishing copy) + `guides/sign-in-with-whatsapp.md` + spec finalization | B + F | ⬜ pending | Final adversarial review of spec §7 before ship. |
 
@@ -67,3 +67,12 @@ orchestration + reviews = Fable.
   asserted against an accumulated reactions slice (hidden in Codex's no-TCP sandbox); full
   gates + `-race` green. Follow-up for M9: expose the bot's own JID/LID to the inbound hook so
   group mode can verify the mention targets the bot specifically.
+- **2026-07-08** — Milestone 7 landed: finalize (race-safe verified→finalized, one auth code),
+  `/oauth/token` (auth-code + PKCE matrix, client-auth matrix, refresh rotation with family-kill
+  reuse detection), `/oauth/userinfo`, `/oauth/revoke`, pairwise subs, plus the M4 management-API
+  gaps. Two review rounds: (1) claim-mapping fix — `wa_group_*` claims emitted only for
+  `acr=wa:group`, `wa_jid` under `phone`, internal `wa_identity_id` never exposed; (2)
+  orchestrator fixes for injectable-clock JWT validation (`jwt.WithClock`), embedded auth-code
+  expiry stamp (belt-and-braces vs Redis TTL), a chi route-context test helper, and fake-clock
+  test fixtures. Full gateway + web gates and `-race` green. Flagged for M8: `KEYS`-scan in
+  finalize/cancel Lua scripts must become a direct index.

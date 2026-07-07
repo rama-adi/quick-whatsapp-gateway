@@ -194,6 +194,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/oauth-apps/{id}/grants:revoke-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revoke all OAuth application grants
+         * @description Revoke all persistent grants for one OAuth application and all refresh tokens issued under them. Access JWTs expire naturally by their short TTL.
+         *
+         *     Requires `manage` capability. Returns 204 on success.
+         */
+        post: operations["revokeAllOAuthAppGrants"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/oauth-apps/{id}:disable": {
         parameters: {
             query?: never;
@@ -2932,6 +2954,11 @@ export interface components {
              */
             id: string;
             /**
+             * @description Effective OIDC issuer advertised to relying applications.
+             * @example https://gateway.example.com
+             */
+            issuer: string;
+            /**
              * @description Single-word command users type in WhatsApp before the six-digit code. Lowercase letters, digits, underscore, and hyphen only.
              * @example login
              */
@@ -3048,6 +3075,11 @@ export interface components {
              */
             id: string;
             /**
+             * @description Effective OIDC issuer advertised to relying applications.
+             * @example https://gateway.example.com
+             */
+            issuer: string;
+            /**
              * @description Single-word command users type in WhatsApp before the six-digit code. Lowercase letters, digits, underscore, and hyphen only.
              * @example login
              */
@@ -3129,6 +3161,11 @@ export interface components {
              */
             createdAt: number;
             /**
+             * @description Display name resolved from whatsapp_identities at read time.
+             * @example Alice
+             */
+            displayName: string;
+            /**
              * @description Scopes consented for this WhatsApp identity.
              * @example [
              *       "openid",
@@ -3158,6 +3195,17 @@ export interface components {
              * @example 1719662400000
              */
             lastUsedAt: number;
+            /**
+             * @description Masked WhatsApp phone number for dashboard display.
+             * @example +62******7890
+             */
+            phoneMasked: string;
+            /**
+             * Format: int64
+             * @description Number of active refresh-token families for this grant.
+             * @example 1
+             */
+            refreshFamilyCount: number;
             /**
              * Format: int64
              * @description Revocation time in epoch milliseconds. Omitted for active grants.
@@ -4288,6 +4336,36 @@ export interface operations {
                 id: string;
                 /** @description OAuth grant id owned by the application. */
                 grantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    revokeAllOAuthAppGrants: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description OAuth application id. Unknown or cross-organization ids return not_found unless the caller is super_admin. */
+                id: string;
             };
             cookie?: never;
         };

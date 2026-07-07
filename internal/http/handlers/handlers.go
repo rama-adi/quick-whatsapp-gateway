@@ -140,6 +140,7 @@ type OAuthAppSvc interface {
 	SetEnabled(ctx context.Context, organizationID, id string, isSuperAdmin bool, enabled bool) (apitypes.OAuthApp, error)
 	ListGrants(ctx context.Context, organizationID, appID string, isSuperAdmin bool, cursor string, limit int) (store.Page[apitypes.OAuthGrant], error)
 	RevokeGrant(ctx context.Context, organizationID, appID, grantID string, isSuperAdmin bool) error
+	RevokeAllGrants(ctx context.Context, organizationID, appID string, isSuperAdmin bool) error
 }
 
 // Compile-time proof that the concrete services satisfy the handler interfaces.

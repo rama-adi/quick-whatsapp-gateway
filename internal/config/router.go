@@ -42,6 +42,7 @@ type RouterConfig struct {
 	// OIDC provider.
 	OIDCIssuer              string // OIDC_ISSUER: defaults to ROUTER_PUBLIC_URL
 	OIDCKeyEncKey           string // OIDC_KEY_ENC_KEY: base64/raw 32-byte AES-GCM key
+	OIDCPairwiseSalt        string // OIDC_PAIRWISE_SALT: HMAC key for pairwise subjects
 	OAuthClientSecretPepper string // OAUTH_CLIENT_SECRET_PEPPER: pepper for SHA-256(client_secret+pepper)
 	WhatsAppAdminCmdPrefix  string // WHATSAPP_ADMIN_CMD_PREFIX: reserved command namespace prefix
 	WebLoginURL             string // WEB_LOGIN_URL: public consent page URL
@@ -71,6 +72,7 @@ func LoadRouter() (*RouterConfig, error) {
 		RedisPrefix:             getString("REDIS_PREFIX", "gw"),
 		OIDCIssuer:              getString("OIDC_ISSUER", ""),
 		OIDCKeyEncKey:           getString("OIDC_KEY_ENC_KEY", ""),
+		OIDCPairwiseSalt:        getString("OIDC_PAIRWISE_SALT", ""),
 		OAuthClientSecretPepper: getString("OAUTH_CLIENT_SECRET_PEPPER", ""),
 		WhatsAppAdminCmdPrefix:  getString("WHATSAPP_ADMIN_CMD_PREFIX", "am"),
 		WebLoginURL:             getString("WEB_LOGIN_URL", ""),
@@ -121,6 +123,9 @@ func (c *RouterConfig) Validate() error {
 	}
 	if c.OIDCKeyEncKey == "" {
 		return fmt.Errorf("config: OIDC_KEY_ENC_KEY is required for OIDC signing keys")
+	}
+	if c.OIDCPairwiseSalt == "" {
+		return fmt.Errorf("config: OIDC_PAIRWISE_SALT is required")
 	}
 	if c.OAuthClientSecretPepper == "" {
 		return fmt.Errorf("config: OAUTH_CLIENT_SECRET_PEPPER is required for OAuth client secret hashing")

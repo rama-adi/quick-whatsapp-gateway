@@ -2,8 +2,11 @@ package oidp
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -86,6 +89,19 @@ type PendingStore struct {
 	ttl    time.Duration
 }
 
+type AuthCode struct {
+	GrantID             string   `json:"grant_id"`
+	ClientID            string   `json:"client_id"`
+	RedirectURI         string   `json:"redirect_uri"`
+	Scopes              []string `json:"scopes"`
+	Nonce               string   `json:"nonce,omitempty"`
+	CodeChallenge       string   `json:"code_challenge"`
+	CodeChallengeMethod string   `json:"code_challenge_method"`
+	ACR                 string   `json:"acr"`
+	AuthTime            int64    `json:"auth_time"`
+	ExpiresAtMS         int64    `json:"expires_at_ms,omitempty"`
+}
+
 func NewPendingStore(rdb *redis.Client, prefix string, ttl time.Duration) *PendingStore {
 	return &PendingStore{redis: rdb, prefix: strings.TrimSuffix(prefix, ":"), ttl: ttl}
 }
@@ -164,6 +180,62 @@ func (s *PendingStore) Expire(ctx context.Context, browserCode string) (bool, er
 	}
 	_ = s.redis.Del(ctx, s.userCodeKey(p.SessionID, p.UserCode)).Err()
 	return true, s.Publish(ctx, browserCode, PendingStatusExpired)
+}
+
+func (s *PendingStore) Finalize(ctx context.Context, browserCode string) (PendingRequest, bool, error) {
+	raw, err := finalizeScript.Run(ctx, s.redis, []string{s.key("oauth2:finalize:lock:" + shaKey(browserCode))}, browserCode, int64(time.Minute/time.Millisecond)).Text()
+	if err != nil {
+		return PendingRequest{}, false, err
+	}
+	var out struct {
+		OK      bool           `json:"ok"`
+		Request PendingRequest `json:"request"`
+	}
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return PendingRequest{}, false, err
+	}
+	return out.Request, out.OK, nil
+}
+
+var finalizeScript = redis.NewScript(`
+local browser_code = ARGV[1]
+local keys = redis.call("KEYS", "*oauth2:req:*:" .. browser_code)
+if #keys ~= 1 then return cjson.encode({ok=false}) end
+local raw = redis.call("GET", keys[1])
+if not raw then return cjson.encode({ok=false}) end
+local req = cjson.decode(raw)
+if req.status ~= "verified" then return cjson.encode({ok=false, request=req}) end
+req.status = "finalized"
+redis.call("SET", keys[1], cjson.encode(req), "PX", ARGV[2])
+return cjson.encode({ok=true, request=req})
+`)
+
+func (s *PendingStore) StoreAuthCode(ctx context.Context, code string, payload AuthCode, ttl time.Duration) error {
+	// Belt-and-braces: the Redis TTL is the primary expiry; the embedded stamp
+	// guards redemption if the key outlives it (e.g. clock-frozen test stores).
+	payload.ExpiresAtMS = time.Now().Add(ttl).UnixMilli()
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	return s.redis.Set(ctx, s.authCodeKey(code), raw, ttl).Err()
+}
+
+var errAuthCodeExpired = errors.New("authorization code expired")
+
+func (s *PendingStore) RedeemAuthCode(ctx context.Context, code string) (AuthCode, error) {
+	raw, err := s.redis.GetDel(ctx, s.authCodeKey(code)).Bytes()
+	if err != nil {
+		return AuthCode{}, err
+	}
+	var payload AuthCode
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return AuthCode{}, err
+	}
+	if payload.ExpiresAtMS != 0 && time.Now().UnixMilli() > payload.ExpiresAtMS {
+		return AuthCode{}, errAuthCodeExpired
+	}
+	return payload, nil
 }
 
 func (s *PendingStore) Publish(ctx context.Context, browserCode, status string) error {
@@ -354,6 +426,9 @@ func (s *PendingStore) reqKey(clientID, browserCode string) string {
 func (s *PendingStore) userCodeKey(sessionID, userCode string) string {
 	return s.key("oauth2:usercode:" + sessionID + ":" + userCode)
 }
+func (s *PendingStore) authCodeKey(code string) string {
+	return s.key("oauth2:authcode:" + shaKey(code))
+}
 func (s *PendingStore) stopKey(senderLID string) string {
 	return s.key("oauth2:stop:sender:" + shaKey(senderLID))
 }
@@ -373,4 +448,12 @@ func stringPtr(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+func randomURLToken(bytes int) (string, error) {
+	b := make([]byte, bytes)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
 }

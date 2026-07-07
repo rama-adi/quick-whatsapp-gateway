@@ -106,6 +106,7 @@ func run() error {
 	services := service.New(service.Deps{
 		Store:                      st,
 		OAuthClientSecretPepper:    cfg.OAuthClientSecretPepper,
+		OIDCIssuer:                 cfg.OIDCIssuer,
 		WhatsAppAdminCommandPrefix: cfg.WhatsAppAdminCmdPrefix,
 		Log:                        log,
 	})
@@ -131,12 +132,20 @@ func run() error {
 	if rdb != nil {
 		requestTTL := time.Duration(cfg.OIDCRequestTTLSeconds) * time.Second
 		oidpProvider = oidp.NewProvider(oidp.ProviderConfig{
-			Clients:     st.OAuthClients,
-			Sessions:    st.Sessions,
-			Groups:      st.Groups,
-			Pending:     oidp.NewPendingStore(rdb, cfg.RedisPrefix, requestTTL),
-			WebLoginURL: cfg.WebLoginURL,
-			RequestTTL:  requestTTL,
+			Clients:      st.OAuthClients,
+			Sessions:     st.Sessions,
+			Groups:       st.Groups,
+			Identities:   st.Identities,
+			Grants:       st.OAuthGrants,
+			Refresh:      st.OAuthRefresh,
+			Signer:       oidpSigner,
+			Pending:      oidp.NewPendingStore(rdb, cfg.RedisPrefix, requestTTL),
+			WebLoginURL:  cfg.WebLoginURL,
+			Issuer:       cfg.OIDCIssuer,
+			SecretPepper: cfg.OAuthClientSecretPepper,
+			PairwiseSalt: cfg.OIDCPairwiseSalt,
+			RequestTTL:   requestTTL,
+			AuthCodeTTL:  time.Duration(cfg.OIDCAuthCodeTTLSeconds) * time.Second,
 		})
 	}
 

@@ -20,7 +20,7 @@ func newOAuthAppServiceTest(t *testing.T) (*OAuthAppService, sqlmock.Sqlmock, fu
 		t.Fatal(err)
 	}
 	st := store.New(db)
-	return NewOAuthAppService(st, testPepper, "am", nil), mock, func() { _ = db.Close() }
+	return NewOAuthAppService(st, testPepper, "am", "https://issuer.test", nil), mock, func() { _ = db.Close() }
 }
 
 func expectOAuthSession(mock sqlmock.Sqlmock, id, org string) {

@@ -28,6 +28,7 @@ type Deps struct {
 	Sender                     *outbound.Sender
 	Crypto                     *crypto.AESGCM
 	OAuthClientSecretPepper    string
+	OIDCIssuer                 string
 	WhatsAppAdminCommandPrefix string
 	ControlPublisher           ControlPublisher
 
@@ -84,7 +85,7 @@ func New(d Deps) *Services {
 		Admin:     NewAdminService(d.Store, liveOrNilBackfill(live), d.Log),
 		Events:    NewEventsService(d.Store.EventLog, d.Log),
 		Backup:    NewBackupImportService(d.Store, d.Log),
-		OAuthApps: NewOAuthAppService(d.Store, d.OAuthClientSecretPepper, d.WhatsAppAdminCommandPrefix, d.ControlPublisher),
+		OAuthApps: NewOAuthAppService(d.Store, d.OAuthClientSecretPepper, d.WhatsAppAdminCommandPrefix, d.OIDCIssuer, d.ControlPublisher),
 	}
 }
 

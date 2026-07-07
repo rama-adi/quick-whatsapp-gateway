@@ -39,6 +39,7 @@ type OAuthApp struct {
 	TokenTTLSeconds   int             `json:"tokenTtlSeconds" doc:"Access-token and id-token lifetime in seconds." example:"900"`
 	RefreshTTLSeconds int             `json:"refreshTtlSeconds" doc:"Refresh-token family maximum lifetime in seconds." example:"2592000"`
 	Status            OAuthAppStatus  `json:"status" enum:"active,disabled" doc:"Whether new authorizations and token grants are accepted." example:"active"`
+	Issuer            string          `json:"issuer" doc:"Effective OIDC issuer advertised to relying applications." example:"https://gateway.example.com"`
 	CreatedAt         int64           `json:"createdAt" doc:"Creation time in epoch milliseconds." example:"1719662400000"`
 	UpdatedAt         int64           `json:"updatedAt" doc:"Last update time in epoch milliseconds." example:"1719662400000"`
 }
@@ -49,14 +50,17 @@ type OAuthAppWithSecret struct {
 }
 
 type OAuthGrant struct {
-	ID            string   `json:"id" doc:"Grant id." example:"ogr_01J9ZX8K2QHV0M3T6R7P4N5W8C"`
-	ClientID      string   `json:"clientId" doc:"OAuth client_id this grant belongs to." example:"wa_01J9ZX8K2QHV0M3T6R7P4N5W8C"`
-	WAIdentityID  uint64   `json:"waIdentityId" doc:"Internal WhatsApp identity row id." example:"1024"`
-	Sub           string   `json:"sub" doc:"Pairwise subject issued to this client." example:"0Y0ONy3bczQk4e0SWO5wYywy7Egu5bBt2ukjBZIjtpc"`
-	GrantedScopes []string `json:"grantedScopes" doc:"Scopes consented for this WhatsApp identity." example:"[\"openid\",\"profile\"]"`
-	LastACR       string   `json:"lastAcr" enum:"wa:dm,wa:group" doc:"Last authentication context used for this grant." example:"wa:dm"`
-	LastGroupJID  *string  `json:"lastGroupJid,omitempty" doc:"Group JID proven on the last group-mode login, when applicable." example:"120363025000000000@g.us"`
-	CreatedAt     int64    `json:"createdAt" doc:"Grant creation time in epoch milliseconds." example:"1719662400000"`
-	LastUsedAt    int64    `json:"lastUsedAt" doc:"Last successful use time in epoch milliseconds." example:"1719662400000"`
-	RevokedAt     *int64   `json:"revokedAt,omitempty" doc:"Revocation time in epoch milliseconds. Omitted for active grants." example:"1719662400000"`
+	ID                 string   `json:"id" doc:"Grant id." example:"ogr_01J9ZX8K2QHV0M3T6R7P4N5W8C"`
+	ClientID           string   `json:"clientId" doc:"OAuth client_id this grant belongs to." example:"wa_01J9ZX8K2QHV0M3T6R7P4N5W8C"`
+	WAIdentityID       uint64   `json:"waIdentityId" doc:"Internal WhatsApp identity row id." example:"1024"`
+	Sub                string   `json:"sub" doc:"Pairwise subject issued to this client." example:"0Y0ONy3bczQk4e0SWO5wYywy7Egu5bBt2ukjBZIjtpc"`
+	DisplayName        string   `json:"displayName" doc:"Display name resolved from whatsapp_identities at read time." example:"Alice"`
+	PhoneMasked        string   `json:"phoneMasked" doc:"Masked WhatsApp phone number for dashboard display." example:"+62******7890"`
+	RefreshFamilyCount int      `json:"refreshFamilyCount" doc:"Number of active refresh-token families for this grant." example:"1"`
+	GrantedScopes      []string `json:"grantedScopes" doc:"Scopes consented for this WhatsApp identity." example:"[\"openid\",\"profile\"]"`
+	LastACR            string   `json:"lastAcr" enum:"wa:dm,wa:group" doc:"Last authentication context used for this grant." example:"wa:dm"`
+	LastGroupJID       *string  `json:"lastGroupJid,omitempty" doc:"Group JID proven on the last group-mode login, when applicable." example:"120363025000000000@g.us"`
+	CreatedAt          int64    `json:"createdAt" doc:"Grant creation time in epoch milliseconds." example:"1719662400000"`
+	LastUsedAt         int64    `json:"lastUsedAt" doc:"Last successful use time in epoch milliseconds." example:"1719662400000"`
+	RevokedAt          *int64   `json:"revokedAt,omitempty" doc:"Revocation time in epoch milliseconds. Omitted for active grants." example:"1719662400000"`
 }

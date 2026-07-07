@@ -32,13 +32,15 @@ type OAuthAppService struct {
 	clients      *store.OAuthClientRepo
 	grants       *store.OAuthGrantRepo
 	refresh      *store.OAuthRefreshTokenRepo
+	identities   *store.IdentityRepo
 	sessions     *store.SessionRepo
 	publisher    ControlPublisher
 	secretPepper string
 	adminPrefix  string
+	issuer       string
 }
 
-func NewOAuthAppService(st *store.Store, secretPepper, adminPrefix string, publisher ControlPublisher) *OAuthAppService {
+func NewOAuthAppService(st *store.Store, secretPepper, adminPrefix, issuer string, publisher ControlPublisher) *OAuthAppService {
 	if secretPepper == "" {
 		secretPepper = os.Getenv("OAUTH_CLIENT_SECRET_PEPPER")
 	}
@@ -49,10 +51,12 @@ func NewOAuthAppService(st *store.Store, secretPepper, adminPrefix string, publi
 		clients:      st.OAuthClients,
 		grants:       st.OAuthGrants,
 		refresh:      st.OAuthRefresh,
+		identities:   st.Identities,
 		sessions:     st.Sessions,
 		publisher:    publisher,
 		secretPepper: secretPepper,
 		adminPrefix:  strings.ToLower(adminPrefix),
+		issuer:       strings.TrimRight(issuer, "/"),
 	}
 }
 
@@ -94,7 +98,7 @@ func (s *OAuthAppService) List(ctx context.Context, org string, isSuperAdmin boo
 	if err != nil {
 		return store.Page[apitypes.OAuthApp]{}, err
 	}
-	items, err := mapOAuthClients(page.Items)
+	items, err := s.mapOAuthClients(page.Items)
 	if err != nil {
 		return store.Page[apitypes.OAuthApp]{}, err
 	}
@@ -157,7 +161,7 @@ func (s *OAuthAppService) Create(ctx context.Context, org string, in OAuthAppCre
 		return apitypes.OAuthAppWithSecret{}, err
 	}
 	s.publishAppChanged(ctx, c.SessionID)
-	dto, err := mapOAuthClient(c)
+	dto, err := s.mapOAuthClient(c)
 	if err != nil {
 		return apitypes.OAuthAppWithSecret{}, err
 	}
@@ -169,7 +173,7 @@ func (s *OAuthAppService) Get(ctx context.Context, org, id string, isSuperAdmin 
 	if err != nil {
 		return apitypes.OAuthApp{}, err
 	}
-	return mapOAuthClient(c)
+	return s.mapOAuthClient(c)
 }
 
 func (s *OAuthAppService) Update(ctx context.Context, org, id string, isSuperAdmin bool, in OAuthAppUpdateInput) (apitypes.OAuthApp, error) {
@@ -239,7 +243,7 @@ func (s *OAuthAppService) Update(ctx context.Context, org, id string, isSuperAdm
 		return apitypes.OAuthApp{}, err
 	}
 	s.publishAppChanged(ctx, c.SessionID)
-	return mapOAuthClient(c)
+	return s.mapOAuthClient(c)
 }
 
 func (s *OAuthAppService) RotateSecret(ctx context.Context, org, id string, isSuperAdmin bool) (apitypes.OAuthAppWithSecret, error) {
@@ -262,7 +266,7 @@ func (s *OAuthAppService) RotateSecret(ctx context.Context, org, id string, isSu
 		return apitypes.OAuthAppWithSecret{}, err
 	}
 	s.publishAppChanged(ctx, c.SessionID)
-	dto, err := mapOAuthClient(c)
+	dto, err := s.mapOAuthClient(c)
 	if err != nil {
 		return apitypes.OAuthAppWithSecret{}, err
 	}
@@ -303,7 +307,7 @@ func (s *OAuthAppService) SetEnabled(ctx context.Context, org, id string, isSupe
 		return apitypes.OAuthApp{}, err
 	}
 	s.publishAppChanged(ctx, c.SessionID)
-	return mapOAuthClient(c)
+	return s.mapOAuthClient(c)
 }
 
 func (s *OAuthAppService) ListGrants(ctx context.Context, org, appID string, isSuperAdmin bool, cursor string, limit int) (store.Page[apitypes.OAuthGrant], error) {
@@ -315,7 +319,7 @@ func (s *OAuthAppService) ListGrants(ctx context.Context, org, appID string, isS
 	if err != nil {
 		return store.Page[apitypes.OAuthGrant]{}, err
 	}
-	items, err := mapOAuthGrants(page.Items)
+	items, err := s.mapOAuthGrants(ctx, page.Items)
 	if err != nil {
 		return store.Page[apitypes.OAuthGrant]{}, err
 	}
@@ -339,6 +343,18 @@ func (s *OAuthAppService) RevokeGrant(ctx context.Context, org, appID, grantID s
 		return err
 	}
 	return s.grants.Revoke(ctx, c.OrganizationID, grantID, now)
+}
+
+func (s *OAuthAppService) RevokeAllGrants(ctx context.Context, org, appID string, isSuperAdmin bool) error {
+	c, err := s.getClient(ctx, org, appID, isSuperAdmin)
+	if err != nil {
+		return err
+	}
+	now := domain.NowMs()
+	if err := s.refresh.RevokeByClient(ctx, c.OrganizationID, c.ClientID, now); err != nil {
+		return err
+	}
+	return s.grants.RevokeByClient(ctx, c.OrganizationID, c.ClientID, now)
 }
 
 func (s *OAuthAppService) getClient(ctx context.Context, org, id string, isSuperAdmin bool) (domain.OAuthClient, error) {
@@ -496,10 +512,10 @@ func stringSliceFromRaw(raw json.RawMessage) ([]string, error) {
 	return out, nil
 }
 
-func mapOAuthClients(in []domain.OAuthClient) ([]apitypes.OAuthApp, error) {
+func (s *OAuthAppService) mapOAuthClients(in []domain.OAuthClient) ([]apitypes.OAuthApp, error) {
 	out := make([]apitypes.OAuthApp, 0, len(in))
 	for _, c := range in {
-		dto, err := mapOAuthClient(c)
+		dto, err := s.mapOAuthClient(c)
 		if err != nil {
 			return nil, err
 		}
@@ -508,7 +524,7 @@ func mapOAuthClients(in []domain.OAuthClient) ([]apitypes.OAuthApp, error) {
 	return out, nil
 }
 
-func mapOAuthClient(c domain.OAuthClient) (apitypes.OAuthApp, error) {
+func (s *OAuthAppService) mapOAuthClient(c domain.OAuthClient) (apitypes.OAuthApp, error) {
 	redirects, err := stringSliceFromRaw(c.RedirectURIs)
 	if err != nil {
 		return apitypes.OAuthApp{}, err
@@ -542,32 +558,60 @@ func mapOAuthClient(c domain.OAuthClient) (apitypes.OAuthApp, error) {
 		TokenTTLSeconds:   c.TokenTTLSeconds,
 		RefreshTTLSeconds: c.RefreshTTLSeconds,
 		Status:            apitypes.OAuthAppStatus(c.Status),
+		Issuer:            s.issuer,
 		CreatedAt:         c.CreatedAt,
 		UpdatedAt:         c.UpdatedAt,
 	}, nil
 }
 
-func mapOAuthGrants(in []domain.OAuthGrant) ([]apitypes.OAuthGrant, error) {
+func (s *OAuthAppService) mapOAuthGrants(ctx context.Context, in []domain.OAuthGrant) ([]apitypes.OAuthGrant, error) {
 	out := make([]apitypes.OAuthGrant, 0, len(in))
 	for _, g := range in {
 		scopes, err := stringSliceFromRaw(g.GrantedScopes)
 		if err != nil {
 			return nil, err
 		}
+		ident, _ := s.identities.GetByID(ctx, g.WAIdentityID)
+		display := firstNonEmptyPtr(ident.Name, ident.BusinessName, ident.PhoneNumber)
+		phone := ""
+		if ident.PhoneNumber != nil {
+			phone = maskPhone(*ident.PhoneNumber)
+		}
+		families, _ := s.refresh.CountActiveFamiliesByGrant(ctx, g.OrganizationID, g.ID)
 		out = append(out, apitypes.OAuthGrant{
-			ID:            g.ID,
-			ClientID:      g.ClientID,
-			WAIdentityID:  g.WAIdentityID,
-			Sub:           g.Sub,
-			GrantedScopes: scopes,
-			LastACR:       g.LastACR,
-			LastGroupJID:  g.LastGroupJID,
-			CreatedAt:     g.CreatedAt,
-			LastUsedAt:    g.LastUsedAt,
-			RevokedAt:     g.RevokedAt,
+			ID:                 g.ID,
+			ClientID:           g.ClientID,
+			WAIdentityID:       g.WAIdentityID,
+			Sub:                g.Sub,
+			DisplayName:        display,
+			PhoneMasked:        phone,
+			RefreshFamilyCount: families,
+			GrantedScopes:      scopes,
+			LastACR:            g.LastACR,
+			LastGroupJID:       g.LastGroupJID,
+			CreatedAt:          g.CreatedAt,
+			LastUsedAt:         g.LastUsedAt,
+			RevokedAt:          g.RevokedAt,
 		})
 	}
 	return out, nil
+}
+
+func firstNonEmptyPtr(values ...*string) string {
+	for _, v := range values {
+		if v != nil && *v != "" {
+			return *v
+		}
+	}
+	return ""
+}
+
+func maskPhone(v string) string {
+	digits := strings.TrimPrefix(strings.TrimSpace(v), "+")
+	if len(digits) <= 4 {
+		return "+" + digits
+	}
+	return "+" + digits[:2] + "******" + digits[len(digits)-4:]
 }
 
 func randomSecret() (string, error) {

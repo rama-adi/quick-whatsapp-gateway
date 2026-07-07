@@ -253,6 +253,7 @@ func (s *Server) handleOIDCDiscovery(w http.ResponseWriter, _ *http.Request) {
 		"subject_types_supported":               []string{"pairwise"},
 		"acr_values_supported":                  []string{"wa:dm", "wa:group"},
 		"scopes_supported":                      []string{"openid", "profile", "phone", "wa:group", "offline_access"},
+		"claims_supported":                      []string{"sub", "acr", "amr", "auth_time", "name", "phone_number", "phone_number_verified", "wa_jid", "wa_group_verified", "wa_group_id", "wa_group_name"},
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "public, max-age=300")

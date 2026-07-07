@@ -1974,6 +1974,11 @@ components:
           examples:
             - oac_01J9ZX8K2QHV0M3T6R7P4N5W8C
           type: string
+        issuer:
+          description: Effective OIDC issuer advertised to relying applications.
+          examples:
+            - https://gateway.example.com
+          type: string
         loginCommand:
           description: Single-word command users type in WhatsApp before the six-digit code. Lowercase letters, digits, underscore, and hyphen only.
           examples:
@@ -2065,6 +2070,7 @@ components:
         - tokenTtlSeconds
         - refreshTtlSeconds
         - status
+        - issuer
         - createdAt
         - updatedAt
       type: object
@@ -2121,6 +2127,11 @@ components:
           examples:
             - oac_01J9ZX8K2QHV0M3T6R7P4N5W8C
           type: string
+        issuer:
+          description: Effective OIDC issuer advertised to relying applications.
+          examples:
+            - https://gateway.example.com
+          type: string
         loginCommand:
           description: Single-word command users type in WhatsApp before the six-digit code. Lowercase letters, digits, underscore, and hyphen only.
           examples:
@@ -2212,6 +2223,7 @@ components:
         - tokenTtlSeconds
         - refreshTtlSeconds
         - status
+        - issuer
         - createdAt
         - updatedAt
       type: object
@@ -2229,6 +2241,11 @@ components:
             - 1719662400000
           format: int64
           type: integer
+        displayName:
+          description: Display name resolved from whatsapp_identities at read time.
+          examples:
+            - Alice
+          type: string
         grantedScopes:
           description: Scopes consented for this WhatsApp identity.
           examples:
@@ -2263,6 +2280,17 @@ components:
             - 1719662400000
           format: int64
           type: integer
+        phoneMasked:
+          description: Masked WhatsApp phone number for dashboard display.
+          examples:
+            - +62******7890
+          type: string
+        refreshFamilyCount:
+          description: Number of active refresh-token families for this grant.
+          examples:
+            - 1
+          format: int64
+          type: integer
         revokedAt:
           description: Revocation time in epoch milliseconds. Omitted for active grants.
           examples:
@@ -2286,6 +2314,9 @@ components:
         - clientId
         - waIdentityId
         - sub
+        - displayName
+        - phoneMasked
+        - refreshFamilyCount
         - grantedScopes
         - lastAcr
         - createdAt
@@ -3774,6 +3805,35 @@ paths:
                 $ref: "#/components/schemas/ApiError"
           description: Error
       summary: Revoke an OAuth application grant
+      tags:
+        - OAuth Apps
+  /api/v1/oauth-apps/{id}/grants:revoke-all:
+    post:
+      description: |-
+        Revoke all persistent grants for one OAuth application and all refresh tokens issued under them. Access JWTs expire naturally by their short TTL.
+
+        Requires `manage` capability. Returns 204 on success.
+      operationId: revokeAllOAuthAppGrants
+      parameters:
+        - description: OAuth application id. Unknown or cross-organization ids return not_found unless the caller is super_admin.
+          in: path
+          name: id
+          required: true
+          schema:
+            description: OAuth application id. Unknown or cross-organization ids return not_found unless the caller is super_admin.
+            examples:
+              - oac_01J9ZX8K2QHV0M3T6R7P4N5W8C
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Revoke all OAuth application grants
       tags:
         - OAuth Apps
   /api/v1/oauth-apps/{id}:disable:
