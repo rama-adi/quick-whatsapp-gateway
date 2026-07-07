@@ -18,7 +18,7 @@ orchestration + reviews = Fable.
 | 6 | Inbound `LoginInterceptor` + Redis Lua claim + publish + bot reactions + STOP | B | ✅ done | Stage-2 interceptor with per-session command cache (`ctrl:oidp.app.changed` invalidation), atomic Lua claim (one winner under `-race`), attempt caps, STOP window, ✅/❌/⌛ feedback. **M9 follow-up:** group mention check requires non-empty mentions + pinned group + membership but can't yet compare against the bot's own JID (self identity not exposed to the inbound hook). |
 | 7 | Finalize + `/oauth/token` (PKCE, refresh rotation + reuse-kill) + userinfo + revoke | B | ✅ done | Full token surface + M4's API gaps (grant display fields, `grants:revoke-all`, `issuer` on app DTO). Review fixes by orchestrator: §7.6 claim mapping (group claims acr-gated, `wa_jid` added, internal `wa_identity_id` leak removed — Codex follow-up), injectable-clock JWT validation, embedded auth-code expiry stamp, two fake-clock test fixtures. **M8 follow-up: replace `KEYS`-based lookups in the finalize/cancel Lua scripts with a direct browser-code index (O(N) scan on a hot path).** Off-the-shelf OIDC client e2e still owed (M9). |
 | 8 | Grants dashboard + revocation cascades + `ctrl:oidp.*` propagation | F (UI) + B (cascades) | ✅ done | **8-B**: session logout/delete cascade (disable apps → revoke grants + refresh families), `ctrl:oidp.grant.revoked` + router revoked-grant set checked before DB on refresh, wait-stream termination on `ctrl:oidp.app.changed`, and the flagged `KEYS`-scan removed (re-keyed to `oauth2:req:<browser_code>`; spec §3.2/§7.9 updated). **8-F**: grants tab shows `displayName`/`phoneMasked`/`refreshFamilyCount`, server-side `revoke-all`, issuer from app DTO. |
-| 9 | Hardening (rate limits, stream caps, phishing copy) + `guides/sign-in-with-whatsapp.md` + spec finalization | B + F | 🔶 impl done, security review running | **9-B**: bot-JID-specific group-mention check (self JID/LID threaded to interceptor), plain-PKCE rejected at token time, stream per-IP(30)/per-code(3) caps + generic 404, full OIDC e2e test (authorize→claim→finalize→token→JWKS-verify→userinfo→replay-fail). **9-F**: `guides/sign-in-with-whatsapp.mdx` integration guide (openid-client walkthrough). Orchestrator fix: injectable clock on `PendingStore` (Load/auth-code expiry used wall clock while authorize stamped a frozen clock — broke the e2e). Independent adversarial §7 review in progress before merge. |
+| 9 | Hardening + `guides/sign-in-with-whatsapp.md` + spec finalization + security review | B + F | ✅ done | **9-B**: bot-JID-specific group-mention check, plain-PKCE rejected at token time, stream per-IP(30)/per-code(3) caps + generic 404, OIDC e2e test. **9-F**: integration guide. **Independent adversarial §7 review** (core protocol enforced) → 8 findings remediated: atomic refresh rotation (`SELECT FOR UPDATE`), idempotent finalize, atomic user-code mint (SET NX), user-code TTL non-extension (PXAT), XFF-aware stream cap (`OIDC_TRUST_PROXY`), acr_values exact-token match, userinfo `typ==access`, transactional key promotion, + `invalid_scope` on refresh widening. 3 findings documented as by-design. All gates + `-race` green. |
 
 ## Log
 
@@ -105,3 +105,14 @@ orchestration + reviews = Fable.
   / threat matrix updated in-change): app-disable = reversible pause not emergency invalidation
   (use delete/revoke to kill tokens); group membership asserted as-of-cache; management DTO
   exposes the owner's own identity ids. Full review report retained in scratchpad.
+- **2026-07-08** — Security-review remediation landed; **milestone 9 and the OAuth2/OIDC provider
+  are complete**. Fixed all 8 actionable review findings (atomic transactional refresh rotation,
+  idempotent finalize with the auth code stored in the finalize transition, atomic SET-NX
+  user-code mint, user-code TTL never extended past original expiry, opt-in `OIDC_TRUST_PROXY`
+  for the per-IP stream cap, exact-token acr_values, userinfo `typ==access` enforcement,
+  transactional signing-key promotion, and `invalid_scope` on refresh scope-widening). Three
+  findings recorded as by-design in spec §7.9. Orchestrator also fixed a frozen-clock/`PXAT`
+  mismatch the fix batch surfaced (Redis TTLs honored against miniredis's real clock while tests
+  froze the logical clock) by anchoring the test clock to real-now and routing all pending-store
+  TTL math through a clock-aware `until()` helper. Full gateway suite + `-race` + web gates green.
+  Branch `mvp/oauth2-server` ready for review/PR.
