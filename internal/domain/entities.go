@@ -91,6 +91,68 @@ type APIKey struct {
 	CreatedAt      int64       `json:"createdAt" doc:"When the key was created, in epoch milliseconds (UTC)." example:"1719662400000"`
 }
 
+type OAuthClient struct {
+	ID                string          `json:"id"`
+	ClientID          string          `json:"clientId"`
+	OrganizationID    string          `json:"organizationId"`
+	CreatedByUserID   *string         `json:"createdByUserId,omitempty"`
+	SessionID         string          `json:"sessionId"`
+	Name              string          `json:"name"`
+	LogoURL           *string         `json:"logoUrl,omitempty"`
+	ClientType        string          `json:"clientType"`
+	LoginCommand      string          `json:"loginCommand"`
+	SecretHash        []byte          `json:"-"`
+	SecretLast4       *string         `json:"secretLast4,omitempty"`
+	RedirectURIs      json.RawMessage `json:"redirectUris"`
+	Modes             string          `json:"modes"`
+	GroupJID          *string         `json:"groupJid,omitempty"`
+	AllowedScopes     json.RawMessage `json:"allowedScopes"`
+	TokenTTLSeconds   int             `json:"tokenTtlSeconds"`
+	RefreshTTLSeconds int             `json:"refreshTtlSeconds"`
+	Status            string          `json:"status"`
+	CreatedAt         int64           `json:"createdAt"`
+	UpdatedAt         int64           `json:"updatedAt"`
+	DeletedAt         *int64          `json:"deletedAt,omitempty"`
+}
+
+type OAuthGrant struct {
+	ID             string          `json:"id"`
+	OrganizationID string          `json:"organizationId"`
+	ClientID       string          `json:"clientId"`
+	WAIdentityID   uint64          `json:"waIdentityId"`
+	Sub            string          `json:"sub"`
+	GrantedScopes  json.RawMessage `json:"grantedScopes"`
+	LastACR        string          `json:"lastAcr"`
+	LastGroupJID   *string         `json:"lastGroupJid,omitempty"`
+	CreatedAt      int64           `json:"createdAt"`
+	LastUsedAt     int64           `json:"lastUsedAt"`
+	RevokedAt      *int64          `json:"revokedAt,omitempty"`
+}
+
+type OAuthRefreshToken struct {
+	ID             string          `json:"id"`
+	GrantID        string          `json:"grantId"`
+	OrganizationID string          `json:"organizationId"`
+	TokenHash      []byte          `json:"-"`
+	FamilyID       string          `json:"familyId"`
+	ParentID       *string         `json:"parentId,omitempty"`
+	Scopes         json.RawMessage `json:"scopes"`
+	IssuedAt       int64           `json:"issuedAt"`
+	ExpiresAt      int64           `json:"expiresAt"`
+	ConsumedAt     *int64          `json:"consumedAt,omitempty"`
+	RevokedAt      *int64          `json:"revokedAt,omitempty"`
+}
+
+type OAuthSigningKey struct {
+	KID        string          `json:"kid"`
+	Alg        string          `json:"alg"`
+	PublicJWK  json.RawMessage `json:"publicJwk"`
+	PrivateEnc []byte          `json:"-"`
+	Status     string          `json:"status"`
+	CreatedAt  int64           `json:"createdAt"`
+	RetiredAt  *int64          `json:"retiredAt,omitempty"`
+}
+
 // RetryPolicy is the typed shape of webhooks.retry_policy JSON.
 type RetryPolicy struct {
 	Policy       string `json:"policy" doc:"Backoff strategy for failed deliveries. **exponential** doubles the delay each attempt (delaySeconds × 2^(attempt-1)); any other value uses a constant delay of delaySeconds." example:"exponential"`

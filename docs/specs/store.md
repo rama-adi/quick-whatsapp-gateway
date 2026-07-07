@@ -3,8 +3,10 @@
 Status: implemented (R1).
 
 The app-data persistence layer for the WA-domain plane. Repositories expose `internal/domain`
-types and use generated `sqlc` query bindings over `database/sql` internally; there is still no ORM
-and no ORM-owned migrations. The gateway is the **sole writer** of these tables; the frontend reads
+types and mostly use generated `sqlc` query bindings over `database/sql` internally; OAuth/OIDC
+repos use the same plain `database/sql` repo boundary directly because their migration was added
+after the sqlc baseline. There is still no ORM and no ORM-owned migrations. The gateway is the
+**sole writer** of these tables; the frontend reads
 them read-only via Drizzle ([`frontend.md`](frontend.md) § hybrid reads). Masterplan §6, §7.
 
 ## Ownership — `organization_id`, not `tenant_id`
@@ -34,6 +36,10 @@ api-key `reference_id`, never by joining `member` on the hot path ([`trust-model
 | `outbox` | `OutboxRepo` | `organization_id` (idempotency) |
 | `event_log` | `EventLogRepo` | `organization_id` |
 | `backfill_imports` | `BackfillImportRepo` | via `session_id` (import job status + once/24h quota) |
+| `oauth_clients` | `OAuthClientRepo` | `organization_id` |
+| `oauth_grants` | `OAuthGrantRepo` | `organization_id` |
+| `oauth_refresh_tokens` | `OAuthRefreshTokenRepo` | `organization_id` |
+| `oauth_signing_keys` | `OAuthSigningKeyRepo` | global OIDC keyset |
 
 `apikey` and the other better-auth tables are **not** in this repo set — they are frontend-owned
 (Drizzle). `APIKeyRepo` here is **read-only** (`GetByHash`) and used solely by `internal/authz`
@@ -44,6 +50,11 @@ package lives under `internal/store/storedb` and is kept behind the repo boundar
 not import generated DB-shaped rows directly. Org-scoped lists are
 `ListByOrg(ctx, organizationID)` (sessions, webhooks); session-scoped tables resolve their owning
 org via `wa_sessions`.
+
+OAuth/OIDC provider state is added by `migrations/0007_oidc_provider`: org-owned clients, durable
+grants, rotating refresh-token rows, and the shared OIDC signing keyset. The public key material is
+listed from `oauth_signing_keys`; private JWKs are AES-GCM encrypted by `internal/oidp` before the
+repo persists them.
 
 ## v2 DDL highlights (`migrations/0001_init.up.sql`)
 
