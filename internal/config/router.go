@@ -48,6 +48,7 @@ type RouterConfig struct {
 	WebLoginURL             string // WEB_LOGIN_URL: public consent page URL
 	OIDCRequestTTLSeconds   int    // OIDC_REQUEST_TTL_SECONDS
 	OIDCAuthCodeTTLSeconds  int    // OIDC_AUTHCODE_TTL_SECONDS
+	OIDCTrustProxy          bool   // OIDC_TRUST_PROXY: honor X-Forwarded-For for OAuth stream caps
 
 	// Observability
 	LogLevel string // LOG_LEVEL
@@ -78,6 +79,7 @@ func LoadRouter() (*RouterConfig, error) {
 		WebLoginURL:             getString("WEB_LOGIN_URL", ""),
 		OIDCRequestTTLSeconds:   getInt("OIDC_REQUEST_TTL_SECONDS", 600),
 		OIDCAuthCodeTTLSeconds:  getInt("OIDC_AUTHCODE_TTL_SECONDS", 60),
+		OIDCTrustProxy:          getBool("OIDC_TRUST_PROXY", false),
 		LogLevel:                getString("LOG_LEVEL", "info"),
 	}
 	if cfg.OIDCIssuer == "" {

@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"net"
 	"net/http"
 	"net/url"
 	"sort"
@@ -58,6 +59,7 @@ type RefreshRepo interface {
 	MarkConsumed(context.Context, string, int64) error
 	RevokeFamily(context.Context, string, int64) error
 	RevokeTokenHash(context.Context, []byte, int64) error
+	RotateRefreshToken(context.Context, domain.OAuthRefreshRotation) (domain.OAuthRefreshToken, domain.OAuthGrant, error)
 }
 
 type ProviderConfig struct {
@@ -75,6 +77,7 @@ type ProviderConfig struct {
 	PairwiseSalt string
 	RequestTTL   time.Duration
 	AuthCodeTTL  time.Duration
+	TrustProxy   bool
 	Now          func() time.Time
 }
 
@@ -93,6 +96,7 @@ type Provider struct {
 	pairwiseSalt string
 	requestTTL   time.Duration
 	authCodeTTL  time.Duration
+	trustProxy   bool
 	now          func() time.Time
 	streamMu     sync.Mutex
 	byCode       map[string]int
@@ -114,7 +118,7 @@ func NewProvider(cfg ProviderConfig) *Provider {
 	if now == nil {
 		now = time.Now
 	}
-	return &Provider{clients: cfg.Clients, sessions: cfg.Sessions, groups: cfg.Groups, identities: cfg.Identities, grants: cfg.Grants, refresh: cfg.Refresh, signer: cfg.Signer, pending: cfg.Pending, webLoginURL: strings.TrimRight(cfg.WebLoginURL, "/"), issuer: strings.TrimRight(cfg.Issuer, "/"), secretPepper: cfg.SecretPepper, pairwiseSalt: cfg.PairwiseSalt, requestTTL: ttl, authCodeTTL: authCodeTTL, now: now, byCode: map[string]int{}, byIP: map[string]int{}, revokedGrant: map[string]time.Time{}}
+	return &Provider{clients: cfg.Clients, sessions: cfg.Sessions, groups: cfg.Groups, identities: cfg.Identities, grants: cfg.Grants, refresh: cfg.Refresh, signer: cfg.Signer, pending: cfg.Pending, webLoginURL: strings.TrimRight(cfg.WebLoginURL, "/"), issuer: strings.TrimRight(cfg.Issuer, "/"), secretPepper: cfg.SecretPepper, pairwiseSalt: cfg.PairwiseSalt, requestTTL: ttl, authCodeTTL: authCodeTTL, trustProxy: cfg.TrustProxy, now: now, byCode: map[string]int{}, byIP: map[string]int{}, revokedGrant: map[string]time.Time{}}
 }
 
 func (p *Provider) Mount(r chi.Router) {
@@ -174,12 +178,13 @@ func (p *Provider) HandleAuthorize(w http.ResponseWriter, r *http.Request) {
 		redirectOAuthError(w, redirectURI, "server_error", q.Get("state"))
 		return
 	}
-	userCode, err := p.NewUserCode(r.Context(), client.SessionID)
+	exp := p.now().Add(p.requestTTL)
+	userCode, err := p.NewUserCode(r.Context(), client.SessionID, exp.UnixMilli())
 	if err != nil {
 		redirectOAuthError(w, redirectURI, "temporarily_unavailable", q.Get("state"))
 		return
 	}
-	now, exp := p.now(), p.now().Add(p.requestTTL)
+	now := p.now()
 	req := PendingRequest{
 		ClientID: client.ClientID, OrganizationID: client.OrganizationID, SessionID: client.SessionID,
 		RedirectURI: redirectURI, State: q.Get("state"), Nonce: q.Get("nonce"),
@@ -203,7 +208,7 @@ func (p *Provider) HandleWaitStream(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	ip := clientIP(r)
+	ip := p.clientIP(r)
 	if !p.enterStream(code, ip) {
 		http.Error(w, "too many streams", http.StatusTooManyRequests)
 		return
@@ -261,9 +266,18 @@ func (p *Provider) HandleCancel(w http.ResponseWriter, r *http.Request) {
 }
 
 func (p *Provider) HandleFinalize(w http.ResponseWriter, r *http.Request) {
-	req, ok, err := p.pending.Finalize(r.Context(), chi.URLParam(r, "browser_code"))
-	if err != nil || !ok || req.Verified == nil {
+	browserCode := chi.URLParam(r, "browser_code")
+	req, err := p.pending.Load(r.Context(), browserCode)
+	if err != nil || req.Verified == nil || (req.Status != PendingStatusVerified && req.Status != PendingStatusFinalized) {
 		http.NotFound(w, r)
+		return
+	}
+	if req.Status == PendingStatusFinalized {
+		if req.Finalized == nil {
+			http.NotFound(w, r)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"redirect": req.Finalized.Redirect})
 		return
 	}
 	ident, err := p.identities.GetByLID(r.Context(), req.Verified.LID)
@@ -288,10 +302,6 @@ func (p *Provider) HandleFinalize(w http.ResponseWriter, r *http.Request) {
 		oauthJSONError(w, http.StatusInternalServerError, "server_error")
 		return
 	}
-	if err := p.pending.StoreAuthCode(r.Context(), code, AuthCode{GrantID: g.ID, ClientID: req.ClientID, RedirectURI: req.RedirectURI, Scopes: req.Scopes, Nonce: req.Nonce, CodeChallenge: req.CodeChallenge, CodeChallengeMethod: req.CodeChallengeMethod, ACR: "wa:" + req.Mode, AuthTime: req.Verified.VerifiedAt / 1000}, p.authCodeTTL); err != nil {
-		oauthJSONError(w, http.StatusInternalServerError, "server_error")
-		return
-	}
 	u, _ := url.Parse(req.RedirectURI)
 	q := u.Query()
 	q.Set("code", code)
@@ -302,7 +312,12 @@ func (p *Provider) HandleFinalize(w http.ResponseWriter, r *http.Request) {
 		q.Set("iss", p.issuer)
 	}
 	u.RawQuery = q.Encode()
-	writeJSON(w, http.StatusOK, map[string]string{"redirect": u.String()})
+	req, ok, err := p.pending.Finalize(r.Context(), browserCode, FinalizedBlock{Code: code, Redirect: u.String()}, AuthCode{GrantID: g.ID, ClientID: req.ClientID, RedirectURI: req.RedirectURI, Scopes: req.Scopes, Nonce: req.Nonce, CodeChallenge: req.CodeChallenge, CodeChallengeMethod: req.CodeChallengeMethod, ACR: "wa:" + req.Mode, AuthTime: req.Verified.VerifiedAt / 1000}, p.authCodeTTL)
+	if err != nil || !ok || req.Finalized == nil {
+		oauthJSONError(w, http.StatusInternalServerError, "server_error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"redirect": req.Finalized.Redirect})
 }
 
 func (p *Provider) HandleToken(w http.ResponseWriter, r *http.Request) {
@@ -346,45 +361,50 @@ func (p *Provider) tokenFromCode(w http.ResponseWriter, r *http.Request, client 
 
 func (p *Provider) tokenFromRefresh(w http.ResponseWriter, r *http.Request, client domain.OAuthClient) {
 	raw := r.Form.Get("refresh_token")
-	rt, err := p.refresh.GetByHash(r.Context(), shaBytes(raw))
 	now := p.now().UnixMilli()
-	if err != nil || rt.ExpiresAt <= now || rt.RevokedAt != nil {
-		oauthJSONError(w, http.StatusBadRequest, "invalid_grant")
-		return
-	}
-	if rt.ConsumedAt != nil {
-		_ = p.refresh.RevokeFamily(r.Context(), rt.FamilyID, now)
-		oauthJSONError(w, http.StatusBadRequest, "invalid_grant")
-		return
-	}
-	if p.isGrantRevoked(rt.GrantID) {
-		oauthJSONError(w, http.StatusBadRequest, "invalid_grant")
-		return
-	}
-	g, err := p.grants.GetActiveByID(r.Context(), rt.GrantID)
-	if err != nil || g.ClientID != client.ClientID {
-		oauthJSONError(w, http.StatusBadRequest, "invalid_grant")
-		return
-	}
-	oldScopes, _ := scopesFromRaw(rt.Scopes)
-	nextScopes := oldScopes
+	requestedScopes := []string(nil)
 	if s := strings.TrimSpace(r.Form.Get("scope")); s != "" {
-		nextScopes = strings.Fields(s)
-		if !scopeSubset(nextScopes, oldScopes) {
-			oauthJSONError(w, http.StatusBadRequest, "invalid_scope")
-			return
-		}
+		requestedScopes = strings.Fields(s)
 	}
-	if err := p.refresh.MarkConsumed(r.Context(), rt.ID, now); err != nil {
-		_ = p.refresh.RevokeFamily(r.Context(), rt.FamilyID, now)
-		oauthJSONError(w, http.StatusBadRequest, "invalid_grant")
-		return
-	}
-	tok, err := p.issueTokens(r.Context(), client, g, nextScopes, "", g.LastACR, now/1000, true, &rt)
+	nextRaw, successor, err := p.newRefreshToken(client, domain.OAuthGrant{}, nil, nil)
 	if err != nil {
 		oauthJSONError(w, http.StatusInternalServerError, "server_error")
 		return
 	}
+	rt, g, err := p.refresh.RotateRefreshToken(r.Context(), domain.OAuthRefreshRotation{
+		TokenHash: shaBytes(raw), ClientID: client.ClientID, RequestedScopes: requestedScopes, Now: now, Successor: successor,
+	})
+	if err != nil {
+		if errors.Is(err, domain.ErrOAuthScopeWidening) {
+			oauthJSONError(w, http.StatusBadRequest, "invalid_scope")
+			return
+		}
+		oauthJSONError(w, http.StatusBadRequest, "invalid_grant")
+		return
+	}
+	if p.isGrantRevoked(rt.GrantID) {
+		_ = p.refresh.RevokeFamily(r.Context(), rt.FamilyID, now)
+		oauthJSONError(w, http.StatusBadRequest, "invalid_grant")
+		return
+	}
+	if checked, err := p.grants.GetActiveByID(r.Context(), rt.GrantID); err != nil || checked.ClientID != client.ClientID {
+		_ = p.refresh.RevokeFamily(r.Context(), rt.FamilyID, now)
+		oauthJSONError(w, http.StatusBadRequest, "invalid_grant")
+		return
+	} else {
+		g = checked
+	}
+	oldScopes, _ := scopesFromRaw(rt.Scopes)
+	nextScopes := oldScopes
+	if len(requestedScopes) > 0 {
+		nextScopes = requestedScopes
+	}
+	tok, err := p.issueTokens(r.Context(), client, g, nextScopes, "", g.LastACR, now/1000, false, nil)
+	if err != nil {
+		oauthJSONError(w, http.StatusInternalServerError, "server_error")
+		return
+	}
+	tok["refresh_token"] = nextRaw
 	writeJSON(w, http.StatusOK, tok)
 }
 
@@ -463,13 +483,21 @@ func (p *Provider) issueTokens(ctx context.Context, client domain.OAuthClient, g
 }
 
 func (p *Provider) createRefresh(ctx context.Context, client domain.OAuthClient, g domain.OAuthGrant, scopes []string, parent *domain.OAuthRefreshToken) (string, error) {
-	id, err := randomURLToken(16)
+	raw, rt, err := p.newRefreshToken(client, g, scopes, parent)
 	if err != nil {
 		return "", err
 	}
+	return raw, p.refresh.Create(ctx, rt)
+}
+
+func (p *Provider) newRefreshToken(client domain.OAuthClient, g domain.OAuthGrant, scopes []string, parent *domain.OAuthRefreshToken) (string, domain.OAuthRefreshToken, error) {
+	id, err := randomURLToken(16)
+	if err != nil {
+		return "", domain.OAuthRefreshToken{}, err
+	}
 	secret, err := randomURLToken(32)
 	if err != nil {
-		return "", err
+		return "", domain.OAuthRefreshToken{}, err
 	}
 	raw := id + "." + secret
 	now := p.now().UnixMilli()
@@ -482,7 +510,7 @@ func (p *Provider) createRefresh(ctx context.Context, client domain.OAuthClient,
 		expires = parent.ExpiresAt
 	}
 	scopesJSON, _ := json.Marshal(scopes)
-	return raw, p.refresh.Create(ctx, domain.OAuthRefreshToken{ID: domain.NewULID(), GrantID: g.ID, OrganizationID: g.OrganizationID, TokenHash: shaBytes(raw), FamilyID: fam, ParentID: parentID, Scopes: scopesJSON, IssuedAt: now, ExpiresAt: expires})
+	return raw, domain.OAuthRefreshToken{ID: domain.NewULID(), GrantID: g.ID, OrganizationID: g.OrganizationID, TokenHash: shaBytes(raw), FamilyID: fam, ParentID: parentID, Scopes: scopesJSON, IssuedAt: now, ExpiresAt: expires}, nil
 }
 
 func (p *Provider) HandleUserInfo(w http.ResponseWriter, r *http.Request) {
@@ -653,9 +681,13 @@ func (p *Provider) verifyAccessToken(r *http.Request) (map[string]any, error) {
 	if sub, ok := tok.Subject(); ok {
 		out["sub"] = sub
 	}
-	var scope, grantID string
+	var scope, grantID, typ string
 	_ = tok.Get("scope", &scope)
 	_ = tok.Get("grant_id", &grantID)
+	_ = tok.Get("typ", &typ)
+	if typ != "access" {
+		return nil, errors.New("not an access token")
+	}
 	out["scope"] = scope
 	out["grant_id"] = grantID
 	return out, nil
@@ -771,11 +803,15 @@ func resolveMode(modes, acr string) (string, error) {
 			return "group", nil
 		}
 	}
-	if strings.Contains(acr, "wa:dm") && have["dm"] {
-		return "dm", nil
+	tokens := map[string]bool{}
+	for _, tok := range strings.Fields(acr) {
+		tokens[tok] = true
 	}
-	if strings.Contains(acr, "wa:group") && have["group"] {
+	if tokens["wa:group"] && have["group"] {
 		return "group", nil
+	}
+	if tokens["wa:dm"] && have["dm"] {
+		return "dm", nil
 	}
 	return "", fmt.Errorf("invalid_request")
 }
@@ -788,7 +824,7 @@ func NewBrowserCode() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
-func (p *Provider) NewUserCode(ctx context.Context, sessionID string) (string, error) {
+func (p *Provider) NewUserCode(ctx context.Context, sessionID string, expiresAt int64) (string, error) {
 	for i := 0; i < 32; i++ {
 		n, err := rand.Int(rand.Reader, big.NewInt(1000000))
 		if err != nil {
@@ -798,7 +834,11 @@ func (p *Provider) NewUserCode(ctx context.Context, sessionID string) (string, e
 		if patternedUserCode(code) {
 			continue
 		}
-		if exists, _ := p.pending.redis.Exists(ctx, p.pending.userCodeKey(sessionID, code)).Result(); exists == 0 {
+		ok, err := p.pending.ReserveUserCode(ctx, sessionID, code, expiresAt)
+		if err != nil {
+			return "", err
+		}
+		if ok {
 			return code, nil
 		}
 	}
@@ -860,11 +900,20 @@ func (p *Provider) leaveStream(code, ip string) {
 	p.byCode[code]--
 	p.byIP[ip]--
 }
-func clientIP(r *http.Request) string {
-	if x := r.Header.Get("X-Forwarded-For"); x != "" {
-		return strings.TrimSpace(strings.Split(x, ",")[0])
+func (p *Provider) clientIP(r *http.Request) string {
+	if p.trustProxy {
+		if x := r.Header.Get("X-Forwarded-For"); x != "" {
+			return strings.TrimSpace(strings.Split(x, ",")[0])
+		}
 	}
-	return strings.Split(r.RemoteAddr, ":")[0]
+	host := r.RemoteAddr
+	if h, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		host = h
+	}
+	if host == "" {
+		return r.RemoteAddr
+	}
+	return host
 }
 
 var _ = redis.Nil

@@ -389,7 +389,8 @@ attacker's own WhatsApp identity — which fails safe.
 ### 7.2 Brute force of the user code
 
 - Codes are crypto-random 6-digit, collision-checked per session, patterned values rejected
-  (`000000`, `123456`, repeats); live ≤600s.
+  (`000000`, `123456`, repeats); live ≤600s, with an absolute expiry that wrong attempts and
+  successful claims never extend.
 - **Per-sender cap**: 5 wrong attempts / 300s per WhatsApp identity → silent drop (no reaction, no
   oracle). Each guess costs the attacker a real WhatsApp message from a real number — WhatsApp
   itself throttles volume.
@@ -443,7 +444,8 @@ namespaced `wa_*`.
   TTL = app `token_ttl_seconds` (default 900).
 - **access_token**: EdDSA JWT (self-contained; `/userinfo` and relying-party resource servers
   verify offline via JWKS — no hot-path DB hit); claims `scope`, `client_id`, `jti`; same TTL. Not
-  persisted; revocation is short-TTL + grant/refresh revocation.
+  persisted; revocation is short-TTL + grant/refresh revocation. `/oauth/userinfo` only accepts
+  tokens with `typ:"access"`; presenting an `id_token` is rejected.
 - **refresh_token**: opaque 256-bit random, SHA-256 hash at rest; TTL = app `refresh_ttl_seconds`
   (default 30d, absolute family max); **rotation mandatory**, reuse of a consumed token revokes
   the whole family (`SELECT … FOR UPDATE` on the family for atomic swap).
@@ -457,7 +459,7 @@ namespaced `wa_*`.
 |---|---|
 | User-code brute force | §7.2 caps + tiny window + session-scoped index + no oracle |
 | Code-relay phishing | §7.3 branded confirmation + STOP + TTL + documented residual |
-| Stream enumeration/DoS | 160-bit code; generic 404; per-IP + per-code concurrent-connection caps; heartbeat; hard-close at expiry |
+| Stream enumeration/DoS | 160-bit code; generic 404; per-IP + per-code concurrent-connection caps; heartbeat; hard-close at expiry; `X-Forwarded-For` is trusted only when `OIDC_TRUST_PROXY=true` |
 | Auth-code replay/injection | GETDEL single-use, 60s, PKCE S256, client+redirect binding |
 | Open redirect | Exact-match set, no wildcards/fragments; invalid client/redirect never redirects |
 | Mix-up | Single issuer; `iss` in id_token + RFC 9207 `iss` on the redirect |

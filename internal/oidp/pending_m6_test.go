@@ -137,6 +137,43 @@ func TestClaimModeMismatchAttemptCapDeniesRequest(t *testing.T) {
 	require.Equal(t, PendingStatusDenied, loaded.Status)
 }
 
+func TestClaimWrongAttemptDoesNotExtendRequestTTL(t *testing.T) {
+	_, rdb := testRedis(t)
+	ps := NewPendingStore(rdb, "m6ttl", 10*time.Minute)
+	expiresAt := time.Now().Add(2 * time.Second).UnixMilli()
+	require.NoError(t, ps.Create(context.Background(), PendingRequest{
+		ClientID: "client_1", BrowserCode: "browser_1", SessionID: "sess_1", UserCode: "483920",
+		LoginCommand: "login", Mode: "dm", AppName: "Acme", Status: PendingStatusPending,
+		ExpiresAt: expiresAt,
+	}))
+	before := rdb.PTTL(context.Background(), ps.reqKey("browser_1")).Val()
+	_, err := ps.ClaimVerified(context.Background(), ClaimInput{
+		SessionID: "sess_1", UserCode: "483920", Mode: "group", LoginCommand: "login",
+		SenderLID: "111@lid", NowMs: time.Now().UnixMilli(),
+	})
+	require.NoError(t, err)
+	after := rdb.PTTL(context.Background(), ps.reqKey("browser_1")).Val()
+	require.LessOrEqual(t, after, before+100*time.Millisecond)
+	require.Less(t, after, 10*time.Second)
+}
+
+func TestClaimAfterExpiresAtFailsExpired(t *testing.T) {
+	_, rdb := testRedis(t)
+	ps := NewPendingStore(rdb, "m6expired", 10*time.Minute)
+	now := time.Now()
+	require.NoError(t, ps.Create(context.Background(), PendingRequest{
+		ClientID: "client_1", BrowserCode: "browser_1", SessionID: "sess_1", UserCode: "483920",
+		LoginCommand: "login", Mode: "dm", AppName: "Acme", Status: PendingStatusPending,
+		ExpiresAt: now.Add(time.Second).UnixMilli(),
+	}))
+	res, err := ps.ClaimVerified(context.Background(), ClaimInput{
+		SessionID: "sess_1", UserCode: "483920", Mode: "dm", LoginCommand: "login",
+		SenderLID: "111@lid", NowMs: now.Add(2 * time.Second).UnixMilli(),
+	})
+	require.NoError(t, err)
+	require.Equal(t, ClaimStatusExpired, res.Status)
+}
+
 func TestInvalidateSessionExpiresOpenPendingStreams(t *testing.T) {
 	_, rdb := testRedis(t)
 	ps := NewPendingStore(rdb, "m8stream", 10*time.Minute)

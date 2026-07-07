@@ -143,6 +143,14 @@ type OAuthRefreshToken struct {
 	RevokedAt      *int64          `json:"revokedAt,omitempty"`
 }
 
+type OAuthRefreshRotation struct {
+	TokenHash       []byte
+	ClientID        string
+	RequestedScopes []string
+	Now             int64
+	Successor       OAuthRefreshToken
+}
+
 type OAuthSigningKey struct {
 	KID        string          `json:"kid"`
 	Alg        string          `json:"alg"`

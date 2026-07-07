@@ -1,5 +1,14 @@
 package domain
 
+import "errors"
+
+// ErrOAuthScopeWidening is returned by the refresh-token rotation path when the
+// request asks for scopes not in the original grant (RFC 6749 §6 → invalid_scope).
+// Lives in domain so both the store (which raises it) and the oidp provider
+// (which maps it to the invalid_scope OAuth error) can reference it without a
+// package dependency between them.
+var ErrOAuthScopeWidening = errors.New("oauth refresh scope widening")
+
 // Sentinel error codes for the §11 API error envelope. Stable, machine-readable
 // strings clients can switch on; they map to HTTP statuses at the transport edge.
 const (

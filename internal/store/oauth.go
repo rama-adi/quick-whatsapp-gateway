@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
@@ -12,6 +14,8 @@ type OAuthClientRepo struct{ db dbExecQuerier }
 type OAuthGrantRepo struct{ db dbExecQuerier }
 type OAuthRefreshTokenRepo struct{ db dbExecQuerier }
 type OAuthSigningKeyRepo struct{ db dbExecQuerier }
+
+var errOAuthRefreshReuse = errors.New("oauth refresh token reused")
 
 func NewOAuthClientRepo(db dbExecQuerier) *OAuthClientRepo { return &OAuthClientRepo{db: db} }
 func NewOAuthGrantRepo(db dbExecQuerier) *OAuthGrantRepo   { return &OAuthGrantRepo{db: db} }
@@ -359,6 +363,98 @@ func (r *OAuthRefreshTokenRepo) RevokeByClient(ctx context.Context, orgID, clien
 	return nil
 }
 
+func (r *OAuthRefreshTokenRepo) RotateRefreshToken(ctx context.Context, rot domain.OAuthRefreshRotation) (domain.OAuthRefreshToken, domain.OAuthGrant, error) {
+	db, ok := r.db.(*sql.DB)
+	if !ok {
+		return r.rotateRefreshToken(ctx, r.db, rot)
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return domain.OAuthRefreshToken{}, domain.OAuthGrant{}, fmt.Errorf("store: begin oauth refresh rotation: %w", err)
+	}
+	defer tx.Rollback()
+	rt, g, err := r.rotateRefreshToken(ctx, tx, rot)
+	if err != nil {
+		if errors.Is(err, errOAuthRefreshReuse) {
+			if commitErr := tx.Commit(); commitErr != nil {
+				return domain.OAuthRefreshToken{}, domain.OAuthGrant{}, fmt.Errorf("store: commit oauth refresh reuse revocation: %w", commitErr)
+			}
+			return domain.OAuthRefreshToken{}, domain.OAuthGrant{}, err
+		}
+		return domain.OAuthRefreshToken{}, domain.OAuthGrant{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return domain.OAuthRefreshToken{}, domain.OAuthGrant{}, fmt.Errorf("store: commit oauth refresh rotation: %w", err)
+	}
+	return rt, g, nil
+}
+
+func (r *OAuthRefreshTokenRepo) rotateRefreshToken(ctx context.Context, q dbExecQuerier, rot domain.OAuthRefreshRotation) (domain.OAuthRefreshToken, domain.OAuthGrant, error) {
+	row := q.QueryRowContext(ctx, `SELECT `+oauthRefreshTokenCols+` FROM oauth_refresh_tokens WHERE token_hash = ? FOR UPDATE`, rot.TokenHash)
+	rt, err := scanOAuthRefreshToken(row)
+	if err != nil {
+		return domain.OAuthRefreshToken{}, domain.OAuthGrant{}, notFound(err, "oauth refresh token")
+	}
+	if rt.ConsumedAt != nil {
+		_, _ = q.ExecContext(ctx, `UPDATE oauth_refresh_tokens SET revoked_at = ? WHERE family_id = ? AND revoked_at IS NULL`, rot.Now, rt.FamilyID)
+		return domain.OAuthRefreshToken{}, domain.OAuthGrant{}, errOAuthRefreshReuse
+	}
+	if rt.ExpiresAt <= rot.Now || rt.RevokedAt != nil {
+		return domain.OAuthRefreshToken{}, domain.OAuthGrant{}, domain.ErrNotFound("oauth refresh token inactive")
+	}
+	row = q.QueryRowContext(ctx, `SELECT `+oauthGrantCols+` FROM oauth_grants WHERE id = ? AND revoked_at IS NULL FOR UPDATE`, rt.GrantID)
+	g, err := scanOAuthGrant(row)
+	if err != nil {
+		return domain.OAuthRefreshToken{}, domain.OAuthGrant{}, notFound(err, "oauth grant")
+	}
+	if g.ClientID != rot.ClientID {
+		return domain.OAuthRefreshToken{}, domain.OAuthGrant{}, domain.ErrNotFound("oauth grant client mismatch")
+	}
+	scopes := []string{}
+	_ = json.Unmarshal(rt.Scopes, &scopes)
+	if len(rot.RequestedScopes) > 0 {
+		if !scopeSubsetStore(rot.RequestedScopes, scopes) {
+			return domain.OAuthRefreshToken{}, domain.OAuthGrant{}, domain.ErrOAuthScopeWidening
+		}
+		scopes = rot.RequestedScopes
+	}
+	scopesJSON, _ := json.Marshal(scopes)
+	successor := rot.Successor
+	successor.GrantID = rt.GrantID
+	successor.OrganizationID = rt.OrganizationID
+	successor.FamilyID = rt.FamilyID
+	successor.ParentID = &rt.ID
+	successor.Scopes = scopesJSON
+	successor.IssuedAt = rot.Now
+	successor.ExpiresAt = rt.ExpiresAt
+	res, err := q.ExecContext(ctx, `UPDATE oauth_refresh_tokens SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL AND revoked_at IS NULL`, rot.Now, rt.ID)
+	if err != nil {
+		return domain.OAuthRefreshToken{}, domain.OAuthGrant{}, fmt.Errorf("store: consume oauth refresh token: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		_, _ = q.ExecContext(ctx, `UPDATE oauth_refresh_tokens SET revoked_at = ? WHERE family_id = ? AND revoked_at IS NULL`, rot.Now, rt.FamilyID)
+		return domain.OAuthRefreshToken{}, domain.OAuthGrant{}, errOAuthRefreshReuse
+	}
+	if _, err := q.ExecContext(ctx, `INSERT INTO oauth_refresh_tokens (`+oauthRefreshTokenCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		successor.ID, successor.GrantID, successor.OrganizationID, successor.TokenHash, successor.FamilyID, nullString(successor.ParentID), successor.Scopes, successor.IssuedAt, successor.ExpiresAt, nullInt64(successor.ConsumedAt), nullInt64(successor.RevokedAt)); err != nil {
+		return domain.OAuthRefreshToken{}, domain.OAuthGrant{}, fmt.Errorf("store: create oauth refresh successor: %w", err)
+	}
+	return rt, g, nil
+}
+
+func scopeSubsetStore(next, base []string) bool {
+	have := map[string]bool{}
+	for _, s := range base {
+		have[s] = true
+	}
+	for _, s := range next {
+		if !have[s] {
+			return false
+		}
+	}
+	return true
+}
+
 const oauthSigningKeyCols = `kid, alg, public_jwk, private_enc, status, created_at, retired_at`
 
 func scanOAuthSigningKey(s rowScanner) (domain.OAuthSigningKey, error) {
@@ -417,11 +513,33 @@ func (r *OAuthSigningKeyRepo) CountByStatus(ctx context.Context, status string) 
 }
 
 func (r *OAuthSigningKeyRepo) PromoteNext(ctx context.Context, kid string, retiredAt int64) error {
-	_, err := r.db.ExecContext(ctx, `UPDATE oauth_signing_keys SET status = 'retired', retired_at = ? WHERE status = 'active'`, retiredAt)
+	db, ok := r.db.(*sql.DB)
+	if !ok {
+		return r.promoteNext(ctx, r.db, kid, retiredAt)
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("store: begin oauth signing key promote: %w", err)
+	}
+	defer tx.Rollback()
+	if err := r.promoteNext(ctx, tx, kid, retiredAt); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("store: commit oauth signing key promote: %w", err)
+	}
+	return nil
+}
+
+func (r *OAuthSigningKeyRepo) promoteNext(ctx context.Context, q dbExecQuerier, kid string, retiredAt int64) error {
+	res, err := q.ExecContext(ctx, `UPDATE oauth_signing_keys SET status = 'retired', retired_at = ? WHERE status = 'active'`, retiredAt)
 	if err != nil {
 		return fmt.Errorf("store: retire active oauth signing key: %w", err)
 	}
-	res, err := r.db.ExecContext(ctx, `UPDATE oauth_signing_keys SET status = 'active' WHERE kid = ? AND status = 'next'`, kid)
+	if n, err := res.RowsAffected(); err == nil && n > 1 {
+		return errors.New("store: multiple active oauth signing keys")
+	}
+	res, err = q.ExecContext(ctx, `UPDATE oauth_signing_keys SET status = 'active' WHERE kid = ? AND status = 'next'`, kid)
 	if err != nil {
 		return fmt.Errorf("store: promote oauth signing key: %w", err)
 	}

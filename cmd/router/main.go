@@ -147,6 +147,7 @@ func run() error {
 			PairwiseSalt: cfg.OIDCPairwiseSalt,
 			RequestTTL:   requestTTL,
 			AuthCodeTTL:  time.Duration(cfg.OIDCAuthCodeTTLSeconds) * time.Second,
+			TrustProxy:   cfg.OIDCTrustProxy,
 		})
 	}
 

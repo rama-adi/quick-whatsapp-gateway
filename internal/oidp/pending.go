@@ -44,27 +44,28 @@ type ClaimResult struct {
 }
 
 type PendingRequest struct {
-	ClientID            string         `json:"client_id"`
-	OrganizationID      string         `json:"organization_id"`
-	SessionID           string         `json:"session_id"`
-	RedirectURI         string         `json:"redirect_uri"`
-	State               string         `json:"state,omitempty"`
-	Nonce               string         `json:"nonce,omitempty"`
-	CodeChallenge       string         `json:"code_challenge"`
-	CodeChallengeMethod string         `json:"code_challenge_method"`
-	Scopes              []string       `json:"scopes"`
-	Mode                string         `json:"mode"`
-	UserCode            string         `json:"user_code"`
-	BrowserCode         string         `json:"browser_code"`
-	LoginCommand        string         `json:"login_command"`
-	AppName             string         `json:"app_name"`
-	AppLogo             *string        `json:"app_logo,omitempty"`
-	Target              PendingTarget  `json:"target"`
-	Status              string         `json:"status"`
-	Attempts            int            `json:"attempts"`
-	Verified            *VerifiedBlock `json:"verified,omitempty"`
-	CreatedAt           int64          `json:"created_at"`
-	ExpiresAt           int64          `json:"expires_at"`
+	ClientID            string          `json:"client_id"`
+	OrganizationID      string          `json:"organization_id"`
+	SessionID           string          `json:"session_id"`
+	RedirectURI         string          `json:"redirect_uri"`
+	State               string          `json:"state,omitempty"`
+	Nonce               string          `json:"nonce,omitempty"`
+	CodeChallenge       string          `json:"code_challenge"`
+	CodeChallengeMethod string          `json:"code_challenge_method"`
+	Scopes              []string        `json:"scopes"`
+	Mode                string          `json:"mode"`
+	UserCode            string          `json:"user_code"`
+	BrowserCode         string          `json:"browser_code"`
+	LoginCommand        string          `json:"login_command"`
+	AppName             string          `json:"app_name"`
+	AppLogo             *string         `json:"app_logo,omitempty"`
+	Target              PendingTarget   `json:"target"`
+	Status              string          `json:"status"`
+	Attempts            int             `json:"attempts"`
+	Verified            *VerifiedBlock  `json:"verified,omitempty"`
+	Finalized           *FinalizedBlock `json:"finalized,omitempty"`
+	CreatedAt           int64           `json:"created_at"`
+	ExpiresAt           int64           `json:"expires_at"`
 }
 
 type PendingTarget struct {
@@ -81,6 +82,11 @@ type VerifiedBlock struct {
 	PushName    string  `json:"push_name,omitempty"`
 	GroupJID    *string `json:"group_jid,omitempty"`
 	VerifiedAt  int64   `json:"verified_at"`
+}
+
+type FinalizedBlock struct {
+	Code     string `json:"code"`
+	Redirect string `json:"redirect"`
 }
 
 type PendingStore struct {
@@ -122,20 +128,39 @@ func (s *PendingStore) clock() time.Time {
 	return s.now()
 }
 
+// until is the remaining lifetime until an epoch-ms deadline, measured against
+// the store's clock (so tests with an injected clock agree with the ExpiresAt
+// stamps written under that same clock).
+func (s *PendingStore) until(expiresAtMS int64) time.Duration {
+	return time.UnixMilli(expiresAtMS).Sub(s.clock())
+}
+
 func (s *PendingStore) Create(ctx context.Context, p PendingRequest) error {
 	raw, err := json.Marshal(p)
 	if err != nil {
 		return err
 	}
-	if err := s.redis.Set(ctx, s.reqKey(p.BrowserCode), raw, s.ttl).Err(); err != nil {
-		return fmt.Errorf("oidp pending create req: %w", err)
+	ttl := s.until(p.ExpiresAt)
+	if ttl <= 0 {
+		return fmt.Errorf("oidp pending create expired request")
 	}
-	if err := s.redis.Set(ctx, s.userCodeKey(p.SessionID, p.UserCode), p.BrowserCode, s.ttl).Err(); err != nil {
-		_ = s.redis.Del(ctx, s.reqKey(p.BrowserCode)).Err()
-		return fmt.Errorf("oidp pending create reverse index: %w", err)
+	ok, err := createPendingScript.Run(ctx, s.redis, []string{s.reqKey(p.BrowserCode), s.userCodeKey(p.SessionID, p.UserCode)}, string(raw), p.BrowserCode, p.ExpiresAt).Bool()
+	if err != nil {
+		return fmt.Errorf("oidp pending create: %w", err)
+	}
+	if !ok {
+		return fmt.Errorf("oidp pending create reverse index: user code collision")
 	}
 	return nil
 }
+
+var createPendingScript = redis.NewScript(`
+local ref = redis.call("GET", KEYS[2])
+if ref and ref ~= "" then return false end
+redis.call("SET", KEYS[1], ARGV[1], "PXAT", ARGV[3])
+redis.call("SET", KEYS[2], ARGV[2], "PXAT", ARGV[3])
+return true
+`)
 
 func (s *PendingStore) Load(ctx context.Context, browserCode string) (PendingRequest, error) {
 	p, err := s.loadAny(ctx, browserCode)
@@ -170,7 +195,7 @@ func (s *PendingStore) Cancel(ctx context.Context, browserCode string) (bool, er
 	}
 	p.Status = PendingStatusDenied
 	raw, _ := json.Marshal(p)
-	if err := s.redis.Set(ctx, s.reqKey(p.BrowserCode), raw, time.Until(time.UnixMilli(p.ExpiresAt))).Err(); err != nil {
+	if err := s.redis.Set(ctx, s.reqKey(p.BrowserCode), raw, s.until(p.ExpiresAt)).Err(); err != nil {
 		return false, err
 	}
 	_ = s.redis.Del(ctx, s.userCodeKey(p.SessionID, p.UserCode)).Err()
@@ -247,7 +272,7 @@ func (s *PendingStore) DenyClientPending(ctx context.Context, clientID string) (
 			}
 			p.Status = PendingStatusDenied
 			encoded, _ := json.Marshal(p)
-			ttl := time.Until(time.UnixMilli(p.ExpiresAt))
+			ttl := s.until(p.ExpiresAt)
 			if ttl <= 0 {
 				ttl = time.Minute
 			}
@@ -265,8 +290,13 @@ func (s *PendingStore) DenyClientPending(ctx context.Context, clientID string) (
 	}
 }
 
-func (s *PendingStore) Finalize(ctx context.Context, browserCode string) (PendingRequest, bool, error) {
-	raw, err := finalizeScript.Run(ctx, s.redis, []string{s.key("oauth2:finalize:lock:" + shaKey(browserCode)), s.reqKey(browserCode)}, int64(time.Minute/time.Millisecond)).Text()
+func (s *PendingStore) Finalize(ctx context.Context, browserCode string, finalized FinalizedBlock, authCode AuthCode, authTTL time.Duration) (PendingRequest, bool, error) {
+	authCode.ExpiresAtMS = s.clock().Add(authTTL).UnixMilli()
+	payload, err := json.Marshal(authCode)
+	if err != nil {
+		return PendingRequest{}, false, err
+	}
+	raw, err := finalizeScript.Run(ctx, s.redis, []string{s.key("oauth2:finalize:lock:" + shaKey(browserCode)), s.reqKey(browserCode), s.authCodeKey(finalized.Code)}, s.clock().UnixMilli(), finalized.Code, finalized.Redirect, string(payload), authCode.ExpiresAtMS).Text()
 	if err != nil {
 		return PendingRequest{}, false, err
 	}
@@ -284,9 +314,13 @@ var finalizeScript = redis.NewScript(`
 local raw = redis.call("GET", KEYS[2])
 if not raw then return cjson.encode({ok=false}) end
 local req = cjson.decode(raw)
+if (req.expires_at or 0) <= tonumber(ARGV[1]) then return cjson.encode({ok=false, request=req}) end
+if req.status == "finalized" then return cjson.encode({ok=true, request=req}) end
 if req.status ~= "verified" then return cjson.encode({ok=false, request=req}) end
 req.status = "finalized"
-redis.call("SET", KEYS[2], cjson.encode(req), "PX", ARGV[1])
+req.finalized = {code=ARGV[2], redirect=ARGV[3]}
+redis.call("SET", KEYS[3], ARGV[4], "PXAT", ARGV[5])
+redis.call("SET", KEYS[2], cjson.encode(req), "PXAT", req.expires_at)
 return cjson.encode({ok=true, request=req})
 `)
 
@@ -338,6 +372,14 @@ func (s *PendingStore) IncrementMint(ctx context.Context, sessionID string, limi
 	return n <= int64(limit), nil
 }
 
+func (s *PendingStore) ReserveUserCode(ctx context.Context, sessionID, userCode string, expiresAt int64) (bool, error) {
+	ttl := s.until(expiresAt)
+	if ttl <= 0 {
+		return false, nil
+	}
+	return s.redis.SetNX(ctx, s.userCodeKey(sessionID, userCode), "", ttl).Result()
+}
+
 type ClaimInput struct {
 	SessionID    string
 	UserCode     string
@@ -382,6 +424,12 @@ local raw = redis.call("GET", req_key)
 if not raw then redis.call("DEL", KEYS[1]); return cjson.encode({status="expired", browser_code=browser_code}) end
 local req = cjson.decode(raw)
 local client_id = req.client_id or ""
+local now_ms = tonumber(ARGV[5])
+local expires_at = tonumber(req.expires_at or 0)
+if expires_at <= now_ms then
+  redis.call("DEL", KEYS[1])
+  return cjson.encode({status="expired", client_id=client_id, browser_code=browser_code, app_name=req.app_name or "", attempts=req.attempts or 0})
+end
 local function bump(status)
   local sender_wrong = redis.call("INCR", KEYS[2])
   if sender_wrong == 1 then redis.call("EXPIRE", KEYS[2], ARGV[7]) end
@@ -391,12 +439,12 @@ local function bump(status)
   req.attempts = (req.attempts or 0) + 1
   if req.attempts >= 10 then
     req.status = "denied"
-    redis.call("SET", req_key, cjson.encode(req), "PX", ARGV[6])
+    redis.call("SET", req_key, cjson.encode(req), "PXAT", expires_at)
     redis.call("DEL", KEYS[1])
     redis.call("PUBLISH", "oauth2:login:" .. browser_code, "denied")
     return cjson.encode({status="denied", client_id=client_id, browser_code=browser_code, app_name=req.app_name or "", attempts=req.attempts})
   end
-  redis.call("SET", req_key, cjson.encode(req), "PX", ARGV[6])
+  redis.call("SET", req_key, cjson.encode(req), "PXAT", expires_at)
   return cjson.encode({status=status, client_id=client_id, browser_code=browser_code, app_name=req.app_name or "", attempts=req.attempts})
 end
 if req.status == "verified" or req.status == "finalized" then
@@ -413,8 +461,11 @@ if string.lower(req.login_command or "") ~= ARGV[3] then
 end
 req.status = "verified"
 req.verified = cjson.decode(ARGV[4])
-redis.call("SET", req_key, cjson.encode(req), "PX", ARGV[6])
-redis.call("SET", KEYS[1], "__used__:" .. browser_code, "PX", 60000)
+redis.call("SET", req_key, cjson.encode(req), "PXAT", expires_at)
+local used_until = expires_at
+local used_min = now_ms + 60000
+if used_min < used_until then used_until = used_min end
+redis.call("SET", KEYS[1], "__used__:" .. browser_code, "PXAT", used_until)
 redis.call("PUBLISH", "oauth2:login:" .. browser_code, "verified")
 return cjson.encode({status="verified", client_id=client_id, browser_code=browser_code, app_name=req.app_name or "", attempts=req.attempts or 0})
 `)

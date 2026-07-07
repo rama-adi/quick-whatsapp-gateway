@@ -81,7 +81,9 @@ func testHTTPServer(t *testing.T, h http.Handler) *httptest.Server {
 func testProvider(t *testing.T) (*Provider, *PendingStore) {
 	t.Helper()
 	_, rdb := testRedis(t)
-	now := time.UnixMilli(100000)
+	// Anchor the logical clock to real-now: Redis TTLs are honored by miniredis
+	// against its real clock, so the provider's clock must agree with it.
+	now := time.Now()
 	client := domain.OAuthClient{
 		ClientID: "client_1", OrganizationID: "org_1", SessionID: "sess_1", Name: "Acme",
 		LoginCommand: "login", RedirectURIs: json.RawMessage(`["https://rp.example/cb"]`),
@@ -89,6 +91,7 @@ func testProvider(t *testing.T) (*Provider, *PendingStore) {
 		Status: "active",
 	}
 	pending := NewPendingStore(rdb, "test", 10*time.Minute)
+	pending.SetClock(func() time.Time { return now })
 	p := NewProvider(ProviderConfig{
 		Clients:  fakeOAuthClients{"client_1": client},
 		Sessions: fakeOIDPSessions{"sess_1": {ID: "sess_1", OrganizationID: "org_1", Status: domain.SessionWorking, PhoneNumber: strp("628123456789"), Label: strp("Bot")}},
@@ -388,6 +391,45 @@ func (m *memRefresh) RevokeTokenHash(_ context.Context, h []byte, ts int64) erro
 	}
 	return nil
 }
+func (m *memRefresh) RotateRefreshToken(_ context.Context, rot domain.OAuthRefreshRotation) (domain.OAuthRefreshToken, domain.OAuthGrant, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	id := m.byHash[string(rot.TokenHash)]
+	rt, ok := m.byID[id]
+	if !ok || rt.ExpiresAt <= rot.Now || rt.RevokedAt != nil {
+		return domain.OAuthRefreshToken{}, domain.OAuthGrant{}, domain.ErrNotFound("refresh not found")
+	}
+	if rt.ConsumedAt != nil {
+		for rid, item := range m.byID {
+			if item.FamilyID == rt.FamilyID {
+				item.RevokedAt = &rot.Now
+				m.byID[rid] = item
+			}
+		}
+		return domain.OAuthRefreshToken{}, domain.OAuthGrant{}, domain.ErrNotFound("refresh reused")
+	}
+	oldScopes, _ := scopesFromRaw(rt.Scopes)
+	nextScopes := oldScopes
+	if len(rot.RequestedScopes) > 0 {
+		if !scopeSubset(rot.RequestedScopes, oldScopes) {
+			return domain.OAuthRefreshToken{}, domain.OAuthGrant{}, domain.ErrOAuthScopeWidening
+		}
+		nextScopes = rot.RequestedScopes
+	}
+	rt.ConsumedAt = &rot.Now
+	m.byID[id] = rt
+	successor := rot.Successor
+	successor.GrantID = rt.GrantID
+	successor.OrganizationID = rt.OrganizationID
+	successor.FamilyID = rt.FamilyID
+	successor.ParentID = &rt.ID
+	successor.Scopes, _ = json.Marshal(nextScopes)
+	successor.IssuedAt = rot.Now
+	successor.ExpiresAt = rt.ExpiresAt
+	m.byID[successor.ID] = successor
+	m.byHash[string(successor.TokenHash)] = successor.ID
+	return rt, domain.OAuthGrant{ID: rt.GrantID, OrganizationID: rt.OrganizationID, ClientID: rot.ClientID, WAIdentityID: 42, Sub: "sub", LastACR: "wa:dm"}, nil
+}
 func (m *memRefresh) all() []domain.OAuthRefreshToken {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -401,7 +443,9 @@ func (m *memRefresh) all() []domain.OAuthRefreshToken {
 func fullProvider(t *testing.T) (*Provider, *PendingStore, *memGrants, *memRefresh) {
 	t.Helper()
 	_, rdb := testRedis(t)
-	now := time.Unix(1000, 0)
+	// Anchor to real-now: miniredis honors Redis TTLs against its real clock, so
+	// the provider/store logical clock must agree with it (auth-code PXAT etc.).
+	now := time.Now()
 	secret := "super-secret"
 	clients := fakeOAuthClients{
 		"client_1": oauthClient("client_1", "confidential", secret, "active"),
@@ -775,7 +819,7 @@ func TestRefreshMatrix(t *testing.T) {
 		t.Fatalf("revoked grant status=%d", rec.Code)
 	}
 
-	p3, _, grants3, _ := fullProvider(t)
+	p3, _, grants3, refresh3 := fullProvider(t)
 	grants3.put(grant)
 	tok, _ = p3.issueTokens(context.Background(), oauthClient("client_1", "confidential", "super-secret", "active"), grant, []string{"openid", "offline_access"}, "", "wa:dm", 1000, true, nil)
 	raw = tok["refresh_token"].(string)
@@ -797,6 +841,23 @@ func TestRefreshMatrix(t *testing.T) {
 	wg.Wait()
 	if winners != 1 {
 		t.Fatalf("concurrent refresh winners=%d", winners)
+	}
+	family := refresh3.all()[0].FamilyID
+	members, consumedCount, activeCount := 0, 0, 0
+	for _, rt := range refresh3.all() {
+		if rt.FamilyID != family {
+			continue
+		}
+		members++
+		if rt.ConsumedAt != nil {
+			consumedCount++
+		}
+		if rt.RevokedAt == nil {
+			activeCount++
+		}
+	}
+	if members != 2 || consumedCount != 1 || activeCount != 0 {
+		t.Fatalf("concurrent refresh family members=%d consumed=%d active=%d all=%+v", members, consumedCount, activeCount, refresh3.all())
 	}
 
 	p4, _, grants4, refresh4 := fullProvider(t)
@@ -888,8 +949,22 @@ func TestFinalizeMatrix(t *testing.T) {
 	p.HandleFinalize(rec1, finalizeReq("browser"))
 	rec2 := httptest.NewRecorder()
 	p.HandleFinalize(rec2, finalizeReq("browser"))
-	if (rec1.Code == http.StatusOK) == (rec2.Code == http.StatusOK) {
+	if rec1.Code != http.StatusOK || rec2.Code != http.StatusOK {
 		t.Fatalf("double finalize statuses=%d,%d", rec1.Code, rec2.Code)
+	}
+	var first, second map[string]string
+	_ = json.Unmarshal(rec1.Body.Bytes(), &first)
+	_ = json.Unmarshal(rec2.Body.Bytes(), &second)
+	if first["redirect"] == "" || first["redirect"] != second["redirect"] {
+		t.Fatalf("redirects differ: %q %q", first["redirect"], second["redirect"])
+	}
+	u, _ := url.Parse(first["redirect"])
+	code := u.Query().Get("code")
+	if _, err := ps.RedeemAuthCode(context.Background(), code); err != nil {
+		t.Fatalf("first auth code redeem: %v", err)
+	}
+	if _, err := ps.RedeemAuthCode(context.Background(), code); err == nil {
+		t.Fatal("auth code redeemed twice")
 	}
 	rec := httptest.NewRecorder()
 	p.HandleFinalize(rec, finalizeReq("missing"))
@@ -898,14 +973,84 @@ func TestFinalizeMatrix(t *testing.T) {
 	}
 }
 
+func TestResolveModeTokenMatchesACRValues(t *testing.T) {
+	if got, err := resolveMode("dm,group", "not-wa:group wa:dm"); err != nil || got != "dm" {
+		t.Fatalf("substring acr selected group or failed: got=%q err=%v", got, err)
+	}
+	if got, err := resolveMode("dm,group", "wa:dm wa:group"); err != nil || got != "group" {
+		t.Fatalf("group precedence failed: got=%q err=%v", got, err)
+	}
+}
+
+func TestUserInfoRejectsIDToken(t *testing.T) {
+	p, _, grants, _ := fullProvider(t)
+	grant := testGrant("grant_1", "client_1", "wa:dm", nil)
+	grants.put(grant)
+	tok, err := p.issueTokens(context.Background(), oauthClient("client_1", "confidential", "super-secret", "active"), grant, []string{"openid"}, "", "wa:dm", 1000, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/oauth/userinfo", nil)
+	req.Header.Set("Authorization", "Bearer "+tok["id_token"].(string))
+	rec := httptest.NewRecorder()
+	p.HandleUserInfo(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("userinfo accepted id_token: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestProviderClientIPTrustProxyModes(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/oauth/wait/x/stream", nil)
+	req.RemoteAddr = "10.0.0.2:1234"
+	req.Header.Set("X-Forwarded-For", "203.0.113.9, 10.0.0.2")
+	if got := NewProvider(ProviderConfig{}).clientIP(req); got != "10.0.0.2" {
+		t.Fatalf("default trusted XFF: %q", got)
+	}
+	if got := NewProvider(ProviderConfig{TrustProxy: true}).clientIP(req); got != "203.0.113.9" {
+		t.Fatalf("trusted proxy ignored XFF: %q", got)
+	}
+}
+
+func TestConcurrentUserCodeMintReservesUniqueCodes(t *testing.T) {
+	p, _, _, _ := fullProvider(t)
+	const n = 48
+	exp := time.Now().Add(time.Minute).UnixMilli()
+	var wg sync.WaitGroup
+	codes := make(chan string, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			code, err := p.NewUserCode(context.Background(), "sess_1", exp)
+			if err != nil {
+				t.Errorf("NewUserCode: %v", err)
+				return
+			}
+			codes <- code
+		}()
+	}
+	wg.Wait()
+	close(codes)
+	seen := map[string]bool{}
+	for code := range codes {
+		if seen[code] {
+			t.Fatalf("duplicate user code minted: %s", code)
+		}
+		seen[code] = true
+	}
+	if len(seen) != n {
+		t.Fatalf("minted %d codes, want %d", len(seen), n)
+	}
+}
+
 func TestUserInfoBearerRejectionMatrix(t *testing.T) {
 	p, _, grants, _ := fullProvider(t)
 	grant := testGrant("grant_1", "client_1", "wa:dm", nil)
 	grants.put(grant)
-	// The provider's injected clock is frozen at time.Unix(1000, 0); craft exp
-	// values relative to it, not the wall clock.
-	badIss, _ := p.signer.SignJWT(context.Background(), map[string]any{"iss": "https://other.example", "aud": "client_1", "sub": grant.Sub, "exp": int64(2000), "scope": "openid", "grant_id": grant.ID})
-	expired, _ := p.signer.SignJWT(context.Background(), map[string]any{"iss": "https://issuer.example", "aud": "client_1", "sub": grant.Sub, "exp": int64(500), "scope": "openid", "grant_id": grant.ID})
+	// Craft exp relative to the provider's injected clock (real-now), so `expired`
+	// is genuinely past and `badIss` is unexpired-but-wrong-issuer.
+	badIss, _ := p.signer.SignJWT(context.Background(), map[string]any{"iss": "https://other.example", "aud": "client_1", "sub": grant.Sub, "exp": p.now().Add(time.Hour).Unix(), "typ": "access", "scope": "openid", "grant_id": grant.ID})
+	expired, _ := p.signer.SignJWT(context.Background(), map[string]any{"iss": p.issuer, "aud": "client_1", "sub": grant.Sub, "exp": p.now().Add(-time.Hour).Unix(), "typ": "access", "scope": "openid", "grant_id": grant.ID})
 	for _, bearer := range []string{"", "bad.token.value", badIss, expired} {
 		req := httptest.NewRequest(http.MethodGet, "/oauth/userinfo", nil)
 		if bearer != "" {
