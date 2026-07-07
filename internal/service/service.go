@@ -72,7 +72,7 @@ func New(d Deps) *Services {
 	if d.Manager != nil {
 		live = d.Manager.LiveOps()
 	}
-	return &Services{
+	services := &Services{
 		Sessions:  NewSessionService(d.Store.Sessions, d.Manager, d.Log),
 		Messages:  NewMessageService(d.Store.Sessions, d.Sender, d.Log),
 		Webhooks:  NewWebhookService(d.Store.Webhooks, d.Crypto, d.DefaultRetryDelay, d.DefaultRetryAttempts, d.Log),
@@ -87,6 +87,8 @@ func New(d Deps) *Services {
 		Backup:    NewBackupImportService(d.Store, d.Log),
 		OAuthApps: NewOAuthAppService(d.Store, d.OAuthClientSecretPepper, d.WhatsAppAdminCommandPrefix, d.OIDCIssuer, d.ControlPublisher),
 	}
+	services.Sessions.SetOAuthCascader(services.OAuthApps)
+	return services
 }
 
 type ControlPublisher interface {

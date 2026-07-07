@@ -14,9 +14,14 @@ import (
 // pairing-code) and the /me identity. It coordinates the in-memory wa.Manager
 // (live clients) with the persisted wa_sessions rows (store.SessionRepo).
 type SessionService struct {
-	repo    *store.SessionRepo
-	manager *wa.Manager
-	log     *slog.Logger
+	repo          *store.SessionRepo
+	manager       *wa.Manager
+	log           *slog.Logger
+	oauthCascader sessionOAuthCascader
+}
+
+type sessionOAuthCascader interface {
+	CascadeSessionLogoutOrDelete(ctx context.Context, org, sessionID string) error
 }
 
 // NewSessionService constructs a SessionService.
@@ -25,6 +30,10 @@ func NewSessionService(repo *store.SessionRepo, manager *wa.Manager, log *slog.L
 		log = slog.Default()
 	}
 	return &SessionService{repo: repo, manager: manager, log: log}
+}
+
+func (s *SessionService) SetOAuthCascader(c sessionOAuthCascader) {
+	s.oauthCascader = c
 }
 
 // CreateInput is the body of POST /sessions.
@@ -106,7 +115,10 @@ func (s *SessionService) Logout(ctx context.Context, organizationID, id string) 
 	if _, err := s.Get(ctx, organizationID, id); err != nil {
 		return err
 	}
-	return s.manager.Logout(ctx, id)
+	if err := s.manager.Logout(ctx, id); err != nil {
+		return err
+	}
+	return s.cascadeOAuth(ctx, organizationID, id)
 }
 
 // Delete tears down the live session and removes its persisted row.
@@ -114,8 +126,18 @@ func (s *SessionService) Delete(ctx context.Context, organizationID, id string) 
 	if _, err := s.Get(ctx, organizationID, id); err != nil {
 		return err
 	}
+	if err := s.cascadeOAuth(ctx, organizationID, id); err != nil {
+		return err
+	}
 	s.manager.Forget(id)
 	return s.repo.Delete(ctx, id)
+}
+
+func (s *SessionService) cascadeOAuth(ctx context.Context, organizationID, id string) error {
+	if s.oauthCascader == nil {
+		return nil
+	}
+	return s.oauthCascader.CascadeSessionLogoutOrDelete(ctx, organizationID, id)
 }
 
 // Me describes the attached WhatsApp identity for GET /sessions/{id}/me.

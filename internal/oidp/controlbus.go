@@ -9,16 +9,25 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-const ChannelOIDPAppChanged = "ctrl:oidp.app.changed"
+const (
+	ChannelOIDPAppChanged   = "ctrl:oidp.app.changed"
+	ChannelOIDPGrantRevoked = "ctrl:oidp.grant.revoked"
+)
 
 type AppInvalidator interface {
 	InvalidateSession(sessionID string)
 }
 
+type GrantRevocationCache interface {
+	MarkGrantRevoked(grantID string)
+}
+
 type AppChangeSubscriber struct {
-	rdb *redis.Client
-	inv AppInvalidator
-	log *slog.Logger
+	rdb     *redis.Client
+	inv     AppInvalidator
+	rev     GrantRevocationCache
+	pending *PendingStore
+	log     *slog.Logger
 
 	mu     sync.Mutex
 	cancel context.CancelFunc
@@ -27,10 +36,14 @@ type AppChangeSubscriber struct {
 }
 
 func NewAppChangeSubscriber(rdb *redis.Client, inv AppInvalidator, log *slog.Logger) *AppChangeSubscriber {
+	return NewControlSubscriber(rdb, inv, nil, nil, log)
+}
+
+func NewControlSubscriber(rdb *redis.Client, inv AppInvalidator, rev GrantRevocationCache, pending *PendingStore, log *slog.Logger) *AppChangeSubscriber {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	return &AppChangeSubscriber{rdb: rdb, inv: inv, log: log}
+	return &AppChangeSubscriber{rdb: rdb, inv: inv, rev: rev, pending: pending, log: log}
 }
 
 func (s *AppChangeSubscriber) Start(ctx context.Context) error {
@@ -40,7 +53,7 @@ func (s *AppChangeSubscriber) Start(ctx context.Context) error {
 		return nil
 	}
 	loopCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
-	pubsub := s.rdb.Subscribe(loopCtx, ChannelOIDPAppChanged)
+	pubsub := s.rdb.Subscribe(loopCtx, ChannelOIDPAppChanged, ChannelOIDPGrantRevoked)
 	if _, err := pubsub.Receive(loopCtx); err != nil {
 		cancel()
 		_ = pubsub.Close()
@@ -61,15 +74,48 @@ func (s *AppChangeSubscriber) loop(ctx context.Context, pubsub *redis.PubSub, do
 			if !ok {
 				return
 			}
-			var payload struct {
-				SessionID string `json:"sessionId"`
+			s.handle(msg.Channel, msg.Payload)
+		}
+	}
+}
+
+func (s *AppChangeSubscriber) handle(channel, raw string) {
+	switch channel {
+	case ChannelOIDPAppChanged:
+		var payload struct {
+			SessionID string `json:"sessionId"`
+			ClientID  string `json:"clientId"`
+		}
+		if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+			s.log.Warn("oidp app control bus: malformed payload", "err", err)
+			return
+		}
+		if s.inv != nil {
+			s.inv.InvalidateSession(payload.SessionID)
+		}
+		if s.pending != nil && payload.ClientID != "" {
+			n, err := s.pending.DenyClientPending(context.Background(), payload.ClientID)
+			if err != nil {
+				s.log.Warn("oidp app control bus: deny pending failed", "clientId", payload.ClientID, "err", err)
+			} else if n > 0 {
+				s.log.Info("oidp app control bus: denied pending waits", "clientId", payload.ClientID, "count", n)
 			}
-			if err := json.Unmarshal([]byte(msg.Payload), &payload); err != nil {
-				s.log.Warn("oidp app control bus: malformed payload", "err", err)
-				continue
-			}
-			if s.inv != nil {
-				s.inv.InvalidateSession(payload.SessionID)
+		}
+	case ChannelOIDPGrantRevoked:
+		var payload struct {
+			GrantID  string   `json:"grantId"`
+			GrantIDs []string `json:"grantIds"`
+		}
+		if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+			s.log.Warn("oidp grant control bus: malformed payload", "err", err)
+			return
+		}
+		if payload.GrantID != "" {
+			payload.GrantIDs = append(payload.GrantIDs, payload.GrantID)
+		}
+		for _, id := range payload.GrantIDs {
+			if s.rev != nil {
+				s.rev.MarkGrantRevoked(id)
 			}
 		}
 	}

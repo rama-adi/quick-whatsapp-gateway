@@ -547,6 +547,22 @@ func TestRefreshMatrix(t *testing.T) {
 	}
 }
 
+func TestRevokedGrantBusCacheBlocksRefreshImmediately(t *testing.T) {
+	p, _, grants, _ := fullProvider(t)
+	grant := testGrant("grant_1", "client_1", "wa:dm", nil)
+	grants.put(grant)
+	tok, err := p.issueTokens(context.Background(), oauthClient("client_1", "confidential", "super-secret", "active"), grant, []string{"openid", "offline_access"}, "", "wa:dm", 1000, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	p.MarkGrantRevoked(grant.ID)
+	rec := postToken(p, url.Values{"grant_type": {"refresh_token"}, "client_id": {"client_1"}, "client_secret": {"super-secret"}, "refresh_token": {tok["refresh_token"].(string)}})
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "invalid_grant") {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestClaimsByScopeAndACRForIDTokenAndUserInfo(t *testing.T) {
 	for _, acr := range []string{"wa:dm", "wa:group"} {
 		for _, scopes := range [][]string{{"openid"}, {"openid", "profile"}, {"openid", "phone"}, {"openid", "wa:group"}, {"openid", "profile", "phone", "wa:group"}} {

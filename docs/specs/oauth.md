@@ -165,8 +165,8 @@ revocable, cascade-aware). Redis holds everything ephemeral.
 ### 3.2 Redis (work Redis, `{REDIS_PREFIX}:` namespace, shown without prefix)
 
 ```
-oauth2:req:<client_id>:<browser_code>       JSON  pending auth request           TTL 600s
-oauth2:usercode:<session_id>:<user_code>    STR   "<client_id>:<browser_code>"   TTL 600s (reverse index)
+oauth2:req:<browser_code>                   JSON  pending auth request           TTL 600s
+oauth2:usercode:<session_id>:<user_code>    STR   "<browser_code>"               TTL 600s (reverse index)
 oauth2:authcode:<sha256(code)>              JSON  authorization code payload     TTL 60s
 oauth2:rl:mint:<session_id>                 ctr   pending-code mint rate         sliding
 oauth2:rl:verify:<sender_lid>               ctr   per-sender wrong-code attempts sliding 300s
@@ -473,13 +473,17 @@ Reuses the **control bus**: `ctrl:oidp.app.changed` invalidates each gateway's p
 login-command cache on app create/update/enable/disable/delete; later grant/token cascades use
 `ctrl:oidp.grant.revoked`.
 
-- **App deleted** → soft-delete; revoke all grants + refresh families; open wait-streams dropped;
-  outstanding codes/tokens refused.
+- **App deleted** → soft-delete; revoke all grants + refresh families; publish
+  `ctrl:oidp.app.changed` + `ctrl:oidp.grant.revoked`; open wait-streams for that client are
+  denied on the router's app-change handling; outstanding codes/tokens refused.
 - **App disabled** → new authorizations and token grants refused; grants retained.
-- **Bound session logged out / deleted** → apps auto-disabled, grants + refresh tokens revoked
-  (dashboard confirms: "N apps use this session"). Transient session stop → authorize returns
-  `temporarily_unavailable`; existing tokens unaffected.
-- **Grant revoked** (dashboard) → all its refresh tokens revoked; access JWTs die by TTL.
+- **Bound session logged out / deleted** → apps auto-disabled, grants + refresh tokens revoked,
+  `ctrl:oidp.app.changed` + `ctrl:oidp.grant.revoked` published (dashboard confirms: "N apps use
+  this session"). Transient session stop → authorize returns `temporarily_unavailable`; existing
+  tokens unaffected.
+- **Grant revoked** (dashboard) → all its refresh tokens revoked; `ctrl:oidp.grant.revoked`
+  published so router replicas reject refresh immediately alongside the authoritative DB check;
+  access JWTs die by TTL.
 - **Org disabled** → orphan-guard already stops sessions; clients treated disabled; refresh
   refused.
 

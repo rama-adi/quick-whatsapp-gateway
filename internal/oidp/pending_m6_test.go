@@ -2,12 +2,22 @@ package oidp
 
 import (
 	"context"
+	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestPendingLuaScriptsDoNotUseRedisKEYS(t *testing.T) {
+	raw, err := os.ReadFile("pending.go")
+	require.NoError(t, err)
+	if strings.Contains(string(raw), `redis.call("KEYS"`) {
+		t.Fatal("pending Lua scripts use redis KEYS")
+	}
+}
 
 func TestClaimVerifiedConcurrentExactlyOneWinner(t *testing.T) {
 	_, rdb := testRedis(t)
@@ -125,4 +135,59 @@ func TestClaimModeMismatchAttemptCapDeniesRequest(t *testing.T) {
 	loaded, err := ps.Load(context.Background(), "browser_1")
 	require.NoError(t, err)
 	require.Equal(t, PendingStatusDenied, loaded.Status)
+}
+
+func TestInvalidateSessionExpiresOpenPendingStreams(t *testing.T) {
+	_, rdb := testRedis(t)
+	ps := NewPendingStore(rdb, "m8stream", 10*time.Minute)
+	require.NoError(t, ps.Create(context.Background(), PendingRequest{
+		ClientID: "client_1", BrowserCode: "browser_1", SessionID: "sess_1", UserCode: "483920",
+		LoginCommand: "login", Mode: "dm", AppName: "Acme", Status: PendingStatusPending,
+		ExpiresAt: time.Now().Add(time.Minute).UnixMilli(),
+	}))
+	pubsub := ps.Subscribe(context.Background(), "browser_1")
+	defer pubsub.Close()
+	_, err := pubsub.ReceiveTimeout(context.Background(), time.Second)
+	require.NoError(t, err)
+
+	p := NewProvider(ProviderConfig{Pending: ps})
+	p.InvalidateSession("sess_1")
+
+	msg, err := pubsub.ReceiveMessage(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, PendingStatusExpired, msg.Payload)
+	_, err = ps.Load(context.Background(), "browser_1")
+	require.Error(t, err)
+}
+
+func TestDenyClientPendingPublishesDenied(t *testing.T) {
+	_, rdb := testRedis(t)
+	ps := NewPendingStore(rdb, "m8deny", 10*time.Minute)
+	require.NoError(t, ps.Create(context.Background(), PendingRequest{
+		ClientID: "client_1", BrowserCode: "browser_1", SessionID: "sess_1", UserCode: "483920",
+		LoginCommand: "login", Mode: "dm", AppName: "Acme", Status: PendingStatusPending,
+		ExpiresAt: time.Now().Add(time.Minute).UnixMilli(),
+	}))
+	require.NoError(t, ps.Create(context.Background(), PendingRequest{
+		ClientID: "client_2", BrowserCode: "browser_2", SessionID: "sess_1", UserCode: "483921",
+		LoginCommand: "login", Mode: "dm", AppName: "Other", Status: PendingStatusPending,
+		ExpiresAt: time.Now().Add(time.Minute).UnixMilli(),
+	}))
+	pubsub := ps.Subscribe(context.Background(), "browser_1")
+	defer pubsub.Close()
+	_, err := pubsub.ReceiveTimeout(context.Background(), time.Second)
+	require.NoError(t, err)
+
+	n, err := ps.DenyClientPending(context.Background(), "client_1")
+	require.NoError(t, err)
+	require.Equal(t, 1, n)
+	msg, err := pubsub.ReceiveMessage(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, PendingStatusDenied, msg.Payload)
+	denied, err := ps.Load(context.Background(), "browser_1")
+	require.NoError(t, err)
+	require.Equal(t, PendingStatusDenied, denied.Status)
+	other, err := ps.Load(context.Background(), "browser_2")
+	require.NoError(t, err)
+	require.Equal(t, PendingStatusPending, other.Status)
 }

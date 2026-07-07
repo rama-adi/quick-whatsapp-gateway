@@ -97,6 +97,8 @@ type Provider struct {
 	streamMu     sync.Mutex
 	byCode       map[string]int
 	byIP         map[string]int
+	revokedMu    sync.Mutex
+	revokedGrant map[string]time.Time
 }
 
 func NewProvider(cfg ProviderConfig) *Provider {
@@ -112,7 +114,7 @@ func NewProvider(cfg ProviderConfig) *Provider {
 	if now == nil {
 		now = time.Now
 	}
-	return &Provider{clients: cfg.Clients, sessions: cfg.Sessions, groups: cfg.Groups, identities: cfg.Identities, grants: cfg.Grants, refresh: cfg.Refresh, signer: cfg.Signer, pending: cfg.Pending, webLoginURL: strings.TrimRight(cfg.WebLoginURL, "/"), issuer: strings.TrimRight(cfg.Issuer, "/"), secretPepper: cfg.SecretPepper, pairwiseSalt: cfg.PairwiseSalt, requestTTL: ttl, authCodeTTL: authCodeTTL, now: now, byCode: map[string]int{}, byIP: map[string]int{}}
+	return &Provider{clients: cfg.Clients, sessions: cfg.Sessions, groups: cfg.Groups, identities: cfg.Identities, grants: cfg.Grants, refresh: cfg.Refresh, signer: cfg.Signer, pending: cfg.Pending, webLoginURL: strings.TrimRight(cfg.WebLoginURL, "/"), issuer: strings.TrimRight(cfg.Issuer, "/"), secretPepper: cfg.SecretPepper, pairwiseSalt: cfg.PairwiseSalt, requestTTL: ttl, authCodeTTL: authCodeTTL, now: now, byCode: map[string]int{}, byIP: map[string]int{}, revokedGrant: map[string]time.Time{}}
 }
 
 func (p *Provider) Mount(r chi.Router) {
@@ -124,6 +126,10 @@ func (p *Provider) Mount(r chi.Router) {
 	r.Get("/oauth/userinfo", p.HandleUserInfo)
 	r.Post("/oauth/userinfo", p.HandleUserInfo)
 	r.Post("/oauth/revoke", p.HandleRevoke)
+}
+
+func (p *Provider) PendingStore() *PendingStore {
+	return p.pending
 }
 
 func (p *Provider) HandleAuthorize(w http.ResponseWriter, r *http.Request) {
@@ -351,6 +357,10 @@ func (p *Provider) tokenFromRefresh(w http.ResponseWriter, r *http.Request, clie
 		oauthJSONError(w, http.StatusBadRequest, "invalid_grant")
 		return
 	}
+	if p.isGrantRevoked(rt.GrantID) {
+		oauthJSONError(w, http.StatusBadRequest, "invalid_grant")
+		return
+	}
 	g, err := p.grants.GetActiveByID(r.Context(), rt.GrantID)
 	if err != nil || g.ClientID != client.ClientID {
 		oauthJSONError(w, http.StatusBadRequest, "invalid_grant")
@@ -376,6 +386,46 @@ func (p *Provider) tokenFromRefresh(w http.ResponseWriter, r *http.Request, clie
 		return
 	}
 	writeJSON(w, http.StatusOK, tok)
+}
+
+func (p *Provider) MarkGrantRevoked(grantID string) {
+	if grantID == "" {
+		return
+	}
+	p.revokedMu.Lock()
+	defer p.revokedMu.Unlock()
+	cutoff := p.now().Add(-DefaultRequestTTL)
+	for id, ts := range p.revokedGrant {
+		if ts.Before(cutoff) {
+			delete(p.revokedGrant, id)
+		}
+	}
+	p.revokedGrant[grantID] = p.now()
+}
+
+func (p *Provider) InvalidateSession(sessionID string) {
+	if p.pending == nil || sessionID == "" {
+		return
+	}
+	_ = p.pending.ExpireBySession(context.Background(), sessionID)
+}
+
+func (p *Provider) isGrantRevoked(grantID string) bool {
+	p.revokedMu.Lock()
+	defer p.revokedMu.Unlock()
+	ts, ok := p.revokedGrant[grantID]
+	if !ok {
+		return false
+	}
+	if p.now().Sub(ts) > DefaultRequestTTL {
+		delete(p.revokedGrant, grantID)
+		return false
+	}
+	return true
+}
+
+func (p *Provider) IsGrantRevoked(grantID string) bool {
+	return p.isGrantRevoked(grantID)
 }
 
 func (p *Provider) issueTokens(ctx context.Context, client domain.OAuthClient, g domain.OAuthGrant, scopes []string, nonce, acr string, authTime int64, withRefresh bool, parent *domain.OAuthRefreshToken) (map[string]any, error) {

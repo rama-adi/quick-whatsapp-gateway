@@ -160,7 +160,7 @@ func (s *OAuthAppService) Create(ctx context.Context, org string, in OAuthAppCre
 	if err := s.clients.Create(ctx, c); err != nil {
 		return apitypes.OAuthAppWithSecret{}, err
 	}
-	s.publishAppChanged(ctx, c.SessionID)
+	s.publishAppChanged(ctx, c)
 	dto, err := s.mapOAuthClient(c)
 	if err != nil {
 		return apitypes.OAuthAppWithSecret{}, err
@@ -242,7 +242,7 @@ func (s *OAuthAppService) Update(ctx context.Context, org, id string, isSuperAdm
 	if err := s.clients.Update(ctx, c); err != nil {
 		return apitypes.OAuthApp{}, err
 	}
-	s.publishAppChanged(ctx, c.SessionID)
+	s.publishAppChanged(ctx, c)
 	return s.mapOAuthClient(c)
 }
 
@@ -265,7 +265,7 @@ func (s *OAuthAppService) RotateSecret(ctx context.Context, org, id string, isSu
 	if err := s.clients.Update(ctx, c); err != nil {
 		return apitypes.OAuthAppWithSecret{}, err
 	}
-	s.publishAppChanged(ctx, c.SessionID)
+	s.publishAppChanged(ctx, c)
 	dto, err := s.mapOAuthClient(c)
 	if err != nil {
 		return apitypes.OAuthAppWithSecret{}, err
@@ -279,15 +279,14 @@ func (s *OAuthAppService) Delete(ctx context.Context, org, id string, isSuperAdm
 		return err
 	}
 	now := domain.NowMs()
-	if err := s.refresh.RevokeByClient(ctx, c.OrganizationID, c.ClientID, now); err != nil {
-		return err
-	}
-	if err := s.grants.RevokeByClient(ctx, c.OrganizationID, c.ClientID, now); err != nil {
+	revoked, err := s.revokeClientGrants(ctx, c.OrganizationID, c.ClientID, now)
+	if err != nil {
 		return err
 	}
 	err = s.clients.SoftDelete(ctx, c.OrganizationID, c.ID, now)
 	if err == nil {
-		s.publishAppChanged(ctx, c.SessionID)
+		s.publishAppChanged(ctx, c)
+		s.publishGrantsRevoked(ctx, revoked)
 	}
 	return err
 }
@@ -306,7 +305,7 @@ func (s *OAuthAppService) SetEnabled(ctx context.Context, org, id string, isSupe
 	if err := s.clients.Update(ctx, c); err != nil {
 		return apitypes.OAuthApp{}, err
 	}
-	s.publishAppChanged(ctx, c.SessionID)
+	s.publishAppChanged(ctx, c)
 	return s.mapOAuthClient(c)
 }
 
@@ -342,7 +341,11 @@ func (s *OAuthAppService) RevokeGrant(ctx context.Context, org, appID, grantID s
 	if err := s.refresh.RevokeByGrant(ctx, c.OrganizationID, grantID, now); err != nil {
 		return err
 	}
-	return s.grants.Revoke(ctx, c.OrganizationID, grantID, now)
+	if err := s.grants.Revoke(ctx, c.OrganizationID, grantID, now); err != nil {
+		return err
+	}
+	s.publishGrantRevoked(ctx, grantID, c.OrganizationID, c.ClientID)
+	return nil
 }
 
 func (s *OAuthAppService) RevokeAllGrants(ctx context.Context, org, appID string, isSuperAdmin bool) error {
@@ -351,10 +354,41 @@ func (s *OAuthAppService) RevokeAllGrants(ctx context.Context, org, appID string
 		return err
 	}
 	now := domain.NowMs()
-	if err := s.refresh.RevokeByClient(ctx, c.OrganizationID, c.ClientID, now); err != nil {
+	revoked, err := s.revokeClientGrants(ctx, c.OrganizationID, c.ClientID, now)
+	if err != nil {
 		return err
 	}
-	return s.grants.RevokeByClient(ctx, c.OrganizationID, c.ClientID, now)
+	s.publishGrantsRevoked(ctx, revoked)
+	return nil
+}
+
+func (s *OAuthAppService) CascadeSessionLogoutOrDelete(ctx context.Context, org, sessionID string) error {
+	clients, err := s.clients.ListActiveBySession(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	now := domain.NowMs()
+	var revoked []domain.OAuthGrant
+	for _, c := range clients {
+		if c.OrganizationID != org {
+			continue
+		}
+		rs, err := s.revokeClientGrants(ctx, c.OrganizationID, c.ClientID, now)
+		if err != nil {
+			return err
+		}
+		revoked = append(revoked, rs...)
+	}
+	if err := s.clients.DisableActiveBySession(ctx, sessionID, now); err != nil {
+		return err
+	}
+	for _, c := range clients {
+		if c.OrganizationID == org {
+			s.publishAppChanged(ctx, c)
+		}
+	}
+	s.publishGrantsRevoked(ctx, revoked)
+	return nil
 }
 
 func (s *OAuthAppService) getClient(ctx context.Context, org, id string, isSuperAdmin bool) (domain.OAuthClient, error) {
@@ -364,11 +398,44 @@ func (s *OAuthAppService) getClient(ctx context.Context, org, id string, isSuper
 	return s.clients.GetByOrg(ctx, org, id)
 }
 
-func (s *OAuthAppService) publishAppChanged(ctx context.Context, sessionID string) {
+func (s *OAuthAppService) publishAppChanged(ctx context.Context, c domain.OAuthClient) {
 	if s.publisher == nil {
 		return
 	}
-	_ = s.publisher.Publish(ctx, oidp.ChannelOIDPAppChanged, map[string]string{"sessionId": sessionID})
+	_ = s.publisher.Publish(ctx, oidp.ChannelOIDPAppChanged, map[string]string{"sessionId": c.SessionID, "clientId": c.ClientID})
+}
+
+func (s *OAuthAppService) revokeClientGrants(ctx context.Context, orgID, clientID string, revokedAt int64) ([]domain.OAuthGrant, error) {
+	page, err := s.grants.ListByClient(ctx, orgID, clientID, "", 1000)
+	if err != nil {
+		return nil, err
+	}
+	active := make([]domain.OAuthGrant, 0, len(page.Items))
+	for _, g := range page.Items {
+		if g.RevokedAt == nil {
+			active = append(active, g)
+		}
+	}
+	if err := s.refresh.RevokeByClient(ctx, orgID, clientID, revokedAt); err != nil {
+		return nil, err
+	}
+	if err := s.grants.RevokeByClient(ctx, orgID, clientID, revokedAt); err != nil {
+		return nil, err
+	}
+	return active, nil
+}
+
+func (s *OAuthAppService) publishGrantsRevoked(ctx context.Context, grants []domain.OAuthGrant) {
+	for _, g := range grants {
+		s.publishGrantRevoked(ctx, g.ID, g.OrganizationID, g.ClientID)
+	}
+}
+
+func (s *OAuthAppService) publishGrantRevoked(ctx context.Context, grantID, orgID, clientID string) {
+	if s.publisher == nil || grantID == "" {
+		return
+	}
+	_ = s.publisher.Publish(ctx, oidp.ChannelOIDPGrantRevoked, map[string]string{"grantId": grantID, "organizationId": orgID, "clientId": clientID})
 }
 
 func (s *OAuthAppService) assertSessionOrg(ctx context.Context, org, id string) error {

@@ -23,6 +23,15 @@ func newOAuthAppServiceTest(t *testing.T) (*OAuthAppService, sqlmock.Sqlmock, fu
 	return NewOAuthAppService(st, testPepper, "am", "https://issuer.test", nil), mock, func() { _ = db.Close() }
 }
 
+type recordingPublisher struct {
+	channels []string
+}
+
+func (p *recordingPublisher) Publish(_ context.Context, channel string, _ any) error {
+	p.channels = append(p.channels, channel)
+	return nil
+}
+
 func expectOAuthSession(mock sqlmock.Sqlmock, id, org string) {
 	rows := sqlmock.NewRows([]string{
 		"id", "organization_id", "created_by_user_id", "gateway_id", "label", "status",
@@ -132,10 +141,16 @@ func TestOAuthAppService_CrossOrgSessionIsNotFound(t *testing.T) {
 func TestOAuthAppService_DeleteCascades(t *testing.T) {
 	svc, mock, cleanup := newOAuthAppServiceTest(t)
 	defer cleanup()
+	pub := &recordingPublisher{}
+	svc.publisher = pub
 	clientRows := sqlmock.NewRows([]string{"id", "client_id", "organization_id", "created_by_user_id", "session_id", "name", "logo_url", "client_type", "login_command", "secret_hash", "secret_last4", "redirect_uris", "modes", "group_jid", "allowed_scopes", "token_ttl_seconds", "refresh_ttl_seconds", "status", "created_at", "updated_at", "deleted_at"}).
 		AddRow("oac_1", "wa_1", "org_1", nil, "sess_1", "Acme", nil, "confidential", "login", []byte("hash"), "last", []byte(`["https://app.example/cb"]`), "dm", nil, []byte(`["openid"]`), 900, 2592000, "active", 100, 100, nil)
 	mock.ExpectQuery("SELECT .* FROM oauth_clients WHERE organization_id = \\? AND id = \\?").
 		WithArgs("org_1", "oac_1").WillReturnRows(clientRows)
+	grantRows := sqlmock.NewRows([]string{"id", "organization_id", "client_id", "wa_identity_id", "sub", "granted_scopes", "last_acr", "last_group_jid", "created_at", "last_used_at", "revoked_at"}).
+		AddRow("ogr_1", "org_1", "wa_1", uint64(42), "sub", []byte(`["openid"]`), "wa:dm", nil, 100, 100, nil)
+	mock.ExpectQuery("SELECT .* FROM oauth_grants WHERE organization_id = \\? AND client_id = \\?").
+		WithArgs("org_1", "wa_1", "", "", sqlmock.AnyArg()).WillReturnRows(grantRows)
 	mock.ExpectExec("UPDATE oauth_refresh_tokens rt JOIN oauth_grants g").
 		WithArgs(sqlmock.AnyArg(), "org_1", "org_1", "wa_1").WillReturnResult(sqlmock.NewResult(0, 2))
 	mock.ExpectExec("UPDATE oauth_grants SET revoked_at").
@@ -147,5 +162,39 @@ func TestOAuthAppService_DeleteCascades(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
+	}
+	if len(pub.channels) != 2 || pub.channels[0] != "ctrl:oidp.app.changed" || pub.channels[1] != "ctrl:oidp.grant.revoked" {
+		t.Fatalf("channels = %#v", pub.channels)
+	}
+}
+
+func TestOAuthAppService_SessionCascadeDisablesAppsRevokesGrantsAndPublishes(t *testing.T) {
+	svc, mock, cleanup := newOAuthAppServiceTest(t)
+	defer cleanup()
+	pub := &recordingPublisher{}
+	svc.publisher = pub
+	clientRows := sqlmock.NewRows([]string{"id", "client_id", "organization_id", "created_by_user_id", "session_id", "name", "logo_url", "client_type", "login_command", "secret_hash", "secret_last4", "redirect_uris", "modes", "group_jid", "allowed_scopes", "token_ttl_seconds", "refresh_ttl_seconds", "status", "created_at", "updated_at", "deleted_at"}).
+		AddRow("oac_1", "wa_1", "org_1", nil, "sess_1", "Acme", nil, "confidential", "login", []byte("hash"), "last", []byte(`["https://app.example/cb"]`), "dm", nil, []byte(`["openid"]`), 900, 2592000, "active", 100, 100, nil)
+	mock.ExpectQuery("SELECT .* FROM oauth_clients WHERE session_id = \\?").
+		WithArgs("sess_1").WillReturnRows(clientRows)
+	grantRows := sqlmock.NewRows([]string{"id", "organization_id", "client_id", "wa_identity_id", "sub", "granted_scopes", "last_acr", "last_group_jid", "created_at", "last_used_at", "revoked_at"}).
+		AddRow("ogr_1", "org_1", "wa_1", uint64(42), "sub", []byte(`["openid"]`), "wa:dm", nil, 100, 100, nil)
+	mock.ExpectQuery("SELECT .* FROM oauth_grants WHERE organization_id = \\? AND client_id = \\?").
+		WithArgs("org_1", "wa_1", "", "", sqlmock.AnyArg()).WillReturnRows(grantRows)
+	mock.ExpectExec("UPDATE oauth_refresh_tokens rt JOIN oauth_grants g").
+		WithArgs(sqlmock.AnyArg(), "org_1", "org_1", "wa_1").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE oauth_grants SET revoked_at").
+		WithArgs(sqlmock.AnyArg(), "org_1", "wa_1").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE oauth_clients SET status = 'disabled'").
+		WithArgs(sqlmock.AnyArg(), "sess_1").WillReturnResult(sqlmock.NewResult(0, 1))
+
+	if err := svc.CascadeSessionLogoutOrDelete(context.Background(), "org_1", "sess_1"); err != nil {
+		t.Fatalf("CascadeSessionLogoutOrDelete: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+	if len(pub.channels) != 2 || pub.channels[0] != "ctrl:oidp.app.changed" || pub.channels[1] != "ctrl:oidp.grant.revoked" {
+		t.Fatalf("channels = %#v", pub.channels)
 	}
 }

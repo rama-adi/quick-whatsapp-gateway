@@ -108,6 +108,7 @@ func run() error {
 		OAuthClientSecretPepper:    cfg.OAuthClientSecretPepper,
 		OIDCIssuer:                 cfg.OIDCIssuer,
 		WhatsAppAdminCommandPrefix: cfg.WhatsAppAdminCmdPrefix,
+		ControlPublisher:           service.NewRedisControlPublisher(rdb),
 		Log:                        log,
 	})
 	apiHandlers := handlers.New(services, log)
@@ -147,6 +148,15 @@ func run() error {
 			RequestTTL:   requestTTL,
 			AuthCodeTTL:  time.Duration(cfg.OIDCAuthCodeTTLSeconds) * time.Second,
 		})
+	}
+
+	if rdb != nil && oidpProvider != nil {
+		oidpControl := oidp.NewControlSubscriber(rdb, oidpProvider, oidpProvider, oidpProvider.PendingStore(), log)
+		if err := oidpControl.Start(ctx); err != nil {
+			log.Warn("oidp control bus subscriber disabled", "err", err)
+		} else {
+			defer oidpControl.Stop()
+		}
 	}
 
 	// --- Control bus subscriber (§4.6): the router owns the api-key cache and the

@@ -92,6 +92,34 @@ func (r *OAuthClientRepo) ListActiveBySession(ctx context.Context, sessionID str
 	return items, nil
 }
 
+func (r *OAuthClientRepo) ListBySession(ctx context.Context, sessionID string) ([]domain.OAuthClient, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT `+oauthClientCols+` FROM oauth_clients WHERE session_id = ? AND deleted_at IS NULL ORDER BY id ASC`, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("store: list oauth clients by session: %w", err)
+	}
+	defer rows.Close()
+	var items []domain.OAuthClient
+	for rows.Next() {
+		c, err := scanOAuthClient(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: list oauth clients by session: %w", err)
+	}
+	return items, nil
+}
+
+func (r *OAuthClientRepo) DisableActiveBySession(ctx context.Context, sessionID string, updatedAt int64) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE oauth_clients SET status = 'disabled', updated_at = ? WHERE session_id = ? AND status = 'active' AND deleted_at IS NULL`, updatedAt, sessionID)
+	if err != nil {
+		return fmt.Errorf("store: disable oauth clients by session: %w", err)
+	}
+	return nil
+}
+
 func (r *OAuthClientRepo) ListByOrg(ctx context.Context, orgID, cursor string, limit int) (Page[domain.OAuthClient], error) {
 	limit = normLimit(limit)
 	cur, err := parseStringCursor(cursor)
@@ -203,6 +231,26 @@ func (r *OAuthGrantRepo) RevokeByClient(ctx context.Context, orgID, clientID str
 		return fmt.Errorf("store: revoke oauth grants by client: %w", err)
 	}
 	return nil
+}
+
+func (r *OAuthGrantRepo) ListActiveIDsByClient(ctx context.Context, orgID, clientID string) ([]string, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT id FROM oauth_grants WHERE organization_id = ? AND client_id = ? AND revoked_at IS NULL ORDER BY id ASC`, orgID, clientID)
+	if err != nil {
+		return nil, fmt.Errorf("store: list active oauth grant ids by client: %w", err)
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("store: list active oauth grant ids by client: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: list active oauth grant ids by client: %w", err)
+	}
+	return ids, nil
 }
 
 func (r *OAuthGrantRepo) GetActiveByClientIdentity(ctx context.Context, orgID, clientID string, identityID uint64) (domain.OAuthGrant, error) {
