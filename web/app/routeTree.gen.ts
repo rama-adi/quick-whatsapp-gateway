@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as AuthRouteImport } from './routes/_auth'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as LoginWhatsappRouteImport } from './routes/login.whatsapp'
 import { Route as DocsSplatRouteImport } from './routes/docs/$'
 import { Route as ApiSearchRouteImport } from './routes/api/search'
 import { Route as AuthRegisterRouteImport } from './routes/_auth/register'
@@ -49,6 +50,11 @@ const AppRoute = AppRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginWhatsappRoute = LoginWhatsappRouteImport.update({
+  id: '/login/whatsapp',
+  path: '/login/whatsapp',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DocsSplatRoute = DocsSplatRouteImport.update({
@@ -194,6 +200,7 @@ export interface FileRoutesByFullPath {
   '/register': typeof AuthRegisterRoute
   '/api/search': typeof ApiSearchRoute
   '/docs/$': typeof DocsSplatRoute
+  '/login/whatsapp': typeof LoginWhatsappRoute
   '/admin/monitor': typeof AppAdminMonitorRoute
   '/admin/pairing': typeof AppAdminPairingRoute
   '/admin/sessions': typeof AppAdminSessionsRoute
@@ -221,6 +228,7 @@ export interface FileRoutesByTo {
   '/register': typeof AuthRegisterRoute
   '/api/search': typeof ApiSearchRoute
   '/docs/$': typeof DocsSplatRoute
+  '/login/whatsapp': typeof LoginWhatsappRoute
   '/admin/monitor': typeof AppAdminMonitorRoute
   '/admin/pairing': typeof AppAdminPairingRoute
   '/admin/sessions': typeof AppAdminSessionsRoute
@@ -249,6 +257,7 @@ export interface FileRoutesById {
   '/_auth/register': typeof AuthRegisterRoute
   '/api/search': typeof ApiSearchRoute
   '/docs/$': typeof DocsSplatRoute
+  '/login/whatsapp': typeof LoginWhatsappRoute
   '/_app/admin/monitor': typeof AppAdminMonitorRoute
   '/_app/admin/pairing': typeof AppAdminPairingRoute
   '/_app/admin/sessions': typeof AppAdminSessionsRoute
@@ -279,6 +288,7 @@ export interface FileRouteTypes {
     | '/register'
     | '/api/search'
     | '/docs/$'
+    | '/login/whatsapp'
     | '/admin/monitor'
     | '/admin/pairing'
     | '/admin/sessions'
@@ -306,6 +316,7 @@ export interface FileRouteTypes {
     | '/register'
     | '/api/search'
     | '/docs/$'
+    | '/login/whatsapp'
     | '/admin/monitor'
     | '/admin/pairing'
     | '/admin/sessions'
@@ -333,6 +344,7 @@ export interface FileRouteTypes {
     | '/_auth/register'
     | '/api/search'
     | '/docs/$'
+    | '/login/whatsapp'
     | '/_app/admin/monitor'
     | '/_app/admin/pairing'
     | '/_app/admin/sessions'
@@ -358,6 +370,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRouteWithChildren
   ApiSearchRoute: typeof ApiSearchRoute
   DocsSplatRoute: typeof DocsSplatRoute
+  LoginWhatsappRoute: typeof LoginWhatsappRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
@@ -382,6 +395,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login/whatsapp': {
+      id: '/login/whatsapp'
+      path: '/login/whatsapp'
+      fullPath: '/login/whatsapp'
+      preLoaderRoute: typeof LoginWhatsappRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/docs/$': {
@@ -698,6 +718,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRouteWithChildren,
   ApiSearchRoute: ApiSearchRoute,
   DocsSplatRoute: DocsSplatRoute,
+  LoginWhatsappRoute: LoginWhatsappRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
 export const routeTree = rootRouteImport
