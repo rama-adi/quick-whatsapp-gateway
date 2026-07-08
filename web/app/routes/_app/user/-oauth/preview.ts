@@ -7,6 +7,8 @@ import type { OAuthMode } from "~/lib/api/hooks/oauth";
 
 export interface PreviewInput {
   name: string;
+  /** The bot WhatsApp account's display name, as configured on the app. */
+  botName?: string;
   logoUrl?: string;
   loginCommand: string;
   scopes: string[];
@@ -24,17 +26,20 @@ export function buildPreviewSnapshot(input: PreviewInput): PendingSnapshot {
   // Prefer DM in the preview when enabled (the default acr, oauth.md §4.3),
   // else group.
   const preferDm = input.modes.includes("dm") || input.modes.length === 0;
+  // Prefer the configured bot display name; fall back to the app name so the
+  // preview never shows an empty mention.
+  const botName = input.botName?.trim() || input.name.trim() || undefined;
   const target: WaitTarget = preferDm
     ? {
         mode: "dm",
         number: input.botNumber || "+62 812-0000-0000",
-        bot_name: input.name || undefined,
+        bot_name: botName,
       }
     : {
         mode: "group",
         group_name: input.groupName || "Your pinned group",
         number: input.botNumber || undefined,
-        bot_name: input.name || undefined,
+        bot_name: botName,
       };
 
   return {

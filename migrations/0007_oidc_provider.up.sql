@@ -7,6 +7,7 @@ CREATE TABLE oauth_clients (
   created_by_user_id  VARCHAR(64) NULL,
   session_id          VARCHAR(64) NOT NULL,
   name                VARCHAR(255) NOT NULL,
+  bot_name            VARCHAR(255) NULL,
   logo_url            TEXT NULL,
   client_type         ENUM('confidential','public') NOT NULL DEFAULT 'confidential',
   login_command       VARCHAR(32) NOT NULL DEFAULT 'login',

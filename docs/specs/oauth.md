@@ -58,8 +58,9 @@ client-facing grant (we borrow its *phishing mitigations*, not its endpoint).
    **`GET /oauth/wait/{browser_code}/stream`** — a **long-lived HTTP GET streaming NDJSON**
    (fetch + `ReadableStream`; same transport as the gateway event stream; not WebSocket, not SSE).
    First line carries `{status:"pending", app:{name,logo}, user_code, target, scopes, expires_at}`;
-   the page renders "Send `login 483920` to +62xxx" (with a `wa.me` deep-link/QR pre-filling the
-   DM) or the group-mention instruction, plus a countdown and a "This isn't me / cancel" action.
+   the page renders "Send `login 483920` to +62xxx (BotName)" (with a `wa.me` deep-link/QR
+   pre-filling the DM) or the group-mention instruction `@BotName login 483920`, plus a countdown
+   and a "This isn't me / cancel" action.
 4. The end-user sends the message. The owning gateway's inbound pipeline (stage-2 interceptor)
    matches it, validates mode/group semantics, and **atomically claims the pending request in
    Redis (Lua)**, attaching the sender's identity. It publishes `verified` on the flow's pub/sub
@@ -90,6 +91,7 @@ CREATE TABLE oauth_clients (
   created_by_user_id  VARCHAR(64) NULL,                 -- audit
   session_id          VARCHAR(64) NOT NULL,             -- the bot session (→ wa_sessions.id, same org)
   name                VARCHAR(255) NOT NULL,            -- shown on consent page + bot confirmation
+  bot_name            VARCHAR(255) NULL,                -- bot WhatsApp display name shown in end-user instructions
   logo_url            TEXT NULL,
   client_type         ENUM('confidential','public') NOT NULL DEFAULT 'confidential',
   login_command       VARCHAR(32) NOT NULL DEFAULT 'login', -- the keyword end-users type (per-app, e.g. "masuk")
@@ -242,7 +244,9 @@ honor it):
   `{status:"pending", app:{name, logo}, user_code, login_command, target, scopes, expires_at}` —
   `logo` nullable, `scopes` a string array, **`expires_at` epoch milliseconds**.
 - `target` = `{mode:"dm", number, bot_name?}` or `{mode:"group", group_name, number?, bot_name?}`;
-  `number` human-readable (the page strips to digits for the `wa.me` link).
+  `number` human-readable (the page strips to digits for the `wa.me` link). `bot_name` is the
+  OAuth app's configured WhatsApp bot display name, falling back to the bound session label when
+  unset.
 - Subsequent frames: `{status:"heartbeat"}` (~20s liveness) and terminal
   `{status:"verified"|"denied"|"expired"}`. A reconnect to the same stream URL re-emits the
   current snapshot first (idempotent).
@@ -369,10 +373,11 @@ phishing guard.
 ### 6.2 Dashboard — `web/app/routes/dashboard.oauth-apps.tsx` (+ detail)
 
 - **List**: name, logo, bound session (number + status pill), mode chips, grant count, status.
-- **Create/edit**: name + logo (with a **live preview of the consent card**), **login command**
-  (single word, default `login`, validated `[a-z0-9_-]{2,32}`; the preview and the note "messages
-  starting with this word on the bound session are intercepted and won't reach your webhooks"
-  update live), session picker (org's working sessions), redirect-URI multi-input (absolute https, exact; localhost http for
+- **Create/edit**: name, logo, bot name (optional; set to the bound WhatsApp account's display
+  name so end-users see the same bot name during sign-in), **login command** (single word, default
+  `login`, validated `[a-z0-9_-]{2,32}`; the preview and the note "messages starting with this word
+  on the bound session are intercepted and won't reach your webhooks" update live), session picker
+  (org's working sessions), redirect-URI multi-input (absolute https, exact; localhost http for
   dev; fragments rejected), DM/Group toggles (Group reveals a group picker from the session's
   groups), scope checklist with plain-language descriptions, advanced TTLs (clamped), client type.
 - **Secret UX**: shown exactly once on create/rotate (copy-once modal, matches the api-key UX);

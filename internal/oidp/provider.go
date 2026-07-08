@@ -575,7 +575,10 @@ func (p *Provider) target(ctx context.Context, mode string, sess domain.WASessio
 		n := "+" + strings.TrimPrefix(*sess.PhoneNumber, "+")
 		number = &n
 	}
-	if sess.Label != nil && *sess.Label != "" {
+	if c.BotName != nil && strings.TrimSpace(*c.BotName) != "" {
+		b := strings.TrimSpace(*c.BotName)
+		botName = &b
+	} else if sess.Label != nil && *sess.Label != "" {
 		botName = sess.Label
 	}
 	if mode == "group" && c.GroupJID != nil && p.groups != nil {

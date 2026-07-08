@@ -5,6 +5,7 @@
 
 import * as React from "react";
 import {
+  CheckCheckIcon,
   ClockIcon,
   ExternalLinkIcon,
   MessageCircleIcon,
@@ -38,7 +39,9 @@ export function ConsentCard({
   const remaining = useCountdown(snapshot.expires_at ?? null);
   const scopeLines = describeScopes(scopes);
   const isDm = target.mode === "dm";
-  const number = target.mode === "dm" ? target.number : target.number;
+  const number = target.number;
+  const botName = target.bot_name?.trim() || undefined;
+  const groupName = target.mode === "group" ? target.group_name : "";
   const deepLink = number ? waMeLink(number, command) : null;
   const expired = remaining <= 0;
 
@@ -90,24 +93,44 @@ export function ConsentCard({
               Send this message to{" "}
               <span className="font-medium text-foreground">
                 {formatNumber(number)}
-              </span>{" "}
+              </span>
+              {botName ? (
+                <span className="text-muted-foreground"> ({botName})</span>
+              ) : null}{" "}
               on WhatsApp:
+            </>
+          ) : botName ? (
+            <>
+              In{" "}
+              <span className="font-medium text-foreground">{groupName}</span>,
+              type <code className="font-mono">@</code> and pick{" "}
+              <span className="font-medium text-foreground">{botName}</span> from
+              the suggestions, then send:
             </>
           ) : (
             <>
               In the group{" "}
-              <span className="font-medium text-foreground">
-                {target.mode === "group" ? target.group_name : ""}
-              </span>
-              , mention the bot with this message:
+              <span className="font-medium text-foreground">{groupName}</span>,
+              mention the bot with this message:
             </>
           )}
         </p>
 
-        <div className="flex items-center justify-between gap-2 rounded-lg border bg-card px-3 py-3">
-          <code className="font-mono text-base font-semibold tracking-wide sm:text-lg">
-            {command}
-          </code>
+        {/* WhatsApp-style outgoing bubble: exactly what the sent message looks
+            like. In a group we prepend the styled @mention of the bot. */}
+        <MessageBubble
+          command={command}
+          mention={!isDm ? botName : undefined}
+        />
+
+        {/* Copy the RAW command only. A WhatsApp @mention can't be pasted — in a
+            group the user types "@", picks the bot, then adds this text. */}
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-xs text-muted-foreground">
+            {!isDm && botName
+              ? "The @mention can't be copied — pick the bot in WhatsApp, then add:"
+              : "Copy and send it exactly as shown."}
+          </p>
           <CopyButton value={command} />
         </div>
 
@@ -189,6 +212,38 @@ export function ConsentCard({
       >
         {cancelling ? "Cancelling…" : "This isn't me / Cancel"}
       </Button>
+    </div>
+  );
+}
+
+/**
+ * A single WhatsApp-style outgoing message bubble (WhatsApp dark-mode green),
+ * showing verbatim the text the end-user must send. When `mention` is set, the
+ * leading "@name" is rendered in the WhatsApp mention teal; the rest is the raw
+ * command. The bubble carries its own dark background + white text, so it reads
+ * the same in both the site's light and dark themes.
+ */
+function MessageBubble({
+  command,
+  mention,
+}: {
+  command: string;
+  mention?: string;
+}) {
+  return (
+    <div className="flex justify-end">
+      <div className="max-w-[90%] rounded-2xl rounded-br-md bg-[#005c4b] px-3 py-2 shadow-sm">
+        <p className="text-sm leading-snug break-words text-white">
+          {mention ? (
+            <span className="font-semibold text-[#53bdeb]">@{mention} </span>
+          ) : null}
+          {command}
+        </p>
+        <div className="mt-0.5 flex items-center justify-end gap-0.5 text-[10px] leading-none text-white/60">
+          9:41 AM
+          <CheckCheckIcon className="size-3 text-[#53bdeb]" aria-hidden />
+        </div>
+      </div>
     </div>
   );
 }

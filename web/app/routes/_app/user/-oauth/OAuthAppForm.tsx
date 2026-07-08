@@ -47,6 +47,7 @@ import {
 
 export interface OAuthFormState {
   name: string;
+  botName: string;
   logoUrl: string;
   loginCommand: string;
   sessionId: string;
@@ -62,6 +63,7 @@ export interface OAuthFormState {
 export function emptyFormState(): OAuthFormState {
   return {
     name: "",
+    botName: "",
     logoUrl: "",
     loginCommand: "login",
     sessionId: "",
@@ -78,6 +80,7 @@ export function emptyFormState(): OAuthFormState {
 export function formStateFromApp(app: OAuthApp): OAuthFormState {
   return {
     name: app.name,
+    botName: app.botName ?? "",
     logoUrl: app.logoUrl ?? "",
     loginCommand: app.loginCommand,
     sessionId: app.sessionId,
@@ -98,6 +101,7 @@ export function toRequestBody(s: OAuthFormState): OAuthAppBody {
     : ["openid", ...s.scopes];
   return {
     name: s.name.trim(),
+    botName: s.botName.trim() || undefined,
     logoUrl: s.logoUrl.trim() || undefined,
     loginCommand: s.loginCommand.trim(),
     sessionId: s.sessionId,
@@ -216,6 +220,20 @@ export function OAuthAppForm({
             autoFocus
           />
           <Hint>Shown to end-users on the sign-in screen and the bot's reply.</Hint>
+        </Field>
+
+        <Field label="Bot name" htmlFor={`${idPrefix}-bot-name`} optional>
+          <Input
+            id={`${idPrefix}-bot-name`}
+            value={state.botName}
+            onChange={(e) => set("botName", e.target.value)}
+            placeholder="e.g. Acme Support"
+            maxLength={255}
+          />
+          <Hint>
+            Set this to the WhatsApp account's display name so users recognize
+            the bot.
+          </Hint>
         </Field>
 
         <Field label="Logo URL" htmlFor={`${idPrefix}-logo`} optional>
@@ -541,6 +559,7 @@ export function OAuthAppForm({
           <ConsentCard
             snapshot={buildPreviewSnapshot({
               name: state.name,
+              botName: state.botName,
               logoUrl: state.logoUrl,
               loginCommand: state.loginCommand,
               scopes: state.scopes,

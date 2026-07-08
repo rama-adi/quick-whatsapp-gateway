@@ -28,6 +28,7 @@ type OAuthApp struct {
 	CreatedByUserID   *string         `json:"createdByUserId,omitempty" doc:"User id that created this OAuth application, when known." example:"user_01J9DEF"`
 	SessionID         string          `json:"sessionId" doc:"WhatsApp session used as the Sign in with WhatsApp bot. Must belong to the owning organization." example:"sess_01J9ZX8K2QHV0M3T6R7P4N5W8C"`
 	Name              string          `json:"name" doc:"Application name shown on the consent page and in bot replies." example:"Acme Portal"`
+	BotName           *string         `json:"botName,omitempty" maxLength:"255" doc:"Display name of the bot WhatsApp account, shown to end-users during sign-in. Set it to the account's actual WhatsApp display name." example:"Acme Support"`
 	LogoURL           *string         `json:"logoUrl,omitempty" doc:"Optional HTTPS logo URL shown on the consent page." example:"https://acme.example/logo.png"`
 	ClientType        OAuthClientType `json:"clientType" enum:"confidential,public" doc:"OAuth client type. Confidential clients receive a client_secret shown once; public clients use PKCE only and have no secret." example:"confidential"`
 	LoginCommand      string          `json:"loginCommand" doc:"Single-word command users type in WhatsApp before the six-digit code. Lowercase letters, digits, underscore, and hyphen only." example:"login"`

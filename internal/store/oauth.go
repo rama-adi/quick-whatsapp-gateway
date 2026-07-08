@@ -26,23 +26,23 @@ func NewOAuthSigningKeyRepo(db dbExecQuerier) *OAuthSigningKeyRepo {
 	return &OAuthSigningKeyRepo{db: db}
 }
 
-const oauthClientCols = `id, client_id, organization_id, created_by_user_id, session_id, name, logo_url, client_type, login_command, secret_hash, secret_last4, redirect_uris, modes, group_jid, allowed_scopes, token_ttl_seconds, refresh_ttl_seconds, status, created_at, updated_at, deleted_at`
+const oauthClientCols = `id, client_id, organization_id, created_by_user_id, session_id, name, bot_name, logo_url, client_type, login_command, secret_hash, secret_last4, redirect_uris, modes, group_jid, allowed_scopes, token_ttl_seconds, refresh_ttl_seconds, status, created_at, updated_at, deleted_at`
 
 func scanOAuthClient(s rowScanner) (domain.OAuthClient, error) {
 	var c domain.OAuthClient
-	var createdBy, logo, secretLast4, group sql.NullString
+	var createdBy, botName, logo, secretLast4, group sql.NullString
 	var deleted sql.NullInt64
-	if err := s.Scan(&c.ID, &c.ClientID, &c.OrganizationID, &createdBy, &c.SessionID, &c.Name, &logo, &c.ClientType, &c.LoginCommand, &c.SecretHash, &secretLast4, &c.RedirectURIs, &c.Modes, &group, &c.AllowedScopes, &c.TokenTTLSeconds, &c.RefreshTTLSeconds, &c.Status, &c.CreatedAt, &c.UpdatedAt, &deleted); err != nil {
+	if err := s.Scan(&c.ID, &c.ClientID, &c.OrganizationID, &createdBy, &c.SessionID, &c.Name, &botName, &logo, &c.ClientType, &c.LoginCommand, &c.SecretHash, &secretLast4, &c.RedirectURIs, &c.Modes, &group, &c.AllowedScopes, &c.TokenTTLSeconds, &c.RefreshTTLSeconds, &c.Status, &c.CreatedAt, &c.UpdatedAt, &deleted); err != nil {
 		return domain.OAuthClient{}, scanErr("oauth_clients", err)
 	}
-	c.CreatedByUserID, c.LogoURL, c.SecretLast4, c.GroupJID = stringPtrFromNull(createdBy), stringPtrFromNull(logo), stringPtrFromNull(secretLast4), stringPtrFromNull(group)
+	c.CreatedByUserID, c.BotName, c.LogoURL, c.SecretLast4, c.GroupJID = stringPtrFromNull(createdBy), stringPtrFromNull(botName), stringPtrFromNull(logo), stringPtrFromNull(secretLast4), stringPtrFromNull(group)
 	c.DeletedAt = int64PtrFromNull(deleted)
 	return c, nil
 }
 
 func (r *OAuthClientRepo) Create(ctx context.Context, c domain.OAuthClient) error {
-	_, err := r.db.ExecContext(ctx, `INSERT INTO oauth_clients (`+oauthClientCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		c.ID, c.ClientID, c.OrganizationID, nullString(c.CreatedByUserID), c.SessionID, c.Name, nullString(c.LogoURL), c.ClientType, c.LoginCommand, c.SecretHash, nullString(c.SecretLast4), c.RedirectURIs, c.Modes, nullString(c.GroupJID), c.AllowedScopes, c.TokenTTLSeconds, c.RefreshTTLSeconds, c.Status, c.CreatedAt, c.UpdatedAt, nullInt64(c.DeletedAt))
+	_, err := r.db.ExecContext(ctx, `INSERT INTO oauth_clients (`+oauthClientCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		c.ID, c.ClientID, c.OrganizationID, nullString(c.CreatedByUserID), c.SessionID, c.Name, nullString(c.BotName), nullString(c.LogoURL), c.ClientType, c.LoginCommand, c.SecretHash, nullString(c.SecretLast4), c.RedirectURIs, c.Modes, nullString(c.GroupJID), c.AllowedScopes, c.TokenTTLSeconds, c.RefreshTTLSeconds, c.Status, c.CreatedAt, c.UpdatedAt, nullInt64(c.DeletedAt))
 	if err != nil {
 		return fmt.Errorf("store: create oauth client: %w", err)
 	}
@@ -150,8 +150,8 @@ func (r *OAuthClientRepo) ListByOrg(ctx context.Context, orgID, cursor string, l
 }
 
 func (r *OAuthClientRepo) Update(ctx context.Context, c domain.OAuthClient) error {
-	res, err := r.db.ExecContext(ctx, `UPDATE oauth_clients SET session_id = ?, name = ?, logo_url = ?, client_type = ?, login_command = ?, secret_hash = ?, secret_last4 = ?, redirect_uris = ?, modes = ?, group_jid = ?, allowed_scopes = ?, token_ttl_seconds = ?, refresh_ttl_seconds = ?, status = ?, updated_at = ? WHERE organization_id = ? AND id = ? AND deleted_at IS NULL`,
-		c.SessionID, c.Name, nullString(c.LogoURL), c.ClientType, c.LoginCommand, c.SecretHash, nullString(c.SecretLast4), c.RedirectURIs, c.Modes, nullString(c.GroupJID), c.AllowedScopes, c.TokenTTLSeconds, c.RefreshTTLSeconds, c.Status, c.UpdatedAt, c.OrganizationID, c.ID)
+	res, err := r.db.ExecContext(ctx, `UPDATE oauth_clients SET session_id = ?, name = ?, bot_name = ?, logo_url = ?, client_type = ?, login_command = ?, secret_hash = ?, secret_last4 = ?, redirect_uris = ?, modes = ?, group_jid = ?, allowed_scopes = ?, token_ttl_seconds = ?, refresh_ttl_seconds = ?, status = ?, updated_at = ? WHERE organization_id = ? AND id = ? AND deleted_at IS NULL`,
+		c.SessionID, c.Name, nullString(c.BotName), nullString(c.LogoURL), c.ClientType, c.LoginCommand, c.SecretHash, nullString(c.SecretLast4), c.RedirectURIs, c.Modes, nullString(c.GroupJID), c.AllowedScopes, c.TokenTTLSeconds, c.RefreshTTLSeconds, c.Status, c.UpdatedAt, c.OrganizationID, c.ID)
 	if err != nil {
 		return fmt.Errorf("store: update oauth client: %w", err)
 	}

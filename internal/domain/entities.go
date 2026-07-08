@@ -98,6 +98,7 @@ type OAuthClient struct {
 	CreatedByUserID   *string         `json:"createdByUserId,omitempty"`
 	SessionID         string          `json:"sessionId"`
 	Name              string          `json:"name"`
+	BotName           *string         `json:"botName,omitempty"`
 	LogoURL           *string         `json:"logoUrl,omitempty"`
 	ClientType        string          `json:"clientType"`
 	LoginCommand      string          `json:"loginCommand"`

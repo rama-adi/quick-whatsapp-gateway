@@ -14,6 +14,7 @@ import (
 type oauthAppBody struct {
 	SessionID         string                  `json:"sessionId,omitempty" doc:"WhatsApp session used as the Sign in with WhatsApp bot. Must belong to the caller's organization." example:"sess_01J9ZX8K2QHV0M3T6R7P4N5W8C"`
 	Name              string                  `json:"name,omitempty" doc:"Application name shown on the consent page and in WhatsApp bot replies." example:"Acme Portal"`
+	BotName           *string                 `json:"botName,omitempty" maxLength:"255" doc:"Display name of the bot WhatsApp account, shown to end-users during sign-in. Set it to the account's actual WhatsApp display name." example:"Acme Support"`
 	LogoURL           *string                 `json:"logoUrl,omitempty" doc:"Optional HTTPS logo URL shown on the consent page. Send null or omit to leave unset." example:"https://acme.example/logo.png"`
 	ClientType        string                  `json:"clientType,omitempty" enum:"confidential,public" doc:"OAuth client type. Defaults to confidential. Confidential clients receive a client_secret shown once; public clients use PKCE only." example:"confidential"`
 	LoginCommand      string                  `json:"loginCommand,omitempty" doc:"Single-word command users type in WhatsApp before the six-digit code. Must match [a-z0-9_-]{2,32} and must not equal WHATSAPP_ADMIN_CMD_PREFIX." example:"login"`
@@ -28,6 +29,7 @@ type oauthAppBody struct {
 type oauthAppPatchBody struct {
 	SessionID         *string                  `json:"sessionId,omitempty" doc:"New WhatsApp session id. Must belong to the owning organization." example:"sess_01J9ZX8K2QHV0M3T6R7P4N5W8C"`
 	Name              *string                  `json:"name,omitempty" doc:"Application name shown on the consent page and in WhatsApp bot replies." example:"Acme Portal"`
+	BotName           *string                  `json:"botName,omitempty" maxLength:"255" doc:"Display name of the bot WhatsApp account, shown to end-users during sign-in. Set it to the account's actual WhatsApp display name." example:"Acme Support"`
 	LogoURL           *string                  `json:"logoUrl,omitempty" doc:"Optional HTTPS logo URL shown on the consent page." example:"https://acme.example/logo.png"`
 	ClientType        *string                  `json:"clientType,omitempty" enum:"confidential,public" doc:"OAuth client type. Confidential clients may be downgraded to public, which removes the secret." example:"public"`
 	LoginCommand      *string                  `json:"loginCommand,omitempty" doc:"Single-word command users type in WhatsApp before the six-digit code. Must match [a-z0-9_-]{2,32} and must not equal WHATSAPP_ADMIN_CMD_PREFIX." example:"masuk"`
@@ -47,6 +49,7 @@ func (b oauthAppBody) toInput(userID *string) service.OAuthAppCreateInput {
 	return service.OAuthAppCreateInput{
 		SessionID:         b.SessionID,
 		Name:              b.Name,
+		BotName:           b.BotName,
 		LogoURL:           b.LogoURL,
 		ClientType:        b.ClientType,
 		LoginCommand:      b.LoginCommand,
@@ -73,6 +76,10 @@ func (b oauthAppPatchBody) toInput() service.OAuthAppUpdateInput {
 	if b.LogoURL != nil {
 		logo = &b.LogoURL
 	}
+	var botName **string
+	if b.BotName != nil {
+		botName = &b.BotName
+	}
 	var group **string
 	if b.GroupJID != nil {
 		group = &b.GroupJID
@@ -80,6 +87,7 @@ func (b oauthAppPatchBody) toInput() service.OAuthAppUpdateInput {
 	return service.OAuthAppUpdateInput{
 		SessionID:         b.SessionID,
 		Name:              b.Name,
+		BotName:           botName,
 		LogoURL:           logo,
 		ClientType:        b.ClientType,
 		LoginCommand:      b.LoginCommand,

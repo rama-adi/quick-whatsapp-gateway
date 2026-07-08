@@ -1940,6 +1940,12 @@ components:
           type:
             - array
             - "null"
+        botName:
+          description: Display name of the bot WhatsApp account, shown to end-users during sign-in. Set it to the account's actual WhatsApp display name.
+          examples:
+            - Acme Support
+          maxLength: 255
+          type: string
         clientId:
           description: Public OAuth client_id used by relying applications in authorize and token requests.
           examples:
@@ -2088,6 +2094,12 @@ components:
           type:
             - array
             - "null"
+        botName:
+          description: Display name of the bot WhatsApp account, shown to end-users during sign-in. Set it to the account's actual WhatsApp display name.
+          examples:
+            - Acme Support
+          maxLength: 255
+          type: string
         clientId:
           description: Public OAuth client_id used by relying applications in authorize and token requests.
           examples:
@@ -2336,6 +2348,12 @@ components:
           type:
             - array
             - "null"
+        botName:
+          description: Display name of the bot WhatsApp account, shown to end-users during sign-in. Set it to the account's actual WhatsApp display name.
+          examples:
+            - Acme Support
+          maxLength: 255
+          type: string
         clientType:
           description: OAuth client type. Defaults to confidential. Confidential clients receive a client_secret shown once; public clients use PKCE only.
           enum:
@@ -2415,6 +2433,12 @@ components:
           items:
             type: string
           type: array
+        botName:
+          description: Display name of the bot WhatsApp account, shown to end-users during sign-in. Set it to the account's actual WhatsApp display name.
+          examples:
+            - Acme Support
+          maxLength: 255
+          type: string
         clientType:
           description: OAuth client type. Confidential clients may be downgraded to public, which removes the secret.
           enum:

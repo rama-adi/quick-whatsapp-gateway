@@ -12,8 +12,8 @@ func TestOAuthClientRepo_GetByOrg_IsOrgKeyed(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewOAuthClientRepo(db)
 
-	rows := sqlmock.NewRows([]string{"id", "client_id", "organization_id", "created_by_user_id", "session_id", "name", "logo_url", "client_type", "login_command", "secret_hash", "secret_last4", "redirect_uris", "modes", "group_jid", "allowed_scopes", "token_ttl_seconds", "refresh_ttl_seconds", "status", "created_at", "updated_at", "deleted_at"}).
-		AddRow("oc_1", "client_1", "org_1", nil, "sess_1", "Acme", nil, "confidential", "login", []byte("hash"), "last4", []byte(`["https://app.test/cb"]`), "dm", nil, []byte(`["openid"]`), 900, 2592000, "active", 100, 200, nil)
+	rows := sqlmock.NewRows([]string{"id", "client_id", "organization_id", "created_by_user_id", "session_id", "name", "bot_name", "logo_url", "client_type", "login_command", "secret_hash", "secret_last4", "redirect_uris", "modes", "group_jid", "allowed_scopes", "token_ttl_seconds", "refresh_ttl_seconds", "status", "created_at", "updated_at", "deleted_at"}).
+		AddRow("oc_1", "client_1", "org_1", nil, "sess_1", "Acme", "Acme Bot", nil, "confidential", "login", []byte("hash"), "last4", []byte(`["https://app.test/cb"]`), "dm", nil, []byte(`["openid"]`), 900, 2592000, "active", 100, 200, nil)
 	mock.ExpectQuery("SELECT .* FROM oauth_clients WHERE organization_id = \\? AND id = \\? AND deleted_at IS NULL").
 		WithArgs("org_1", "oc_1").WillReturnRows(rows)
 
@@ -23,6 +23,9 @@ func TestOAuthClientRepo_GetByOrg_IsOrgKeyed(t *testing.T) {
 	}
 	if got.ID != "oc_1" || got.OrganizationID != "org_1" || got.LoginCommand != "login" {
 		t.Fatalf("unexpected client: %+v", got)
+	}
+	if got.BotName == nil || *got.BotName != "Acme Bot" {
+		t.Fatalf("bot name did not round-trip: %+v", got.BotName)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

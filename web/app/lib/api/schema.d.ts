@@ -2922,6 +2922,11 @@ export interface components {
              */
             allowedScopes: string[] | null;
             /**
+             * @description Display name of the bot WhatsApp account, shown to end-users during sign-in. Set it to the account's actual WhatsApp display name.
+             * @example Acme Support
+             */
+            botName?: string;
+            /**
              * @description Public OAuth client_id used by relying applications in authorize and token requests.
              * @example wa_01J9ZX8K2QHV0M3T6R7P4N5W8C
              */
@@ -3037,6 +3042,11 @@ export interface components {
              *     ]
              */
             allowedScopes: string[] | null;
+            /**
+             * @description Display name of the bot WhatsApp account, shown to end-users during sign-in. Set it to the account's actual WhatsApp display name.
+             * @example Acme Support
+             */
+            botName?: string;
             /**
              * @description Public OAuth client_id used by relying applications in authorize and token requests.
              * @example wa_01J9ZX8K2QHV0M3T6R7P4N5W8C
@@ -3235,6 +3245,11 @@ export interface components {
              */
             allowedScopes?: string[] | null;
             /**
+             * @description Display name of the bot WhatsApp account, shown to end-users during sign-in. Set it to the account's actual WhatsApp display name.
+             * @example Acme Support
+             */
+            botName?: string;
+            /**
              * @description OAuth client type. Defaults to confidential. Confidential clients receive a client_secret shown once; public clients use PKCE only.
              * @example confidential
              * @enum {string}
@@ -3302,6 +3317,11 @@ export interface components {
              *     ]
              */
             allowedScopes?: string[];
+            /**
+             * @description Display name of the bot WhatsApp account, shown to end-users during sign-in. Set it to the account's actual WhatsApp display name.
+             * @example Acme Support
+             */
+            botName?: string;
             /**
              * @description OAuth client type. Confidential clients may be downgraded to public, which removes the secret.
              * @example public

@@ -136,6 +136,66 @@ func TestAuthorizeValidationMatrix(t *testing.T) {
 	}
 }
 
+func TestAuthorizeSnapshotUsesClientBotNameBeforeSessionLabel(t *testing.T) {
+	p, ps := testProvider(t)
+	p.clients = fakeOAuthClients{"client_1": {
+		ClientID: "client_1", OrganizationID: "org_1", SessionID: "sess_1", Name: "Acme",
+		BotName: strp("Configured Bot"), LoginCommand: "login",
+		RedirectURIs:  json.RawMessage(`["https://rp.example/cb"]`),
+		Modes:         "dm",
+		AllowedScopes: json.RawMessage(`["openid"]`),
+		Status:        "active",
+	}}
+	browserCode := authorizeAndBrowserCode(t, p, "scope=openid")
+	req, err := ps.Load(context.Background(), browserCode)
+	if err != nil {
+		t.Fatalf("load pending: %v", err)
+	}
+	if req.Target.BotName == nil || *req.Target.BotName != "Configured Bot" {
+		t.Fatalf("botName = %+v", req.Target.BotName)
+	}
+	frame := snapshotFrame(req)
+	target := frame["target"].(map[string]any)
+	if target["bot_name"] != "Configured Bot" {
+		t.Fatalf("snapshot target=%#v", target)
+	}
+}
+
+func TestAuthorizeSnapshotFallsBackToSessionLabelForBotName(t *testing.T) {
+	p, ps := testProvider(t)
+	browserCode := authorizeAndBrowserCode(t, p, "scope=openid")
+	req, err := ps.Load(context.Background(), browserCode)
+	if err != nil {
+		t.Fatalf("load pending: %v", err)
+	}
+	if req.Target.BotName == nil || *req.Target.BotName != "Bot" {
+		t.Fatalf("botName fallback = %+v", req.Target.BotName)
+	}
+}
+
+func authorizeAndBrowserCode(t *testing.T, p *Provider, extra string) string {
+	t.Helper()
+	query := "response_type=code&client_id=client_1&redirect_uri=https://rp.example/cb&code_challenge=x&code_challenge_method=S256"
+	if extra != "" {
+		query += "&" + extra
+	}
+	rec := httptest.NewRecorder()
+	p.HandleAuthorize(rec, httptest.NewRequest(http.MethodGet, "/oauth/authorize?"+query, nil))
+	if rec.Code != http.StatusFound {
+		t.Fatalf("authorize status=%d body=%q", rec.Code, rec.Body.String())
+	}
+	loc := rec.Header().Get("Location")
+	_, after, ok := strings.Cut(loc, "#c=")
+	if !ok || after == "" {
+		t.Fatalf("authorize location missing browser code: %q", loc)
+	}
+	code, err := url.QueryUnescape(after)
+	if err != nil {
+		t.Fatalf("browser code unescape: %v", err)
+	}
+	return code
+}
+
 func TestCodeMinting(t *testing.T) {
 	a, err := NewBrowserCode()
 	if err != nil {

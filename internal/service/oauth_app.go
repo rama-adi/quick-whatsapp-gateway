@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/apitypes"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
@@ -63,6 +64,7 @@ func NewOAuthAppService(st *store.Store, secretPepper, adminPrefix, issuer strin
 type OAuthAppCreateInput struct {
 	SessionID         string
 	Name              string
+	BotName           *string
 	LogoURL           *string
 	ClientType        string
 	LoginCommand      string
@@ -78,6 +80,7 @@ type OAuthAppCreateInput struct {
 type OAuthAppUpdateInput struct {
 	SessionID         *string
 	Name              *string
+	BotName           **string
 	LogoURL           **string
 	ClientType        *string
 	LoginCommand      *string
@@ -133,6 +136,7 @@ func (s *OAuthAppService) Create(ctx context.Context, org string, in OAuthAppCre
 		CreatedByUserID:   in.CreatedByUserID,
 		SessionID:         in.SessionID,
 		Name:              strings.TrimSpace(in.Name),
+		BotName:           trimStringPtr(in.BotName),
 		LogoURL:           trimStringPtr(in.LogoURL),
 		ClientType:        clientType,
 		LoginCommand:      strings.TrimSpace(loginCommand),
@@ -189,6 +193,9 @@ func (s *OAuthAppService) Update(ctx context.Context, org, id string, isSuperAdm
 	}
 	if in.Name != nil {
 		c.Name = strings.TrimSpace(*in.Name)
+	}
+	if in.BotName != nil {
+		c.BotName = trimStringPtr(*in.BotName)
 	}
 	if in.LogoURL != nil {
 		c.LogoURL = trimStringPtr(*in.LogoURL)
@@ -453,6 +460,9 @@ func (s *OAuthAppService) validateAndFill(c *domain.OAuthClient, redirects, mode
 	if c.Name == "" {
 		return domain.ErrValidation("name is required")
 	}
+	if c.BotName != nil && utf8.RuneCountInString(*c.BotName) > 255 {
+		return domain.ErrValidation("botName must be at most 255 characters")
+	}
 	if c.ClientType != string(apitypes.OAuthClientConfidential) && c.ClientType != string(apitypes.OAuthClientPublic) {
 		return domain.ErrValidation("clientType must be confidential or public")
 	}
@@ -614,6 +624,7 @@ func (s *OAuthAppService) mapOAuthClient(c domain.OAuthClient) (apitypes.OAuthAp
 		CreatedByUserID:   c.CreatedByUserID,
 		SessionID:         c.SessionID,
 		Name:              c.Name,
+		BotName:           c.BotName,
 		LogoURL:           c.LogoURL,
 		ClientType:        apitypes.OAuthClientType(c.ClientType),
 		LoginCommand:      c.LoginCommand,
