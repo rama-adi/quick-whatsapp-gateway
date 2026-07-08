@@ -350,6 +350,11 @@ export function OAuthAppForm({
                       <SelectItem key={g.groupJid} value={g.groupJid}>
                         {g.subject || g.groupJid}
                         {g.participants ? ` · ${g.participants} members` : ""}
+                        {g.subject ? (
+                          <span className="ml-1.5 font-mono text-xs text-muted-foreground">
+                            {g.groupJid}
+                          </span>
+                        ) : null}
                       </SelectItem>
                     ))}
                   </SelectContent>
