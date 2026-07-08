@@ -298,7 +298,7 @@ function QrPanel({ sessionId, ready }: { sessionId: string; ready: boolean }) {
     );
   }
 
-  return <QrImage sessionId={sessionId} code={qr.data.code} />;
+  return <QrImage code={qr.data.code} />;
 }
 
 function PairingCodePanel({ sessionId }: { sessionId: string }) {
