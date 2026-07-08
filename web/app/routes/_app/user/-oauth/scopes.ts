@@ -16,7 +16,7 @@ export const DASH_SCOPES: DashScope[] = [
   {
     key: "openid",
     label: "openid",
-    description: "Required. Issues an ID token with the pairwise subject (sub).",
+    description: "Required. Issues an ID token with the user's WhatsApp LID subject (sub).",
     required: true,
   },
   {

@@ -2,7 +2,6 @@ package oidp
 
 import (
 	"context"
-	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -74,7 +73,6 @@ type ProviderConfig struct {
 	WebLoginURL  string
 	Issuer       string
 	SecretPepper string
-	PairwiseSalt string
 	RequestTTL   time.Duration
 	AuthCodeTTL  time.Duration
 	TrustProxy   bool
@@ -93,7 +91,6 @@ type Provider struct {
 	webLoginURL  string
 	issuer       string
 	secretPepper string
-	pairwiseSalt string
 	requestTTL   time.Duration
 	authCodeTTL  time.Duration
 	trustProxy   bool
@@ -118,7 +115,7 @@ func NewProvider(cfg ProviderConfig) *Provider {
 	if now == nil {
 		now = time.Now
 	}
-	return &Provider{clients: cfg.Clients, sessions: cfg.Sessions, groups: cfg.Groups, identities: cfg.Identities, grants: cfg.Grants, refresh: cfg.Refresh, signer: cfg.Signer, pending: cfg.Pending, webLoginURL: strings.TrimRight(cfg.WebLoginURL, "/"), issuer: strings.TrimRight(cfg.Issuer, "/"), secretPepper: cfg.SecretPepper, pairwiseSalt: cfg.PairwiseSalt, requestTTL: ttl, authCodeTTL: authCodeTTL, trustProxy: cfg.TrustProxy, now: now, byCode: map[string]int{}, byIP: map[string]int{}, revokedGrant: map[string]time.Time{}}
+	return &Provider{clients: cfg.Clients, sessions: cfg.Sessions, groups: cfg.Groups, identities: cfg.Identities, grants: cfg.Grants, refresh: cfg.Refresh, signer: cfg.Signer, pending: cfg.Pending, webLoginURL: strings.TrimRight(cfg.WebLoginURL, "/"), issuer: strings.TrimRight(cfg.Issuer, "/"), secretPepper: cfg.SecretPepper, requestTTL: ttl, authCodeTTL: authCodeTTL, trustProxy: cfg.TrustProxy, now: now, byCode: map[string]int{}, byIP: map[string]int{}, revokedGrant: map[string]time.Time{}}
 }
 
 func (p *Provider) Mount(r chi.Router) {
@@ -285,7 +282,7 @@ func (p *Provider) HandleFinalize(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	sub := p.pairwiseSub(req.ClientID, ident.ID)
+	sub := ident.LID
 	now := p.now().UnixMilli()
 	scopes, _ := json.Marshal(req.Scopes)
 	g, err := p.grants.UpsertAndGet(r.Context(), domain.OAuthGrant{
@@ -620,12 +617,6 @@ func (p *Provider) authenticateClient(r *http.Request) (domain.OAuthClient, erro
 		return domain.OAuthClient{}, errors.New("invalid client secret")
 	}
 	return c, nil
-}
-
-func (p *Provider) pairwiseSub(clientID string, identityID uint64) string {
-	mac := hmac.New(sha256.New, []byte(p.pairwiseSalt))
-	_, _ = mac.Write([]byte(fmt.Sprintf("v1:%s:%d", clientID, identityID)))
-	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 
 func (p *Provider) identityByGrant(ctx context.Context, g domain.OAuthGrant) (domain.Identity, error) {

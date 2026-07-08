@@ -250,7 +250,7 @@ func (s *Server) handleOIDCDiscovery(w http.ResponseWriter, _ *http.Request) {
 		"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
 		"code_challenge_methods_supported":      []string{"S256"},
 		"id_token_signing_alg_values_supported": []string{"EdDSA"},
-		"subject_types_supported":               []string{"pairwise"},
+		"subject_types_supported":               []string{"public"},
 		"acr_values_supported":                  []string{"wa:dm", "wa:group"},
 		"scopes_supported":                      []string{"openid", "profile", "phone", "wa:group", "offline_access"},
 		"claims_supported":                      []string{"sub", "acr", "amr", "auth_time", "name", "phone_number", "phone_number_verified", "wa_jid", "wa_group_verified", "wa_group_id", "wa_group_name"},

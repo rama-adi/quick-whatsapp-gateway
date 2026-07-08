@@ -81,13 +81,13 @@ JWKS URI, and our capabilities:
 | `grant_types_supported` | `["authorization_code", "refresh_token"]` |
 | `code_challenge_methods_supported` | `["S256"]` (PKCE mandatory) |
 | `id_token_signing_alg_values_supported` | `["EdDSA"]` |
-| `subject_types_supported` | `["pairwise"]` |
+| `subject_types_supported` | `["public"]` |
 | `acr_values_supported` | `["wa:dm", "wa:group"]` |
 | `scopes_supported` | `openid`, `profile`, `phone`, `wa:group`, `offline_access` |
 
 The signing keys are published at the JWKS URI so your library can verify
 `id_token`s and access tokens offline. Because everything is RFC-shaped
-(authorization code + PKCE S256, `pairwise` subjects, EdDSA JWTs), **any compliant
+(authorization code + PKCE S256, public subjects, EdDSA JWTs), **any compliant
 OIDC library works** — there is nothing WhatsApp-specific to special-case except
 the optional `acr_values`.
 
@@ -208,15 +208,15 @@ of claims, available on the `id_token` and from `/userinfo`.
 
 What the claims mean:
 
-- **`sub`** — the user's stable identifier for *your app*. It is **pairwise**: the
-  same WhatsApp user gets a different `sub` in every OAuth app, so apps can't
-  correlate users across each other. It survives the user renaming themselves on
-  WhatsApp. Use it as your primary key for the account.
+- **`sub`** — the user's canonical WhatsApp LID, such as
+  `107082225311887@lid`. It is stable across OAuth apps and therefore
+  correlatable across relying parties by design. Use it as your primary key for
+  the account.
 - **`name`** — resolved fresh at each login from WhatsApp, so a display-name change
   is reflected next time.
 - **`phone_number` / `wa_jid`** — request `phone` only if you actually need the
-  number. It is the one correlatable identifier across apps, so request it
-  deliberately.
+  number. The subject is already a public WhatsApp LID, so phone claims should be
+  requested for product need rather than account correlation.
 - **`acr`** — `"wa:dm"` or `"wa:group"`, the verification actually performed.
 - **`amr`** — always `["whatsapp"]`.
 

@@ -144,7 +144,6 @@ func run() error {
 			WebLoginURL:  cfg.WebLoginURL,
 			Issuer:       cfg.OIDCIssuer,
 			SecretPepper: cfg.OAuthClientSecretPepper,
-			PairwiseSalt: cfg.OIDCPairwiseSalt,
 			RequestTTL:   requestTTL,
 			AuthCodeTTL:  time.Duration(cfg.OIDCAuthCodeTTLSeconds) * time.Second,
 			TrustProxy:   cfg.OIDCTrustProxy,

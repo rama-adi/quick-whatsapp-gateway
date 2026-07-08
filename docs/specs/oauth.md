@@ -24,7 +24,7 @@ Package name **`oidp`** (OpenID Provider) — distinct from `authz` (caller iden
 Supported: OAuth 2.1 authorization-code flow only; **PKCE S256 mandatory for all clients**
 (confidential included, `plain` rejected); exact `redirect_uri` matching; OIDC discovery, JWKS,
 id_token, UserInfo; refresh-token rotation with persistent grants and family-kill reuse detection;
-RFC 7009 revocation; public and confidential clients; **pairwise subject identifiers**.
+RFC 7009 revocation; public and confidential clients; **public subject identifiers**.
 
 Not supported: implicit, ROPC, client-credentials for end-user identity, dynamic client
 registration (RFC 7591 — apps are created in the dashboard only), RFC 8628 device grant as a
@@ -116,7 +116,7 @@ CREATE TABLE oauth_grants (
   organization_id  VARCHAR(64) NOT NULL,
   client_id        VARCHAR(64) NOT NULL,                -- → oauth_clients.client_id
   wa_identity_id   BIGINT UNSIGNED NOT NULL,            -- → whatsapp_identities.id
-  sub              VARCHAR(80) NOT NULL,                -- pairwise subject issued to this client
+  sub              VARCHAR(80) NOT NULL,                -- canonical non-AD WhatsApp LID subject
   granted_scopes   JSON NOT NULL,
   last_acr         VARCHAR(16) NOT NULL,                -- 'wa:dm' | 'wa:group' (last login)
   last_group_jid   VARCHAR(255) NULL,
@@ -215,7 +215,7 @@ CRUD is huma-registered inside the authenticated `/api/v1` group.
 
 Discovery advertises: `response_types_supported: ["code"]`, `grant_types: ["authorization_code",
 "refresh_token"]`, `code_challenge_methods: ["S256"]`, `id_token_signing_alg: ["EdDSA"]`,
-`subject_types: ["pairwise"]`, `acr_values_supported: ["wa:dm","wa:group"]`,
+`subject_types: ["public"]`, `acr_values_supported: ["wa:dm","wa:group"]`,
 `scopes_supported: ["openid","profile","phone","wa:group","offline_access"]`.
 
 ### 4.2 Protocol endpoints
@@ -425,12 +425,15 @@ share one JWKS). Rotation: pre-publish `next` → promote → keep `retired` in 
 expire. Private key AES-GCM-encrypted at rest (`OIDC_KEY_ENC_KEY`). Minting/rotation via a
 `cmd/router oidp rotate-key` subcommand.
 
-### 7.5 Subjects — pairwise
+### 7.5 Subjects — WhatsApp LID
 
-`sub = base64url(HMAC-SHA256(OIDC_PAIRWISE_SALT, "v1:" + client_id + ":" + wa_identity_id))` —
-stable across renames (derived from the lid-keyed identity row, matching the repo's read-time
-resolution principle), unlinkable across clients. Apps that want a correlatable identifier request
-the `phone` scope explicitly.
+`sub = <canonical non-AD WhatsApp LID>` (for example, `107082225311887@lid`). The same subject is
+stored in `oauth_grants.sub` and emitted in id_tokens, access tokens, and UserInfo for every client.
+
+This is a public subject identifier: it is stable across clients and therefore correlatable across
+relying parties. That tradeoff is accepted by design so the relying app receives the WhatsApp LID
+directly as the account key. Apps still request the `phone` scope explicitly when they need phone
+claims.
 
 ### 7.6 Scopes & claims
 
@@ -532,7 +535,7 @@ bot reactions/replies.
 - **NEW guide** `web/content/docs/guides/sign-in-with-whatsapp.md` (relying-app integration
   quickstart).
 - **Env** (`deploy/.env.example`): `OIDC_ISSUER` (default `ROUTER_PUBLIC_URL`),
-  `OIDC_KEY_ENC_KEY`, `OIDC_PAIRWISE_SALT`, `OAUTH_CLIENT_SECRET_PEPPER`, `WEB_LOGIN_URL`
+  `OIDC_KEY_ENC_KEY`, `OAUTH_CLIENT_SECRET_PEPPER`, `WEB_LOGIN_URL`
   (default `${WEB_URL}/login/whatsapp`), TTL overrides (`OIDC_REQUEST_TTL_SECONDS=600`,
   `OIDC_AUTHCODE_TTL_SECONDS=60`).
 

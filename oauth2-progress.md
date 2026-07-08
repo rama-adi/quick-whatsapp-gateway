@@ -24,7 +24,7 @@ orchestration + reviews = Fable.
 
 - **2026-07-08** — Design locked and committed (`docs/specs/oauth.md`), tracker created.
   Key arbitrations (spec §12): Redis Lua claim over reverse assertion; auth code minted at
-  browser-driven finalize; pairwise subs; dedicated EdDSA signing keys; per-app `login_command`
+  browser-driven finalize; public LID subs; dedicated EdDSA signing keys; per-app `login_command`
   with unconditional command-namespace interception.
 - **2026-07-08** — Milestone 1 landed: added `0007_oidc_provider` with the four spec tables,
   plain-SQL OAuth repos under `internal/store/oauth.go`, Store wiring, and repo tests. Drizzle
@@ -69,7 +69,7 @@ orchestration + reviews = Fable.
   group mode can verify the mention targets the bot specifically.
 - **2026-07-08** — Milestone 7 landed: finalize (race-safe verified→finalized, one auth code),
   `/oauth/token` (auth-code + PKCE matrix, client-auth matrix, refresh rotation with family-kill
-  reuse detection), `/oauth/userinfo`, `/oauth/revoke`, pairwise subs, plus the M4 management-API
+  reuse detection), `/oauth/userinfo`, `/oauth/revoke`, public LID subs, plus the M4 management-API
   gaps. Two review rounds: (1) claim-mapping fix — `wa_group_*` claims emitted only for
   `acr=wa:group`, `wa_jid` under `phone`, internal `wa_identity_id` never exposed; (2)
   orchestrator fixes for injectable-clock JWT validation (`jwt.WithClock`), embedded auth-code
@@ -96,7 +96,7 @@ orchestration + reviews = Fable.
   the branch is proposed for merge.
 - **2026-07-08** — Independent adversarial security review of §7 (fresh read-only Codex pass)
   completed. Core protocol **enforced**: auth-code single-use/replay, PKCE S256 (no downgrade),
-  pairwise + scoped claims (no internal-id leak), open-redirect exact match, client-secret
+  public LID + scoped claims (no internal-id leak), open-redirect exact match, client-secret
   hashing + constant-time compare, org isolation, phishing mitigations, 160-bit browser code.
   Findings triaged: **fix now** (dispatched to Codex) — atomic refresh rotation (TOCTOU, #1 High),
   idempotent finalize (#2 High), atomic user-code mint (#4), user-code TTL non-extension (#5),

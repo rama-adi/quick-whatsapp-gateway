@@ -472,7 +472,7 @@ func fullProvider(t *testing.T) (*Provider, *PendingStore, *memGrants, *memRefre
 		Identities: fakeIdentities{42: {ID: 42, LID: "42@lid", PhoneNumber: strp("+628111"), PhoneJID: strp("628111@s.whatsapp.net"), Name: strp("Alice")}},
 		Grants:     grants, Refresh: refresh, Signer: signer, Pending: pending,
 		WebLoginURL: "https://web.example/login/whatsapp", Issuer: "https://issuer.example",
-		SecretPepper: "pepper", PairwiseSalt: "pairwise", RequestTTL: 10 * time.Minute, AuthCodeTTL: time.Minute,
+		SecretPepper: "pepper", RequestTTL: 10 * time.Minute, AuthCodeTTL: time.Minute,
 		Now: func() time.Time { return now },
 	})
 	return p, pending, grants, refresh
@@ -589,7 +589,7 @@ func TestAuthCodeMatrix(t *testing.T) {
 }
 
 func TestOIDCEndToEndWithJWKSClientVerifier(t *testing.T) {
-	p, ps, _, _ := fullProvider(t)
+	p, ps, grants, _ := fullProvider(t)
 	r := chi.NewRouter()
 	p.Mount(r)
 	r.Get("/.well-known/oauth-jwks.json", func(w http.ResponseWriter, r *http.Request) {
@@ -660,6 +660,16 @@ func TestOIDCEndToEndWithJWKSClientVerifier(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("finalize status=%d body=%v", resp.StatusCode, finalized)
 	}
+	var grantSub string
+	grants.mu.Lock()
+	for _, grant := range grants.byID {
+		grantSub = grant.Sub
+		break
+	}
+	grants.mu.Unlock()
+	if grantSub != "42@lid" {
+		t.Fatalf("grant subject = %q, want 42@lid", grantSub)
+	}
 	redirect, err := url.Parse(finalized["redirect"])
 	if err != nil {
 		t.Fatal(err)
@@ -713,8 +723,8 @@ func TestOIDCEndToEndWithJWKSClientVerifier(t *testing.T) {
 		t.Fatal(err)
 	}
 	sub, ok := idToken.Subject()
-	if !ok || sub == "" {
-		t.Fatal("id_token missing subject")
+	if !ok || sub != "42@lid" {
+		t.Fatalf("id_token subject = %q, want 42@lid", sub)
 	}
 	var nonce, name, phone string
 	_ = idToken.Get("nonce", &nonce)
@@ -722,6 +732,20 @@ func TestOIDCEndToEndWithJWKSClientVerifier(t *testing.T) {
 	_ = idToken.Get("phone_number", &phone)
 	if nonce != "nonce_123" || name != "Alice" || phone != "+628111" {
 		t.Fatalf("id claims nonce=%q name=%q phone=%q", nonce, name, phone)
+	}
+	accessToken, err := jwt.Parse([]byte(tokens["access_token"].(string)),
+		jwt.WithKeySet(set),
+		jwt.WithValidate(true),
+		jwt.WithIssuer(srv.URL),
+		jwt.WithAudience("client_1"),
+		jwt.WithClock(jwt.ClockFunc(p.now)),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	accessSub, ok := accessToken.Subject()
+	if !ok || accessSub != "42@lid" {
+		t.Fatalf("access token subject = %q, want 42@lid", accessSub)
 	}
 
 	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/oauth/userinfo", nil)
@@ -921,17 +945,6 @@ func TestClaimsByScopeAndACRForIDTokenAndUserInfo(t *testing.T) {
 				}
 			})
 		}
-	}
-}
-
-func TestPairwiseSubStableAndClientScoped(t *testing.T) {
-	p, _, _, _ := fullProvider(t)
-	a := p.pairwiseSub("client_1", 42)
-	if a != p.pairwiseSub("client_1", 42) {
-		t.Fatal("pairwise sub unstable")
-	}
-	if a == p.pairwiseSub("client_2", 42) {
-		t.Fatal("pairwise sub reused across clients")
 	}
 }
 
