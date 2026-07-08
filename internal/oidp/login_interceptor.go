@@ -72,6 +72,11 @@ func (l *LoginInterceptor) InvalidateSession(sessionID string) {
 	delete(l.cache, sessionID)
 }
 
+// mentionTokenRe matches the literal "@<jid-user>" tokens WhatsApp embeds in
+// the message text for @-mentions (phone number or LID user, optionally with
+// a ":device" suffix).
+var mentionTokenRe = regexp.MustCompile(`(^|\s)@[0-9][0-9:.]*`)
+
 func (l *LoginInterceptor) HandleLogin(ctx context.Context, nm *inbound.NormalizedMessage) (bool, error) {
 	if l == nil || l.apps == nil || l.pending == nil || nm == nil || nm.FromMe || nm.Kind != inbound.KindMessage {
 		return false, nil
@@ -91,6 +96,13 @@ func (l *LoginInterceptor) HandleLogin(ctx context.Context, nm *inbound.Normaliz
 	apps, err := l.sessionApps(ctx, nm.SessionID)
 	if err != nil || apps.re == nil {
 		return false, err
+	}
+	if nm.IsGroup {
+		// In groups the raw body carries the mention as literal "@<jid-user>"
+		// text ("@628xx login 443811"), so drop mention tokens before matching.
+		// Whether the BOT was mentioned is enforced via nm.Mentions in
+		// filterGroupCandidates, not from the body text.
+		body = strings.TrimSpace(mentionTokenRe.ReplaceAllString(body, " "))
 	}
 	m := apps.re.FindStringSubmatch(body)
 	if m == nil {

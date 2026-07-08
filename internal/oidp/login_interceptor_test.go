@@ -158,12 +158,13 @@ func TestLoginInterceptorGroupJIDCanonicalComparison(t *testing.T) {
 	li := NewLoginInterceptor(apps, ps, fakeMembers{ok: true}, nil, nil)
 
 	cases := []struct {
-		name     string
-		code     string
-		chatJID  string
-		selfJID  string
-		selfLID  string
-		mentions []string
+		name       string
+		code       string
+		chatJID    string
+		bodyPrefix string
+		selfJID    string
+		selfLID    string
+		mentions   []string
 	}{
 		{
 			name: "device suffixed group and mention",
@@ -180,6 +181,16 @@ func TestLoginInterceptorGroupJIDCanonicalComparison(t *testing.T) {
 			code: "483932", chatJID: "120363@g.us",
 			selfJID: "628000@s.whatsapp.net", selfLID: "205227043110953@lid", mentions: []string{"205227043110953:12@lid"},
 		},
+		{
+			name: "mention token in body",
+			code: "483933", chatJID: "120363@g.us", bodyPrefix: "@628000 ",
+			selfJID: "628000@s.whatsapp.net", mentions: []string{"628000@s.whatsapp.net"},
+		},
+		{
+			name: "lid mention token in body",
+			code: "483934", chatJID: "120363@g.us", bodyPrefix: "@205227043110953 ",
+			selfJID: "628000@s.whatsapp.net", selfLID: "205227043110953@lid", mentions: []string{"205227043110953@lid"},
+		},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -190,7 +201,7 @@ func TestLoginInterceptorGroupJIDCanonicalComparison(t *testing.T) {
 				ExpiresAt: time.Now().Add(time.Minute).UnixMilli(),
 			}))
 
-			nm := loginNM("login "+tt.code, false, true)
+			nm := loginNM(tt.bodyPrefix+"login "+tt.code, false, true)
 			nm.ChatJID = tt.chatJID
 			nm.SelfJID = tt.selfJID
 			nm.SelfLID = tt.selfLID

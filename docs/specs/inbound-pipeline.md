@@ -27,7 +27,9 @@ fan-out).
 2. **Command interceptor** (§8/§9) — first, the optional OAuth
    `oidp.LoginInterceptor` consumes Sign in with WhatsApp command-shaped messages
    for sessions with active OAuth apps; matches are **dropped unconditionally**,
-   even when the code is invalid or expired. Then, on the admin session, an
+   even when the code is invalid or expired. In groups, literal `@<jid-user>`
+   mention tokens are stripped from the body before command matching (the
+   bot-mention requirement is enforced from the mention metadata, not the text). Then, on the admin session, an
    inbound, non-echo text whose body starts with `WHATSAPP_ADMIN_CMD_PREFIX` is
    handed to the `CommandRegistry` and **dropped**: not persisted, not emitted.
 3. **Identity capture** (§9) — upsert the central `whatsapp_identities` row (push
