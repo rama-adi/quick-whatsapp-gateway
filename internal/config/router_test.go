@@ -11,7 +11,9 @@ func TestLoadRouter_DefaultsAndValidate(t *testing.T) {
 		"ROUTER_HTTP_ADDR", "ROUTER_PUBLIC_URL", "ROUTER_ISSUER",
 		"ROUTER_ED25519_PRIVATE_KEY", "BETTER_AUTH_URL", "BETTER_AUTH_JWKS_URL",
 		"FRONTEND_ORIGINS", "MYSQL_DSN", "REDIS_URL", "PUBSUB_REDIS_URL",
-		"REDIS_PREFIX", "LOG_LEVEL",
+		"REDIS_PREFIX", "OIDC_ISSUER", "OIDC_KEY_ENC_KEY", "OAUTH_CLIENT_SECRET_PEPPER",
+		"OIDC_PAIRWISE_SALT", "WHATSAPP_ADMIN_CMD_PREFIX", "WEB_LOGIN_URL", "OIDC_REQUEST_TTL_SECONDS",
+		"OIDC_AUTHCODE_TTL_SECONDS", "OIDC_TRUST_PROXY", "LOG_LEVEL",
 	}
 	for _, k := range keys {
 		t.Setenv(k, "")
@@ -39,6 +41,13 @@ func TestLoadRouter_DefaultsAndValidate(t *testing.T) {
 	cfg.MySQLDSN = "user:pw@tcp(db:3306)/gw"
 	cfg.BetterAuthURL = "https://auth.example.com"
 	cfg.BetterAuthJWKSURL = "https://auth.example.com/api/auth/jwks"
+	cfg.PublicURL = "https://router.example.com"
+	cfg.OIDCIssuer = cfg.PublicURL
+	cfg.OIDCKeyEncKey = base64.StdEncoding.EncodeToString([]byte("12345678901234567890123456789012"))
+	cfg.OIDCPairwiseSalt = "pairwise-test-salt"
+	cfg.OAuthClientSecretPepper = "test-pepper"
+	cfg.RedisURL = "redis://localhost:6379"
+	cfg.WebLoginURL = "https://web.example.com/login/whatsapp"
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate on complete config: %v", err)
 	}

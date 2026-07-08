@@ -30,11 +30,13 @@ func PhoneFromJID(jid string) *string {
 // "wak_<random>"). The prefix makes IDs self-describing in logs and payloads;
 // the body is a (lexicographically sortable, time-ordered) ULID.
 const (
-	PrefixEvent   = "evt_"  // event ids exposed to clients (event_log.event_id)
-	PrefixSession = "sess_" // wa_sessions.id
-	PrefixWebhook = "wh_"   // webhooks.id
-	PrefixOutbox  = "out_"  // outbox.id
-	PrefixMessage = "msg_"  // messages.id
+	PrefixEvent       = "evt_"  // event ids exposed to clients (event_log.event_id)
+	PrefixSession     = "sess_" // wa_sessions.id
+	PrefixWebhook     = "wh_"   // webhooks.id
+	PrefixOutbox      = "out_"  // outbox.id
+	PrefixMessage     = "msg_"  // messages.id
+	PrefixOAuthClient = "oac_"  // oauth_clients.id
+	PrefixOAuthGrant  = "ogr_"  // oauth_grants.id
 )
 
 // monotonicEntropy is shared across all NewULID calls so that two ULIDs minted
@@ -60,11 +62,13 @@ func NewPrefixedID(prefix string) string { return prefix + NewULID() }
 
 // NewEventID, NewSessionID, etc. are convenience constructors for each
 // well-known prefixed identifier kind.
-func NewEventID() string   { return NewPrefixedID(PrefixEvent) }
-func NewSessionID() string { return NewPrefixedID(PrefixSession) }
-func NewWebhookID() string { return NewPrefixedID(PrefixWebhook) }
-func NewOutboxID() string  { return NewPrefixedID(PrefixOutbox) }
-func NewMessageID() string { return NewPrefixedID(PrefixMessage) }
+func NewEventID() string       { return NewPrefixedID(PrefixEvent) }
+func NewSessionID() string     { return NewPrefixedID(PrefixSession) }
+func NewWebhookID() string     { return NewPrefixedID(PrefixWebhook) }
+func NewOutboxID() string      { return NewPrefixedID(PrefixOutbox) }
+func NewMessageID() string     { return NewPrefixedID(PrefixMessage) }
+func NewOAuthClientID() string { return NewPrefixedID(PrefixOAuthClient) }
+func NewOAuthGrantID() string  { return NewPrefixedID(PrefixOAuthGrant) }
 
 // NowMs returns the current time as epoch milliseconds — the canonical
 // timestamp unit for every BIGINT column in §5.

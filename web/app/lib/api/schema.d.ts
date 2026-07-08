@@ -88,6 +88,200 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/oauth-apps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List OAuth applications
+         * @description List Sign in with WhatsApp OAuth applications owned by the caller's organization.
+         *
+         *     Requires `read` capability. Results are org-scoped.
+         */
+        get: operations["listOAuthApps"];
+        put?: never;
+        /**
+         * Create an OAuth application
+         * @description Create an org-owned Sign in with WhatsApp OAuth application bound to one WhatsApp session.
+         *
+         *     Requires `manage` capability. Confidential clients return `clientSecret` exactly once in this response; public clients return no secret.
+         */
+        post: operations["createOAuthApp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/oauth-apps/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get an OAuth application
+         * @description Fetch one OAuth application. Cross-organization ids return `not_found` unless the caller is `super_admin`.
+         *
+         *     Requires `read` capability.
+         */
+        get: operations["getOAuthApp"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete an OAuth application
+         * @description Soft-delete an OAuth application and cascade-revoke its grants and refresh tokens immediately.
+         *
+         *     Requires `manage` capability. Returns 204 on success.
+         */
+        delete: operations["deleteOAuthApp"];
+        options?: never;
+        head?: never;
+        /**
+         * Update an OAuth application
+         * @description Patch OAuth application configuration. Redirect URIs and modes are replacement sets; redirect URIs must remain exact absolute HTTPS URLs, with localhost HTTP allowed for development.
+         *
+         *     Requires `manage` capability.
+         */
+        patch: operations["updateOAuthApp"];
+        trace?: never;
+    };
+    "/api/v1/oauth-apps/{id}/grants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List OAuth application grants
+         * @description List persistent WhatsApp identity grants for one OAuth application.
+         *
+         *     Requires `read` capability.
+         */
+        get: operations["listOAuthAppGrants"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/oauth-apps/{id}/grants/{grantId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke an OAuth application grant
+         * @description Revoke one persistent grant and all refresh tokens issued under it. Access JWTs expire naturally by their short TTL.
+         *
+         *     Requires `manage` capability. Returns 204 on success.
+         */
+        delete: operations["revokeOAuthAppGrant"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/oauth-apps/{id}/grants:revoke-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revoke all OAuth application grants
+         * @description Revoke all persistent grants for one OAuth application and all refresh tokens issued under them. Access JWTs expire naturally by their short TTL.
+         *
+         *     Requires `manage` capability. Returns 204 on success.
+         */
+        post: operations["revokeAllOAuthAppGrants"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/oauth-apps/{id}:disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Disable an OAuth application
+         * @description Disable an OAuth application. Existing grants are retained, but new authorizations and token grants are refused by the OAuth protocol endpoints.
+         *
+         *     Requires `manage` capability.
+         */
+        post: operations["disableOAuthApp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/oauth-apps/{id}:enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enable an OAuth application
+         * @description Enable an OAuth application so new authorizations and token grants are accepted.
+         *
+         *     Requires `manage` capability.
+         */
+        post: operations["enableOAuthApp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/oauth-apps/{id}:rotate-secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rotate an OAuth client secret
+         * @description Rotate a confidential OAuth application's client_secret. The old secret is invalid immediately, and the new plaintext `clientSecret` is returned exactly once.
+         *
+         *     Requires `manage` capability.
+         */
+        post: operations["rotateOAuthAppSecret"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sessions": {
         parameters: {
             query?: never;
@@ -2282,6 +2476,14 @@ export interface components {
             data: components["schemas"]["Message"][] | null;
             nextCursor?: string;
         };
+        ListOAuthApp: {
+            data: components["schemas"]["OAuthApp"][] | null;
+            nextCursor?: string;
+        };
+        ListOAuthGrant: {
+            data: components["schemas"]["OAuthGrant"][] | null;
+            nextCursor?: string;
+        };
         ListWASession: {
             data: components["schemas"]["WASession"][] | null;
             nextCursor?: string;
@@ -2708,6 +2910,456 @@ export interface components {
             action: "join" | "leave" | "mute";
             /** @description JID of the newsletter/channel. */
             jid: string;
+        };
+        OAuthApp: {
+            /**
+             * @description OAuth/OIDC scopes this app may request.
+             * @example [
+             *       "openid",
+             *       "profile",
+             *       "phone"
+             *     ]
+             */
+            allowedScopes: string[] | null;
+            /**
+             * @description Public OAuth client_id used by relying applications in authorize and token requests.
+             * @example wa_01J9ZX8K2QHV0M3T6R7P4N5W8C
+             */
+            clientId: string;
+            /**
+             * @description OAuth client type. Confidential clients receive a client_secret shown once; public clients use PKCE only and have no secret.
+             * @example confidential
+             * @enum {string}
+             */
+            clientType: "confidential" | "public";
+            /**
+             * Format: int64
+             * @description Creation time in epoch milliseconds.
+             * @example 1719662400000
+             */
+            createdAt: number;
+            /**
+             * @description User id that created this OAuth application, when known.
+             * @example user_01J9DEF
+             */
+            createdByUserId?: string;
+            /**
+             * @description Pinned WhatsApp group JID. Required when group mode is enabled and omitted otherwise.
+             * @example 120363025000000000@g.us
+             */
+            groupJid?: string;
+            /**
+             * @description Internal OAuth application id. Use this id for dashboard management routes.
+             * @example oac_01J9ZX8K2QHV0M3T6R7P4N5W8C
+             */
+            id: string;
+            /**
+             * @description Effective OIDC issuer advertised to relying applications.
+             * @example https://gateway.example.com
+             */
+            issuer: string;
+            /**
+             * @description Single-word command users type in WhatsApp before the six-digit code. Lowercase letters, digits, underscore, and hyphen only.
+             * @example login
+             */
+            loginCommand: string;
+            /**
+             * @description Optional HTTPS logo URL shown on the consent page.
+             * @example https://acme.example/logo.png
+             */
+            logoUrl?: string;
+            /**
+             * @description Enabled WhatsApp verification modes. dm proves number control; group proves membership in the pinned group.
+             * @example [
+             *       "dm"
+             *     ]
+             */
+            modes: ("dm" | "group")[] | null;
+            /**
+             * @description Application name shown on the consent page and in bot replies.
+             * @example Acme Portal
+             */
+            name: string;
+            /**
+             * @description Organization that owns this OAuth application.
+             * @example org_01J9ABC
+             */
+            organizationId: string;
+            /**
+             * @description Exact redirect URI allow-list. URIs must be absolute HTTPS URLs, except http://localhost and loopback are allowed for development; fragments are rejected.
+             * @example [
+             *       "https://app.example.com/oauth/callback"
+             *     ]
+             */
+            redirectUris: string[] | null;
+            /**
+             * Format: int64
+             * @description Refresh-token family maximum lifetime in seconds.
+             * @example 2592000
+             */
+            refreshTtlSeconds: number;
+            /**
+             * @description Last four characters of the current client secret. Null for public clients. The full secret is only returned on create or rotate.
+             * @example W8xQ
+             */
+            secretLast4?: string;
+            /**
+             * @description WhatsApp session used as the Sign in with WhatsApp bot. Must belong to the owning organization.
+             * @example sess_01J9ZX8K2QHV0M3T6R7P4N5W8C
+             */
+            sessionId: string;
+            /**
+             * @description Whether new authorizations and token grants are accepted.
+             * @example active
+             * @enum {string}
+             */
+            status: "active" | "disabled";
+            /**
+             * Format: int64
+             * @description Access-token and id-token lifetime in seconds.
+             * @example 900
+             */
+            tokenTtlSeconds: number;
+            /**
+             * Format: int64
+             * @description Last update time in epoch milliseconds.
+             * @example 1719662400000
+             */
+            updatedAt: number;
+        };
+        OAuthAppWithSecret: {
+            /**
+             * @description OAuth/OIDC scopes this app may request.
+             * @example [
+             *       "openid",
+             *       "profile",
+             *       "phone"
+             *     ]
+             */
+            allowedScopes: string[] | null;
+            /**
+             * @description Public OAuth client_id used by relying applications in authorize and token requests.
+             * @example wa_01J9ZX8K2QHV0M3T6R7P4N5W8C
+             */
+            clientId: string;
+            /**
+             * @description Plaintext client secret. Returned exactly once on create or rotate for confidential clients; absent for public clients.
+             * @example ows_6E9f9rT7s0z2H4nW8xQKpB1cD3mL5uV7yA9bC2dE4fG
+             */
+            clientSecret?: string;
+            /**
+             * @description OAuth client type. Confidential clients receive a client_secret shown once; public clients use PKCE only and have no secret.
+             * @example confidential
+             * @enum {string}
+             */
+            clientType: "confidential" | "public";
+            /**
+             * Format: int64
+             * @description Creation time in epoch milliseconds.
+             * @example 1719662400000
+             */
+            createdAt: number;
+            /**
+             * @description User id that created this OAuth application, when known.
+             * @example user_01J9DEF
+             */
+            createdByUserId?: string;
+            /**
+             * @description Pinned WhatsApp group JID. Required when group mode is enabled and omitted otherwise.
+             * @example 120363025000000000@g.us
+             */
+            groupJid?: string;
+            /**
+             * @description Internal OAuth application id. Use this id for dashboard management routes.
+             * @example oac_01J9ZX8K2QHV0M3T6R7P4N5W8C
+             */
+            id: string;
+            /**
+             * @description Effective OIDC issuer advertised to relying applications.
+             * @example https://gateway.example.com
+             */
+            issuer: string;
+            /**
+             * @description Single-word command users type in WhatsApp before the six-digit code. Lowercase letters, digits, underscore, and hyphen only.
+             * @example login
+             */
+            loginCommand: string;
+            /**
+             * @description Optional HTTPS logo URL shown on the consent page.
+             * @example https://acme.example/logo.png
+             */
+            logoUrl?: string;
+            /**
+             * @description Enabled WhatsApp verification modes. dm proves number control; group proves membership in the pinned group.
+             * @example [
+             *       "dm"
+             *     ]
+             */
+            modes: ("dm" | "group")[] | null;
+            /**
+             * @description Application name shown on the consent page and in bot replies.
+             * @example Acme Portal
+             */
+            name: string;
+            /**
+             * @description Organization that owns this OAuth application.
+             * @example org_01J9ABC
+             */
+            organizationId: string;
+            /**
+             * @description Exact redirect URI allow-list. URIs must be absolute HTTPS URLs, except http://localhost and loopback are allowed for development; fragments are rejected.
+             * @example [
+             *       "https://app.example.com/oauth/callback"
+             *     ]
+             */
+            redirectUris: string[] | null;
+            /**
+             * Format: int64
+             * @description Refresh-token family maximum lifetime in seconds.
+             * @example 2592000
+             */
+            refreshTtlSeconds: number;
+            /**
+             * @description Last four characters of the current client secret. Null for public clients. The full secret is only returned on create or rotate.
+             * @example W8xQ
+             */
+            secretLast4?: string;
+            /**
+             * @description WhatsApp session used as the Sign in with WhatsApp bot. Must belong to the owning organization.
+             * @example sess_01J9ZX8K2QHV0M3T6R7P4N5W8C
+             */
+            sessionId: string;
+            /**
+             * @description Whether new authorizations and token grants are accepted.
+             * @example active
+             * @enum {string}
+             */
+            status: "active" | "disabled";
+            /**
+             * Format: int64
+             * @description Access-token and id-token lifetime in seconds.
+             * @example 900
+             */
+            tokenTtlSeconds: number;
+            /**
+             * Format: int64
+             * @description Last update time in epoch milliseconds.
+             * @example 1719662400000
+             */
+            updatedAt: number;
+        };
+        OAuthGrant: {
+            /**
+             * @description OAuth client_id this grant belongs to.
+             * @example wa_01J9ZX8K2QHV0M3T6R7P4N5W8C
+             */
+            clientId: string;
+            /**
+             * Format: int64
+             * @description Grant creation time in epoch milliseconds.
+             * @example 1719662400000
+             */
+            createdAt: number;
+            /**
+             * @description Display name resolved from whatsapp_identities at read time.
+             * @example Alice
+             */
+            displayName: string;
+            /**
+             * @description Scopes consented for this WhatsApp identity.
+             * @example [
+             *       "openid",
+             *       "profile"
+             *     ]
+             */
+            grantedScopes: string[] | null;
+            /**
+             * @description Grant id.
+             * @example ogr_01J9ZX8K2QHV0M3T6R7P4N5W8C
+             */
+            id: string;
+            /**
+             * @description Last authentication context used for this grant.
+             * @example wa:dm
+             * @enum {string}
+             */
+            lastAcr: "wa:dm" | "wa:group";
+            /**
+             * @description Group JID proven on the last group-mode login, when applicable.
+             * @example 120363025000000000@g.us
+             */
+            lastGroupJid?: string;
+            /**
+             * Format: int64
+             * @description Last successful use time in epoch milliseconds.
+             * @example 1719662400000
+             */
+            lastUsedAt: number;
+            /**
+             * @description Masked WhatsApp phone number for dashboard display.
+             * @example +62******7890
+             */
+            phoneMasked: string;
+            /**
+             * Format: int64
+             * @description Number of active refresh-token families for this grant.
+             * @example 1
+             */
+            refreshFamilyCount: number;
+            /**
+             * Format: int64
+             * @description Revocation time in epoch milliseconds. Omitted for active grants.
+             * @example 1719662400000
+             */
+            revokedAt?: number;
+            /**
+             * @description Pairwise subject issued to this client.
+             * @example 0Y0ONy3bczQk4e0SWO5wYywy7Egu5bBt2ukjBZIjtpc
+             */
+            sub: string;
+            /**
+             * Format: int64
+             * @description Internal WhatsApp identity row id.
+             * @example 1024
+             */
+            waIdentityId: number;
+        };
+        OauthAppBody: {
+            /**
+             * @description OAuth/OIDC scopes this app may request. Defaults to openid and profile.
+             * @example [
+             *       "openid",
+             *       "profile",
+             *       "phone"
+             *     ]
+             */
+            allowedScopes?: string[] | null;
+            /**
+             * @description OAuth client type. Defaults to confidential. Confidential clients receive a client_secret shown once; public clients use PKCE only.
+             * @example confidential
+             * @enum {string}
+             */
+            clientType?: "confidential" | "public";
+            /**
+             * @description Pinned WhatsApp group JID. Required iff group mode is enabled.
+             * @example 120363025000000000@g.us
+             */
+            groupJid?: string;
+            /**
+             * @description Single-word command users type in WhatsApp before the six-digit code. Must match [a-z0-9_-]{2,32} and must not equal WHATSAPP_ADMIN_CMD_PREFIX.
+             * @example login
+             */
+            loginCommand?: string;
+            /**
+             * @description Optional HTTPS logo URL shown on the consent page. Send null or omit to leave unset.
+             * @example https://acme.example/logo.png
+             */
+            logoUrl?: string;
+            /**
+             * @description Verification modes to enable. Defaults to ["dm"]. If group is included, groupJid is required.
+             * @example [
+             *       "dm"
+             *     ]
+             */
+            modes?: ("dm" | "group")[] | null;
+            /**
+             * @description Application name shown on the consent page and in WhatsApp bot replies.
+             * @example Acme Portal
+             */
+            name?: string;
+            /**
+             * @description Exact redirect URI set. Absolute HTTPS only, except http://localhost and loopback are allowed for development; fragments are rejected.
+             * @example [
+             *       "https://app.example.com/oauth/callback"
+             *     ]
+             */
+            redirectUris?: string[] | null;
+            /**
+             * Format: int64
+             * @description Refresh-token family maximum lifetime in seconds. Defaults to 2592000.
+             * @example 2592000
+             */
+            refreshTtlSeconds?: number;
+            /**
+             * @description WhatsApp session used as the Sign in with WhatsApp bot. Must belong to the caller's organization.
+             * @example sess_01J9ZX8K2QHV0M3T6R7P4N5W8C
+             */
+            sessionId?: string;
+            /**
+             * Format: int64
+             * @description Access-token and id-token lifetime in seconds. Defaults to 900.
+             * @example 900
+             */
+            tokenTtlSeconds?: number;
+        };
+        OauthAppPatchBody: {
+            /**
+             * @description Replacement OAuth/OIDC scopes this app may request.
+             * @example [
+             *       "openid",
+             *       "profile",
+             *       "phone"
+             *     ]
+             */
+            allowedScopes?: string[];
+            /**
+             * @description OAuth client type. Confidential clients may be downgraded to public, which removes the secret.
+             * @example public
+             * @enum {string}
+             */
+            clientType?: "confidential" | "public";
+            /**
+             * @description Pinned WhatsApp group JID. Required iff group mode is enabled.
+             * @example 120363025000000000@g.us
+             */
+            groupJid?: string;
+            /**
+             * @description Single-word command users type in WhatsApp before the six-digit code. Must match [a-z0-9_-]{2,32} and must not equal WHATSAPP_ADMIN_CMD_PREFIX.
+             * @example masuk
+             */
+            loginCommand?: string;
+            /**
+             * @description Optional HTTPS logo URL shown on the consent page.
+             * @example https://acme.example/logo.png
+             */
+            logoUrl?: string;
+            /**
+             * @description Replacement verification modes. If group is included, groupJid is required.
+             * @example [
+             *       "dm",
+             *       "group"
+             *     ]
+             */
+            modes?: ("dm" | "group")[];
+            /**
+             * @description Application name shown on the consent page and in WhatsApp bot replies.
+             * @example Acme Portal
+             */
+            name?: string;
+            /**
+             * @description Replacement exact redirect URI set.
+             * @example [
+             *       "https://app.example.com/oauth/callback"
+             *     ]
+             */
+            redirectUris?: string[];
+            /**
+             * Format: int64
+             * @description Refresh-token family maximum lifetime in seconds.
+             * @example 2592000
+             */
+            refreshTtlSeconds?: number;
+            /**
+             * @description New WhatsApp session id. Must belong to the owning organization.
+             * @example sess_01J9ZX8K2QHV0M3T6R7P4N5W8C
+             */
+            sessionId?: string;
+            /**
+             * Format: int64
+             * @description Access-token and id-token lifetime in seconds.
+             * @example 900
+             */
+            tokenTtlSeconds?: number;
         };
         OnWhatsApp: {
             isOnWhatsApp: boolean;
@@ -3460,6 +4112,366 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BackfillJob"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listOAuthApps: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor returned by the previous page. */
+                cursor?: string;
+                /** @description Maximum number of items to return. Defaults to 50 and is capped at 200. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListOAuthApp"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    createOAuthApp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OauthAppBody"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthAppWithSecret"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getOAuthApp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description OAuth application id. Unknown or cross-organization ids return not_found unless the caller is super_admin. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthApp"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    deleteOAuthApp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description OAuth application id. Unknown or cross-organization ids return not_found unless the caller is super_admin. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    updateOAuthApp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description OAuth application id. Unknown or cross-organization ids return not_found unless the caller is super_admin. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OauthAppPatchBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthApp"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listOAuthAppGrants: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor returned by the previous page. */
+                cursor?: string;
+                /** @description Maximum number of grants to return. Defaults to 50 and is capped at 200. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description OAuth application id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListOAuthGrant"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    revokeOAuthAppGrant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description OAuth application id. */
+                id: string;
+                /** @description OAuth grant id owned by the application. */
+                grantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    revokeAllOAuthAppGrants: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description OAuth application id. Unknown or cross-organization ids return not_found unless the caller is super_admin. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    disableOAuthApp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description OAuth application id. Unknown or cross-organization ids return not_found unless the caller is super_admin. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthApp"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    enableOAuthApp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description OAuth application id. Unknown or cross-organization ids return not_found unless the caller is super_admin. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthApp"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    rotateOAuthAppSecret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description OAuth application id. Unknown or cross-organization ids return not_found unless the caller is super_admin. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthAppWithSecret"];
                 };
             };
             /** @description Error */

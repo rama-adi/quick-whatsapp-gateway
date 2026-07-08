@@ -25,6 +25,7 @@ import (
 type Pipeline struct {
 	normalizer Normalizer
 	commands   CommandRegistry
+	login      LoginInterceptor
 	repos      Repos
 	sink       EventSink
 	webhooks   WebhookEnqueuer
@@ -77,6 +78,11 @@ func WithLogger(l *slog.Logger) Option {
 	}
 }
 
+// WithLoginInterceptor installs the OAuth login verifier at stage 2.
+func WithLoginInterceptor(li LoginInterceptor) Option {
+	return func(p *Pipeline) { p.login = li }
+}
+
 // NewPipeline constructs a Pipeline with constructor injection. The five core
 // collaborators are required; behavioral knobs are Options.
 func NewPipeline(
@@ -124,7 +130,22 @@ func (p *Pipeline) Process(ctx context.Context, sessionID, organizationID string
 	nm.SessionID = sessionID
 	nm.OrganizationID = organizationID
 
-	// Stage 2: command interceptor (admin session, prefixed text → drop).
+	// Stage 2a: OAuth login interceptor. It owns matching login-command shapes
+	// for active OAuth apps on this session, even when the code is invalid.
+	if p.login != nil {
+		handled, err := p.login.HandleLogin(ctx, nm)
+		if err != nil {
+			p.log.WarnContext(ctx, "oauth login interceptor error",
+				slog.String("session", sessionID), slog.Any("err", err))
+		}
+		if handled {
+			p.log.DebugContext(ctx, "inbound: dropped oauth login command",
+				slog.String("session", sessionID))
+			return nil
+		}
+	}
+
+	// Stage 2b: command interceptor (admin session, prefixed text → drop).
 	res, err := p.runInterceptor(ctx, isAdminSession, nm)
 	if err != nil {
 		// A registry error still drops the event, but we surface it for logging.

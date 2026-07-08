@@ -44,6 +44,8 @@ type NormalizedMessage struct {
 	FromMe bool
 
 	// --- sender / identity ---
+	SelfJID      string // this session's own phone JID, when known
+	SelfLID      string // this session's own LID, when known
 	SenderLID    string // LID identity of the sender (preferred key)
 	SenderJID    string // phone JID of the sender, when known
 	SenderPhone  string // bare phone number, when resolvable

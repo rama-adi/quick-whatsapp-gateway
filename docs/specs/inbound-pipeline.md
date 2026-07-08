@@ -20,10 +20,12 @@ fan-out).
 1. **Normalize** — a raw whatsmeow event becomes the versioned envelope
    (`domain.Event`) plus a transport-free working view (`NormalizedMessage`).
    Raw protobufs never leave the Normalizer.
-2. **Command interceptor** (§8/§9) — on the admin session, an inbound,
-   non-echo text whose body starts with `WHATSAPP_ADMIN_CMD_PREFIX` is handed to
-   the `CommandRegistry` and **dropped**: not persisted, not emitted. v2 ships the
-   interceptor + a no-op registry (`amlogin` is later).
+2. **Command interceptor** (§8/§9) — first, the optional OAuth
+   `oidp.LoginInterceptor` consumes Sign in with WhatsApp command-shaped messages
+   for sessions with active OAuth apps; matches are **dropped unconditionally**,
+   even when the code is invalid or expired. Then, on the admin session, an
+   inbound, non-echo text whose body starts with `WHATSAPP_ADMIN_CMD_PREFIX` is
+   handed to the `CommandRegistry` and **dropped**: not persisted, not emitted.
 3. **Identity capture** (§9) — upsert the central `whatsapp_identities` row (push
    name preferred), keyed by the **canonical non-AD LID** (`:device` stripped).
    When a push name arrives **without** a canonical LID (a `contact.update` /
@@ -101,12 +103,14 @@ interceptor), `WithSessionConfig(SessionConfigFunc)` (resolves per-session
   that replies on the fanned event never races the receipt and leaves the chat
   stuck-unread (§9). A dedicated test asserts `SendReadReceipt` precedes
   `Publish`/`AppendEventLog`/`Enqueue`, and `InsertMessage` precedes the receipt.
-- **Interceptor is narrow.** Only `isAdminSession` + `KindMessage` + non-echo +
-  non-empty body with the prefix is intercepted. Echoes, receipts, poll votes
-  and non-text events on the admin number flow normally, so the admin number
-  does double duty as a regular API number (§8). A prefixed admin message is
-  dropped even when the no-op registry returns `handled=false`, and even when the
-  registry errors (the error is logged, the drop stands).
+- **Interceptor is narrow.** OAuth login interception only fires for inbound
+  `KindMessage` text matching the active app command + six-digit code shape, and
+  it runs before admin commands. Admin command interception only fires for
+  `isAdminSession` + `KindMessage` + non-echo + non-empty body with the prefix.
+  Echoes, receipts, poll votes and non-text events on the admin number flow
+  normally. A prefixed admin message is dropped even when the no-op registry
+  returns `handled=false`, and even when the registry errors (the error is
+  logged, the drop stands).
 - **Identity capture runs for any kind that carries a sender** (push name
   preferred, COALESCE'd so a later nameless sighting never wipes a known name).
   A push name seen **without** a canonical LID (contact.update / push-name events)

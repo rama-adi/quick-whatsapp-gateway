@@ -66,6 +66,17 @@ func (f *fakeCommands) Handle(ctx context.Context, sessionID, body string) (bool
 	return f.handled, f.err
 }
 
+type fakeLoginInterceptor struct {
+	handled bool
+	err     error
+	calls   int
+}
+
+func (f *fakeLoginInterceptor) HandleLogin(ctx context.Context, nm *NormalizedMessage) (bool, error) {
+	f.calls++
+	return f.handled, f.err
+}
+
 // --- Repos fake ---
 
 type fakeRepos struct {

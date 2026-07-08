@@ -26,7 +26,10 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/controlbus"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/dbconn"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/http/handlers"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/oidp"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/router"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/service"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/stream"
 )
@@ -45,6 +48,10 @@ func run() error {
 	}
 	setupLogging(cfg.LogLevel)
 	log := slog.Default()
+
+	if len(os.Args) >= 3 && os.Args[1] == "oidp" && os.Args[2] == "rotate-key" {
+		return runOIDPRotateKey(context.Background(), cfg, os.Args[3:])
+	}
 
 	if err := cfg.Validate(); err != nil {
 		return fmt.Errorf("validate config: %w", err)
@@ -92,6 +99,19 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("build assertion minter: %w", err)
 	}
+	oidpSigner, err := oidp.NewSigner(st.OAuthSigningKeys, cfg.OIDCKeyEncKey)
+	if err != nil {
+		return fmt.Errorf("build oidc signer: %w", err)
+	}
+	services := service.New(service.Deps{
+		Store:                      st,
+		OAuthClientSecretPepper:    cfg.OAuthClientSecretPepper,
+		OIDCIssuer:                 cfg.OIDCIssuer,
+		WhatsAppAdminCommandPrefix: cfg.WhatsAppAdminCmdPrefix,
+		ControlPublisher:           service.NewRedisControlPublisher(rdb),
+		Log:                        log,
+	})
+	apiHandlers := handlers.New(services, log)
 
 	// --- Realtime (Increment B): the router is the single client-facing realtime
 	// endpoint. It subscribes to the shared Redis evt:* fan-out (the gateways keep
@@ -109,6 +129,36 @@ func run() error {
 			Log:       log,
 		})
 	}
+	var oidpProvider *oidp.Provider
+	if rdb != nil {
+		requestTTL := time.Duration(cfg.OIDCRequestTTLSeconds) * time.Second
+		oidpProvider = oidp.NewProvider(oidp.ProviderConfig{
+			Clients:      st.OAuthClients,
+			Sessions:     st.Sessions,
+			Groups:       st.Groups,
+			Identities:   st.Identities,
+			Grants:       st.OAuthGrants,
+			Refresh:      st.OAuthRefresh,
+			Signer:       oidpSigner,
+			Pending:      oidp.NewPendingStore(rdb, cfg.RedisPrefix, requestTTL),
+			WebLoginURL:  cfg.WebLoginURL,
+			Issuer:       cfg.OIDCIssuer,
+			SecretPepper: cfg.OAuthClientSecretPepper,
+			PairwiseSalt: cfg.OIDCPairwiseSalt,
+			RequestTTL:   requestTTL,
+			AuthCodeTTL:  time.Duration(cfg.OIDCAuthCodeTTLSeconds) * time.Second,
+			TrustProxy:   cfg.OIDCTrustProxy,
+		})
+	}
+
+	if rdb != nil && oidpProvider != nil {
+		oidpControl := oidp.NewControlSubscriber(rdb, oidpProvider, oidpProvider, oidpProvider.PendingStore(), log)
+		if err := oidpControl.Start(ctx); err != nil {
+			log.Warn("oidp control bus subscriber disabled", "err", err)
+		} else {
+			defer oidpControl.Stop()
+		}
+	}
 
 	// --- Control bus subscriber (§4.6): the router owns the api-key cache and the
 	// live-connection registry, so it subscribes to ctrl:* and evicts the cache +
@@ -121,20 +171,24 @@ func run() error {
 	defer controlStop()
 
 	srv, err := router.NewServer(router.Config{
-		Sessions:    st.Sessions,
-		Gateways:    st.Gateways,
-		Minter:      minter,
-		Tokens:      tokenVerifier,
-		Keys:        keyVerifier,
-		CORSOrigins: cfg.FrontendOrigins,
-		Readiness:   readiness(db, rdb),
-		OpenAPIPath: "docs/openapi.yaml",
-		Redis:       rdb,
-		Pump:        pump,
-		Registry:    registry,
-		RedisPrefix: cfg.RedisPrefix,
-		PublicURL:   cfg.PublicURL,
-		Log:         log,
+		Sessions:      st.Sessions,
+		Gateways:      st.Gateways,
+		Minter:        minter,
+		Tokens:        tokenVerifier,
+		Keys:          keyVerifier,
+		CORSOrigins:   cfg.FrontendOrigins,
+		Readiness:     readiness(db, rdb),
+		OpenAPIPath:   "docs/openapi.yaml",
+		Redis:         rdb,
+		Pump:          pump,
+		Registry:      registry,
+		RedisPrefix:   cfg.RedisPrefix,
+		PublicURL:     cfg.PublicURL,
+		OIDCIssuer:    cfg.OIDCIssuer,
+		OIDPSigner:    oidpSigner,
+		OIDPProvider:  oidpProvider,
+		OAuthHandlers: apiHandlers,
+		Log:           log,
 	})
 	if err != nil {
 		return fmt.Errorf("build router: %w", err)
@@ -168,6 +222,46 @@ func run() error {
 	}
 	log.Info("router stopped cleanly")
 	return nil
+}
+
+func runOIDPRotateKey(ctx context.Context, cfg *config.RouterConfig, args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: router oidp rotate-key generate-next|promote <kid>|retire <kid>")
+	}
+	if cfg.MySQLDSN == "" {
+		return fmt.Errorf("config: MYSQL_DSN is required")
+	}
+	if cfg.OIDCKeyEncKey == "" {
+		return fmt.Errorf("config: OIDC_KEY_ENC_KEY is required")
+	}
+	db, err := dbconn.OpenMySQL(cfg.MySQLDSN)
+	if err != nil {
+		return fmt.Errorf("open mysql: %w", err)
+	}
+	defer db.Close()
+	repo := store.New(db).OAuthSigningKeys
+	now := time.Now().UnixMilli()
+	switch args[0] {
+	case "generate-next":
+		kid, err := oidp.GenerateNextKey(ctx, repo, cfg.OIDCKeyEncKey, now)
+		if err != nil {
+			return err
+		}
+		fmt.Println(kid)
+		return nil
+	case "promote":
+		if len(args) != 2 {
+			return fmt.Errorf("usage: router oidp rotate-key promote <kid>")
+		}
+		return oidp.PromoteNextKey(ctx, repo, args[1], now)
+	case "retire":
+		if len(args) != 2 {
+			return fmt.Errorf("usage: router oidp rotate-key retire <kid>")
+		}
+		return oidp.RetireKey(ctx, repo, args[1], now)
+	default:
+		return fmt.Errorf("usage: router oidp rotate-key generate-next|promote <kid>|retire <kid>")
+	}
 }
 
 // startControlBus subscribes to the ctrl:* revocation bus and evicts the api-key

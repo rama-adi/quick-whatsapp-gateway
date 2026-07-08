@@ -42,6 +42,10 @@ type Store struct {
 	Outbox            *OutboxRepo
 	EventLog          *EventLogRepo
 	BackfillImports   *BackfillImportRepo
+	OAuthClients      *OAuthClientRepo
+	OAuthGrants       *OAuthGrantRepo
+	OAuthRefresh      *OAuthRefreshTokenRepo
+	OAuthSigningKeys  *OAuthSigningKeyRepo
 }
 
 // New builds a Store with every repo bound to the same *sql.DB.
@@ -63,5 +67,9 @@ func New(db *sql.DB) *Store {
 		Outbox:            NewOutboxRepo(db),
 		EventLog:          NewEventLogRepo(db),
 		BackfillImports:   NewBackfillImportRepo(db),
+		OAuthClients:      NewOAuthClientRepo(db),
+		OAuthGrants:       NewOAuthGrantRepo(db),
+		OAuthRefresh:      NewOAuthRefreshTokenRepo(db),
+		OAuthSigningKeys:  NewOAuthSigningKeyRepo(db),
 	}
 }

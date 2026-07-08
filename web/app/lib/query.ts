@@ -87,6 +87,10 @@ export const qk = {
   webhooks: () => ["webhooks"] as const,
 
   tenants: () => ["tenants"] as const,
+
+  oauthApps: () => ["oauth-apps"] as const,
+  oauthApp: (id: string) => ["oauth-apps", id] as const,
+  oauthAppGrants: (id: string) => ["oauth-apps", id, "grants"] as const,
 } as const;
 
 export type { ContactFilter };

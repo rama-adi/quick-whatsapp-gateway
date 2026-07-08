@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as AuthRouteImport } from './routes/_auth'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as LoginWhatsappRouteImport } from './routes/login.whatsapp'
 import { Route as DocsSplatRouteImport } from './routes/docs/$'
 import { Route as ApiSearchRouteImport } from './routes/api/search'
 import { Route as AuthRegisterRouteImport } from './routes/_auth/register'
@@ -24,13 +25,16 @@ import { Route as AppAdminIndexRouteImport } from './routes/_app/admin/index'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth.$'
 import { Route as AppUserWebhooksRouteImport } from './routes/_app/user/webhooks'
 import { Route as AppUserSessionsRouteImport } from './routes/_app/user/sessions'
+import { Route as AppUserOauthAppsRouteImport } from './routes/_app/user/oauth-apps'
 import { Route as AppUserKeysRouteImport } from './routes/_app/user/keys'
 import { Route as AppAdminTenantsRouteImport } from './routes/_app/admin/tenants'
 import { Route as AppAdminSessionsRouteImport } from './routes/_app/admin/sessions'
 import { Route as AppAdminPairingRouteImport } from './routes/_app/admin/pairing'
 import { Route as AppAdminMonitorRouteImport } from './routes/_app/admin/monitor'
 import { Route as AppUserSessionsIndexRouteImport } from './routes/_app/user/sessions.index'
+import { Route as AppUserOauthAppsIndexRouteImport } from './routes/_app/user/oauth-apps.index'
 import { Route as AppUserSessionsSessionIdRouteImport } from './routes/_app/user/sessions.$sessionId'
+import { Route as AppUserOauthAppsAppIdRouteImport } from './routes/_app/user/oauth-apps.$appId'
 import { Route as AppUserSessionsSessionIdIndexRouteImport } from './routes/_app/user/sessions.$sessionId.index'
 import { Route as AppUserSessionsSessionIdContactsRouteImport } from './routes/_app/user.sessions.$sessionId.contacts'
 import { Route as AppUserSessionsSessionIdChatsRouteRouteImport } from './routes/_app/user/sessions/$sessionId/chats/route'
@@ -49,6 +53,11 @@ const AppRoute = AppRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginWhatsappRoute = LoginWhatsappRouteImport.update({
+  id: '/login/whatsapp',
+  path: '/login/whatsapp',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DocsSplatRoute = DocsSplatRouteImport.update({
@@ -111,6 +120,11 @@ const AppUserSessionsRoute = AppUserSessionsRouteImport.update({
   path: '/sessions',
   getParentRoute: () => AppUserRoute,
 } as any)
+const AppUserOauthAppsRoute = AppUserOauthAppsRouteImport.update({
+  id: '/oauth-apps',
+  path: '/oauth-apps',
+  getParentRoute: () => AppUserRoute,
+} as any)
 const AppUserKeysRoute = AppUserKeysRouteImport.update({
   id: '/keys',
   path: '/keys',
@@ -141,12 +155,22 @@ const AppUserSessionsIndexRoute = AppUserSessionsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppUserSessionsRoute,
 } as any)
+const AppUserOauthAppsIndexRoute = AppUserOauthAppsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppUserOauthAppsRoute,
+} as any)
 const AppUserSessionsSessionIdRoute =
   AppUserSessionsSessionIdRouteImport.update({
     id: '/$sessionId',
     path: '/$sessionId',
     getParentRoute: () => AppUserSessionsRoute,
   } as any)
+const AppUserOauthAppsAppIdRoute = AppUserOauthAppsAppIdRouteImport.update({
+  id: '/$appId',
+  path: '/$appId',
+  getParentRoute: () => AppUserOauthAppsRoute,
+} as any)
 const AppUserSessionsSessionIdIndexRoute =
   AppUserSessionsSessionIdIndexRouteImport.update({
     id: '/',
@@ -194,16 +218,20 @@ export interface FileRoutesByFullPath {
   '/register': typeof AuthRegisterRoute
   '/api/search': typeof ApiSearchRoute
   '/docs/$': typeof DocsSplatRoute
+  '/login/whatsapp': typeof LoginWhatsappRoute
   '/admin/monitor': typeof AppAdminMonitorRoute
   '/admin/pairing': typeof AppAdminPairingRoute
   '/admin/sessions': typeof AppAdminSessionsRoute
   '/admin/tenants': typeof AppAdminTenantsRoute
   '/user/keys': typeof AppUserKeysRoute
+  '/user/oauth-apps': typeof AppUserOauthAppsRouteWithChildren
   '/user/sessions': typeof AppUserSessionsRouteWithChildren
   '/user/webhooks': typeof AppUserWebhooksRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/admin/': typeof AppAdminIndexRoute
+  '/user/oauth-apps/$appId': typeof AppUserOauthAppsAppIdRoute
   '/user/sessions/$sessionId': typeof AppUserSessionsSessionIdRouteWithChildren
+  '/user/oauth-apps/': typeof AppUserOauthAppsIndexRoute
   '/user/sessions/': typeof AppUserSessionsIndexRoute
   '/user/sessions/$sessionId/chats': typeof AppUserSessionsSessionIdChatsRouteRouteWithChildren
   '/user/sessions/$sessionId/contacts': typeof AppUserSessionsSessionIdContactsRouteWithChildren
@@ -221,6 +249,7 @@ export interface FileRoutesByTo {
   '/register': typeof AuthRegisterRoute
   '/api/search': typeof ApiSearchRoute
   '/docs/$': typeof DocsSplatRoute
+  '/login/whatsapp': typeof LoginWhatsappRoute
   '/admin/monitor': typeof AppAdminMonitorRoute
   '/admin/pairing': typeof AppAdminPairingRoute
   '/admin/sessions': typeof AppAdminSessionsRoute
@@ -229,6 +258,8 @@ export interface FileRoutesByTo {
   '/user/webhooks': typeof AppUserWebhooksRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/admin': typeof AppAdminIndexRoute
+  '/user/oauth-apps/$appId': typeof AppUserOauthAppsAppIdRoute
+  '/user/oauth-apps': typeof AppUserOauthAppsIndexRoute
   '/user/sessions': typeof AppUserSessionsIndexRoute
   '/user/sessions/$sessionId/contacts': typeof AppUserSessionsSessionIdContactsRouteWithChildren
   '/user/sessions/$sessionId': typeof AppUserSessionsSessionIdIndexRoute
@@ -249,16 +280,20 @@ export interface FileRoutesById {
   '/_auth/register': typeof AuthRegisterRoute
   '/api/search': typeof ApiSearchRoute
   '/docs/$': typeof DocsSplatRoute
+  '/login/whatsapp': typeof LoginWhatsappRoute
   '/_app/admin/monitor': typeof AppAdminMonitorRoute
   '/_app/admin/pairing': typeof AppAdminPairingRoute
   '/_app/admin/sessions': typeof AppAdminSessionsRoute
   '/_app/admin/tenants': typeof AppAdminTenantsRoute
   '/_app/user/keys': typeof AppUserKeysRoute
+  '/_app/user/oauth-apps': typeof AppUserOauthAppsRouteWithChildren
   '/_app/user/sessions': typeof AppUserSessionsRouteWithChildren
   '/_app/user/webhooks': typeof AppUserWebhooksRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/_app/admin/': typeof AppAdminIndexRoute
+  '/_app/user/oauth-apps/$appId': typeof AppUserOauthAppsAppIdRoute
   '/_app/user/sessions/$sessionId': typeof AppUserSessionsSessionIdRouteWithChildren
+  '/_app/user/oauth-apps/': typeof AppUserOauthAppsIndexRoute
   '/_app/user/sessions/': typeof AppUserSessionsIndexRoute
   '/_app/user/sessions/$sessionId/chats': typeof AppUserSessionsSessionIdChatsRouteRouteWithChildren
   '/_app/user/sessions/$sessionId/contacts': typeof AppUserSessionsSessionIdContactsRouteWithChildren
@@ -279,16 +314,20 @@ export interface FileRouteTypes {
     | '/register'
     | '/api/search'
     | '/docs/$'
+    | '/login/whatsapp'
     | '/admin/monitor'
     | '/admin/pairing'
     | '/admin/sessions'
     | '/admin/tenants'
     | '/user/keys'
+    | '/user/oauth-apps'
     | '/user/sessions'
     | '/user/webhooks'
     | '/api/auth/$'
     | '/admin/'
+    | '/user/oauth-apps/$appId'
     | '/user/sessions/$sessionId'
+    | '/user/oauth-apps/'
     | '/user/sessions/'
     | '/user/sessions/$sessionId/chats'
     | '/user/sessions/$sessionId/contacts'
@@ -306,6 +345,7 @@ export interface FileRouteTypes {
     | '/register'
     | '/api/search'
     | '/docs/$'
+    | '/login/whatsapp'
     | '/admin/monitor'
     | '/admin/pairing'
     | '/admin/sessions'
@@ -314,6 +354,8 @@ export interface FileRouteTypes {
     | '/user/webhooks'
     | '/api/auth/$'
     | '/admin'
+    | '/user/oauth-apps/$appId'
+    | '/user/oauth-apps'
     | '/user/sessions'
     | '/user/sessions/$sessionId/contacts'
     | '/user/sessions/$sessionId'
@@ -333,16 +375,20 @@ export interface FileRouteTypes {
     | '/_auth/register'
     | '/api/search'
     | '/docs/$'
+    | '/login/whatsapp'
     | '/_app/admin/monitor'
     | '/_app/admin/pairing'
     | '/_app/admin/sessions'
     | '/_app/admin/tenants'
     | '/_app/user/keys'
+    | '/_app/user/oauth-apps'
     | '/_app/user/sessions'
     | '/_app/user/webhooks'
     | '/api/auth/$'
     | '/_app/admin/'
+    | '/_app/user/oauth-apps/$appId'
     | '/_app/user/sessions/$sessionId'
+    | '/_app/user/oauth-apps/'
     | '/_app/user/sessions/'
     | '/_app/user/sessions/$sessionId/chats'
     | '/_app/user/sessions/$sessionId/contacts'
@@ -358,6 +404,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRouteWithChildren
   ApiSearchRoute: typeof ApiSearchRoute
   DocsSplatRoute: typeof DocsSplatRoute
+  LoginWhatsappRoute: typeof LoginWhatsappRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
@@ -382,6 +429,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login/whatsapp': {
+      id: '/login/whatsapp'
+      path: '/login/whatsapp'
+      fullPath: '/login/whatsapp'
+      preLoaderRoute: typeof LoginWhatsappRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/docs/$': {
@@ -468,6 +522,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppUserSessionsRouteImport
       parentRoute: typeof AppUserRoute
     }
+    '/_app/user/oauth-apps': {
+      id: '/_app/user/oauth-apps'
+      path: '/oauth-apps'
+      fullPath: '/user/oauth-apps'
+      preLoaderRoute: typeof AppUserOauthAppsRouteImport
+      parentRoute: typeof AppUserRoute
+    }
     '/_app/user/keys': {
       id: '/_app/user/keys'
       path: '/keys'
@@ -510,12 +571,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppUserSessionsIndexRouteImport
       parentRoute: typeof AppUserSessionsRoute
     }
+    '/_app/user/oauth-apps/': {
+      id: '/_app/user/oauth-apps/'
+      path: '/'
+      fullPath: '/user/oauth-apps/'
+      preLoaderRoute: typeof AppUserOauthAppsIndexRouteImport
+      parentRoute: typeof AppUserOauthAppsRoute
+    }
     '/_app/user/sessions/$sessionId': {
       id: '/_app/user/sessions/$sessionId'
       path: '/$sessionId'
       fullPath: '/user/sessions/$sessionId'
       preLoaderRoute: typeof AppUserSessionsSessionIdRouteImport
       parentRoute: typeof AppUserSessionsRoute
+    }
+    '/_app/user/oauth-apps/$appId': {
+      id: '/_app/user/oauth-apps/$appId'
+      path: '/$appId'
+      fullPath: '/user/oauth-apps/$appId'
+      preLoaderRoute: typeof AppUserOauthAppsAppIdRouteImport
+      parentRoute: typeof AppUserOauthAppsRoute
     }
     '/_app/user/sessions/$sessionId/': {
       id: '/_app/user/sessions/$sessionId/'
@@ -581,6 +656,19 @@ const AppAdminRouteRouteChildren: AppAdminRouteRouteChildren = {
 const AppAdminRouteRouteWithChildren = AppAdminRouteRoute._addFileChildren(
   AppAdminRouteRouteChildren,
 )
+
+interface AppUserOauthAppsRouteChildren {
+  AppUserOauthAppsAppIdRoute: typeof AppUserOauthAppsAppIdRoute
+  AppUserOauthAppsIndexRoute: typeof AppUserOauthAppsIndexRoute
+}
+
+const AppUserOauthAppsRouteChildren: AppUserOauthAppsRouteChildren = {
+  AppUserOauthAppsAppIdRoute: AppUserOauthAppsAppIdRoute,
+  AppUserOauthAppsIndexRoute: AppUserOauthAppsIndexRoute,
+}
+
+const AppUserOauthAppsRouteWithChildren =
+  AppUserOauthAppsRoute._addFileChildren(AppUserOauthAppsRouteChildren)
 
 interface AppUserSessionsSessionIdChatsRouteRouteChildren {
   AppUserSessionsSessionIdChatsChatIdRoute: typeof AppUserSessionsSessionIdChatsChatIdRoute
@@ -651,12 +739,14 @@ const AppUserSessionsRouteWithChildren = AppUserSessionsRoute._addFileChildren(
 
 interface AppUserRouteChildren {
   AppUserKeysRoute: typeof AppUserKeysRoute
+  AppUserOauthAppsRoute: typeof AppUserOauthAppsRouteWithChildren
   AppUserSessionsRoute: typeof AppUserSessionsRouteWithChildren
   AppUserWebhooksRoute: typeof AppUserWebhooksRoute
 }
 
 const AppUserRouteChildren: AppUserRouteChildren = {
   AppUserKeysRoute: AppUserKeysRoute,
+  AppUserOauthAppsRoute: AppUserOauthAppsRouteWithChildren,
   AppUserSessionsRoute: AppUserSessionsRouteWithChildren,
   AppUserWebhooksRoute: AppUserWebhooksRoute,
 }
@@ -698,6 +788,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRouteWithChildren,
   ApiSearchRoute: ApiSearchRoute,
   DocsSplatRoute: DocsSplatRoute,
+  LoginWhatsappRoute: LoginWhatsappRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
 export const routeTree = rootRouteImport

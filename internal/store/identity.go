@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 
@@ -156,4 +157,18 @@ func (r *IdentityRepo) GetByLID(ctx context.Context, lid string) (domain.Identit
 		return domain.Identity{}, notFound(err, "identity")
 	}
 	return identityFromRow(row), nil
+}
+
+func (r *IdentityRepo) GetByID(ctx context.Context, id uint64) (domain.Identity, error) {
+	row := r.db.QueryRowContext(ctx, `SELECT id, lid, phone_number, phone_jid, name, business_name, first_seen_at, updated_at FROM whatsapp_identities WHERE id = ?`, id)
+	var i domain.Identity
+	var phoneNumber, phoneJID, name, businessName sql.NullString
+	if err := row.Scan(&i.ID, &i.LID, &phoneNumber, &phoneJID, &name, &businessName, &i.FirstSeenAt, &i.UpdatedAt); err != nil {
+		return domain.Identity{}, notFound(err, "identity")
+	}
+	i.PhoneNumber = stringPtrFromNull(phoneNumber)
+	i.PhoneJID = stringPtrFromNull(phoneJID)
+	i.Name = stringPtrFromNull(name)
+	i.BusinessName = stringPtrFromNull(businessName)
+	return i, nil
 }

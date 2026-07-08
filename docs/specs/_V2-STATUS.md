@@ -28,6 +28,7 @@ R-milestone that re-implements its subsystem.
 | `contacts.md` | ✅ v2 | R3 | Logic stable; ownership via org; frontend reads (§6.2). |
 | `frontend.md` | ✅ v2 (replaced React Router SPA) | R3/R4 | TanStack Start + better-auth (6 plugins, drizzleAdapter, definePayload, personal-org); browser→gateway direct (CORS+Bearer); org switcher (§12). |
 | `backfill-import.md` | ✅ implemented | R5 | User-uploaded WhatsApp backup (crypt15) decrypt + SQLite import → chats/messages/identities/groups; once/24h per session (super_admin unlimited). |
+| `oauth.md` | 🚧 in progress | R-OIDC | NEW — "Sign in with WhatsApp": OAuth 2.1 / OIDC provider on the router (`internal/oidp`); DM / group-mention verification via a stage-2 inbound interceptor; two-code pending-auth model in Redis; consent page + app CRUD in web/. Milestones in [`../../oauth2-progress.md`](../../oauth2-progress.md). |
 
 > All subsystem specs are now v2. The masterplan is the overview; these specs are the detail;
 > `../openapi.yaml` is the API contract of record.

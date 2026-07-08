@@ -19,4 +19,5 @@ func RegisterAllOps(api huma.API, h *Handlers) {
 	RegisterStatusOps(api, h)
 	RegisterAdminOps(api, h)
 	RegisterBackupOps(api, h)
+	RegisterOAuthAppOps(api, h)
 }
