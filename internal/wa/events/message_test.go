@@ -458,48 +458,69 @@ func TestNormalizeMessageSubtypes(t *testing.T) {
 	}
 }
 
-func TestNormalizeMessageSenderLID(t *testing.T) {
-	e := &events.Message{
-		Info: types.MessageInfo{
-			MessageSource: types.MessageSource{
-				Chat:      mustJID(t, "628111@s.whatsapp.net"),
-				Sender:    mustJID(t, "628222@s.whatsapp.net"),
-				SenderAlt: mustJID(t, "777@lid"),
-			},
-			ID:        "wamid.LID",
-			Timestamp: time.UnixMilli(1),
+func TestNormalizeMessageSenderIdentity(t *testing.T) {
+	tests := []struct {
+		name          string
+		sender        string
+		senderAlt     string
+		wantSenderJID string
+		wantSenderLID string
+	}{
+		{
+			name:          "PN addressed with LID alt",
+			sender:        "628222@s.whatsapp.net",
+			senderAlt:     "777@lid",
+			wantSenderJID: "628222@s.whatsapp.net",
+			wantSenderLID: "777@lid",
 		},
-		Message: &waE2E.Message{Conversation: proto.String("hi")},
-	}
-	_, pr, ok := Normalize(e, testSession, testOrganization)
-	if !ok || pr.Message == nil {
-		t.Fatalf("normalize failed")
-	}
-	if pr.Message.SenderLID != "777@lid" {
-		t.Errorf("senderLID = %q, want 777@lid", pr.Message.SenderLID)
-	}
-	if pr.Message.SenderJID != "628222@s.whatsapp.net" {
-		t.Errorf("senderJID = %q", pr.Message.SenderJID)
-	}
-}
-
-func TestNormalizeMessageSenderAltPN_NotTreatedAsLID(t *testing.T) {
-	// When SenderAlt is a phone-number form (not on the lid server), SenderLID
-	// must stay empty.
-	e := &events.Message{
-		Info: types.MessageInfo{
-			MessageSource: types.MessageSource{
-				Chat:      mustJID(t, "628111@s.whatsapp.net"),
-				Sender:    mustJID(t, "777@lid"),
-				SenderAlt: mustJID(t, "628222@s.whatsapp.net"),
-			},
-			ID:        "wamid.PN",
-			Timestamp: time.UnixMilli(1),
+		{
+			name:          "LID addressed with PN alt",
+			sender:        "777@lid",
+			senderAlt:     "628222@s.whatsapp.net",
+			wantSenderJID: "628222@s.whatsapp.net",
+			wantSenderLID: "777@lid",
 		},
-		Message: &waE2E.Message{Conversation: proto.String("hi")},
+		{
+			name:          "LID addressed without alt",
+			sender:        "777@lid",
+			wantSenderJID: "",
+			wantSenderLID: "777@lid",
+		},
+		{
+			name:          "PN addressed with PN alt ignores alt as LID",
+			sender:        "628222@s.whatsapp.net",
+			senderAlt:     "628333@s.whatsapp.net",
+			wantSenderJID: "628222@s.whatsapp.net",
+			wantSenderLID: "",
+		},
 	}
-	_, pr, _ := Normalize(e, testSession, testOrganization)
-	if pr.Message.SenderLID != "" {
-		t.Errorf("senderLID = %q, want empty (alt is PN)", pr.Message.SenderLID)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			source := types.MessageSource{
+				Chat:   mustJID(t, "120@g.us"),
+				Sender: mustJID(t, tt.sender),
+			}
+			if tt.senderAlt != "" {
+				source.SenderAlt = mustJID(t, tt.senderAlt)
+			}
+			e := &events.Message{
+				Info: types.MessageInfo{
+					MessageSource: source,
+					ID:            "wamid.SENDER",
+					Timestamp:     time.UnixMilli(1),
+				},
+				Message: &waE2E.Message{Conversation: proto.String("hi")},
+			}
+			_, pr, ok := Normalize(e, testSession, testOrganization)
+			if !ok || pr.Message == nil {
+				t.Fatalf("normalize failed")
+			}
+			if pr.Message.SenderJID != tt.wantSenderJID {
+				t.Errorf("senderJID = %q, want %q", pr.Message.SenderJID, tt.wantSenderJID)
+			}
+			if pr.Message.SenderLID != tt.wantSenderLID {
+				t.Errorf("senderLID = %q, want %q", pr.Message.SenderLID, tt.wantSenderLID)
+			}
+		})
 	}
 }

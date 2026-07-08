@@ -20,23 +20,21 @@ import (
 // DeviceSent/Edited wrappers), so we read from it directly per recon §5.
 func normalizeMessage(e *events.Message, sessionID, organizationID string) (domain.Event, PersistResult, bool) {
 	info := e.Info
+	senderJID, senderLID := normalizeSender(info.Sender, info.SenderAlt)
 	// Canonicalize sender addresses to non-AD form (drop the ":device" / agent
-	// part) so the same human maps to ONE identity key — the device suffix was a
-	// primary source of duplicate identity rows and broken sender_lid joins.
+	// part) so the same human maps to one identity key. WhatsApp may put either
+	// the phone JID or LID in Sender depending on the chat addressing mode, with
+	// the other form in SenderAlt when known, so assign by server instead of field
+	// position.
 	nm := &NormalizedMessage{
 		WAMessageID: info.ID,
 		ChatJID:     jidString(info.Chat),
 		ChatClass:   ClassifyChat(info.Chat),
-		SenderJID:   jidString(info.Sender.ToNonAD()),
-		SenderLID:   jidString(info.SenderAlt.ToNonAD()), // LID alt-address when AddressingMode is PN, or vice-versa
+		SenderJID:   senderJID,
+		SenderLID:   senderLID,
 		FromMe:      info.IsFromMe,
 		PushName:    info.PushName,
 		Timestamp:   msFromTime(info.Timestamp),
-	}
-	// SenderAlt may be the PN form (not the LID); only treat it as a LID when it
-	// actually lives on the LID server, so SenderLID stays meaningful.
-	if !info.SenderAlt.IsEmpty() && info.SenderAlt.Server != types.HiddenUserServer {
-		nm.SenderLID = ""
 	}
 
 	msg := e.Message
@@ -51,6 +49,21 @@ func normalizeMessage(e *events.Message, sessionID, organizationID string) (doma
 		ChatJID: nm.ChatJID,
 	}
 	return ev, pr, true
+}
+
+func normalizeSender(sender, senderAlt types.JID) (senderJID, senderLID string) {
+	if sender.Server == types.HiddenUserServer {
+		senderLID = jidString(sender.ToNonAD())
+		if !senderAlt.IsEmpty() && senderAlt.Server != types.HiddenUserServer {
+			senderJID = jidString(senderAlt.ToNonAD())
+		}
+		return senderJID, senderLID
+	}
+	senderJID = jidString(sender.ToNonAD())
+	if !senderAlt.IsEmpty() && senderAlt.Server == types.HiddenUserServer {
+		senderLID = jidString(senderAlt.ToNonAD())
+	}
+	return senderJID, senderLID
 }
 
 // classify inspects the unwrapped *waE2E.Message and fills the sub-type-specific

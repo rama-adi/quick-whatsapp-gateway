@@ -12,6 +12,7 @@ import (
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa/inbound"
+	"go.mau.fi/whatsmeow/types"
 )
 
 const (
@@ -192,7 +193,7 @@ func buildSessionApps(clients []domain.OAuthClient) sessionApps {
 func filterGroupCandidates(ctx context.Context, members GroupMemberChecker, nm *inbound.NormalizedMessage, in []domain.OAuthClient) []domain.OAuthClient {
 	out := make([]domain.OAuthClient, 0, len(in))
 	for _, c := range in {
-		if c.GroupJID == nil || *c.GroupJID != nm.ChatJID || !mentionedBot(nm, c) {
+		if c.GroupJID == nil || !sameJID(*c.GroupJID, nm.ChatJID) || !mentionedBot(nm, c) {
 			continue
 		}
 		if members != nil {
@@ -207,22 +208,79 @@ func filterGroupCandidates(ctx context.Context, members GroupMemberChecker, nm *
 }
 
 func mentionedBot(nm *inbound.NormalizedMessage, _ domain.OAuthClient) bool {
-	self := map[string]struct{}{}
+	var self []jidKey
 	if nm.SelfJID != "" {
-		self[nm.SelfJID] = struct{}{}
+		self = append(self, canonicalJIDKeys(nm.SelfJID)...)
 	}
 	if nm.SelfLID != "" {
-		self[nm.SelfLID] = struct{}{}
+		self = append(self, canonicalJIDKeys(nm.SelfLID)...)
 	}
 	if len(self) == 0 {
 		return false
 	}
 	for _, mention := range nm.Mentions {
-		if _, ok := self[mention]; ok {
-			return true
+		for _, mentionKey := range canonicalJIDKeys(mention) {
+			for _, selfKey := range self {
+				if sameJIDKey(mentionKey, selfKey) {
+					return true
+				}
+			}
 		}
 	}
 	return false
+}
+
+type jidKey struct {
+	user   string
+	server string
+}
+
+func sameJID(a, b string) bool {
+	for _, ak := range canonicalJIDKeys(a) {
+		for _, bk := range canonicalJIDKeys(b) {
+			if sameJIDKey(ak, bk) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func sameJIDKey(a, b jidKey) bool {
+	if a.user == "" || b.user == "" || a.user != b.user {
+		return false
+	}
+	return a.server == "" || b.server == "" || a.server == b.server
+}
+
+func canonicalJIDKeys(raw string) []jidKey {
+	raw = strings.TrimSpace(strings.ToLower(raw))
+	if raw == "" {
+		return nil
+	}
+	// types.ParseJID treats an @-less string as server-only, so only use it
+	// when a server part is present; bare users fall through below.
+	if strings.Contains(raw, "@") {
+		if jid, err := types.ParseJID(raw); err == nil && !jid.IsEmpty() {
+			jid = jid.ToNonAD()
+			if jid.User == "" {
+				return nil
+			}
+			return []jidKey{{user: jid.User, server: jid.Server}}
+		}
+	}
+
+	user, server, ok := strings.Cut(raw, "@")
+	if !ok {
+		user = raw
+	}
+	if before, _, ok := strings.Cut(user, ":"); ok {
+		user = before
+	}
+	if user == "" {
+		return nil
+	}
+	return []jidKey{{user: user, server: server}}
 }
 
 func (l *LoginInterceptor) feedback(ctx context.Context, nm *inbound.NormalizedMessage, res ClaimResult, app *domain.OAuthClient) error {

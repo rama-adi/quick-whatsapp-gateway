@@ -19,7 +19,11 @@ fan-out).
 
 1. **Normalize** — a raw whatsmeow event becomes the versioned envelope
    (`domain.Event`) plus a transport-free working view (`NormalizedMessage`).
-   Raw protobufs never leave the Normalizer.
+   Raw protobufs never leave the Normalizer. Sender identity is split by JID
+   server after non-AD canonicalization: `SenderLID` is the `@lid` address from
+   either `Sender` or `SenderAlt`, and `SenderJID` is the phone
+   `@s.whatsapp.net` address when WhatsApp provides it. This covers both PN-
+   and LID-addressed groups.
 2. **Command interceptor** (§8/§9) — first, the optional OAuth
    `oidp.LoginInterceptor` consumes Sign in with WhatsApp command-shaped messages
    for sessions with active OAuth apps; matches are **dropped unconditionally**,

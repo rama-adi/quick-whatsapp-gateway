@@ -148,6 +148,107 @@ func TestLoginInterceptorGroupRequiresBotMention(t *testing.T) {
 	require.Equal(t, PendingStatusVerified, req.Status)
 }
 
+func TestLoginInterceptorGroupJIDCanonicalComparison(t *testing.T) {
+	_, rdb := testRedis(t)
+	ps := NewPendingStore(rdb, "lijidcanon", 10*time.Minute)
+	apps := &fakeActiveApps{apps: []domain.OAuthClient{{
+		ClientID: "client_1", SessionID: "sess_1", Name: "Acme", LoginCommand: "login",
+		Modes: "group", GroupJID: strp("120363@g.us"), Status: "active",
+	}}}
+	li := NewLoginInterceptor(apps, ps, fakeMembers{ok: true}, nil, nil)
+
+	cases := []struct {
+		name     string
+		code     string
+		chatJID  string
+		selfJID  string
+		selfLID  string
+		mentions []string
+	}{
+		{
+			name: "device suffixed group and mention",
+			code: "483930", chatJID: "120363:7@g.us",
+			selfJID: "628000:3@s.whatsapp.net", mentions: []string{"628000@s.whatsapp.net"},
+		},
+		{
+			name: "bare group and mention",
+			code: "483931", chatJID: "120363",
+			selfJID: "628000@s.whatsapp.net", mentions: []string{"628000"},
+		},
+		{
+			name: "lid mention",
+			code: "483932", chatJID: "120363@g.us",
+			selfJID: "628000@s.whatsapp.net", selfLID: "205227043110953@lid", mentions: []string{"205227043110953:12@lid"},
+		},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			browserCode := "browser_" + tt.code
+			require.NoError(t, ps.Create(context.Background(), PendingRequest{
+				ClientID: "client_1", BrowserCode: browserCode, SessionID: "sess_1", UserCode: tt.code,
+				LoginCommand: "login", Mode: "group", AppName: "Acme", Status: PendingStatusPending,
+				ExpiresAt: time.Now().Add(time.Minute).UnixMilli(),
+			}))
+
+			nm := loginNM("login "+tt.code, false, true)
+			nm.ChatJID = tt.chatJID
+			nm.SelfJID = tt.selfJID
+			nm.SelfLID = tt.selfLID
+			nm.Mentions = tt.mentions
+			handled, err := li.HandleLogin(context.Background(), nm)
+			require.NoError(t, err)
+			require.True(t, handled)
+
+			req, err := ps.Load(context.Background(), browserCode)
+			require.NoError(t, err)
+			require.Equal(t, PendingStatusVerified, req.Status)
+		})
+	}
+}
+
+func TestLoginInterceptorGroupJIDCanonicalComparisonIgnoresWrongTarget(t *testing.T) {
+	_, rdb := testRedis(t)
+	ps := NewPendingStore(rdb, "lijidcanonneg", 10*time.Minute)
+	apps := &fakeActiveApps{apps: []domain.OAuthClient{{
+		ClientID: "client_1", SessionID: "sess_1", Name: "Acme", LoginCommand: "login",
+		Modes: "group", GroupJID: strp("120363@g.us"), Status: "active",
+	}}}
+	li := NewLoginInterceptor(apps, ps, fakeMembers{ok: true}, nil, nil)
+
+	require.NoError(t, ps.Create(context.Background(), PendingRequest{
+		ClientID: "client_1", BrowserCode: "browser_other_mention", SessionID: "sess_1", UserCode: "483940",
+		LoginCommand: "login", Mode: "group", AppName: "Acme", Status: PendingStatusPending,
+		ExpiresAt: time.Now().Add(time.Minute).UnixMilli(),
+	}))
+	nm := loginNM("login 483940", false, true)
+	nm.ChatJID = "120363@g.us"
+	nm.SelfJID = "628000@s.whatsapp.net"
+	nm.SelfLID = "205227043110953@lid"
+	nm.Mentions = []string{"111@lid"}
+	handled, err := li.HandleLogin(context.Background(), nm)
+	require.NoError(t, err)
+	require.True(t, handled)
+	req, err := ps.Load(context.Background(), "browser_other_mention")
+	require.NoError(t, err)
+	require.Equal(t, PendingStatusPending, req.Status)
+
+	require.NoError(t, ps.Create(context.Background(), PendingRequest{
+		ClientID: "client_1", BrowserCode: "browser_other_group", SessionID: "sess_1", UserCode: "483941",
+		LoginCommand: "login", Mode: "group", AppName: "Acme", Status: PendingStatusPending,
+		ExpiresAt: time.Now().Add(time.Minute).UnixMilli(),
+	}))
+	nm = loginNM("login 483941", false, true)
+	nm.ChatJID = "999@g.us"
+	nm.SelfJID = "628000@s.whatsapp.net"
+	nm.Mentions = []string{"628000@s.whatsapp.net"}
+	handled, err = li.HandleLogin(context.Background(), nm)
+	require.NoError(t, err)
+	require.True(t, handled)
+	req, err = ps.Load(context.Background(), "browser_other_group")
+	require.NoError(t, err)
+	require.Equal(t, PendingStatusPending, req.Status)
+}
+
 func TestLoginInterceptorInvalidatesCommandCache(t *testing.T) {
 	_, rdb := testRedis(t)
 	ps := NewPendingStore(rdb, "licache", 10*time.Minute)
