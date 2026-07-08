@@ -16,8 +16,9 @@ import {
   type StatusFrame,
 } from "./protocol";
 
-/** Terminal outcomes the page renders as final (no retry with the same code). */
-export type Terminal = "verified" | "denied" | "expired";
+/** Terminal outcomes the page renders as final (no retry with the same code).
+ * `finalized` = the flow already completed and redirected earlier — spent. */
+export type Terminal = "verified" | "denied" | "expired" | "finalized";
 
 export interface WaitCallbacks {
   /** First snapshot (and any re-emitted snapshot after reconnect). */

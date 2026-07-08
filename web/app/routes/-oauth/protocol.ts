@@ -49,12 +49,15 @@ export interface PendingSnapshot {
   expires_at: number;
 }
 
-/** Terminal / heartbeat frames that tail the snapshot. */
+/** Terminal / heartbeat frames that tail the snapshot. `finalized` appears when
+ * a stream (re)connects after the redirect already happened — the flow is spent
+ * and the page must not resume it (oauth.md §6.1). */
 export type StatusFrame =
   | PendingSnapshot
   | { status: "verified" }
   | { status: "denied" }
   | { status: "expired" }
+  | { status: "finalized" }
   | { status: "heartbeat" };
 
 /** Response of POST /oauth/wait/{code}/finalize. */
@@ -74,8 +77,40 @@ export function isHeartbeat(f: StatusFrame): f is { status: "heartbeat" } {
 }
 export function isTerminal(
   f: StatusFrame,
-): f is { status: "verified" | "denied" | "expired" } {
-  return f.status === "verified" || f.status === "denied" || f.status === "expired";
+): f is { status: "verified" | "denied" | "expired" | "finalized" } {
+  return (
+    f.status === "verified" ||
+    f.status === "denied" ||
+    f.status === "expired" ||
+    f.status === "finalized"
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Reload detection (oauth.md §6.1 — refresh kills the attempt)
+// ---------------------------------------------------------------------------
+
+/**
+ * Detect whether this page load is a RELOAD of a consent page that already ran
+ * for this browser code in this tab. First sight stamps `loadId` under the
+ * code's key; seeing a DIFFERENT stamp means an earlier page load in this tab
+ * already owned the code (refresh / back-nav) — the caller must kill the
+ * attempt. Re-running with the SAME loadId is a no-op (React StrictMode mounts
+ * effects twice). Storage failures (blocked sessionStorage) fail open: never
+ * killing is safer than killing every login.
+ */
+export function isReload(storage: Storage, browserCode: string, loadId: string): boolean {
+  const key = `wa-login-load:${browserCode}`;
+  try {
+    const prior = storage.getItem(key);
+    if (prior === null) {
+      storage.setItem(key, loadId);
+      return false;
+    }
+    return prior !== loadId;
+  } catch {
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -12,7 +12,7 @@ import {
   finalize as finalizeReq,
   type Terminal,
 } from "./wait-client";
-import { parseBrowserCode, type PendingSnapshot } from "./protocol";
+import { isReload, parseBrowserCode, type PendingSnapshot } from "./protocol";
 
 export type WaitPhase =
   | "loading" // fragment read, stream opening, no snapshot yet
@@ -22,8 +22,13 @@ export type WaitPhase =
   | "verified" // finalize done, navigating away
   | "denied"
   | "expired"
-  | "not_found" // invalid/expired browser code (stream 404) or missing fragment
+  | "reloaded" // the page was refreshed mid-flight → attempt killed (§6.1)
+  | "not_found" // invalid/expired/spent browser code (stream 404) or missing fragment
   | "error"; // finalize failed
+
+// One value per real page load (module evaluation). A refresh re-evaluates the
+// module and gets a fresh ID; a StrictMode effect re-run does not.
+const PAGE_LOAD_ID = Math.random().toString(36).slice(2) + Date.now().toString(36);
 
 export interface WaitState {
   phase: WaitPhase;
@@ -46,6 +51,16 @@ export function useWait(): WaitState {
     codeRef.current = code;
     if (!code) {
       setPhase("not_found");
+      return;
+    }
+
+    // Refresh kills the attempt (oauth.md §6.1): a reload of a page that
+    // already owned this code cancels the pending request server-side instead
+    // of resuming it. The driver's internal reconnects don't re-run this
+    // effect, so transient drops are unaffected.
+    if (isReload(window.sessionStorage, code, PAGE_LOAD_ID)) {
+      setPhase("reloaded");
+      void cancelReq(code);
       return;
     }
 
@@ -77,6 +92,10 @@ export function useWait(): WaitState {
             .catch(() => {
               if (!ctrl.signal.aborted) setPhase("error");
             });
+        } else if (t === "finalized") {
+          // The flow already completed and redirected once — spent, not
+          // resumable (the auth code is single-use).
+          setPhase("not_found");
         } else {
           setPhase(t); // "denied" | "expired"
         }

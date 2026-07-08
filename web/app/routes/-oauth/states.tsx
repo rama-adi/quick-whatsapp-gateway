@@ -100,6 +100,17 @@ export function ExpiredScreen() {
   );
 }
 
+export function ReloadedScreen() {
+  return (
+    <TerminalScreen
+      tone="neutral"
+      icon={<ShieldXIcon className="size-7" aria-hidden />}
+      title="Sign-in cancelled"
+      message="This page was reloaded, so the sign-in attempt was cancelled for your security. Return to the app and start again."
+    />
+  );
+}
+
 export function NotFoundScreen() {
   return (
     <TerminalScreen

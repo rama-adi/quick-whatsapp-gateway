@@ -354,6 +354,13 @@ third-party scripts.
    …/cancel`.
 4. Stream drop before a terminal state → reopen the same URL; the server re-emits the current
    snapshot, so reconnects are idempotent.
+5. **A page reload kills the attempt.** The page stamps a per-page-load id into
+   `sessionStorage` keyed by the browser code; loading the page again for a code this tab
+   already owned (refresh, back-nav) → `POST …/cancel` + a "cancelled because the page was
+   reloaded" terminal screen, instead of resuming. Driver-internal reconnects (step 4) are the
+   same page load and are unaffected; blocked storage fails open (resume, never false-kill).
+   After the flow completed (`finalized`) or expired, the code is spent — a reconnect gets the
+   `finalized` frame (or a 404) and renders the invalid-link terminal state; nothing resumes.
 
 Consent semantics: **the WhatsApp message is the consent** — the user actively proves identity to
 a named, branded app. No separate Allow/Deny button; the identity display + cancel/STOP is the

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   isHeartbeat,
   isPending,
+  isReload,
   isTerminal,
   parseBrowserCode,
   readNdjson,
@@ -45,8 +46,52 @@ describe("frame guards", () => {
     expect(isTerminal({ status: "verified" })).toBe(true);
     expect(isTerminal({ status: "denied" })).toBe(true);
     expect(isTerminal({ status: "expired" })).toBe(true);
+    expect(isTerminal({ status: "finalized" })).toBe(true);
     expect(isTerminal(PENDING)).toBe(false);
     expect(isHeartbeat(PENDING)).toBe(false);
+  });
+});
+
+describe("isReload", () => {
+  function memStorage(): Storage {
+    const m = new Map<string, string>();
+    return {
+      get length() {
+        return m.size;
+      },
+      clear: () => m.clear(),
+      getItem: (k) => m.get(k) ?? null,
+      key: (i) => [...m.keys()][i] ?? null,
+      removeItem: (k) => void m.delete(k),
+      setItem: (k, v) => void m.set(k, v),
+    };
+  }
+
+  it("first sight is not a reload; a new load id is", () => {
+    const s = memStorage();
+    expect(isReload(s, "code1", "loadA")).toBe(false);
+    // Same load id again (StrictMode effect re-run) — still not a reload.
+    expect(isReload(s, "code1", "loadA")).toBe(false);
+    // A different load id in the same tab = refresh → reload.
+    expect(isReload(s, "code1", "loadB")).toBe(true);
+  });
+
+  it("codes are tracked independently", () => {
+    const s = memStorage();
+    expect(isReload(s, "code1", "loadA")).toBe(false);
+    expect(isReload(s, "code2", "loadB")).toBe(false);
+  });
+
+  it("fails open when storage throws", () => {
+    const broken = {
+      getItem: () => {
+        throw new Error("blocked");
+      },
+      setItem: () => {
+        throw new Error("blocked");
+      },
+    } as unknown as Storage;
+    expect(isReload(broken, "code1", "loadA")).toBe(false);
   });
 });
 
