@@ -1,5 +1,5 @@
 // The create/edit form for an OAuth application (oauth.md §6.2). Drives both the
-// "New app" sheet and the detail-page editor from one controlled state object.
+// "New app" page and the detail-page editor from one controlled state object.
 // Right column carries a LIVE preview of the end-user consent card (reusing the
 // real ConsentCard) plus the interception note. All API shapes come from the
 // typed hooks — the parent owns the mutation; this owns the form.
@@ -10,12 +10,21 @@ import {
   TrashIcon,
   AlertCircleIcon,
   CheckCircle2Icon,
+  Maximize2Icon,
 } from "lucide-react";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 import { Badge } from "~/components/ui/badge";
 import { Separator } from "~/components/ui/separator";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "~/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -176,6 +185,18 @@ export function OAuthAppForm({
 
   const commandError = validateLoginCommand(state.loginCommand);
   const uriIssues = validateRedirectUris(state.redirectUris);
+  const previewSnapshot = buildPreviewSnapshot({
+    name: state.name,
+    botName: state.botName,
+    logoUrl: state.logoUrl,
+    loginCommand: state.loginCommand,
+    scopes: state.scopes,
+    modes: state.modes,
+    botNumber: boundSession?.phoneNumber
+      ? `+${boundSession.phoneNumber}`
+      : undefined,
+    groupName: selectedGroup?.subject,
+  });
 
   const toggleMode = (mode: OAuthMode) => {
     const has = state.modes.includes(mode);
@@ -553,33 +574,52 @@ export function OAuthAppForm({
       </div>
 
       {/* Right: live consent preview */}
-      {showPreview && <div className="lg:sticky lg:top-4 lg:self-start">
-        <p className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Sign-in preview
-        </p>
-        <div className="rounded-xl border bg-card p-5 shadow-sm">
-          <ConsentCard
-            snapshot={buildPreviewSnapshot({
-              name: state.name,
-              botName: state.botName,
-              logoUrl: state.logoUrl,
-              loginCommand: state.loginCommand,
-              scopes: state.scopes,
-              modes: state.modes,
-              botNumber: boundSession?.phoneNumber
-                ? `+${boundSession.phoneNumber}`
-                : undefined,
-              groupName: selectedGroup?.subject,
-            })}
-            reconnecting={false}
-            onCancel={() => {}}
-            cancelling={false}
-          />
+      {showPreview && (
+        <div className="lg:sticky lg:top-4 lg:self-start">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Sign-in preview
+            </p>
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-8 gap-1.5">
+                  <Maximize2Icon className="size-3.5" aria-hidden />
+                  Expand
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-h-[calc(100svh-2rem)] overflow-y-auto p-0 sm:max-w-5xl">
+                <DialogHeader className="border-b px-6 py-5">
+                  <DialogTitle>Full sign-in preview</DialogTitle>
+                  <DialogDescription>
+                    This is the consent experience your users will see.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="bg-[#f4f1e9] p-4 dark:bg-[#101915] sm:p-8">
+                  <div className="mx-auto max-w-2xl rounded-2xl border bg-background p-6 shadow-2xl shadow-emerald-950/10 sm:p-9">
+                    <ConsentCard
+                      snapshot={previewSnapshot}
+                      reconnecting={false}
+                      onCancel={() => {}}
+                      cancelling={false}
+                    />
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
+          </div>
+          <div className="rounded-xl border bg-card p-5 shadow-sm">
+            <ConsentCard
+              snapshot={previewSnapshot}
+              reconnecting={false}
+              onCancel={() => {}}
+              cancelling={false}
+            />
+          </div>
+          <p className="mt-2 text-center text-xs text-muted-foreground">
+            This is exactly what end-users see. It updates as you edit.
+          </p>
         </div>
-        <p className="mt-2 text-center text-xs text-muted-foreground">
-          This is exactly what end-users see. It updates as you edit.
-        </p>
-      </div>}
+      )}
     </div>
   );
 }
