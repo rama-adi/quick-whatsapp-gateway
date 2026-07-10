@@ -7,10 +7,14 @@ import { cn } from "~/lib/utils";
 export function CopyButton({
   value,
   label = "Copy",
+  copiedLabel = "Copied",
+  liveMessage = "Copied to clipboard",
   className,
 }: {
   value: string;
   label?: string;
+  copiedLabel?: string;
+  liveMessage?: string;
   className?: string;
 }) {
   const [copied, setCopied] = React.useState(false);
@@ -34,11 +38,11 @@ export function CopyButton({
       variant="outline"
       size="sm"
       onClick={onCopy}
-      aria-label={copied ? "Copied" : label}
+      aria-label={copied ? copiedLabel : label}
       className={cn(className)}
     >
       {copied ? <CheckIcon aria-hidden /> : <CopyIcon aria-hidden />}
-      {copied ? "Copied" : label}
-    </Button><span className="sr-only" aria-live="polite">{copied ? "Copied to clipboard" : ""}</span></>
+      {copied ? copiedLabel : label}
+    </Button><span className="sr-only" aria-live="polite">{copied ? liveMessage : ""}</span></>
   );
 }

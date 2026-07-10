@@ -14,6 +14,12 @@ describe("describeScopes", () => {
     expect(line!.label).toBe("custom:thing");
     expect(line!.description).toBeTruthy();
   });
+  it("localizes known scopes and the unknown fallback to Indonesian", () => {
+    const lines = describeScopes(["phone", "custom:thing"], "id");
+    expect(lines[0]!.description).toMatch(/nomor telepon/i);
+    expect(lines[1]!.label).toBe("custom:thing");
+    expect(lines[1]!.description).toMatch(/akses tambahan/i);
+  });
 });
 
 describe("formatCountdown", () => {

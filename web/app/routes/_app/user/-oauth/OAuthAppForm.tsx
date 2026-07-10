@@ -10,21 +10,12 @@ import {
   TrashIcon,
   AlertCircleIcon,
   CheckCircle2Icon,
-  Maximize2Icon,
 } from "lucide-react";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 import { Badge } from "~/components/ui/badge";
 import { Separator } from "~/components/ui/separator";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "~/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -41,7 +32,7 @@ import type {
   OAuthMode,
   OAuthClientType,
 } from "~/lib/api/hooks/oauth";
-import { ConsentCard } from "~/routes/-oauth/ConsentCard";
+import { ConsentPreview } from "./ConsentPreview";
 import { DASH_SCOPES } from "./scopes";
 import { buildPreviewSnapshot } from "./preview";
 import {
@@ -576,48 +567,7 @@ export function OAuthAppForm({
       {/* Right: live consent preview */}
       {showPreview && (
         <div className="lg:sticky lg:top-4 lg:self-start">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Sign-in preview
-            </p>
-            <Dialog>
-              <DialogTrigger asChild>
-                <Button variant="ghost" size="sm" className="h-8 gap-1.5">
-                  <Maximize2Icon className="size-3.5" aria-hidden />
-                  Expand
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-h-[calc(100svh-2rem)] overflow-y-auto p-0 sm:max-w-5xl">
-                <DialogHeader className="border-b px-6 py-5">
-                  <DialogTitle>Full sign-in preview</DialogTitle>
-                  <DialogDescription>
-                    This is the consent experience your users will see.
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="bg-[#f4f1e9] p-4 dark:bg-[#101915] sm:p-8">
-                  <div className="mx-auto max-w-2xl rounded-2xl border bg-background p-6 shadow-2xl shadow-emerald-950/10 sm:p-9">
-                    <ConsentCard
-                      snapshot={previewSnapshot}
-                      reconnecting={false}
-                      onCancel={() => {}}
-                      cancelling={false}
-                    />
-                  </div>
-                </div>
-              </DialogContent>
-            </Dialog>
-          </div>
-          <div className="rounded-xl border bg-card p-5 shadow-sm">
-            <ConsentCard
-              snapshot={previewSnapshot}
-              reconnecting={false}
-              onCancel={() => {}}
-              cancelling={false}
-            />
-          </div>
-          <p className="mt-2 text-center text-xs text-muted-foreground">
-            This is exactly what end-users see. It updates as you edit.
-          </p>
+          <ConsentPreview snapshot={previewSnapshot} />
         </div>
       )}
     </div>

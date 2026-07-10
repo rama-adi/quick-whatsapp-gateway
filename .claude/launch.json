@@ -8,6 +8,12 @@
       "port": 3000
     },
     {
+      "name": "web-dev-alt",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["-C", "web", "dev", "--port", "3210"],
+      "port": 3210
+    },
+    {
       "name": "web-prod",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["-C", "web", "start"],
