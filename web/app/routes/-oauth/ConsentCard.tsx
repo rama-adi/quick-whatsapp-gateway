@@ -10,7 +10,6 @@ import {
   MessageCircleIcon,
   CheckCircle2Icon,
   LockKeyholeIcon,
-  ShieldAlertIcon,
   UsersIcon,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
@@ -96,31 +95,19 @@ export function ConsentCard({
                 aria-hidden
               />
               <div>
-                <p className="font-medium">What we won&apos;t receive</p>
+                <p className="font-medium">
+                  Your WhatsApp account stays private
+                </p>
                 <p className="mt-0.5 text-muted-foreground">
-                  Your WhatsApp login information, password, or verification
-                  codes. You never need to enter them here.
+                  We won&apos;t receive your WhatsApp login information, password,
+                  or verification codes. Only continue if you started this
+                  sign-in yourself, and never send this code anywhere else.
                 </p>
               </div>
             </div>
           </div>
         </div>
       )}
-
-      {/* Phishing guard */}
-      <div className="flex items-start gap-2.5 rounded-xl border bg-muted/30 p-3.5 text-sm">
-        <ShieldAlertIcon
-          className="mt-0.5 size-4 shrink-0 text-emerald-700 dark:text-emerald-400"
-          aria-hidden
-        />
-        <span className="text-muted-foreground">
-          <span className="font-medium text-foreground">
-            Only continue if you started this sign-in yourself.
-          </span>{" "}
-          {app.name} will never ask you to send this code somewhere else.
-        </span>
-      </div>
-
       {/* The verification instruction */}
       <div className="rounded-2xl border border-emerald-600/15 bg-emerald-500/[0.04] p-4 sm:p-5">
         <div className="mb-4">
