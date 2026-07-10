@@ -23,6 +23,9 @@ func (f *fakeResolver) ClientFor(sessionID string) (*whatsmeow.Client, bool) {
 	return f.cli, f.ok
 }
 
+// TestRoutingWAClient_NoSessionOnContext_NotImplemented calls the account-global routing adapter without
+// stamping a session id on context. It must return not_implemented before resolving or dereferencing any
+// whatsmeow client. A send can never fall through to an arbitrary live session.
 func TestRoutingWAClient_NoSessionOnContext_NotImplemented(t *testing.T) {
 	c := NewRoutingWAClient(&fakeResolver{ok: false})
 	// No outbound.WithSessionID on the context.
@@ -30,6 +33,9 @@ func TestRoutingWAClient_NoSessionOnContext_NotImplemented(t *testing.T) {
 	assertNotImplemented(t, err)
 }
 
+// TestRoutingWAClient_UnresolvableSession_NotImplemented stamps a session id that the manager cannot
+// resolve to a live client. Every routed WhatsApp operation must fail with the same not_implemented domain
+// error rather than panic. This makes stopped and test-only sessions explicit at the service boundary.
 func TestRoutingWAClient_UnresolvableSession_NotImplemented(t *testing.T) {
 	res := &fakeResolver{ok: false}
 	c := NewRoutingWAClient(res)
@@ -64,6 +70,9 @@ func TestRoutingWAClient_UnresolvableSession_NotImplemented(t *testing.T) {
 	}
 }
 
+// TestSessionIDContextRoundTrip writes a session id with outbound.WithSessionID and reads it through the
+// routing helper, including the empty-context case. The value must survive unchanged and absence must
+// remain empty. This context key is the only per-request selector used by the account-global Sender.
 func TestSessionIDContextRoundTrip(t *testing.T) {
 	if got := outbound.SessionIDFromContext(context.Background()); got != "" {
 		t.Errorf("empty ctx session = %q, want \"\"", got)

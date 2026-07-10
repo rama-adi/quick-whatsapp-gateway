@@ -102,6 +102,10 @@ func (f *fakeGroupOps) Leave(context.Context, string, string) error { return f.e
 // Organization ownership
 // ---------------------------------------------------------------------------
 
+// TestPresenceService_RejectsForeignOrganization requests a presence change for a session owned by another
+// organization. The service must return not_found before calling the live controller, so tenant ownership
+// is not disclosed and no WhatsApp state changes. This is the authorization boundary shared by live
+// resource operations.
 func TestPresenceService_RejectsForeignOrganization(t *testing.T) {
 	st, mock := newStore(t)
 	expectSession(mock, "sess_1", "other_organization")
@@ -117,6 +121,9 @@ func TestPresenceService_RejectsForeignOrganization(t *testing.T) {
 // Presence
 // ---------------------------------------------------------------------------
 
+// TestPresenceService_Set loads an owned session and sets a supported account presence through a recording
+// controller. The exact session and normalized state must be delegated once and success returned.
+// Persistence ownership is checked before the live whatsmeow call.
 func TestPresenceService_Set(t *testing.T) {
 	st, mock := newStore(t)
 	expectSession(mock, "sess_1", "ten_1")
@@ -130,6 +137,9 @@ func TestPresenceService_Set(t *testing.T) {
 	}
 }
 
+// TestPresenceService_BadState passes an unsupported presence value for an otherwise owned session.
+// Validation must fail before invoking the controller. This keeps protocol-specific invalid states from
+// reaching whatsmeow.
 func TestPresenceService_BadState(t *testing.T) {
 	st, mock := newStore(t)
 	expectSession(mock, "sess_1", "ten_1")
@@ -141,6 +151,9 @@ func TestPresenceService_BadState(t *testing.T) {
 	}
 }
 
+// TestPresenceService_NilControllerNotImplemented constructs the service without a live presence adapter
+// and requests a valid update. It must return not_implemented rather than dereference a nil interface or
+// pretend success. Read-only/serverless wiring therefore fails explicitly for live operations.
 func TestPresenceService_NilControllerNotImplemented(t *testing.T) {
 	st, mock := newStore(t)
 	expectSession(mock, "sess_1", "ten_1")
@@ -156,6 +169,9 @@ func TestPresenceService_NilControllerNotImplemented(t *testing.T) {
 // Chat
 // ---------------------------------------------------------------------------
 
+// TestChatService_SetPresence_Validates covers missing chat JID and unsupported composing states for
+// chat-scoped presence. Each invalid request must stop before the live adapter. The service owns request
+// semantics even though whatsmeow performs the final send.
 func TestChatService_SetPresence_Validates(t *testing.T) {
 	st, mock := newStore(t)
 	expectSession(mock, "sess_1", "ten_1")
@@ -167,6 +183,9 @@ func TestChatService_SetPresence_Validates(t *testing.T) {
 	}
 }
 
+// TestChatService_SetPresence_Delegates sets a valid composing state for an owned chat and records the
+// downstream call. Session, chat JID, state, and media type must be forwarded exactly once. This pins
+// translation between the public resource operation and whatsmeow chat presence.
 func TestChatService_SetPresence_Delegates(t *testing.T) {
 	st, mock := newStore(t)
 	expectSession(mock, "sess_1", "ten_1")
@@ -180,6 +199,9 @@ func TestChatService_SetPresence_Delegates(t *testing.T) {
 	}
 }
 
+// TestChatService_GetPresence_Delegates requests current presence for an owned chat through the live
+// adapter. The service must forward the resolved session and chat identifiers and return the adapters
+// domain result unchanged. Ownership remains enforced even for read-like live queries.
 func TestChatService_GetPresence_Delegates(t *testing.T) {
 	st, mock := newStore(t)
 	expectSession(mock, "sess_1", "ten_1")
@@ -198,6 +220,9 @@ func TestChatService_GetPresence_Delegates(t *testing.T) {
 // Group
 // ---------------------------------------------------------------------------
 
+// TestGroupService_Create_RequiresName attempts to create a group with an empty name. The service must
+// return validation_error before resolving participants or calling group operations. This prevents an
+// avoidable whatsmeow protocol failure.
 func TestGroupService_Create_RequiresName(t *testing.T) {
 	st, _ := newStore(t)
 	svc := NewGroupService(st, &fakeGroupOps{}, nil)
@@ -208,6 +233,9 @@ func TestGroupService_Create_RequiresName(t *testing.T) {
 	}
 }
 
+// TestGroupService_Promote_UsesPromoteAction applies the promote member action to an owned group through a
+// recording GroupOps adapter. The service must choose the promote operation, preserve participant JIDs,
+// and avoid any other membership action. This guards action dispatch in the shared member-mutation path.
 func TestGroupService_Promote_UsesPromoteAction(t *testing.T) {
 	st, mock := newStore(t)
 	expectSession(mock, "sess_1", "ten_1")
@@ -221,6 +249,9 @@ func TestGroupService_Promote_UsesPromoteAction(t *testing.T) {
 	}
 }
 
+// TestGroupService_NilOpsNotImplemented calls a valid group mutation when no live GroupOps adapter is
+// configured. The result must be not_implemented with no panic or store mutation. Deployments lacking a
+// connected manager cannot silently accept live operations.
 func TestGroupService_NilOpsNotImplemented(t *testing.T) {
 	st, mock := newStore(t)
 	expectSession(mock, "sess_1", "ten_1")
@@ -232,6 +263,9 @@ func TestGroupService_NilOpsNotImplemented(t *testing.T) {
 	}
 }
 
+// TestGroupService_ApproveMembers_NotImplemented requests the approve-members operation that the current
+// whatsmeow adapter does not support. The service must return not_implemented instead of mapping it to an
+// unsafe nearby action. Unsupported API surface remains explicit and forward-compatible.
 func TestGroupService_ApproveMembers_NotImplemented(t *testing.T) {
 	st, mock := newStore(t)
 	expectSession(mock, "sess_1", "ten_1")
@@ -247,6 +281,9 @@ func TestGroupService_ApproveMembers_NotImplemented(t *testing.T) {
 // Contact
 // ---------------------------------------------------------------------------
 
+// TestContactService_List_RejectsBadSource lists contacts with a source filter outside the supported
+// phone, group, and all values. Validation must fail before querying repositories or the live directory.
+// This keeps filtering semantics stable across stored and WhatsApp-backed sources.
 func TestContactService_List_RejectsBadSource(t *testing.T) {
 	st, mock := newStore(t)
 	expectSession(mock, "sess_1", "ten_1")
@@ -258,6 +295,9 @@ func TestContactService_List_RejectsBadSource(t *testing.T) {
 	}
 }
 
+// TestContactService_Check_RequiresPhone calls contact existence checking without a phone number. The
+// service must return validation_error before normalizing a JID or invoking the directory. Empty checks
+// cannot become broad address-book queries.
 func TestContactService_Check_RequiresPhone(t *testing.T) {
 	st, mock := newStore(t)
 	expectSession(mock, "sess_1", "ten_1")
@@ -287,6 +327,9 @@ func (f *fakeContactDirectory) SetBlocked(context.Context, string, string, bool)
 	return f.err
 }
 
+// TestContactService_Check_Delegates checks a valid phone through the live contact directory for an owned
+// session. The normalized number and session id must reach the adapter and its existence result must pass
+// through. This pins ownership and input normalization around the whatsmeow lookup.
 func TestContactService_Check_Delegates(t *testing.T) {
 	st, mock := newStore(t)
 	expectSession(mock, "sess_1", "ten_1")
@@ -305,6 +348,9 @@ func TestContactService_Check_Delegates(t *testing.T) {
 // Status
 // ---------------------------------------------------------------------------
 
+// TestStatusService_PostText posts a non-empty text status through a recording live status adapter. The
+// owned session and exact text must be delegated once and the returned message metadata preserved. This is
+// the supported status-posting happy path.
 func TestStatusService_PostText(t *testing.T) {
 	st, mock := newStore(t)
 	expectSession(mock, "sess_1", "ten_1")
@@ -318,6 +364,9 @@ func TestStatusService_PostText(t *testing.T) {
 	}
 }
 
+// TestStatusService_PostText_RequiresText submits an empty text status for an owned session. Validation
+// must fail before the live adapter is called. The service prevents meaningless protocol sends while
+// retaining a clear client error.
 func TestStatusService_PostText_RequiresText(t *testing.T) {
 	st, mock := newStore(t)
 	expectSession(mock, "sess_1", "ten_1")
@@ -329,6 +378,9 @@ func TestStatusService_PostText_RequiresText(t *testing.T) {
 	}
 }
 
+// TestStatusService_PostImage_NotImplemented requests image status posting, which lacks a production
+// adapter path. The service must return not_implemented and perform no text fallback. Media status support
+// cannot accidentally degrade into a different visible post.
 func TestStatusService_PostImage_NotImplemented(t *testing.T) {
 	st, mock := newStore(t)
 	expectSession(mock, "sess_1", "ten_1")

@@ -32,10 +32,16 @@ type backupReader interface {
 }
 
 // BackupImportService imports a user-uploaded WhatsApp backup (msgstore.db.crypt15)
-// into a session's chats/messages/identities/groups. The decryption happens inline
-// (so a bad key/file fails fast as a validation error); the SQLite parse + upsert
-// runs in a background goroutine whose progress is tracked durably in
-// backfill_imports (also the source of truth for the once/24h-per-session quota).
+// into a session's chats/messages/identities/groups. Decryption, ownership, quota,
+// and the durable running-row reservation happen inline; after StartImport returns,
+// a detached goroutine parses the staged SQLite file and records terminal progress
+// in backfill_imports.
+//
+// Import is idempotent at repository upsert keys, but a failed job may leave a
+// valid partial prefix that a later run reconciles. The request context does not
+// cancel accepted background work, and the temporary plaintext file is removed on
+// every setup, success, and failure path. The running-row/staleness checks are the
+// cross-request concurrency gate and the durable source for the daily quota.
 type BackupImportService struct {
 	store   *store.Store
 	log     *slog.Logger
@@ -59,8 +65,10 @@ func NewBackupImportService(s *store.Store, log *slog.Logger) *BackupImportServi
 	}
 }
 
-// StartImport validates ownership/quota, decrypts the upload inline, and kicks off
-// the background import. Returns the created 'running' job.
+// StartImport validates ownership and quota, decrypts the upload, stages a private
+// temporary database, and inserts the running job before launching background
+// work. Failures before insertion remove staged plaintext and have no quota effect;
+// success returns only after durable job visibility, not after import completion.
 func (s *BackupImportService) StartImport(ctx context.Context, organizationID, sessionID string, isSuperAdmin bool, ciphertext []byte, key string) (domain.BackfillImport, error) {
 	sess, err := s.store.Sessions.Get(ctx, sessionID)
 	if err != nil {
@@ -134,6 +142,9 @@ func (s *BackupImportService) ImportStatus(ctx context.Context, organizationID, 
 	return s.store.BackfillImports.LatestForSession(ctx, sessionID)
 }
 
+// writeTempDB materializes decrypted SQLite bytes for the backup reader. Any
+// write or close failure removes the partial file; ownership of a successful path
+// transfers to runImport, which removes it after opening or completion.
 func writeTempDB(plain []byte) (string, error) {
 	f, err := os.CreateTemp("", "msgstore-*.db")
 	if err != nil {
@@ -151,6 +162,9 @@ func writeTempDB(plain []byte) (string, error) {
 	return f.Name(), nil
 }
 
+// runImport owns the accepted job and staged file until one terminal status has
+// been attempted. It continues independently of the initiating HTTP request;
+// parse/upsert failures are captured on the job rather than returned to a caller.
 func (s *BackupImportService) runImport(ctx context.Context, job domain.BackfillImport, path string) {
 	defer func() { _ = os.Remove(path) }()
 

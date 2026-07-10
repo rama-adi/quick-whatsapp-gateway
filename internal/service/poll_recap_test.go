@@ -10,6 +10,9 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
 )
 
+// TestBuildPollRecapPayload_CountsLatestVotePerVoter builds a recap from multiple votes where one voter
+// changes selection. Only each voters latest row may contribute to counts, totals, and optional voter
+// detail. This prevents historical vote changes from inflating poll results.
 func TestBuildPollRecapPayload_CountsLatestVotePerVoter(t *testing.T) {
 	poll := domain.PollRecapCandidate{
 		SessionID:       "sess_1",
@@ -71,6 +74,10 @@ func TestBuildPollRecapPayload_CountsLatestVotePerVoter(t *testing.T) {
 	}
 }
 
+// TestBuildPollRecapPayload_EmptyVoterKeysDoNotCollapse supplies legacy vote rows with empty voter LIDs.
+// Each row must receive a distinct synthetic aggregation key instead of collapsing into one voter, while
+// no fake key leaks into the public voter list. This preserves old data counts without inventing
+// identities.
 func TestBuildPollRecapPayload_EmptyVoterKeysDoNotCollapse(t *testing.T) {
 	poll := domain.PollRecapCandidate{
 		SessionID:      "sess_1",
@@ -98,6 +105,9 @@ func TestBuildPollRecapPayload_EmptyVoterKeysDoNotCollapse(t *testing.T) {
 	}
 }
 
+// TestBuildPollRecapPayload_HideVotesOmitsVoters builds a recap for a poll configured to hide individual
+// votes. Aggregate option counts and totals remain available, but the voter detail list must be absent.
+// The privacy flag is enforced at event construction, before realtime and webhook fan-out.
 func TestBuildPollRecapPayload_HideVotesOmitsVoters(t *testing.T) {
 	poll := domain.PollRecapCandidate{
 		SessionID:      "sess_1",
@@ -132,6 +142,9 @@ func TestBuildPollRecapPayload_HideVotesOmitsVoters(t *testing.T) {
 	}
 }
 
+// TestBuildPollRecapPayload_MissingIdentityStillIncludesVoter builds a visible-vote recap when an identity
+// lookup cannot provide a display name. The voter and selections must remain in the payload with an empty
+// name rather than being dropped. Identity enrichment is optional; vote accounting is authoritative.
 func TestBuildPollRecapPayload_MissingIdentityStillIncludesVoter(t *testing.T) {
 	poll := domain.PollRecapCandidate{
 		SessionID:      "sess_1",
@@ -157,6 +170,10 @@ func TestBuildPollRecapPayload_MissingIdentityStillIncludesVoter(t *testing.T) {
 	}
 }
 
+// TestPollRecapWorkerBuildPayload_ResolvesVoterNamesFromIdentityRepo loads poll votes through the worker
+// and resolves their LIDs against the identity repository at recap time. The emitted voter entries must
+// use current identity names while preserving vote selections. Read-time resolution ensures later contact
+// renames appear without rewriting vote rows.
 func TestPollRecapWorkerBuildPayload_ResolvesVoterNamesFromIdentityRepo(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	if err != nil {

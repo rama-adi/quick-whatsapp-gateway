@@ -20,6 +20,8 @@ func newTestLimiter(t *testing.T) (RateLimiter, *miniredis.Miniredis) {
 	return NewRedisRateLimiter(rdb), mr
 }
 
+// TestRateLimiter_PerMinute consumes a session's minute budget through the real Redis Lua script.
+// Requests up to the limit pass and the next is rejected, pinning the inclusive boundary.
 func TestRateLimiter_PerMinute(t *testing.T) {
 	ctx := context.Background()
 	rl, _ := newTestLimiter(t)
@@ -39,6 +41,9 @@ func TestRateLimiter_PerMinute(t *testing.T) {
 	require.LessOrEqual(t, retryAfter, time.Minute)
 }
 
+// TestRateLimiter_PerHour keeps the minute allowance high while exhausting the hourly counter. The
+// next request is denied solely by the hour window, proving the two budgets are independently
+// enforced.
 func TestRateLimiter_PerHour(t *testing.T) {
 	ctx := context.Background()
 	rl, _ := newTestLimiter(t)
@@ -56,6 +61,8 @@ func TestRateLimiter_PerHour(t *testing.T) {
 	require.Greater(t, retryAfter, time.Minute) // hour window > 1 minute remaining
 }
 
+// TestRateLimiter_WindowReset exhausts a window, advances miniredis beyond its expiry, and retries.
+// The new request succeeds with a fresh counter, guarding both TTL assignment and reset behavior.
 func TestRateLimiter_WindowReset(t *testing.T) {
 	ctx := context.Background()
 	rl, mr := newTestLimiter(t)
@@ -78,6 +85,8 @@ func TestRateLimiter_WindowReset(t *testing.T) {
 	require.True(t, ok, "request should be allowed after window reset")
 }
 
+// TestRateLimiter_PerSessionIsolation exhausts one session and then checks another session under
+// the same limiter. Distinct Redis keys keep one tenant's traffic from consuming another's allowance.
 func TestRateLimiter_PerSessionIsolation(t *testing.T) {
 	ctx := context.Background()
 	rl, _ := newTestLimiter(t)
@@ -95,6 +104,9 @@ func TestRateLimiter_PerSessionIsolation(t *testing.T) {
 	require.True(t, ok)
 }
 
+// TestRateLimiter_UnlimitedWhenZero repeatedly checks a limiter whose minute and hour budgets are
+// disabled. Every request passes without an artificial ceiling, preserving zero as the explicit
+// unlimited setting.
 func TestRateLimiter_UnlimitedWhenZero(t *testing.T) {
 	ctx := context.Background()
 	rl, _ := newTestLimiter(t)

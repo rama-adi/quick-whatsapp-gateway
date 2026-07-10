@@ -10,6 +10,9 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 )
 
+// TestNormalizeSessionStatusEvents maps connected, disconnected, logged-out, and stream-replaced events
+// onto public session-status records. The cases pin their payload status and non-persistent disposition so
+// transport lifecycle notifications never create message rows.
 func TestNormalizeSessionStatusEvents(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -45,6 +48,9 @@ func TestNormalizeSessionStatusEvents(t *testing.T) {
 	}
 }
 
+// TestNormalizeReceipt covers delivered, read, played, and multi-message receipts with canonical chat and
+// sender identifiers. It checks timestamp and message-ID projection so a receipt updates exactly the
+// intended durable records.
 func TestNormalizeReceipt(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -97,6 +103,8 @@ func TestNormalizeReceipt(t *testing.T) {
 	}
 }
 
+// TestNormalizeQRAndPair converts QR refreshes and successful pairings into their session events, including
+// the paired device JID. Neither event may enter message persistence, preserving the login UI contract.
 func TestNormalizeQRAndPair(t *testing.T) {
 	qr := &events.QR{Codes: []string{"qr-code-1", "qr-code-2"}}
 	ev, pr, ok := Normalize(qr, testSession, testOrganization)
@@ -126,6 +134,8 @@ func TestNormalizeQRAndPair(t *testing.T) {
 	}
 }
 
+// TestNormalizePresence exercises availability and chat-presence variants such as composing, paused, and
+// recording. It pins canonical identity fields and the ephemeral payload while requiring no persistence.
 func TestNormalizePresence(t *testing.T) {
 	pres := &events.Presence{
 		From:        mustJID(t, "628111@s.whatsapp.net"),
@@ -161,6 +171,8 @@ func TestNormalizePresence(t *testing.T) {
 	}
 }
 
+// TestNormalizeGroupInfo projects group metadata, actor identity, and participant deltas from a whatsmeow
+// update. It keeps the membership-change shape consumed by capture identical to the emitted event.
 func TestNormalizeGroupInfo(t *testing.T) {
 	// Metadata-only change -> group.update.
 	gi := &events.GroupInfo{
@@ -196,6 +208,9 @@ func TestNormalizeGroupInfo(t *testing.T) {
 	}
 }
 
+// TestNormalizeContactAndPushName distinguishes contact changes from push-name changes while preserving the
+// canonical identity and new display value. This prevents the two upstream notifications from drifting
+// into incompatible capture and wire payloads.
 func TestNormalizeContactAndPushName(t *testing.T) {
 	pn := &events.PushName{
 		JID:         mustJID(t, "628111@s.whatsapp.net"),
@@ -222,6 +237,8 @@ func TestNormalizeContactAndPushName(t *testing.T) {
 	}
 }
 
+// TestNormalizeCallOffer turns an inbound offer into a non-persistent call event with caller and call IDs
+// intact. It ensures call signaling is not mistaken for a chat message.
 func TestNormalizeCallOffer(t *testing.T) {
 	co := &events.CallOffer{}
 	co.CallID = "call-123"
@@ -240,6 +257,8 @@ func TestNormalizeCallOffer(t *testing.T) {
 	}
 }
 
+// TestNormalizeNewsletter retains the newsletter JID and metadata detail in the public event. The test also
+// fixes the rule that newsletter control traffic is emitted but not stored as a user message.
 func TestNormalizeNewsletter(t *testing.T) {
 	nj := &events.NewsletterJoin{}
 	nj.ID = mustJID(t, "12345@newsletter")
@@ -259,6 +278,9 @@ func TestNormalizeNewsletter(t *testing.T) {
 	}
 }
 
+// TestNormalizeUnknownEvent passes an unsupported value to the top-level normalizer and expects a clean
+// drop. Upstream whatsmeow additions therefore fail closed until their persistence and payload semantics
+// are explicitly defined.
 func TestNormalizeUnknownEvent(t *testing.T) {
 	_, _, ok := Normalize(&events.KeepAliveTimeout{}, testSession, testOrganization)
 	if ok {

@@ -29,6 +29,10 @@ const (
 
 var oauthLoginCommandRE = regexp.MustCompile(`^[a-z0-9_-]{2,32}$`)
 
+// OAuthAppService owns tenant-scoped OAuth client configuration, secret hashing,
+// grants, refresh families, and their control-bus invalidation. SQL mutations are
+// authoritative; cache/revocation publications happen only afterward and are
+// best effort, so consumers must retain repository checks and bounded caches.
 type OAuthAppService struct {
 	clients      *store.OAuthClientRepo
 	grants       *store.OAuthGrantRepo
@@ -41,6 +45,9 @@ type OAuthAppService struct {
 	issuer       string
 }
 
+// NewOAuthAppService wires the OAuth repositories and normalizes process-level
+// configuration. Empty pepper and admin prefix fall back to environment values;
+// the resulting service starts no workers and is safe for concurrent requests.
 func NewOAuthAppService(st *store.Store, secretPepper, adminPrefix, issuer string, publisher ControlPublisher) *OAuthAppService {
 	if secretPepper == "" {
 		secretPepper = os.Getenv("OAUTH_CLIENT_SECRET_PEPPER")
@@ -61,6 +68,9 @@ func NewOAuthAppService(st *store.Store, secretPepper, adminPrefix, issuer strin
 	}
 }
 
+// OAuthAppCreateInput is the full mutable client configuration accepted at
+// creation. Zero TTLs and an empty login command receive service defaults;
+// collection fields are normalized and validated before persistence.
 type OAuthAppCreateInput struct {
 	SessionID         string
 	Name              string
@@ -77,6 +87,9 @@ type OAuthAppCreateInput struct {
 	CreatedByUserID   *string
 }
 
+// OAuthAppUpdateInput is a patch: nil leaves a field unchanged, while pointer-to-
+// pointer fields distinguish omission from explicitly clearing nullable values.
+// Any resulting client is revalidated as a complete configuration before update.
 type OAuthAppUpdateInput struct {
 	SessionID         *string
 	Name              *string
@@ -108,6 +121,9 @@ func (s *OAuthAppService) List(ctx context.Context, org string, isSuperAdmin boo
 	return store.Page[apitypes.OAuthApp]{Items: items, NextCursor: page.NextCursor}, nil
 }
 
+// Create validates session ownership and the complete client policy before one
+// repository insert. Confidential secrets are generated once, returned only in
+// this response, and stored as a peppered hash; public clients persist no secret.
 func (s *OAuthAppService) Create(ctx context.Context, org string, in OAuthAppCreateInput) (apitypes.OAuthAppWithSecret, error) {
 	if err := s.assertSessionOrg(ctx, org, in.SessionID); err != nil {
 		return apitypes.OAuthAppWithSecret{}, err
@@ -180,6 +196,9 @@ func (s *OAuthAppService) Get(ctx context.Context, org, id string, isSuperAdmin 
 	return s.mapOAuthClient(c)
 }
 
+// Update applies a partial patch to an organization-visible client, validates the
+// resulting complete object, persists it, then publishes app-change invalidation.
+// Moving sessions is ownership-checked before mutation.
 func (s *OAuthAppService) Update(ctx context.Context, org, id string, isSuperAdmin bool, in OAuthAppUpdateInput) (apitypes.OAuthApp, error) {
 	c, err := s.getClient(ctx, org, id, isSuperAdmin)
 	if err != nil {
@@ -280,6 +299,9 @@ func (s *OAuthAppService) RotateSecret(ctx context.Context, org, id string, isSu
 	return apitypes.OAuthAppWithSecret{OAuthApp: dto, ClientSecret: secret}, nil
 }
 
+// Delete removes a client and relies on repository transactions/cascades for its
+// grants and refresh families. After commit it publishes app invalidation plus
+// immediate grant revocations; publication failure does not roll back deletion.
 func (s *OAuthAppService) Delete(ctx context.Context, org, id string, isSuperAdmin bool) error {
 	c, err := s.getClient(ctx, org, id, isSuperAdmin)
 	if err != nil {
@@ -369,6 +391,10 @@ func (s *OAuthAppService) RevokeAllGrants(ctx context.Context, org, appID string
 	return nil
 }
 
+// CascadeSessionLogoutOrDelete disables clients bound to a session and revokes
+// their grants/refresh families before the session disappears or logs out. It is
+// safe to repeat: terminal SQL updates are idempotent and publications merely
+// accelerate denial in running gateway processes.
 func (s *OAuthAppService) CascadeSessionLogoutOrDelete(ctx context.Context, org, sessionID string) error {
 	clients, err := s.clients.ListActiveBySession(ctx, sessionID)
 	if err != nil {
@@ -705,6 +731,8 @@ func (s *OAuthAppService) hashSecret(secret string) []byte {
 	return sum[:]
 }
 
+// VerifyOAuthClientSecret compares a presented secret with its peppered SHA-256
+// digest in constant time. Empty or incorrectly sized stored hashes fail closed.
 func VerifyOAuthClientSecret(secret, pepper string, hash []byte) bool {
 	sum := sha256.Sum256([]byte(secret + pepper))
 	return subtle.ConstantTimeCompare(sum[:], hash) == 1

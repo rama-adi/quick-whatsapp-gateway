@@ -142,11 +142,16 @@ func (a *EventSinkAdapter) Publish(ctx context.Context, evt domain.Event) {
 // wa.InboundHandler: wire the real inbound pipeline into the session manager.
 // ---------------------------------------------------------------------------
 
+// InboundPipelineHandler is the managers synchronous event callback into the
+// ordered inbound pipeline. Processing errors are logged because whatsmeows
+// callback has no retry acknowledgement channel; durable stage idempotency makes
+// later protocol redelivery safe.
 type InboundPipelineHandler struct {
 	pipeline *inbound.Pipeline
 	log      *slog.Logger
 }
 
+// NewInboundPipelineHandler wraps a pipeline without starting background work.
 func NewInboundPipelineHandler(pipeline *inbound.Pipeline, log *slog.Logger) *InboundPipelineHandler {
 	if log == nil {
 		log = slog.Default()
@@ -192,6 +197,9 @@ type ownIDResolver interface {
 	OwnIDs(ctx context.Context, sessionID string) (jid string, lid string)
 }
 
+// NewInboundNormalizer composes protocol normalization with optional poll-vote
+// decryption and option resolution. Missing optional collaborators leave vote
+// selections empty rather than rejecting unrelated inbound events.
 func NewInboundNormalizer(decryptor pollVoteDecryptor, polls pollOptionStore) *InboundNormalizer {
 	return &InboundNormalizer{decryptor: decryptor, polls: polls, log: slog.Default()}
 }
@@ -276,11 +284,16 @@ func resolveSelectedOptions(options, selectedHashes []string) []string {
 	return out
 }
 
+// InboundRepos implements every persistence stage over the shared Store. Its
+// methods preserve the pipelines session/org tags and use repository natural
+// keys so protocol redelivery updates rather than duplicates records.
 type InboundRepos struct {
 	store     *store.Store
 	scheduler pollRecapScheduler
 }
 
+// NewInboundRepos wires durable inbound persistence and the optional Redis poll
+// recap accelerator.
 func NewInboundRepos(st *store.Store, scheduler pollRecapScheduler) *InboundRepos {
 	return &InboundRepos{store: st, scheduler: scheduler}
 }
@@ -497,10 +510,15 @@ type inboundWebhookEnqueuer interface {
 	Enqueue(ctx context.Context, evt domain.Event) (int, error)
 }
 
+// InboundWebhookEnqueuerAdapter discards the concrete enqueuers created-count
+// while preserving its error for fan-out aggregation. A nil enqueuer is an
+// explicit no-webhooks configuration and succeeds without work.
 type InboundWebhookEnqueuerAdapter struct {
 	enqueuer inboundWebhookEnqueuer
 }
 
+// NewInboundWebhookEnqueuerAdapter wraps the concrete webhook scheduler for the
+// inbound consumer interface.
 func NewInboundWebhookEnqueuerAdapter(enqueuer inboundWebhookEnqueuer) *InboundWebhookEnqueuerAdapter {
 	return &InboundWebhookEnqueuerAdapter{enqueuer: enqueuer}
 }

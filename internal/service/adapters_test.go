@@ -24,6 +24,10 @@ func optionHash(opt string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// TestResolveSelectedOptions hashes known poll options and resolves a mix of known and unknown vote
+// hashes. Known hashes must recover their display text, while unknown hashes remain verbatim and an absent
+// option list preserves every input. This avoids silently dropping votes when local poll metadata is
+// incomplete.
 func TestResolveSelectedOptions(t *testing.T) {
 	options := []string{"Pizza", "Sushi", "Tacos"}
 
@@ -62,6 +66,10 @@ func (f fakePollOptions) GetOptions(ctx context.Context, sessionID, pollMessageI
 	return f.options, nil
 }
 
+// TestInboundNormalizer_PollVoteResolvesOptions normalizes a whatsmeow poll-update message using a fake
+// decryptor and stored poll options. The working message and public MessagePayload must both contain the
+// selected option text rather than its hash. This keeps persistence and realtime consumers on one
+// canonical vote representation.
 func TestInboundNormalizer_PollVoteResolvesOptions(t *testing.T) {
 	n := NewInboundNormalizer(
 		fakePollDecryptor{hashes: []string{optionHash("Sushi")}},
@@ -99,6 +107,10 @@ func TestInboundNormalizer_PollVoteResolvesOptions(t *testing.T) {
 	}
 }
 
+// TestInboundMessageFromPersistPollVote_UsesNormalizedVoterKey adapts a persisted poll vote whose sender
+// is available only as a LID. The resulting inbound vote must use that normalized sender as VoterLID and
+// never emit an empty voter key. Stable voter keys are required for latest-vote replacement and recap
+// counts.
 func TestInboundMessageFromPersistPollVote_UsesNormalizedVoterKey(t *testing.T) {
 	ev := domain.NewEvent(domain.EventPollVote, "sess_1", "org_1", waevents.MessagePayload{})
 	nm := inboundMessageFromPersistResult(waevents.PersistResult{
@@ -128,6 +140,10 @@ func TestInboundMessageFromPersistPollVote_UsesNormalizedVoterKey(t *testing.T) 
 	}
 }
 
+// TestInboundMessageFromEventsMessage_LIDSenderAndGroupAccounting converts a group text event from a
+// LID-only sender into the inbound persistence model. It checks sender splitting, group/member capture,
+// body and quote retention, and the raw event snapshot; push name belongs to identity rather than the
+// group-member tag. This pins identity normalization before capture repositories run.
 func TestInboundMessageFromEventsMessage_LIDSenderAndGroupAccounting(t *testing.T) {
 	payload := waevents.MessagePayload{
 		WAMessageID:     "MSG_SYNTHETIC_GROUP_TEXT",
@@ -183,6 +199,9 @@ func TestInboundMessageFromEventsMessage_LIDSenderAndGroupAccounting(t *testing.
 	}
 }
 
+// TestSplitSenderIDs_PhoneAndLID passes both alternate LID plus phone JID and a primary LID-only sender
+// into the identifier splitter. The helper must place each value in its canonical column without treating
+// a LID as a phone JID. This prevents identity upserts from fragmenting one WhatsApp person.
 func TestSplitSenderIDs_PhoneAndLID(t *testing.T) {
 	lid, phoneJID := splitSenderIDs("777@lid", "628222@s.whatsapp.net")
 	if lid != "777@lid" || phoneJID != "628222@s.whatsapp.net" {

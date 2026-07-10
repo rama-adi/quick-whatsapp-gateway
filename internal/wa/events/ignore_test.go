@@ -2,6 +2,9 @@ package events
 
 import "testing"
 
+// TestShouldIgnore runs the filter across status, group, newsletter, broadcast, direct, LID, and malformed
+// chat identifiers under both enabled and disabled flags. The matrix pins flag independence and the
+// fail-open rule for unknown addresses so user traffic is never discarded by accident.
 func TestShouldIgnore(t *testing.T) {
 	all := IgnoreConfig{IgnoreStatus: true, IgnoreGroups: true, IgnoreChannels: true, IgnoreBroadcast: true}
 	none := IgnoreConfig{}
@@ -36,6 +39,8 @@ func TestShouldIgnore(t *testing.T) {
 	}
 }
 
+// TestClassifyChat maps phone, LID, group, newsletter, broadcast, and status JIDs to their chat classes.
+// It fixes the server-suffix boundary used by ignore rules and downstream routing.
 func TestClassifyChat(t *testing.T) {
 	tests := []struct {
 		jid  string

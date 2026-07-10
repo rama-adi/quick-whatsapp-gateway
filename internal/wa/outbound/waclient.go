@@ -19,10 +19,16 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 )
 
-// whatsmeowAdapter implements WAClient over a real *whatsmeow.Client, translating
-// domain-level send calls into the recon §7 Build* helpers + SendMessage. This is
-// the single file in the package that imports whatsmeow; the manager constructs
-// it per managed session and injects it into the Sender.
+// whatsmeowAdapter implements WAClient over one live *whatsmeow.Client,
+// translating domain-level calls into protobuf messages and SendMessage. It is
+// intentionally stateless beyond that client pointer: whatsmeow owns connection
+// concurrency, while each call propagates context cancellation through optional
+// media fetch/upload and the final send.
+//
+// This file is the package's protocol boundary. Parsing or local payload-building
+// failures occur before SendMessage and return no message ID; after WhatsApp
+// acknowledges, send normalizes the assigned ID and server timestamp for durable
+// idempotency and history recording by Sender.
 type whatsmeowAdapter struct {
 	cli *whatsmeow.Client
 }

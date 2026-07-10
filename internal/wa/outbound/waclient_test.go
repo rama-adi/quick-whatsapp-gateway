@@ -12,6 +12,9 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 )
 
+// TestBuildContextInfo_Quote builds protobuf context for a reply with message ID, participant, and
+// quoted text. All quote fields survive conversion so WhatsApp renders the native reply instead of
+// plain text.
 func TestBuildContextInfo_Quote(t *testing.T) {
 	ci := buildContextInfo(QuoteInfo{
 		ID:        "3A39B767976D4B5D4766",
@@ -37,6 +40,9 @@ func TestBuildContextInfo_Quote(t *testing.T) {
 	}
 }
 
+// TestFillOwnQuoteParticipant covers direct and group replies authored by the local account, with
+// phone and LID identities. It fills the participant only where WhatsApp requires one and never
+// overwrites an explicit remote author.
 func TestFillOwnQuoteParticipant(t *testing.T) {
 	group := types.NewJID("120363123456789012", types.GroupServer)
 	dm := types.NewJID("6281234567890", types.DefaultUserServer)
@@ -81,6 +87,9 @@ func TestFillOwnQuoteParticipant(t *testing.T) {
 	})
 }
 
+// TestBuildContextInfo_OwnGroupQuoteSetsParticipant constructs a group reply to the gateway's own
+// earlier message. Context uses the local device participant, fixing the otherwise ambiguous author in
+// group quote rendering.
 func TestBuildContextInfo_OwnGroupQuoteSetsParticipant(t *testing.T) {
 	group := types.NewJID("120363123456789012", types.GroupServer)
 	ownLID := types.JID{User: "205227043110953", Server: types.HiddenUserServer}
@@ -107,6 +116,9 @@ func TestBuildContextInfo_OwnGroupQuoteSetsParticipant(t *testing.T) {
 	}
 }
 
+// TestImageMetadata_WideImage derives dimensions and thumbnail metadata from a wide encoded image.
+// Width and height retain their orientation and the generated preview remains valid, guarding media
+// uploads against swapped geometry.
 func TestImageMetadata_WideImage(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 320, 120))
 	for y := 0; y < 120; y++ {

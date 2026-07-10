@@ -19,9 +19,16 @@ import (
 //  6. fan-out          -> event sink + webhook enqueue + event_log append
 //
 // All collaborators are CONSUMER INTERFACES (see ports.go) injected via the
-// constructor — no globals, no sibling-package imports. The pipeline is
-// stateless and safe to share across sessions; per-event session/organization come in
-// on Process.
+// constructor — no globals, no sibling-package imports. Pipeline configuration
+// is immutable after construction, so one instance is safe to call concurrently
+// for many sessions; per-event tenant and session identity enters only through
+// Process and is overwritten onto the normalized working view defensively.
+//
+// Required capture, enrichment, persistence, and fan-out failures stop the call
+// and are returned with their stage name. Intentional drops return nil, while
+// OAuth lookup and automatic-read failures are logged and contained at their
+// best-effort boundaries. Process does not retry: callers or durable downstream
+// queues own retry policy, avoiding duplicate message mutations inside a pass.
 type Pipeline struct {
 	normalizer Normalizer
 	commands   CommandRegistry
@@ -112,13 +119,16 @@ func NewPipeline(
 	return p
 }
 
-// Process runs the full pipeline for one whatsmeow event. It returns an error
-// only for unexpected failures (a stage error worth logging/retrying); a normal
-// drop (ignored event, intercepted admin command) returns nil.
+// Process runs the full pipeline once for a raw whatsmeow event. It returns an
+// error only for a required stage failure; filtered events, claimed commands,
+// content-less system frames, and failures of explicitly best-effort automation
+// return nil after their permitted side effects.
 //
 // Ordering guarantee: capture and persist happen before auto-read, and auto-read
 // happens strictly before fan-out, so a reply consumer that reacts to the fanned
-// event never races the read receipt (§7.5).
+// event never races the read receipt (§7.5). The supplied context is propagated
+// to every collaborator, so cancellation stops before the next stage rather than
+// spawning detached work; already completed durable writes are not rolled back.
 func (p *Pipeline) Process(ctx context.Context, sessionID, organizationID string, isAdminSession bool, evt any) error {
 	// Stage 1: normalize.
 	envelope, nm, ok := p.normalizer.Normalize(ctx, evt, sessionID, organizationID)

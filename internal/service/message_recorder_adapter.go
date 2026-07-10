@@ -41,6 +41,11 @@ func NewMessageRecorderAdapter(messages *store.MessageRepo, chats *store.ChatRep
 
 var _ outbound.MessageRecorder = (*MessageRecorderAdapter)(nil)
 
+// RecordSent writes a successful outbound acknowledgement in chat-before-message
+// order and, for polls, persists poll metadata before scheduling its recap. All
+// repository calls use the send context; an error stops subsequent side effects
+// and is intentionally treated as best effort by outbound.Sender because WhatsApp
+// delivery has already succeeded. Upsert keys make later echoes and retries safe.
 func (a *MessageRecorderAdapter) RecordSent(ctx context.Context, m outbound.SentMessage) error {
 	now := a.clock()
 

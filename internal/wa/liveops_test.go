@@ -17,6 +17,9 @@ func pn(user string) types.JID {
 	return types.JID{User: user, Server: types.DefaultUserServer}
 }
 
+// TestCanonicalLID compares bare and device-qualified LID JIDs with phone and invalid addresses. It
+// returns a stable LID key only when applicable, preventing device suffixes from fragmenting one
+// identity.
 func TestCanonicalLID(t *testing.T) {
 	cases := []struct {
 		name string
@@ -37,6 +40,9 @@ func TestCanonicalLID(t *testing.T) {
 	}
 }
 
+// TestPhoneNumberOf extracts phone numbers from canonical and device-qualified phone JIDs while
+// rejecting LIDs and unrelated servers. The table fixes the identity rule used when backfilling
+// contacts.
 func TestPhoneNumberOf(t *testing.T) {
 	cases := map[string]string{
 		"6282147077374@s.whatsapp.net": "6282147077374",
@@ -51,6 +57,9 @@ func TestPhoneNumberOf(t *testing.T) {
 	}
 }
 
+// TestContactName_Precedence supplies full, push, business, and empty names in overlapping
+// combinations. It verifies the documented display-name priority and empty fallback used by live
+// contact reads.
 func TestContactName_Precedence(t *testing.T) {
 	if got := contactName(types.ContactInfo{PushName: "Push", FullName: "Full", FirstName: "First"}); got != "Push" {
 		t.Fatalf("want push name preferred, got %q", got)
@@ -66,6 +75,9 @@ func TestContactName_Precedence(t *testing.T) {
 	}
 }
 
+// TestBackfillMember_CanonicalizesAndRoles backfills a device-qualified group participant with
+// contact metadata and admin flags. The result must use canonical IDs, resolved names, and the correct
+// owner/admin/member role without mutating unrelated fields.
 func TestBackfillMember_CanonicalizesAndRoles(t *testing.T) {
 	// Push name index resolves the member's display name by canonical LID, even
 	// though the participant struct itself only carries an obfuscated DisplayName.
@@ -110,11 +122,14 @@ func TestBackfillMember_CanonicalizesAndRoles(t *testing.T) {
 	}
 }
 
+// TestBuildNameIndex merges contact-store names with group participant names for phone and LID
+// identities. The cases ensure canonical aliases resolve to one preferred display name and weaker
+// empty values do not overwrite useful data.
 func TestBuildNameIndex(t *testing.T) {
 	idx := buildNameIndex(map[types.JID]types.ContactInfo{
-		lid("199127753306132", 9):  {PushName: "Agung rahma"},
-		pn("6282147077374"):        {FullName: "Rama Adi"},
-		lid("196086799012038", 0):  {}, // no name → skipped
+		lid("199127753306132", 9): {PushName: "Agung rahma"},
+		pn("6282147077374"):       {FullName: "Rama Adi"},
+		lid("196086799012038", 0): {}, // no name → skipped
 	})
 	if idx["199127753306132@lid"] != "Agung rahma" {
 		t.Fatalf("lid push name not indexed (device should be stripped): %v", idx)

@@ -11,8 +11,9 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 )
 
-// TestBootResumeDecision exercises the pure orphan-guard decision in isolation,
-// table-driven over a fake org-existence predicate.
+// TestBootResumeDecision evaluates the boot guard across missing sessions, deleted organizations,
+// foreign gateway pins, terminal statuses, and eligible rows. The table pins each skip/adopt decision
+// so restart recovery never crosses ownership or tenant boundaries.
 func TestBootResumeDecision(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -61,8 +62,9 @@ func pairedDevice(number string) (*store.Device, string) {
 	return &store.Device{ID: &jid}, jid.String()
 }
 
-// TestBoot_OrphanGuard_OrgExists_Resumes confirms a session whose org still
-// exists is resumed (its managed client is started).
+// TestBoot_OrphanGuard_OrgExists_Resumes presents a paired device whose session and organization
+// still exist. Boot adopts it, pins the local client, and connects once, proving healthy durable
+// ownership survives restart.
 func TestBoot_OrphanGuard_OrgExists_Resumes(t *testing.T) {
 	m, repo, _, _, _ := newTestManager(t, Config{})
 	dev, jid := pairedDevice("628111")
@@ -101,8 +103,9 @@ func TestBoot_OrphanGuard_OrgExists_Resumes(t *testing.T) {
 	}
 }
 
-// TestBoot_OrphanGuard_OrgGone_Stops confirms a session whose owning org was
-// deleted is marked STOPPED and NOT resumed.
+// TestBoot_OrphanGuard_OrgGone_Stops presents a paired device whose owning organization was
+// deleted. Boot refuses to connect and marks the row stopped, preventing orphan credentials from
+// sending traffic.
 func TestBoot_OrphanGuard_OrgGone_Stops(t *testing.T) {
 	m, repo, _, _, _ := newTestManager(t, Config{})
 	dev, jid := pairedDevice("628222")
@@ -139,7 +142,9 @@ func TestBoot_OrphanGuard_OrgGone_Stops(t *testing.T) {
 	}
 }
 
-// TestBoot_PinsGatewayID confirms adopted sessions are pinned to this gateway.
+// TestBoot_PinsGatewayID resumes an eligible unpinned session on a configured gateway. The
+// repository receives the gateway ID before connection, preserving deterministic owner routing during
+// startup.
 func TestBoot_PinsGatewayID(t *testing.T) {
 	m, repo, _, _, _ := newTestManager(t, Config{GatewayID: "gw-test"})
 	dev, jid := pairedDevice("628333")

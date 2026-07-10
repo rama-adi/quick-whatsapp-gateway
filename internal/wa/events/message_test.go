@@ -63,6 +63,9 @@ func splitServer(jid string) string {
 	return types.DefaultUserServer
 }
 
+// TestNormalizeMessageSubtypes feeds text, media, protocol, reaction, poll, and unknown protobuf variants
+// through normalization. Each case checks catalog type, persist kind, subtype, and extracted fields so wire
+// variants cannot collapse into the wrong durable message representation.
 func TestNormalizeMessageSubtypes(t *testing.T) {
 	dm := "628111@s.whatsapp.net"
 	group := "12036@g.us"
@@ -458,6 +461,9 @@ func TestNormalizeMessageSubtypes(t *testing.T) {
 	}
 }
 
+// TestNormalizeMessageSenderIdentity covers phone-JID, LID, and device-qualified senders in direct and
+// group messages. It verifies normalization retains the address form needed by identity resolution while
+// removing only device routing suffixes.
 func TestNormalizeMessageSenderIdentity(t *testing.T) {
 	tests := []struct {
 		name          string

@@ -58,6 +58,10 @@ func (a secretHashArg) Match(v driver.Value) bool {
 	return true
 }
 
+// TestOAuthAppService_CreateConfidential_ShowsSecretOnceAndHashes creates a confidential OAuth app with a
+// real repository and recording publisher. The response exposes a newly generated client secret once,
+// while persistence contains only its hash and last four characters; the app-change event follows the
+// write. This protects credential confidentiality without preventing later operator identification.
 func TestOAuthAppService_CreateConfidential_ShowsSecretOnceAndHashes(t *testing.T) {
 	svc, mock, cleanup := newOAuthAppServiceTest(t)
 	defer cleanup()
@@ -99,6 +103,10 @@ func TestOAuthAppService_CreateConfidential_ShowsSecretOnceAndHashes(t *testing.
 	}
 }
 
+// TestOAuthAppService_CreateValidationMatrix runs create requests with invalid names, client types,
+// commands, redirects, modes, scopes, group settings, and token TTLs alongside valid boundaries. Each
+// invalid row must fail before client or secret persistence. The matrix pins the coupled rules that cannot
+// be expressed by field shape alone.
 func TestOAuthAppService_CreateValidationMatrix(t *testing.T) {
 	tests := []struct {
 		name string
@@ -128,6 +136,10 @@ func TestOAuthAppService_CreateValidationMatrix(t *testing.T) {
 	}
 }
 
+// TestOAuthAppService_CrossOrgSessionIsNotFound attempts to bind a new OAuth app to a WhatsApp session
+// owned by another organization. The service must return not_found and create no client, hiding
+// cross-tenant resource existence. Client ownership is inherited only from a session in the callers
+// organization.
 func TestOAuthAppService_CrossOrgSessionIsNotFound(t *testing.T) {
 	svc, mock, cleanup := newOAuthAppServiceTest(t)
 	defer cleanup()
@@ -146,6 +158,9 @@ func TestOAuthAppService_CrossOrgSessionIsNotFound(t *testing.T) {
 	}
 }
 
+// TestOAuthAppService_DeleteCascades deletes an OAuth app with grants and refresh-token families. The
+// client becomes unavailable, dependent authorization material is revoked, and a control event is
+// published after the durable changes. This prevents deleted app credentials from remaining refreshable.
 func TestOAuthAppService_DeleteCascades(t *testing.T) {
 	svc, mock, cleanup := newOAuthAppServiceTest(t)
 	defer cleanup()
@@ -176,6 +191,10 @@ func TestOAuthAppService_DeleteCascades(t *testing.T) {
 	}
 }
 
+// TestOAuthAppService_SessionCascadeDisablesAppsRevokesGrantsAndPublishes simulates deletion or
+// invalidation of a WhatsApp session with multiple bound OAuth apps. Every app must be disabled, its
+// grants and refresh families revoked, and invalidation published for live gateway caches. The cascade
+// closes browser and token access when the identity-bearing session disappears.
 func TestOAuthAppService_SessionCascadeDisablesAppsRevokesGrantsAndPublishes(t *testing.T) {
 	svc, mock, cleanup := newOAuthAppServiceTest(t)
 	defer cleanup()

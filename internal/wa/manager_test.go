@@ -251,6 +251,9 @@ func newTestManager(t *testing.T, cfg Config) (*Manager, *fakeRepo, *fakeSink, *
 // Admin-bootstrap decision logic (pure).
 // ----------------------------------------------------------------------------
 
+// TestAdminNeedsPairing examines empty, unpaired, and paired device sets from the keystore. Pairing
+// is required only when no stored device is already linked, keeping bootstrap idempotent across
+// restarts.
 func TestAdminNeedsPairing(t *testing.T) {
 	adminJID := types.NewJID("628111", types.DefaultUserServer).String()
 	tests := []struct {
@@ -275,6 +278,9 @@ func TestAdminNeedsPairing(t *testing.T) {
 	}
 }
 
+// TestDeviceJIDs_SkipsUnpaired mixes paired and fresh devices in the keystore. The returned
+// inventory contains only canonical paired JIDs, so incomplete device rows never become resumable
+// sessions.
 func TestDeviceJIDs_SkipsUnpaired(t *testing.T) {
 	jid := types.NewJID("628111", types.DefaultUserServer)
 	devs := []*store.Device{
@@ -287,6 +293,8 @@ func TestDeviceJIDs_SkipsUnpaired(t *testing.T) {
 	}
 }
 
+// TestBootstrapAdmin_AlreadyPaired_NoCode starts with an existing paired admin device. Bootstrap
+// returns no pairing code and does not open a second pairing flow, preserving the established account.
 func TestBootstrapAdmin_AlreadyPaired_NoCode(t *testing.T) {
 	jid := types.NewJID("628111", types.DefaultUserServer)
 	m, _, _, _, _ := newTestManager(t, Config{AdminNumber: "628111", AdminOrganizationID: "ten_admin"})
@@ -299,6 +307,9 @@ func TestBootstrapAdmin_AlreadyPaired_NoCode(t *testing.T) {
 	}
 }
 
+// TestBootstrapAdmin_NeedsPairing_ReturnsCode uses an unpaired device and a fake client that emits
+// a phone-link code. The code is returned after connect setup, making the bootstrap result correspond
+// to the registered session.
 func TestBootstrapAdmin_NeedsPairing_ReturnsCode(t *testing.T) {
 	m, repo, sink, _, fc := newTestManager(t, Config{
 		AdminNumber:         "628111",
@@ -336,6 +347,9 @@ func TestBootstrapAdmin_NeedsPairing_ReturnsCode(t *testing.T) {
 	}
 }
 
+// TestBootstrapAdmin_DefaultPairDisplayIncludesGatewayID leaves the display label unset during
+// phone pairing. The generated label includes the gateway ID, ensuring administrators can distinguish
+// concurrent gateway links.
 func TestBootstrapAdmin_DefaultPairDisplayIncludesGatewayID(t *testing.T) {
 	m, _, _, _, fc := newTestManager(t, Config{
 		AdminNumber:         "628111",
@@ -353,6 +367,9 @@ func TestBootstrapAdmin_DefaultPairDisplayIncludesGatewayID(t *testing.T) {
 	}
 }
 
+// TestBootstrapAdmin_RunningSession_NoFatalConflict invokes bootstrap when the admin session is
+// already managed. It reuses the running session rather than returning a conflict or creating
+// duplicate reconnect ownership.
 func TestBootstrapAdmin_RunningSession_NoFatalConflict(t *testing.T) {
 	m, repo, _, _, fc := newTestManager(t, Config{AdminNumber: "628111", AdminOrganizationID: "ten_admin"})
 	phone := "628111"
@@ -387,6 +404,8 @@ func TestBootstrapAdmin_RunningSession_NoFatalConflict(t *testing.T) {
 	}
 }
 
+// TestBootstrapAdmin_Disabled turns off administrative bootstrap in manager configuration. No
+// keystore lookup, client connection, session registration, or pairing side effect is performed.
 func TestBootstrapAdmin_Disabled(t *testing.T) {
 	m, _, _, _, _ := newTestManager(t, Config{}) // no admin number
 	code, err := m.bootstrapAdmin(context.Background(), nil)
@@ -399,6 +418,9 @@ func TestBootstrapAdmin_Disabled(t *testing.T) {
 // shouldResume.
 // ----------------------------------------------------------------------------
 
+// TestShouldResume evaluates persisted working, connecting, stopped, logged-out, and terminal
+// states. Only lifecycle states intended to survive process restart are selected for automatic
+// reconnection.
 func TestShouldResume(t *testing.T) {
 	tests := map[domain.SessionStatus]bool{
 		domain.SessionWorking:   true,
@@ -419,6 +441,9 @@ func TestShouldResume(t *testing.T) {
 // Status emission via the event handler / state machine.
 // ----------------------------------------------------------------------------
 
+// TestSetStatus_EmitsOnChangeOnly writes one transition twice and then a distinct transition.
+// Persistence and status emission occur once per actual change, suppressing duplicate lifecycle noise
+// without losing new state.
 func TestSetStatus_EmitsOnChangeOnly(t *testing.T) {
 	m, repo, sink, _, _ := newTestManager(t, Config{})
 	repo.byID["sess_1"] = &domain.WASession{ID: "sess_1", OrganizationID: "ten_1", Status: domain.SessionStopped}
@@ -439,6 +464,9 @@ func TestSetStatus_EmitsOnChangeOnly(t *testing.T) {
 	}
 }
 
+// TestEventHandler_TerminalEventStopsReconnect delivers a terminal whatsmeow event to a session
+// with reconnect work pending. It records the terminal status, cancels reconnect ownership, and emits
+// the transition exactly once.
 func TestEventHandler_TerminalEventStopsReconnect(t *testing.T) {
 	m, repo, sink, inbound, fc := newTestManager(t, Config{})
 	repo.byID["sess_1"] = &domain.WASession{ID: "sess_1", OrganizationID: "ten_1", Status: domain.SessionWorking}
@@ -482,6 +510,9 @@ func TestEventHandler_TerminalEventStopsReconnect(t *testing.T) {
 	}
 }
 
+// TestEventHandler_ConnectedResetsBackoff first advances retry state and then delivers a connected
+// event. The session becomes working and its attempt counter returns to zero so later disconnects
+// start at the shortest delay.
 func TestEventHandler_ConnectedResetsBackoff(t *testing.T) {
 	m, repo, _, _, fc := newTestManager(t, Config{})
 	repo.byID["sess_1"] = &domain.WASession{ID: "sess_1", OrganizationID: "ten_1", Status: domain.SessionStarting}
@@ -522,6 +553,9 @@ func TestEventHandler_ConnectedResetsBackoff(t *testing.T) {
 	}
 }
 
+// TestEventHandler_PairSuccessRecordsJID sends a successful pairing event carrying the new device
+// address. The manager persists the canonical JID and exposes it on the managed session before
+// subsequent lifecycle work.
 func TestEventHandler_PairSuccessRecordsJID(t *testing.T) {
 	m, repo, _, _, _ := newTestManager(t, Config{})
 	repo.byID["sess_1"] = &domain.WASession{ID: "sess_1", OrganizationID: "ten_1", Status: domain.SessionScanQR}
@@ -547,6 +581,9 @@ func TestEventHandler_PairSuccessRecordsJID(t *testing.T) {
 // Lifecycle: Create / Stop / Logout against fakes.
 // ----------------------------------------------------------------------------
 
+// TestCreateSession_PersistsAndRegisters creates a session from an unpaired stored device. The
+// repository row is written with gateway ownership before the manager publishes the in-memory session,
+// preventing an untracked live client.
 func TestCreateSession_PersistsAndRegisters(t *testing.T) {
 	m, repo, _, _, _ := newTestManager(t, Config{DefaultRatePerMin: 20, DefaultRatePerHour: 200, DefaultAutoRead: true})
 	label := "my phone"
@@ -568,6 +605,9 @@ func TestCreateSession_PersistsAndRegisters(t *testing.T) {
 	}
 }
 
+// TestStart_UnpairedRejected asks the manager to start a session whose device has no paired JID. It
+// returns the pairing-required error without connecting, so normal start cannot bypass the explicit
+// bootstrap flow.
 func TestStart_UnpairedRejected(t *testing.T) {
 	m, _, _, _, _ := newTestManager(t, Config{})
 	sess, _ := m.CreateSession(context.Background(), "ten_1", nil, true, false)
@@ -582,6 +622,9 @@ func TestStart_UnpairedRejected(t *testing.T) {
 	}
 }
 
+// TestStop_TearsDownAndMarksStopped stops a running managed session with reconnect state. It
+// cancels background work, disconnects the client, removes the in-memory owner, and durably marks the
+// session stopped.
 func TestStop_TearsDownAndMarksStopped(t *testing.T) {
 	m, repo, sink, _, fc := newTestManager(t, Config{})
 	repo.byID["sess_1"] = &domain.WASession{ID: "sess_1", OrganizationID: "ten_1", Status: domain.SessionWorking}
@@ -607,6 +650,9 @@ func TestStop_TearsDownAndMarksStopped(t *testing.T) {
 	}
 }
 
+// TestLogout_DeletesDeviceAndMarksLoggedOut logs out an active session through the WhatsApp client.
+// Device credentials are deleted and the durable status becomes logged_out, preventing Boot from
+// adopting stale keys.
 func TestLogout_DeletesDeviceAndMarksLoggedOut(t *testing.T) {
 	jid := types.NewJID("628111", types.DefaultUserServer)
 	dev := &store.Device{ID: &jid}
@@ -635,6 +681,8 @@ func TestLogout_DeletesDeviceAndMarksLoggedOut(t *testing.T) {
 	}
 }
 
+// TestStop_UnknownSession targets an ID absent from the manager registry. It returns the domain
+// not-found error and performs no repository or client side effects.
 func TestStop_UnknownSession(t *testing.T) {
 	m, _, _, _, _ := newTestManager(t, Config{})
 	err := m.Stop(context.Background(), "nope")
@@ -651,6 +699,9 @@ func TestStop_UnknownSession(t *testing.T) {
 // Boot adoption.
 // ----------------------------------------------------------------------------
 
+// TestBoot_AdoptsPairedDevices supplies multiple paired keystore devices with resumable repository
+// rows. Boot creates one managed client per eligible device and reconnects them under this gateway
+// without duplicating registrations.
 func TestBoot_AdoptsPairedDevices(t *testing.T) {
 	jid := types.NewJID("628111", types.DefaultUserServer)
 	dev := &store.Device{ID: &jid}

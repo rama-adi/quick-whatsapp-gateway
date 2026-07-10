@@ -34,7 +34,9 @@ func NewRoutingWAClient(m clientResolver) *RoutingWAClient {
 	return &RoutingWAClient{resolve: m.ClientFor}
 }
 
-// client resolves the per-session adapter for the session id carried on ctx.
+// client resolves a fresh lightweight adapter for the session ID carried on ctx.
+// Resolution has no fallback to another session: missing context or a non-live
+// client fails before any protocol call, preserving tenant and connection routing.
 func (c *RoutingWAClient) client(ctx context.Context) (outbound.WAClient, error) {
 	id := outbound.SessionIDFromContext(ctx)
 	if id == "" {

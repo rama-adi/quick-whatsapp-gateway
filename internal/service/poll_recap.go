@@ -46,6 +46,9 @@ type PollRecapWorker struct {
 	limit     int
 }
 
+// PollRecapConfig controls the low-latency Redis due index and periodic durable
+// MySQL sweep. Limit bounds work claimed per pass; Clock makes due ownership and
+// emitted timestamps deterministic in tests.
 type PollRecapConfig struct {
 	RedisPrefix string
 	Interval    time.Duration
@@ -54,6 +57,9 @@ type PollRecapConfig struct {
 	Log         *slog.Logger
 }
 
+// NewPollRecapWorker builds a worker whose durable source is MySQL and whose
+// Redis sorted set is only a wake-up accelerator. Losing Redis entries therefore
+// delays a recap until the database sweep but does not lose it.
 func NewPollRecapWorker(st *store.Store, publisher pollRecapPublisher, webhooks pollRecapEnqueuer, rdb *redis.Client, cfg PollRecapConfig) *PollRecapWorker {
 	if cfg.Clock == nil {
 		cfg.Clock = domain.NowMs

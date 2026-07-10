@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestOpenUpgradesAndServesDevice verifies the modernc/sqlite driver is wired,
-// migrations run, and GetFirstDevice returns a fresh (unpaired) device on an
-// empty DB. Uses a real file DB (foreign keys must be enabled for Upgrade).
+// TestOpenCreatesDeviceContainer opens a temporary SQLite file with foreign keys enabled through
+// the production constructor. It verifies migrations complete and a usable, initially empty whatsmeow
+// device container is returned.
 func TestOpenCreatesDeviceContainer(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "wa.db")
 	dsn := "file:" + dbPath + "?_pragma=foreign_keys(1)"
@@ -30,6 +30,9 @@ func TestOpenCreatesDeviceContainer(t *testing.T) {
 	assert.NotNil(t, dev.IdentityKey)
 }
 
+// TestOpenRejectsMissingForeignKeys opens the same store without the required SQLite foreign-key
+// option. Initialization must fail during upgrade, making an unsafe keystore configuration impossible
+// to start.
 func TestOpenRejectsMissingForeignKeys(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "wa.db")
 	// No foreign_keys pragma -> sqlstore.Upgrade refuses.

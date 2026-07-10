@@ -8,11 +8,15 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa/outbound"
 )
 
+// OIDPBotFeedback translates login-interceptor reactions and replies into the
+// account-global outbound Sender after resolving the target session. Feedback is
+// best-effort at the interceptor boundary and does not own OAuth claim state.
 type OIDPBotFeedback struct {
 	sessions *store.SessionRepo
 	sender   *outbound.Sender
 }
 
+// NewOIDPBotFeedback wires session resolution to the outbound send pipeline.
 func NewOIDPBotFeedback(sessions *store.SessionRepo, sender *outbound.Sender) *OIDPBotFeedback {
 	return &OIDPBotFeedback{sessions: sessions, sender: sender}
 }
@@ -46,10 +50,14 @@ func (b *OIDPBotFeedback) Reply(ctx context.Context, organizationID, sessionID, 
 
 func discardSendResult(_ outbound.SendResult, err error) error { return err }
 
+// OIDPGroupMemberChecker authorizes a group-mode claim by reading the senders
+// current memberships for the target session. It returns false for missing
+// adapters or identities, keeping login verification fail-closed.
 type OIDPGroupMemberChecker struct {
 	members *store.GroupMemberRepo
 }
 
+// NewOIDPGroupMemberChecker wraps the durable group-membership repository.
 func NewOIDPGroupMemberChecker(members *store.GroupMemberRepo) *OIDPGroupMemberChecker {
 	return &OIDPGroupMemberChecker{members: members}
 }

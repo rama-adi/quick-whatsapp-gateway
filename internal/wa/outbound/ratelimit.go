@@ -34,7 +34,10 @@ func WithKeyPrefix(prefix string) RedisRateLimiterOption {
 	return func(r *redisRateLimiter) { r.keyPrefix = prefix }
 }
 
-// NewRedisRateLimiter builds a RateLimiter over the given go-redis client.
+// NewRedisRateLimiter builds a concurrency-safe RateLimiter over the given
+// go-redis client. Calls from multiple gateway processes coordinate through the
+// atomic script; the caller's context controls the Redis round trip and Redis
+// errors fail closed rather than admitting an unaccounted send.
 func NewRedisRateLimiter(rdb *redis.Client, opts ...RedisRateLimiterOption) RateLimiter {
 	r := &redisRateLimiter{rdb: rdb, keyPrefix: "wa:rl"}
 	for _, o := range opts {
@@ -87,7 +90,9 @@ const (
 
 // Allow consumes one token from both the per-minute and per-hour windows for the
 // session. When either window is exhausted it returns ok=false plus a retryAfter
-// hint (seconds until the breached window resets).
+// hint rounded to seconds; neither counter is incremented on rejection. Session
+// IDs are embedded below keyPrefix, isolating budgets, and non-positive limits
+// disable only their corresponding window.
 func (r *redisRateLimiter) Allow(ctx context.Context, sessionID string, perMin, perHour int) (bool, time.Duration, error) {
 	minKey := fmt.Sprintf("%s:%s:min", r.keyPrefix, sessionID)
 	hourKey := fmt.Sprintf("%s:%s:hour", r.keyPrefix, sessionID)

@@ -47,9 +47,18 @@ type Config struct {
 // without a real WebSocket.
 type clientFactory func(device *store.Device) waClient
 
-// Manager owns every ManagedSession and their whatsmeow clients (§3). It loads
-// devices on boot, drives connect/reconnect with backoff+jitter, runs the status
-// state machine, and forwards every whatsmeow event to the inbound handler.
+// Manager is the process-local owner of every ManagedSession and whatsmeow client
+// assigned to this gateway (§3). Durable device keys remain in the SQLite
+// keystore and app-visible state remains in SessionRepo; the sessions map is only
+// the live ownership index rebuilt by Boot.
+//
+// Lifecycle mutations serialize access to that index with mu, while each
+// ManagedSession separately protects status, QR data, retry counters, and its
+// cancellation handle. Event callbacks may therefore arrive concurrently with
+// Stop or Logout without transferring reconnect ownership to a second goroutine.
+// Repository and event-sink failures are handled at their documented boundaries:
+// state transitions attempt durable persistence before notification, and boot
+// reconciliation logs and skips one broken device rather than aborting all peers.
 type Manager struct {
 	keystore Keystore
 	repo     SessionRepo
@@ -123,7 +132,9 @@ func normalizedDeviceName(name, gatewayID string) string {
 	return name
 }
 
-// SetClientFactory swaps the whatsmeow client constructor. Intended for tests.
+// SetClientFactory swaps the whatsmeow client constructor. It is a test/setup
+// hook and must be called before Boot or any session lifecycle method; it is not
+// safe to mutate while sessions are starting.
 func (m *Manager) SetClientFactory(f clientFactory) { m.newClient = f }
 
 // SetInboundHandler replaces the inbound event handler. It is used by the
@@ -134,13 +145,15 @@ func (m *Manager) SetInboundHandler(h InboundHandler) {
 	m.inbound = h
 }
 
-// SetWALogger sets the whatsmeow logger used for newly built clients.
+// SetWALogger sets the whatsmeow logger used for newly built clients. Existing
+// clients retain their logger, so callers must configure this before Boot.
 func (m *Manager) SetWALogger(l waLog.Logger) { m.waLogger = l }
 
 // SetOrgExists installs the boot orphan-guard predicate (§4.6 boot
 // reconciliation). pred reports whether a session's owning organization still
 // exists in the shared better-auth `organization` table; Boot skips and marks
-// STOPPED any session whose org is gone. A nil pred disables the guard.
+// STOPPED any session whose org is gone. A nil pred disables the guard. This is
+// configuration-time state and must be installed before Boot.
 func (m *Manager) SetOrgExists(pred func(ctx context.Context, orgID string) (bool, error)) {
 	m.orgExists = pred
 }
@@ -149,10 +162,17 @@ func (m *Manager) SetOrgExists(pred func(ctx context.Context, orgID string) (boo
 // Boot
 // ----------------------------------------------------------------------------
 
-// Boot loads every persisted device from the keystore, wires it to its app
-// session row, and starts those that should be running. It then performs
-// admin-number bootstrap (§6). Returns the admin pairing code, if one was
-// produced (empty otherwise), so the caller can surface it.
+// Boot reconstructs live ownership from paired keystore devices, matching each
+// device to its app session row before adopting it. It pins eligible rows to this
+// gateway, applies the organization orphan guard, and reconnects only statuses
+// selected by shouldResume; one lookup or adoption failure is logged and isolated
+// to that device.
+//
+// After reconciliation it performs optional admin-number bootstrap (§6) and
+// returns the newly issued phone-pairing code, if any. The caller's context covers
+// keystore and repository work plus initial connects; the per-session contexts
+// created during adoption own subsequent reconnect loops and are cancelled by
+// Stop, Logout, or a terminal event.
 func (m *Manager) Boot(ctx context.Context) (adminPairingCode string, err error) {
 	devices, err := m.keystore.GetAllDevices(ctx)
 	if err != nil {

@@ -58,8 +58,11 @@ type Services struct {
 	OAuthApps *OAuthAppService
 }
 
-// New builds every service from the shared Deps. It is the single wiring point
-// for the business layer.
+// New builds every service from shared immutable dependencies and is the single
+// business-layer wiring point. It starts no goroutines; resource services are
+// safe to share because request state travels through context and repositories.
+// A nil Manager intentionally disables live WhatsApp operations while preserving
+// read-only repository services and their not_implemented failure contract.
 func New(d Deps) *Services {
 	if d.Log == nil {
 		d.Log = slog.Default()
@@ -91,6 +94,9 @@ func New(d Deps) *Services {
 	return services
 }
 
+// ControlPublisher broadcasts cache invalidation and revocation after the SQL
+// mutation commits. Publishing is best-effort at service call sites because the
+// database remains authoritative on reconnect/cache expiry.
 type ControlPublisher interface {
 	Publish(ctx context.Context, channel string, payload any) error
 }

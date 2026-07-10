@@ -99,8 +99,16 @@ var _ waClient = (*whatsmeow.Client)(nil)
 // ManagedSession — one whatsmeow client + its lifecycle state.
 // ----------------------------------------------------------------------------
 
-// ManagedSession wraps a single whatsmeow client with its app-level identity,
-// current status, reconnect bookkeeping and a cancellable goroutine context.
+// ManagedSession is the lifecycle capsule for exactly one app session and one
+// whatsmeow client. SessionID and OrganizationID are immutable after registration;
+// the remaining mutable lifecycle fields are guarded by mu and must not be read
+// directly from event callbacks or manager operations without holding it.
+//
+// reconnect grants ownership of retry work to the session's background loop,
+// attempt counts consecutive failures and resets on Connected, and cancel ends
+// the loop during Stop, Logout, or terminal classification. The latest QR is only
+// an in-memory pairing aid with an expiry, not durable authentication state; the
+// device keystore remains the source of truth after PairSuccess.
 type ManagedSession struct {
 	SessionID      string
 	OrganizationID string

@@ -10,6 +10,9 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 )
 
+// TestClassifyEvent runs the lifecycle classifier across connected, disconnected, logged-out,
+// replaced, temporary-ban, pairing, and irrelevant events. The table pins status, terminality, and
+// reconnect decisions for every non-obvious whatsmeow transition.
 func TestClassifyEvent(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -109,6 +112,8 @@ func TestClassifyEvent(t *testing.T) {
 	}
 }
 
+// TestIsFatalConnectFailure distinguishes authentication and logout failures from transient network
+// and context failures. Only failures that cannot recover through reconnect are marked fatal.
 func TestIsFatalConnectFailure(t *testing.T) {
 	fatal := []events.ConnectFailureReason{
 		events.ConnectFailureLoggedOut,
@@ -128,6 +133,8 @@ func TestIsFatalConnectFailure(t *testing.T) {
 	}
 }
 
+// TestBackoffFor_Deterministic injects a fixed random source into exponential backoff. It checks
+// exact delays across attempts, proving both exponent growth and jitter application are reproducible.
 func TestBackoffFor_Deterministic(t *testing.T) {
 	cfg := backoffConfig{base: time.Second, max: 2 * time.Minute, factor: 2.0}
 
@@ -143,6 +150,8 @@ func TestBackoffFor_Deterministic(t *testing.T) {
 	}
 }
 
+// TestBackoffFor_FullJitterBounds samples the minimum and maximum random values for one retry
+// window. Every delay must remain in the full-jitter interval and below its exponential cap.
 func TestBackoffFor_FullJitterBounds(t *testing.T) {
 	cfg := backoffConfig{base: time.Second, max: 8 * time.Second, factor: 2.0}
 	rng := rand.New(rand.NewSource(7))
@@ -167,6 +176,8 @@ func TestBackoffFor_FullJitterBounds(t *testing.T) {
 	}
 }
 
+// TestBackoffFor_NeverExceedsMax requests a very large retry attempt with maximum jitter. The
+// result stays below the configured ceiling, preventing overflow or unbounded reconnect stalls.
 func TestBackoffFor_NeverExceedsMax(t *testing.T) {
 	cfg := backoffConfig{base: time.Second, max: 30 * time.Second, factor: 3.0}
 	rng := rand.New(rand.NewSource(99))
@@ -178,6 +189,9 @@ func TestBackoffFor_NeverExceedsMax(t *testing.T) {
 	}
 }
 
+// TestBackoffFor_NegativeAttemptTreatedAsZero passes an invalid negative retry count. It behaves
+// exactly like the first attempt, keeping defensive callers from producing negative shifts or
+// durations.
 func TestBackoffFor_NegativeAttemptTreatedAsZero(t *testing.T) {
 	cfg := backoffConfig{base: time.Second, max: time.Minute, factor: 2.0}
 	rng := rand.New(rand.NewSource(1))

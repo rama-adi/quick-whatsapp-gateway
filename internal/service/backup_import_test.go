@@ -52,6 +52,9 @@ func apiCode(t *testing.T, err error) string {
 	return apiErr.Code
 }
 
+// TestStartImport_ForeignOrgNotFound starts an import against a backup belonging to another organization.
+// The service must return not_found before decrypting or writing any rows, avoiding an ownership oracle.
+// Organization scope is enforced even when the backup id itself is valid.
 func TestStartImport_ForeignOrgNotFound(t *testing.T) {
 	svc, mock := newBackupSvc(t)
 	svc.decrypt = func([]byte, string) ([]byte, error) { t.Fatal("decrypt should not run"); return nil, nil }
@@ -63,6 +66,9 @@ func TestStartImport_ForeignOrgNotFound(t *testing.T) {
 	}
 }
 
+// TestStartImport_DecryptFails provides an owned backup whose encrypted payload cannot be opened.
+// StartImport must surface a safe import failure and leave contacts, chats, and messages untouched.
+// Parsing or database work cannot begin from unauthenticated backup bytes.
 func TestStartImport_DecryptFails(t *testing.T) {
 	svc, mock := newBackupSvc(t)
 	svc.decrypt = func([]byte, string) ([]byte, error) { return nil, errors.New("bad key") }
@@ -74,6 +80,10 @@ func TestStartImport_DecryptFails(t *testing.T) {
 	}
 }
 
+// TestStartImport_Concurrency starts overlapping imports for the same backup while the first operation
+// owns its in-progress state. Exactly one call may perform the import; the competitor receives the
+// conflict outcome instead of duplicating upserts and counts. This pins per-backup ownership under
+// concurrent requests.
 func TestStartImport_Concurrency(t *testing.T) {
 	svc, mock := newBackupSvc(t)
 	svc.decrypt = func([]byte, string) ([]byte, error) { return []byte("db"), nil }
@@ -88,6 +98,9 @@ func TestStartImport_Concurrency(t *testing.T) {
 	}
 }
 
+// TestStartImport_QuotaExceeded configures an import whose projected rows exceed the organizations quota.
+// The service must reject before writing any imported resources and include the quota classification. This
+// makes capacity enforcement atomic from the callers perspective.
 func TestStartImport_QuotaExceeded(t *testing.T) {
 	svc, mock := newBackupSvc(t)
 	svc.decrypt = func([]byte, string) ([]byte, error) { return []byte("db"), nil }
@@ -104,6 +117,10 @@ func TestStartImport_QuotaExceeded(t *testing.T) {
 	}
 }
 
+// TestStartImport_SuperAdminBypassesQuotaAndOrg runs the same ownership and quota checks as a super
+// administrator. The import may proceed across organization scope and beyond normal quota while still
+// requiring valid decryption and data. This confines the bypass to authorization policy rather than
+// weakening import integrity.
 func TestStartImport_SuperAdminBypassesQuotaAndOrg(t *testing.T) {
 	svc, mock := newBackupSvc(t)
 	svc.decrypt = func([]byte, string) ([]byte, error) { return []byte("db"), nil }
@@ -179,6 +196,10 @@ func (f *fakeReader) EachGroupMember(_ context.Context, fn func(backup.GroupMemb
 	return nil
 }
 
+// TestImportAll_UpsertsAndCounts imports representative identities, contacts, chats, messages, and related
+// records through recording repositories. Existing natural keys must be upserted, dependencies processed
+// in order, and the result counts reflect rows handled per resource. Re-running normalized backup data
+// must not create duplicates.
 func TestImportAll_UpsertsAndCounts(t *testing.T) {
 	svc, mock := newBackupSvc(t)
 	reader := &fakeReader{
