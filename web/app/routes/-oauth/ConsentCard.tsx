@@ -9,6 +9,7 @@ import {
   ClockIcon,
   MessageCircleIcon,
   CheckCircle2Icon,
+  LockKeyholeIcon,
   ShieldAlertIcon,
   UsersIcon,
 } from "lucide-react";
@@ -88,6 +89,21 @@ export function ConsentCard({
               </li>
             ))}
           </ul>
+          <div className="mt-4 border-t pt-4">
+            <div className="flex items-start gap-2.5 text-sm">
+              <LockKeyholeIcon
+                className="mt-0.5 size-4 shrink-0 text-emerald-700 dark:text-emerald-400"
+                aria-hidden
+              />
+              <div>
+                <p className="font-medium">What we won&apos;t receive</p>
+                <p className="mt-0.5 text-muted-foreground">
+                  Your WhatsApp login information, password, or verification
+                  codes. You never need to enter them here.
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
