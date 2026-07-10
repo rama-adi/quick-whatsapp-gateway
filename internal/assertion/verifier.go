@@ -18,10 +18,15 @@ type Binding struct {
 	Body   []byte
 }
 
-// Verifier validates router assertions on the gateway. It checks the Ed25519
-// signature against the router's JWKS, enforces iss/aud/exp, re-checks the request
-// binding, and rejects replays via the nonce cache. It holds only the public key
-// material, so it can never forge an assertion.
+// Verifier is the gateway side of the internal trust boundary. It owns no private
+// signing material: each Verify checks the router JWKS signature, expected router
+// issuer, this gateway's audience, time claims, exact request binding, coherent
+// identity fields, and one-time nonce before returning a Principal.
+//
+// A Verifier is safe for concurrent requests when its KeySetSource is safe; the
+// built-in RemoteKeySet and NonceCache are. Verification errors intentionally
+// retain detail only inside this package—the HTTP middleware emits one generic
+// unauthorized response so callers cannot probe trust configuration.
 type Verifier struct {
 	source    KeySetSource
 	issuer    string // expected iss (the router identity)
@@ -58,12 +63,19 @@ func NewVerifier(source KeySetSource, issuer, gatewayID string, opts ...Verifier
 	for _, o := range opts {
 		o(v)
 	}
+	if v.nonce == nil {
+		return nil, errors.New("assertion: verifier nonce cache must not be nil")
+	}
+	if v.skew < 0 {
+		return nil, errors.New("assertion: verifier skew must not be negative")
+	}
 	return v, nil
 }
 
-// Verify validates raw against bind and returns the asserted Principal. The
-// verification order is: signature (router JWKS) → iss/aud/exp within skew →
-// method/path/bodyHash match → jti not seen before (anti-replay).
+// Verify validates raw against the exact request observed by the gateway. Binding
+// checks run before the nonce is consumed so a malformed replay cannot burn a
+// legitimate assertion; identity coherence is checked before the atomic nonce
+// insertion. A successful call consumes the token and all later calls fail.
 func (v *Verifier) Verify(ctx context.Context, raw string, bind Binding) (*Principal, error) {
 	tok, err := v.parse(ctx, raw)
 	if err != nil {
@@ -82,6 +94,11 @@ func (v *Verifier) Verify(ctx context.Context, raw string, bind Binding) (*Princ
 		return nil, errors.New("assertion: body hash mismatch")
 	}
 
+	p := principalFromToken(tok)
+	if err := validatePrincipal(*p); err != nil {
+		return nil, err
+	}
+
 	// Anti-replay: one-time jti within the freshness window.
 	jti, _ := tok.JwtID()
 	exp, ok := tok.Expiration()
@@ -92,7 +109,7 @@ func (v *Verifier) Verify(ctx context.Context, raw string, bind Binding) (*Princ
 		return nil, errors.New("assertion: replay detected")
 	}
 
-	return principalFromToken(tok), nil
+	return p, nil
 }
 
 // parse verifies the signature + standard claims, retrying once after a JWKS

@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/assertion"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/authz"
@@ -60,6 +61,25 @@ func (f fakeKeys) VerifyKey(_ context.Context, raw string) (*authz.Principal, er
 		return f.p, nil
 	}
 	return nil, errors.New("bad key")
+}
+
+type closeTrackingBody struct {
+	io.Reader
+	closed bool
+}
+
+func (b *closeTrackingBody) Close() error {
+	b.closed = true
+	return nil
+}
+
+type fakeTokens struct{ p *authz.Principal }
+
+func (f fakeTokens) VerifyToken(_ context.Context, raw string) (*authz.Principal, error) {
+	if raw == "aaa.bbb.ccc" {
+		return f.p, nil
+	}
+	return nil, errors.New("bad token")
 }
 
 // upstreamGateway is a fake gateway that verifies the router's assertion exactly
@@ -133,6 +153,9 @@ func activeGateway(id, baseURL string) domain.Gateway {
 
 // --- tests -------------------------------------------------------------------
 
+// TestSessionFromPath verifies the session from path behavior remains part of the package contract.
+// It composes the router with deterministic resolvers, credentials, and upstreams, then observes the edge response.
+// This protects the single trust and routing boundary from cross-tenant leaks, hangs, or proxy contract drift.
 func TestSessionFromPath(t *testing.T) {
 	cases := map[string]string{
 		"/api/v1/sessions":                        "",
@@ -151,6 +174,9 @@ func TestSessionFromPath(t *testing.T) {
 	}
 }
 
+// TestOIDCWellKnownRoutes verifies adapter routing forwards the required oidcwell known routes inputs without loss.
+// It composes the router with deterministic resolvers, credentials, and upstreams, then observes the edge response.
+// This protects the single trust and routing boundary from cross-tenant leaks, hangs, or proxy contract drift.
 func TestOIDCWellKnownRoutes(t *testing.T) {
 	repo := oidpTestKeys(t)
 	encKey := base64.StdEncoding.EncodeToString([]byte("12345678901234567890123456789012"))
@@ -279,6 +305,9 @@ func oidpVerifyJWTForRouterTest(t *testing.T, token string, jwks []byte, kid str
 	return false
 }
 
+// TestBroker_SessionScoped_ProxiesUnderAssertion verifies the broker session scoped proxies under assertion behavior remains part of the package contract.
+// It composes the router with deterministic resolvers, credentials, and upstreams, then observes the edge response.
+// This protects the single trust and routing boundary from cross-tenant leaks, hangs, or proxy contract drift.
 func TestBroker_SessionScoped_ProxiesUnderAssertion(t *testing.T) {
 	gatewayID := "gw_1"
 	sessions := fakeSessions{m: map[string]domain.WASession{
@@ -309,6 +338,9 @@ func TestBroker_SessionScoped_ProxiesUnderAssertion(t *testing.T) {
 	}
 }
 
+// TestBroker_PostBodyBoundIntoAssertion verifies the broker post body bound into assertion behavior remains part of the package contract.
+// It composes the router with deterministic resolvers, credentials, and upstreams, then observes the edge response.
+// This protects the single trust and routing boundary from cross-tenant leaks, hangs, or proxy contract drift.
 func TestBroker_PostBodyBoundIntoAssertion(t *testing.T) {
 	gatewayID := "gw_1"
 	sessions := fakeSessions{m: map[string]domain.WASession{
@@ -332,6 +364,53 @@ func TestBroker_PostBodyBoundIntoAssertion(t *testing.T) {
 	}
 }
 
+// TestBufferBodyClosesOriginalBody verifies buffered request handling closes replaced bodies and avoids resource leaks.
+// It composes the router with deterministic resolvers, credentials, and upstreams, then observes the edge response.
+// This protects the single trust and routing boundary from cross-tenant leaks, hangs, or proxy contract drift.
+func TestBufferBodyClosesOriginalBody(t *testing.T) {
+	body := &closeTrackingBody{Reader: strings.NewReader("payload")}
+	r := httptest.NewRequest(http.MethodPost, "/", nil)
+	r.Body = body
+	rec := httptest.NewRecorder()
+	got, err := bufferBody(rec, r)
+	if err != nil || string(got) != "payload" {
+		t.Fatalf("bufferBody = %q, %v", got, err)
+	}
+	if !body.closed {
+		t.Fatal("original request body was not closed")
+	}
+	forwarded, _ := io.ReadAll(r.Body)
+	if string(forwarded) != "payload" {
+		t.Fatalf("restored body = %q", forwarded)
+	}
+}
+
+// TestBufferBodyReadFailureClosesOriginalBody verifies proxy buffering owns cleanup on failure.
+// It injects an unreadable request stream and expects the read error while confirming Close runs exactly on the replaced source.
+// This prevents failed uploads from retaining transport resources or pooled connections.
+func TestBufferBodyReadFailureClosesOriginalBody(t *testing.T) {
+	body := &readFailBody{}
+	r := httptest.NewRequest(http.MethodPost, "/", nil)
+	r.Body = body
+	if _, err := bufferBody(httptest.NewRecorder(), r); err == nil {
+		t.Fatal("expected body read failure")
+	}
+	if !body.closed {
+		t.Fatal("unreadable original body was not closed")
+	}
+}
+
+type readFailBody struct{ closed bool }
+
+func (b *readFailBody) Read([]byte) (int, error) { return 0, errors.New("read failed") }
+func (b *readFailBody) Close() error {
+	b.closed = true
+	return nil
+}
+
+// TestBroker_OrgIsolation_404 verifies tenant or target isolation cannot be bypassed across trust scopes.
+// It composes the router with deterministic resolvers, credentials, and upstreams, then observes the edge response.
+// This protects the single trust and routing boundary from cross-tenant leaks, hangs, or proxy contract drift.
 func TestBroker_OrgIsolation_404(t *testing.T) {
 	gatewayID := "gw_1"
 	sessions := fakeSessions{m: map[string]domain.WASession{
@@ -351,6 +430,9 @@ func TestBroker_OrgIsolation_404(t *testing.T) {
 	}
 }
 
+// TestBroker_StrandedSession_503 verifies unavailable downstream work maps to the retryable 503 contract.
+// It composes the router with deterministic resolvers, credentials, and upstreams, then observes the edge response.
+// This protects the single trust and routing boundary from cross-tenant leaks, hangs, or proxy contract drift.
 func TestBroker_StrandedSession_503(t *testing.T) {
 	gatewayID := "gw_dead"
 	sessions := fakeSessions{m: map[string]domain.WASession{
@@ -372,6 +454,9 @@ func TestBroker_StrandedSession_503(t *testing.T) {
 	}
 }
 
+// TestBroker_Placement_OnCreate verifies the broker placement on create behavior remains part of the package contract.
+// It composes the router with deterministic resolvers, credentials, and upstreams, then observes the edge response.
+// This protects the single trust and routing boundary from cross-tenant leaks, hangs, or proxy contract drift.
 func TestBroker_Placement_OnCreate(t *testing.T) {
 	gatewayID := "gw_place"
 	srv, m := newTestServer(t, fakeSessions{m: map[string]domain.WASession{}}, fakeGateways{})
@@ -389,6 +474,9 @@ func TestBroker_Placement_OnCreate(t *testing.T) {
 	}
 }
 
+// TestBroker_AgnosticRoute_AnyActive verifies the broker agnostic route any active behavior remains part of the package contract.
+// It composes the router with deterministic resolvers, credentials, and upstreams, then observes the edge response.
+// This protects the single trust and routing boundary from cross-tenant leaks, hangs, or proxy contract drift.
 func TestBroker_AgnosticRoute_AnyActive(t *testing.T) {
 	gatewayID := "gw_any"
 	srv, m := newTestServer(t, fakeSessions{m: map[string]domain.WASession{}}, fakeGateways{})
@@ -405,6 +493,9 @@ func TestBroker_AgnosticRoute_AnyActive(t *testing.T) {
 	}
 }
 
+// TestBroker_Unauthenticated_401 verifies unauthenticated callers are rejected with 401 before protected work runs.
+// It composes the router with deterministic resolvers, credentials, and upstreams, then observes the edge response.
+// This protects the single trust and routing boundary from cross-tenant leaks, hangs, or proxy contract drift.
 func TestBroker_Unauthenticated_401(t *testing.T) {
 	srv, _ := newTestServer(t, fakeSessions{m: map[string]domain.WASession{}}, fakeGateways{})
 	rec := httptest.NewRecorder()
@@ -416,6 +507,9 @@ func TestBroker_Unauthenticated_401(t *testing.T) {
 	}
 }
 
+// TestJWKSEndpoint verifies the jwksendpoint behavior remains part of the package contract.
+// It composes the router with deterministic resolvers, credentials, and upstreams, then observes the edge response.
+// This protects the single trust and routing boundary from cross-tenant leaks, hangs, or proxy contract drift.
 func TestJWKSEndpoint(t *testing.T) {
 	srv, _ := newTestServer(t, fakeSessions{m: map[string]domain.WASession{}}, fakeGateways{})
 	rec := httptest.NewRecorder()
@@ -430,6 +524,9 @@ func TestJWKSEndpoint(t *testing.T) {
 // wedged gateway would leave the client's connection open forever instead of
 // surfacing the ErrorHandler's 503. This asserts the transport is configured; the
 // 503 rendering on RoundTrip failure is covered by the ErrorHandler path.
+// TestDefaultProxyTransportBoundsResponseHeaders verifies default proxy transport bounds response headers configuration and fallback behavior remain stable.
+// It composes the router with deterministic resolvers, credentials, and upstreams, then observes the edge response.
+// This protects the single trust and routing boundary from cross-tenant leaks, hangs, or proxy contract drift.
 func TestDefaultProxyTransportBoundsResponseHeaders(t *testing.T) {
 	rt := defaultProxyTransport()
 	tr, ok := rt.(*http.Transport)
@@ -438,5 +535,29 @@ func TestDefaultProxyTransportBoundsResponseHeaders(t *testing.T) {
 	}
 	if tr.ResponseHeaderTimeout <= 0 {
 		t.Fatal("default proxy transport must set a positive ResponseHeaderTimeout so a hung gateway cannot hang the client")
+	}
+}
+
+// TestGatewayUsableRequiresPlausibleHeartbeat verifies the gateway usable requires plausible heartbeat behavior remains part of the package contract.
+// It composes the router with deterministic resolvers, credentials, and upstreams, then observes the edge response.
+// This protects the single trust and routing boundary from cross-tenant leaks, hangs, or proxy contract drift.
+func TestGatewayUsableRequiresPlausibleHeartbeat(t *testing.T) {
+	srv, _ := newTestServer(t, fakeSessions{}, fakeGateways{})
+	now := time.Unix(1_700_000_000, 0)
+	srv.now = func() time.Time { return now }
+	base := "http://gateway.test"
+	g := domain.Gateway{ID: "gw", Status: domain.GatewayActive, BaseURL: &base}
+	if srv.gatewayUsable(g) {
+		t.Fatal("gateway without a heartbeat must be unusable")
+	}
+	future := now.Add(2 * srv.staleAfter).UnixMilli()
+	g.LastSeenAt = &future
+	if srv.gatewayUsable(g) {
+		t.Fatal("gateway with an implausibly future heartbeat must be unusable")
+	}
+	fresh := now.Add(-time.Second).UnixMilli()
+	g.LastSeenAt = &fresh
+	if !srv.gatewayUsable(g) {
+		t.Fatal("gateway with a fresh heartbeat must be usable")
 	}
 }

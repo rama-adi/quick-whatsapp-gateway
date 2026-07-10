@@ -9,6 +9,10 @@ import (
 // corsMaxAge is how long (seconds) a browser may cache a preflight result.
 const corsMaxAge = 600
 
+// Keep this list explicit: reflecting Access-Control-Request-Headers would let
+// browser callers opt arbitrary internal headers into the CORS policy.
+const corsAllowedHeaders = "Authorization, Content-Type, X-Api-Key, Idempotency-Key, X-Request-Id"
+
 // CORS returns chi-compatible middleware that allows the configured frontend
 // origins to call the gateway directly from the browser (§4.4) — the dashboard
 // opens the NDJSON stream and issues actions cross-origin with a Bearer JWT.
@@ -43,11 +47,7 @@ func CORS(origins []string) func(http.Handler) http.Handler {
 				h.Add("Vary", "Origin")
 				if r.Method == http.MethodOptions && r.Header.Get("Access-Control-Request-Method") != "" {
 					h.Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
-					if reqHeaders := r.Header.Get("Access-Control-Request-Headers"); reqHeaders != "" {
-						h.Set("Access-Control-Allow-Headers", reqHeaders)
-					} else {
-						h.Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Api-Key, Idempotency-Key")
-					}
+					h.Set("Access-Control-Allow-Headers", corsAllowedHeaders)
 					h.Set("Access-Control-Max-Age", strconv.Itoa(corsMaxAge))
 					w.WriteHeader(http.StatusNoContent)
 					return

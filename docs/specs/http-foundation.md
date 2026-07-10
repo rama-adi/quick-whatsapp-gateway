@@ -59,6 +59,8 @@ Auth lives in `internal/authz` and is detailed in [`trust-model.md`](trust-model
 > router's request-bound Ed25519 assertion, rebuilds the `Principal`, and puts it on the context.
 > `RequireRead/Send/Manage/Events/SuperAdmin` (`gates.go`) authorize from that principal, unchanged.
 > There is **no Authula cookie bridge** — that whole v1 path is gone.
+> Browser preflights receive a fixed allow-list of public headers; caller-requested headers are not
+> reflected, so internal-only headers cannot be opted into the browser CORS policy.
 
 ## `internal/http/middleware`
 
@@ -66,7 +68,7 @@ Transport-only middleware (no auth):
 
 ```go
 func Recover(log *slog.Logger) func(http.Handler) http.Handler   // panic -> logged 500 JSON; outermost
-func RequestID() func(http.Handler) http.Handler                 // honor inbound X-Request-Id else mint; ctx + echo
+func RequestID() func(http.Handler) http.Handler                 // honor bounded visible-ASCII X-Request-Id else mint; ctx + echo
 func Logger(log *slog.Logger) func(http.Handler) http.Handler    // one slog line: method,path,status,dur,reqid,org
 
 type RateLimiter interface { Allow(ctx, key string) (bool, error) }

@@ -88,6 +88,9 @@ func doBackupReq(h http.Handler, r *http.Request) *httptest.ResponseRecorder {
 	return w
 }
 
+// TestImportBackup_HappyPath verifies the valid import backup flow and its observable contract.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestImportBackup_HappyPath(t *testing.T) {
 	svc := &fakeBackupSvc{started: domain.BackfillImport{ID: "bfi_1", Status: "running"}}
 	h := backupRouter(svc, manageOrgPrincipal())
@@ -104,6 +107,9 @@ func TestImportBackup_HappyPath(t *testing.T) {
 	}
 }
 
+// TestImportBackup_SuperAdminThreaded verifies the import backup super admin threaded behavior remains part of the package contract.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestImportBackup_SuperAdminThreaded(t *testing.T) {
 	svc := &fakeBackupSvc{started: domain.BackfillImport{ID: "bfi_1", Status: "running"}}
 	h := backupRouter(svc, superAdminPrincipal())
@@ -116,6 +122,9 @@ func TestImportBackup_SuperAdminThreaded(t *testing.T) {
 	}
 }
 
+// TestImportBackup_NoPrincipal401 verifies unauthenticated callers are rejected with 401 before protected work runs.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestImportBackup_NoPrincipal401(t *testing.T) {
 	h := backupRouter(&fakeBackupSvc{}, nil)
 	w := doBackupReq(h, multipartUploadReq(t, []byte("x"), true, "key"))
@@ -127,6 +136,9 @@ func TestImportBackup_NoPrincipal401(t *testing.T) {
 	}
 }
 
+// TestImportBackup_MissingCapability403 verifies callers lacking the required authority are rejected with 403.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestImportBackup_MissingCapability403(t *testing.T) {
 	// A read-only api-key principal must not import backups.
 	p := &authz.Principal{Kind: authz.KindAPIKey, OrganizationID: testOrganization, KeyPermissions: domain.Permissions{Read: true}}
@@ -137,6 +149,9 @@ func TestImportBackup_MissingCapability403(t *testing.T) {
 	}
 }
 
+// TestImportBackup_MissingKey400 verifies invalid input preserves the documented client-error mapping for import backup missing key400.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestImportBackup_MissingKey400(t *testing.T) {
 	h := backupRouter(&fakeBackupSvc{}, manageOrgPrincipal())
 	w := doBackupReq(h, multipartUploadReq(t, []byte("x"), true, ""))
@@ -148,6 +163,9 @@ func TestImportBackup_MissingKey400(t *testing.T) {
 	}
 }
 
+// TestImportBackup_MissingFile400 verifies invalid input preserves the documented client-error mapping for import backup missing file400.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestImportBackup_MissingFile400(t *testing.T) {
 	h := backupRouter(&fakeBackupSvc{}, manageOrgPrincipal())
 	w := doBackupReq(h, multipartUploadReq(t, nil, false, "key"))
@@ -159,6 +177,9 @@ func TestImportBackup_MissingFile400(t *testing.T) {
 	}
 }
 
+// TestImportBackup_RateLimited429 verifies rate-limit denial preserves the public 429 response contract.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestImportBackup_RateLimited429(t *testing.T) {
 	svc := &fakeBackupSvc{err: domain.ErrRateLimited("once per day")}
 	h := backupRouter(svc, manageOrgPrincipal())
@@ -168,6 +189,9 @@ func TestImportBackup_RateLimited429(t *testing.T) {
 	}
 }
 
+// TestBackupStatus_HappyPath verifies the valid backup status flow and its observable contract.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestBackupStatus_HappyPath(t *testing.T) {
 	svc := &fakeBackupSvc{status: domain.BackfillImport{ID: "bfi_1", Status: "succeeded", Messages: 100}}
 	h := backupRouter(svc, manageOrgPrincipal())

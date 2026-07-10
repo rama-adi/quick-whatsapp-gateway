@@ -16,7 +16,11 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/humax"
 )
 
-// RouterConfig groups everything the router needs from the composition root.
+// RouterConfig groups the gateway HTTP engine's handlers and edge middleware.
+// In production Auth must be assertion.Middleware; nil exists only for isolated
+// tests and intentionally leaves API routes ungated. Readiness, OpenAPI serving,
+// limiting, and logging are optional, while RequestTimeout always resolves to a
+// bounded positive deadline.
 type RouterConfig struct {
 	Handlers *handlers.Handlers
 
@@ -47,11 +51,13 @@ type RouterConfig struct {
 	Log *slog.Logger
 }
 
-// NewRouter builds the full chi router per §11. The gateway is a pure WhatsApp
-// engine with NO human login: it has no /auth surface and serves no SPA. The
-// JSON API under /api/v1 is gated by the two-acceptor auth middleware
-// (JWKS-verified JWT OR better-auth api-key) plus the authz capability gates;
-// health/metrics probes stay unauthenticated.
+// NewRouter builds the gateway's full chi surface per §11. The gateway is a pure
+// WhatsApp engine: it has no human login, auth callback, or SPA. Production
+// /api/v1 requests arrive from the central router and are authenticated by a
+// request-bound internal assertion before huma capability gates run; health,
+// readiness, metrics, and the optional OpenAPI file remain outside that group.
+// Middleware order is load-bearing: recovery wraps instrumentation, timeout and
+// assertion context wrap operations, and rate limiting runs only when configured.
 func NewRouter(cfg RouterConfig) http.Handler {
 	log := cfg.Log
 	if log == nil {

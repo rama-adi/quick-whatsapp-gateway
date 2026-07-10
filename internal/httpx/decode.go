@@ -11,19 +11,26 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 )
 
-// DefaultMaxBodyBytes caps a decoded request body at 1 MiB. The send API never
-// uploads media (metadata-only, masterplan §1), so this is generous for JSON.
+// DefaultMaxBodyBytes is the allocation and read bound for ordinary JSON request
+// bodies. Media bytes use separate upload paths, so 1 MiB leaves ample room for
+// metadata while preventing an unauthenticated or malformed JSON body from
+// consuming unbounded memory.
 const DefaultMaxBodyBytes int64 = 1 << 20
 
-// DecodeJSON decodes the request body into dst. It enforces DefaultMaxBodyBytes,
-// rejects unknown fields, and requires exactly one top-level JSON value. Any
-// failure is returned as a *domain.APIError with code validation_error so the
-// handler can pass it straight to WriteError.
+// DecodeJSON decodes one request body into dst under DefaultMaxBodyBytes. The
+// destination must be a non-nil pointer, fields must be declared by its JSON
+// shape, and the stream must contain exactly one top-level value followed by EOF.
+// Caller mistakes in the destination map to internal_error; all malformed caller
+// input maps to validation_error and can be passed directly to WriteError.
 func DecodeJSON[T any](r *http.Request, dst *T) error {
 	return DecodeJSONLimit(r, dst, DefaultMaxBodyBytes)
 }
 
-// DecodeJSONLimit is DecodeJSON with a caller-chosen body cap (bytes).
+// DecodeJSONLimit applies DecodeJSON's strictness with a caller-specific byte cap.
+// It replaces r.Body with MaxBytesReader; the request owner remains responsible
+// for closing r.Body, and closing the wrapper closes the underlying stream. A
+// non-positive cap admits no non-empty body, which is useful only for explicitly
+// bodyless contracts.
 func DecodeJSONLimit[T any](r *http.Request, dst *T, maxBytes int64) error {
 	if r.Body == nil {
 		return domain.ErrValidation("request body is required")
@@ -42,8 +49,10 @@ func DecodeJSONLimit[T any](r *http.Request, dst *T, maxBytes int64) error {
 	return nil
 }
 
-// decodeError translates json/http decode failures into friendly
-// validation_error messages.
+// decodeError classifies decoder and size-limit failures without exposing raw
+// parser or reflection details. Syntax offsets and field names are safe enough to
+// help callers repair input; invalid destinations are programming errors and are
+// therefore masked as internal errors.
 func decodeError(err error) error {
 	var (
 		syntaxErr     *json.SyntaxError

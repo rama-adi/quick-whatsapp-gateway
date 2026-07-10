@@ -67,6 +67,9 @@ func principalFor(keyID, orgID, userID string) *Principal {
 	}
 }
 
+// TestCachingKeyVerifier_HitMiss verifies a positive lookup is reused without repeated database work.
+// It supplies controlled credentials or repository results and observes the resolved principal or denial.
+// This protects the caller-authentication boundary from fail-open behavior and upstream contract drift.
 func TestCachingKeyVerifier_HitMiss(t *testing.T) {
 	clk := &manualClock{now: time.UnixMilli(1_700_000_000_000)}
 	inner := &countingVerifier{byRaw: map[string]*Principal{
@@ -91,6 +94,9 @@ func TestCachingKeyVerifier_HitMiss(t *testing.T) {
 	}
 }
 
+// TestCachingKeyVerifier_ErrorsNotCached verifies failed authentication is never cached, preserving fail-closed retries.
+// It supplies controlled credentials or repository results and observes the resolved principal or denial.
+// This protects the caller-authentication boundary from fail-open behavior and upstream contract drift.
 func TestCachingKeyVerifier_ErrorsNotCached(t *testing.T) {
 	clk := &manualClock{now: time.UnixMilli(1_700_000_000_000)}
 	inner := &countingVerifier{
@@ -110,6 +116,9 @@ func TestCachingKeyVerifier_ErrorsNotCached(t *testing.T) {
 	}
 }
 
+// TestCachingKeyVerifier_TTLExpiry verifies the revocation backstop forces revalidation at TTL expiry.
+// It supplies controlled credentials or repository results and observes the resolved principal or denial.
+// This protects the caller-authentication boundary from fail-open behavior and upstream contract drift.
 func TestCachingKeyVerifier_TTLExpiry(t *testing.T) {
 	clk := &manualClock{now: time.UnixMilli(1_700_000_000_000)}
 	inner := &countingVerifier{byRaw: map[string]*Principal{
@@ -138,6 +147,9 @@ func TestCachingKeyVerifier_TTLExpiry(t *testing.T) {
 	}
 }
 
+// TestCachingKeyVerifier_Eviction table-tests precise key, user, organization, and membership eviction.
+// It supplies controlled credentials or repository results and observes the resolved principal or denial.
+// This protects the caller-authentication boundary from fail-open behavior and upstream contract drift.
 func TestCachingKeyVerifier_Eviction(t *testing.T) {
 	tests := []struct {
 		name string
@@ -233,6 +245,9 @@ func TestCachingKeyVerifier_Eviction(t *testing.T) {
 	}
 }
 
+// TestCachingKeyVerifier_EmptyKeyDelegates verifies malformed credentials retain the delegate's canonical error.
+// It supplies controlled credentials or repository results and observes the resolved principal or denial.
+// This protects the caller-authentication boundary from fail-open behavior and upstream contract drift.
 func TestCachingKeyVerifier_EmptyKeyDelegates(t *testing.T) {
 	inner := &countingVerifier{byRaw: map[string]*Principal{}}
 	c := NewCachingKeyVerifier(inner, DefaultKeyCacheTTL)
@@ -242,4 +257,85 @@ func TestCachingKeyVerifier_EmptyKeyDelegates(t *testing.T) {
 	if got := inner.callCount(); got != 1 {
 		t.Fatalf("empty key delegate calls = %d, want 1", got)
 	}
+}
+
+// TestCachingKeyVerifier_InvalidDelegateFailsClosed verifies missing or buggy delegates cannot populate the positive cache.
+// It supplies controlled credentials or repository results and observes the resolved principal or denial.
+// This protects the caller-authentication boundary from fail-open behavior and upstream contract drift.
+func TestCachingKeyVerifier_InvalidDelegateFailsClosed(t *testing.T) {
+	t.Run("nil delegate", func(t *testing.T) {
+		c := NewCachingKeyVerifier(nil, DefaultKeyCacheTTL)
+		if _, err := c.VerifyKey(context.Background(), "raw"); err == nil {
+			t.Fatal("expected nil delegate to fail closed")
+		}
+	})
+	t.Run("partial principal", func(t *testing.T) {
+		inner := &countingVerifier{byRaw: map[string]*Principal{
+			"raw": {Kind: KindAPIKey, OrganizationID: "org", KeyID: ""},
+		}}
+		c := NewCachingKeyVerifier(inner, DefaultKeyCacheTTL)
+		if _, err := c.VerifyKey(context.Background(), "raw"); err == nil {
+			t.Fatal("expected partial principal to fail closed")
+		}
+		if len(c.entries) != 0 {
+			t.Fatal("invalid principal must not be cached")
+		}
+	})
+}
+
+// TestCachingKeyVerifier_EvictionDuringLookupCannotResurrectEntry verifies the cache-fill/revocation race.
+// It pauses an authoritative lookup, evicts the still-absent key, then lets the stale lookup return and makes the mandatory retry report revocation.
+// The result must fail and leave no positive entry, establishing that eviction generation publication happens before cache insertion.
+func TestCachingKeyVerifier_EvictionDuringLookupCannotResurrectEntry(t *testing.T) {
+	inner := &revokingVerifier{
+		entered:   make(chan struct{}),
+		release:   make(chan struct{}),
+		principal: principalFor("key_a", "org_a", ""),
+	}
+	c := NewCachingKeyVerifier(inner, DefaultKeyCacheTTL)
+	result := make(chan error, 1)
+	go func() {
+		_, err := c.VerifyKey(context.Background(), "raw_a")
+		result <- err
+	}()
+	<-inner.entered
+	c.EvictKey("key_a")
+	close(inner.release)
+	if err := <-result; err == nil {
+		t.Fatal("verification succeeded after a concurrent revocation")
+	}
+	if got := inner.callCount(); got != 2 {
+		t.Fatalf("delegate calls = %d, want stale lookup plus authoritative retry", got)
+	}
+	if len(c.entries) != 0 {
+		t.Fatal("concurrent revocation was resurrected in the positive cache")
+	}
+}
+
+type revokingVerifier struct {
+	mu        sync.Mutex
+	calls     int
+	entered   chan struct{}
+	release   chan struct{}
+	principal *Principal
+}
+
+func (v *revokingVerifier) VerifyKey(context.Context, string) (*Principal, error) {
+	v.mu.Lock()
+	v.calls++
+	call := v.calls
+	v.mu.Unlock()
+	if call == 1 {
+		close(v.entered)
+		<-v.release
+		cp := *v.principal
+		return &cp, nil
+	}
+	return nil, errors.New("authz: revoked")
+}
+
+func (v *revokingVerifier) callCount() int {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return v.calls
 }

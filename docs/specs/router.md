@@ -49,9 +49,9 @@ Every `/api/v1` request flows through four steps:
 | any path naming a specific session (`.../sessions/{id}...`, incl. `/admin/sessions/{id}:action`) | the session's **owning** gateway | `wa_sessions.gateway_id` (authoritative) → registry `base_url` |
 | everything else — webhooks, `GET /sessions` list, admin list | **any active** gateway (gateway-agnostic) | served from shared MySQL, so any `active` gateway answers |
 
-**Stranded session.** If the owning gateway is missing, not `active`, or its heartbeat is stale,
-the router returns **`503 gateway_unavailable`** with a clear message rather than a silent hang (the
-new `gateway_unavailable` domain error code → HTTP 503).
+**Stranded session.** If the owning gateway is missing, not `active`, or its heartbeat is missing,
+stale, or implausibly far in the future, the router returns **`503 gateway_unavailable`** with a
+clear message rather than a silent hang (the `gateway_unavailable` domain error code → HTTP 503).
 
 ## Internal assertion (`internal/assertion`)
 
@@ -76,8 +76,9 @@ assertions.
 
 **Gateway verification order:** signature (against the router's JWKS) → `aud` == own `GATEWAY_ID`
 → `iss` == `ROUTER_ASSERTION_ISSUER` → `exp`/`iat` within ~5s skew → `method`/`path`/`bodyHash`
-match the actual request → `jti` not seen before (in-memory `NonceCache` anti-replay). Requires
-router/gateway clocks on NTP with small skew tolerance.
+match the actual request → coherent principal kind and required identity fields → `jti` not seen
+before (in-memory `NonceCache` anti-replay). Requires router/gateway clocks on NTP with small skew
+tolerance.
 
 > **Deviation from D3 (recorded).** D3's plain intent was to reuse the existing `JWTVerifier`
 > repointed at `ROUTER_JWKS_URL`. In practice the gateway uses a **dedicated jwx-based verifier in

@@ -5,12 +5,15 @@ import (
 	"time"
 )
 
-// NonceCache is the anti-replay store: it remembers each assertion's jti until it
-// expires, so a captured assertion cannot be redeemed twice within its freshness
-// window. In-memory per gateway instance is sufficient unless a single gateway
-// runs multiple replicas behind a load balancer, in which case the nonce store
-// must be shared (D3) — swap this for a Redis-backed implementation of the same
-// SeenBefore contract.
+// NonceCache is the concurrency-safe, in-memory anti-replay store for assertion
+// JWT IDs. SeenBefore atomically checks and records a nonce until token expiry, so
+// simultaneous redemptions cannot both succeed. Expired entries are swept at a
+// bounded cadence on the request path rather than by a background goroutine.
+//
+// The cache protects only one gateway process. Deployments that load-balance the
+// same gateway identity across multiple replicas must replace it with a shared
+// implementation; otherwise the same assertion could be redeemed once per
+// replica.
 type NonceCache struct {
 	mu   sync.Mutex
 	seen map[string]time.Time // jti -> expiry

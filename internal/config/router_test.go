@@ -6,6 +6,9 @@ import (
 	"testing"
 )
 
+// TestLoadRouter_DefaultsAndValidate verifies a complete router environment loads and validates with defaults.
+// It isolates environment inputs and compares the loaded values or validation error with the deployment contract.
+// This catches configuration drift that could weaken trust assumptions or make startup behavior unpredictable.
 func TestLoadRouter_DefaultsAndValidate(t *testing.T) {
 	keys := []string{
 		"ROUTER_HTTP_ADDR", "ROUTER_PUBLIC_URL", "ROUTER_ISSUER",
@@ -52,6 +55,9 @@ func TestLoadRouter_DefaultsAndValidate(t *testing.T) {
 	}
 }
 
+// TestLoadRouter_JWKSDerivedAndPubSubDefault verifies dependent URLs derive from canonical base settings.
+// It isolates environment inputs and compares the loaded values or validation error with the deployment contract.
+// This catches configuration drift that could weaken trust assumptions or make startup behavior unpredictable.
 func TestLoadRouter_JWKSDerivedAndPubSubDefault(t *testing.T) {
 	for _, k := range []string{"BETTER_AUTH_JWKS_URL", "PUBSUB_REDIS_URL"} {
 		t.Setenv(k, "")

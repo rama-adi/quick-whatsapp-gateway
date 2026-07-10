@@ -12,6 +12,9 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/humax"
 )
 
+// TestParam_DecodesEncodedJID verifies the param decodes encoded jid behavior remains part of the package contract.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestParam_DecodesEncodedJID(t *testing.T) {
 	// chi returns the still-escaped path segment when URL.RawPath is set; param
 	// must URL-decode it so a JID like "120363@g.us" (arriving as "120363%40g.us")
@@ -50,6 +53,9 @@ func adminRouter(svc AdminSvc, p *authz.Principal) http.Handler {
 	return r
 }
 
+// TestAdminListSessions_HappyPath verifies the valid admin list sessions flow and its observable contract.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestAdminListSessions_HappyPath(t *testing.T) {
 	svc := &fakeAdminSvc{list: []domain.WASession{{ID: "sess_1"}, {ID: "sess_2"}}}
 	h := adminRouter(svc, superAdminPrincipal())
@@ -66,6 +72,9 @@ func TestAdminListSessions_HappyPath(t *testing.T) {
 	}
 }
 
+// TestAdminListSessions_NoPrincipal401 verifies unauthenticated callers are rejected with 401 before protected work runs.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestAdminListSessions_NoPrincipal401(t *testing.T) {
 	h := adminRouter(&fakeAdminSvc{}, nil)
 	w := doReq(h, http.MethodGet, "/api/v1/admin/sessions", "")
@@ -77,6 +86,9 @@ func TestAdminListSessions_NoPrincipal401(t *testing.T) {
 	}
 }
 
+// TestAdminListSessions_NonSuperAdmin403 verifies callers lacking the required authority are rejected with 403.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestAdminListSessions_NonSuperAdmin403(t *testing.T) {
 	// An org owner (manage) must not reach the admin oversight surface.
 	h := adminRouter(&fakeAdminSvc{}, manageOrgPrincipal())
@@ -89,6 +101,9 @@ func TestAdminListSessions_NonSuperAdmin403(t *testing.T) {
 	}
 }
 
+// TestAdminStartSessionBackfill_202_ColonRoute verifies adapter routing forwards the required admin start session backfill 202 colon route inputs without loss.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestAdminStartSessionBackfill_202_ColonRoute(t *testing.T) {
 	svc := &fakeAdminSvc{job: domain.BackfillJob{ID: "job_1", SessionID: "sess_1", Status: "running"}}
 	h := adminRouter(svc, superAdminPrincipal())
@@ -106,6 +121,9 @@ func TestAdminStartSessionBackfill_202_ColonRoute(t *testing.T) {
 	}
 }
 
+// TestAdminSessionBackfillStatus_HappyPath verifies the valid admin session backfill status flow and its observable contract.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestAdminSessionBackfillStatus_HappyPath(t *testing.T) {
 	svc := &fakeAdminSvc{job: domain.BackfillJob{ID: "job_1", SessionID: "sess_1", Status: "done"}}
 	h := adminRouter(svc, superAdminPrincipal())

@@ -32,7 +32,7 @@ func newRealtimeServer(t *testing.T, principal *authz.Principal, sessions fakeSe
 		Sessions: sessions,
 		Gateways: fakeGateways{},
 		Minter:   m,
-		Keys:     fakeKeys{p: principal},
+		Tokens:   fakeTokens{p: principal},
 		Redis:    rdb,
 		Pump:     stream.NewPump(stream.PumpConfig{Redis: rdb}),
 		Registry: stream.NewConnRegistry(),
@@ -51,11 +51,14 @@ func mint(t *testing.T, srv *Server, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	rec := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/realtime/ticket", strings.NewReader(body))
-	r.Header.Set("X-Api-Key", "good-key")
+	r.Header.Set("Authorization", "Bearer aaa.bbb.ccc")
 	srv.Handler().ServeHTTP(rec, r)
 	return rec
 }
 
+// TestTicketMint_OrganizationScope verifies the ticket mint organization scope behavior remains part of the package contract.
+// It composes the router with deterministic resolvers, credentials, and upstreams, then observes the edge response.
+// This protects the single trust and routing boundary from cross-tenant leaks, hangs, or proxy contract drift.
 func TestTicketMint_OrganizationScope(t *testing.T) {
 	srv, rdb := newRealtimeServer(t, ownerPrincipal(), fakeSessions{m: map[string]domain.WASession{}})
 	rec := mint(t, srv, `{"scope":"organization"}`)
@@ -77,6 +80,9 @@ func TestTicketMint_OrganizationScope(t *testing.T) {
 	}
 }
 
+// TestTicketMint_FirehoseRequiresSuperAdmin verifies the ticket mint firehose requires super admin behavior remains part of the package contract.
+// It composes the router with deterministic resolvers, credentials, and upstreams, then observes the edge response.
+// This protects the single trust and routing boundary from cross-tenant leaks, hangs, or proxy contract drift.
 func TestTicketMint_FirehoseRequiresSuperAdmin(t *testing.T) {
 	srv, _ := newRealtimeServer(t, ownerPrincipal(), fakeSessions{m: map[string]domain.WASession{}})
 	rec := mint(t, srv, `{"scope":"firehose"}`)
@@ -92,6 +98,9 @@ func TestTicketMint_FirehoseRequiresSuperAdmin(t *testing.T) {
 	}
 }
 
+// TestTicketMint_SessionScope_OrgIsolation verifies tenant or target isolation cannot be bypassed across trust scopes.
+// It composes the router with deterministic resolvers, credentials, and upstreams, then observes the edge response.
+// This protects the single trust and routing boundary from cross-tenant leaks, hangs, or proxy contract drift.
 func TestTicketMint_SessionScope_OrgIsolation(t *testing.T) {
 	sessions := fakeSessions{m: map[string]domain.WASession{
 		"wa_other": {ID: "wa_other", OrganizationID: "org_2"},
@@ -103,6 +112,9 @@ func TestTicketMint_SessionScope_OrgIsolation(t *testing.T) {
 	}
 }
 
+// TestRealtime_EndToEnd_WS verifies the valid realtime flow and its observable contract.
+// It composes the router with deterministic resolvers, credentials, and upstreams, then observes the edge response.
+// This protects the single trust and routing boundary from cross-tenant leaks, hangs, or proxy contract drift.
 func TestRealtime_EndToEnd_WS(t *testing.T) {
 	srv, rdb := newRealtimeServer(t, ownerPrincipal(), fakeSessions{m: map[string]domain.WASession{}})
 	ts := httptest.NewServer(srv.Handler())
@@ -114,7 +126,7 @@ func TestRealtime_EndToEnd_WS(t *testing.T) {
 	// Mint via HTTP.
 	body := strings.NewReader(`{"scope":"organization"}`)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, ts.URL+"/api/v1/realtime/ticket", body)
-	req.Header.Set("X-Api-Key", "good-key")
+	req.Header.Set("Authorization", "Bearer aaa.bbb.ccc")
 	httpResp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)

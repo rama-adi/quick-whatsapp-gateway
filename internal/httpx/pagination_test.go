@@ -7,6 +7,9 @@ import (
 	"testing"
 )
 
+// TestParsePage table-tests absent, valid, malformed, and out-of-range query limits plus opaque cursors.
+// It expects deterministic defaults and clamps limits into the repository-safe range without interpreting the cursor.
+// This bounds list work while keeping pagination tokens owned by the data layer.
 func TestParsePage(t *testing.T) {
 	cases := []struct {
 		query      string
@@ -35,6 +38,9 @@ func TestParsePage(t *testing.T) {
 	}
 }
 
+// TestListEnvelope writes a populated page and a continuation cursor through the shared encoder.
+// It expects both items and nextCursor in the documented list envelope.
+// This keeps collection endpoints wire-compatible regardless of item type.
 func TestListEnvelope(t *testing.T) {
 	rec := httptest.NewRecorder()
 	ListEnvelope(rec, []string{"a", "b"}, "next123")
@@ -50,6 +56,9 @@ func TestListEnvelope(t *testing.T) {
 	}
 }
 
+// TestListEnvelopeNilIsEmptyArray writes a terminal page from a nil Go slice and empty cursor.
+// It expects data to encode as [] rather than null and nextCursor to be omitted.
+// Stable array semantics spare clients from handling a second empty-list representation.
 func TestListEnvelopeNilIsEmptyArray(t *testing.T) {
 	rec := httptest.NewRecorder()
 	ListEnvelope[string](rec, nil, "")

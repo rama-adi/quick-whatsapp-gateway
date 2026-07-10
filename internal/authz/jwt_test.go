@@ -5,8 +5,10 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -97,6 +99,9 @@ func (s *signer) fetcherFor(count *int32) jwksFetcher {
 	}
 }
 
+// TestJWTVerifier_VerifyToken table-tests signature, issuer, audience, expiry, and claim extraction.
+// It supplies controlled credentials or repository results and observes the resolved principal or denial.
+// This protects the caller-authentication boundary from fail-open behavior and upstream contract drift.
 func TestJWTVerifier_VerifyToken(t *testing.T) {
 	s := newEd25519Signer(t)
 	goodClaims := map[string]any{
@@ -207,6 +212,8 @@ func TestJWTVerifier_VerifyToken(t *testing.T) {
 
 // TestJWTVerifier_ServesOverHTTP exercises the real HTTP fetch path against an
 // httptest JWKS endpoint — the end-to-end gateway side of the contract.
+// It supplies controlled credentials or repository results and observes the resolved principal or denial.
+// This protects the caller-authentication boundary from fail-open behavior and upstream contract drift.
 func TestJWTVerifier_ServesOverHTTP(t *testing.T) {
 	s := newEd25519Signer(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -237,6 +244,8 @@ func TestJWTVerifier_ServesOverHTTP(t *testing.T) {
 // TestJWTVerifier_RefreshOnUnknownKID asserts that a token signed by a rotated
 // key (a kid not in the cached set) triggers exactly one extra JWKS fetch and
 // then verifies — the live key-rotation path of §4.1.
+// It supplies controlled credentials or repository results and observes the resolved principal or denial.
+// This protects the caller-authentication boundary from fail-open behavior and upstream contract drift.
 func TestJWTVerifier_RefreshOnUnknownKID(t *testing.T) {
 	first := newEd25519Signer(t) // initial key, kid = testKID
 	second := newSignerWithKID(t, "rotated-kid")
@@ -282,5 +291,84 @@ func TestJWTVerifier_RefreshOnUnknownKID(t *testing.T) {
 	}
 	if atomic.LoadInt32(&fetches) <= afterFirst {
 		t.Errorf("expected a refresh fetch on unknown kid, fetches=%d (was %d)", fetches, afterFirst)
+	}
+}
+
+// TestJWTVerifier_CoalescesConcurrentInitialFetch verifies concurrent refresh work is coalesced to prevent backend stampedes.
+// It supplies controlled credentials or repository results and observes the resolved principal or denial.
+// This protects the caller-authentication boundary from fail-open behavior and upstream contract drift.
+func TestJWTVerifier_CoalescesConcurrentInitialFetch(t *testing.T) {
+	s := newEd25519Signer(t)
+	var calls atomic.Int32
+	v, err := NewJWTVerifier(testIssuer+"/api/auth/jwks", testIssuer, withFetcher(func(context.Context, string) (jwk.Set, error) {
+		calls.Add(1)
+		return s.pubSet, nil
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok := s.mint(t, testIssuer, testIssuer, "user_concurrent", time.Now().Add(time.Minute), nil)
+	var wg sync.WaitGroup
+	for range 32 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := v.VerifyToken(context.Background(), tok); err != nil {
+				t.Errorf("VerifyToken: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("fetch calls = %d, want 1", got)
+	}
+}
+
+// TestJWTVerifier_CanceledWaiterDoesNotBlockBehindRefresh verifies refresh serialization honors each caller's context.
+// It blocks one cold-cache fetch, cancels a second verifier waiting for the refresh gate, and expects context.Canceled before releasing the fetch.
+// This keeps authentication cancellation bounded even when another request owns slow JWKS I/O.
+func TestJWTVerifier_CanceledWaiterDoesNotBlockBehindRefresh(t *testing.T) {
+	s := newEd25519Signer(t)
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	v, err := NewJWTVerifier(testIssuer+"/api/auth/jwks", testIssuer, withFetcher(func(context.Context, string) (jwk.Set, error) {
+		close(entered)
+		<-release
+		return s.pubSet, nil
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok := s.mint(t, testIssuer, testIssuer, "user_waiter", time.Now().Add(time.Minute), nil)
+	first := make(chan error, 1)
+	go func() {
+		_, err := v.VerifyToken(context.Background(), tok)
+		first <- err
+	}()
+	<-entered
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := v.VerifyToken(ctx, tok); !errors.Is(err, context.Canceled) {
+		t.Fatalf("waiting VerifyToken error = %v, want context.Canceled", err)
+	}
+	close(release)
+	if err := <-first; err != nil {
+		t.Fatalf("first VerifyToken: %v", err)
+	}
+}
+
+// TestJWTVerifier_RejectsEmptyJWKS verifies an empty trust store is an error, never anonymous trust.
+// It supplies controlled credentials or repository results and observes the resolved principal or denial.
+// This protects the caller-authentication boundary from fail-open behavior and upstream contract drift.
+func TestJWTVerifier_RejectsEmptyJWKS(t *testing.T) {
+	v, err := NewJWTVerifier(testIssuer+"/api/auth/jwks", testIssuer, withFetcher(func(context.Context, string) (jwk.Set, error) {
+		return jwk.NewSet(), nil
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := v.VerifyToken(context.Background(), "aaa.bbb.ccc"); err == nil {
+		t.Fatal("expected an empty fetched JWKS to be rejected")
 	}
 }

@@ -13,6 +13,9 @@ func corsNext() http.Handler {
 	})
 }
 
+// TestCORS table-tests origin matching, fixed preflight headers, and server-to-server pass-through.
+// It supplies controlled credentials or repository results and observes the resolved principal or denial.
+// This protects the caller-authentication boundary from fail-open behavior and upstream contract drift.
 func TestCORS(t *testing.T) {
 	origins := []string{"https://app.example", "https://admin.example/"}
 
@@ -72,14 +75,17 @@ func TestCORS(t *testing.T) {
 				}
 			}
 			if tt.preflight && tt.wantStatus == http.StatusNoContent {
-				if got := rec.Header().Get("Access-Control-Allow-Headers"); got != "Authorization" {
-					t.Errorf("Allow-Headers = %q, want reflected 'Authorization'", got)
+				if got := rec.Header().Get("Access-Control-Allow-Headers"); got != corsAllowedHeaders {
+					t.Errorf("Allow-Headers = %q, want %q", got, corsAllowedHeaders)
 				}
 			}
 		})
 	}
 }
 
+// TestCORS_Wildcard verifies wildcard configuration still reflects the credentialed request origin.
+// It supplies controlled credentials or repository results and observes the resolved principal or denial.
+// This protects the caller-authentication boundary from fail-open behavior and upstream contract drift.
 func TestCORS_Wildcard(t *testing.T) {
 	h := CORS([]string{"*"})(corsNext())
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -91,6 +97,9 @@ func TestCORS_Wildcard(t *testing.T) {
 	}
 }
 
+// TestCORS_Disabled verifies an empty allow-list emits no cross-origin authorization.
+// It supplies controlled credentials or repository results and observes the resolved principal or denial.
+// This protects the caller-authentication boundary from fail-open behavior and upstream contract drift.
 func TestCORS_Disabled(t *testing.T) {
 	h := CORS(nil)(corsNext())
 	r := httptest.NewRequest(http.MethodGet, "/", nil)

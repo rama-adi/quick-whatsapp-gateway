@@ -8,6 +8,9 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 )
 
+// TestAllow table-tests role and API-key capability decisions, including super-admin boundaries.
+// It supplies controlled credentials or repository results and observes the resolved principal or denial.
+// This protects the caller-authentication boundary from fail-open behavior and upstream contract drift.
 func TestAllow(t *testing.T) {
 	keyRead := &Principal{Kind: KindAPIKey, OrganizationID: "o", KeyPermissions: domain.Permissions{Read: true}}
 	keyAll := &Principal{Kind: KindAPIKey, OrganizationID: "o", KeyPermissions: domain.Permissions{Read: true, Send: true, Manage: true, Events: true}}
@@ -56,6 +59,9 @@ func gateNext() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 }
 
+// TestRequire verifies HTTP gates distinguish missing identity from insufficient authority.
+// It supplies controlled credentials or repository results and observes the resolved principal or denial.
+// This protects the caller-authentication boundary from fail-open behavior and upstream contract drift.
 func TestRequire(t *testing.T) {
 	member := &Principal{Kind: KindUser, OrganizationID: "o", OrgRole: OrgRoleMember}
 
@@ -106,6 +112,9 @@ func TestRequire(t *testing.T) {
 	}
 }
 
+// TestSetPrincipalMirrorsOrg verifies auth context mirrors the organization used by scoped stores.
+// It supplies controlled credentials or repository results and observes the resolved principal or denial.
+// This protects the caller-authentication boundary from fail-open behavior and upstream contract drift.
 func TestSetPrincipalMirrorsOrg(t *testing.T) {
 	p := &Principal{Kind: KindUser, OrganizationID: "org_mirror"}
 	ctx := SetPrincipal(t.Context(), p)

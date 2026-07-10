@@ -38,6 +38,9 @@ func chatRouter(svc ChatSvc, p *authz.Principal) http.Handler {
 	return r
 }
 
+// TestListChats_HappyPath verifies the valid list chats flow and its observable contract.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestListChats_HappyPath(t *testing.T) {
 	svc := &fakeChatSvc{chats: store.Page[domain.Chat]{
 		Items:      []domain.Chat{{ChatJID: "1@s.whatsapp.net"}, {ChatJID: "2@s.whatsapp.net"}},
@@ -63,6 +66,9 @@ func TestListChats_HappyPath(t *testing.T) {
 	}
 }
 
+// TestListChats_NoPrincipal401 verifies unauthenticated callers are rejected with 401 before protected work runs.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestListChats_NoPrincipal401(t *testing.T) {
 	h := chatRouter(&fakeChatSvc{}, nil)
 	w := doReq(h, http.MethodGet, "/api/v1/sessions/sess_1/chats", "")
@@ -74,6 +80,9 @@ func TestListChats_NoPrincipal401(t *testing.T) {
 	}
 }
 
+// TestGetChat_ThreadsCID verifies adapter routing forwards the required get chat threads cid inputs without loss.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestGetChat_ThreadsCID(t *testing.T) {
 	svc := &fakeChatSvc{one: domain.Chat{ChatJID: "1@s.whatsapp.net", Pinned: true}}
 	h := chatRouter(svc, manageOrgPrincipal())
@@ -86,6 +95,9 @@ func TestGetChat_ThreadsCID(t *testing.T) {
 	}
 }
 
+// TestListChatMessages_Envelope verifies list chat messages responses retain the documented envelope shape.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestListChatMessages_Envelope(t *testing.T) {
 	svc := &fakeChatSvc{messages: store.Page[domain.Message]{Items: []domain.Message{{}}, NextCursor: "7"}}
 	h := chatRouter(svc, manageOrgPrincipal())
@@ -110,6 +122,9 @@ func TestListChatMessages_Envelope(t *testing.T) {
 // surfaces as context.DeadlineExceeded (wrapped by the store) — the huma edge must
 // render it as a retryable 503 gateway_unavailable, NOT a masked 500 and never a
 // hang. This is the visible contract behind Fix 1.
+// TestListChatMessages_DeadlineExceededMapsTo503 verifies unavailable downstream work maps to the retryable 503 contract.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestListChatMessages_DeadlineExceededMapsTo503(t *testing.T) {
 	svc := &fakeChatSvc{err: fmt.Errorf("store: list messages: %w", context.DeadlineExceeded)}
 	h := chatRouter(svc, manageOrgPrincipal())
@@ -122,6 +137,9 @@ func TestListChatMessages_DeadlineExceededMapsTo503(t *testing.T) {
 	}
 }
 
+// TestGetChatPresence_HappyPath verifies the valid get chat presence flow and its observable contract.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestGetChatPresence_HappyPath(t *testing.T) {
 	svc := &fakeChatSvc{presence: domain.PresenceStatus{
 		ChatJID: "1@s.whatsapp.net",
@@ -145,6 +163,9 @@ func TestGetChatPresence_HappyPath(t *testing.T) {
 	}
 }
 
+// TestGetChatPresence_ReadOnlyAllowed verifies the get chat presence read only allowed behavior remains part of the package contract.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestGetChatPresence_ReadOnlyAllowed(t *testing.T) {
 	h := chatRouter(&fakeChatSvc{}, readOnlyPrincipal())
 	w := doReq(h, http.MethodGet, "/api/v1/sessions/sess_1/chats/c/presence", "")
@@ -153,6 +174,9 @@ func TestGetChatPresence_ReadOnlyAllowed(t *testing.T) {
 	}
 }
 
+// TestReadChat_HappyPath verifies the valid read chat flow and its observable contract.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestReadChat_HappyPath(t *testing.T) {
 	svc := &fakeChatSvc{one: domain.Chat{ChatJID: "1@s.whatsapp.net"}}
 	h := chatRouter(svc, manageOrgPrincipal())
@@ -165,6 +189,9 @@ func TestReadChat_HappyPath(t *testing.T) {
 	}
 }
 
+// TestUpdateChat_ThreadsFlags verifies adapter routing forwards the required update chat threads flags inputs without loss.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestUpdateChat_ThreadsFlags(t *testing.T) {
 	svc := &fakeChatSvc{one: domain.Chat{ChatJID: "1@s.whatsapp.net", Pinned: true}}
 	h := chatRouter(svc, manageOrgPrincipal())
@@ -181,6 +208,9 @@ func TestUpdateChat_ThreadsFlags(t *testing.T) {
 	}
 }
 
+// TestDeleteChat_NoContent verifies delete chat no content succeeds with an empty 204 response.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestDeleteChat_NoContent(t *testing.T) {
 	h := chatRouter(&fakeChatSvc{}, manageOrgPrincipal())
 	w := doReq(h, http.MethodDelete, "/api/v1/sessions/sess_1/chats/1@s.whatsapp.net", "")
@@ -189,6 +219,9 @@ func TestDeleteChat_NoContent(t *testing.T) {
 	}
 }
 
+// TestChatPresence_NotImplementedPropagates verifies unsupported behavior remains an explicit 501 instead of being masked.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestChatPresence_NotImplementedPropagates(t *testing.T) {
 	// When the live client is unavailable the service returns not_implemented;
 	// the op must surface it as 501.
@@ -207,6 +240,9 @@ func TestChatPresence_NotImplementedPropagates(t *testing.T) {
 	}
 }
 
+// TestChatPresence_MissingSendCapability403 verifies the chat presence missing send capability403 behavior remains part of the package contract.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestChatPresence_MissingSendCapability403(t *testing.T) {
 	// A read-only api-key can read chats but must not drive send-gated mutations.
 	h := chatRouter(&fakeChatSvc{}, readOnlyPrincipal())

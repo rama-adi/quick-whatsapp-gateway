@@ -50,6 +50,9 @@ func doReq(h http.Handler, method, target, body string) *httptest.ResponseRecord
 	return w
 }
 
+// TestCreateWebhook_HappyPath_SecretThreadedNotReturned verifies the valid create webhook secret threaded not returned flow and its observable contract.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestCreateWebhook_HappyPath_SecretThreadedNotReturned(t *testing.T) {
 	svc := &fakeWebhookSvc{created: domain.Webhook{ID: "wh_1", URL: "https://x", Events: []string{"message"}, HMACSecret: []byte("encrypted")}}
 	h := webhookRouter(svc, manageOrgPrincipal())
@@ -65,6 +68,9 @@ func TestCreateWebhook_HappyPath_SecretThreadedNotReturned(t *testing.T) {
 	}
 }
 
+// TestCreateWebhook_NoPrincipal401 verifies unauthenticated callers are rejected with 401 before protected work runs.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestCreateWebhook_NoPrincipal401(t *testing.T) {
 	h := webhookRouter(&fakeWebhookSvc{}, nil)
 	w := doReq(h, http.MethodPost, "/api/v1/webhooks", `{"url":"x"}`)
@@ -76,6 +82,9 @@ func TestCreateWebhook_NoPrincipal401(t *testing.T) {
 	}
 }
 
+// TestCreateWebhook_ServiceValidation verifies invalid input preserves the documented client-error mapping for create webhook service validation.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestCreateWebhook_ServiceValidation(t *testing.T) {
 	svc := &fakeWebhookSvc{err: domain.ErrValidation("url is required")}
 	h := webhookRouter(svc, manageOrgPrincipal())
@@ -88,6 +97,9 @@ func TestCreateWebhook_ServiceValidation(t *testing.T) {
 	}
 }
 
+// TestListWebhooks_Envelope verifies list webhooks responses retain the documented envelope shape.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestListWebhooks_Envelope(t *testing.T) {
 	svc := &fakeWebhookSvc{list: []domain.Webhook{{ID: "wh_1"}}}
 	h := webhookRouter(svc, manageOrgPrincipal())
@@ -104,6 +116,9 @@ func TestListWebhooks_Envelope(t *testing.T) {
 	}
 }
 
+// TestUpdateWebhook_HappyPath verifies the valid update webhook flow and its observable contract.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestUpdateWebhook_HappyPath(t *testing.T) {
 	svc := &fakeWebhookSvc{updated: domain.Webhook{ID: "wh_1", URL: "https://y"}}
 	h := webhookRouter(svc, manageOrgPrincipal())
@@ -116,6 +131,9 @@ func TestUpdateWebhook_HappyPath(t *testing.T) {
 	}
 }
 
+// TestDeleteWebhook_204 verifies delete webhook 204 succeeds with an empty 204 response.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestDeleteWebhook_204(t *testing.T) {
 	h := webhookRouter(&fakeWebhookSvc{}, manageOrgPrincipal())
 	w := doReq(h, http.MethodDelete, "/api/v1/webhooks/wh_1", "")
@@ -124,6 +142,9 @@ func TestDeleteWebhook_204(t *testing.T) {
 	}
 }
 
+// TestWebhook_MissingCapability403 verifies callers lacking the required authority are rejected with 403.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestWebhook_MissingCapability403(t *testing.T) {
 	// A read-only api-key principal must not manage webhooks.
 	p := &authz.Principal{Kind: authz.KindAPIKey, OrganizationID: testOrganization, KeyPermissions: domain.Permissions{Read: true}}

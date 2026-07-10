@@ -2,6 +2,7 @@ package assertion
 
 import (
 	"crypto/ed25519"
+	"errors"
 	"fmt"
 	"time"
 
@@ -12,9 +13,14 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 )
 
-// Minter signs internal assertions on the router. It holds the Ed25519 private key
-// and stamps each token with the resolved principal + the request binding. One
-// Minter is shared across all proxied requests.
+// Minter is the only component that holds the router's Ed25519 private assertion
+// key. A single immutable instance is safe to share across requests: each Mint
+// call snapshots the verified principal, target gateway, request target, method,
+// and body digest into a short-lived token with a fresh nonce.
+//
+// Construction rejects invalid key material, issuer, lifetime, clock, or nonce
+// source. Mint rejects partial identities and incomplete bindings before signing,
+// preventing the router from emitting assertions the gateway cannot safely scope.
 type Minter struct {
 	signer jwk.Key
 	kid    string
@@ -61,6 +67,12 @@ func NewMinter(priv ed25519.PrivateKey, issuer string, opts ...MinterOption) (*M
 	for _, o := range opts {
 		o(m)
 	}
+	if m.ttl <= 0 {
+		return nil, errors.New("assertion: minter ttl must be positive")
+	}
+	if m.now == nil || m.newJTI == nil {
+		return nil, errors.New("assertion: minter dependencies must not be nil")
+	}
 	return m, nil
 }
 
@@ -80,18 +92,29 @@ func (m *Minter) JWKS() (jwk.Set, error) {
 	return set, nil
 }
 
-// Mint produces a signed, request-bound assertion for one proxied request.
+// Mint produces one signed assertion for an already authenticated request. It
+// does not perform end-user authentication; callers must pass the Principal from
+// the router auth middleware and the exact bytes that will be proxied. The result
+// is intended for one immediate redemption because the verifier enforces expiry
+// and nonce uniqueness.
 func (m *Minter) Mint(p Principal, req Request) (string, error) {
-	if req.Gateway == "" {
-		return "", fmt.Errorf("assertion: mint requires a target gateway (aud)")
+	if err := validatePrincipal(p); err != nil {
+		return "", err
+	}
+	if req.Gateway == "" || req.Method == "" || req.Path == "" {
+		return "", errors.New("assertion: mint requires gateway, method, and path")
 	}
 	now := m.now()
+	jti := m.newJTI()
+	if jti == "" {
+		return "", errors.New("assertion: mint generated an empty nonce")
+	}
 	b := jwt.NewBuilder().
 		Issuer(m.issuer).
 		Audience([]string{req.Gateway}).
 		IssuedAt(now).
 		Expiration(now.Add(m.ttl)).
-		JwtID(m.newJTI()).
+		JwtID(jti).
 		Subject(p.UserID).
 		Claim(claimOrg, p.OrganizationID).
 		Claim(claimKind, p.Kind).
@@ -114,4 +137,23 @@ func (m *Minter) Mint(p Principal, req Request) (string, error) {
 		return "", fmt.Errorf("assertion: sign token: %w", err)
 	}
 	return string(signed), nil
+}
+
+// validatePrincipal enforces the wire identity invariants shared by minting and
+// verification. User principals require a subject, while API-key principals are
+// always organization-scoped and retain a key ID for audit and revocation.
+func validatePrincipal(p Principal) error {
+	switch p.Kind {
+	case "user":
+		if p.UserID == "" {
+			return errors.New("assertion: user principal requires a user id")
+		}
+	case "apikey":
+		if p.OrganizationID == "" || p.KeyID == "" {
+			return errors.New("assertion: api-key principal requires organization and key ids")
+		}
+	default:
+		return fmt.Errorf("assertion: unsupported principal kind %q", p.Kind)
+	}
+	return nil
 }

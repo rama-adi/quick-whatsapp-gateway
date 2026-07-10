@@ -37,6 +37,9 @@ func channelRouter(svc ChannelSvc, p *authz.Principal) http.Handler {
 	return r
 }
 
+// TestCreateChannel_HappyPath verifies the valid create channel flow and its observable contract.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestCreateChannel_HappyPath(t *testing.T) {
 	svc := &fakeChannelSvc{jid: "123@newsletter"}
 	h := channelRouter(svc, sendOrgPrincipal())
@@ -49,6 +52,9 @@ func TestCreateChannel_HappyPath(t *testing.T) {
 	}
 }
 
+// TestCreateChannel_NotImplementedPropagates verifies unsupported behavior remains an explicit 501 instead of being masked.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestCreateChannel_NotImplementedPropagates(t *testing.T) {
 	svc := &fakeChannelSvc{err: domain.ErrNotImplemented("channel create is not implemented yet")}
 	h := channelRouter(svc, sendOrgPrincipal())
@@ -61,6 +67,9 @@ func TestCreateChannel_NotImplementedPropagates(t *testing.T) {
 	}
 }
 
+// TestMuteChannel_DefaultsToMute verifies mute channel defaults to mute configuration and fallback behavior remain stable.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestMuteChannel_DefaultsToMute(t *testing.T) {
 	svc := &fakeChannelSvc{}
 	h := channelRouter(svc, sendOrgPrincipal())
@@ -73,6 +82,9 @@ func TestMuteChannel_DefaultsToMute(t *testing.T) {
 	}
 }
 
+// TestFollowChannel_NoPrincipal401 verifies unauthenticated callers are rejected with 401 before protected work runs.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestFollowChannel_NoPrincipal401(t *testing.T) {
 	h := channelRouter(&fakeChannelSvc{}, nil)
 	w := doReq(h, http.MethodPost, "/api/v1/sessions/s/channels/c@newsletter:follow", "")
@@ -81,6 +93,9 @@ func TestFollowChannel_NoPrincipal401(t *testing.T) {
 	}
 }
 
+// TestChannel_MissingCapability403 verifies callers lacking the required authority are rejected with 403.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestChannel_MissingCapability403(t *testing.T) {
 	// A read-only api-key principal must not perform send-gated channel ops.
 	h := channelRouter(&fakeChannelSvc{}, readOnlyPrincipal())
@@ -112,6 +127,9 @@ func statusRouter(status StatusSvc, presence PresenceSvc, p *authz.Principal) ht
 	return r
 }
 
+// TestPostStatus_TextHappyPath verifies the valid post status text flow and its observable contract.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestPostStatus_TextHappyPath(t *testing.T) {
 	svc := &fakeStatusSvc{id: "WAMSG1"}
 	h := statusRouter(svc, nil, sendOrgPrincipal())
@@ -124,6 +142,9 @@ func TestPostStatus_TextHappyPath(t *testing.T) {
 	}
 }
 
+// TestPostStatus_Image501 verifies unsupported behavior remains an explicit 501 instead of being masked.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestPostStatus_Image501(t *testing.T) {
 	h := statusRouter(&fakeStatusSvc{}, nil, sendOrgPrincipal())
 	w := doReq(h, http.MethodPost, "/api/v1/sessions/s/status", `{"type":"image"}`)
@@ -135,6 +156,9 @@ func TestPostStatus_Image501(t *testing.T) {
 	}
 }
 
+// TestPostStatus_NoPrincipal401 verifies unauthenticated callers are rejected with 401 before protected work runs.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestPostStatus_NoPrincipal401(t *testing.T) {
 	h := statusRouter(&fakeStatusSvc{}, nil, nil)
 	w := doReq(h, http.MethodPost, "/api/v1/sessions/s/status", `{"type":"text","text":"hi"}`)
@@ -143,6 +167,9 @@ func TestPostStatus_NoPrincipal401(t *testing.T) {
 	}
 }
 
+// TestStatus_MissingCapability403 verifies callers lacking the required authority are rejected with 403.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestStatus_MissingCapability403(t *testing.T) {
 	// A read-only api-key principal must not perform send-gated status ops.
 	h := statusRouter(&fakeStatusSvc{}, nil, readOnlyPrincipal())
@@ -152,6 +179,9 @@ func TestStatus_MissingCapability403(t *testing.T) {
 	}
 }
 
+// TestSetPresence_HappyPath verifies the valid set presence flow and its observable contract.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestSetPresence_HappyPath(t *testing.T) {
 	svc := &fakePresenceSvc{}
 	h := statusRouter(nil, svc, sendOrgPrincipal())
@@ -164,6 +194,9 @@ func TestSetPresence_HappyPath(t *testing.T) {
 	}
 }
 
+// TestSetPresence_ValidationPropagates verifies invalid input preserves the documented client-error mapping for set presence validation propagates.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestSetPresence_ValidationPropagates(t *testing.T) {
 	svc := &fakePresenceSvc{err: domain.ErrValidation("state must be online or offline")}
 	h := statusRouter(nil, svc, sendOrgPrincipal())

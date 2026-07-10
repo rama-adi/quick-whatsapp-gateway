@@ -37,6 +37,9 @@ func messageRouter(svc MessageSvc, p *authz.Principal) http.Handler {
 	return r
 }
 
+// TestSendMessage_SyncHappyPath verifies the valid send message sync flow and its observable contract.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestSendMessage_SyncHappyPath(t *testing.T) {
 	svc := &fakeMessageSvc{result: outbound.SendResult{Mode: outbound.ModeSync, WAMessageID: "WA1", Status: domain.MessageSent}}
 	h := messageRouter(svc, sendOrgPrincipal())
@@ -55,6 +58,9 @@ func TestSendMessage_SyncHappyPath(t *testing.T) {
 	}
 }
 
+// TestSendMessage_AsyncIs202_AndOptionsThreaded verifies the send message async is202 and options threaded behavior remains part of the package contract.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestSendMessage_AsyncIs202_AndOptionsThreaded(t *testing.T) {
 	svc := &fakeMessageSvc{result: outbound.SendResult{Mode: outbound.ModeAsync, OutboxID: "out_1"}}
 	h := messageRouter(svc, sendOrgPrincipal())
@@ -75,6 +81,9 @@ func TestSendMessage_AsyncIs202_AndOptionsThreaded(t *testing.T) {
 	}
 }
 
+// TestSendMessage_NoPrincipal401 verifies unauthenticated callers are rejected with 401 before protected work runs.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestSendMessage_NoPrincipal401(t *testing.T) {
 	h := messageRouter(&fakeMessageSvc{}, nil)
 	w := doReq(h, http.MethodPost, "/api/v1/sessions/s1/messages", `{"type":"text"}`)
@@ -86,6 +95,9 @@ func TestSendMessage_NoPrincipal401(t *testing.T) {
 	}
 }
 
+// TestSendMessage_ServiceValidationError verifies invalid input preserves the documented client-error mapping for send message service validation error.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestSendMessage_ServiceValidationError(t *testing.T) {
 	svc := &fakeMessageSvc{err: domain.ErrValidation("text is required")}
 	h := messageRouter(svc, sendOrgPrincipal())
@@ -98,6 +110,9 @@ func TestSendMessage_ServiceValidationError(t *testing.T) {
 	}
 }
 
+// TestSendMessage_RateLimited429 verifies rate-limit denial preserves the public 429 response contract.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestSendMessage_RateLimited429(t *testing.T) {
 	svc := &fakeMessageSvc{err: domain.ErrRateLimited("slow down")}
 	h := messageRouter(svc, sendOrgPrincipal())
@@ -107,6 +122,9 @@ func TestSendMessage_RateLimited429(t *testing.T) {
 	}
 }
 
+// TestSendMessage_MissingCapability403 verifies callers lacking the required authority are rejected with 403.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestSendMessage_MissingCapability403(t *testing.T) {
 	// A read-only api-key principal must not send messages.
 	p := &authz.Principal{Kind: authz.KindAPIKey, OrganizationID: testOrganization, KeyPermissions: domain.Permissions{Read: true}}
@@ -117,6 +135,9 @@ func TestSendMessage_MissingCapability403(t *testing.T) {
 	}
 }
 
+// TestEditMessage_Routes verifies adapter routing forwards the required edit message routes inputs without loss.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestEditMessage_Routes(t *testing.T) {
 	svc := &fakeMessageSvc{result: outbound.SendResult{Mode: outbound.ModeSync}}
 	h := messageRouter(svc, sendOrgPrincipal())
@@ -129,6 +150,9 @@ func TestEditMessage_Routes(t *testing.T) {
 	}
 }
 
+// TestRevokeMessage_Routes verifies adapter routing forwards the required revoke message routes inputs without loss.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestRevokeMessage_Routes(t *testing.T) {
 	svc := &fakeMessageSvc{result: outbound.SendResult{Mode: outbound.ModeSync}}
 	h := messageRouter(svc, sendOrgPrincipal())
@@ -141,6 +165,9 @@ func TestRevokeMessage_Routes(t *testing.T) {
 	}
 }
 
+// TestAddReaction_PassesEmoji verifies adapter routing forwards the required add reaction passes emoji inputs without loss.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestAddReaction_PassesEmoji(t *testing.T) {
 	svc := &fakeMessageSvc{result: outbound.SendResult{Mode: outbound.ModeSync}}
 	h := messageRouter(svc, sendOrgPrincipal())
@@ -153,6 +180,9 @@ func TestAddReaction_PassesEmoji(t *testing.T) {
 	}
 }
 
+// TestRemoveReaction_ClearsEmoji verifies the remove reaction clears emoji behavior remains part of the package contract.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestRemoveReaction_ClearsEmoji(t *testing.T) {
 	svc := &fakeMessageSvc{result: outbound.SendResult{Mode: outbound.ModeSync}}
 	h := messageRouter(svc, sendOrgPrincipal())
@@ -165,6 +195,9 @@ func TestRemoveReaction_ClearsEmoji(t *testing.T) {
 	}
 }
 
+// TestForwardMessage_Routes verifies adapter routing forwards the required forward message routes inputs without loss.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestForwardMessage_Routes(t *testing.T) {
 	svc := &fakeMessageSvc{result: outbound.SendResult{Mode: outbound.ModeSync}}
 	h := messageRouter(svc, sendOrgPrincipal())
@@ -177,6 +210,9 @@ func TestForwardMessage_Routes(t *testing.T) {
 	}
 }
 
+// TestVoteMessage_Routes verifies adapter routing forwards the required vote message routes inputs without loss.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestVoteMessage_Routes(t *testing.T) {
 	svc := &fakeMessageSvc{result: outbound.SendResult{Mode: outbound.ModeSync}}
 	h := messageRouter(svc, sendOrgPrincipal())

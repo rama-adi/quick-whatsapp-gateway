@@ -33,6 +33,9 @@ func clearEnv(t *testing.T) {
 	}
 }
 
+// TestLoad_Defaults verifies an empty environment produces the documented safe defaults.
+// It isolates environment inputs and compares the loaded values or validation error with the deployment contract.
+// This catches configuration drift that could weaken trust assumptions or make startup behavior unpredictable.
 func TestLoad_Defaults(t *testing.T) {
 	clearEnv(t)
 
@@ -82,6 +85,9 @@ func TestLoad_Defaults(t *testing.T) {
 	}
 }
 
+// TestLoad_EnvOverride verifies every supported environment override is parsed and retained.
+// It isolates environment inputs and compares the loaded values or validation error with the deployment contract.
+// This catches configuration drift that could weaken trust assumptions or make startup behavior unpredictable.
 func TestLoad_EnvOverride(t *testing.T) {
 	clearEnv(t)
 
@@ -161,6 +167,9 @@ func TestLoad_EnvOverride(t *testing.T) {
 	}
 }
 
+// TestLoad_PubSubRedisURLDefaultsToRedisURL verifies pub/sub reuses the primary Redis URL when unset.
+// It isolates environment inputs and compares the loaded values or validation error with the deployment contract.
+// This catches configuration drift that could weaken trust assumptions or make startup behavior unpredictable.
 func TestLoad_PubSubRedisURLDefaultsToRedisURL(t *testing.T) {
 	clearEnv(t)
 	t.Setenv("REDIS_URL", "redis://localhost:6379")
@@ -175,6 +184,9 @@ func TestLoad_PubSubRedisURLDefaultsToRedisURL(t *testing.T) {
 	}
 }
 
+// TestLoad_InvalidIntAndBoolFallBackToDefault verifies malformed optional values cannot erase defaults.
+// It isolates environment inputs and compares the loaded values or validation error with the deployment contract.
+// This catches configuration drift that could weaken trust assumptions or make startup behavior unpredictable.
 func TestLoad_InvalidIntAndBoolFallBackToDefault(t *testing.T) {
 	clearEnv(t)
 	t.Setenv("DEFAULT_RATE_PER_MIN", "not-a-number")
@@ -192,6 +204,9 @@ func TestLoad_InvalidIntAndBoolFallBackToDefault(t *testing.T) {
 	}
 }
 
+// TestValidate table-tests required settings and cross-field production constraints.
+// It isolates environment inputs and compares the loaded values or validation error with the deployment contract.
+// This catches configuration drift that could weaken trust assumptions or make startup behavior unpredictable.
 func TestValidate(t *testing.T) {
 	// base returns a minimally-valid config that Validate accepts.
 	base := func() *Config {

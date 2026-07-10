@@ -35,7 +35,11 @@ const defaultStaleAfter = 90 * time.Second
 // JWKSPath is where the router publishes its assertion-verification public keys.
 const JWKSPath = "/.well-known/router-jwks.json"
 
-// Config wires the router's collaborators from the composition root.
+// Config wires the router's trust, routing, realtime, and observability
+// collaborators. Sessions, Gateways, and Minter are mandatory because the router
+// cannot safely resolve or authorize proxy targets without them. Other nil
+// collaborators disable their optional route family or select the documented
+// default; NewServer validates and snapshots the configuration before serving.
 type Config struct {
 	Sessions SessionResolver
 	Gateways GatewayResolver
@@ -69,7 +73,11 @@ type Config struct {
 	Log        *slog.Logger
 }
 
-// Server is the router's composed HTTP application.
+// Server is the immutable, concurrency-safe router application after composition.
+// Request handlers read its collaborators but do not mutate configuration; the
+// assertion JWKS is serialized once at construction so every response advertises
+// the same key material used by the Minter. Mutable dependencies such as Redis,
+// repositories, registries, and transports own their own synchronization.
 type Server struct {
 	sessions      SessionResolver
 	gateways      GatewayResolver
@@ -96,7 +104,10 @@ type Server struct {
 	log           *slog.Logger
 }
 
-// NewServer builds a router Server, precomputing the published JWKS.
+// NewServer validates mandatory routing and signing dependencies, precomputes the
+// public assertion JWKS, and installs bounded transport, clock, staleness, and
+// logger defaults. It performs no network I/O and either returns a fully usable
+// Server or an error; callers must not attempt to serve a partial configuration.
 func NewServer(cfg Config) (*Server, error) {
 	if cfg.Sessions == nil || cfg.Gateways == nil {
 		return nil, errMissing("session/gateway resolvers")

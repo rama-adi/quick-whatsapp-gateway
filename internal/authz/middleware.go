@@ -25,26 +25,27 @@ func Authenticate(tokens TokenVerifier, keys KeyVerifier) func(http.Handler) htt
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			bearer, hasBearer := bearerToken(r)
-			apiKey := r.Header.Get("X-Api-Key")
 
 			// Acceptor 1: a bearer that looks like a JWT → JWKS verify.
-			if hasBearer && looksLikeJWT(bearer) && tokens != nil {
-				if p, err := tokens.VerifyToken(r.Context(), bearer); err == nil && p != nil {
-					next.ServeHTTP(w, r.WithContext(SetPrincipal(r.Context(), p)))
-					return
+			if hasBearer && looksLikeJWT(bearer) {
+				if tokens != nil {
+					if p, err := tokens.VerifyToken(r.Context(), bearer); err == nil && validPrincipal(p, KindUser) {
+						next.ServeHTTP(w, r.WithContext(SetPrincipal(r.Context(), p)))
+						return
+					}
 				}
-				// Fall through: a malformed/expired JWT is not retried as a key,
-				// but a bearer that merely "looked like" a JWT and failed should
-				// still be rejected below.
+				// Never reinterpret a failed JWT itself as an API key. A separately
+				// supplied X-Api-Key may still use the second acceptor.
 			}
 
-			// Acceptor 2: bearer (non-JWT) or x-api-key → api-key verify.
-			raw := apiKey
+			// Acceptor 2: an explicit X-Api-Key takes precedence over an opaque
+			// bearer when both are present.
+			raw := r.Header.Get("X-Api-Key")
 			if raw == "" && hasBearer && !looksLikeJWT(bearer) {
 				raw = bearer
 			}
 			if raw != "" && keys != nil {
-				if p, err := keys.VerifyKey(r.Context(), raw); err == nil && p != nil {
+				if p, err := keys.VerifyKey(r.Context(), raw); err == nil && validPrincipal(p, KindAPIKey) {
 					next.ServeHTTP(w, r.WithContext(SetPrincipal(r.Context(), p)))
 					return
 				}
@@ -52,6 +53,25 @@ func Authenticate(tokens TokenVerifier, keys KeyVerifier) func(http.Handler) htt
 
 			httpx.WriteError(w, domain.ErrUnauthorized("missing or invalid credentials"))
 		})
+	}
+}
+
+// validPrincipal is the final structural check between credential verification
+// and authorization context. Human identities must carry a user ID; API keys must
+// carry both their owning organization and stable key ID. A nil, cross-kind, or
+// partial result from a buggy verifier is treated exactly like invalid credentials
+// and never reaches a handler.
+func validPrincipal(p *Principal, want PrincipalKind) bool {
+	if p == nil || p.Kind != want {
+		return false
+	}
+	switch want {
+	case KindUser:
+		return p.UserID != ""
+	case KindAPIKey:
+		return p.OrganizationID != "" && p.KeyID != ""
+	default:
+		return false
 	}
 }
 

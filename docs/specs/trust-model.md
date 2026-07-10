@@ -143,7 +143,8 @@ assertion. Full claim set + custody live in [`router.md`](router.md).
 
 **Gateway verification order:** signature (router JWKS) → `aud` == own `GATEWAY_ID` → `iss` ==
 `ROUTER_ASSERTION_ISSUER` (default `"router"`) → `exp`/`iat` within ~5s skew → `method`/`path`/
-`bodyHash` match the actual request → `jti` not seen before (in-memory `NonceCache` anti-replay).
+`bodyHash` match the actual request → coherent principal kind and required identity fields →
+`jti` not seen before (in-memory `NonceCache` anti-replay).
 
 > **Note.** The gateway uses a **dedicated jwx-based verifier in `internal/assertion`** (not the
 > plain `JWTVerifier`) because it must extract the request-binding claims (`method`/`path`/
@@ -159,27 +160,34 @@ assertion. Full claim set + custody live in [`router.md`](router.md).
 > endpoint in **Increment B**; today the router still proxies the gateway's NDJSON stream. The
 > description below is the behavior, now owned by the router.
 
-Each gateway keeps a small **positive cache** of validated keys (`internal/authz/apikey_cache.go`,
+The router keeps a small **positive cache** of validated keys (`internal/authz/apikey_cache.go`,
 TTL ~60 s, fail-closed) so a busy client isn't a DB lookup per request. The TTL is the
 **backstop**: even a missed notification stops a revoked key within the window (the `apikey` row
 is gone, so the next refresh fails closed).
 
+Cache eviction also advances a process-wide authorization generation, including when the key was
+not cached. A database verification that started before that increment may not publish its result;
+it re-reads the authoritative row after the eviction. This creates a concrete happens-before edge
+between control-bus handling and positive-cache insertion, preventing an in-flight lookup from
+resurrecting a key immediately after revocation. Cache locks are not held during database I/O, so
+unrelated hits and evictions remain responsive.
+
 **Instant revocation** rides a cross-service **Redis control bus** (`PUBSUB_REDIS_URL`, defaults
-to `REDIS_URL`). The frontend publishes; every gateway subscribes (`Subscriber`,
+to `REDIS_URL`). The frontend publishes; the router subscribes (`Subscriber`,
 `internal/controlbus/controlbus.go`). The channels are **global literals**:
 
-| Channel | Payload | Gateway action |
+| Channel | Payload | Router action |
 |---|---|---|
 | `ctrl:apikey.revoked` | `{keyId, userId?}` | evict the cache entry for `keyId`; drop live streams it authenticated |
 | `ctrl:user.banned` | `{userId}` | drop the user's cached keys + all their live streams; feed a short JWT deny-list (TTL = max JWT lifetime) |
 | `ctrl:member.removed` | `{userId, organizationId}` | deny `(userId, orgId)` until JWT TTL ages out; drop that org's streams for the user |
 
-> **Broadcast, not addressed.** The bus fans out to all gateways; the one holding the
-> entry/connection acts, the rest no-op. The frontend never tracks which gateway holds a session
+> **Broadcast, not addressed.** The global channel remains independent of stack prefixes; the
+> router holding the entry/connection acts. The frontend never tracks which gateway holds a session
 > for revocation purposes (session *pinning* via `gateways`/`gateway_id` is a separate concern —
 > see `whatsmeow-store.md` / `store.md`).
 >
-> **Delivery semantics:** Redis pub/sub is fire-and-forget — a gateway that's down when a message
+> **Delivery semantics:** Redis pub/sub is fire-and-forget — a router that's down when a message
 > is published misses it, which the 60 s TTL backstop + boot reconcile cover. Promote `ctrl:*` to
 > a Redis Stream with consumer groups if at-least-once is later required; call sites keep shape.
 

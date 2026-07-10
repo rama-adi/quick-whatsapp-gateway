@@ -64,15 +64,17 @@ func (s *Server) broker(w http.ResponseWriter, r *http.Request, gateway domain.G
 	s.reverseProxy(target, tok).ServeHTTP(w, r)
 }
 
-// bufferBody reads (and resets) the request body so it can be both hashed and
-// forwarded. ContentLength is fixed up so a previously-chunked upload forwards
-// with a known length.
+// bufferBody reads and restores the exact bytes that will be covered by the
+// internal assertion. It caps memory use, closes the original network body even
+// on read failure, and installs a new reader for ReverseProxy. ContentLength is
+// updated so chunked input is forwarded consistently with the signed digest.
 func bufferBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 	if r.Body == nil {
 		return nil, nil
 	}
 	limited := http.MaxBytesReader(w, r.Body, maxProxyBody)
 	b, err := io.ReadAll(limited)
+	_ = limited.Close()
 	if err != nil {
 		return nil, err
 	}

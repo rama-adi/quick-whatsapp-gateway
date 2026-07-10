@@ -41,6 +41,9 @@ func captureHandler(captured **Principal) http.Handler {
 // a structurally-valid (unverified) JWT-shaped string: three non-empty segments.
 const jwtShaped = "aaa.bbb.ccc"
 
+// TestAuthenticate table-tests credential precedence, verifier routing, and fail-closed principal validation.
+// It supplies controlled credentials or repository results and observes the resolved principal or denial.
+// This protects the caller-authentication boundary from fail-open behavior and upstream contract drift.
 func TestAuthenticate(t *testing.T) {
 	userP := &Principal{Kind: KindUser, UserID: "u1", OrganizationID: "org_u"}
 	keyP := &Principal{Kind: KindAPIKey, OrganizationID: "org_k", KeyID: "k1"}
@@ -82,6 +85,20 @@ func TestAuthenticate(t *testing.T) {
 			tokens:     fakeTokenVerifier{err: errors.New("bad sig")},
 			keys:       fakeKeyVerifier{p: keyP},
 			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name:       "invalid verifier principal is rejected",
+			authHeader: "Bearer " + jwtShaped,
+			tokens:     fakeTokenVerifier{p: &Principal{Kind: KindAPIKey, KeyID: "wrong-kind", OrganizationID: "org"}},
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name:       "separate api-key may authenticate when bearer JWT is invalid",
+			authHeader: "Bearer " + jwtShaped,
+			apiKeyHdr:  "ba_opaque_key",
+			tokens:     fakeTokenVerifier{err: errors.New("bad sig")},
+			keys:       fakeKeyVerifier{p: keyP},
+			wantStatus: http.StatusOK, wantKind: KindAPIKey, wantOrg: "org_k",
 		},
 		{
 			name:       "no credentials rejected",
@@ -130,6 +147,9 @@ func TestAuthenticate(t *testing.T) {
 	}
 }
 
+// TestLooksLikeJWT verifies only compact three-segment tokens enter the JWT verifier path.
+// It supplies controlled credentials or repository results and observes the resolved principal or denial.
+// This protects the caller-authentication boundary from fail-open behavior and upstream contract drift.
 func TestLooksLikeJWT(t *testing.T) {
 	tests := []struct {
 		in   string

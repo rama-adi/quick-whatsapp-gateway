@@ -17,6 +17,8 @@ import (
 // padding. Source: better-auth v1.6.x packages/api-key/src/index.ts
 // `defaultKeyHasher`: createHash("SHA-256").digest(utf8(key)) then
 // base64Url.encode(..., {padding:false}).
+// It supplies controlled credentials or repository results and observes the resolved principal or denial.
+// This protects the caller-authentication boundary from fail-open behavior and upstream contract drift.
 func TestDefaultHasher(t *testing.T) {
 	h := DefaultHasher()
 
@@ -57,6 +59,9 @@ func (r fakeKeyRepo) GetByHash(_ context.Context, keyHash string) (domain.APIKey
 
 func ptrI64(v int64) *int64 { return &v }
 
+// TestAPIKeyVerifier_VerifyKey table-tests hash lookup, enablement, expiry, and organization ownership.
+// It supplies controlled credentials or repository results and observes the resolved principal or denial.
+// This protects the caller-authentication boundary from fail-open behavior and upstream contract drift.
 func TestAPIKeyVerifier_VerifyKey(t *testing.T) {
 	const raw = "ba_secret_key"
 	hash := DefaultHasher().Hash(raw)
@@ -152,6 +157,9 @@ func TestAPIKeyVerifier_VerifyKey(t *testing.T) {
 	}
 }
 
+// TestNewAPIKeyVerifier_NilRepo verifies construction fails before a nil repository can panic at runtime.
+// It supplies controlled credentials or repository results and observes the resolved principal or denial.
+// This protects the caller-authentication boundary from fail-open behavior and upstream contract drift.
 func TestNewAPIKeyVerifier_NilRepo(t *testing.T) {
 	if _, err := NewAPIKeyVerifier(nil, nil); err == nil {
 		t.Fatal("expected error for nil repo")

@@ -39,11 +39,20 @@ func jwkFetchFunc(ctx context.Context, url string) (jwk.Set, error) {
 	return jwk.Fetch(ctx, url)
 }
 
-// JWTVerifier verifies better-auth JWTs locally against a cached JWKS (§4.1). It
-// fetches the JWKS on first use, caches the whole set (keyed internally by kid by
-// the jwk.Set), and refreshes it (a) when a token's kid is not in the cache and
-// (b) no more often than minRefresh, plus (c) lazily once the set is older than
-// refreshEvery. Verification never calls the frontend on the hot path.
+// JWTVerifier verifies better-auth JWTs locally against a concurrency-safe JWKS
+// cache (§4.1). It enforces signature, issuer, audience, standard time claims,
+// and a non-empty subject before it constructs a human Principal. Optional
+// organization and role claims affect later authorization but never bypass the
+// cryptographic checks.
+//
+// The first verification fetches keys synchronously. Later calls use cached keys,
+// lazily refresh stale material, and trigger a rate-limited refresh for an unknown
+// key ID. Concurrent refreshes are coalesced by generation behind a context-aware
+// gate, so a cold start cannot stampede better-auth and canceled waiters do not
+// remain blocked behind another request's fetch. Gate release happens before the
+// next waiter checks the generation, while mu protects publication of the set.
+// Transient refresh failures may use an existing non-empty set; an empty trust
+// store always fails closed.
 type JWTVerifier struct {
 	jwksURL string
 	issuer  string // == audience == BETTER_AUTH_URL
@@ -58,10 +67,14 @@ type JWTVerifier struct {
 	mu          sync.RWMutex
 	set         jwk.Set
 	fetchedAt   time.Time
-	lastRefresh time.Time
+	generation  uint64
+	refreshGate chan struct{}
+	lastRefresh time.Time // protected by refreshGate
 }
 
-// JWTVerifierOption configures a JWTVerifier.
+// JWTVerifierOption configures cache age and attacker-triggered refresh limits.
+// Options are applied only during construction and validated before the verifier
+// is returned.
 type JWTVerifierOption func(*JWTVerifier)
 
 // WithRefreshInterval sets how long a cached JWKS is served before a lazy
@@ -101,9 +114,16 @@ func NewJWTVerifier(jwksURL, betterAuthURL string, opts ...JWTVerifierOption) (*
 		now:          time.Now,
 		refreshEvery: time.Hour,
 		minRefresh:   time.Minute,
+		refreshGate:  make(chan struct{}, 1),
 	}
 	for _, o := range opts {
 		o(v)
+	}
+	if v.fetch == nil || v.now == nil {
+		return nil, errors.New("authz: jwks verifier dependencies must not be nil")
+	}
+	if v.refreshEvery <= 0 || v.minRefresh < 0 {
+		return nil, errors.New("authz: jwks refresh intervals are invalid")
 	}
 	return v, nil
 }
@@ -142,19 +162,19 @@ func (v *JWTVerifier) VerifyToken(ctx context.Context, raw string) (*Principal, 
 	return p, nil
 }
 
-// keySetFor returns the cached JWKS, refreshing it first if the token's kid is
-// not yet known (rate-limited) or if the cache is stale. The kid is read from the
-// JWS protected header WITHOUT verifying the signature; the actual verification
-// in VerifyToken is what establishes trust.
+// keySetFor selects trust material for one verification. The key ID is read from
+// the unverified protected header only as a cache hint; it never establishes
+// identity or authorization. Unknown IDs can request a bounded refresh, after
+// which VerifyToken still requires a valid signature from the returned set.
 func (v *JWTVerifier) keySetFor(ctx context.Context, raw string) (jwk.Set, error) {
 	kid := protectedKeyID(raw)
 
-	set, fetchedAt := v.cached()
+	set, fetchedAt, generation := v.cached()
 	stale := set == nil || v.now().Sub(fetchedAt) >= v.refreshEvery
 	unknownKid := set != nil && kid != "" && !hasKey(set, kid)
 
 	if stale || unknownKid {
-		refreshed, err := v.refresh(ctx, unknownKid)
+		refreshed, err := v.refresh(ctx, unknownKid, generation)
 		switch {
 		case err == nil:
 			set = refreshed
@@ -170,37 +190,49 @@ func (v *JWTVerifier) keySetFor(ctx context.Context, raw string) (jwk.Set, error
 	return set, nil
 }
 
-// refresh fetches a fresh JWKS and swaps it in. When rateLimited is true (an
-// unknown-kid trigger), it skips the fetch if the last refresh was too recent,
-// returning the current cached set so a burst of bad kids can't hammer the JWKS.
-func (v *JWTVerifier) refresh(ctx context.Context, rateLimited bool) (jwk.Set, error) {
-	v.mu.Lock()
+// refresh serializes network fetches and swaps in only non-empty key sets. The
+// observed generation lets waiters reuse a refresh completed while they waited;
+// unknown-key requests are additionally throttled so attacker-controlled token
+// headers cannot amplify traffic to the identity service.
+func (v *JWTVerifier) refresh(ctx context.Context, rateLimited bool, observedGeneration uint64) (jwk.Set, error) {
+	select {
+	case v.refreshGate <- struct{}{}:
+		defer func() { <-v.refreshGate }()
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+
+	cur, _, generation := v.cached()
+	if generation != observedGeneration {
+		return cur, nil // another caller already completed this refresh
+	}
 	if rateLimited && !v.lastRefresh.IsZero() && v.now().Sub(v.lastRefresh) < v.minRefresh {
-		cur := v.set
-		v.mu.Unlock()
 		if cur == nil {
 			return nil, errors.New("authz: jwks refresh rate-limited and no cache")
 		}
 		return cur, nil
 	}
 	v.lastRefresh = v.now()
-	v.mu.Unlock()
 
 	set, err := v.fetch(ctx, v.jwksURL)
 	if err != nil {
 		return nil, fmt.Errorf("authz: fetch jwks: %w", err)
 	}
+	if set == nil || set.Len() == 0 {
+		return nil, errors.New("authz: fetched jwks is empty")
+	}
 	v.mu.Lock()
 	v.set = set
 	v.fetchedAt = v.now()
+	v.generation++
 	v.mu.Unlock()
 	return set, nil
 }
 
-func (v *JWTVerifier) cached() (jwk.Set, time.Time) {
+func (v *JWTVerifier) cached() (jwk.Set, time.Time, uint64) {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
-	return v.set, v.fetchedAt
+	return v.set, v.fetchedAt, v.generation
 }
 
 // protectedKeyID extracts the `kid` from a compact JWS without verifying it.

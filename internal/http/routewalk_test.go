@@ -13,6 +13,8 @@ import (
 // TestReadChatRouteRegistered walks the real router and asserts the chat
 // mark-as-read endpoint is registered as POST. Proves a 404 against it is an
 // environment/stale-binary issue, not a missing route.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestReadChatRouteRegistered(t *testing.T) {
 	r := NewRouter(RouterConfig{Handlers: &handlers.Handlers{}})
 

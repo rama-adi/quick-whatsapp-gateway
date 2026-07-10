@@ -7,6 +7,9 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 )
 
+// TestOrganizationIDCtx starts with a bare context, then stores and reads an organization ID.
+// It expects the zero value before insertion and the exact tenant identifier afterward.
+// This protects organization-scoped handlers from context-key collisions or accidental fallback tenants.
 func TestOrganizationIDCtx(t *testing.T) {
 	ctx := context.Background()
 	if OrganizationID(ctx) != "" {
@@ -18,6 +21,9 @@ func TestOrganizationIDCtx(t *testing.T) {
 	}
 }
 
+// TestAPIKeyCtx stores a verified API-key pointer and retrieves it through the shared accessor.
+// It expects nil when authentication did not set a key and preserves the authenticated key identity when present.
+// This guards audit and revocation code that distinguishes API-key callers from human principals.
 func TestAPIKeyCtx(t *testing.T) {
 	ctx := context.Background()
 	if APIKeyCtx(ctx) != nil {
@@ -30,6 +36,9 @@ func TestAPIKeyCtx(t *testing.T) {
 	}
 }
 
+// TestRequestIDCtx exercises the request-correlation context slot from empty context through insertion.
+// It expects no invented value and exact propagation of the middleware-generated ID.
+// This prevents unrelated context values from contaminating logs and response correlation.
 func TestRequestIDCtx(t *testing.T) {
 	ctx := context.Background()
 	if RequestID(ctx) != "" {

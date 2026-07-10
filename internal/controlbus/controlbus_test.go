@@ -140,6 +140,9 @@ func waitFor(t *testing.T, cond func() bool) {
 	t.Fatal("condition not met within timeout")
 }
 
+// TestSubscriber_APIKeyRevoked verifies key revocation evicts credentials and drops matching streams.
+// It publishes a controlled Redis message and observes cache eviction, connection drops, or subscriber lifecycle.
+// This preserves prompt revocation while ensuring malformed events cannot broaden their impact.
 func TestSubscriber_APIKeyRevoked(t *testing.T) {
 	_, rc := newRedis(t)
 	cache := &fakeCache{}
@@ -163,6 +166,9 @@ func TestSubscriber_APIKeyRevoked(t *testing.T) {
 	}
 }
 
+// TestSubscriber_UserBanned verifies a ban invalidates every cached and live identity for that user.
+// It publishes a controlled Redis message and observes cache eviction, connection drops, or subscriber lifecycle.
+// This preserves prompt revocation while ensuring malformed events cannot broaden their impact.
 func TestSubscriber_UserBanned(t *testing.T) {
 	_, rc := newRedis(t)
 	cache := &fakeCache{}
@@ -182,6 +188,9 @@ func TestSubscriber_UserBanned(t *testing.T) {
 	})
 }
 
+// TestSubscriber_MemberRemoved verifies member removal is scoped to the specified user and organization.
+// It publishes a controlled Redis message and observes cache eviction, connection drops, or subscriber lifecycle.
+// This preserves prompt revocation while ensuring malformed events cannot broaden their impact.
 func TestSubscriber_MemberRemoved(t *testing.T) {
 	_, rc := newRedis(t)
 	cache := &fakeCache{}
@@ -201,6 +210,9 @@ func TestSubscriber_MemberRemoved(t *testing.T) {
 	})
 }
 
+// TestSubscriber_MalformedAndMissingFieldsIgnored verifies bad pub/sub payloads cannot crash or trigger broad eviction.
+// It publishes a controlled Redis message and observes cache eviction, connection drops, or subscriber lifecycle.
+// This preserves prompt revocation while ensuring malformed events cannot broaden their impact.
 func TestSubscriber_MalformedAndMissingFieldsIgnored(t *testing.T) {
 	_, rc := newRedis(t)
 	cache := &fakeCache{}
@@ -226,6 +238,8 @@ func TestSubscriber_MalformedAndMissingFieldsIgnored(t *testing.T) {
 // real CachingKeyVerifier is warmed, a ctrl:apikey.revoked is PUBLISHed via
 // miniredis, and the cache entry is observed to be evicted (next VerifyKey
 // re-delegates to the inner verifier).
+// It publishes a controlled Redis message and observes cache eviction, connection drops, or subscriber lifecycle.
+// This preserves prompt revocation while ensuring malformed events cannot broaden their impact.
 func TestSubscriber_EvictsRealCache(t *testing.T) {
 	_, rc := newRedis(t)
 
@@ -270,6 +284,9 @@ func TestSubscriber_EvictsRealCache(t *testing.T) {
 	}
 }
 
+// TestSubscriber_StopIsClean verifies subscriber shutdown releases its pub/sub loop without leaking or hanging.
+// It publishes a controlled Redis message and observes cache eviction, connection drops, or subscriber lifecycle.
+// This preserves prompt revocation while ensuring malformed events cannot broaden their impact.
 func TestSubscriber_StopIsClean(t *testing.T) {
 	_, rc := newRedis(t)
 	sub := New(rc, &fakeCache{}, &fakeDropper{}, nil)

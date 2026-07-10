@@ -47,9 +47,15 @@ type StreamDropper interface {
 	DropByUserOrg(userID, orgID string) int
 }
 
-// Subscriber wires a Redis pub/sub subscription on the ctrl:* channels to the
-// local cache + stream registry. Construct with New, then Start (spawns the
-// receive loop) and Stop (clean shutdown) it from the composition root.
+// Subscriber wires Redis ctrl:* messages to the local credential cache and live
+// connection registry. Start performs a synchronous subscription handshake and
+// then owns one receive goroutine; Stop atomically detaches its lifecycle state,
+// cancels and closes pub/sub, and waits for that goroutine's done signal.
+//
+// The lifecycle mutex protects only start/stop state and is never held while Stop
+// waits, avoiding self-deadlock with the loop. Message handling is serialized by
+// that loop, while the cache and registry remain responsible for their own
+// concurrency. Missing optional reaction targets are safe no-ops.
 type Subscriber struct {
 	rdb     *redis.Client
 	cache   KeyCache
@@ -80,9 +86,11 @@ type ctrlMessage struct {
 	OrganizationID string `json:"organizationId"`
 }
 
-// Start opens the subscription and runs the receive loop in a goroutine. It
-// returns once the subscription is confirmed (so a publish immediately after
-// Start is not missed). Calling Start twice is a no-op after the first.
+// Start opens the subscription and returns only after Redis confirms it, creating
+// a happens-before edge for any publish issued after Start returns. The receive
+// loop deliberately uses a context detached from the caller's cancellation;
+// ownership transfers to Subscriber and Stop is the sole shutdown operation.
+// Concurrent or repeated successful Start calls create at most one loop.
 func (s *Subscriber) Start(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -183,8 +191,10 @@ func (s *Subscriber) handle(channel, payload string) {
 	}
 }
 
-// Stop cancels the receive loop and closes the subscription, blocking until the
-// goroutine has exited. Safe to call when never started.
+// Stop is idempotent and safe when never started. It clears lifecycle fields
+// under the mutex before cancellation, then waits without the mutex until loop's
+// deferred close(done), ensuring all prior message handling has completed when
+// Stop returns and allowing a later Start to build a fresh subscription.
 func (s *Subscriber) Stop() {
 	s.mu.Lock()
 	cancel := s.cancel

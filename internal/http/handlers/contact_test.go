@@ -30,6 +30,9 @@ func contactRouter(svc ContactSvc, p *authz.Principal) http.Handler {
 	return r
 }
 
+// TestListContacts_FiltersThreaded verifies the list contacts filters threaded behavior remains part of the package contract.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestListContacts_FiltersThreaded(t *testing.T) {
 	svc := &fakeContactSvc{contacts: store.Page[domain.Contact]{Items: []domain.Contact{{LID: "x"}}}}
 	h := contactRouter(svc, readOnlyPrincipal())
@@ -42,6 +45,9 @@ func TestListContacts_FiltersThreaded(t *testing.T) {
 	}
 }
 
+// TestListContacts_ValidationPropagates verifies invalid input preserves the documented client-error mapping for list contacts validation propagates.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestListContacts_ValidationPropagates(t *testing.T) {
 	svc := &fakeContactSvc{err: domain.ErrValidation("source must be dm or group")}
 	h := contactRouter(svc, readOnlyPrincipal())
@@ -54,6 +60,9 @@ func TestListContacts_ValidationPropagates(t *testing.T) {
 	}
 }
 
+// TestListContacts_NoPrincipal401 verifies unauthenticated callers are rejected with 401 before protected work runs.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestListContacts_NoPrincipal401(t *testing.T) {
 	h := contactRouter(&fakeContactSvc{}, nil)
 	w := doReq(h, http.MethodGet, "/api/v1/sessions/s/contacts", "")
@@ -65,6 +74,9 @@ func TestListContacts_NoPrincipal401(t *testing.T) {
 	}
 }
 
+// TestCheckContact_HappyPath verifies the valid check contact flow and its observable contract.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestCheckContact_HappyPath(t *testing.T) {
 	svc := &fakeContactSvc{check: domain.OnWhatsApp{Query: "+628", JID: "628@s.whatsapp.net", IsIn: true}}
 	h := contactRouter(svc, readOnlyPrincipal())
@@ -79,6 +91,9 @@ func TestCheckContact_HappyPath(t *testing.T) {
 	}
 }
 
+// TestGetContactAbout_HappyPath verifies the valid get contact about flow and its observable contract.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestGetContactAbout_HappyPath(t *testing.T) {
 	svc := &fakeContactSvc{about: "hey there"}
 	h := contactRouter(svc, readOnlyPrincipal())
@@ -95,6 +110,9 @@ func TestGetContactAbout_HappyPath(t *testing.T) {
 	}
 }
 
+// TestBlockContact_ThreadsTrue verifies adapter routing forwards the required block contact threads true inputs without loss.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestBlockContact_ThreadsTrue(t *testing.T) {
 	svc := &fakeContactSvc{}
 	h := contactRouter(svc, sendOrgPrincipal())
@@ -110,6 +128,9 @@ func TestBlockContact_ThreadsTrue(t *testing.T) {
 	}
 }
 
+// TestUnblockContact_ThreadsFalse verifies adapter routing forwards the required unblock contact threads false inputs without loss.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestUnblockContact_ThreadsFalse(t *testing.T) {
 	svc := &fakeContactSvc{}
 	h := contactRouter(svc, sendOrgPrincipal())
@@ -122,6 +143,9 @@ func TestUnblockContact_ThreadsFalse(t *testing.T) {
 	}
 }
 
+// TestBlockContact_MissingCapability403 verifies callers lacking the required authority are rejected with 403.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestBlockContact_MissingCapability403(t *testing.T) {
 	// A read-only api-key principal must not block contacts (send-gated).
 	h := contactRouter(&fakeContactSvc{}, readOnlyPrincipal())

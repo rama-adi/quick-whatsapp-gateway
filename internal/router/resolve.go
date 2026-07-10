@@ -77,19 +77,23 @@ func (s *Server) pickAnyActiveGateway(ctx context.Context) (domain.Gateway, erro
 	return domain.Gateway{}, domain.ErrUnavailable("no active gateway available")
 }
 
-// gatewayUsable reports whether a gateway can take proxied traffic: it must be
-// active or draining (draining finishes in-flight work) and its heartbeat must be
-// fresh (a stale heartbeat means the gateway is effectively unreachable even if
-// its row still says active — the "unreachable" state is derived here, D8).
+// gatewayUsable derives reachability from registry state rather than trusting the
+// status column alone. Active and draining gateways remain eligible only with a
+// present heartbeat inside the freshness window; timestamps equally far in the
+// future are rejected because clock corruption could otherwise keep a dead
+// gateway routable indefinitely.
 func (s *Server) gatewayUsable(g domain.Gateway) bool {
 	switch g.Status {
 	case domain.GatewayActive, domain.GatewayDraining:
 	default:
 		return false
 	}
-	if s.staleAfter > 0 && g.LastSeenAt != nil {
+	if s.staleAfter > 0 {
+		if g.LastSeenAt == nil {
+			return false
+		}
 		age := s.now().Sub(time.UnixMilli(*g.LastSeenAt))
-		if age > s.staleAfter {
+		if age > s.staleAfter || age < -s.staleAfter {
 			return false
 		}
 	}

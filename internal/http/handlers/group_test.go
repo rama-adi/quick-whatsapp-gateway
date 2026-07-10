@@ -29,6 +29,9 @@ func groupRouter(svc GroupSvc, p *authz.Principal) http.Handler {
 	return r
 }
 
+// TestCreateGroup_HappyPath verifies the valid create group flow and its observable contract.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestCreateGroup_HappyPath(t *testing.T) {
 	svc := &fakeGroupSvc{info: domain.GroupInfo{GroupJID: "120@g.us"}}
 	h := groupRouter(svc, sendOrgPrincipal())
@@ -41,6 +44,9 @@ func TestCreateGroup_HappyPath(t *testing.T) {
 	}
 }
 
+// TestCreateGroup_ServiceValidation verifies invalid input preserves the documented client-error mapping for create group service validation.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestCreateGroup_ServiceValidation(t *testing.T) {
 	svc := &fakeGroupSvc{err: domain.ErrValidation("name is required")}
 	h := groupRouter(svc, sendOrgPrincipal())
@@ -53,6 +59,9 @@ func TestCreateGroup_ServiceValidation(t *testing.T) {
 	}
 }
 
+// TestListGroups_Envelope verifies list groups responses retain the documented envelope shape.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestListGroups_Envelope(t *testing.T) {
 	svc := &fakeGroupSvc{groups: []domain.Group{{GroupJID: "120@g.us"}}}
 	h := groupRouter(svc, readOnlyPrincipal())
@@ -69,6 +78,9 @@ func TestListGroups_Envelope(t *testing.T) {
 	}
 }
 
+// TestGetGroup_NoPrincipal401 verifies unauthenticated callers are rejected with 401 before protected work runs.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestGetGroup_NoPrincipal401(t *testing.T) {
 	h := groupRouter(&fakeGroupSvc{}, nil)
 	w := doReq(h, http.MethodGet, "/api/v1/sessions/sess_1/groups/120@g.us", "")
@@ -80,6 +92,9 @@ func TestGetGroup_NoPrincipal401(t *testing.T) {
 	}
 }
 
+// TestListGroupMembers_Envelope verifies list group members responses retain the documented envelope shape.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestListGroupMembers_Envelope(t *testing.T) {
 	svc := &fakeGroupSvc{members: []domain.GroupMember{{LID: "1@s.whatsapp.net"}}}
 	h := groupRouter(svc, readOnlyPrincipal())
@@ -96,6 +111,9 @@ func TestListGroupMembers_Envelope(t *testing.T) {
 	}
 }
 
+// TestAddGroupMembers_204 verifies add group members 204 succeeds with an empty 204 response.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestAddGroupMembers_204(t *testing.T) {
 	svc := &fakeGroupSvc{}
 	h := groupRouter(svc, sendOrgPrincipal())
@@ -108,6 +126,9 @@ func TestAddGroupMembers_204(t *testing.T) {
 	}
 }
 
+// TestRemoveGroupMember_204 verifies remove group member 204 succeeds with an empty 204 response.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestRemoveGroupMember_204(t *testing.T) {
 	svc := &fakeGroupSvc{}
 	h := groupRouter(svc, sendOrgPrincipal())
@@ -120,6 +141,9 @@ func TestRemoveGroupMember_204(t *testing.T) {
 	}
 }
 
+// TestPromoteGroupMember_204 verifies promote group member 204 succeeds with an empty 204 response.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestPromoteGroupMember_204(t *testing.T) {
 	svc := &fakeGroupSvc{}
 	h := groupRouter(svc, sendOrgPrincipal())
@@ -132,6 +156,9 @@ func TestPromoteGroupMember_204(t *testing.T) {
 	}
 }
 
+// TestDemoteGroupMember_204 verifies demote group member 204 succeeds with an empty 204 response.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestDemoteGroupMember_204(t *testing.T) {
 	svc := &fakeGroupSvc{}
 	h := groupRouter(svc, sendOrgPrincipal())
@@ -144,6 +171,9 @@ func TestDemoteGroupMember_204(t *testing.T) {
 	}
 }
 
+// TestUpdateGroup_204_ThreadsSettings verifies adapter routing forwards the required update group 204 threads settings inputs without loss.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestUpdateGroup_204_ThreadsSettings(t *testing.T) {
 	svc := &fakeGroupSvc{}
 	h := groupRouter(svc, sendOrgPrincipal())
@@ -156,6 +186,9 @@ func TestUpdateGroup_204_ThreadsSettings(t *testing.T) {
 	}
 }
 
+// TestGetGroupInvite_Read verifies the get group invite read behavior remains part of the package contract.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestGetGroupInvite_Read(t *testing.T) {
 	svc := &fakeGroupSvc{invite: "https://chat.whatsapp.com/abc"}
 	h := groupRouter(svc, readOnlyPrincipal())
@@ -172,6 +205,9 @@ func TestGetGroupInvite_Read(t *testing.T) {
 	}
 }
 
+// TestRevokeGroupInvite_Send verifies the revoke group invite send behavior remains part of the package contract.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestRevokeGroupInvite_Send(t *testing.T) {
 	svc := &fakeGroupSvc{invite: "https://chat.whatsapp.com/new"}
 	h := groupRouter(svc, sendOrgPrincipal())
@@ -188,6 +224,9 @@ func TestRevokeGroupInvite_Send(t *testing.T) {
 	}
 }
 
+// TestJoinGroup_ColonRoute verifies adapter routing forwards the required join group colon route inputs without loss.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestJoinGroup_ColonRoute(t *testing.T) {
 	svc := &fakeGroupSvc{joinJID: "120@g.us"}
 	h := groupRouter(svc, sendOrgPrincipal())
@@ -207,6 +246,9 @@ func TestJoinGroup_ColonRoute(t *testing.T) {
 	}
 }
 
+// TestLeaveGroup_ColonRoute_204 verifies adapter routing forwards the required leave group colon route 204 inputs without loss.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestLeaveGroup_ColonRoute_204(t *testing.T) {
 	svc := &fakeGroupSvc{}
 	h := groupRouter(svc, sendOrgPrincipal())
@@ -219,6 +261,9 @@ func TestLeaveGroup_ColonRoute_204(t *testing.T) {
 	}
 }
 
+// TestApproveGroupMembers_ColonRoute_204 verifies adapter routing forwards the required approve group members colon route 204 inputs without loss.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestApproveGroupMembers_ColonRoute_204(t *testing.T) {
 	svc := &fakeGroupSvc{}
 	h := groupRouter(svc, sendOrgPrincipal())
@@ -231,6 +276,9 @@ func TestApproveGroupMembers_ColonRoute_204(t *testing.T) {
 	}
 }
 
+// TestApproveGroupMembers_NotImplementedPropagates verifies unsupported behavior remains an explicit 501 instead of being masked.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestApproveGroupMembers_NotImplementedPropagates(t *testing.T) {
 	svc := &fakeGroupSvc{err: domain.ErrNotImplemented("group membership approval is not implemented yet")}
 	h := groupRouter(svc, sendOrgPrincipal())
@@ -243,6 +291,9 @@ func TestApproveGroupMembers_NotImplementedPropagates(t *testing.T) {
 	}
 }
 
+// TestCreateGroup_MissingCapability403 verifies callers lacking the required authority are rejected with 403.
+// It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
+// This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
 func TestCreateGroup_MissingCapability403(t *testing.T) {
 	// A read-only api-key principal must not create groups (send-gated).
 	h := groupRouter(&fakeGroupSvc{}, readOnlyPrincipal())

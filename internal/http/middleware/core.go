@@ -3,6 +3,7 @@ package middleware
 import (
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
@@ -23,10 +24,11 @@ type statusRecorder struct {
 }
 
 func (s *statusRecorder) WriteHeader(code int) {
-	if !s.written {
-		s.status = code
-		s.written = true
+	if s.written {
+		return
 	}
+	s.status = code
+	s.written = true
 	s.ResponseWriter.WriteHeader(code)
 }
 
@@ -58,6 +60,7 @@ func (s *statusRecorder) Unwrap() http.ResponseWriter { return s.ResponseWriter 
 // (via httpx), so a single bad request can never crash the server. It must be the
 // outermost middleware so it also catches panics in inner middleware.
 func Recover(log *slog.Logger) func(http.Handler) http.Handler {
+	log = loggerOrDefault(log)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			defer func() {
@@ -76,14 +79,16 @@ func Recover(log *slog.Logger) func(http.Handler) http.Handler {
 	}
 }
 
-// RequestID ensures every request has a correlation id: it reuses an inbound
-// X-Request-Id when present, otherwise mints a ULID. The id is stored in the
-// context (httpx.RequestID) and echoed in the response header.
+// RequestID ensures every request has a bounded correlation ID. A visible-ASCII
+// inbound X-Request-Id of at most 128 bytes is preserved; empty, oversized, or
+// control-character values are replaced with a ULID before entering logs or
+// response headers. The accepted value is stored in context and echoed to the
+// caller.
 func RequestID() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			id := r.Header.Get(RequestIDHeader)
-			if id == "" {
+			id := strings.TrimSpace(r.Header.Get(RequestIDHeader))
+			if !validRequestID(id) {
 				id = domain.NewULID()
 			}
 			w.Header().Set(RequestIDHeader, id)
@@ -93,10 +98,25 @@ func RequestID() func(http.Handler) http.Handler {
 	}
 }
 
+// validRequestID bounds untrusted correlation data before it reaches response
+// headers and structured logs. Visible ASCII covers common UUID/ULID/trace IDs.
+func validRequestID(id string) bool {
+	if id == "" || len(id) > 128 {
+		return false
+	}
+	for _, r := range id {
+		if r < 0x21 || r > 0x7e {
+			return false
+		}
+	}
+	return true
+}
+
 // Logger emits one structured slog line per request after it completes, with the
 // method, path, status, duration, request id, and resolved organization. Pair it after
 // RequestID (and the auth middleware, so organization is populated).
 func Logger(log *slog.Logger) func(http.Handler) http.Handler {
+	log = loggerOrDefault(log)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
@@ -112,4 +132,11 @@ func Logger(log *slog.Logger) func(http.Handler) http.Handler {
 			)
 		})
 	}
+}
+
+func loggerOrDefault(log *slog.Logger) *slog.Logger {
+	if log == nil {
+		return slog.Default()
+	}
+	return log
 }

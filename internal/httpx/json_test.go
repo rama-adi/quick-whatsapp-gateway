@@ -10,6 +10,9 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 )
 
+// TestWriteJSON writes a successful object response with a non-default status.
+// It expects the requested status, canonical JSON content type, and decodable body.
+// This pins the common response contract used by non-huma handlers and middleware.
 func TestWriteJSON(t *testing.T) {
 	rec := httptest.NewRecorder()
 	WriteJSON(rec, http.StatusCreated, map[string]string{"hi": "there"})
@@ -28,6 +31,9 @@ func TestWriteJSON(t *testing.T) {
 	}
 }
 
+// TestWriteErrorMapping table-tests every public domain error code against its HTTP status.
+// Each case must retain the code and message inside the standard error envelope.
+// This prevents refactors from changing client retry or authorization behavior through status drift.
 func TestWriteErrorMapping(t *testing.T) {
 	cases := []struct {
 		code string
@@ -60,6 +66,9 @@ func TestWriteErrorMapping(t *testing.T) {
 	}
 }
 
+// TestWriteErrorMasksNonAPIError passes a raw infrastructure error containing sensitive text.
+// It expects a generic internal 500 envelope and verifies the original message is absent.
+// This is the regression guard against leaking database or credential details to callers.
 func TestWriteErrorMasksNonAPIError(t *testing.T) {
 	rec := httptest.NewRecorder()
 	WriteError(rec, errors.New("raw db connection string leak"))
@@ -76,6 +85,9 @@ func TestWriteErrorMasksNonAPIError(t *testing.T) {
 	}
 }
 
+// TestWriteErrorWrappedAPIError wraps a domain error with contextual errors before serialization.
+// It expects errors.As traversal to recover the original not-found status and contract.
+// This allows services to add internal context without accidentally masking safe client errors.
 func TestWriteErrorWrappedAPIError(t *testing.T) {
 	rec := httptest.NewRecorder()
 	wrapped := errors.Join(errors.New("ctx"), domain.ErrNotFound("missing"))

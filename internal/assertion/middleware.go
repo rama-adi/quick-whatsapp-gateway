@@ -20,11 +20,16 @@ const HeaderAssertion = "X-Internal-Assertion"
 // upload). Configurable via WithMaxBody.
 const defaultMaxBody = 300 << 20 // 300 MiB
 
-// Middleware verifies the router's internal assertion on every gateway request and
-// populates the authz.Principal from it — replacing the gateway's old client-facing
-// two-acceptor authn (D2/D4). After this runs, the gateway's capability gates and
-// org-scoped queries operate on the asserted principal exactly as before; they no
-// longer know or care how the caller originally authenticated.
+// Middleware verifies the router's internal assertion on every gateway request
+// and populates authz.Principal, replacing the gateway's old client-facing authn.
+// It buffers the bounded request body because verification must hash the exact
+// bytes consumed downstream. The original body is always closed after the read;
+// on success a new owned reader is installed, and on failure no downstream code
+// receives a partially consumed stream.
+//
+// Verification detail is deliberately collapsed into a generic 401. After a
+// success, capability gates and organization-scoped stores depend only on the
+// asserted principal and never inspect the original caller credential.
 func Middleware(v *Verifier, opts ...MiddlewareOption) func(http.Handler) http.Handler {
 	cfg := middlewareConfig{maxBody: defaultMaxBody}
 	for _, o := range opts {
@@ -44,6 +49,7 @@ func Middleware(v *Verifier, opts ...MiddlewareOption) func(http.Handler) http.H
 			if r.Body != nil {
 				limited := http.MaxBytesReader(w, r.Body, cfg.maxBody)
 				b, err := io.ReadAll(limited)
+				_ = limited.Close()
 				if err != nil {
 					httpx.WriteError(w, domain.ErrValidation("request body too large or unreadable"))
 					return
@@ -83,5 +89,9 @@ type MiddlewareOption func(*middlewareConfig)
 
 // WithMaxBody caps how much request body is buffered for hashing (default 300 MiB).
 func WithMaxBody(n int64) MiddlewareOption {
-	return func(c *middlewareConfig) { c.maxBody = n }
+	return func(c *middlewareConfig) {
+		if n > 0 {
+			c.maxBody = n
+		}
+	}
 }
