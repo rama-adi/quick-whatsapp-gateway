@@ -8,6 +8,8 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 )
 
+// TestOAuthClientRepo_GetByOrg_IsOrgKeyed verifies client lookup cannot cross tenants.
+// The SQL expectation requires both organization and internal id and reconstructs all security-relevant client settings.
 func TestOAuthClientRepo_GetByOrg_IsOrgKeyed(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewOAuthClientRepo(db)
@@ -32,6 +34,8 @@ func TestOAuthClientRepo_GetByOrg_IsOrgKeyed(t *testing.T) {
 	}
 }
 
+// TestOAuthClientRepo_GetByOrg_NotFound protects missing-client error mapping.
+// An absent or wrong-tenant row must be indistinguishable at the repository boundary.
 func TestOAuthClientRepo_GetByOrg_NotFound(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewOAuthClientRepo(db)
@@ -41,6 +45,8 @@ func TestOAuthClientRepo_GetByOrg_NotFound(t *testing.T) {
 	assertNotFound(t, err)
 }
 
+// TestOAuthGrantRepo_Upsert verifies consent refresh preserves the unique grant identity.
+// Conflict handling must refresh scopes and usage while clearing revocation without creating a second grant.
 func TestOAuthGrantRepo_Upsert(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewOAuthGrantRepo(db)
@@ -58,6 +64,8 @@ func TestOAuthGrantRepo_Upsert(t *testing.T) {
 	}
 }
 
+// TestOAuthRefreshTokenRepo_GetByHash verifies hash lookup and nullable lifecycle mapping.
+// The raw token is never queried; consumed and revoked timestamps must remain distinct for reuse detection.
 func TestOAuthRefreshTokenRepo_GetByHash(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewOAuthRefreshTokenRepo(db)
@@ -78,6 +86,8 @@ func TestOAuthRefreshTokenRepo_GetByHash(t *testing.T) {
 	}
 }
 
+// TestOAuthRefreshTokenRepo_RotateRefreshTokenTransaction verifies consume-and-replace commits atomically.
+// Locked token/grant reads, conditional consume, successor insert, and commit are asserted in their required order.
 func TestOAuthRefreshTokenRepo_RotateRefreshTokenTransaction(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewOAuthRefreshTokenRepo(db)
@@ -113,6 +123,8 @@ func TestOAuthRefreshTokenRepo_RotateRefreshTokenTransaction(t *testing.T) {
 	}
 }
 
+// TestOAuthRefreshTokenRepo_RotateRefreshTokenReuseRevokesFamilyInTransaction protects reuse detection and durable family revocation.
+// A consumed token must revoke its entire family and commit that defense before returning the reuse error.
 func TestOAuthRefreshTokenRepo_RotateRefreshTokenReuseRevokesFamilyInTransaction(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewOAuthRefreshTokenRepo(db)
@@ -134,6 +146,8 @@ func TestOAuthRefreshTokenRepo_RotateRefreshTokenReuseRevokesFamilyInTransaction
 	}
 }
 
+// TestOAuthSigningKeyRepo_ListPublic verifies JWKS reads expose only public key material.
+// Active/next/retired rows may be listed, but encrypted private bytes are intentionally absent from the projection.
 func TestOAuthSigningKeyRepo_ListPublic(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewOAuthSigningKeyRepo(db)
@@ -154,6 +168,8 @@ func TestOAuthSigningKeyRepo_ListPublic(t *testing.T) {
 	}
 }
 
+// TestOAuthSigningKeyRepo_PromoteNext verifies retire-and-promote commits as one rotation.
+// The old active key is retired before the selected next key becomes active inside a single transaction.
 func TestOAuthSigningKeyRepo_PromoteNext(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewOAuthSigningKeyRepo(db)
@@ -171,6 +187,8 @@ func TestOAuthSigningKeyRepo_PromoteNext(t *testing.T) {
 	}
 }
 
+// TestOAuthSigningKeyRepo_PromoteNextRollsBackOnPromoteFailure prevents losing the active key on partial failure.
+// If no next key is promoted, retiring the current key must roll back rather than leave the issuer keyless.
 func TestOAuthSigningKeyRepo_PromoteNextRollsBackOnPromoteFailure(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewOAuthSigningKeyRepo(db)

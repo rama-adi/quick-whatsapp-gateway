@@ -194,7 +194,9 @@ func gcmDecrypt(payload, aesKey, iv []byte) ([]byte, error) {
 
 // pbFieldBytes returns the bytes of the first length-delimited (wire type 2) field
 // with the given field number in a protobuf message, skipping other fields. Only
-// the wire types that can appear in the crypt15 header are handled.
+// the wire types that can appear in the crypt15 header are handled. Every cursor
+// advance is bounds-checked before slicing, so attacker-controlled backup bytes
+// produce a descriptive error rather than an overflow or panic.
 func pbFieldBytes(buf []byte, field int) ([]byte, error) {
 	i := 0
 	for i < len(buf) {
@@ -205,6 +207,9 @@ func pbFieldBytes(buf []byte, field int) ([]byte, error) {
 		i += n
 		fieldNum := int(tag >> 3)
 		wire := int(tag & 0x7)
+		if fieldNum == 0 {
+			return nil, errors.New("malformed protobuf field number 0")
+		}
 		switch wire {
 		case 0: // varint
 			_, n := binary.Uvarint(buf[i:])
@@ -213,8 +218,14 @@ func pbFieldBytes(buf []byte, field int) ([]byte, error) {
 			}
 			i += n
 		case 1: // 64-bit
+			if len(buf)-i < 8 {
+				return nil, errors.New("truncated protobuf fixed64")
+			}
 			i += 8
 		case 5: // 32-bit
+			if len(buf)-i < 4 {
+				return nil, errors.New("truncated protobuf fixed32")
+			}
 			i += 4
 		case 2: // length-delimited
 			l, n := binary.Uvarint(buf[i:])
@@ -222,7 +233,7 @@ func pbFieldBytes(buf []byte, field int) ([]byte, error) {
 				return nil, errors.New("malformed protobuf length")
 			}
 			i += n
-			if i+int(l) > len(buf) {
+			if l > uint64(len(buf)-i) {
 				return nil, errors.New("protobuf length out of range")
 			}
 			if fieldNum == field {
@@ -237,7 +248,9 @@ func pbFieldBytes(buf []byte, field int) ([]byte, error) {
 }
 
 // Decompress zlib-inflates the decrypted payload. A backup that is already raw
-// (SQLite or ZIP) is returned unchanged.
+// SQLite or ZIP is returned unchanged, allowing callers to handle variant
+// containers without a second copy. Invalid non-raw data and checksum/read
+// failures are returned with zlib context rather than treated as plaintext.
 func Decompress(data []byte) ([]byte, error) {
 	r, err := zlib.NewReader(bytes.NewReader(data))
 	if err != nil {

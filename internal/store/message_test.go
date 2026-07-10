@@ -18,6 +18,8 @@ func messageColRow() []string {
 	}
 }
 
+// TestMessageRepo_Upsert verifies complete message persistence and generated IDs.
+// The expectation locks content, receipt, JSON, and timestamp bindings while allowing callers to omit the internal id.
 func TestMessageRepo_Upsert(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewMessageRepo(db)
@@ -49,6 +51,8 @@ func TestMessageRepo_Upsert(t *testing.T) {
 	}
 }
 
+// TestMessageRepo_UpsertCanonicalizesPhoneChatAlias prevents duplicate DM timelines across aliases.
+// A resolved phone chat must be rewritten to its canonical LID before the message upsert executes.
 func TestMessageRepo_UpsertCanonicalizesPhoneChatAlias(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewMessageRepo(db)
@@ -77,6 +81,8 @@ func TestMessageRepo_UpsertCanonicalizesPhoneChatAlias(t *testing.T) {
 	}
 }
 
+// TestMessageRepo_GetByWAID verifies nullable fields and JSON metadata map losslessly.
+// It reconstructs a content-rich row so read paths cannot silently discard sender, media, or receipt state.
 func TestMessageRepo_GetByWAID(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewMessageRepo(db)
@@ -116,6 +122,8 @@ func TestMessageRepo_GetByWAID(t *testing.T) {
 	}
 }
 
+// TestMessageRepo_GetByWAID_NotFound protects domain not-found mapping.
+// Missing WhatsApp ids must not expose database-specific sentinel errors to services.
 func TestMessageRepo_GetByWAID_NotFound(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewMessageRepo(db)
@@ -125,6 +133,8 @@ func TestMessageRepo_GetByWAID_NotFound(t *testing.T) {
 	assertNotFound(t, err)
 }
 
+// TestMessageRepo_UpdateStatus verifies receipt state, ack, and error binding.
+// The mutation is scoped by session plus WA message id to prevent cross-account receipt updates.
 func TestMessageRepo_UpdateStatus(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewMessageRepo(db)
@@ -141,6 +151,8 @@ func TestMessageRepo_UpdateStatus(t *testing.T) {
 	}
 }
 
+// TestMessageRepo_MarkEditedAndDeleted protects edit/revoke mutations and row scoping.
+// Both independent transitions must affect the selected message and treat zero affected rows consistently.
 func TestMessageRepo_MarkEditedAndDeleted(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewMessageRepo(db)
@@ -164,6 +176,8 @@ func TestMessageRepo_MarkEditedAndDeleted(t *testing.T) {
 	}
 }
 
+// TestMessageRepo_ListByChat_Pagination verifies newest-first ULID cursor semantics.
+// Consecutive pages bind the prior last id and preserve timeline order without duplicates.
 func TestMessageRepo_ListByChat_Pagination(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewMessageRepo(db)
@@ -212,6 +226,8 @@ func TestMessageRepo_ListByChat_Pagination(t *testing.T) {
 	}
 }
 
+// TestMessageRepo_ListByChat_BadCursor rejects malformed cursors before querying.
+// Whitespace-corrupted opaque values must return validation_error without reaching MySQL.
 func TestMessageRepo_ListByChat_BadCursor(t *testing.T) {
 	db, _ := newMock(t)
 	repo := NewMessageRepo(db)

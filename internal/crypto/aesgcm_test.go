@@ -16,6 +16,8 @@ func newTestKeyB64(t *testing.T) string {
 	return base64.StdEncoding.EncodeToString(key)
 }
 
+// TestAESGCMRoundTrip verifies authenticated encryption preserves arbitrary plaintext.
+// It exercises constructor, random-nonce sealing, and opening as one contract so format changes cannot silently break stored secrets.
 func TestAESGCMRoundTrip(t *testing.T) {
 	g, err := NewAESGCM(newTestKeyB64(t))
 	if err != nil {
@@ -38,6 +40,8 @@ func TestAESGCMRoundTrip(t *testing.T) {
 	}
 }
 
+// TestAESGCMNonceRandomized guards against nonce reuse for identical plaintexts.
+// Two encryptions under one key must differ while both remain decryptable, which is required for GCM confidentiality.
 func TestAESGCMNonceRandomized(t *testing.T) {
 	g, _ := NewAESGCM(newTestKeyB64(t))
 	a, _ := g.Encrypt([]byte("same"))
@@ -47,6 +51,8 @@ func TestAESGCMNonceRandomized(t *testing.T) {
 	}
 }
 
+// TestAESGCMTamperDetection verifies modified ciphertext never yields plaintext.
+// A flipped authenticated byte must return ErrMalformedCiphertext rather than partial data or a provider-specific error.
 func TestAESGCMTamperDetection(t *testing.T) {
 	g, _ := NewAESGCM(newTestKeyB64(t))
 	ct, _ := g.Encrypt([]byte("payload"))
@@ -56,6 +62,8 @@ func TestAESGCMTamperDetection(t *testing.T) {
 	}
 }
 
+// TestAESGCMShortCiphertext verifies truncated nonce input is rejected safely.
+// This protects callers handling corrupt database values from slice panics and ambiguous failures.
 func TestAESGCMShortCiphertext(t *testing.T) {
 	g, _ := NewAESGCM(newTestKeyB64(t))
 	if _, err := g.Decrypt([]byte{0x01, 0x02}); err != ErrMalformedCiphertext {
@@ -63,6 +71,8 @@ func TestAESGCMShortCiphertext(t *testing.T) {
 	}
 }
 
+// TestAESGCMWrongKeyFails verifies GCM authentication rejects another valid key.
+// It models key misconfiguration and requires the same fail-closed error used for tampered data.
 func TestAESGCMWrongKeyFails(t *testing.T) {
 	g1, _ := NewAESGCM(newTestKeyB64(t))
 	g2, _ := NewAESGCM(newTestKeyB64(t))
@@ -72,6 +82,8 @@ func TestAESGCMWrongKeyFails(t *testing.T) {
 	}
 }
 
+// TestNewAESGCMRejectsBadKey covers malformed base64 and non-AES-256 key lengths.
+// Invalid configuration must fail during construction, before any secret can be processed.
 func TestNewAESGCMRejectsBadKey(t *testing.T) {
 	if _, err := NewAESGCM("not-base64!!!"); err == nil {
 		t.Fatal("expected error on non-base64 key")

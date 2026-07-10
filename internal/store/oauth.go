@@ -10,9 +10,20 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 )
 
+// OAuthClientRepo persists registered relying-party configuration with explicit
+// organization scoping on every tenant-facing lookup and mutation.
 type OAuthClientRepo struct{ db dbExecQuerier }
+
+// OAuthGrantRepo stores durable user consent. Active lookups exclude revoked
+// grants, while audit/management lookups may intentionally include them.
 type OAuthGrantRepo struct{ db dbExecQuerier }
+
+// OAuthRefreshTokenRepo owns refresh-token families and their rotation state.
+// Raw tokens never enter this layer; callers provide only cryptographic hashes.
 type OAuthRefreshTokenRepo struct{ db dbExecQuerier }
+
+// OAuthSigningKeyRepo owns issuer key lifecycle state. Private key material is
+// already encrypted before persistence and public-list queries omit it.
 type OAuthSigningKeyRepo struct{ db dbExecQuerier }
 
 var errOAuthRefreshReuse = errors.New("oauth refresh token reused")
@@ -363,6 +374,10 @@ func (r *OAuthRefreshTokenRepo) RevokeByClient(ctx context.Context, orgID, clien
 	return nil
 }
 
+// RotateRefreshToken locks the presented token and its active grant, consumes
+// the token exactly once, and inserts its successor in the same transaction.
+// Reuse commits family revocation before returning errOAuthRefreshReuse; all
+// other failures roll back so a caller never observes a half-rotation.
 func (r *OAuthRefreshTokenRepo) RotateRefreshToken(ctx context.Context, rot domain.OAuthRefreshRotation) (domain.OAuthRefreshToken, domain.OAuthGrant, error) {
 	db, ok := r.db.(*sql.DB)
 	if !ok {
@@ -389,6 +404,9 @@ func (r *OAuthRefreshTokenRepo) RotateRefreshToken(ctx context.Context, rot doma
 	return rt, g, nil
 }
 
+// rotateRefreshToken contains the lock-ordered rotation statements and assumes
+// q belongs to a transaction when the concrete repository is backed by *sql.DB.
+// Token is locked before grant consistently to avoid deadlocks between workers.
 func (r *OAuthRefreshTokenRepo) rotateRefreshToken(ctx context.Context, q dbExecQuerier, rot domain.OAuthRefreshRotation) (domain.OAuthRefreshToken, domain.OAuthGrant, error) {
 	row := q.QueryRowContext(ctx, `SELECT `+oauthRefreshTokenCols+` FROM oauth_refresh_tokens WHERE token_hash = ? FOR UPDATE`, rot.TokenHash)
 	rt, err := scanOAuthRefreshToken(row)
@@ -512,6 +530,9 @@ func (r *OAuthSigningKeyRepo) CountByStatus(ctx context.Context, status string) 
 	return n, nil
 }
 
+// PromoteNext retires the current active key and promotes the named next key in
+// one transaction. If the named key is absent or any statement fails, rollback
+// preserves the previous active issuer key.
 func (r *OAuthSigningKeyRepo) PromoteNext(ctx context.Context, kid string, retiredAt int64) error {
 	db, ok := r.db.(*sql.DB)
 	if !ok {
@@ -531,6 +552,8 @@ func (r *OAuthSigningKeyRepo) PromoteNext(ctx context.Context, kid string, retir
 	return nil
 }
 
+// promoteNext performs the ordered state transition within its caller-owned
+// transaction and requires exactly one next key to be promoted.
 func (r *OAuthSigningKeyRepo) promoteNext(ctx context.Context, q dbExecQuerier, kid string, retiredAt int64) error {
 	res, err := q.ExecContext(ctx, `UPDATE oauth_signing_keys SET status = 'retired', retired_at = ? WHERE status = 'active'`, retiredAt)
 	if err != nil {

@@ -159,6 +159,9 @@ func (r *IdentityRepo) GetByLID(ctx context.Context, lid string) (domain.Identit
 	return identityFromRow(row), nil
 }
 
+// GetByID resolves the normalized identity behind internal relationship rows.
+// Missing ids become domain not-found errors; operational database failures
+// retain their cause and repository context.
 func (r *IdentityRepo) GetByID(ctx context.Context, id uint64) (domain.Identity, error) {
 	row := r.db.QueryRowContext(ctx, `SELECT id, lid, phone_number, phone_jid, name, business_name, first_seen_at, updated_at FROM whatsapp_identities WHERE id = ?`, id)
 	var i domain.Identity

@@ -24,7 +24,7 @@ func notFound(err error, resource string) error {
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.ErrNotFound(resource + " not found")
 	}
-	return err
+	return fmt.Errorf("store: get %s: %w", resource, err)
 }
 
 // normLimit clamps a caller-supplied page size into [1, maxLimit], defaulting to

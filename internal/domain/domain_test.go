@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+// TestNewULID_FormatAndUniqueness checks the stable wire format and practical uniqueness guarantee.
+// It generates a batch, parses every value, and rejects duplicates so ID-format or entropy regressions surface early.
 func TestNewULID_FormatAndUniqueness(t *testing.T) {
 	const n = 1000
 	seen := make(map[string]struct{}, n)
@@ -33,6 +35,8 @@ func TestNewULID_FormatAndUniqueness(t *testing.T) {
 	}
 }
 
+// TestNewULID_ConcurrentSafe exercises the mutex protecting shared monotonic entropy.
+// Many goroutines mint IDs simultaneously; every result must remain parseable and unique without racing the entropy source.
 func TestNewULID_ConcurrentSafe(t *testing.T) {
 	const goroutines = 50
 	const per = 200
@@ -63,6 +67,8 @@ func TestNewULID_ConcurrentSafe(t *testing.T) {
 	}
 }
 
+// TestNewPrefixedIDs locks each resource constructor to its self-describing prefix.
+// Each constructor must emit a parseable ULID body so logs and cursors retain their resource identity.
 func TestNewPrefixedIDs(t *testing.T) {
 	cases := []struct {
 		fn     func() string
@@ -84,6 +90,8 @@ func TestNewPrefixedIDs(t *testing.T) {
 	}
 }
 
+// TestNowMs verifies domain timestamps use current epoch milliseconds.
+// The value is bounded by wall-clock samples around the call, catching accidental seconds or nanoseconds.
 func TestNowMs(t *testing.T) {
 	before := time.Now().UnixMilli()
 	got := NowMs()
@@ -93,6 +101,8 @@ func TestNowMs(t *testing.T) {
 	}
 }
 
+// TestSessionStatusFromName covers every external status name and unknown-name rejection.
+// This keeps the uppercase lifecycle vocabulary synchronized with lower-case persisted enum values.
 func TestSessionStatusFromName(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -118,6 +128,8 @@ func TestSessionStatusFromName(t *testing.T) {
 	}
 }
 
+// TestNewEvent_ShapeAndJSONTags protects the event envelope defaults and serialized field names.
+// It checks generated identity/time fields plus JSON output because the envelope is shared by streams, webhooks, and storage.
 func TestNewEvent_ShapeAndJSONTags(t *testing.T) {
 	payload := map[string]any{"foo": "bar"}
 	before := NowMs()
@@ -159,6 +171,8 @@ func TestNewEvent_ShapeAndJSONTags(t *testing.T) {
 	}
 }
 
+// TestAPIError_Constructors locks convenience constructors to their machine-readable codes.
+// Every public error class must preserve its requested message while selecting the transport-stable code.
 func TestAPIError_Constructors(t *testing.T) {
 	tests := []struct {
 		ctor func(string) *APIError
@@ -196,6 +210,8 @@ func TestAPIError_Constructors(t *testing.T) {
 	}
 }
 
+// TestAPIError_WithDetailsAndEnvelopeJSON protects chaining and the public error envelope shape.
+// It verifies details attach to the same error and serialize under the required top-level error member.
 func TestAPIError_WithDetailsAndEnvelopeJSON(t *testing.T) {
 	e := NewAPIError(CodeValidationError, "bad field").
 		WithDetails(map[string]any{"field": "to"})

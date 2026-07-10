@@ -20,6 +20,8 @@ func apiKeyColRow() []string {
 	}
 }
 
+// TestAPIKeyRepo_GetByHash verifies better-auth fields and nullable metadata map correctly.
+// It locks the shared auth-table contract consumed by gateway authentication without making this package a schema owner.
 func TestAPIKeyRepo_GetByHash(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewAPIKeyRepo(db)
@@ -55,6 +57,8 @@ func TestAPIKeyRepo_GetByHash(t *testing.T) {
 	}
 }
 
+// TestAPIKeyRepo_GetByHash_NullOrg preserves a valid key whose organization is absent.
+// SQL NULL must remain nil so authorization can reject or handle unscoped keys explicitly rather than inventing an id.
 func TestAPIKeyRepo_GetByHash_NullOrg(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewAPIKeyRepo(db)
@@ -81,6 +85,8 @@ func TestAPIKeyRepo_GetByHash_NullOrg(t *testing.T) {
 	}
 }
 
+// TestAPIKeyRepo_GetByHash_NotFound protects invalid-key not-found mapping.
+// Missing hashes become a domain error and do not leak database sentinels through authentication.
 func TestAPIKeyRepo_GetByHash_NotFound(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewAPIKeyRepo(db)
@@ -90,6 +96,8 @@ func TestAPIKeyRepo_GetByHash_NotFound(t *testing.T) {
 	assertNotFound(t, err)
 }
 
+// TestAPIKeyRepo_GetByID verifies identifier lookup uses the same contract mapping.
+// Management paths must reconstruct the same key state as hash-based authentication paths.
 func TestAPIKeyRepo_GetByID(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewAPIKeyRepo(db)
@@ -110,6 +118,8 @@ func TestAPIKeyRepo_GetByID(t *testing.T) {
 	}
 }
 
+// TestAPIKeyRepo_TouchLastRequest verifies usage timestamps are updated by key id.
+// This best-effort audit mutation must bind only timestamp and stable key identity.
 func TestAPIKeyRepo_TouchLastRequest(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewAPIKeyRepo(db)

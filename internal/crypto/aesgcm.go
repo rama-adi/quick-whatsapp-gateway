@@ -58,7 +58,8 @@ func NewAESGCMFromKey(key []byte) (*AESGCM, error) {
 
 // Encrypt seals plaintext and returns nonce||ciphertext. A fresh random nonce is
 // generated per call, so encrypting the same plaintext twice yields different
-// outputs.
+// outputs. The receiver is safe for concurrent calls; entropy failure returns
+// an error and no partially formed ciphertext.
 func (a *AESGCM) Encrypt(plaintext []byte) ([]byte, error) {
 	nonce := make([]byte, a.aead.NonceSize())
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
@@ -70,7 +71,8 @@ func (a *AESGCM) Encrypt(plaintext []byte) ([]byte, error) {
 
 // Decrypt reverses Encrypt: it splits off the prepended nonce and opens the
 // remainder. Returns ErrMalformedCiphertext if the input is too short or fails
-// authentication (tampering or wrong key).
+// authentication (tampering or wrong key). It never returns unauthenticated or
+// partial plaintext, and is safe for concurrent calls.
 func (a *AESGCM) Decrypt(ciphertext []byte) ([]byte, error) {
 	ns := a.aead.NonceSize()
 	if len(ciphertext) < ns {

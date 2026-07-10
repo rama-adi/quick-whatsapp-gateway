@@ -16,6 +16,8 @@ func sessionColRow() []string {
 	}
 }
 
+// TestSessionRepo_Create verifies ownership, placement, and nullable metadata binding.
+// It asserts all creation fields because this row is the durable source of routing and tenant isolation.
 func TestSessionRepo_Create(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewSessionRepo(db)
@@ -39,6 +41,8 @@ func TestSessionRepo_Create(t *testing.T) {
 	}
 }
 
+// TestSessionRepo_Get verifies a session row maps without losing nullability.
+// Optional audit/label/error values and lifecycle state must survive the SQL-to-domain conversion.
 func TestSessionRepo_Get(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewSessionRepo(db)
@@ -67,6 +71,8 @@ func TestSessionRepo_Get(t *testing.T) {
 	}
 }
 
+// TestSessionRepo_Get_NotFound protects domain not-found mapping.
+// The service contract requires a stable missing-session error rather than sql.ErrNoRows.
 func TestSessionRepo_Get_NotFound(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewSessionRepo(db)
@@ -78,6 +84,8 @@ func TestSessionRepo_Get_NotFound(t *testing.T) {
 	assertNotFound(t, err)
 }
 
+// TestSessionRepo_UpdateStatus verifies lifecycle updates are organization scoped.
+// Status, error, and update time must change together only for the owning tenant's row.
 func TestSessionRepo_UpdateStatus(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewSessionRepo(db)
@@ -94,6 +102,8 @@ func TestSessionRepo_UpdateStatus(t *testing.T) {
 	}
 }
 
+// TestSessionRepo_UpdateStatus_NotFound treats a zero-row lifecycle update as missing.
+// This prevents callers from reporting success for stale or cross-organization session ids.
 func TestSessionRepo_UpdateStatus_NotFound(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewSessionRepo(db)
@@ -106,6 +116,8 @@ func TestSessionRepo_UpdateStatus_NotFound(t *testing.T) {
 	assertNotFound(t, err)
 }
 
+// TestSessionRepo_ListByOrg verifies tenant isolation and numeric cursor pagination.
+// The first page binds normalized limits and emits the last surrogate id only when another page may exist.
 func TestSessionRepo_ListByOrg(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewSessionRepo(db)
@@ -128,6 +140,8 @@ func TestSessionRepo_ListByOrg(t *testing.T) {
 	}
 }
 
+// TestSessionRepo_Delete verifies destructive mutation remains organization scoped.
+// A successful result must come from the exact organization/session pair, protecting adjacent tenants.
 func TestSessionRepo_Delete(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewSessionRepo(db)

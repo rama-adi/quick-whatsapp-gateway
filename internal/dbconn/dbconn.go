@@ -9,24 +9,28 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"strings"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql" // mysql driver
+	"github.com/go-sql-driver/mysql"
 	"github.com/redis/go-redis/v9"
 )
 
 // OpenMySQL opens and pings the shared app-data MySQL, applying the parseTime and
-// clientFoundRows DSN params and the standard pool sizing.
+// clientFoundRows DSN params and the standard pool sizing. The ping is bounded
+// so process startup cannot hang indefinitely; a failed ping closes the pool
+// before returning, transferring no connection ownership to the caller.
 func OpenMySQL(dsn string) (*sql.DB, error) {
 	if dsn == "" {
 		return nil, fmt.Errorf("MYSQL_DSN is required")
 	}
-	dsn = ensureDSNParam(dsn, "parseTime", "parseTime=true")
-	dsn = ensureDSNParam(dsn, "clientFoundRows", "clientFoundRows=true")
-	db, err := sql.Open("mysql", dsn)
+	var err error
+	dsn, err = normalizeMySQLDSN(dsn)
 	if err != nil {
 		return nil, err
+	}
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("open mysql: %w", err)
 	}
 	db.SetConnMaxLifetime(5 * time.Minute)
 	db.SetMaxOpenConns(25)
@@ -35,34 +39,36 @@ func OpenMySQL(dsn string) (*sql.DB, error) {
 	defer cancel()
 	if err := db.PingContext(ctx); err != nil {
 		_ = db.Close()
-		return nil, err
+		return nil, fmt.Errorf("ping mysql: %w", err)
 	}
 	return db, nil
 }
 
 // OpenRedis parses a REDIS_URL and returns a client (no ping; callers probe via
-// readiness).
+// readiness). A successful return transfers Close ownership to the caller;
+// syntactically invalid configuration fails before allocating a client.
 func OpenRedis(rawURL string) (*redis.Client, error) {
 	if rawURL == "" {
 		return nil, fmt.Errorf("REDIS_URL is required")
 	}
 	opt, err := redis.ParseURL(rawURL)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parse REDIS_URL: %w", err)
 	}
 	return redis.NewClient(opt), nil
 }
 
-// ensureDSNParam appends `kv` (e.g. "parseTime=true") to a MySQL DSN's query
-// string unless the named param is already present, picking the right `?`/`&`
-// separator and leaving an explicitly-set value untouched.
-func ensureDSNParam(dsn, name, kv string) string {
-	if strings.Contains(dsn, name+"=") {
-		return dsn
+// normalizeMySQLDSN validates the DSN and enforces the two driver behaviours
+// the repositories depend on. Parsing through the driver avoids brittle query
+// string manipulation (notably parameter names appearing inside values).
+// Explicit false values are intentionally overridden: timestamp scanning and
+// matched-row accounting are repository invariants, not caller preferences.
+func normalizeMySQLDSN(dsn string) (string, error) {
+	cfg, err := mysql.ParseDSN(dsn)
+	if err != nil {
+		return "", fmt.Errorf("parse MYSQL_DSN: %w", err)
 	}
-	sep := "?"
-	if strings.Contains(dsn, "?") {
-		sep = "&"
-	}
-	return dsn + sep + kv
+	cfg.ParseTime = true
+	cfg.ClientFoundRows = true
+	return cfg.FormatDSN(), nil
 }

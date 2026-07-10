@@ -16,6 +16,8 @@ func backfillImportColRow() []string {
 	}
 }
 
+// TestBackfillImportRepo_Insert verifies a new durable import job binds every field.
+// The SQL expectation includes status, fingerprint, and timestamps so resumability metadata cannot be omitted accidentally.
 func TestBackfillImportRepo_Insert(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewBackfillImportRepo(db)
@@ -37,6 +39,8 @@ func TestBackfillImportRepo_Insert(t *testing.T) {
 	}
 }
 
+// TestBackfillImportRepo_Finish verifies terminal state and counters update atomically.
+// It checks every imported-resource count and completion error is written against the intended job id.
 func TestBackfillImportRepo_Finish(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewBackfillImportRepo(db)
@@ -59,6 +63,8 @@ func TestBackfillImportRepo_Finish(t *testing.T) {
 	}
 }
 
+// TestBackfillImportRepo_LatestForSession verifies newest-first job lookup and row mapping.
+// Nullable completion data is included to protect status reporting across running and finished imports.
 func TestBackfillImportRepo_LatestForSession(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewBackfillImportRepo(db)
@@ -84,6 +90,8 @@ func TestBackfillImportRepo_LatestForSession(t *testing.T) {
 	}
 }
 
+// TestBackfillImportRepo_LatestForSession_NotFound protects domain not-found mapping.
+// An empty result must become the stable API error instead of leaking sql.ErrNoRows.
 func TestBackfillImportRepo_LatestForSession_NotFound(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewBackfillImportRepo(db)
@@ -93,6 +101,8 @@ func TestBackfillImportRepo_LatestForSession_NotFound(t *testing.T) {
 	assertNotFound(t, err)
 }
 
+// TestBackfillImportRepo_LastSuccessAt verifies quota state distinguishes absence from zero.
+// The scalar timestamp and found flag form the durable once-per-window decision used after process restarts.
 func TestBackfillImportRepo_LastSuccessAt(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewBackfillImportRepo(db)
@@ -118,6 +128,8 @@ func TestBackfillImportRepo_LastSuccessAt(t *testing.T) {
 	}
 }
 
+// TestBackfillImportRepo_HasRunningSince verifies the durable concurrent-import guard.
+// The repository must query status plus cutoff together and return the database existence result unchanged.
 func TestBackfillImportRepo_HasRunningSince(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewBackfillImportRepo(db)

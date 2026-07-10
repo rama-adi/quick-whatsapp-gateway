@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 	"hash/fnv"
+	"net/url"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -46,10 +48,19 @@ var tablesProbedForCols = []string{
 // if the file is not a recognizable WhatsApp msgstore (missing the core
 // message/chat/jid trio).
 func Open(path string) (*DB, error) {
-	sqlDB, err := sql.Open("sqlite", "file:"+path+"?mode=ro&immutable=1")
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("resolve sqlite path: %w", err)
+	}
+	dsn := (&url.URL{Scheme: "file", Path: absPath, RawQuery: "mode=ro&immutable=1"}).String()
+	sqlDB, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
+	// A backup reader is intentionally single-connection: it is immutable and
+	// all iteration is sequential, so extra handles only waste file descriptors.
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
 	caps, err := probe(sqlDB)
 	if err != nil {
 		sqlDB.Close()
@@ -62,7 +73,8 @@ func Open(path string) (*DB, error) {
 	return &DB{db: sqlDB, caps: caps, finger: fingerprint(sqlDB, caps)}, nil
 }
 
-// Close releases the underlying SQLite handle.
+// Close releases the underlying immutable SQLite handle. Callers own Close
+// after every successful Open; failed Open calls close their partial handle.
 func (d *DB) Close() error { return d.db.Close() }
 
 // Fingerprint is an opaque schema identifier (WhatsApp build id + SQLite
@@ -70,6 +82,9 @@ func (d *DB) Close() error { return d.db.Close() }
 // job for observability when WhatsApp reshapes the DB.
 func (d *DB) Fingerprint() string { return d.finger }
 
+// probe captures a consistent-enough immutable schema capability snapshot.
+// Every rows handle is closed on scan and iteration failures before returning,
+// preventing the single-connection reader from deadlocking later probes.
 func probe(db *sql.DB) (capabilities, error) {
 	ctx := context.Background()
 	caps := capabilities{tables: map[string]bool{}, cols: map[string]map[string]bool{}}
@@ -128,6 +143,9 @@ func tableColumns(ctx context.Context, db *sql.DB, table string) (map[string]boo
 	return out, rows.Err()
 }
 
+// fingerprint combines optional WhatsApp build metadata with a deterministic
+// hash of sorted detected tables and probed columns. Query failures are best
+// effort because the capability hash alone still identifies a readable schema.
 func fingerprint(db *sql.DB, caps capabilities) string {
 	var buildID, userVersion string
 	if caps.hasTable("props") {
@@ -145,6 +163,16 @@ func fingerprint(db *sql.DB, caps capabilities) string {
 	sort.Strings(tbls)
 	for _, t := range tbls {
 		h.Write([]byte(t))
+		h.Write([]byte{0})
+		cols := make([]string, 0, len(caps.cols[t]))
+		for col := range caps.cols[t] {
+			cols = append(cols, col)
+		}
+		sort.Strings(cols)
+		for _, col := range cols {
+			h.Write([]byte(col))
+			h.Write([]byte{0})
+		}
 		h.Write([]byte{0})
 	}
 	cap8 := fmt.Sprintf("%08x", h.Sum32())

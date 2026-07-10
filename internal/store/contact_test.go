@@ -12,6 +12,8 @@ func contactProjRow() []string {
 	return []string{"id", "lid", "phone_number", "name", "business_name", "in_dm", "in_group"}
 }
 
+// TestContactRepo_List_Anywhere verifies the combined DM/group contact projection.
+// It checks source derivation, cursor generation, and identity fields when no source filter narrows the union.
 func TestContactRepo_List_Anywhere(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewContactRepo(db)
@@ -45,6 +47,8 @@ func TestContactRepo_List_Anywhere(t *testing.T) {
 	}
 }
 
+// TestContactRepo_List_GroupAndQFilter verifies source and text filters bind safely together.
+// Group membership and search parameters must be applied without weakening session scoping.
 func TestContactRepo_List_GroupAndQFilter(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewContactRepo(db)
@@ -71,6 +75,8 @@ func TestContactRepo_List_GroupAndQFilter(t *testing.T) {
 	}
 }
 
+// TestContactRepo_List_DMFilter verifies DM-only contact discovery.
+// The query must select direct-chat evidence and avoid the group-membership projection.
 func TestContactRepo_List_DMFilter(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewContactRepo(db)
@@ -89,6 +95,8 @@ func TestContactRepo_List_DMFilter(t *testing.T) {
 	}
 }
 
+// TestContactRepo_SeenInDM verifies either identity alias can prove a direct chat.
+// LID and phone JID are passed together because historic chats may have been observed under either address.
 func TestContactRepo_SeenInDM(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewContactRepo(db)

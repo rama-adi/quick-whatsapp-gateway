@@ -2,11 +2,26 @@ package store
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 )
 
+// TestNotFoundPreservesAndContextsDatabaseErrors ensures operational errors retain identity and context.
+// A non-empty-row failure must still satisfy errors.Is while adding the resource name needed in logs.
+func TestNotFoundPreservesAndContextsDatabaseErrors(t *testing.T) {
+	t.Parallel()
+
+	dbErr := errors.New("connection reset")
+	got := notFound(dbErr, "session")
+	if !errors.Is(got, dbErr) || !strings.Contains(got.Error(), "store: get session") {
+		t.Fatalf("notFound error = %v", got)
+	}
+}
+
+// TestNormLimit covers defaulting, accepted bounds, and maximum-page clamping.
+// Table cases lock the repository-wide protection against unbounded or nonsensical list requests.
 func TestNormLimit(t *testing.T) {
 	tests := []struct {
 		name string
@@ -28,6 +43,8 @@ func TestNormLimit(t *testing.T) {
 	}
 }
 
+// TestParseCursor covers empty, valid, overflow, negative, and malformed numeric cursors.
+// Invalid cases must consistently become validation_error, while valid uint64 boundaries remain accepted.
 func TestParseCursor(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -65,6 +82,8 @@ func TestParseCursor(t *testing.T) {
 	}
 }
 
+// TestEncodeCursorRoundTrip verifies opaque numeric cursors are reversible.
+// Zero remains the no-next-page sentinel and positive ids survive encode/parse without loss.
 func TestEncodeCursorRoundTrip(t *testing.T) {
 	if encodeCursor(0) != "" {
 		t.Fatal("encodeCursor(0) should be empty")
@@ -78,6 +97,8 @@ func TestEncodeCursorRoundTrip(t *testing.T) {
 	}
 }
 
+// TestPageFrom verifies next cursors appear only for full, non-empty pages.
+// This protects list endpoints from advertising continuation after an exhausted short page.
 func TestPageFrom(t *testing.T) {
 	type item struct{ id uint64 }
 	idOf := func(i item) uint64 { return i.id }
@@ -104,6 +125,8 @@ func TestPageFrom(t *testing.T) {
 	})
 }
 
+// TestNullableJSON preserves SQL NULL for absent JSON while retaining real payloads.
+// The distinction avoids invalid empty JSON strings and keeps optional columns semantically nullable.
 func TestNullableJSON(t *testing.T) {
 	if nullableJSON(nil) != nil {
 		t.Fatal("nil bytes should map to nil (SQL NULL)")
@@ -118,6 +141,8 @@ func TestNullableJSON(t *testing.T) {
 	}
 }
 
+// TestPrefixCols verifies joined-query column qualification across formatted lists.
+// Whitespace-heavy generated column constants must become an unambiguous alias-qualified projection.
 func TestPrefixCols(t *testing.T) {
 	got := prefixCols("c", "id, lid,\n\tname")
 	want := "c.id, c.lid, c.name"

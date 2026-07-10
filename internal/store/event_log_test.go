@@ -13,6 +13,8 @@ func eventLogColRow() []string {
 	return []string{"id", "event_id", "organization_id", "session_id", "type", "payload", "created_at"}
 }
 
+// TestEventLogRepo_Append verifies event envelopes are durably serialized with identity metadata.
+// The insert must preserve exposed event id, tenant/session scope, type, payload, and creation time for replay.
 func TestEventLogRepo_Append(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewEventLogRepo(db)
@@ -37,6 +39,8 @@ func TestEventLogRepo_Append(t *testing.T) {
 	}
 }
 
+// TestEventLogRepo_ListSince_AllSessions verifies organization-wide replay ordering and bounds.
+// With no session filter, events after the cursor must be returned in ascending durable-log order.
 func TestEventLogRepo_ListSince_AllSessions(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewEventLogRepo(db)
@@ -60,6 +64,8 @@ func TestEventLogRepo_ListSince_AllSessions(t *testing.T) {
 	}
 }
 
+// TestEventLogRepo_ListSince_SessionFilter verifies replay can be narrowed to one session.
+// Both organization and session predicates are asserted so stream recovery cannot cross ownership boundaries.
 func TestEventLogRepo_ListSince_SessionFilter(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewEventLogRepo(db)
@@ -81,6 +87,8 @@ func TestEventLogRepo_ListSince_SessionFilter(t *testing.T) {
 	}
 }
 
+// TestEventLogRepo_GetByEventID_NotFound protects missing-envelope error mapping.
+// Webhook dispatch relies on a domain not-found result to dead-letter irrecoverable missing events.
 func TestEventLogRepo_GetByEventID_NotFound(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewEventLogRepo(db)

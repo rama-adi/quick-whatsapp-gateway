@@ -6,7 +6,10 @@ import (
 	"strings"
 )
 
-// EachChat streams every chat thread. The callback's error aborts iteration.
+// EachChat streams every chat thread without materializing the backup in memory.
+// The callback runs synchronously while the rows handle is open; its first error
+// aborts iteration and is returned unchanged, while scan/iteration failures are
+// returned from the reader.
 func (d *DB) EachChat(ctx context.Context, fn func(Chat) error) error {
 	const q = `SELECT j.raw_string, j.server, c.subject, c.sort_timestamp
 		FROM chat c JOIN jid j ON j._id = c.jid_row_id
@@ -37,7 +40,9 @@ func (d *DB) EachChat(ctx context.Context, fn func(Chat) error) error {
 	return rows.Err()
 }
 
-// EachGroup streams every group thread (chat rows on the g.us server).
+// EachGroup streams every group thread (chat rows on the g.us server). Subject
+// is optional in WhatsApp schemas and maps to an empty string when absent; the
+// callback/error lifetime matches EachChat.
 func (d *DB) EachGroup(ctx context.Context, fn func(Group) error) error {
 	const q = `SELECT j.raw_string, c.subject
 		FROM chat c JOIN jid j ON j._id = c.jid_row_id
@@ -63,7 +68,8 @@ func (d *DB) EachGroup(ctx context.Context, fn func(Group) error) error {
 }
 
 // EachGroupMember streams group participants. Absent the participants table it is
-// a no-op (older/partial backups).
+// a successful no-op so older/partial backups remain importable. Rank values are
+// normalized to the gateway's member/admin/superadmin vocabulary.
 func (d *DB) EachGroupMember(ctx context.Context, fn func(GroupMember) error) error {
 	if !d.caps.hasTable("group_participant_user") {
 		return nil
@@ -111,7 +117,9 @@ func roleForRank(rank int64) string {
 }
 
 // EachIdentity streams identities seeded from the jid table (lid + phone jids),
-// enriched with best-effort display names captured from message mentions.
+// enriched with best-effort display names captured from message mentions. Name
+// prefetch completes before row streaming so only one query owns the DB's single
+// immutable connection at a time.
 func (d *DB) EachIdentity(ctx context.Context, fn func(Identity) error) error {
 	names, err := d.mentionNames(ctx)
 	if err != nil {
@@ -171,8 +179,9 @@ func (d *DB) mentionNames(ctx context.Context) (map[string]string, error) {
 }
 
 // EachMessage streams importable messages. System/placeholder rows that carry no
-// text and no media/location are skipped. Mentions are prefetched once and
-// attached per message.
+// text and no media/location are skipped. Mentions are prefetched before opening
+// message rows, then attached by source row id; callbacks execute synchronously
+// and can stop a large import without buffering the remainder.
 func (d *DB) EachMessage(ctx context.Context, fn func(Message) error) error {
 	mentions, err := d.messageMentions(ctx)
 	if err != nil {
