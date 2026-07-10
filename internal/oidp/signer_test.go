@@ -70,6 +70,10 @@ func (m *memKeys) Retire(_ context.Context, kid string, retiredAt int64) error {
 	return nil
 }
 
+// TestSigner_SignedJWTVerifiesAgainstJWKS generates an encrypted Ed25519 signing key, signs claims through
+// Signer, and parses the result with a verifier built from JWKS. Signature, kid selection, and claims must
+// verify end to end without exposing private material. This locks together key encryption, compact JWT
+// encoding, and public JWK publication.
 func TestSigner_SignedJWTVerifiesAgainstJWKS(t *testing.T) {
 	ctx := context.Background()
 	repo := newMemKeys()
@@ -95,6 +99,10 @@ func TestSigner_SignedJWTVerifiesAgainstJWKS(t *testing.T) {
 	}
 }
 
+// TestRotation_ExactlyOneActive creates an initial active key, generates a next key, promotes it, and
+// retires the predecessor through the repository rotation operations. Every completed phase must report
+// exactly one active key while JWKS retains public verification material. This protects the signer from
+// ambiguous active-key ownership during rotation.
 func TestRotation_ExactlyOneActive(t *testing.T) {
 	ctx := context.Background()
 	repo := newMemKeys()

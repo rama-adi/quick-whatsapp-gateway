@@ -4,6 +4,9 @@ import (
 	"testing"
 )
 
+// TestParseRedisURL covers supported Redis URL forms, authentication/database extraction, and malformed
+// configuration. Valid URLs must map to the expected asynq connection options, while invalid schemes or
+// syntax return errors. This makes startup fail before workers run with an unintended Redis target.
 func TestParseRedisURL(t *testing.T) {
 	tests := []struct {
 		name     string

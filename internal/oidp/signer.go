@@ -26,6 +26,9 @@ const (
 	KeyRetired = "retired"
 )
 
+// SigningKeyRepo stores encrypted Ed25519 private keys and publishable JWKs.
+// PromoteNext and Retire must preserve the database invariant that exactly one
+// key is active after a completed rotation step.
 type SigningKeyRepo interface {
 	Create(context.Context, domain.OAuthSigningKey) error
 	GetActive(context.Context) (domain.OAuthSigningKey, error)
@@ -35,6 +38,9 @@ type SigningKeyRepo interface {
 	Retire(context.Context, string, int64) error
 }
 
+// Signer issues compact EdDSA JWTs from the active encrypted key and publishes
+// all verification keys through JWKS. The decrypted private key is cached behind
+// mu; Invalidate is the explicit happens-before boundary after key rotation.
 type Signer struct {
 	repo   SigningKeyRepo
 	aead   cipher.AEAD
@@ -48,6 +54,8 @@ type cachedKey struct {
 	key ed25519.PrivateKey
 }
 
+// NewSigner derives the AEAD used for private-key encryption. It does not load or
+// decrypt a signing key until the first SignJWT call.
 func NewSigner(repo SigningKeyRepo, encKey string) (*Signer, error) {
 	aead, err := aeadFromKey(encKey)
 	if err != nil {
@@ -56,6 +64,9 @@ func NewSigner(repo SigningKeyRepo, encKey string) (*Signer, error) {
 	return &Signer{repo: repo, aead: aead, now: time.Now}, nil
 }
 
+// SignJWT signs the supplied claims with the cached active Ed25519 key and embeds
+// its kid in the protected header. Repository/decryption failures occur before a
+// token is returned; claim maps are serialized as supplied by the provider.
 func (s *Signer) SignJWT(ctx context.Context, claims map[string]any) (string, error) {
 	k, err := s.activeKey(ctx)
 	if err != nil {
@@ -75,6 +86,9 @@ func (s *Signer) SignJWT(ctx context.Context, claims map[string]any) (string, er
 	return unsigned + "." + b64(sig), nil
 }
 
+// JWKS publishes active, next, and retired public keys so tokens remain verifiable
+// across rotation overlap. Private material is never decrypted or included by
+// this path, and repository errors fail the entire response.
 func (s *Signer) JWKS(ctx context.Context) ([]byte, error) {
 	keys, err := s.repo.ListPublic(ctx)
 	if err != nil {
@@ -114,12 +128,18 @@ func (s *Signer) activeKey(ctx context.Context) (*cachedKey, error) {
 	return s.cached, nil
 }
 
+// Invalidate clears the decrypted active-key cache after promotion or retirement.
+// The mutex provides the handoff to concurrent signers; a subsequent SignJWT
+// reloads the repository's current active key.
 func (s *Signer) Invalidate() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.cached = nil
 }
 
+// GenerateNextKey creates an encrypted Ed25519 key after verifying that at most
+// one active and no next key exists. The first key becomes active immediately;
+// later keys remain next until an explicit promotion.
 func GenerateNextKey(ctx context.Context, repo SigningKeyRepo, encKey string, now int64) (string, error) {
 	aead, err := aeadFromKey(encKey)
 	if err != nil {
@@ -160,6 +180,12 @@ func GenerateNextKey(ctx context.Context, repo SigningKeyRepo, encKey string, no
 	return kid, nil
 }
 
+// PromoteNextKey delegates the transactional rotation to the repository, then
+// verifies that exactly one active key remains. Callers must invalidate live
+// Signer caches after a successful promotion.
+// PromoteNextKey atomically asks the repository to make kid active after checking
+// that exactly one active and one next key exist. Callers must invalidate live
+// Signer caches after success so new tokens use the promoted key.
 func PromoteNextKey(ctx context.Context, repo SigningKeyRepo, kid string, now int64) error {
 	if err := repo.PromoteNext(ctx, kid, now); err != nil {
 		return err
@@ -174,6 +200,11 @@ func PromoteNextKey(ctx context.Context, repo SigningKeyRepo, kid string, now in
 	return nil
 }
 
+// RetireKey removes a key from signing duty while retaining its public JWK for
+// verification of unexpired tokens, then rechecks the single-active invariant.
+// RetireKey removes a non-current key from active rotation while retaining its
+// public JWK for verification. Repository constraints decide whether the requested
+// transition is legal; callers invalidate signer caches after a relevant change.
 func RetireKey(ctx context.Context, repo SigningKeyRepo, kid string, now int64) error {
 	if err := repo.Retire(ctx, kid, now); err != nil {
 		return err

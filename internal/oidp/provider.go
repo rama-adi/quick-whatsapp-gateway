@@ -33,25 +33,39 @@ const (
 	streamHeartbeat    = 20 * time.Second
 )
 
+// OAuthClientReader resolves only enabled clients at the authorization and
+// token boundaries. Implementations must not return disabled clients as usable.
 type OAuthClientReader interface {
 	GetActiveByClientID(ctx context.Context, clientID string) (domain.OAuthClient, error)
 }
 
+// SessionReader resolves the WhatsApp session an OAuth client is bound to.
 type SessionReader interface {
 	Get(ctx context.Context, id string) (domain.WASession, error)
 }
 
+// GroupReader supplies group metadata used to snapshot group-mode login flows.
 type GroupReader interface {
 	GetByJID(ctx context.Context, groupJID string) (domain.Group, error)
 }
+
+// IdentityReader resolves the verified WhatsApp identity used for ID-token and
+// userinfo claims. Missing optional profile data is handled by scope mapping.
 type IdentityReader interface {
 	GetByLID(ctx context.Context, lid string) (domain.Identity, error)
 	GetByID(ctx context.Context, id uint64) (domain.Identity, error)
 }
+
+// GrantRepo persists the durable relationship between an OAuth client and a
+// verified WhatsApp identity. Revoked grants must fail GetActiveByID.
 type GrantRepo interface {
 	UpsertAndGet(context.Context, domain.OAuthGrant) (domain.OAuthGrant, error)
 	GetActiveByID(context.Context, string) (domain.OAuthGrant, error)
 }
+
+// RefreshRepo owns one-time refresh-token rotation. RotateRefreshToken must
+// consume the presented token and create its successor atomically so concurrent
+// redemption cannot mint two live branches of one token family.
 type RefreshRepo interface {
 	Create(context.Context, domain.OAuthRefreshToken) error
 	GetByHash(context.Context, []byte) (domain.OAuthRefreshToken, error)
@@ -61,6 +75,10 @@ type RefreshRepo interface {
 	RotateRefreshToken(context.Context, domain.OAuthRefreshRotation) (domain.OAuthRefreshToken, domain.OAuthGrant, error)
 }
 
+// ProviderConfig wires the OIDC HTTP boundary. Pending is the Redis state machine
+// joining browser and WhatsApp activity; Signer and the SQL repositories make
+// finalized grants and tokens durable. TrustProxy controls whether forwarded
+// client addresses participate in wait-stream connection limits.
 type ProviderConfig struct {
 	Clients      OAuthClientReader
 	Sessions     SessionReader
@@ -79,6 +97,11 @@ type ProviderConfig struct {
 	Now          func() time.Time
 }
 
+// Provider implements authorization-code plus PKCE, refresh rotation, userinfo,
+// and revocation for WhatsApp-verified identities. Mutable maps are protected by
+// their adjacent mutexes: streamMu owns concurrent wait-stream counts, while
+// revokedMu gives control-bus revocation an immediate in-process deny path ahead
+// of database/cache propagation.
 type Provider struct {
 	clients      OAuthClientReader
 	sessions     SessionReader
@@ -102,6 +125,9 @@ type Provider struct {
 	revokedGrant map[string]time.Time
 }
 
+// NewProvider applies request/code TTL and clock defaults and initializes the
+// concurrency registries. Construction does not start goroutines; Mount exposes
+// handlers and each wait stream is owned by its request context.
 func NewProvider(cfg ProviderConfig) *Provider {
 	ttl := cfg.RequestTTL
 	if ttl <= 0 {
@@ -118,6 +144,9 @@ func NewProvider(cfg ProviderConfig) *Provider {
 	return &Provider{clients: cfg.Clients, sessions: cfg.Sessions, groups: cfg.Groups, identities: cfg.Identities, grants: cfg.Grants, refresh: cfg.Refresh, signer: cfg.Signer, pending: cfg.Pending, webLoginURL: strings.TrimRight(cfg.WebLoginURL, "/"), issuer: strings.TrimRight(cfg.Issuer, "/"), secretPepper: cfg.SecretPepper, requestTTL: ttl, authCodeTTL: authCodeTTL, trustProxy: cfg.TrustProxy, now: now, byCode: map[string]int{}, byIP: map[string]int{}, revokedGrant: map[string]time.Time{}}
 }
 
+// Mount registers the provider's authorization, wait/finalize, token, userinfo,
+// and revocation endpoints on r. It does not add authentication middleware or
+// start background work; handler lifetimes remain bound to HTTP request contexts.
 func (p *Provider) Mount(r chi.Router) {
 	r.Get("/oauth/authorize", p.HandleAuthorize)
 	r.Get("/oauth/wait/{browser_code}/stream", p.HandleWaitStream)
@@ -129,10 +158,16 @@ func (p *Provider) Mount(r chi.Router) {
 	r.Post("/oauth/revoke", p.HandleRevoke)
 }
 
+// PendingStore exposes the shared browser/WhatsApp state machine so the login
+// interceptor and control subscriber operate on the same atomic Redis records.
 func (p *Provider) PendingStore() *PendingStore {
 	return p.pending
 }
 
+// HandleAuthorize validates client, exact redirect URI, PKCE, scopes, and login
+// mode before reserving unique browser and user codes. Success redirects only to
+// the configured local login UI; validation errors use the OAuth redirect only
+// after that redirect has been proven registered.
 func (p *Provider) HandleAuthorize(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	clientID, redirectURI := q.Get("client_id"), q.Get("redirect_uri")
@@ -198,6 +233,10 @@ func (p *Provider) HandleAuthorize(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, u, http.StatusFound)
 }
 
+// HandleWaitStream emits an NDJSON snapshot followed by state notifications and
+// heartbeats until terminal state or request cancellation. Per-code and per-client
+// IP counters are reserved and released under streamMu, bounding concurrent open
+// connections without leaving slots behind on disconnect.
 func (p *Provider) HandleWaitStream(w http.ResponseWriter, r *http.Request) {
 	code := chi.URLParam(r, "browser_code")
 	req, err := p.pending.Load(r.Context(), code)
@@ -262,6 +301,10 @@ func (p *Provider) HandleCancel(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// HandleFinalize converts a verified WhatsApp claim into a durable grant and a
+// single-use authorization code, then returns the registered client redirect.
+// Redis serialization makes browser retries idempotent and prevents two codes
+// from being minted for one verified flow.
 func (p *Provider) HandleFinalize(w http.ResponseWriter, r *http.Request) {
 	browserCode := chi.URLParam(r, "browser_code")
 	req, err := p.pending.Load(r.Context(), browserCode)
@@ -317,6 +360,10 @@ func (p *Provider) HandleFinalize(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"redirect": req.Finalized.Redirect})
 }
 
+// HandleToken authenticates the OAuth client and dispatches only the authorization
+// code and refresh-token grants. Code redemption and refresh rotation are
+// one-time operations; validation failures return OAuth JSON errors without
+// partially issuing a new token family.
 func (p *Provider) HandleToken(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		oauthJSONError(w, http.StatusBadRequest, "invalid_request")
@@ -405,6 +452,9 @@ func (p *Provider) tokenFromRefresh(w http.ResponseWriter, r *http.Request, clie
 	writeJSON(w, http.StatusOK, tok)
 }
 
+// MarkGrantRevoked installs an immediate in-process deny entry received from the
+// control bus. Entries are mutex-protected and expire after a bounded interval;
+// the durable repository remains authoritative after cache expiry or restart.
 func (p *Provider) MarkGrantRevoked(grantID string) {
 	if grantID == "" {
 		return
@@ -420,6 +470,9 @@ func (p *Provider) MarkGrantRevoked(grantID string) {
 	p.revokedGrant[grantID] = p.now()
 }
 
+// InvalidateSession expires open browser requests bound to a stopped or deleted
+// WhatsApp session. Redis transition guards prevent the scan from overwriting a
+// concurrent finalized request.
 func (p *Provider) InvalidateSession(sessionID string) {
 	if p.pending == nil || sessionID == "" {
 		return
@@ -510,6 +563,9 @@ func (p *Provider) newRefreshToken(client domain.OAuthClient, g domain.OAuthGran
 	return raw, domain.OAuthRefreshToken{ID: domain.NewULID(), GrantID: g.ID, OrganizationID: g.OrganizationID, TokenHash: shaBytes(raw), FamilyID: fam, ParentID: parentID, Scopes: scopesJSON, IssuedAt: now, ExpiresAt: expires}, nil
 }
 
+// HandleUserInfo accepts only a valid access token issued by this provider,
+// rechecks the active grant, and projects identity claims allowed by its scopes.
+// ID tokens, revoked grants, and malformed bearer credentials fail closed.
 func (p *Provider) HandleUserInfo(w http.ResponseWriter, r *http.Request) {
 	claims, err := p.verifyAccessToken(r)
 	if err != nil {
@@ -533,6 +589,9 @@ func (p *Provider) HandleUserInfo(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// HandleRevoke authenticates the client and revokes an owned access grant or
+// refresh-token family. Per RFC 7009, unknown tokens and repeated revocations
+// remain successful and disclose no token-existence information.
 func (p *Provider) HandleRevoke(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
 	client, err := p.authenticateClient(r)
@@ -810,6 +869,9 @@ func resolveMode(modes, acr string) (string, error) {
 	return "", fmt.Errorf("invalid_request")
 }
 
+// NewBrowserCode returns a 160-bit URL-safe opaque handle for a pending browser
+// flow. It is distinct from the short human-entered user code and is never
+// accepted as WhatsApp verification input.
 func NewBrowserCode() (string, error) {
 	b := make([]byte, 20)
 	if _, err := rand.Read(b); err != nil {

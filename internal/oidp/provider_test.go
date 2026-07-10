@@ -20,6 +20,7 @@ import (
 	"github.com/lestrrat-go/jwx/v3/jwk"
 	"github.com/lestrrat-go/jwx/v3/jwt"
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/require"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 )
@@ -102,6 +103,10 @@ func testProvider(t *testing.T) (*Provider, *PendingStore) {
 	return p, pending
 }
 
+// TestAuthorizeValidationMatrix drives authorize requests with an unknown client, an unregistered
+// redirect, missing or plain PKCE, a disallowed scope, and a valid group ACR. Errors before redirect trust
+// is established must be local 400 responses; later protocol errors redirect only to the registered URI.
+// The valid group case must create a pending flow and redirect to the WhatsApp login page.
 func TestAuthorizeValidationMatrix(t *testing.T) {
 	p, _ := testProvider(t)
 	cases := []struct {
@@ -136,6 +141,10 @@ func TestAuthorizeValidationMatrix(t *testing.T) {
 	}
 }
 
+// TestAuthorizeSnapshotUsesClientBotNameBeforeSessionLabel creates an authorization request for a client
+// with an explicit bot name while its session has a different label. The pending snapshot and stream frame
+// must expose the client bot name. This pins client configuration as the preferred display identity shown
+// to the person approving login.
 func TestAuthorizeSnapshotUsesClientBotNameBeforeSessionLabel(t *testing.T) {
 	p, ps := testProvider(t)
 	p.clients = fakeOAuthClients{"client_1": {
@@ -161,6 +170,10 @@ func TestAuthorizeSnapshotUsesClientBotNameBeforeSessionLabel(t *testing.T) {
 	}
 }
 
+// TestAuthorizeSnapshotFallsBackToSessionLabelForBotName authorizes a client without a configured bot name
+// against a labeled WhatsApp session. The pending target must use the session label as its bot-name
+// fallback. This keeps the approval UI informative without copying fallback data into the OAuth client
+// row.
 func TestAuthorizeSnapshotFallsBackToSessionLabelForBotName(t *testing.T) {
 	p, ps := testProvider(t)
 	browserCode := authorizeAndBrowserCode(t, p, "scope=openid")
@@ -196,6 +209,10 @@ func authorizeAndBrowserCode(t *testing.T, p *Provider, extra string) string {
 	return code
 }
 
+// TestCodeMinting generates two browser codes and checks their 27-character, URL-safe, non-equal shape,
+// then exercises the short user-code pattern filter. Predictable sequences such as 000000 and 123456 must
+// be rejected while a random-looking six-digit code is accepted. These checks protect entropy at both
+// browser and human entry boundaries.
 func TestCodeMinting(t *testing.T) {
 	a, err := NewBrowserCode()
 	if err != nil {
@@ -215,6 +232,9 @@ func TestCodeMinting(t *testing.T) {
 	}
 }
 
+// TestPendingCancelAndClaimState creates a live pending request, cancels it, reloads the denied state, and
+// cancels again. The second cancellation must succeed idempotently without changing the terminal result.
+// This defines cancellation as a single atomic state transition that callers may safely retry.
 func TestPendingCancelAndClaimState(t *testing.T) {
 	_, rdb := testRedis(t)
 	ps := NewPendingStore(rdb, "test", 10*time.Minute)
@@ -234,6 +254,39 @@ func TestPendingCancelAndClaimState(t *testing.T) {
 	}
 }
 
+// TestPendingCreateRejectsBrowserCodeCollision attempts to create two different requests under the same
+// opaque browser code but different user codes. The second create must fail and the original client data
+// must remain intact. This guards the request key against overwrite even when the reverse user-code key is
+// free.
+func TestPendingCreateRejectsBrowserCodeCollision(t *testing.T) {
+	_, rdb := testRedis(t)
+	ps := NewPendingStore(rdb, "collision", 10*time.Minute)
+	expires := time.Now().Add(time.Minute).UnixMilli()
+	first := PendingRequest{ClientID: "first", BrowserCode: "same", SessionID: "s", UserCode: "483920", Status: PendingStatusPending, ExpiresAt: expires}
+	second := PendingRequest{ClientID: "second", BrowserCode: "same", SessionID: "s", UserCode: "583921", Status: PendingStatusPending, ExpiresAt: expires}
+	require.NoError(t, ps.Create(context.Background(), first))
+	require.Error(t, ps.Create(context.Background(), second))
+	got, err := ps.Load(context.Background(), "same")
+	require.NoError(t, err)
+	require.Equal(t, "first", got.ClientID)
+}
+
+// TestPendingCancelReportsRedisFailure closes Redis before cancelling an unknown browser code. Cancel must
+// return the connection error rather than translating storage failure into a harmless not-found result.
+// Callers can therefore distinguish an absent flow from unavailable state authority.
+func TestPendingCancelReportsRedisFailure(t *testing.T) {
+	_, rdb := testRedis(t)
+	ps := NewPendingStore(rdb, "failure", time.Minute)
+	require.NoError(t, rdb.Close())
+	ok, err := ps.Cancel(context.Background(), "missing")
+	require.False(t, ok)
+	require.Error(t, err)
+}
+
+// TestWaitStreamSnapshotFrameShape opens a wait stream for a pending DM request and decodes its first
+// NDJSON frame. Status, app metadata, user code, command, target, scopes, and expiry must all be present
+// with the configured values. This first snapshot lets clients render current state without waiting for a
+// later pubsub transition.
 func TestWaitStreamSnapshotFrameShape(t *testing.T) {
 	p, ps := testProvider(t)
 	req := PendingRequest{
@@ -268,6 +321,9 @@ func TestWaitStreamSnapshotFrameShape(t *testing.T) {
 	}
 }
 
+// TestWaitStreamUnknownCodeIsGeneric404 requests a wait stream for an unrecognized browser code. The
+// handler must return the same generic 404 shape without revealing whether a similar flow existed or
+// expired. No Redis subscription or streaming response should be established.
 func TestWaitStreamUnknownCodeIsGeneric404(t *testing.T) {
 	p, _ := testProvider(t)
 	rec := httptest.NewRecorder()
@@ -277,6 +333,10 @@ func TestWaitStreamUnknownCodeIsGeneric404(t *testing.T) {
 	}
 }
 
+// TestWaitStreamConcurrentConnectionCaps opens the maximum allowed wait streams for one browser code and
+// verifies each receives its initial snapshot, then attempts one more. The extra connection must receive
+// 429 while existing streams remain usable. This bounds per-flow and per-IP resources without evicting
+// established owners.
 func TestWaitStreamConcurrentConnectionCaps(t *testing.T) {
 	p, ps := testProvider(t)
 	req := PendingRequest{
@@ -547,6 +607,10 @@ func oauthClient(id, typ, secret, status string) domain.OAuthClient {
 	}
 }
 
+// TestPKCEMatrix covers valid S256 verification, a wrong verifier, malformed challenge material, and
+// unsupported methods at the token endpoint. Only the exact SHA-256 verifier may redeem the one-time code;
+// every mismatch returns the OAuth invalid_grant or invalid_request classification. This prevents PKCE
+// downgrade and code interception.
 func TestPKCEMatrix(t *testing.T) {
 	if !verifyPKCE(pkceChallenge("ok"), "ok") {
 		t.Fatal("S256 verifier rejected")
@@ -572,6 +636,10 @@ func TestPKCEMatrix(t *testing.T) {
 	}
 }
 
+// TestAuthorizeMintRateLimitPerSession repeatedly authorizes clients bound to the same WhatsApp session
+// until the Redis mint window is exhausted. Requests within the budget create pending flows, while the
+// next request redirects with a rate-limit error and does not mint another code. The budget is
+// session-scoped so one bot cannot flood human login prompts.
 func TestAuthorizeMintRateLimitPerSession(t *testing.T) {
 	p, _ := testProvider(t)
 	query := "response_type=code&client_id=client_1&redirect_uri=https://rp.example/cb&code_challenge=x&code_challenge_method=S256&state=s"
@@ -589,6 +657,10 @@ func TestAuthorizeMintRateLimitPerSession(t *testing.T) {
 	}
 }
 
+// TestAuthCodeMatrix exercises successful authorization-code redemption plus wrong client, redirect,
+// verifier, expiry, and replay cases. A successful code is consumed exactly once and failures use
+// OAuth-safe error responses without minting tokens. The matrix pins every value bound into the stored
+// AuthCode payload.
 func TestAuthCodeMatrix(t *testing.T) {
 	p, ps, grants, _ := fullProvider(t)
 	grant := testGrant("grant_1", "client_1", "wa:dm", nil)
@@ -648,6 +720,10 @@ func TestAuthCodeMatrix(t *testing.T) {
 	}
 }
 
+// TestOIDCEndToEndWithJWKSClientVerifier runs authorize, WhatsApp verification, finalize, token exchange,
+// JWKS retrieval, and client-side JWT verification as one flow. The issued ID token must verify with the
+// published Ed25519 key and contain the expected issuer, audience, nonce, subject, and ACR. This catches
+// contract drift between signer, provider claims, and discovery consumers.
 func TestOIDCEndToEndWithJWKSClientVerifier(t *testing.T) {
 	p, ps, grants, _ := fullProvider(t)
 	r := chi.NewRouter()
@@ -833,6 +909,10 @@ func TestOIDCEndToEndWithJWKSClientVerifier(t *testing.T) {
 	}
 }
 
+// TestClientAuthMatrix submits public-client, confidential basic-auth, body-secret, missing-secret, and
+// wrong-secret token requests. Public clients proceed without a secret, while confidential clients require
+// one valid constant-time credential path and reject ambiguity. This defines client authentication before
+// any grant or code is consumed.
 func TestClientAuthMatrix(t *testing.T) {
 	p, _, _, _ := fullProvider(t)
 	if _, err := p.authenticateClient(basicAuthReq("client_1", "super-secret", nil)); err != nil {
@@ -855,6 +935,10 @@ func TestClientAuthMatrix(t *testing.T) {
 	}
 }
 
+// TestRefreshMatrix covers valid refresh rotation, scope narrowing, scope expansion, wrong client, expiry,
+// revocation, and reuse of a consumed token. Success returns a new refresh token and invalidates the old
+// hash; replay revokes the token family instead of branching it. The matrix pins one-time rotation and
+// least-privilege scope semantics.
 func TestRefreshMatrix(t *testing.T) {
 	p, _, grants, refresh := fullProvider(t)
 	grant := testGrant("grant_1", "client_1", "wa:dm", nil)
@@ -954,6 +1038,10 @@ func TestRefreshMatrix(t *testing.T) {
 	}
 }
 
+// TestRevokedGrantBusCacheBlocksRefreshImmediately marks a grant revoked through the in-process
+// control-bus cache before the backing repository view changes, then attempts refresh. The request must
+// fail immediately without rotating the token. This closes the propagation window between an
+// administrative revoke and database/cache convergence.
 func TestRevokedGrantBusCacheBlocksRefreshImmediately(t *testing.T) {
 	p, _, grants, _ := fullProvider(t)
 	grant := testGrant("grant_1", "client_1", "wa:dm", nil)
@@ -970,6 +1058,10 @@ func TestRevokedGrantBusCacheBlocksRefreshImmediately(t *testing.T) {
 	}
 }
 
+// TestClaimsByScopeAndACRForIDTokenAndUserInfo issues tokens under different scope sets and DM versus
+// group ACR values, then compares ID-token and userinfo claims. Only authorized profile, phone, and group
+// attributes may appear, and both surfaces must derive the same subject identity. This prevents optional
+// WhatsApp data from leaking outside granted scopes.
 func TestClaimsByScopeAndACRForIDTokenAndUserInfo(t *testing.T) {
 	for _, acr := range []string{"wa:dm", "wa:group"} {
 		for _, scopes := range [][]string{{"openid"}, {"openid", "profile"}, {"openid", "phone"}, {"openid", "wa:group"}, {"openid", "profile", "phone", "wa:group"}} {
@@ -1008,6 +1100,10 @@ func TestClaimsByScopeAndACRForIDTokenAndUserInfo(t *testing.T) {
 	}
 }
 
+// TestFinalizeMatrix finalizes pending, verified, denied, expired, and already-finalized browser flows.
+// Only a verified unexpired request may create the one-time authorization code and redirect; repeating
+// finalize returns the same durable result rather than minting another code. This pins the
+// verified-to-finalized CAS boundary.
 func TestFinalizeMatrix(t *testing.T) {
 	p, ps, _, _ := fullProvider(t)
 	req := PendingRequest{ClientID: "client_1", OrganizationID: "org_1", BrowserCode: "browser", SessionID: "sess_1", UserCode: "483920", LoginCommand: "login", Mode: "dm", RedirectURI: "https://rp.example/cb", CodeChallenge: pkceChallenge("v"), Scopes: []string{"openid"}, Status: PendingStatusPending, ExpiresAt: time.Now().Add(time.Minute).UnixMilli()}
@@ -1046,6 +1142,10 @@ func TestFinalizeMatrix(t *testing.T) {
 	}
 }
 
+// TestResolveModeTokenMatchesACRValues maps accepted ACR tokens to DM or group login mode and rejects
+// unrelated values. The mapping must agree with the ACR emitted into tokens and the target checks
+// performed by the WhatsApp interceptor. This prevents authorization and claim generation from
+// interpreting the same token differently.
 func TestResolveModeTokenMatchesACRValues(t *testing.T) {
 	if got, err := resolveMode("dm,group", "not-wa:group wa:dm"); err != nil || got != "dm" {
 		t.Fatalf("substring acr selected group or failed: got=%q err=%v", got, err)
@@ -1055,6 +1155,9 @@ func TestResolveModeTokenMatchesACRValues(t *testing.T) {
 	}
 }
 
+// TestUserInfoRejectsIDToken presents a validly signed ID token to the userinfo endpoint where an access
+// token is required. The endpoint must reject it despite valid signature and overlapping claims. Token
+// type is therefore enforced in addition to cryptographic validity.
 func TestUserInfoRejectsIDToken(t *testing.T) {
 	p, _, grants, _ := fullProvider(t)
 	grant := testGrant("grant_1", "client_1", "wa:dm", nil)
@@ -1072,6 +1175,10 @@ func TestUserInfoRejectsIDToken(t *testing.T) {
 	}
 }
 
+// TestProviderClientIPTrustProxyModes compares client-address extraction with TrustProxy disabled and
+// enabled. RemoteAddr remains authoritative by default; forwarded headers are considered only in
+// trusted-proxy mode. This prevents untrusted clients from bypassing per-IP stream limits by forging
+// X-Forwarded-For.
 func TestProviderClientIPTrustProxyModes(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/oauth/wait/x/stream", nil)
 	req.RemoteAddr = "10.0.0.2:1234"
@@ -1084,6 +1191,10 @@ func TestProviderClientIPTrustProxyModes(t *testing.T) {
 	}
 }
 
+// TestConcurrentUserCodeMintReservesUniqueCodes starts concurrent authorization requests for one session
+// against the Redis reverse-code reservation. Every successful pending request must receive a distinct
+// human user code with no overwritten reverse index. This is the regression guard for collision races
+// during six-digit code minting.
 func TestConcurrentUserCodeMintReservesUniqueCodes(t *testing.T) {
 	p, _, _, _ := fullProvider(t)
 	const n = 48
@@ -1116,6 +1227,10 @@ func TestConcurrentUserCodeMintReservesUniqueCodes(t *testing.T) {
 	}
 }
 
+// TestUserInfoBearerRejectionMatrix calls userinfo with missing, malformed, expired, wrongly issued,
+// revoked, and otherwise invalid bearer tokens. Every invalid credential must produce the same
+// standards-compatible unauthorized response without returning identity fields. This keeps token parsing
+// and grant revocation fail closed.
 func TestUserInfoBearerRejectionMatrix(t *testing.T) {
 	p, _, grants, _ := fullProvider(t)
 	grant := testGrant("grant_1", "client_1", "wa:dm", nil)
@@ -1137,6 +1252,9 @@ func TestUserInfoBearerRejectionMatrix(t *testing.T) {
 	}
 }
 
+// TestRevokeMatrix revokes access and refresh tokens using valid, repeated, unknown, and mismatched client
+// inputs. Revocation remains externally idempotent, but a valid refresh token must revoke its family and
+// publish immediate grant invalidation. The endpoint must not disclose whether an arbitrary token existed.
 func TestRevokeMatrix(t *testing.T) {
 	p, _, grants, refresh := fullProvider(t)
 	grant := testGrant("grant_1", "client_1", "wa:dm", nil)

@@ -8,6 +8,9 @@ import (
 	"github.com/hibiken/asynq"
 )
 
+// TestTaskPayloadRoundTrip constructs each typed task, then decodes it with the matching private parser.
+// IDs and retention cutoffs must survive JSON serialization exactly. This locks the producer/consumer wire
+// contract used across independently running queue clients and workers.
 func TestTaskPayloadRoundTrip(t *testing.T) {
 	t.Run("outbox-send", func(t *testing.T) {
 		task, err := NewOutboxSendTask("out_01HABC")
@@ -61,6 +64,10 @@ func TestTaskPayloadRoundTrip(t *testing.T) {
 	})
 }
 
+// TestParsePayloadValidation feeds every parser malformed JSON and structurally valid payloads with empty,
+// zero, or non-positive required fields. Each case must return an error before a consumer is called.
+// Permanent payload defects are separated from transient worker failures so they can be skipped rather
+// than retried.
 func TestParsePayloadValidation(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -131,6 +138,9 @@ func TestParsePayloadValidation(t *testing.T) {
 
 // Verify the JSON field names are stable on the wire (other phases may inspect
 // the payload), not just self-consistent on round-trip.
+// TestPayloadJSONShape marshals representative task payloads and inspects their public JSON keys and
+// values. The test pins camel-case field names such as outboxId, deliveryId, and cutoffMs rather than
+// merely round-tripping through the same Go tags. This detects queue wire drift during refactors.
 func TestPayloadJSONShape(t *testing.T) {
 	b, _ := json.Marshal(OutboxSendPayload{OutboxID: "out_1"})
 	if string(b) != `{"outboxId":"out_1"}` {
@@ -146,6 +156,9 @@ func TestPayloadJSONShape(t *testing.T) {
 	}
 }
 
+// TestSkipRetryWrappingHelper wraps a payload error with asynq.SkipRetry in the same form used by
+// handlers. errors.Is must still recognize the sentinel through contextual wrapping. This ensures
+// malformed jobs reach the archive directly instead of exhausting MaxRetry.
 func TestSkipRetryWrappingHelper(t *testing.T) {
 	// Sanity: the wrapping pattern the handlers use for bad payloads stays
 	// detectable via errors.Is so asynq won't retry malformed tasks.

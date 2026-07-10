@@ -22,6 +22,8 @@ const (
 	PendingStatusExpired   = "expired"
 )
 
+// ClaimStatus is the stable outcome of atomically attempting a WhatsApp login
+// code. Mismatch outcomes are deliberately distinct for feedback and auditing.
 type ClaimStatus string
 
 const (
@@ -35,6 +37,7 @@ const (
 	ClaimStatusCommandMismatch ClaimStatus = "command_mismatch"
 )
 
+// ClaimResult identifies the pending browser flow affected by a code claim.
 type ClaimResult struct {
 	Status      ClaimStatus
 	BrowserCode string
@@ -43,6 +46,8 @@ type ClaimResult struct {
 	Attempts    int
 }
 
+// PendingRequest is the Redis-backed state machine joining a browser OAuth
+// authorization request to its WhatsApp verification message.
 type PendingRequest struct {
 	ClientID            string          `json:"client_id"`
 	OrganizationID      string          `json:"organization_id"`
@@ -68,6 +73,7 @@ type PendingRequest struct {
 	ExpiresAt           int64           `json:"expires_at"`
 }
 
+// PendingTarget describes the DM or group in which verification must occur.
 type PendingTarget struct {
 	Mode      string  `json:"mode"`
 	Number    *string `json:"number,omitempty"`
@@ -75,6 +81,7 @@ type PendingTarget struct {
 	GroupName *string `json:"group_name,omitempty"`
 }
 
+// VerifiedBlock is the immutable WhatsApp identity captured by verification.
 type VerifiedBlock struct {
 	LID         string  `json:"lid"`
 	PhoneJID    string  `json:"phone_jid,omitempty"`
@@ -84,11 +91,17 @@ type VerifiedBlock struct {
 	VerifiedAt  int64   `json:"verified_at"`
 }
 
+// FinalizedBlock records the one-time authorization code and redirect selected
+// when a verified request is finalized.
 type FinalizedBlock struct {
 	Code     string `json:"code"`
 	Redirect string `json:"redirect"`
 }
 
+// PendingStore owns short-lived OAuth request, reverse user-code, rate-limit,
+// and authorization-code keys. State changes that race verification,
+// cancellation, expiry, or finalization are implemented as Redis scripts so a
+// stale reader cannot overwrite a newer terminal state.
 type PendingStore struct {
 	redis  *redis.Client
 	prefix string
@@ -96,6 +109,8 @@ type PendingStore struct {
 	now    func() time.Time
 }
 
+// AuthCode is the single-use payload stored under a hashed authorization code.
+// RedeemAuthCode removes it atomically before validating its embedded expiry.
 type AuthCode struct {
 	GrantID             string   `json:"grant_id"`
 	ClientID            string   `json:"client_id"`
@@ -109,6 +124,10 @@ type AuthCode struct {
 	ExpiresAtMS         int64    `json:"expires_at_ms,omitempty"`
 }
 
+// NewPendingStore constructs the Redis-backed authorization handshake store.
+// prefix namespaces every request, reverse index, counter, and one-time code;
+// ttl is the default browser-request lifetime, while individual terminal and
+// authorization-code transitions may choose shorter retention windows.
 func NewPendingStore(rdb *redis.Client, prefix string, ttl time.Duration) *PendingStore {
 	return &PendingStore{redis: rdb, prefix: strings.TrimSuffix(prefix, ":"), ttl: ttl, now: time.Now}
 }
@@ -135,6 +154,9 @@ func (s *PendingStore) until(expiresAtMS int64) time.Duration {
 	return time.UnixMilli(expiresAtMS).Sub(s.clock())
 }
 
+// Create atomically reserves both BrowserCode and the session-scoped UserCode.
+// The supplied ExpiresAt is the authoritative absolute deadline for both keys;
+// an already-expired request or collision leaves neither key changed.
 func (s *PendingStore) Create(ctx context.Context, p PendingRequest) error {
 	raw, err := json.Marshal(p)
 	if err != nil {
@@ -155,6 +177,7 @@ func (s *PendingStore) Create(ctx context.Context, p PendingRequest) error {
 }
 
 var createPendingScript = redis.NewScript(`
+if redis.call("EXISTS", KEYS[1]) > 0 then return false end
 local ref = redis.call("GET", KEYS[2])
 if ref and ref ~= "" then return false end
 redis.call("SET", KEYS[1], ARGV[1], "PXAT", ARGV[3])
@@ -162,6 +185,9 @@ redis.call("SET", KEYS[2], ARGV[2], "PXAT", ARGV[3])
 return true
 `)
 
+// Load returns a browser-visible request if it still exists and its embedded
+// deadline has not passed. Logical expiry is enforced even if Redis has not yet
+// evicted the key, preventing TTL scheduling delay from extending authorization.
 func (s *PendingStore) Load(ctx context.Context, browserCode string) (PendingRequest, error) {
 	p, err := s.loadAny(ctx, browserCode)
 	if err != nil {
@@ -185,40 +211,63 @@ func (s *PendingStore) loadAny(ctx context.Context, browserCode string) (Pending
 	return p, nil
 }
 
+// Cancel atomically moves a pending request to denied. It cannot overwrite a
+// verified or finalized winner; the boolean reports that the request key exists,
+// while the script separately suppresses duplicate state publication.
 func (s *PendingStore) Cancel(ctx context.Context, browserCode string) (bool, error) {
-	p, err := s.Load(ctx, browserCode)
-	if err != nil {
-		return false, nil
-	}
-	if p.Status != PendingStatusPending {
-		return true, nil
-	}
-	p.Status = PendingStatusDenied
-	raw, _ := json.Marshal(p)
-	if err := s.redis.Set(ctx, s.reqKey(p.BrowserCode), raw, s.until(p.ExpiresAt)).Err(); err != nil {
-		return false, err
-	}
-	_ = s.redis.Del(ctx, s.userCodeKey(p.SessionID, p.UserCode)).Err()
-	return true, s.Publish(ctx, browserCode, PendingStatusDenied)
+	exists, _, err := s.transition(ctx, browserCode, PendingStatusDenied, "", "", false, 0)
+	return exists, err
 }
 
+// Expire atomically marks a still-pending request expired and publishes the new
+// state for wait streams. Verified and finalized requests remain untouched.
 func (s *PendingStore) Expire(ctx context.Context, browserCode string) (bool, error) {
-	p, err := s.loadAny(ctx, browserCode)
-	if err != nil {
-		return false, nil
-	}
-	if p.Status != PendingStatusPending {
-		return true, nil
-	}
-	p.Status = PendingStatusExpired
-	raw, _ := json.Marshal(p)
-	if err := s.redis.Set(ctx, s.reqKey(p.BrowserCode), raw, time.Minute).Err(); err != nil {
-		return false, err
-	}
-	_ = s.redis.Del(ctx, s.userCodeKey(p.SessionID, p.UserCode)).Err()
-	return true, s.Publish(ctx, browserCode, PendingStatusExpired)
+	exists, _, err := s.transition(ctx, browserCode, PendingStatusExpired, "", "", false, time.Minute)
+	return exists, err
 }
 
+// transition atomically checks and changes a pending request, removes its
+// reverse user-code index, and publishes the terminal state. The compare-and-set
+// prevents cancellation/expiry scans from overwriting a concurrent verification
+// or finalization.
+func (s *PendingStore) transition(ctx context.Context, browserCode, status, sessionID, clientID string, allowVerified bool, retain time.Duration) (exists, changed bool, err error) {
+	state, err := transitionScript.Run(ctx, s.redis, []string{s.reqKey(browserCode)},
+		status, sessionID, clientID, boolInt(allowVerified), retain.Milliseconds(), s.clock().UnixMilli()).Int64()
+	if err != nil {
+		return false, false, err
+	}
+	return state != 0, state == 2, nil
+}
+
+var transitionScript = redis.NewScript(`
+local raw = redis.call("GET", KEYS[1])
+if not raw then return 0 end
+local req = cjson.decode(raw)
+if ARGV[2] ~= "" and (req.session_id or "") ~= ARGV[2] then return 0 end
+if ARGV[3] ~= "" and (req.client_id or "") ~= ARGV[3] then return 0 end
+local allowed = req.status == "pending" or (ARGV[4] == "1" and req.status == "verified")
+if not allowed then return 1 end
+req.status = ARGV[1]
+local encoded = cjson.encode(req)
+local retain_ms = tonumber(ARGV[5])
+local expires_at = tonumber(req.expires_at or 0)
+if retain_ms > 0 then
+  redis.call("SET", KEYS[1], encoded, "PX", retain_ms)
+elseif expires_at > tonumber(ARGV[6]) then
+  redis.call("SET", KEYS[1], encoded, "PXAT", expires_at)
+else
+  redis.call("SET", KEYS[1], encoded, "PX", 60000)
+end
+local prefix = string.match(KEYS[1], "^(.*oauth2:)req:") or "oauth2:"
+redis.call("DEL", prefix .. "usercode:" .. (req.session_id or "") .. ":" .. (req.user_code or ""))
+redis.call("PUBLISH", "oauth2:login:" .. (req.browser_code or ""), ARGV[1])
+return 2
+`)
+
+// ExpireBySession invalidates every open request reverse-indexed to one WhatsApp
+// session and publishes expiry for active browser streams. Each request uses the
+// same guarded transition as Expire, so concurrent verification remains the
+// winner instead of being overwritten by session invalidation.
 func (s *PendingStore) ExpireBySession(ctx context.Context, sessionID string) error {
 	var cursor uint64
 	pattern := s.key("oauth2:req:*")
@@ -236,11 +285,9 @@ func (s *PendingStore) ExpireBySession(ctx context.Context, sessionID string) er
 			if err := json.Unmarshal(raw, &p); err != nil || p.SessionID != sessionID || p.Status != PendingStatusPending {
 				continue
 			}
-			p.Status = PendingStatusExpired
-			encoded, _ := json.Marshal(p)
-			_ = s.redis.Set(ctx, key, encoded, time.Minute).Err()
-			_ = s.redis.Del(ctx, s.userCodeKey(p.SessionID, p.UserCode)).Err()
-			_ = s.Publish(ctx, p.BrowserCode, PendingStatusExpired)
+			if _, _, err := s.transition(ctx, p.BrowserCode, PendingStatusExpired, sessionID, "", false, time.Minute); err != nil {
+				return err
+			}
 		}
 		if next == 0 {
 			return nil
@@ -249,6 +296,9 @@ func (s *PendingStore) ExpireBySession(ctx context.Context, sessionID string) er
 	}
 }
 
+// DenyClientPending denies every pending or verified request for a changed or
+// disabled OAuth client. It returns the number actually transitioned and
+// publishes each denial; finalized requests remain immutable.
 func (s *PendingStore) DenyClientPending(ctx context.Context, clientID string) (int, error) {
 	var cursor uint64
 	var denied int
@@ -270,18 +320,13 @@ func (s *PendingStore) DenyClientPending(ctx context.Context, clientID string) (
 			if p.Status != PendingStatusPending && p.Status != PendingStatusVerified {
 				continue
 			}
-			p.Status = PendingStatusDenied
-			encoded, _ := json.Marshal(p)
-			ttl := s.until(p.ExpiresAt)
-			if ttl <= 0 {
-				ttl = time.Minute
-			}
-			if err := s.redis.Set(ctx, key, encoded, ttl).Err(); err != nil {
+			_, changed, err := s.transition(ctx, p.BrowserCode, PendingStatusDenied, "", clientID, true, 0)
+			if err != nil {
 				return denied, err
 			}
-			_ = s.redis.Del(ctx, s.userCodeKey(p.SessionID, p.UserCode)).Err()
-			_ = s.Publish(ctx, p.BrowserCode, PendingStatusDenied)
-			denied++
+			if changed {
+				denied++
+			}
 		}
 		if next == 0 {
 			return denied, nil
@@ -290,6 +335,10 @@ func (s *PendingStore) DenyClientPending(ctx context.Context, clientID string) (
 	}
 }
 
+// Finalize atomically changes a verified request to finalized and stores its
+// single-use authorization code under a hashed key. A repeated finalization
+// returns the existing finalized request as successful, while a code collision
+// changes neither record, keeping redirect and token redemption idempotent.
 func (s *PendingStore) Finalize(ctx context.Context, browserCode string, finalized FinalizedBlock, authCode AuthCode, authTTL time.Duration) (PendingRequest, bool, error) {
 	authCode.ExpiresAtMS = s.clock().Add(authTTL).UnixMilli()
 	payload, err := json.Marshal(authCode)
@@ -337,6 +386,9 @@ func (s *PendingStore) StoreAuthCode(ctx context.Context, code string, payload A
 
 var errAuthCodeExpired = errors.New("authorization code expired")
 
+// RedeemAuthCode consumes an authorization code with Redis GETDEL before decoding
+// and checking its embedded expiry. Consumption is intentionally fail-closed:
+// malformed or expired payloads cannot be retried or raced by another redeemer.
 func (s *PendingStore) RedeemAuthCode(ctx context.Context, code string) (AuthCode, error) {
 	raw, err := s.redis.GetDel(ctx, s.authCodeKey(code)).Bytes()
 	if err != nil {
@@ -380,6 +432,11 @@ func (s *PendingStore) ReserveUserCode(ctx context.Context, sessionID, userCode 
 	return s.redis.SetNX(ctx, s.userCodeKey(sessionID, userCode), "", ttl).Result()
 }
 
+// ClaimInput carries the normalized WhatsApp message identity and request
+// attributes checked by ClaimVerified's atomic state transition.
+// ClaimInput is the complete comparison set used by the atomic WhatsApp claim
+// script. Browser/session/client/mode/command bind the message to one request;
+// claimant fields become immutable VerifiedBlock data only on a winning claim.
 type ClaimInput struct {
 	SessionID    string
 	UserCode     string
@@ -399,6 +456,10 @@ type ClaimInput struct {
 // ARGV[1]=session_id, ARGV[2]=mode, ARGV[3]=login_command,
 // ARGV[4]=verified_json, ARGV[5]=now_ms, ARGV[6]=request_ttl_ms,
 // ARGV[7]=wrong_attempt_ttl_seconds.
+// ClaimVerified atomically resolves the session-scoped user-code index, validates
+// request bindings and expiry, applies the attempt cap, and selects at most one
+// verified winner. Duplicate delivery observes already_used, while mismatches
+// consume attempts without extending either request TTL.
 func (s *PendingStore) ClaimVerified(ctx context.Context, in ClaimInput) (ClaimResult, error) {
 	verified, _ := json.Marshal(VerifiedBlock{
 		LID: in.SenderLID, PhoneJID: in.PhoneJID, PhoneNumber: in.PhoneNumber,
@@ -470,6 +531,9 @@ redis.call("PUBLISH", "oauth2:login:" .. browser_code, "verified")
 return cjson.encode({status="verified", client_id=client_id, browser_code=browser_code, app_name=req.app_name or "", attempts=req.attempts or 0})
 `)
 
+// ClaimWrongCode increments the per-session, per-sender abuse counter when no
+// reverse user-code match exists. Redis performs the increment and window setup
+// atomically; reaching the cap returns rate_limited without identifying requests.
 func (s *PendingStore) ClaimWrongCode(ctx context.Context, sessionID, senderLID string, nowMs int64) (ClaimResult, error) {
 	raw, err := wrongCodeScript.Run(ctx, s.redis, []string{s.key("oauth2:rl:verify:" + shaKey(senderLID))}, sessionID, nowMs, int64(300)).Result()
 	if err != nil {
@@ -485,10 +549,15 @@ if n > 5 then return cjson.encode({status="rate_limited", attempts=n}) end
 return cjson.encode({status="wrong", attempts=n})
 `)
 
+// RememberStop records the sender's most recent verified browser flow for the
+// bounded interval in which a WhatsApp STOP command may revoke it.
 func (s *PendingStore) RememberStop(ctx context.Context, senderLID, browserCode string, ttl time.Duration) error {
 	return s.redis.Set(ctx, s.stopKey(senderLID), browserCode, ttl).Err()
 }
 
+// DenyRecentForSender consumes the sender's STOP pointer and atomically denies
+// the referenced verified request. Replays cannot repeatedly mutate the flow,
+// and a request finalized first remains final rather than being revoked here.
 func (s *PendingStore) DenyRecentForSender(ctx context.Context, senderLID string) (ClaimResult, error) {
 	key := s.stopKey(senderLID)
 	browserCode, err := s.redis.Get(ctx, key).Result()
@@ -571,6 +640,13 @@ func stringPtr(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+func boolInt(v bool) int {
+	if v {
+		return 1
+	}
+	return 0
 }
 
 func randomURLToken(bytes int) (string, error) {

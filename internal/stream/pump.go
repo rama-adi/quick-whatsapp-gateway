@@ -80,6 +80,9 @@ func NewPump(cfg PumpConfig) *Pump {
 // live events until ctx is cancelled or the Sink errors. events is the type
 // allow-list ("*"/empty = all).
 func (p *Pump) Run(ctx context.Context, sink Sink, scope Scope, events []string, since string) error {
+	if scope.Organization == "" && scope.Session != "" {
+		return fmt.Errorf("stream: session scope requires an organization")
+	}
 	filter := parseEventFilter(strings.Join(events, ","))
 	if filter.empty() {
 		return fmt.Errorf("stream: event filter matches no types")

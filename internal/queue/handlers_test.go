@@ -46,6 +46,9 @@ func dispatch(mux *asynq.ServeMux, task *asynq.Task) error {
 	return h.ProcessTask(context.Background(), task)
 }
 
+// TestHandlerDispatch registers all three recording consumers and resolves one task of each type through
+// the ServeMux. Each payload must reach only its corresponding consumer with the decoded id or cutoff.
+// This pins handler registration and argument routing without a live Redis worker.
 func TestHandlerDispatch(t *testing.T) {
 	fake := &fakeConsumers{}
 	mux := Handlers{Outbox: fake, Webhooks: fake, Retention: fake}.Mux()
@@ -75,6 +78,9 @@ func TestHandlerDispatch(t *testing.T) {
 	}
 }
 
+// TestHandlerPropagatesConsumerError makes a valid outbox consumer return a transient failure. The handler
+// must preserve that error with task context and must not add SkipRetry. Asynq can therefore retry
+// operational failures while still exposing which outbox row failed.
 func TestHandlerPropagatesConsumerError(t *testing.T) {
 	sentinel := errors.New("boom")
 	fake := &fakeConsumers{failErr: sentinel}
@@ -91,6 +97,9 @@ func TestHandlerPropagatesConsumerError(t *testing.T) {
 	}
 }
 
+// TestHandlerMalformedPayloadSkipsRetry dispatches malformed tasks for each registered job type. Every
+// handler must wrap the parse failure with asynq.SkipRetry and avoid invoking its consumer. Retrying
+// immutable bad JSON would waste worker capacity forever.
 func TestHandlerMalformedPayloadSkipsRetry(t *testing.T) {
 	fake := &fakeConsumers{}
 	mux := Handlers{Outbox: fake}.Mux()
@@ -109,6 +118,9 @@ func TestHandlerMalformedPayloadSkipsRetry(t *testing.T) {
 	}
 }
 
+// TestMuxOnlyRegistersProvidedConsumers builds a handler bundle with only the outbox consumer present. The
+// mux must resolve outbox tasks and leave webhook and retention types unregistered. This allows
+// specialized worker processes without nil dereferences or accidental job ownership.
 func TestMuxOnlyRegistersProvidedConsumers(t *testing.T) {
 	// Only outbox is provided; webhook/retention tasks must hit NotFoundHandler.
 	mux := Handlers{Outbox: &fakeConsumers{}}.Mux()
@@ -124,6 +136,9 @@ func TestMuxOnlyRegistersProvidedConsumers(t *testing.T) {
 	}
 }
 
+// TestRetentionCutoffMs computes cutoffs for positive, zero, and negative retention-day settings relative
+// to a fixed instant. Positive days subtract exact 24-hour periods; non-positive values return ok=false to
+// mean keep forever. This keeps policy interpretation out of the pruning worker.
 func TestRetentionCutoffMs(t *testing.T) {
 	now := time.Date(2026, 6, 26, 0, 0, 0, 0, time.UTC)
 	tests := []struct {

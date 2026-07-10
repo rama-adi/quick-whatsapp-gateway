@@ -2,6 +2,10 @@ package stream
 
 import "testing"
 
+// TestParseEventFilter runs empty, wildcard, comma-separated, whitespace, duplicate, and invalid event
+// selections through the filter parser. Empty and wildcard mean all events, explicit names form a
+// deduplicated allow-list, and a list containing no valid names matches nothing. This defines the
+// subscription query semantics before Redis is touched.
 func TestParseEventFilter(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -68,12 +72,19 @@ func TestParseEventFilter(t *testing.T) {
 	}
 }
 
+// TestChannelNaming checks exact session channels, organization patterns, firehose patterns, and an
+// organization id containing Redis glob metacharacters. The organization pattern must escape *, ?,
+// brackets, and backslashes while leaving the final session wildcard active. This prevents crafted tenant
+// ids from subscribing to another organizations events.
 func TestChannelNaming(t *testing.T) {
 	if got := sessionChannel("ten_a", "sess_1"); got != "evt:ten_a:sess_1" {
 		t.Errorf("sessionChannel = %q", got)
 	}
 	if got := organizationPattern("ten_a"); got != "evt:ten_a:*" {
 		t.Errorf("organizationPattern = %q", got)
+	}
+	if got := organizationPattern(`ten*[a]?\b`); got != `evt:ten\*\[a\]\?\\b:*` {
+		t.Errorf("organizationPattern did not escape glob metacharacters: %q", got)
 	}
 	// A organization pattern must not match another organization's channel.
 	if got := channelFor("ten_b", "sess_1"); got == "evt:ten_a:sess_1" {

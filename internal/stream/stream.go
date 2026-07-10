@@ -24,6 +24,7 @@ package stream
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/redis/go-redis/v9"
 
@@ -74,7 +75,23 @@ func sessionChannel(organization, session string) string {
 // organizationPattern returns the glob pattern a organization-wide subscriber listens on
 // (all of that organization's sessions). go-redis PSubscribe uses Redis glob syntax.
 func organizationPattern(organization string) string {
-	return fmt.Sprintf("%s%s:*", channelPrefix, organization)
+	return fmt.Sprintf("%s%s:*", channelPrefix, escapeRedisGlob(organization))
+}
+
+// escapeRedisGlob quotes Redis pattern metacharacters in an organization id.
+// Organization subscriptions use PSUBSCRIBE, so treating an id as a raw glob
+// could accidentally widen a tenant-scoped stream.
+func escapeRedisGlob(value string) string {
+	var b strings.Builder
+	b.Grow(len(value))
+	for _, r := range value {
+		switch r {
+		case '\\', '*', '?', '[', ']':
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 // firehosePattern returns the glob pattern the admin firehose subscribes on (every

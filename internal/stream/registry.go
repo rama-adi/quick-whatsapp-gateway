@@ -105,14 +105,20 @@ func (r *ConnRegistry) DropByUserOrg(userID, orgID string) int {
 // runs as each ServeHTTP unwinds, so removing here is belt-and-suspenders.
 func (r *ConnRegistry) dropMatching(pred func(ConnIdentity) bool) int {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	n := 0
+	cancels := make([]context.CancelFunc, 0)
 	for h, c := range r.conns {
 		if pred(c.id) {
-			c.cancel()
+			cancels = append(cancels, c.cancel)
 			delete(r.conns, h)
-			n++
 		}
 	}
-	return n
+	r.mu.Unlock()
+	// A caller-supplied cancel function may synchronously re-enter the registry.
+	// Invoke it after releasing the lock to keep revocation deadlock-free.
+	for _, cancel := range cancels {
+		if cancel != nil {
+			cancel()
+		}
+	}
+	return len(cancels)
 }

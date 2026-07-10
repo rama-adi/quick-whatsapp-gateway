@@ -20,19 +20,30 @@ const (
 	ModeGroup = "group"
 )
 
+// ActiveAppReader returns login-command definitions for active OAuth clients on
+// one WhatsApp session.
 type ActiveAppReader interface {
 	ListActiveBySession(ctx context.Context, sessionID string) ([]domain.OAuthClient, error)
 }
 
+// GroupMemberChecker verifies that a group-mode claimant is still an active
+// member of the configured group at message-processing time.
 type GroupMemberChecker interface {
 	IsActiveGroupMember(ctx context.Context, sessionID, groupJID, senderLID string) (bool, error)
 }
 
+// BotFeedback emits best-effort WhatsApp reactions and replies explaining a
+// claim result. Feedback failure never changes the atomic PendingStore outcome.
 type BotFeedback interface {
 	React(ctx context.Context, organizationID, sessionID, chatJID, senderJID, messageID, emoji string) error
 	Reply(ctx context.Context, organizationID, sessionID, chatJID, messageID, text string) error
 }
 
+// LoginInterceptor recognizes OAuth login commands before the normal inbound
+// persistence/fan-out stages. Per-session command regexes are cached behind mu;
+// control-bus invalidation removes the cache entry so changed app configuration
+// is observed on the next message. PendingStore remains the authority for
+// single-use claims, attempt caps, and concurrent winners.
 type LoginInterceptor struct {
 	apps    ActiveAppReader
 	pending *PendingStore
@@ -51,6 +62,9 @@ type sessionApps struct {
 	byLower map[string][]domain.OAuthClient
 }
 
+// NewLoginInterceptor constructs a stateless message interceptor plus an empty
+// per-session app cache. It starts no background work and is safe for concurrent
+// HandleLogin calls.
 func NewLoginInterceptor(apps ActiveAppReader, pending *PendingStore, members GroupMemberChecker, bot BotFeedback, log *slog.Logger) *LoginInterceptor {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
@@ -62,6 +76,9 @@ func NewLoginInterceptor(apps ActiveAppReader, pending *PendingStore, members Gr
 	}
 }
 
+// InvalidateSession evicts one session's compiled command index, or every entry
+// when sessionID is empty. Concurrent readers keep their immutable snapshot;
+// the next message reloads active clients from the repository.
 func (l *LoginInterceptor) InvalidateSession(sessionID string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -77,6 +94,11 @@ func (l *LoginInterceptor) InvalidateSession(sessionID string) {
 // a ":device" suffix).
 var mentionTokenRe = regexp.MustCompile(`(^|\s)@[0-9][0-9:.]*`)
 
+// HandleLogin recognizes STOP and configured login commands before ordinary
+// inbound persistence. It returns handled=true whenever this interceptor owns the
+// message, including rejected claims, so credentials and attempts are never fanned
+// out as chat content; PendingStore atomically chooses the winner under duplicates.
+// Bot feedback is best effort and cannot change a successful or failed claim.
 func (l *LoginInterceptor) HandleLogin(ctx context.Context, nm *inbound.NormalizedMessage) (bool, error) {
 	if l == nil || l.apps == nil || l.pending == nil || nm == nil || nm.FromMe || nm.Kind != inbound.KindMessage {
 		return false, nil

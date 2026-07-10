@@ -45,7 +45,9 @@ evt:*                             # firehose pattern (admin; all orgs/sessions)
 Organization id comes **first** so an org glob (`evt:<organization>:*`) can never match
 another org's channel — pub/sub is the isolation boundary. A single-session subscriber
 uses the exact channel; an all-sessions subscriber uses `PSubscribe` on the org pattern;
-the admin firehose uses `PSubscribe` on `evt:*`.
+the admin firehose uses `PSubscribe` on `evt:*`. Organization ids are escaped before
+being placed in a Redis glob, so pattern metacharacters in an id cannot widen a
+tenant-scoped subscription.
 
 ## Key types / interfaces
 
@@ -114,6 +116,8 @@ re-validates and fails closed if access is gone.
   id equals the last replayed id.
 - **Empty organization is a hard error** in `Publish` — an event with no owning org is
   unaddressable.
+- **Scope validation is fail-closed.** A session scope without an organization is
+  rejected instead of falling through to the firehose subscription.
 - **One transport.** Realtime is WebSocket-only on the router; the gateway publishes and
   the router pumps. The `Pump`/`Sink` seam keeps the loop transport-agnostic should
   another transport ever be added.
@@ -127,7 +131,8 @@ behind a real `*redis.Client`, fake `Clock`/`Ticker` and fake `EventLogReader`:
   the full envelope (incl. `organization`) + nested payload intact; empty org errors.
 - **Filtering** — `parseEventFilter` table tests.
 - **Registry** — `ConnRegistry` registers/deregisters and drops matching connections by
-  `keyId` / `userId` / `(userId, organizationId)`.
+  `keyId` / `userId` / `(userId, organizationId)`; cancellation callbacks run outside
+  the registry lock so callback re-entry cannot deadlock revocation.
 
 (The Pump's replay/tail/heartbeat behavior is exercised end-to-end through the router's
 realtime tests in `internal/router`.)

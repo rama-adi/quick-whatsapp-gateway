@@ -41,6 +41,10 @@ func (f *fakeBot) Reply(_ context.Context, _, _, _, _ string, text string) error
 	return nil
 }
 
+// TestLoginInterceptorMatchingMatrix feeds DM messages covering exact commands, case folding, wrong codes,
+// unrelated text, from-me echoes, and inactive app shapes. Only messages owned by an active OAuth login
+// command are consumed; ordinary WhatsApp messages pass to persistence and fan-out. Claim outcomes also
+// drive the expected success or failure bot feedback.
 func TestLoginInterceptorMatchingMatrix(t *testing.T) {
 	_, rdb := testRedis(t)
 	ps := NewPendingStore(rdb, "lim", 10*time.Minute)
@@ -92,6 +96,10 @@ func TestLoginInterceptorMatchingMatrix(t *testing.T) {
 	require.True(t, handled)
 }
 
+// TestLoginInterceptorGroupRequiresBotMention sends a valid group-mode code with and without an explicit
+// mention of the configured bot. The interceptor must ignore unmentioned group chatter and claim only the
+// mentioned command from an active member. This prevents six-digit text in a shared group from approving
+// login accidentally.
 func TestLoginInterceptorGroupRequiresBotMention(t *testing.T) {
 	_, rdb := testRedis(t)
 	ps := NewPendingStore(rdb, "libotmention", 10*time.Minute)
@@ -148,6 +156,10 @@ func TestLoginInterceptorGroupRequiresBotMention(t *testing.T) {
 	require.Equal(t, PendingStatusVerified, req.Status)
 }
 
+// TestLoginInterceptorGroupJIDCanonicalComparison uses equivalent group JIDs that differ only by device or
+// canonical formatting. Membership and target matching must compare canonical group identity and allow the
+// intended claim. This avoids rejecting valid group logins because whatsmeow supplied an alternate JID
+// form.
 func TestLoginInterceptorGroupJIDCanonicalComparison(t *testing.T) {
 	_, rdb := testRedis(t)
 	ps := NewPendingStore(rdb, "lijidcanon", 10*time.Minute)
@@ -217,6 +229,10 @@ func TestLoginInterceptorGroupJIDCanonicalComparison(t *testing.T) {
 	}
 }
 
+// TestLoginInterceptorGroupJIDCanonicalComparisonIgnoresWrongTarget sends a mentioned login command in a
+// different group whose JID remains different after canonicalization. The interceptor must leave the
+// message unhandled and must not claim the code or send feedback. Canonicalization may remove
+// representation noise but cannot broaden the configured target.
 func TestLoginInterceptorGroupJIDCanonicalComparisonIgnoresWrongTarget(t *testing.T) {
 	_, rdb := testRedis(t)
 	ps := NewPendingStore(rdb, "lijidcanonneg", 10*time.Minute)
@@ -260,6 +276,10 @@ func TestLoginInterceptorGroupJIDCanonicalComparisonIgnoresWrongTarget(t *testin
 	require.Equal(t, PendingStatusPending, req.Status)
 }
 
+// TestLoginInterceptorInvalidatesCommandCache loads active app commands into the per-session cache,
+// changes the backing app set, and compares behavior before and after invalidation. Cached commands remain
+// stable until InvalidateSession, after which the next message reloads and uses the new command. This pins
+// the control-bus cache coherence boundary.
 func TestLoginInterceptorInvalidatesCommandCache(t *testing.T) {
 	_, rdb := testRedis(t)
 	ps := NewPendingStore(rdb, "licache", 10*time.Minute)

@@ -9,6 +9,10 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 )
 
+// TestPublisher_PublishFanOut subscribes to one exact organization-session Redis channel, publishes a
+// domain event, and decodes the received payload. The id, type, organization, schema, and nested payload
+// must survive unchanged on precisely that channel. This checks the gateway-to-router live event contract
+// with real pubsub behavior.
 func TestPublisher_PublishFanOut(t *testing.T) {
 	_, rc := newMiniRedis(t)
 	pub := NewPublisher(rc, nil)
@@ -43,6 +47,9 @@ func TestPublisher_PublishFanOut(t *testing.T) {
 	}
 }
 
+// TestPublisher_EmptyOrganizationRejected attempts to publish an event with a session but no owning
+// organization. Publish must return an error before selecting a Redis channel. Failing closed here
+// prevents an unaddressable event from leaking into an ambiguous or firehose-like namespace.
 func TestPublisher_EmptyOrganizationRejected(t *testing.T) {
 	_, rc := newMiniRedis(t)
 	pub := NewPublisher(rc, nil)
@@ -50,5 +57,21 @@ func TestPublisher_EmptyOrganizationRejected(t *testing.T) {
 	e := domain.NewEvent(domain.EventMessage, "sess_1", "", nil)
 	if err := pub.Publish(context.Background(), e); err == nil {
 		t.Fatal("expected error publishing event with empty organization")
+	}
+}
+
+type discardSink struct{}
+
+func (discardSink) Send(context.Context, []byte) error { return nil }
+
+// TestPumpRejectsSessionScopeWithoutOrganization constructs a pump scope containing a session id but no
+// organization id. Run must reject the scope before subscribing or writing a connected frame. Without this
+// validation the switch would interpret the malformed scope as an administrator firehose.
+func TestPumpRejectsSessionScopeWithoutOrganization(t *testing.T) {
+	_, rc := newMiniRedis(t)
+	pump := NewPump(PumpConfig{Redis: rc})
+	err := pump.Run(context.Background(), discardSink{}, Scope{Session: "sess_1"}, nil, "")
+	if err == nil {
+		t.Fatal("expected invalid scope error")
 	}
 }
