@@ -23,7 +23,6 @@ import {
   FinalizingScreen,
   LoadingSkeleton,
   NotFoundScreen,
-  ReloadedScreen,
   VerifiedScreen,
 } from "./-oauth/states";
 
@@ -90,8 +89,6 @@ function Body({
       return <DeniedScreen />;
     case "expired":
       return <ExpiredScreen />;
-    case "reloaded":
-      return <ReloadedScreen />;
     case "not_found":
       return <NotFoundScreen />;
     case "error":

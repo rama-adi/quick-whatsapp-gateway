@@ -276,9 +276,16 @@ func (p *Provider) HandleWaitStream(w http.ResponseWriter, r *http.Request) {
 	for {
 		select {
 		case <-ctx.Done():
-			_, _ = p.pending.Expire(context.Background(), code)
-			writeFrame(w, map[string]string{"status": PendingStatusExpired})
-			flusher.Flush()
+			// Only the request deadline expires the flow. A dropped client
+			// (mobile tab backgrounded to open WhatsApp, network blip) lands
+			// here too via r.Context() cancellation — the request must stay
+			// claimable so the client's reconnect is idempotent (oauth.md
+			// §6.1); Redis PXAT owns real expiry regardless of watchers.
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				_, _ = p.pending.Expire(context.Background(), code)
+				writeFrame(w, map[string]string{"status": PendingStatusExpired})
+				flusher.Flush()
+			}
 			return
 		case <-t.C:
 			writeFrame(w, map[string]string{"status": "heartbeat"})

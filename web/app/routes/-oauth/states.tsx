@@ -108,18 +108,6 @@ export function ExpiredScreen() {
   );
 }
 
-export function ReloadedScreen() {
-  const { m } = useConsentI18n();
-  return (
-    <TerminalScreen
-      tone="neutral"
-      icon={<ShieldXIcon className="size-7" aria-hidden />}
-      title={m.states.reloaded.title}
-      message={m.states.reloaded.message}
-    />
-  );
-}
-
 export function NotFoundScreen() {
   const { m } = useConsentI18n();
   return (

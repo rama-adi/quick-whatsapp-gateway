@@ -51,7 +51,6 @@ export interface ConsentMessages {
     finalizing: { title: string; message: string };
     denied: { title: string; message: string };
     expired: { title: string; message: string };
-    reloaded: { title: string; message: string };
     notFound: { title: string; message: string };
     error: { title: string; message: string };
   };
@@ -116,11 +115,6 @@ export const CONSENT_MESSAGES: Record<ConsentLocale, ConsentMessages> = {
         title: "Sign-in expired",
         message:
           "This code timed out. Return to the app and start signing in again to get a new one.",
-      },
-      reloaded: {
-        title: "Sign-in cancelled",
-        message:
-          "This page was reloaded, so the sign-in attempt was cancelled for your security. Return to the app and start again.",
       },
       notFound: {
         title: "Invalid or expired link",
@@ -195,11 +189,6 @@ export const CONSENT_MESSAGES: Record<ConsentLocale, ConsentMessages> = {
         title: "Proses masuk kedaluwarsa",
         message:
           "Kode ini kehabisan waktu. Kembali ke aplikasi dan mulai proses masuk lagi untuk mendapatkan kode baru.",
-      },
-      reloaded: {
-        title: "Proses masuk dibatalkan",
-        message:
-          "Halaman ini dimuat ulang, jadi percobaan masuk dibatalkan demi keamanan Anda. Kembali ke aplikasi dan mulai lagi.",
       },
       notFound: {
         title: "Tautan tidak valid atau kedaluwarsa",

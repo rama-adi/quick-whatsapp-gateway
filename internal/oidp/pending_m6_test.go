@@ -69,6 +69,41 @@ func TestClaimVerifiedConcurrentExactlyOneWinner(t *testing.T) {
 	require.NotNil(t, loaded.Verified)
 }
 
+// TestClaimVerifiedShortensDeadlineToGrace verifies the winning claim caps the request deadline at
+// now + verifiedGrace instead of the full request TTL, and that finalization past the grace fails.
+// A verified-but-unfinalized flow is the resumable-consent-page window (oauth.md §6.1 reload
+// resume); the grace bounds how long an abandoned verified flow stays finalizable (§7.8).
+func TestClaimVerifiedShortensDeadlineToGrace(t *testing.T) {
+	_, rdb := testRedis(t)
+	ps := NewPendingStore(rdb, "m6-grace", 10*time.Minute)
+	require.NoError(t, ps.Create(context.Background(), PendingRequest{
+		ClientID: "client_1", BrowserCode: "browser_g", SessionID: "sess_1", UserCode: "483920",
+		LoginCommand: "login", Mode: "dm", Status: PendingStatusPending,
+		ExpiresAt: time.Now().Add(10 * time.Minute).UnixMilli(),
+	}))
+	claimedAt := time.Now()
+	res, err := ps.ClaimVerified(context.Background(), ClaimInput{
+		SessionID: "sess_1", UserCode: "483920", Mode: "dm", LoginCommand: "login",
+		SenderLID: "111@lid", NowMs: claimedAt.UnixMilli(),
+	})
+	require.NoError(t, err)
+	require.Equal(t, ClaimStatusVerified, res.Status)
+
+	loaded, err := ps.Load(context.Background(), "browser_g")
+	require.NoError(t, err)
+	require.Equal(t, PendingStatusVerified, loaded.Status)
+	require.LessOrEqual(t, loaded.ExpiresAt, claimedAt.Add(verifiedGrace).UnixMilli(),
+		"verified deadline must be capped at the grace window")
+	require.Greater(t, loaded.ExpiresAt, claimedAt.Add(verifiedGrace-time.Minute).UnixMilli(),
+		"verified deadline should be close to the full grace window")
+
+	// Past the grace, finalize must refuse even though nothing else touched the flow.
+	ps.SetClock(func() time.Time { return claimedAt.Add(verifiedGrace + time.Second) })
+	_, ok, err := ps.Finalize(context.Background(), "browser_g", FinalizedBlock{Code: "code", Redirect: "https://rp.example/cb?code=code"}, AuthCode{}, time.Minute)
+	require.NoError(t, err)
+	require.False(t, ok, "finalize past the verified grace must fail")
+}
+
 // TestCancelRacingVerificationNeverOverwritesWinner starts cancellation and WhatsApp verification from the
 // same barrier for a fresh request, repeating the race to exercise both Redis orderings. If verification
 // wins, cancellation must observe the verified terminal state without replacing it; if cancellation wins,

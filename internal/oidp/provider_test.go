@@ -321,6 +321,48 @@ func TestWaitStreamSnapshotFrameShape(t *testing.T) {
 	}
 }
 
+// TestWaitStreamClientDisconnectKeepsRequestPending drops the wait-stream connection mid-flight (a
+// backgrounded mobile tab that switched to WhatsApp, or a network blip) and verifies the pending
+// request survives: only the request deadline may expire it, so the user code stays claimable and a
+// reconnect re-emits the snapshot (oauth.md §6.1 reconnect idempotence).
+func TestWaitStreamClientDisconnectKeepsRequestPending(t *testing.T) {
+	p, ps := testProvider(t)
+	req := PendingRequest{
+		ClientID: "client_1", BrowserCode: "browser", SessionID: "sess_1", UserCode: "483920",
+		LoginCommand: "login", AppName: "Acme", Status: PendingStatusPending,
+		ExpiresAt: time.Now().Add(time.Minute).UnixMilli(),
+	}
+	if err := ps.Create(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	r := chi.NewRouter()
+	p.Mount(r)
+	ctx, cancel := context.WithCancel(context.Background())
+	rec := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/oauth/wait/browser/stream", nil).WithContext(ctx))
+	}()
+	time.Sleep(50 * time.Millisecond) // let the handler write the snapshot and park in its select
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("handler did not return after client disconnect")
+	}
+	got, err := ps.Load(context.Background(), "browser")
+	if err != nil {
+		t.Fatalf("pending request gone after client disconnect: %v", err)
+	}
+	if got.Status != PendingStatusPending {
+		t.Fatalf("status=%q after client disconnect, want %q", got.Status, PendingStatusPending)
+	}
+	if strings.Contains(rec.Body.String(), `"status":"expired"`) {
+		t.Fatalf("stream emitted expired on client disconnect: %q", rec.Body.String())
+	}
+}
+
 // TestWaitStreamUnknownCodeIsGeneric404 requests a wait stream for an unrecognized browser code. The
 // handler must return the same generic 404 shape without revealing whether a similar flow existed or
 // expired. No Redis subscription or streaming response should be established.
@@ -1110,7 +1152,7 @@ func TestFinalizeMatrix(t *testing.T) {
 	if err := ps.Create(context.Background(), req); err != nil {
 		t.Fatal(err)
 	}
-	res, err := ps.ClaimVerified(context.Background(), ClaimInput{SessionID: "sess_1", UserCode: "483920", Mode: "dm", LoginCommand: "login", SenderLID: "42@lid", NowMs: 1000000})
+	res, err := ps.ClaimVerified(context.Background(), ClaimInput{SessionID: "sess_1", UserCode: "483920", Mode: "dm", LoginCommand: "login", SenderLID: "42@lid", NowMs: time.Now().UnixMilli()})
 	if err != nil || res.Status != ClaimStatusVerified {
 		t.Fatalf("claim=%+v err=%v", res, err)
 	}

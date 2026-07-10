@@ -186,9 +186,11 @@ is keyed by the 160-bit browser code.
 
 **Atomicity.** The gateway's claim runs as a single Lua script: resolve reverse index → load
 request → assert `status == pending`, session + mode match → on wrong-code, bump attempt counters
-(fail-closed at 10 per request) → on success set `status = verified` + `verified` block and
-`DEL` the reverse index. First claim wins; duplicate WhatsApp deliveries, reconnect replays, and
-any future session re-homing all collapse to one binding. Authorization codes are redeemed with
+(fail-closed at 10 per request) → on success set `status = verified` + `verified` block,
+`DEL` the reverse index, and **shorten the request deadline to `min(expires_at, now + 3 min)`**
+— a verified flow must finalize within that grace, so an abandoned verified flow never stays
+finalizable for the full request TTL (§6.1 step 5, §7.8). First claim wins; duplicate WhatsApp
+deliveries, reconnect replays, and any future session re-homing all collapse to one binding. Authorization codes are redeemed with
 `GETDEL` (single-use); finalize flips `verified → finalized` with a guarded transition so router
 replicas mint exactly one code.
 
@@ -225,7 +227,7 @@ Discovery advertises: `response_types_supported: ["code"]`, `grant_types: ["auth
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
 | GET | `/oauth/authorize` | none (validates `client_id` + exact `redirect_uri` first) | Validate, mint codes, stash, `302` to consent page. |
-| GET | `/oauth/wait/{browser_code}/stream` | browser_code capability | **NDJSON HTTP stream**: current status snapshot on connect, then tail (`verified`/`denied`/`expired`), heartbeat ~20s, hard-close at request expiry. |
+| GET | `/oauth/wait/{browser_code}/stream` | browser_code capability | **NDJSON HTTP stream**: current status snapshot on connect, then tail (`verified`/`denied`/`expired`), heartbeat ~20s, hard-close at request expiry. A dropped connection (backgrounded mobile tab, network blip) never expires the flow — only the request deadline does; the stream is an observer, not the owner, of pending state. |
 | POST | `/oauth/wait/{browser_code}/finalize` | browser_code capability | `verified → finalized`; upsert grant, mint auth code, return `{redirect: "<redirect_uri>?code=…&state=…"}`. |
 | POST | `/oauth/wait/{browser_code}/cancel` | browser_code capability | "This isn't me" → `denied`, reverse index deleted, `denied` published. |
 | POST | `/oauth/token` | client auth (Basic or form for confidential; `client_id`+PKCE for public) | Code exchange + refresh rotation. |
@@ -358,13 +360,19 @@ third-party scripts.
    …/cancel`.
 4. Stream drop before a terminal state → reopen the same URL; the server re-emits the current
    snapshot, so reconnects are idempotent.
-5. **A page reload kills the attempt.** The page stamps a per-page-load id into
-   `sessionStorage` keyed by the browser code; loading the page again for a code this tab
-   already owned (refresh, back-nav) → `POST …/cancel` + a "cancelled because the page was
-   reloaded" terminal screen, instead of resuming. Driver-internal reconnects (step 4) are the
-   same page load and are unaffected; blocked storage fails open (resume, never false-kill).
-   After the flow completed (`finalized`) or expired, the code is spent — a reconnect gets the
-   `finalized` frame (or a 404) and renders the invalid-link terminal state; nothing resumes.
+5. **A page reload resumes, never kills.** On every load the page reconnects and acts on the
+   authoritative server state: `pending` → re-render the code (full consent card, warning, and
+   cancel included), `verified` → finalize + redirect, `denied`/`expired`/`finalized`/404 →
+   terminal screens. There is no client-side reload detection: the earlier sessionStorage
+   stamp only ever enforced same-tab UX (a fresh tab holding the fragment always resumed) while
+   killing legitimate mobile logins whose backgrounded tab the OS evicted and reloaded on return
+   from WhatsApp. The browser code is a resumable 160-bit capability (§7.1) bounded by the
+   10-minute request TTL, and a verified flow is additionally capped by a **3-minute
+   verified→finalize grace** applied by the claim script (§3.2) — an abandoned verified flow
+   cannot linger finalizable for the full TTL. After the flow completed (`finalized`) or
+   expired, the code is spent — a reconnect gets the `finalized` frame (or a 404) and renders
+   the invalid-link terminal state. Completing sign-in on a shared/public computer is
+   discouraged (§7.8 residual).
 
 Consent semantics: **the WhatsApp message is the consent** — the user actively proves identity to
 a named, branded app. No separate Allow/Deny button; the identity display + cancel/STOP is the
@@ -476,6 +484,7 @@ namespaced `wa_*`.
 | Code-relay phishing | §7.3 branded confirmation + STOP + TTL + documented residual |
 | Stream enumeration/DoS | 160-bit code; generic 404; per-IP + per-code concurrent-connection caps; heartbeat; hard-close at expiry; `X-Forwarded-For` is trusted only when `OIDC_TRUST_PROXY=true` |
 | Auth-code replay/injection | GETDEL single-use, 60s, PKCE S256, client+redirect binding |
+| Shared-computer resume of an abandoned flow | The consent page resumes from server state on any load (§6.1 step 5), so a browser code reached via Back/history within the TTL can re-render a pending code or auto-finalize a verified flow. Bounded by the 10-min request TTL and the 3-min verified→finalize grace; **contained to the initiating browser by PKCE** — the RP's `state`+`verifier` live only in that browser's cookie, so a code finalized elsewhere fails `/token` (worst case: burn the flow + a stray grant row). Residual accepted; sensitive RPs use short `token_ttl` + re-auth, and users are advised against shared computers. |
 | Open redirect | Exact-match set, no wildcards/fragments; invalid client/redirect never redirects |
 | Mix-up | Single issuer; `iss` in id_token + RFC 9207 `iss` on the redirect |
 | PKCE downgrade | S256 only; required for confidential too |

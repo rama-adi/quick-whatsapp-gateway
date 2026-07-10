@@ -450,23 +450,31 @@ type ClaimInput struct {
 	NowMs        int64
 }
 
+// verifiedGrace caps how long a verified-but-unfinalized flow stays
+// finalizable. A live consent page finalizes within seconds; the grace only
+// has to cover a backgrounded mobile tab being reloaded on return. Keeping it
+// far below the request TTL bounds the window in which an abandoned verified
+// flow on a shared computer could still be auto-finalized (oauth.md §7.8).
+const verifiedGrace = 3 * time.Minute
+
 // ClaimVerified is the M6 gateway primitive. Lua argv signature:
 // KEYS[1]=oauth2:usercode:<session_id>:<user_code>,
 // KEYS[2]=oauth2:rl:verify:<sender_lid>;
 // ARGV[1]=session_id, ARGV[2]=mode, ARGV[3]=login_command,
 // ARGV[4]=verified_json, ARGV[5]=now_ms, ARGV[6]=request_ttl_ms,
-// ARGV[7]=wrong_attempt_ttl_seconds.
+// ARGV[7]=wrong_attempt_ttl_seconds, ARGV[8]=verified_grace_ms.
 // ClaimVerified atomically resolves the session-scoped user-code index, validates
 // request bindings and expiry, applies the attempt cap, and selects at most one
 // verified winner. Duplicate delivery observes already_used, while mismatches
-// consume attempts without extending either request TTL.
+// consume attempts without extending either request TTL. The winning claim
+// shortens the request deadline to min(expires_at, now + verified_grace_ms).
 func (s *PendingStore) ClaimVerified(ctx context.Context, in ClaimInput) (ClaimResult, error) {
 	verified, _ := json.Marshal(VerifiedBlock{
 		LID: in.SenderLID, PhoneJID: in.PhoneJID, PhoneNumber: in.PhoneNumber,
 		PushName: in.PushName, GroupJID: stringPtr(in.GroupJID), VerifiedAt: in.NowMs,
 	})
 	keys := []string{s.userCodeKey(in.SessionID, in.UserCode), s.key("oauth2:rl:verify:" + shaKey(in.SenderLID))}
-	raw, err := claimScript.Run(ctx, s.redis, keys, in.SessionID, in.Mode, strings.ToLower(in.LoginCommand), string(verified), in.NowMs, int64(s.ttl/time.Millisecond), int64(300)).Result()
+	raw, err := claimScript.Run(ctx, s.redis, keys, in.SessionID, in.Mode, strings.ToLower(in.LoginCommand), string(verified), in.NowMs, int64(s.ttl/time.Millisecond), int64(300), verifiedGrace.Milliseconds()).Result()
 	if err != nil {
 		return ClaimResult{}, err
 	}
@@ -522,8 +530,14 @@ if string.lower(req.login_command or "") ~= ARGV[3] then
 end
 req.status = "verified"
 req.verified = cjson.decode(ARGV[4])
-redis.call("SET", req_key, cjson.encode(req), "PXAT", expires_at)
-local used_until = expires_at
+-- Verified flows must finalize promptly: shorten the deadline to the grace
+-- window so an abandoned verified flow cannot linger for the full request TTL.
+local verified_until = expires_at
+local grace_until = now_ms + tonumber(ARGV[8])
+if grace_until < verified_until then verified_until = grace_until end
+req.expires_at = verified_until
+redis.call("SET", req_key, cjson.encode(req), "PXAT", verified_until)
+local used_until = verified_until
 local used_min = now_ms + 60000
 if used_min < used_until then used_until = used_min end
 redis.call("SET", KEYS[1], "__used__:" .. browser_code, "PXAT", used_until)
