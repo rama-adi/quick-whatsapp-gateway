@@ -3363,7 +3363,7 @@ components:
         customHeaders:
           additionalProperties:
             type: string
-          description: Extra HTTP headers attached to every delivery POST. Applied last, so they can override the gateway's default headers. Use for static auth tokens or routing hints the receiver requires.
+          description: Extra HTTP headers attached to every delivery POST. Use for static auth tokens or routing hints the receiver requires. Integrity headers (Content-Type and X-Webhook-*) are gateway-controlled and cannot be overridden.
           examples:
             - X-Tenant: acme
           type: object
@@ -6488,7 +6488,7 @@ paths:
 
         **Signing.** If you set a `secret`, every `POST` is signed: the gateway sends the lowercase-hex HMAC-SHA512 of the exact raw request body in the `X-Webhook-Hmac` header (with `X-Webhook-Hmac-Algorithm: sha512`). Recompute it on your end with the same secret to confirm the request really came from the gateway. The secret is stored encrypted and is never returned in any response.
 
-        **Delivery headers.** Every `POST` also carries `X-Webhook-Request-Id` (the event id — use it to drop duplicate redeliveries) and `X-Webhook-Timestamp` (epoch milliseconds). Any `customHeaders` are applied last and can override the defaults.
+        **Delivery headers.** Every `POST` also carries `X-Webhook-Request-Id` (the event id — use it to drop duplicate redeliveries) and `X-Webhook-Timestamp` (epoch milliseconds). Custom headers may add receiver-specific metadata, but cannot override gateway-controlled `Content-Type` or `X-Webhook-*` integrity headers.
 
         **Retries.** A delivery that returns non-2xx or fails to connect is retried on the `retryPolicy` schedule — by default exponential backoff (2s, 4s, 8s, …) for up to 15 attempts, after which it is given up (dead-lettered).
 

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
@@ -11,11 +12,13 @@ import (
 // OutboxRepo is the repository for outbox (async send queue, §5/§8). Idempotency
 // is enforced by the unique (organization_id, idempotency_key).
 type OutboxRepo struct {
-	q *storedb.Queries
+	db storedb.DBTX
+	q  *storedb.Queries
 }
 
-// NewOutboxRepo constructs an OutboxRepo.
-func NewOutboxRepo(db storedb.DBTX) *OutboxRepo { return &OutboxRepo{q: storedb.New(db)} }
+// NewOutboxRepo constructs an OutboxRepo. Batch claims require a concrete
+// *sql.DB or caller-owned *sql.Tx so row-lock ownership cannot be ambiguous.
+func NewOutboxRepo(db storedb.DBTX) *OutboxRepo { return &OutboxRepo{db: db, q: storedb.New(db)} }
 
 func outboxFromRow(row storedb.Outbox) domain.OutboxEntry {
 	o := domain.OutboxEntry{
@@ -118,37 +121,111 @@ func (r *OutboxRepo) UpdateStatus(ctx context.Context, id string, status domain.
 	return rowsAffectedOrNotFound(n, "outbox entry")
 }
 
-// ClaimQueued atomically moves up to limit queued entries to 'sending',
-// returning the claimed rows so the async worker can process them. The
-// UPDATE...ORDER BY...LIMIT marks the batch; a follow-up SELECT reads it back.
-// v1 is single-instance (§3) so the small race window between the two statements
-// is acceptable; multi-instance would use SELECT ... FOR UPDATE SKIP LOCKED in a
-// txn. attempts is incremented on claim.
-func (r *OutboxRepo) ClaimQueued(ctx context.Context, limit int, updatedAt int64) ([]domain.OutboxEntry, error) {
-	limit = normLimit(limit)
-
-	// Mark the batch as sending. We tag exactly this claim via updated_at so the
-	// read-back selects only the rows we just transitioned.
-	if err := r.q.ClaimQueuedOutbox(ctx, storedb.ClaimQueuedOutboxParams{
-		Status:    storedb.OutboxStatus(domain.OutboxSending),
-		UpdatedAt: updatedAt,
-		Status_2:  storedb.OutboxStatus(domain.OutboxQueued),
-		Limit:     int32(limit),
-	}); err != nil {
-		return nil, fmt.Errorf("store: claim outbox: %w", err)
-	}
-
-	rows, err := r.q.ListClaimedOutbox(ctx, storedb.ListClaimedOutboxParams{
-		Status:    storedb.OutboxStatus(domain.OutboxSending),
-		UpdatedAt: updatedAt,
-		Limit:     int32(limit),
+// ClaimByID atomically transfers one dispatchable row to a worker by changing
+// queued (initial attempt), failed (Asynq retry), or a sending row whose lease
+// timestamp is at/before staleBefore to sending. It increments attempts and
+// stamps updatedAt in the same CAS. claimed is true only for the process that
+// changed the row; false includes an active sending lease, terminal sent row,
+// missing row, or concurrent winner. The caller chooses staleBefore from a
+// lease duration longer than its maximum dispatch operation.
+func (r *OutboxRepo) ClaimByID(ctx context.Context, id string, updatedAt, staleBefore int64) (claimed bool, err error) {
+	n, err := r.q.ClaimOutboxByID(ctx, storedb.ClaimOutboxByIDParams{
+		ClaimedStatus: storedb.OutboxStatus(domain.OutboxSending),
+		UpdatedAt:     updatedAt,
+		ID:            id,
+		QueuedStatus:  storedb.OutboxStatus(domain.OutboxQueued),
+		FailedStatus:  storedb.OutboxStatus(domain.OutboxFailed),
+		SendingStatus: storedb.OutboxStatus(domain.OutboxSending),
+		StaleBefore:   staleBefore,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("store: read claimed outbox: %w", err)
+		return false, fmt.Errorf("store: claim outbox %s: %w", id, err)
+	}
+	switch n {
+	case 0:
+		return false, nil
+	case 1:
+		return true, nil
+	default:
+		return false, fmt.Errorf("store: claim outbox %s affected %d rows", id, n)
+	}
+}
+
+// ClaimQueued atomically moves up to limit queued entries to 'sending',
+// returning the claimed rows so an async worker can process them. Selection uses
+// FOR UPDATE SKIP LOCKED and every row is transitioned with the same CAS used by
+// ClaimByID before commit, so worker replicas receive disjoint batches. Any
+// statement or commit failure rolls back the complete batch.
+func (r *OutboxRepo) ClaimQueued(ctx context.Context, limit int, updatedAt int64) ([]domain.OutboxEntry, error) {
+	return r.claimQueuedForSession(ctx, "", limit, updatedAt)
+}
+
+// ClaimQueuedForSession is ClaimQueued constrained to one session. The filter
+// is applied inside the locking SELECT—not after rows become sending—so a
+// session-specific consumer cannot claim and then discard another session's
+// work. An empty sessionID intentionally selects across all sessions.
+func (r *OutboxRepo) ClaimQueuedForSession(ctx context.Context, sessionID string, limit int, updatedAt int64) ([]domain.OutboxEntry, error) {
+	return r.claimQueuedForSession(ctx, sessionID, limit, updatedAt)
+}
+
+func (r *OutboxRepo) claimQueuedForSession(ctx context.Context, sessionID string, limit int, updatedAt int64) ([]domain.OutboxEntry, error) {
+	limit = normLimit(limit)
+	if _, ok := r.db.(*sql.Tx); ok {
+		return r.claimQueued(ctx, r.q, sessionID, limit, updatedAt)
+	}
+	db, ok := r.db.(*sql.DB)
+	if !ok {
+		return nil, fmt.Errorf("store: claim queued outbox requires *sql.DB or *sql.Tx")
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("store: begin claim queued outbox: %w", err)
+	}
+	defer tx.Rollback()
+	rows, err := r.claimQueued(ctx, storedb.New(tx), sessionID, limit, updatedAt)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("store: commit claim queued outbox: %w", err)
+	}
+	return rows, nil
+}
+
+// claimQueued assumes q is transaction-bound. Rows remain locked from selection
+// through every CAS; a zero-row CAS is skipped defensively rather than returned
+// as owned work.
+func (r *OutboxRepo) claimQueued(ctx context.Context, q *storedb.Queries, sessionID string, limit int, updatedAt int64) ([]domain.OutboxEntry, error) {
+	rows, err := q.SelectQueuedOutboxForClaim(ctx, storedb.SelectQueuedOutboxForClaimParams{
+		QueuedStatus:  storedb.OutboxStatus(domain.OutboxQueued),
+		SessionFilter: sessionID,
+		Limit:         int32(limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("store: select queued outbox: %w", err)
 	}
 	out := make([]domain.OutboxEntry, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, outboxFromRow(row))
+		n, err := q.ClaimOutboxByID(ctx, storedb.ClaimOutboxByIDParams{
+			ClaimedStatus: storedb.OutboxStatus(domain.OutboxSending),
+			UpdatedAt:     updatedAt,
+			ID:            row.ID,
+			QueuedStatus:  storedb.OutboxStatus(domain.OutboxQueued),
+			FailedStatus:  storedb.OutboxStatus(domain.OutboxFailed),
+			SendingStatus: storedb.OutboxStatus(domain.OutboxSending),
+			StaleBefore:   updatedAt,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("store: claim outbox %s: %w", row.ID, err)
+		}
+		if n != 1 {
+			continue
+		}
+		entry := outboxFromRow(row)
+		entry.Status = domain.OutboxSending
+		entry.Attempts++
+		entry.UpdatedAt = updatedAt
+		out = append(out, entry)
 	}
 	return out, nil
 }

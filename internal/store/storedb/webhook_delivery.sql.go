@@ -16,6 +16,7 @@ FROM webhook_deliveries
 WHERE status IN (?, ?) AND next_retry_at IS NOT NULL AND next_retry_at <= ?
 ORDER BY next_retry_at ASC
 LIMIT ?
+FOR UPDATE SKIP LOCKED
 `
 
 type ClaimDueWebhookDeliveriesParams struct {
@@ -67,6 +68,7 @@ const enqueueWebhookDelivery = `-- name: EnqueueWebhookDelivery :execresult
 INSERT INTO webhook_deliveries
 (webhook_id, event_id, status, attempts, next_retry_at, created_at)
 VALUES (?, ?, ?, 0, ?, ?)
+ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)
 `
 
 type EnqueueWebhookDeliveryParams struct {
@@ -85,6 +87,25 @@ func (q *Queries) EnqueueWebhookDelivery(ctx context.Context, arg EnqueueWebhook
 		arg.NextRetryAt,
 		arg.CreatedAt,
 	)
+}
+
+const leaseWebhookDelivery = `-- name: LeaseWebhookDelivery :execrows
+UPDATE webhook_deliveries
+SET next_retry_at = ?
+WHERE id = ?
+`
+
+type LeaseWebhookDeliveryParams struct {
+	NextRetryAt sql.NullInt64 `db:"next_retry_at" json:"next_retry_at"`
+	ID          uint64        `db:"id" json:"id"`
+}
+
+func (q *Queries) LeaseWebhookDelivery(ctx context.Context, arg LeaseWebhookDeliveryParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, leaseWebhookDelivery, arg.NextRetryAt, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const markWebhookDeliveryDead = `-- name: MarkWebhookDeliveryDead :execrows

@@ -150,12 +150,17 @@ func (s *Sender) sendSync(ctx context.Context, sess domain.WASession, req domain
 		outboxID = entry.ID
 	}
 
-	s.pace()
+	if err := s.pace(ctx); err != nil {
+		if outboxID != "" {
+			s.updateOutboxStatus(ctx, outboxID, domain.OutboxFailed, "", err.Error())
+		}
+		return SendResult{}, err
+	}
 
 	waID, ts, err := s.dispatch(ctx, req)
 	if err != nil {
 		if outboxID != "" {
-			_ = s.outbox.UpdateStatus(ctx, outboxID, domain.OutboxFailed, "", err.Error())
+			s.updateOutboxStatus(ctx, outboxID, domain.OutboxFailed, "", err.Error())
 		}
 		s.log.ErrorContext(ctx, "outbound sync send failed",
 			"session", sess.ID, "type", req.Type, "err", err)
@@ -163,7 +168,7 @@ func (s *Sender) sendSync(ctx context.Context, sess domain.WASession, req domain
 	}
 
 	if outboxID != "" {
-		_ = s.outbox.UpdateStatus(ctx, outboxID, domain.OutboxSent, waID, "")
+		s.updateOutboxStatus(ctx, outboxID, domain.OutboxSent, waID, "")
 	}
 	return SendResult{
 		Mode:        ModeSync,
@@ -171,6 +176,18 @@ func (s *Sender) sendSync(ctx context.Context, sess domain.WASession, req domain
 		Status:      domain.MessageSent,
 		Timestamp:   ts,
 	}, nil
+}
+
+func (s *Sender) updateOutboxStatus(ctx context.Context, id string, status domain.OutboxStatus, waID, message string) {
+	// The WhatsApp attempt has already reached an outcome. Give its bookkeeping
+	// a short detached window so a disconnected HTTP client cannot leave an
+	// idempotency row permanently stuck in "sending".
+	bookkeepingCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if err := s.outbox.UpdateStatus(bookkeepingCtx, id, status, waID, message); err != nil {
+		s.log.ErrorContext(bookkeepingCtx, "outbound: update outbox status failed",
+			"outbox", id, "status", status, "err", err)
+	}
 }
 
 // sendAsync persists a queued outbox row and returns its id. The async worker
@@ -219,13 +236,21 @@ func (s *Sender) persistOutbox(ctx context.Context, sess domain.WASession, req d
 }
 
 // pace applies jittered pacing if enabled.
-func (s *Sender) pace() {
+func (s *Sender) pace(ctx context.Context) error {
 	if s.pacing <= 0 {
-		return
+		return nil
 	}
 	d := time.Duration(s.rng() * float64(s.pacing))
-	if d > 0 {
-		time.Sleep(d)
+	if d <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
 	}
 }
 
@@ -519,7 +544,9 @@ func (s *Sender) SendOp(ctx context.Context, sess domain.WASession, req OpReques
 			WithDetails(map[string]any{"retryAfterSeconds": int(retryAfter.Seconds())})
 	}
 
-	s.pace()
+	if err := s.pace(ctx); err != nil {
+		return SendResult{}, err
+	}
 
 	var waID string
 	var ts int64

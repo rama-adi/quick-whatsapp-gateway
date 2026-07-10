@@ -32,8 +32,9 @@ _openapi:
 
           **Delivery headers.** Every `POST` also carries `X-Webhook-Request-Id`
           (the event id — use it to drop duplicate redeliveries) and
-          `X-Webhook-Timestamp` (epoch milliseconds). Any `customHeaders` are
-          applied last and can override the defaults.
+          `X-Webhook-Timestamp` (epoch milliseconds). Custom headers may add
+          receiver-specific metadata, but cannot override gateway-controlled
+          `Content-Type` or `X-Webhook-*` integrity headers.
 
 
           **Retries.** A delivery that returns non-2xx or fails to connect is

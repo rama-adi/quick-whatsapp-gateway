@@ -202,6 +202,9 @@ func testSession() domain.WASession {
 // Tests
 // ---------------------------------------------------------------------------
 
+// TestSend_TypeRouting sends representative text, image, video, audio, document, location, contact,
+// poll, and sticker requests. The matrix verifies each validated type reaches exactly its matching
+// WAClient method with no cross-routing.
 func TestSend_TypeRouting(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -264,6 +267,9 @@ func (f fakeQuoteResolver) GetByWAID(context.Context, string, string) (domain.Me
 	return f.msg, f.err
 }
 
+// TestSend_RecordsSentMessage completes a synchronous text send with a recorder installed. It
+// persists the assigned WhatsApp ID, timestamp, direction, body, and destination once after
+// acknowledgment.
 func TestSend_RecordsSentMessage(t *testing.T) {
 	wa := newFakeWA()
 	rec := &fakeRecorder{}
@@ -286,6 +292,9 @@ func TestSend_RecordsSentMessage(t *testing.T) {
 	require.Equal(t, wa.ts, got[0].TimestampMs)
 }
 
+// TestSend_ResolvesReplyQuoteContext sends a reply whose target is available through the quote
+// resolver. The resolved participant and quoted payload are forwarded to WhatsApp and the resolver is
+// called with the correct session and message.
 func TestSend_ResolvesReplyQuoteContext(t *testing.T) {
 	wa := newFakeWA()
 	body := "quoted body"
@@ -318,6 +327,9 @@ func TestSend_ResolvesReplyQuoteContext(t *testing.T) {
 	}, wa.lastQuote)
 }
 
+// TestSend_AsyncDrainRecordsSentMessage queues an asynchronous request and later dispatches its
+// stored payload. Recording occurs only after the worker receives a WhatsApp acknowledgment, not when
+// the outbox row is created.
 func TestSend_AsyncDrainRecordsSentMessage(t *testing.T) {
 	wa := newFakeWA()
 	rec := &fakeRecorder{}
@@ -334,6 +346,8 @@ func TestSend_AsyncDrainRecordsSentMessage(t *testing.T) {
 	require.Equal(t, "drained", got[0].Body)
 }
 
+// TestSend_FailedSendDoesNotRecord makes the WhatsApp client reject a synchronous dispatch. The
+// error is returned and no sent-message row is written, avoiding a false success in chat history.
 func TestSend_FailedSendDoesNotRecord(t *testing.T) {
 	wa := newFakeWA()
 	wa.err = errors.New("boom")
@@ -346,6 +360,9 @@ func TestSend_FailedSendDoesNotRecord(t *testing.T) {
 	require.Empty(t, rec.records(), "a failed send must not be recorded")
 }
 
+// TestSend_RecorderErrorDoesNotFailSend succeeds at WhatsApp but injects a persistence failure in
+// the optional recorder. The caller still receives the acknowledged send result because post-send
+// history capture is best effort.
 func TestSend_RecorderErrorDoesNotFailSend(t *testing.T) {
 	wa := newFakeWA()
 	rec := &fakeRecorder{err: errors.New("db down")}
@@ -357,6 +374,9 @@ func TestSend_RecorderErrorDoesNotFailSend(t *testing.T) {
 	require.Equal(t, "WAMSG1", res.WAMessageID)
 }
 
+// TestSend_MediaWithoutSourceIsValidationError submits a media request with neither inline data nor
+// a URL. Validation returns the public client error before rate limiting, fetching, upload, or
+// dispatch.
 func TestSend_MediaWithoutSourceIsValidationError(t *testing.T) {
 	for _, typ := range []string{domain.SendTypeImage, domain.SendTypeVideo, domain.SendTypeAudio, domain.SendTypeDocument, domain.SendTypeSticker} {
 		t.Run(typ, func(t *testing.T) {
@@ -373,6 +393,8 @@ func TestSend_MediaWithoutSourceIsValidationError(t *testing.T) {
 	}
 }
 
+// TestSend_MediaWithDataAndURLIsValidationError supplies both supported media sources at once. The
+// ambiguous request is rejected before any network or outbox side effect.
 func TestSend_MediaWithDataAndURLIsValidationError(t *testing.T) {
 	wa := newFakeWA()
 	s := NewSender(wa, newFakeOutbox(), &allowLimiter{}, fixedClock{})
@@ -387,6 +409,8 @@ func TestSend_MediaWithDataAndURLIsValidationError(t *testing.T) {
 	require.Zero(t, wa.callCount())
 }
 
+// TestSend_ImageDecodesAndForwardsBytes provides a base64 image payload and declared MIME type. The
+// sender decodes the exact bytes and forwards them to the image client once.
 func TestSend_ImageDecodesAndForwardsBytes(t *testing.T) {
 	wa := newFakeWA()
 	s := NewSender(wa, newFakeOutbox(), &allowLimiter{}, fixedClock{ms: 1000})
@@ -401,6 +425,9 @@ func TestSend_ImageDecodesAndForwardsBytes(t *testing.T) {
 	require.Equal(t, "image/png", wa.lastMimetype)
 }
 
+// TestSend_ImageURLFetchesAndForwardsBytes serves image bytes from a test HTTP server and sends its
+// URL. The bounded fetch result and content type reach WAClient unchanged, proving URL media uses the
+// same dispatch path.
 func TestSend_ImageURLFetchesAndForwardsBytes(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "image/png")
@@ -421,6 +448,8 @@ func TestSend_ImageURLFetchesAndForwardsBytes(t *testing.T) {
 	require.Equal(t, "image/png", wa.lastMimetype)
 }
 
+// TestSend_ImageInvalidBase64IsValidationError passes malformed inline image data. It returns a
+// validation error without calling WhatsApp or recording a sent message.
 func TestSend_ImageInvalidBase64IsValidationError(t *testing.T) {
 	wa := newFakeWA()
 	s := NewSender(wa, newFakeOutbox(), &allowLimiter{}, fixedClock{})
@@ -435,6 +464,9 @@ func TestSend_ImageInvalidBase64IsValidationError(t *testing.T) {
 	require.Zero(t, wa.callCount())
 }
 
+// TestSend_ValidationErrors runs missing and malformed fields for every outbound request kind. Each
+// case must fail at the common validation gate and leave client, limiter, recorder, and outbox
+// untouched.
 func TestSend_ValidationErrors(t *testing.T) {
 	cases := []struct {
 		name string
@@ -461,6 +493,8 @@ func TestSend_ValidationErrors(t *testing.T) {
 	}
 }
 
+// TestSend_SyncRateLimited denies a synchronous request at the injected per-session limiter. No
+// pacing or WhatsApp call occurs, and the caller receives the rate_limited domain error.
 func TestSend_SyncRateLimited(t *testing.T) {
 	wa := newFakeWA()
 	s := NewSender(wa, newFakeOutbox(), denyLimiter{}, fixedClock{})
@@ -474,6 +508,9 @@ func TestSend_SyncRateLimited(t *testing.T) {
 	require.Zero(t, wa.callCount(), "rate-limited sync send must not dispatch")
 }
 
+// TestSend_AsyncPersistsAndDefersRateLimit queues an asynchronous request while the limiter would
+// reject immediate delivery. The outbox row remains pending and no client call occurs, leaving retry
+// timing to the worker.
 func TestSend_AsyncPersistsAndDefersRateLimit(t *testing.T) {
 	wa := newFakeWA()
 	ob := newFakeOutbox()
@@ -493,6 +530,9 @@ func TestSend_AsyncPersistsAndDefersRateLimit(t *testing.T) {
 	require.Equal(t, int64(5000), stored.CreatedAt)
 }
 
+// TestSend_IdempotencyReplay repeats a successful synchronous request with the same idempotency
+// key. The second call reconstructs the stored result and performs neither another WhatsApp send nor
+// another insert.
 func TestSend_IdempotencyReplay(t *testing.T) {
 	wa := newFakeWA()
 	ob := newFakeOutbox()
@@ -516,6 +556,9 @@ func TestSend_IdempotencyReplay(t *testing.T) {
 	require.Equal(t, 1, wa.callCount(), "replay must NOT call whatsmeow again")
 }
 
+// TestSend_IdempotencyReplay_Async submits the same asynchronous idempotency key twice. Both
+// responses identify the original queued row, proving duplicate API calls cannot enqueue duplicate
+// delivery.
 func TestSend_IdempotencyReplay_Async(t *testing.T) {
 	wa := newFakeWA()
 	ob := newFakeOutbox()
@@ -535,6 +578,9 @@ func TestSend_IdempotencyReplay_Async(t *testing.T) {
 	require.Equal(t, 1, ob.inserts, "replay must not insert a second row")
 }
 
+// TestSend_SyncFailureRecordsOutbox combines a synchronous idempotency key with a WhatsApp failure.
+// The durable idempotency row records the failed terminal outcome so retries do not unknowingly repeat
+// an uncertain send.
 func TestSend_SyncFailureRecordsOutbox(t *testing.T) {
 	wa := newFakeWA()
 	wa.err = errors.New("network down")
@@ -551,6 +597,9 @@ func TestSend_SyncFailureRecordsOutbox(t *testing.T) {
 	require.Equal(t, domain.OutboxFailed, stored.Status)
 }
 
+// TestSendOp_Routing exercises reaction, edit, revoke, poll-vote, and related message operations.
+// Each valid request reaches only its operation-specific WAClient method with the target identifiers
+// and payload intact.
 func TestSendOp_Routing(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -575,6 +624,8 @@ func TestSendOp_Routing(t *testing.T) {
 	}
 }
 
+// TestSendOp_Validation covers missing target IDs and operation-specific required values. Invalid
+// operations fail before rate limiting or WhatsApp mutation, preserving the original message.
 func TestSendOp_Validation(t *testing.T) {
 	cases := []OpRequest{
 		{Op: OpReaction, MsgID: "", Chat: "g@g.us"},  // missing msg id
@@ -591,6 +642,8 @@ func TestSendOp_Validation(t *testing.T) {
 	}
 }
 
+// TestSendOp_RateLimited rejects a valid message operation at the per-session limiter. The client
+// sees no reaction, edit, revoke, or vote call and the public error retains rate-limit classification.
 func TestSendOp_RateLimited(t *testing.T) {
 	wa := newFakeWA()
 	s := NewSender(wa, newFakeOutbox(), denyLimiter{}, fixedClock{})
@@ -600,6 +653,8 @@ func TestSendOp_RateLimited(t *testing.T) {
 	require.Zero(t, wa.callCount())
 }
 
+// TestPacing_Applied injects deterministic jitter for a synchronous send. Dispatch occurs only
+// after the selected pacing interval, proving the optional delay is applied once and before WhatsApp.
 func TestPacing_Applied(t *testing.T) {
 	wa := newFakeWA()
 	// Deterministic RNG returns 0.5 -> sleep ~ 0.5 * pacing. Keep it tiny.
@@ -612,6 +667,30 @@ func TestPacing_Applied(t *testing.T) {
 	require.GreaterOrEqual(t, time.Since(start), 8*time.Millisecond)
 }
 
+// TestPacing_CancellationStopsBeforeDispatch cancels the request while it waits in a long pacing
+// delay. Send returns the context error promptly and never calls WhatsApp, so abandoned requests
+// cannot leak a late delivery.
+func TestPacing_CancellationStopsBeforeDispatch(t *testing.T) {
+	wa := newFakeWA()
+	outbox := newFakeOutbox()
+	s := NewSender(wa, outbox, &allowLimiter{}, fixedClock{},
+		WithPacing(time.Hour), withRand(func() float64 { return 1 }))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := s.Send(ctx, testSession(),
+		domain.SendRequest{Type: domain.SendTypeText, To: "a@s.whatsapp.net", Text: "hi"},
+		SendOptions{IdempotencyKey: "cancelled"})
+	require.ErrorIs(t, err, context.Canceled)
+	require.Zero(t, wa.callCount())
+	entry, lookupErr := outbox.GetByIdempotencyKey(context.Background(), testSession().OrganizationID, "cancelled")
+	require.NoError(t, lookupErr)
+	require.Equal(t, domain.OutboxFailed, entry.Status)
+}
+
+// TestDispatch_Reusable invokes the worker-facing Dispatch entry point repeatedly with validated
+// requests. It bypasses front-door idempotency and rate checks while preserving type routing and
+// post-ack recording for every call.
 func TestDispatch_Reusable(t *testing.T) {
 	wa := newFakeWA()
 	s := NewSender(wa, newFakeOutbox(), &allowLimiter{}, fixedClock{})

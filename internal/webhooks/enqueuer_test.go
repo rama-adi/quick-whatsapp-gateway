@@ -20,6 +20,10 @@ func testEvent() domain.Event {
 	}
 }
 
+// TestEnqueue_CreatesPendingForMatching returns two matching webhooks and records the delivery rows
+// created for one event. Each row must be pending with zero attempts, due at the fixed current time, and
+// carry the correct webhook/event scope. The count reports successful inserts rather than the number
+// merely considered.
 func TestEnqueue_CreatesPendingForMatching(t *testing.T) {
 	evt := testEvent()
 	wr := &fakeWebhookRepo{matching: map[string][]domain.Webhook{
@@ -52,6 +56,9 @@ func TestEnqueue_CreatesPendingForMatching(t *testing.T) {
 	}
 }
 
+// TestEnqueue_DedupSkipsTerminal marks one webhook-event pair as already terminal while leaving another
+// fresh. Enqueue must skip the completed pair and create only the fresh delivery. This prevents fan-out
+// retries from redelivering events already delivered or intentionally dead-lettered.
 func TestEnqueue_DedupSkipsTerminal(t *testing.T) {
 	evt := testEvent()
 	wr := &fakeWebhookRepo{matching: map[string][]domain.Webhook{
@@ -74,6 +81,9 @@ func TestEnqueue_DedupSkipsTerminal(t *testing.T) {
 	}
 }
 
+// TestEnqueue_DefensiveEventFilter simulates a repository that incorrectly returns a webhook subscribed to
+// another event type. The in-memory EventMatches guard must create no delivery. This is a second isolation
+// boundary against overly broad SQL matching.
 func TestEnqueue_DefensiveEventFilter(t *testing.T) {
 	// Repo (loosely) returned a non-matching webhook; the guard must drop it.
 	evt := testEvent()
@@ -91,6 +101,9 @@ func TestEnqueue_DefensiveEventFilter(t *testing.T) {
 	}
 }
 
+// TestEnqueue_ListErrorPropagates makes the initial matching-webhook lookup fail. Enqueue must return that
+// upstream error because no complete fan-out decision can be made. Unlike a single insert failure, losing
+// the whole candidate set cannot be safely treated as partial success.
 func TestEnqueue_ListErrorPropagates(t *testing.T) {
 	wr := &fakeWebhookRepo{listErr: errors.New("db down")}
 	dr := &fakeDeliveryRepo{terminal: map[string]bool{}}
@@ -100,6 +113,9 @@ func TestEnqueue_ListErrorPropagates(t *testing.T) {
 	}
 }
 
+// TestEnqueue_CreateErrorSkipsButContinues makes delivery insertion fail for an otherwise matching
+// webhook. The method logs and counts zero successful rows without failing the entire event fan-out. This
+// preserves per-endpoint isolation so one broken webhook cannot suppress live or durable event handling.
 func TestEnqueue_CreateErrorSkipsButContinues(t *testing.T) {
 	evt := testEvent()
 	wr := &fakeWebhookRepo{matching: map[string][]domain.Webhook{

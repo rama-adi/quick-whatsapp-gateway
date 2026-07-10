@@ -66,7 +66,7 @@ All collaborators are small interfaces owned by this package — no sibling
   `SendContact`, `SendMedia` (image/video/audio/document/sticker via `Upload` +
   the matching message), `React`, `Edit`, `Revoke`, `Vote`, `Forward`. Each
   returns `(waMessageID string, ts int64, err error)`, `ts` in epoch-ms.
-- `OutboxRepo` — `Insert`, `GetByIdempotencyKey`, `UpdateStatus`, `ClaimQueued`.
+- `OutboxRepo` — `Insert`, `GetByIdempotencyKey`, `UpdateStatus`, `ClaimByID`, `ClaimQueued`.
   `Insert` MUST enforce `(organization_id, idempotency_key)` uniqueness and return a
   conflict-coded error on duplicates (the pipeline falls back to a replay).
 - `RateLimiter` — `Allow(ctx, sessionID, perMin, perHour) (ok, retryAfter, err)`.
@@ -170,6 +170,22 @@ atomic op.
   `sending` row, then flip to `sent`/`failed` with the `wa_message_id` recorded,
   so a later replay reconstructs the original `SendResult`. A duplicate-insert
   race falls back to replaying the stored row.
+- **Async worker ownership is leased and at-least-once**: a database CAS admits
+  one worker for `queued|failed → sending`; a fresh `sending` row is left to its
+  owner, while a claim older than five minutes is recoverable after a worker
+  crash. Dispatch is bounded to four minutes so a healthy owner finishes before
+  its lease expires. A crash after WhatsApp accepts the send but before the
+  `sent` update can still produce a duplicate when the stale claim is recovered—
+  WhatsApp offers no idempotency key that can close that final acknowledgement
+  gap. The lease deliberately chooses liveness over leaving the row stuck.
+- **Worker ownership is a database CAS**: before dispatching a queued task, a worker calls
+  `ClaimByID`, which atomically changes `queued` (first attempt), `failed` (Asynq retry), or a
+  lease-expired `sending` row to `sending`, increments attempts, and reports whether it won.
+  The worker supplies a stale cutoff based on a lease longer than the maximum dispatch timeout:
+  duplicate tasks see a fresh lease and skip, while a crash-stranded row eventually becomes
+  reclaimable; `sent` is terminal. Batch recovery uses
+  `FOR UPDATE SKIP LOCKED` plus the same CAS inside one transaction, so replicas receive disjoint
+  pages and a failure rolls back the whole claim.
 - **Media is data-or-URL and never retained as bytes**: `validate` requires
   exactly one of `media.data` or `media.url` and enforces `MaxMediaBytes`.
   `dispatch` decodes base64 (a data: URI is accepted) or downloads the HTTP(S)
@@ -179,7 +195,8 @@ atomic op.
   retain the URL in the request payload for retry. The `messages` row records
   only the caption + media metadata, never the bytes.
 - **Pacing** is opt-in jitter (`WithPacing`) applied before each sync dispatch;
-  the RNG is injectable for deterministic tests.
+  its wait observes request cancellation, and the RNG is injectable for
+  deterministic tests.
 
 ## How it's tested
 
@@ -200,6 +217,7 @@ Table-driven, all boundaries faked through the consumer interfaces:
     second WhatsApp call / second insert;
   - sync failure records a `failed` outbox row;
   - message-op routing + validation + rate limiting;
-  - pacing applied; `Dispatch` reusable.
+  - pacing applied and cancelled requests stop before dispatch; `Dispatch`
+    reusable.
 
 Build/test gate: `CGO_ENABLED=0 go build|test ./internal/wa/outbound/...`.

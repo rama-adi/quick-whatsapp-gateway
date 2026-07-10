@@ -141,8 +141,9 @@ func (d *Dispatcher) Deliver(ctx context.Context, del domain.WebhookDelivery) er
 	defer resp.Body.Close()
 
 	if code >= 200 && code < 300 {
-		// Drain (bounded) so the connection can be reused.
-		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxResponseBodyRead))
+		// Discard the complete success body so net/http can reuse the connection.
+		// The configured HTTP client timeout bounds a peer that never finishes.
+		_, _ = io.Copy(io.Discard, resp.Body)
 		return d.deliveries.MarkDelivered(ctx, del.ID, attempts, code)
 	}
 
@@ -179,6 +180,12 @@ func (d *Dispatcher) buildRequest(ctx context.Context, hook domain.Webhook, evt 
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)
 	}
+	// User headers are useful for endpoint authentication and routing, but the
+	// delivery identity and signature headers are protocol-owned. Apply custom
+	// values first so they cannot spoof or disable those integrity fields.
+	for k, v := range hook.CustomHeaders {
+		req.Header.Set(k, v)
+	}
 	req.Header.Set("Content-Type", "application/json")
 	// Reuse the event id as the request id so a redelivery of the same event is
 	// idempotent/correlatable on the consumer side.
@@ -197,11 +204,6 @@ func (d *Dispatcher) buildRequest(ctx context.Context, hook domain.Webhook, evt 
 		req.Header.Set(HeaderHMACAlgorithm, HMACAlgorithm)
 	}
 
-	// Custom headers last so they can override defaults if intentionally set
-	// (e.g. a fixed Content-Type), per the webhook owner's configuration.
-	for k, v := range hook.CustomHeaders {
-		req.Header.Set(k, v)
-	}
 	return req, nil
 }
 

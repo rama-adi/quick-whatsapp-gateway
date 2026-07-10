@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
@@ -11,13 +12,24 @@ import (
 // WebhookDeliveryRepo is the repository for webhook_deliveries — the per-attempt
 // delivery ledger driving retries and dead-lettering (§5/§9).
 type WebhookDeliveryRepo struct {
-	q *storedb.Queries
+	db storedb.DBTX
+	q  *storedb.Queries
 }
 
-// NewWebhookDeliveryRepo constructs a WebhookDeliveryRepo.
+// NewWebhookDeliveryRepo constructs a WebhookDeliveryRepo over a database or an
+// existing transaction. ClaimDue requires one of those concrete ownership
+// forms because row locks are useful only when their transaction lifetime is
+// explicit; other generated-query adapters can use non-claim methods but a
+// claim through them fails closed.
 func NewWebhookDeliveryRepo(db storedb.DBTX) *WebhookDeliveryRepo {
-	return &WebhookDeliveryRepo{q: storedb.New(db)}
+	return &WebhookDeliveryRepo{db: db, q: storedb.New(db)}
 }
+
+// webhookAttemptLeaseMs is the per-item budget in a sequential claimed batch.
+// Production HTTP attempts time out after 30 seconds; doubling that leaves room
+// for DB bookkeeping. Leases are staggered by batch position so later items do
+// not expire while earlier requests are still running.
+const webhookAttemptLeaseMs int64 = 60_000
 
 func deliveryFromRow(row storedb.WebhookDelivery) domain.WebhookDelivery {
 	return domain.WebhookDelivery{
@@ -35,7 +47,8 @@ func deliveryFromRow(row storedb.WebhookDelivery) domain.WebhookDelivery {
 
 // Enqueue inserts a pending delivery for (webhook, event), due immediately
 // (next_retry_at = createdAt). Returns the auto-increment id. Dedup by event_id
-// is the dispatcher's job (it decides whether to enqueue); §9 dedups downstream.
+// is enforced by the database. Re-enqueueing the same pair returns the existing
+// id without resetting its delivery state.
 func (r *WebhookDeliveryRepo) Enqueue(ctx context.Context, webhookID, eventID string, createdAt int64) (uint64, error) {
 	res, err := r.q.EnqueueWebhookDelivery(ctx, storedb.EnqueueWebhookDeliveryParams{
 		WebhookID:   webhookID,
@@ -56,11 +69,42 @@ func (r *WebhookDeliveryRepo) Enqueue(ctx context.Context, webhookID, eventID st
 
 // ClaimDue returns up to limit deliveries that are due for a (re)attempt: status
 // pending or failed with next_retry_at <= now. Ordered by next_retry_at so the
-// oldest-due fire first. Note: this is a plain read; a multi-worker deployment
-// would add row-locking, but v1 is single-instance (§3) so a read suffices.
+// oldest-due fire first. Selection and leasing happen in one transaction with
+// row locks and SKIP LOCKED, so concurrent dispatchers receive disjoint batches.
+// The lease expires after a worker crash, preserving retry durability.
 func (r *WebhookDeliveryRepo) ClaimDue(ctx context.Context, now int64, limit int) ([]domain.WebhookDelivery, error) {
 	limit = normLimit(limit)
-	rows, err := r.q.ClaimDueWebhookDeliveries(ctx, storedb.ClaimDueWebhookDeliveriesParams{
+	if _, ok := r.db.(*sql.Tx); ok {
+		// The caller owns the surrounding transaction and therefore the lock
+		// lifetime. This supports composing a claim with additional atomic work.
+		return r.claimDue(ctx, r.q, now, limit)
+	}
+	db, ok := r.db.(*sql.DB)
+	if !ok {
+		return nil, fmt.Errorf("store: claim due deliveries requires *sql.DB or *sql.Tx")
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("store: begin claim due deliveries: %w", err)
+	}
+	defer tx.Rollback()
+
+	rows, err := r.claimDue(ctx, storedb.New(tx), now, limit)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("store: commit claim due deliveries: %w", err)
+	}
+	return rows, nil
+}
+
+// claimDue runs inside a transaction owned either by ClaimDue or its caller.
+// Selected rows stay locked while every lease is written; any error aborts the
+// batch so another worker can retry the complete set instead of observing a
+// partially claimed page.
+func (r *WebhookDeliveryRepo) claimDue(ctx context.Context, q *storedb.Queries, now int64, limit int) ([]domain.WebhookDelivery, error) {
+	rows, err := q.ClaimDueWebhookDeliveries(ctx, storedb.ClaimDueWebhookDeliveriesParams{
 		Status:      storedb.WebhookDeliveriesStatus(domain.DeliveryPending),
 		Status_2:    storedb.WebhookDeliveriesStatus(domain.DeliveryFailed),
 		NextRetryAt: sqlNullInt64(now),
@@ -70,7 +114,14 @@ func (r *WebhookDeliveryRepo) ClaimDue(ctx context.Context, now int64, limit int
 		return nil, fmt.Errorf("store: claim due deliveries: %w", err)
 	}
 	out := make([]domain.WebhookDelivery, 0, len(rows))
-	for _, row := range rows {
+	for i, row := range rows {
+		leaseUntil := now + webhookAttemptLeaseMs*int64(i+1)
+		if _, err := q.LeaseWebhookDelivery(ctx, storedb.LeaseWebhookDeliveryParams{
+			NextRetryAt: sqlNullInt64(leaseUntil),
+			ID:          row.ID,
+		}); err != nil {
+			return nil, fmt.Errorf("store: lease webhook delivery %d: %w", row.ID, err)
+		}
 		out = append(out, deliveryFromRow(row))
 	}
 	return out, nil

@@ -11,9 +11,10 @@ import (
 
 // OutboxRepoAdapter adapts *store.OutboxRepo to outbound.OutboxRepo. The store
 // repo uses value types, a not_found-on-miss idempotency lookup, a pointer-arg
-// UpdateStatus and a (limit, updatedAt) ClaimQueued; the outbound consumer
-// interface uses pointer entries, a (nil,nil)-on-miss lookup, string-arg
-// UpdateStatus and a (sessionID, limit) ClaimQueued. This bridges the two.
+// UpdateStatus and a session-scoped atomic claim; the outbound consumer interface
+// uses pointer entries, a (nil,nil)-on-miss lookup, and string status fields.
+// Session filtering happens inside the stores locking query: filtering after a
+// cross-session claim would strand discarded rows in sending.
 type OutboxRepoAdapter struct {
 	repo  *store.OutboxRepo
 	clock func() int64
@@ -58,16 +59,12 @@ func (a *OutboxRepoAdapter) UpdateStatus(ctx context.Context, id string, status 
 }
 
 func (a *OutboxRepoAdapter) ClaimQueued(ctx context.Context, sessionID string, limit int) ([]*domain.OutboxEntry, error) {
-	rows, err := a.repo.ClaimQueued(ctx, limit, a.clock())
+	rows, err := a.repo.ClaimQueuedForSession(ctx, sessionID, limit, a.clock())
 	if err != nil {
 		return nil, err
 	}
 	out := make([]*domain.OutboxEntry, 0, len(rows))
 	for i := range rows {
-		// Filter to the requested session (the store claims across sessions).
-		if sessionID != "" && rows[i].SessionID != sessionID {
-			continue
-		}
 		e := rows[i]
 		out = append(out, &e)
 	}

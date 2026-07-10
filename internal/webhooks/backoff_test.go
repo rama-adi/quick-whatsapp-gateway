@@ -6,6 +6,9 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 )
 
+// TestBackoffSeconds_ExponentialSchedule checks attempts 1 through 6 for a two-second exponential policy.
+// The expected delays are exactly 2, 4, 8, 16, 32, and 64 seconds, proving the persisted attempt count is
+// interpreted as one-based. A shift here would retry every webhook one interval too early or too late.
 func TestBackoffSeconds_ExponentialSchedule(t *testing.T) {
 	// delaySeconds=2, exponential: attempt 1..6 -> 2,4,8,16,32,64.
 	want := []int64{2, 4, 8, 16, 32, 64}
@@ -17,6 +20,9 @@ func TestBackoffSeconds_ExponentialSchedule(t *testing.T) {
 	}
 }
 
+// TestBackoffSeconds_NonExponentialIsConstant passes an unknown policy name across several attempt
+// numbers. Every result must remain at the configured five-second base rather than accidentally using
+// exponential growth. This defines the conservative fallback for old or malformed policy rows.
 func TestBackoffSeconds_NonExponentialIsConstant(t *testing.T) {
 	for attempt := 1; attempt <= 5; attempt++ {
 		if got := backoffSeconds("linear", 5, attempt); got != 5 {
@@ -25,6 +31,9 @@ func TestBackoffSeconds_NonExponentialIsConstant(t *testing.T) {
 	}
 }
 
+// TestBackoffSeconds_Defaults supplies an empty delay and an attempt below the valid one-based range. The
+// helper must substitute the two-second default and clamp attempt zero to the first retry. This keeps
+// under-specified database rows schedulable.
 func TestBackoffSeconds_Defaults(t *testing.T) {
 	// delaySeconds<=0 falls back to DefaultDelaySeconds (2); attempt<1 clamps to 1.
 	if got := backoffSeconds("exponential", 0, 1); got != DefaultDelaySeconds {
@@ -35,6 +44,9 @@ func TestBackoffSeconds_Defaults(t *testing.T) {
 	}
 }
 
+// TestBackoffSeconds_ClampsLargeAttempt asks for attempt 1000 under exponential backoff. The exponent must
+// stop at maxBackoffShift and return base times 2^30 without overflowing int64. The cap prevents corrupt
+// attempt counters from wrapping next_retry_at into the past.
 func TestBackoffSeconds_ClampsLargeAttempt(t *testing.T) {
 	// A huge attempt index must not overflow; it clamps at maxBackoffShift.
 	want := int64(2) * (int64(1) << maxBackoffShift)
@@ -43,6 +55,9 @@ func TestBackoffSeconds_ClampsLargeAttempt(t *testing.T) {
 	}
 }
 
+// TestMaxAttempts compares an explicit fifteen-attempt budget with an under-specified zero value. Explicit
+// configuration must pass through unchanged, while zero receives DefaultAttempts. This pins the total POST
+// budget used to decide failed versus dead.
 func TestMaxAttempts(t *testing.T) {
 	if got := maxAttempts(domain.RetryPolicy{Attempts: 15}); got != 15 {
 		t.Errorf("got %d, want 15", got)

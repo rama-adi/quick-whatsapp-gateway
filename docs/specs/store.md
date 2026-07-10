@@ -236,8 +236,23 @@ read queries can compile without making the gateway a writer or migration owner 
   `validation_error`.
 - **Error mapping.** `sql.ErrNoRows` and zero-rows-affected updates/deletes → `domain.ErrNotFound`;
   other DB errors wrapped with `%w` + a `store: <op>` prefix.
-- **Concurrency.** Work-claim queries (`OutboxRepo.ClaimQueued`, `WebhookDeliveryRepo.ClaimDue`)
-  are documented as the multi-instance upgrade point (`FOR UPDATE SKIP LOCKED`).
+- **Concurrency.** `WebhookDeliveryRepo.ClaimDue` selects due rows with `FOR UPDATE SKIP LOCKED`
+  and advances `next_retry_at` to a claim lease in the same transaction. Leases are staggered
+  by each row's position in the sequential batch, using twice the production HTTP timeout per
+  item. Concurrent
+  dispatchers therefore receive disjoint batches, while a crashed worker's rows automatically
+  become eligible again after the lease. `webhook_deliveries` also has a unique
+  `(webhook_id,event_id)` key, making fan-out enqueue idempotent at the database boundary.
+  Outbox ownership uses the same database-first rule: `ClaimByID` is a single
+  compare-and-set from `queued` (initial attempt), `failed` (retry), or a `sending` row older
+  than a caller-supplied lease cutoff to `sending`, incrementing attempts and returning whether
+  this process won. Fresh `sending` rows cannot be stolen; stale rows are reclaimable after a
+  worker crash instead of remaining stranded forever. `ClaimQueued` locks an ordered page with
+  `FOR UPDATE SKIP LOCKED`, applies that CAS to every row, and commits only the complete batch.
+  Session-specific batch claims apply their session predicate inside that locking query; they
+  never claim another session's row and discard it after the transition.
+  Duplicate queue tasks and worker replicas therefore cannot simultaneously own one outbox row;
+  a sent/fresh-sending/missing row is a normal non-claim rather than an error.
 - **No retained media bytes.** An outbound media send carries either inline base64 in
   `outbox.payload.media.data` or a URL in `outbox.payload.media.url`. `OutboxRepo.UpdateStatus`
   strips `$.media.data` (via `JSON_REMOVE`) when the row is marked `sent`, so inline bytes live

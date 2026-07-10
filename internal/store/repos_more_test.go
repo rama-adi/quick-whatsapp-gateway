@@ -16,6 +16,8 @@ func gatewayRows() *sqlmock.Rows {
 	})
 }
 
+// TestGatewayRepo_UpsertAndGet verifies registry upsert and nullable field mapping.
+// It protects the router's shared placement view by asserting capacity, liveness, and endpoint fields round-trip.
 func TestGatewayRepo_UpsertAndGet(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewGatewayRepo(db)
@@ -46,6 +48,8 @@ func TestGatewayRepo_UpsertAndGet(t *testing.T) {
 	}
 }
 
+// TestGatewayRepo_Get_NotFound protects missing-gateway error mapping.
+// Unknown registry ids must produce the stable domain signal used for unavailable placement owners.
 func TestGatewayRepo_Get_NotFound(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewGatewayRepo(db)
@@ -55,6 +59,8 @@ func TestGatewayRepo_Get_NotFound(t *testing.T) {
 	assertNotFound(t, err)
 }
 
+// TestGatewayRepo_HeartbeatAndSetStatus verifies independent liveness and lifecycle mutations.
+// Each update binds gateway id and time/state precisely so concurrent health accounting cannot touch another row.
 func TestGatewayRepo_HeartbeatAndSetStatus(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewGatewayRepo(db)
@@ -77,6 +83,8 @@ func TestGatewayRepo_HeartbeatAndSetStatus(t *testing.T) {
 	}
 }
 
+// TestGatewayRepo_PickForPlacement locks least-loaded active-capacity selection semantics.
+// The query must exclude stale/full gateways and order eligible rows deterministically before limiting to one.
 func TestGatewayRepo_PickForPlacement(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewGatewayRepo(db)
@@ -105,6 +113,8 @@ func TestGatewayRepo_PickForPlacement(t *testing.T) {
 	}
 }
 
+// TestGatewayRepo_ListActive verifies stale and non-active gateways are excluded.
+// It asserts the heartbeat cutoff and active enum used by multi-gateway routing decisions.
 func TestGatewayRepo_ListActive(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewGatewayRepo(db)
@@ -122,6 +132,8 @@ func TestGatewayRepo_ListActive(t *testing.T) {
 	}
 }
 
+// TestSessionRepo_CountByGateway verifies placement accounting is gateway scoped.
+// The scalar count is the load input used to avoid over-placing sessions on one owner.
 func TestSessionRepo_CountByGateway(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewSessionRepo(db)
@@ -133,6 +145,8 @@ func TestSessionRepo_CountByGateway(t *testing.T) {
 	}
 }
 
+// TestWebhookRepo_CreateAndScanJSON verifies typed webhook policy JSON round-trips.
+// Events, headers, retry policy, and encrypted secret bindings are checked because they drive dispatch security and durability.
 func TestWebhookRepo_CreateAndScanJSON(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewWebhookRepo(db)
@@ -177,6 +191,8 @@ func TestWebhookRepo_CreateAndScanJSON(t *testing.T) {
 	}
 }
 
+// TestWebhookRepo_Create_NilHeaders preserves SQL NULL for absent custom headers.
+// This avoids storing JSON-invalid empty bytes while leaving configured headers unaffected.
 func TestWebhookRepo_Create_NilHeaders(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewWebhookRepo(db)
@@ -198,11 +214,13 @@ func TestWebhookRepo_Create_NilHeaders(t *testing.T) {
 	}
 }
 
+// TestWebhookDeliveryRepo_EnqueueAndClaim protects idempotent enqueue and transactional leasing.
+// It asserts duplicate-safe SQL, row locking, lease write, and commit order so concurrent workers receive disjoint work.
 func TestWebhookDeliveryRepo_EnqueueAndClaim(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewWebhookDeliveryRepo(db)
 
-	mock.ExpectExec("INSERT INTO webhook_deliveries").
+	mock.ExpectExec("(?s)INSERT INTO webhook_deliveries.*ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID").
 		WithArgs("wh_1", "evt_1", domain.DeliveryPending, int64(100), int64(100)).
 		WillReturnResult(sqlmock.NewResult(55, 1))
 	id, err := repo.Enqueue(context.Background(), "wh_1", "evt_1", 100)
@@ -215,15 +233,24 @@ func TestWebhookDeliveryRepo_EnqueueAndClaim(t *testing.T) {
 
 	rows := sqlmock.NewRows([]string{
 		"id", "webhook_id", "event_id", "status", "attempts", "response_code", "next_retry_at", "last_error", "created_at",
-	}).AddRow(uint64(55), "wh_1", "evt_1", "failed", 2, nil, int64(90), "boom", int64(100))
-	mock.ExpectQuery("SELECT .* FROM webhook_deliveries.*status IN ..,...*next_retry_at <= .*ORDER BY next_retry_at ASC").
+	}).AddRow(uint64(55), "wh_1", "evt_1", "failed", 2, nil, int64(90), "boom", int64(100)).
+		AddRow(uint64(56), "wh_2", "evt_1", "pending", 0, nil, int64(95), nil, int64(101))
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT .* FROM webhook_deliveries.*status IN ..,...*next_retry_at <= .*ORDER BY next_retry_at ASC.*FOR UPDATE SKIP LOCKED").
 		WithArgs(domain.DeliveryPending, domain.DeliveryFailed, int64(200), defaultLimit).
 		WillReturnRows(rows)
+	mock.ExpectExec("UPDATE webhook_deliveries.*SET next_retry_at = .*WHERE id =").
+		WithArgs(int64(200+webhookAttemptLeaseMs), uint64(55)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE webhook_deliveries.*SET next_retry_at = .*WHERE id =").
+		WithArgs(int64(200+2*webhookAttemptLeaseMs), uint64(56)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
 	due, err := repo.ClaimDue(context.Background(), 200, 0)
 	if err != nil {
 		t.Fatalf("ClaimDue: %v", err)
 	}
-	if len(due) != 1 || due[0].ID != 55 || due[0].Status != domain.DeliveryFailed {
+	if len(due) != 2 || due[0].ID != 55 || due[0].Status != domain.DeliveryFailed || due[1].ID != 56 {
 		t.Fatalf("unexpected due: %+v", due)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -231,6 +258,43 @@ func TestWebhookDeliveryRepo_EnqueueAndClaim(t *testing.T) {
 	}
 }
 
+// TestWebhookDeliveryRepo_ClaimDueRollsBackOnLeaseFailure prevents partially leased batches.
+// A failed lease update must roll back the selection transaction, making every row eligible for a later worker.
+func TestWebhookDeliveryRepo_ClaimDueRollsBackOnLeaseFailure(t *testing.T) {
+	db, mock := newMock(t)
+	repo := NewWebhookDeliveryRepo(db)
+	rows := sqlmock.NewRows([]string{
+		"id", "webhook_id", "event_id", "status", "attempts", "response_code", "next_retry_at", "last_error", "created_at",
+	}).AddRow(uint64(55), "wh_1", "evt_1", "pending", 0, nil, int64(90), nil, int64(100))
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT .*FOR UPDATE SKIP LOCKED").
+		WithArgs(domain.DeliveryPending, domain.DeliveryFailed, int64(200), 1).
+		WillReturnRows(rows)
+	mock.ExpectExec("UPDATE webhook_deliveries").
+		WithArgs(int64(200+webhookAttemptLeaseMs), uint64(55)).
+		WillReturnError(context.DeadlineExceeded)
+	mock.ExpectRollback()
+
+	if _, err := repo.ClaimDue(context.Background(), 200, 1); err == nil {
+		t.Fatal("ClaimDue succeeded after lease failure")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestWebhookDeliveryRepo_ClaimDueRequiresTransactionOwner exercises a repository without a database or outer transaction.
+// Claiming must fail before SQL execution because releasing SELECT locks before lease writes would allow multi-worker duplicate delivery.
+func TestWebhookDeliveryRepo_ClaimDueRequiresTransactionOwner(t *testing.T) {
+	repo := NewWebhookDeliveryRepo(nil)
+	if _, err := repo.ClaimDue(context.Background(), 200, 1); err == nil {
+		t.Fatal("ClaimDue accepted a repository without transaction ownership")
+	}
+}
+
+// TestWebhookDeliveryRepo_MarkFailedAndDead verifies retry and terminal bookkeeping semantics.
+// Attempts, diagnostics, and next-retry clearing/scheduling must move together for crash-safe recovery.
 func TestWebhookDeliveryRepo_MarkFailedAndDead(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewWebhookDeliveryRepo(db)
@@ -253,6 +317,8 @@ func TestWebhookDeliveryRepo_MarkFailedAndDead(t *testing.T) {
 	}
 }
 
+// TestIdentityRepo_UpsertAndGet verifies sparse identity enrichment and row mapping.
+// Conflict updates may fill new facts but must preserve the stable LID identity and first-seen record.
 func TestIdentityRepo_UpsertAndGet(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewIdentityRepo(db)
@@ -282,6 +348,8 @@ func TestIdentityRepo_UpsertAndGet(t *testing.T) {
 	}
 }
 
+// TestIdentityRepo_FillNameByJID verifies names fill only unresolved identities by either alias.
+// The query uses both LID and phone JID while refusing to overwrite a known display name.
 func TestIdentityRepo_FillNameByJID(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewIdentityRepo(db)
@@ -307,6 +375,8 @@ func TestIdentityRepo_FillNameByJID(t *testing.T) {
 	}
 }
 
+// TestIdentityRepo_NamesForMentions verifies batched mention resolution and empty-input short circuiting.
+// Results must key names by requested JID, and no SQL should run when a message contains no mentions.
 func TestIdentityRepo_NamesForMentions(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewIdentityRepo(db)
@@ -343,6 +413,8 @@ func TestIdentityRepo_NamesForMentions(t *testing.T) {
 	}
 }
 
+// TestGroupRepo_Upsert verifies group metadata enrichment preserves the stable row.
+// Re-observation updates mutable WhatsApp metadata without replacing first-seen identity.
 func TestGroupRepo_Upsert(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewGroupRepo(db)
@@ -359,6 +431,8 @@ func TestGroupRepo_Upsert(t *testing.T) {
 	}
 }
 
+// TestGroupRepo_ListBySession verifies membership-derived session scoping.
+// Only groups observed by the requested session may appear, even though group metadata is globally normalized.
 func TestGroupRepo_ListBySession(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewGroupRepo(db)
@@ -383,6 +457,8 @@ func TestGroupRepo_ListBySession(t *testing.T) {
 	}
 }
 
+// TestGroupMemberRepo_UpsertAndListByContact verifies pivot refresh and contact-centric lookup.
+// Session, group, and LID form the ownership key while role/tag and last-seen data remain refreshable.
 func TestGroupMemberRepo_UpsertAndListByContact(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewGroupMemberRepo(db)
@@ -415,6 +491,8 @@ func TestGroupMemberRepo_UpsertAndListByContact(t *testing.T) {
 	}
 }
 
+// TestChatRepo_UpsertAndUpdateFlags verifies inbox metadata and user flags mutate independently.
+// Both operations remain session scoped so one WhatsApp account cannot alter another account's chat projection.
 func TestChatRepo_UpsertAndUpdateFlags(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewChatRepo(db)
@@ -438,6 +516,8 @@ func TestChatRepo_UpsertAndUpdateFlags(t *testing.T) {
 	}
 }
 
+// TestChatRepo_ListBySession_InboxOrderAndCursor protects stable inbox ordering and composite cursors.
+// Equal timestamps are disambiguated by id, preventing skips or duplicates as concurrent messages reorder the inbox.
 func TestChatRepo_ListBySession_InboxOrderAndCursor(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewChatRepo(db)
@@ -483,6 +563,8 @@ func TestChatRepo_ListBySession_InboxOrderAndCursor(t *testing.T) {
 	}
 }
 
+// TestPollVoteRepo_InsertAndList verifies idempotent vote capture and chronological retrieval.
+// Duplicate WhatsApp vote events must not inflate tallies, while reads retain voter/option ordering data.
 func TestPollVoteRepo_InsertAndList(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewPollVoteRepo(db)

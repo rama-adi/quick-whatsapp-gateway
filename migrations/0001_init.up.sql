@@ -68,6 +68,7 @@ CREATE TABLE webhook_deliveries (
   next_retry_at BIGINT NULL,
   last_error    TEXT NULL,
   created_at    BIGINT NOT NULL,
+  UNIQUE KEY uq_deliv_webhook_event (webhook_id, event_id),
   KEY idx_deliv_retry (status, next_retry_at)
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 

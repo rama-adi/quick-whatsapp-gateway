@@ -11,29 +11,40 @@ import (
 	"encoding/json"
 )
 
-const claimQueuedOutbox = `-- name: ClaimQueuedOutbox :exec
+const claimOutboxByID = `-- name: ClaimOutboxByID :execrows
 UPDATE outbox
 SET status = ?, attempts = attempts + 1, updated_at = ?
-WHERE status = ?
-ORDER BY created_at ASC
-LIMIT ?
+WHERE id = ?
+  AND (
+    status IN (?, ?)
+    OR (status = ? AND updated_at <= ?)
+  )
 `
 
-type ClaimQueuedOutboxParams struct {
-	Status    OutboxStatus `db:"status" json:"status"`
-	UpdatedAt int64        `db:"updated_at" json:"updated_at"`
-	Status_2  OutboxStatus `db:"status_2" json:"status_2"`
-	Limit     int32        `db:"limit" json:"limit"`
+type ClaimOutboxByIDParams struct {
+	ClaimedStatus OutboxStatus `db:"claimed_status" json:"claimed_status"`
+	UpdatedAt     int64        `db:"updated_at" json:"updated_at"`
+	ID            string       `db:"id" json:"id"`
+	QueuedStatus  OutboxStatus `db:"queued_status" json:"queued_status"`
+	FailedStatus  OutboxStatus `db:"failed_status" json:"failed_status"`
+	SendingStatus OutboxStatus `db:"sending_status" json:"sending_status"`
+	StaleBefore   int64        `db:"stale_before" json:"stale_before"`
 }
 
-func (q *Queries) ClaimQueuedOutbox(ctx context.Context, arg ClaimQueuedOutboxParams) error {
-	_, err := q.db.ExecContext(ctx, claimQueuedOutbox,
-		arg.Status,
+func (q *Queries) ClaimOutboxByID(ctx context.Context, arg ClaimOutboxByIDParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, claimOutboxByID,
+		arg.ClaimedStatus,
 		arg.UpdatedAt,
-		arg.Status_2,
-		arg.Limit,
+		arg.ID,
+		arg.QueuedStatus,
+		arg.FailedStatus,
+		arg.SendingStatus,
+		arg.StaleBefore,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const getOutbox = `-- name: GetOutbox :one
@@ -135,23 +146,30 @@ func (q *Queries) InsertOutbox(ctx context.Context, arg InsertOutboxParams) erro
 	return err
 }
 
-const listClaimedOutbox = `-- name: ListClaimedOutbox :many
+const selectQueuedOutboxForClaim = `-- name: SelectQueuedOutboxForClaim :many
 SELECT id, organization_id, session_id, idempotency_key, payload, status,
 	attempts, wa_message_id, error, created_at, updated_at
 FROM outbox
-WHERE status = ? AND updated_at = ?
-ORDER BY created_at ASC
+WHERE status = ?
+  AND (? = '' OR session_id = ?)
+ORDER BY created_at ASC, id ASC
 LIMIT ?
+FOR UPDATE SKIP LOCKED
 `
 
-type ListClaimedOutboxParams struct {
-	Status    OutboxStatus `db:"status" json:"status"`
-	UpdatedAt int64        `db:"updated_at" json:"updated_at"`
-	Limit     int32        `db:"limit" json:"limit"`
+type SelectQueuedOutboxForClaimParams struct {
+	QueuedStatus  OutboxStatus `db:"queued_status" json:"queued_status"`
+	SessionFilter string       `db:"session_filter" json:"session_filter"`
+	Limit         int32        `db:"limit" json:"limit"`
 }
 
-func (q *Queries) ListClaimedOutbox(ctx context.Context, arg ListClaimedOutboxParams) ([]Outbox, error) {
-	rows, err := q.db.QueryContext(ctx, listClaimedOutbox, arg.Status, arg.UpdatedAt, arg.Limit)
+func (q *Queries) SelectQueuedOutboxForClaim(ctx context.Context, arg SelectQueuedOutboxForClaimParams) ([]Outbox, error) {
+	rows, err := q.db.QueryContext(ctx, selectQueuedOutboxForClaim,
+		arg.QueuedStatus,
+		arg.SessionFilter,
+		arg.SessionFilter,
+		arg.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}

@@ -7,6 +7,9 @@ import (
 	"testing"
 )
 
+// TestSignHMAC_KnownVector signs a published HMAC-SHA512 test vector with a fixed key and message. The
+// lowercase hexadecimal output must match the known digest exactly. This catches algorithm, encoding, or
+// byte-order changes that external webhook consumers could not tolerate.
 func TestSignHMAC_KnownVector(t *testing.T) {
 	// Known vector: HMAC-SHA512 of "The quick brown fox jumps over the lazy dog"
 	// keyed with "key". Value is the canonical published vector.
@@ -19,6 +22,10 @@ func TestSignHMAC_KnownVector(t *testing.T) {
 	}
 }
 
+// TestSignHMAC_MatchesStdlib computes the same signature through SignHMAC and a direct crypto/hmac plus
+// sha512 implementation. Byte-for-byte equality proves the helper signs the unmodified payload with the
+// standard construction. It guards refactors around encoding without relying only on an internal expected
+// value.
 func TestSignHMAC_MatchesStdlib(t *testing.T) {
 	secret := []byte("super-secret")
 	body := []byte(`{"schema":"v1","event":"message"}`)
@@ -32,6 +39,9 @@ func TestSignHMAC_MatchesStdlib(t *testing.T) {
 	}
 }
 
+// TestSignHMAC_DistinctBodies signs two different payloads under the same secret. Their signatures must
+// differ, confirming the body bytes participate in authentication. This prevents accidental signing of a
+// constant, empty, or pre-normalized value.
 func TestSignHMAC_DistinctBodies(t *testing.T) {
 	secret := []byte("k")
 	if SignHMAC(secret, []byte("a")) == SignHMAC(secret, []byte("b")) {

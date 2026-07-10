@@ -2,6 +2,10 @@ package webhooks
 
 import "testing"
 
+// TestEventMatches runs wildcard, exact-match, unrelated, and empty subscription lists against
+// representative event types. Only wildcard and exact membership may match; an empty list must deliver
+// nothing. This prevents a loose repository query from widening a webhook subscription during the
+// defensive in-memory check.
 func TestEventMatches(t *testing.T) {
 	tests := []struct {
 		name      string

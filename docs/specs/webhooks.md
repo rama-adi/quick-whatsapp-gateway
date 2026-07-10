@@ -31,7 +31,9 @@ gateway remains the single writer.
 - `X-Webhook-Hmac` — set only when the webhook has an hmac secret: lowercase
   hex HMAC-SHA512 over the exact request body
 - `X-Webhook-Hmac-Algorithm: sha512` — set alongside the hmac
-- plus the webhook's `customHeaders` (applied last; can override defaults)
+- plus the webhook's `customHeaders`. Protocol-owned headers (`Content-Type`
+  and `X-Webhook-*`) are applied after custom headers and cannot be overridden;
+  custom authentication/routing headers remain untouched.
 
 ## Key types / interfaces
 
@@ -58,7 +60,9 @@ Pure helpers: `EventMatches(events, type)`, `SignHMAC(secret, body)`,
   match. Empty list matches nothing. The repo filters in SQL; the dispatcher
   re-checks with `EventMatches` as a defensive guard so a loose query can't fan
   out to unsubscribed hooks.
-- **Dedup.** Before creating a delivery, `ExistsTerminal(webhook_id, event_id)`
+- **Dedup.** A unique `(webhook_id,event_id)` database key makes enqueue idempotent even when
+  fan-out workers race; a duplicate enqueue returns the existing row id without resetting state.
+  Before creating a delivery, `ExistsTerminal(webhook_id, event_id)`
   is checked; if a delivery is already `delivered` or `dead`, the event is
   skipped (no re-enqueue, no re-send).
 - **Retry backoff.** `RetryPolicy{policy:"exponential", delaySeconds, attempts}`.
@@ -83,9 +87,10 @@ Pure helpers: `EventMatches(events, type)`, `SignHMAC(secret, body)`,
 - **Per-webhook isolation.** In `Enqueue`, a single webhook's dedup-check or
   create failure is logged and skipped, never aborting fan-out to the others.
   Only the upstream `ListMatching` failure is returned as an error.
-- **Body bounding.** Response bodies are read through a 4 KiB `LimitReader` so a
-  hostile endpoint can't make the dispatcher buffer large responses; success
-  bodies are drained (bounded) to allow connection reuse.
+- **Body handling.** Non-2xx response bodies are read through a 4 KiB
+  `LimitReader`, bounding the diagnostic stored in `last_error`. Success bodies
+  are discarded completely (without buffering) so the HTTP connection can be
+  reused; the configured HTTP client timeout bounds this drain.
 
 ## How it's tested
 
