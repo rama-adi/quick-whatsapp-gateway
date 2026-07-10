@@ -152,10 +152,12 @@ export function OAuthAppForm({
   state,
   onChange,
   idPrefix = "oauth",
+  showPreview = true,
 }: {
   state: OAuthFormState;
   onChange: (next: OAuthFormState) => void;
   idPrefix?: string;
+  showPreview?: boolean;
 }) {
   const set = <K extends keyof OAuthFormState>(
     key: K,
@@ -207,7 +209,7 @@ export function OAuthAppForm({
     );
 
   return (
-    <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
+    <div className={cn("grid gap-8", showPreview && "lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]")}>
       {/* Left: the form */}
       <div className="space-y-6">
         {/* Identity */}
@@ -551,7 +553,7 @@ export function OAuthAppForm({
       </div>
 
       {/* Right: live consent preview */}
-      <div className="lg:sticky lg:top-4 lg:self-start">
+      {showPreview && <div className="lg:sticky lg:top-4 lg:self-start">
         <p className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
           Sign-in preview
         </p>
@@ -577,7 +579,7 @@ export function OAuthAppForm({
         <p className="mt-2 text-center text-xs text-muted-foreground">
           This is exactly what end-users see. It updates as you edit.
         </p>
-      </div>
+      </div>}
     </div>
   );
 }

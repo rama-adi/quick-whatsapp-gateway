@@ -29,7 +29,7 @@ export function CopyButton({
   }, [value]);
 
   return (
-    <Button
+    <><Button
       type="button"
       variant="outline"
       size="sm"
@@ -39,6 +39,6 @@ export function CopyButton({
     >
       {copied ? <CheckIcon aria-hidden /> : <CopyIcon aria-hidden />}
       {copied ? "Copied" : label}
-    </Button>
+    </Button><span className="sr-only" aria-live="polite">{copied ? "Copied to clipboard" : ""}</span></>
   );
 }

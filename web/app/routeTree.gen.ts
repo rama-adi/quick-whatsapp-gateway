@@ -34,6 +34,7 @@ import { Route as AppAdminMonitorRouteImport } from './routes/_app/admin/monitor
 import { Route as AppUserSessionsIndexRouteImport } from './routes/_app/user/sessions.index'
 import { Route as AppUserOauthAppsIndexRouteImport } from './routes/_app/user/oauth-apps.index'
 import { Route as AppUserSessionsSessionIdRouteImport } from './routes/_app/user/sessions.$sessionId'
+import { Route as AppUserOauthAppsNewRouteImport } from './routes/_app/user/oauth-apps.new'
 import { Route as AppUserOauthAppsAppIdRouteImport } from './routes/_app/user/oauth-apps.$appId'
 import { Route as AppUserSessionsSessionIdIndexRouteImport } from './routes/_app/user/sessions.$sessionId.index'
 import { Route as AppUserSessionsSessionIdContactsRouteImport } from './routes/_app/user.sessions.$sessionId.contacts'
@@ -166,6 +167,11 @@ const AppUserSessionsSessionIdRoute =
     path: '/$sessionId',
     getParentRoute: () => AppUserSessionsRoute,
   } as any)
+const AppUserOauthAppsNewRoute = AppUserOauthAppsNewRouteImport.update({
+  id: '/new',
+  path: '/new',
+  getParentRoute: () => AppUserOauthAppsRoute,
+} as any)
 const AppUserOauthAppsAppIdRoute = AppUserOauthAppsAppIdRouteImport.update({
   id: '/$appId',
   path: '/$appId',
@@ -230,6 +236,7 @@ export interface FileRoutesByFullPath {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/admin/': typeof AppAdminIndexRoute
   '/user/oauth-apps/$appId': typeof AppUserOauthAppsAppIdRoute
+  '/user/oauth-apps/new': typeof AppUserOauthAppsNewRoute
   '/user/sessions/$sessionId': typeof AppUserSessionsSessionIdRouteWithChildren
   '/user/oauth-apps/': typeof AppUserOauthAppsIndexRoute
   '/user/sessions/': typeof AppUserSessionsIndexRoute
@@ -259,6 +266,7 @@ export interface FileRoutesByTo {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/admin': typeof AppAdminIndexRoute
   '/user/oauth-apps/$appId': typeof AppUserOauthAppsAppIdRoute
+  '/user/oauth-apps/new': typeof AppUserOauthAppsNewRoute
   '/user/oauth-apps': typeof AppUserOauthAppsIndexRoute
   '/user/sessions': typeof AppUserSessionsIndexRoute
   '/user/sessions/$sessionId/contacts': typeof AppUserSessionsSessionIdContactsRouteWithChildren
@@ -292,6 +300,7 @@ export interface FileRoutesById {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/_app/admin/': typeof AppAdminIndexRoute
   '/_app/user/oauth-apps/$appId': typeof AppUserOauthAppsAppIdRoute
+  '/_app/user/oauth-apps/new': typeof AppUserOauthAppsNewRoute
   '/_app/user/sessions/$sessionId': typeof AppUserSessionsSessionIdRouteWithChildren
   '/_app/user/oauth-apps/': typeof AppUserOauthAppsIndexRoute
   '/_app/user/sessions/': typeof AppUserSessionsIndexRoute
@@ -326,6 +335,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/admin/'
     | '/user/oauth-apps/$appId'
+    | '/user/oauth-apps/new'
     | '/user/sessions/$sessionId'
     | '/user/oauth-apps/'
     | '/user/sessions/'
@@ -355,6 +365,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/admin'
     | '/user/oauth-apps/$appId'
+    | '/user/oauth-apps/new'
     | '/user/oauth-apps'
     | '/user/sessions'
     | '/user/sessions/$sessionId/contacts'
@@ -387,6 +398,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/_app/admin/'
     | '/_app/user/oauth-apps/$appId'
+    | '/_app/user/oauth-apps/new'
     | '/_app/user/sessions/$sessionId'
     | '/_app/user/oauth-apps/'
     | '/_app/user/sessions/'
@@ -585,6 +597,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppUserSessionsSessionIdRouteImport
       parentRoute: typeof AppUserSessionsRoute
     }
+    '/_app/user/oauth-apps/new': {
+      id: '/_app/user/oauth-apps/new'
+      path: '/new'
+      fullPath: '/user/oauth-apps/new'
+      preLoaderRoute: typeof AppUserOauthAppsNewRouteImport
+      parentRoute: typeof AppUserOauthAppsRoute
+    }
     '/_app/user/oauth-apps/$appId': {
       id: '/_app/user/oauth-apps/$appId'
       path: '/$appId'
@@ -659,11 +678,13 @@ const AppAdminRouteRouteWithChildren = AppAdminRouteRoute._addFileChildren(
 
 interface AppUserOauthAppsRouteChildren {
   AppUserOauthAppsAppIdRoute: typeof AppUserOauthAppsAppIdRoute
+  AppUserOauthAppsNewRoute: typeof AppUserOauthAppsNewRoute
   AppUserOauthAppsIndexRoute: typeof AppUserOauthAppsIndexRoute
 }
 
 const AppUserOauthAppsRouteChildren: AppUserOauthAppsRouteChildren = {
   AppUserOauthAppsAppIdRoute: AppUserOauthAppsAppIdRoute,
+  AppUserOauthAppsNewRoute: AppUserOauthAppsNewRoute,
   AppUserOauthAppsIndexRoute: AppUserOauthAppsIndexRoute,
 }
 

@@ -7,15 +7,14 @@ import * as React from "react";
 import {
   CheckCheckIcon,
   ClockIcon,
-  ExternalLinkIcon,
   MessageCircleIcon,
+  CheckCircle2Icon,
   ShieldAlertIcon,
   UsersIcon,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
-import { Separator } from "~/components/ui/separator";
 import { cn } from "~/lib/utils";
 import { CopyButton } from "./CopyButton";
 import { QrCode } from "./QrCode";
@@ -46,18 +45,25 @@ export function ConsentCard({
   const expired = remaining <= 0;
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-7">
       {/* App identity */}
-      <div className="flex flex-col items-center gap-3 text-center">
-        <Avatar size="lg" className="size-14 ring-1 ring-border">
-          {app.logo ? <AvatarImage src={app.logo} alt="" /> : null}
-          <AvatarFallback className="text-base font-semibold">
-            {initials(app.name)}
-          </AvatarFallback>
-        </Avatar>
+      <div className="flex flex-col items-center gap-4 text-center">
+        <div className="relative">
+          <Avatar size="lg" className="size-16 ring-4 ring-emerald-500/10">
+            {app.logo ? (
+              <AvatarImage src={app.logo} alt={`${app.name} logo`} />
+            ) : null}
+            <AvatarFallback className="text-base font-semibold">
+              {initials(app.name)}
+            </AvatarFallback>
+          </Avatar>
+          <span className="absolute -bottom-1 -right-1 grid size-6 place-items-center rounded-full border-2 border-background bg-[#25d366] text-white">
+            <CheckCheckIcon className="size-3.5" aria-hidden />
+          </span>
+        </div>
         <div className="space-y-1">
           <h1 className="text-lg font-semibold tracking-tight text-balance">
-            Sign in to {app.name}
+            Continue to {app.name}
           </h1>
           <p className="text-sm text-muted-foreground">
             with your WhatsApp {isDm ? "number" : "group membership"}
@@ -67,14 +73,14 @@ export function ConsentCard({
 
       {/* Scopes */}
       {scopeLines.length > 0 && (
-        <div className="rounded-lg border bg-muted/30 p-4">
-          <p className="mb-3 text-xs font-medium text-muted-foreground uppercase tracking-wide">
-            {app.name} will learn
+        <div className="rounded-xl border bg-muted/25 p-4 sm:p-5">
+          <p className="mb-3 text-sm font-semibold">
+            What {app.name} will receive
           </p>
           <ul className="space-y-2.5">
             {scopeLines.map((s) => (
               <li key={s.key} className="flex items-start gap-2.5 text-sm">
-                <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-primary/70" />
+                <CheckCircle2Icon className="mt-0.5 size-4 shrink-0 text-emerald-600" aria-hidden />
                 <span>
                   <span className="font-medium">{s.label}</span>
                   <span className="text-muted-foreground"> — {s.description}</span>
@@ -86,8 +92,20 @@ export function ConsentCard({
       )}
 
       {/* The verification instruction */}
-      <div className="space-y-3">
-        <p className="text-sm text-muted-foreground">
+      <div className="rounded-2xl border border-emerald-600/15 bg-emerald-500/[0.04] p-4 sm:p-5">
+        <div className="mb-4 flex items-center gap-3">
+          <span className="grid size-8 shrink-0 place-items-center rounded-full bg-emerald-600 text-sm font-semibold text-white">
+            1
+          </span>
+          <div>
+            <p className="font-semibold">Confirm in WhatsApp</p>
+            <p className="text-xs text-muted-foreground">
+              Send one message to prove it is you.
+            </p>
+          </div>
+        </div>
+        <div className="space-y-3 pl-0 sm:pl-11">
+          <p className="text-sm text-muted-foreground">
           {isDm ? (
             <>
               Send this message to{" "}
@@ -114,7 +132,7 @@ export function ConsentCard({
               mention the bot with this message:
             </>
           )}
-        </p>
+          </p>
 
         {/* WhatsApp-style outgoing bubble: exactly what the sent message looks
             like. In a group we prepend the styled @mention of the bot. */}
@@ -136,13 +154,14 @@ export function ConsentCard({
 
         {/* Hero action: on mobile, open WhatsApp directly. */}
         {isDm && deepLink && (
-          <Button asChild size="lg" className="w-full sm:hidden">
+          <Button asChild size="lg" className="min-h-11 w-full bg-[#128c7e] hover:bg-[#0f766e] sm:hidden">
             <a href={deepLink} rel="noreferrer">
               <MessageCircleIcon aria-hidden />
               Open WhatsApp
             </a>
           </Button>
         )}
+        </div>
       </div>
 
       {/* Desktop path: QR to open the pre-filled DM on the phone. */}
@@ -150,7 +169,7 @@ export function ConsentCard({
         <div className="hidden flex-col items-center gap-2 sm:flex">
           <QrCode value={deepLink} size={176} />
           <p className="text-xs text-muted-foreground">
-            Scan to open the message on your phone
+            Scan with your phone to open the prepared message
           </p>
         </div>
       )}
@@ -166,7 +185,11 @@ export function ConsentCard({
       )}
 
       {/* Countdown */}
-      <div className="flex items-center justify-center gap-1.5 text-sm">
+      <div
+        className="flex items-center justify-center gap-1.5 text-sm"
+        role="status"
+        aria-live={expired ? "polite" : "off"}
+      >
         <ClockIcon
           className={cn("size-4", expired ? "text-destructive" : "text-muted-foreground")}
           aria-hidden
@@ -189,11 +212,9 @@ export function ConsentCard({
         )}
       </div>
 
-      <Separator />
-
       {/* Phishing guard */}
-      <div className="flex items-start gap-2.5 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm">
-        <ShieldAlertIcon className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-500" aria-hidden />
+      <div className="flex items-start gap-2.5 rounded-xl border bg-muted/30 p-3.5 text-sm">
+        <ShieldAlertIcon className="mt-0.5 size-4 shrink-0 text-emerald-700 dark:text-emerald-400" aria-hidden />
         <span className="text-muted-foreground">
           <span className="font-medium text-foreground">
             Only continue if you started this sign-in yourself.
@@ -210,7 +231,7 @@ export function ConsentCard({
         disabled={cancelling}
         className="mx-auto text-muted-foreground"
       >
-        {cancelling ? "Cancelling…" : "This isn't me / Cancel"}
+        {cancelling ? "Cancelling…" : "Cancel sign-in"}
       </Button>
     </div>
   );
@@ -239,10 +260,6 @@ function MessageBubble({
           ) : null}
           {command}
         </p>
-        <div className="mt-0.5 flex items-center justify-end gap-0.5 text-[10px] leading-none text-white/60">
-          9:41 AM
-          <CheckCheckIcon className="size-3 text-[#53bdeb]" aria-hidden />
-        </div>
       </div>
     </div>
   );

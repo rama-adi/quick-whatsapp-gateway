@@ -3,14 +3,10 @@
 // $appId route, rendered in the layout's Outlet.
 //
 // List columns: name + logo, bound session (number + live status pill), mode
-// chips, grant count, status. "New app" opens a full-width Sheet with the shared
-// OAuthAppForm + live consent preview. On create, the one-time client_secret is
-// surfaced in the copy-once modal (confidential clients).
+// chips, grant count, status. "New app" opens the dedicated setup wizard.
 
-import { useState } from "react";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { PlusIcon, RefreshCwIcon, KeyRoundIcon } from "lucide-react";
-import { toast } from "sonner";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
@@ -34,30 +30,11 @@ import {
   TableHeader,
   TableRow,
 } from "~/components/ui/table";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "~/components/ui/sheet";
 import { isApiError } from "~/lib/api/envelope";
 import { useSessions } from "~/lib/api/hooks/sessions";
-import {
-  useOAuthApps,
-  useCreateOAuthApp,
-  type OAuthApp,
-} from "~/lib/api/hooks/oauth";
+import { useOAuthApps, type OAuthApp } from "~/lib/api/hooks/oauth";
 import { SessionStatusBadge } from "./-components/user-ui";
-import { AppStatusBadge, ModeChips, SecretDialog } from "./-oauth/ui";
-import {
-  OAuthAppForm,
-  emptyFormState,
-  isFormValid,
-  toRequestBody,
-  type OAuthFormState,
-} from "./-oauth/OAuthAppForm";
+import { AppStatusBadge, ModeChips } from "./-oauth/ui";
 
 export const Route = createFileRoute("/_app/user/oauth-apps/")({
   component: OAuthAppsList,
@@ -65,7 +42,6 @@ export const Route = createFileRoute("/_app/user/oauth-apps/")({
 
 function OAuthAppsList() {
   const apps = useOAuthApps();
-  const [secret, setSecret] = useState<string | null>(null);
   const rows = apps.data?.pages.flatMap((p) => p.data) ?? [];
 
   return (
@@ -78,7 +54,7 @@ function OAuthAppsList() {
             WhatsApp number.
           </p>
         </div>
-        <CreateAppSheet onSecret={setSecret} />
+        <NewAppButton />
       </div>
 
       {apps.isLoading ? (
@@ -106,7 +82,7 @@ function OAuthAppsList() {
           </CardContent>
         </Card>
       ) : rows.length === 0 ? (
-        <EmptyState onSecret={setSecret} />
+        <EmptyState />
       ) : (
         <Card>
           <CardContent className="p-0">
@@ -127,7 +103,6 @@ function OAuthAppsList() {
         </div>
       )}
 
-      <SecretDialog secret={secret} onClose={() => setSecret(null)} />
     </div>
   );
 }
@@ -215,7 +190,7 @@ function BoundSession({ sessionId }: { sessionId: string }) {
   );
 }
 
-function EmptyState({ onSecret }: { onSecret: (s: string) => void }) {
+function EmptyState() {
   return (
     <Empty className="rounded-lg border border-dashed py-12">
       <EmptyHeader>
@@ -230,78 +205,20 @@ function EmptyState({ onSecret }: { onSecret: (s: string) => void }) {
         </EmptyDescription>
       </EmptyHeader>
       <EmptyContent>
-        <CreateAppSheet onSecret={onSecret} />
+        <NewAppButton />
       </EmptyContent>
     </Empty>
   );
 }
 
-function CreateAppSheet({ onSecret }: { onSecret: (secret: string) => void }) {
-  const [open, setOpen] = useState(false);
-  const [state, setState] = useState<OAuthFormState>(emptyFormState);
-  const create = useCreateOAuthApp();
-
-  const submit = () => {
-    if (!isFormValid(state)) {
-      toast.error("Fix the highlighted fields before creating.");
-      return;
-    }
-    create.mutate(toRequestBody(state), {
-      onError: (err) =>
-        toast.error(isApiError(err) ? err.message : "Failed to create app"),
-      onSuccess: (app) => {
-        toast.success("App created");
-        setOpen(false);
-        setState(emptyFormState());
-        if (app.clientSecret) onSecret(app.clientSecret);
-      },
-    });
-  };
-
+function NewAppButton() {
   return (
-    <Sheet
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (!next) setState(emptyFormState());
-      }}
-    >
-      <Button size="sm" className="gap-1.5" onClick={() => setOpen(true)}>
+    <Button asChild size="sm" className="gap-1.5">
+      <Link to="/user/oauth-apps/new">
         <PlusIcon className="size-4" aria-hidden />
         New app
-      </Button>
-      <SheetContent
-        side="right"
-        className="w-full gap-0 overflow-y-auto sm:max-w-3xl"
-      >
-        <SheetHeader>
-          <SheetTitle>New OAuth app</SheetTitle>
-          <SheetDescription>
-            Configure the app and preview exactly what end-users will see when
-            they sign in.
-          </SheetDescription>
-        </SheetHeader>
-        <div className="px-4 py-2">
-          <OAuthAppForm state={state} onChange={setState} idPrefix="create" />
-        </div>
-        <SheetFooter>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => setOpen(false)}
-          >
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            onClick={submit}
-            disabled={create.isPending || !isFormValid(state)}
-          >
-            {create.isPending ? "Creating…" : "Create app"}
-          </Button>
-        </SheetFooter>
-      </SheetContent>
-    </Sheet>
+      </Link>
+    </Button>
   );
 }
 
