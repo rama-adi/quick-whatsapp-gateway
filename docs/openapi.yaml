@@ -13,6 +13,31 @@ components:
             - array
             - "null"
       type: object
+    AlbumMediaPayload:
+      additionalProperties: false
+      properties:
+        data:
+          description: Base64-encoded media bytes. Provide exactly one of data or url.
+          type: string
+        mimetype:
+          description: Media MIME type; detected when omitted.
+          examples:
+            - image/jpeg
+          type: string
+        type:
+          description: Album item type. Defaults to image.
+          enum:
+            - image
+            - video
+          examples:
+            - image
+          type: string
+        url:
+          description: Public HTTP(S) media URL. Provide exactly one of data or url.
+          examples:
+            - https://example.com/photo.jpg
+          type: string
+      type: object
     ApiError:
       additionalProperties: false
       properties:
@@ -2905,6 +2930,11 @@ components:
     SendRequest:
       additionalProperties: false
       properties:
+        caption:
+          description: Optional single caption for an album. WhatsApp renders it with the grouped album.
+          examples:
+            - Trip photos
+          type: string
         contact:
           $ref: "#/components/schemas/ContactCard"
           description: The contact card to share. Required for type contact.
@@ -2923,6 +2953,13 @@ components:
         media:
           $ref: "#/components/schemas/MediaPayload"
           description: The media file to send. Required for the media types (image/video/audio/document/sticker); provide exactly one of media.data (base64) or media.url (HTTP(S)). Caption, replyTo, and mentions apply.
+        medias:
+          description: The ordered album items. Required for type album; 2–10 image/video items, each with exactly one of data or url.
+          items:
+            $ref: "#/components/schemas/AlbumMediaPayload"
+          type:
+            - array
+            - "null"
         mentions:
           description: JIDs to @-mention in the message. Optional.
           examples:
@@ -2981,7 +3018,7 @@ components:
             - 6281234567890@s.whatsapp.net
           type: string
         type:
-          description: Which kind of message to send. Determines which other fields are required. **text** uses text (+ optional replyTo/mentions); **poll** uses name (question) + options + selectableCount; **location** uses latitude + longitude + optional name (label); **contact** uses contact. The media types **image**, **video**, **audio**, **document**, **sticker** use media (a base64 file or HTTP(S) URL + optional caption/filename, replyTo, mentions).
+          description: Which kind of message to send. The media types use media; **album** uses medias with 2–10 images/videos and an optional shared caption. Each media source may independently be base64 data or an HTTP(S) URL.
           enum:
             - text
             - poll
@@ -2992,6 +3029,7 @@ components:
             - audio
             - document
             - sticker
+            - album
           examples:
             - text
           type: string
@@ -5785,7 +5823,7 @@ paths:
   /api/v1/sessions/{session}/messages:
     post:
       description: |-
-        Send one message from the session.
+        Send one message or one grouped media album from the session.
 
         Use `type` in the body to select a supported payload (`text`, `poll`, `location`, `contact`).
 
@@ -6628,7 +6666,7 @@ servers:
 tags:
   - description: Create, pair, start, stop, restart, and delete WhatsApp sessions. A session is one attached WhatsApp number.
     name: Sessions
-  - description: Send text, polls, locations, and contacts. You can also edit, delete for everyone, react, forward, and vote on polls. Media sends return 501 in v1.
+  - description: Send text, individual media, grouped image/video albums, polls, locations, and contacts. You can also edit, delete for everyone, react, forward, and vote on polls.
     name: Messages
   - description: List chats, read messages, mark chats read, update chat flags, delete chats, and set typing or recording presence.
     name: Chats

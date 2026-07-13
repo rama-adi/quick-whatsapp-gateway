@@ -234,7 +234,7 @@ func (q *Queries) UpdateOutboxStatus(ctx context.Context, arg UpdateOutboxStatus
 const updateOutboxStatusAndStripMedia = `-- name: UpdateOutboxStatusAndStripMedia :execrows
 UPDATE outbox
 SET status = ?, wa_message_id = ?, error = ?, updated_at = ?,
-	payload = JSON_REMOVE(payload, '$.media.data')
+	payload = JSON_REMOVE(payload, '$.media.data', '$.medias[0].data', '$.medias[1].data', '$.medias[2].data', '$.medias[3].data', '$.medias[4].data', '$.medias[5].data', '$.medias[6].data', '$.medias[7].data', '$.medias[8].data', '$.medias[9].data')
 WHERE id = ?
 `
 

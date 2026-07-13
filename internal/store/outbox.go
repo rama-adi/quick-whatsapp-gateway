@@ -92,7 +92,9 @@ func (r *OutboxRepo) UpdateStatus(ctx context.Context, id string, status domain.
 	// Once a send has succeeded, strip any inline media bytes from the stored
 	// payload — the file content is only needed until the row is dispatched and
 	// must not be retained afterward. JSON_REMOVE is a no-op for non-media
-	// payloads (the '$.media.data' path simply isn't present). The bytes are kept
+	// payloads (the media paths simply aren't present). This covers the single
+	// '$.media.data' field and all ten possible '$.medias[n].data' album fields.
+	// The bytes are kept
 	// on a failed row so the async worker can still retry it.
 	var (
 		n   int64

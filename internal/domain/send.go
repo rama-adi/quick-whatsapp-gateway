@@ -13,6 +13,7 @@ const (
 	SendTypeAudio    = "audio"
 	SendTypeDocument = "document"
 	SendTypeSticker  = "sticker"
+	SendTypeAlbum    = "album"
 )
 
 // MediaPayload is the payload for a media send (image/video/audio/document/
@@ -41,7 +42,7 @@ type ContactCard struct {
 // handler validates the subset required for each Type. JSON tags follow the §11
 // camelCase examples.
 type SendRequest struct {
-	Type string `json:"type" enum:"text,poll,location,contact,image,video,audio,document,sticker" doc:"Which kind of message to send. Determines which other fields are required. **text** uses text (+ optional replyTo/mentions); **poll** uses name (question) + options + selectableCount; **location** uses latitude + longitude + optional name (label); **contact** uses contact. The media types **image**, **video**, **audio**, **document**, **sticker** use media (a base64 file or HTTP(S) URL + optional caption/filename, replyTo, mentions)." example:"text"`
+	Type string `json:"type" enum:"text,poll,location,contact,image,video,audio,document,sticker,album" doc:"Which kind of message to send. The media types use media; **album** uses medias with 2–10 images/videos and an optional shared caption. Each media source may independently be base64 data or an HTTP(S) URL." example:"text"`
 	To   string `json:"to" doc:"The recipient's JID: a user JID for a direct message (e.g. 6281234567890@s.whatsapp.net) or a group JID for a group (e.g. 120363021234567890@g.us). Required." example:"6281234567890@s.whatsapp.net"`
 
 	// text
@@ -65,4 +66,15 @@ type SendRequest struct {
 
 	// media (image/video/audio/document/sticker)
 	Media *MediaPayload `json:"media,omitempty" doc:"The media file to send. Required for the media types (image/video/audio/document/sticker); provide exactly one of media.data (base64) or media.url (HTTP(S)). Caption, replyTo, and mentions apply."`
+	// Medias and Caption are used only by album sends. Item type defaults to image.
+	Medias  []AlbumMediaPayload `json:"medias,omitempty" doc:"The ordered album items. Required for type album; 2–10 image/video items, each with exactly one of data or url."`
+	Caption string              `json:"caption,omitempty" doc:"Optional single caption for an album. WhatsApp renders it with the grouped album." example:"Trip photos"`
+}
+
+// AlbumMediaPayload is one image or video in a WhatsApp media album.
+type AlbumMediaPayload struct {
+	Type     string `json:"type,omitempty" enum:"image,video" doc:"Album item type. Defaults to image." example:"image"`
+	Data     string `json:"data,omitempty" doc:"Base64-encoded media bytes. Provide exactly one of data or url."`
+	URL      string `json:"url,omitempty" doc:"Public HTTP(S) media URL. Provide exactly one of data or url." example:"https://example.com/photo.jpg"`
+	Mimetype string `json:"mimetype,omitempty" doc:"Media MIME type; detected when omitted." example:"image/jpeg"`
 }

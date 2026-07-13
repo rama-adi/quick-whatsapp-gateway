@@ -142,7 +142,7 @@ location, and contact message types do work.`)
 
 	o.Tags = []*huma.Tag{
 		{Name: "Sessions", Description: "Create, pair, start, stop, restart, and delete WhatsApp sessions. A session is one attached WhatsApp number."},
-		{Name: "Messages", Description: "Send text, polls, locations, and contacts. You can also edit, delete for everyone, react, forward, and vote on polls. Media sends return 501 in v1."},
+		{Name: "Messages", Description: "Send text, individual media, grouped image/video albums, polls, locations, and contacts. You can also edit, delete for everyone, react, forward, and vote on polls."},
 		{Name: "Chats", Description: "List chats, read messages, mark chats read, update chat flags, delete chats, and set typing or recording presence."},
 		{Name: "Contacts", Description: "List and check contacts, read profile info, fetch profile pictures and about text, and block or unblock contacts."},
 		{Name: "Groups", Description: "List groups and members, read invites, create groups, add or remove members, promote or demote members, edit group info, join or leave groups, and approve join requests."},

@@ -15,7 +15,9 @@ import (
 // maxSendMessageBody allows the 16 MiB decoded media limit to be represented as
 // base64 JSON (roughly 21.4 MiB) with room for captions and other metadata.
 // Other Huma operations retain the framework's 1 MiB default request limit.
-const maxSendMessageBody int64 = 24 << 20
+// Albums allow up to 64 MiB decoded across ten inline items; base64 expansion
+// plus JSON metadata fits within this request ceiling.
+const maxSendMessageBody int64 = 88 << 20
 
 // sendMessageInput is POST /sessions/{session}/messages.
 type sendMessageInput struct {
@@ -95,7 +97,7 @@ func RegisterMessageOps(api huma.API, h *Handlers) {
 		OperationID: "sendMessage", Method: "POST", Path: "/api/v1/sessions/{session}/messages",
 		MaxBodyBytes: maxSendMessageBody,
 		Summary:      "Send a message",
-		Description: "Send one message from the session.\n\n" +
+		Description: "Send one message or one grouped media album from the session.\n\n" +
 			"Use `type` in the body to select a supported payload (`text`, `poll`, `location`, `contact`).\n\n" +
 			"Default mode is synchronous and returns 200. Set `async=true` for queued async sends that return 202.\n" +
 			"Idempotency is enabled with `Idempotency-Key`.\n\n" +

@@ -1129,7 +1129,7 @@ export interface paths {
         put?: never;
         /**
          * Send a message
-         * @description Send one message from the session.
+         * @description Send one message or one grouped media album from the session.
          *
          *     Use `type` in the body to select a supported payload (`text`, `poll`, `location`, `contact`).
          *
@@ -1578,6 +1578,26 @@ export interface components {
              *     ]
              */
             participants?: string[] | null;
+        };
+        AlbumMediaPayload: {
+            /** @description Base64-encoded media bytes. Provide exactly one of data or url. */
+            data?: string;
+            /**
+             * @description Media MIME type; detected when omitted.
+             * @example image/jpeg
+             */
+            mimetype?: string;
+            /**
+             * @description Album item type. Defaults to image.
+             * @example image
+             * @enum {string}
+             */
+            type?: "image" | "video";
+            /**
+             * @description Public HTTP(S) media URL. Provide exactly one of data or url.
+             * @example https://example.com/photo.jpg
+             */
+            url?: string;
         };
         ApiError: {
             /** @description The error. Present on every non-2xx response. */
@@ -3651,6 +3671,11 @@ export interface components {
             sender?: string;
         };
         SendRequest: {
+            /**
+             * @description Optional single caption for an album. WhatsApp renders it with the grouped album.
+             * @example Trip photos
+             */
+            caption?: string;
             /** @description The contact card to share. Required for type contact. */
             contact?: components["schemas"]["ContactCard"];
             /**
@@ -3667,6 +3692,8 @@ export interface components {
             longitude?: number;
             /** @description The media file to send. Required for the media types (image/video/audio/document/sticker); provide exactly one of media.data (base64) or media.url (HTTP(S)). Caption, replyTo, and mentions apply. */
             media?: components["schemas"]["MediaPayload"];
+            /** @description The ordered album items. Required for type album; 2–10 image/video items, each with exactly one of data or url. */
+            medias?: components["schemas"]["AlbumMediaPayload"][] | null;
             /**
              * @description JIDs to @-mention in the message. Optional.
              * @example [
@@ -3721,11 +3748,11 @@ export interface components {
              */
             to: string;
             /**
-             * @description Which kind of message to send. Determines which other fields are required. **text** uses text (+ optional replyTo/mentions); **poll** uses name (question) + options + selectableCount; **location** uses latitude + longitude + optional name (label); **contact** uses contact. The media types **image**, **video**, **audio**, **document**, **sticker** use media (a base64 file or HTTP(S) URL + optional caption/filename, replyTo, mentions).
+             * @description Which kind of message to send. The media types use media; **album** uses medias with 2–10 images/videos and an optional shared caption. Each media source may independently be base64 data or an HTTP(S) URL.
              * @example text
              * @enum {string}
              */
-            type: "text" | "poll" | "location" | "contact" | "image" | "video" | "audio" | "document" | "sticker";
+            type: "text" | "poll" | "location" | "contact" | "image" | "video" | "audio" | "document" | "sticker" | "album";
         };
         SendResult: {
             mode: string;

@@ -82,6 +82,9 @@ type WAClient interface {
 	// (image/video/document), filename (document), replyTo and mentions are
 	// optional (replyTo is a quoted wa_message_id).
 	SendMedia(ctx context.Context, to, mediaType string, data []byte, mimetype, caption, filename string, quote QuoteInfo, mentions []string) (waMessageID string, ts int64, err error)
+	// SendAlbum sends one WhatsApp album container followed by its associated
+	// image/video children. The returned id is the album container id.
+	SendAlbum(ctx context.Context, to, caption string, medias []AlbumMedia, quote QuoteInfo, mentions []string) (waMessageID string, ts int64, err error)
 
 	// React adds (or, with emoji=="", removes) a reaction to a message
 	// (BuildReaction). chat is the target chat JID; sender is the original
@@ -98,6 +101,13 @@ type WAClient interface {
 	// builds a forwarded-context message; sourceChat/sourceSender/sourceMsgID
 	// identify the original.
 	Forward(ctx context.Context, to, sourceChat, sourceSender, sourceMsgID string) (waMessageID string, ts int64, err error)
+}
+
+// AlbumMedia is one fully resolved image/video ready for upload.
+type AlbumMedia struct {
+	Type     string
+	Data     []byte
+	Mimetype string
 }
 
 // QuoteInfo is the WhatsApp quote context attached to outbound sends.

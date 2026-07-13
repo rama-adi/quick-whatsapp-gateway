@@ -1,6 +1,6 @@
 ---
 title: Send messages
-description: Send text, polls, locations, and contact cards through one REST endpoint, with idempotent retries and per-session rate limits.
+description: Send text, media albums, polls, locations, and contact cards through one REST endpoint, with idempotent retries and per-session rate limits.
 ---
 
 Sending is one `POST` to a session's messages endpoint. You need a session that is
@@ -34,6 +34,7 @@ The reply is a `SendResult`: the WhatsApp message id (`messageId`), the delivery
 | `location` | `latitude`, `longitude` | `name` — a label for the pin |
 | `contact` | `contact` | — |
 | `image`, `video`, `audio`, `document`, `sticker` | exactly one of `media.data` or `media.url` | `media.mimetype`, `media.caption` (image/video/document), `media.filename` (document), `replyTo`, `mentions` |
+| `album` | `medias` with 2–10 image/video items | `caption`, `replyTo`, `mentions` |
 
 A `contact` is a card. Give it `{ name, phone }`, or supply a raw `vcard` string
 instead.
@@ -79,6 +80,26 @@ URL media uses the same shape:
 
 The same shape sends `video`, `audio`, `document`, and `sticker` — change `type`
 (and add `media.filename` for a document).
+
+### Albums
+
+An album groups 2–10 images or videos under one optional caption. Put the caption
+at the top level; WhatsApp supports one caption for the grouped album. Every item
+may use either base64 `data` or a public `url`, and the two source forms can be
+mixed. Each item is limited to 16 MiB and the decoded album total is limited to
+64 MiB.
+
+```json
+{
+  "type": "album",
+  "to": "628123456789@s.whatsapp.net",
+  "caption": "Trip photos",
+  "medias": [
+    { "type": "image", "data": "iVBORw0KGgoAAAANSUhEUgAA...", "mimetype": "image/png" },
+    { "type": "image", "url": "https://example.com/photo.jpg" }
+  ]
+}
+```
 
 The uploaded bytes are not retained: the gateway holds them only long enough to
 deliver the message (for an `async` send, until the queued row is drained), then

@@ -12,6 +12,7 @@ import (
 
 	"go.mau.fi/util/random"
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
@@ -230,6 +231,72 @@ func (a *whatsmeowAdapter) SendMedia(ctx context.Context, to, mediaType string, 
 		return "", 0, domain.ErrValidation(fmt.Sprintf("unsupported media type %q", mediaType))
 	}
 	return a.send(ctx, toJID, msg)
+}
+
+// SendAlbum uploads all children before publishing the container, then sends
+// each child with a MEDIA_ALBUM association pointing at that container.
+func (a *whatsmeowAdapter) SendAlbum(ctx context.Context, to, caption string, medias []AlbumMedia, quote QuoteInfo, mentions []string) (string, int64, error) {
+	toJID, err := parseJID(to)
+	if err != nil {
+		return "", 0, err
+	}
+	type uploadedChild struct {
+		media AlbumMedia
+		up    whatsmeow.UploadResponse
+	}
+	children := make([]uploadedChild, len(medias))
+	var imageCount, videoCount uint32
+	for i, media := range medias {
+		if media.Mimetype == "" {
+			media.Mimetype = http.DetectContentType(media.Data)
+		}
+		up, uploadErr := a.cli.Upload(ctx, media.Data, uploadMediaType(media.Type))
+		if uploadErr != nil {
+			return "", 0, fmt.Errorf("whatsmeow upload album item %d: %w", i, uploadErr)
+		}
+		children[i] = uploadedChild{media: media, up: up}
+		if media.Type == domain.SendTypeVideo {
+			videoCount++
+		} else {
+			imageCount++
+		}
+	}
+
+	albumCtx := buildContextInfo(a.fillOwnQuote(toJID, quote), mentions)
+	albumID, ts, err := a.send(ctx, toJID, &waE2E.Message{AlbumMessage: &waE2E.AlbumMessage{
+		ExpectedImageCount: proto.Uint32(imageCount), ExpectedVideoCount: proto.Uint32(videoCount), ContextInfo: albumCtx,
+	}})
+	if err != nil {
+		return "", 0, err
+	}
+	parent := &waCommon.MessageKey{RemoteJID: proto.String(toJID.String()), FromMe: proto.Bool(true), ID: proto.String(albumID)}
+	for i, child := range children {
+		association := &waE2E.MessageContextInfo{MessageSecret: random.Bytes(32), MessageAssociation: &waE2E.MessageAssociation{
+			AssociationType: waE2E.MessageAssociation_MEDIA_ALBUM.Enum(), ParentMessageKey: parent, MessageIndex: proto.Int32(int32(i)),
+		}}
+		up, media := child.up, child.media
+		var msg *waE2E.Message
+		if media.Type == domain.SendTypeVideo {
+			m := &waE2E.VideoMessage{URL: proto.String(up.URL), DirectPath: proto.String(up.DirectPath), Mimetype: proto.String(media.Mimetype), MediaKey: up.MediaKey, FileEncSHA256: up.FileEncSHA256, FileSHA256: up.FileSHA256, FileLength: proto.Uint64(up.FileLength)}
+			if i == 0 && caption != "" {
+				m.Caption = proto.String(caption)
+			}
+			msg = &waE2E.Message{VideoMessage: m, MessageContextInfo: association}
+		} else {
+			m := &waE2E.ImageMessage{URL: proto.String(up.URL), DirectPath: proto.String(up.DirectPath), Mimetype: proto.String(media.Mimetype), MediaKey: up.MediaKey, FileEncSHA256: up.FileEncSHA256, FileSHA256: up.FileSHA256, FileLength: proto.Uint64(up.FileLength)}
+			if width, height, thumb := imageMetadata(media.Data); width > 0 && height > 0 {
+				m.Width, m.Height, m.JPEGThumbnail = proto.Uint32(width), proto.Uint32(height), thumb
+			}
+			if i == 0 && caption != "" {
+				m.Caption = proto.String(caption)
+			}
+			msg = &waE2E.Message{ImageMessage: m, MessageContextInfo: association}
+		}
+		if _, _, err = a.send(ctx, toJID, msg); err != nil {
+			return "", 0, fmt.Errorf("send album item %d: %w", i, err)
+		}
+	}
+	return albumID, ts, nil
 }
 
 func imageMetadata(data []byte) (width, height uint32, jpegThumbnail []byte) {

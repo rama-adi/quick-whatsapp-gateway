@@ -69,6 +69,15 @@ func (f *fakeWA) SendMedia(_ context.Context, _ string, mediaType string, data [
 	f.mu.Unlock()
 	return f.id, f.ts, f.err
 }
+
+func (f *fakeWA) SendAlbum(_ context.Context, _ string, _ string, medias []AlbumMedia, _ QuoteInfo, _ []string) (string, int64, error) {
+	f.record("SendAlbum")
+	f.lastMediaData = nil
+	for _, media := range medias {
+		f.lastMediaData = append(f.lastMediaData, media.Data...)
+	}
+	return f.id, f.ts, f.err
+}
 func (f *fakeWA) React(_ context.Context, _, _, _, _ string) (string, int64, error) {
 	f.record("React")
 	return f.id, f.ts, f.err
@@ -220,6 +229,7 @@ func TestSend_TypeRouting(t *testing.T) {
 		{"audio", domain.SendRequest{Type: domain.SendTypeAudio, To: "a@s.whatsapp.net", Media: &domain.MediaPayload{Data: "aGVsbG8="}}, "SendMedia"},
 		{"document", domain.SendRequest{Type: domain.SendTypeDocument, To: "a@s.whatsapp.net", Media: &domain.MediaPayload{Data: "aGVsbG8=", Filename: "f.pdf"}}, "SendMedia"},
 		{"sticker", domain.SendRequest{Type: domain.SendTypeSticker, To: "a@s.whatsapp.net", Media: &domain.MediaPayload{Data: "aGVsbG8="}}, "SendMedia"},
+		{"album", domain.SendRequest{Type: domain.SendTypeAlbum, To: "a@s.whatsapp.net", Medias: []domain.AlbumMediaPayload{{Data: "aGVsbG8="}, {Type: domain.SendTypeVideo, Data: "d29ybGQ="}}}, "SendAlbum"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -232,6 +242,39 @@ func TestSend_TypeRouting(t *testing.T) {
 			require.Equal(t, domain.MessageSent, res.Status)
 			require.Equal(t, []string{tc.wantMethod}, wa.calls)
 		})
+	}
+}
+
+func TestSend_AlbumSupportsMixedBase64AndURL(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "video/mp4")
+		_, _ = w.Write([]byte("video"))
+	}))
+	defer srv.Close()
+
+	wa := newFakeWA()
+	s := NewSender(wa, newFakeOutbox(), &allowLimiter{}, fixedClock{ms: 1000})
+	_, err := s.Send(context.Background(), testSession(), domain.SendRequest{
+		Type: domain.SendTypeAlbum, To: "a@s.whatsapp.net", Caption: "one caption",
+		Medias: []domain.AlbumMediaPayload{{Data: "aW1hZ2U=", Mimetype: "image/jpeg"}, {Type: domain.SendTypeVideo, URL: srv.URL}},
+	}, SendOptions{})
+	require.NoError(t, err)
+	require.Equal(t, []string{"SendAlbum"}, wa.calls)
+	require.Equal(t, []byte("imagevideo"), wa.lastMediaData)
+}
+
+func TestSend_AlbumValidatesItemCountAndSources(t *testing.T) {
+	cases := []domain.SendRequest{
+		{Type: domain.SendTypeAlbum, To: "a@s.whatsapp.net", Medias: []domain.AlbumMediaPayload{{Data: "aA=="}}},
+		{Type: domain.SendTypeAlbum, To: "a@s.whatsapp.net", Medias: []domain.AlbumMediaPayload{{Data: "aA=="}, {Data: "aA==", URL: "https://example.com/x"}}},
+		{Type: domain.SendTypeAlbum, To: "a@s.whatsapp.net", Medias: []domain.AlbumMediaPayload{{Data: "aA=="}, {Type: domain.SendTypeAudio, Data: "aA=="}}},
+	}
+	for _, req := range cases {
+		wa := newFakeWA()
+		s := NewSender(wa, newFakeOutbox(), &allowLimiter{}, fixedClock{})
+		_, err := s.Send(context.Background(), testSession(), req, SendOptions{})
+		require.Error(t, err)
+		require.Zero(t, wa.callCount())
 	}
 }
 

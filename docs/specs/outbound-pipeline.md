@@ -21,8 +21,16 @@ limiting, optional jittered pacing, and a sync/async split.
   live on the `outbox` row only until the send is dispatched, and the store
   strips `media.data` from the payload once the row is marked `sent` (kept on
   `failed` so the async worker can retry). URL payloads retain only the URL.
-  The send-message HTTP operation accepts up to 24 MiB of JSON so the full
-  16 MiB decoded-media allowance fits after base64 expansion; ordinary API
+  Album sends (`type: album`) accept an ordered `medias` array of 2–10 image or
+  video items plus one top-level `caption`. Each item independently supplies
+  exactly one of inline base64 (`data`) or HTTP(S) URL (`url`), so sources may be
+  mixed in one album. The sender uploads every item before sending the WhatsApp
+  `AlbumMessage` container, then sends each child with a `MEDIA_ALBUM`
+  association to that container; the caption is carried by the first child.
+  Each item retains the 16 MiB limit and an album is capped at 64 MiB decoded in
+  aggregate. Inline album bytes are stripped from a successful outbox payload.
+  The send-message HTTP operation accepts up to 88 MiB of JSON so the full
+  64 MiB decoded-album allowance fits after base64 expansion; ordinary API
   operations retain Huma's 1 MiB request-body default.
 - Sync mode (default): block on the whatsmeow ack, return
   `{waMessageId, status, timestamp}`.
@@ -67,7 +75,8 @@ All collaborators are small interfaces owned by this package — no sibling
 
 - `WAClient` — narrow slice of whatsmeow: `SendText`, `SendPoll`, `SendLocation`,
   `SendContact`, `SendMedia` (image/video/audio/document/sticker via `Upload` +
-  the matching message), `React`, `Edit`, `Revoke`, `Vote`, `Forward`. Each
+  the matching protobuf message), `SendAlbum` (album container + associated
+  children), `React`, `Edit`, `Revoke`, `Vote`, `Forward`. Each
   returns `(waMessageID string, ts int64, err error)`, `ts` in epoch-ms.
 - `OutboxRepo` — `Insert`, `GetByIdempotencyKey`, `UpdateStatus`, `ClaimByID`, `ClaimQueued`.
   `Insert` MUST enforce `(organization_id, idempotency_key)` uniqueness and return a

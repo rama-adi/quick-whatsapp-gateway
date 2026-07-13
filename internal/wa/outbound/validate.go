@@ -13,6 +13,12 @@ import (
 // it sits under WhatsApp's own media limits.
 const MaxMediaBytes = 16 * 1024 * 1024 // 16 MiB
 
+const (
+	MinAlbumItems = 2
+	MaxAlbumItems = 10
+	MaxAlbumBytes = 64 * 1024 * 1024
+)
+
 // validate checks a SendRequest's type and the per-type required fields,
 // returning a *domain.APIError (validation_error) on failure. It is the single
 // gate before any whatsmeow call.
@@ -75,6 +81,41 @@ func validate(req domain.SendRequest) error {
 			if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
 				return domain.ErrValidation("media.url must be a valid http(s) URL")
 			}
+		}
+	case domain.SendTypeAlbum:
+		if len(req.Medias) < MinAlbumItems || len(req.Medias) > MaxAlbumItems {
+			return domain.ErrValidation(fmt.Sprintf("album requires between %d and %d medias", MinAlbumItems, MaxAlbumItems))
+		}
+		total := 0
+		for i := range req.Medias {
+			item := req.Medias[i]
+			if item.Type == "" {
+				item.Type = domain.SendTypeImage
+			}
+			if item.Type != domain.SendTypeImage && item.Type != domain.SendTypeVideo {
+				return domain.ErrValidation(fmt.Sprintf("medias[%d].type must be image or video", i))
+			}
+			hasData := strings.TrimSpace(item.Data) != ""
+			hasURL := strings.TrimSpace(item.URL) != ""
+			if hasData == hasURL {
+				return domain.ErrValidation(fmt.Sprintf("provide exactly one of medias[%d].data or medias[%d].url", i, i))
+			}
+			if hasData {
+				size := approxDecodedLen(item.Data)
+				if size > MaxMediaBytes {
+					return domain.ErrValidation(fmt.Sprintf("medias[%d] exceeds the %d byte item limit", i, MaxMediaBytes))
+				}
+				total += size
+			}
+			if hasURL {
+				u, err := url.Parse(item.URL)
+				if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+					return domain.ErrValidation(fmt.Sprintf("medias[%d].url must be a valid http(s) URL", i))
+				}
+			}
+		}
+		if total > MaxAlbumBytes {
+			return domain.ErrValidation(fmt.Sprintf("album exceeds the %d byte aggregate limit", MaxAlbumBytes))
 		}
 	default:
 		return domain.ErrValidation(fmt.Sprintf("unknown send type %q", req.Type))

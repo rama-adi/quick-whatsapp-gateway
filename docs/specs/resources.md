@@ -151,8 +151,9 @@ fail. Identity capture is the reliability focus (`wa.LiveOps.BackfillSessionData
 
 ## Media (cross-cutting)
 
-Media send types (image/video/audio/document/sticker) and image status return
-`501 not_implemented` consistently. Domain helper: `domain.ErrNotImplemented`.
+Image status returns `501 not_implemented` consistently. Message media sends,
+including grouped albums, are implemented by the outbound pipeline. Domain
+helper for unsupported resource operations: `domain.ErrNotImplemented`.
 
 ## Tests
 

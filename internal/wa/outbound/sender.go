@@ -282,6 +282,25 @@ func (s *Sender) dispatch(ctx context.Context, req domain.SendRequest) (waMessag
 		}
 		caption, filename := mediaCaptionFilename(req.Media)
 		waMessageID, ts, err = s.wa.SendMedia(ctx, req.To, req.Type, data, mimetype, caption, filename, quote, req.Mentions)
+	case domain.SendTypeAlbum:
+		medias := make([]AlbumMedia, len(req.Medias))
+		total := 0
+		for i, item := range req.Medias {
+			mediaType := item.Type
+			if mediaType == "" {
+				mediaType = domain.SendTypeImage
+			}
+			data, mimetype, resolveErr := resolveMedia(ctx, &domain.MediaPayload{Data: item.Data, URL: item.URL, Mimetype: item.Mimetype})
+			if resolveErr != nil {
+				return "", 0, domain.ErrValidation(fmt.Sprintf("medias[%d]: %s", i, resolveErr.Error()))
+			}
+			total += len(data)
+			if total > MaxAlbumBytes {
+				return "", 0, domain.ErrValidation(fmt.Sprintf("album exceeds the %d byte aggregate limit", MaxAlbumBytes))
+			}
+			medias[i] = AlbumMedia{Type: mediaType, Data: data, Mimetype: mimetype}
+		}
+		waMessageID, ts, err = s.wa.SendAlbum(ctx, req.To, req.Caption, medias, quote, req.Mentions)
 	default:
 		// Unreachable for validated requests; guard anyway.
 		return "", 0, domain.ErrValidation(fmt.Sprintf("unsupported send type %q", req.Type))
@@ -375,6 +394,8 @@ func outboundBody(req domain.SendRequest) string {
 		return req.Text
 	case domain.SendTypePoll, domain.SendTypeLocation:
 		return req.Name
+	case domain.SendTypeAlbum:
+		return req.Caption
 	default:
 		if isMediaType(req.Type) && req.Media != nil {
 			return req.Media.Caption
@@ -395,6 +416,9 @@ func isMediaType(t string) bool {
 // outboundMedia derives the media descriptor recorded on the messages row for a
 // media send (best-effort metadata; URL media size is only known during dispatch).
 func outboundMedia(req domain.SendRequest) (*domain.MediaMeta, bool) {
+	if req.Type == domain.SendTypeAlbum {
+		return nil, true
+	}
 	if !isMediaType(req.Type) || req.Media == nil {
 		return nil, false
 	}
