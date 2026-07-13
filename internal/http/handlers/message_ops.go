@@ -12,6 +12,11 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa/outbound"
 )
 
+// maxSendMessageBody allows the 16 MiB decoded media limit to be represented as
+// base64 JSON (roughly 21.4 MiB) with room for captions and other metadata.
+// Other Huma operations retain the framework's 1 MiB default request limit.
+const maxSendMessageBody int64 = 24 << 20
+
 // sendMessageInput is POST /sessions/{session}/messages.
 type sendMessageInput struct {
 	Session        string `path:"session" doc:"WhatsApp session id that sends the message. Must be owned and connected." example:"01HZX..."`
@@ -88,7 +93,8 @@ func RegisterMessageOps(api huma.API, h *Handlers) {
 
 	huma.Register(api, huma.Operation{
 		OperationID: "sendMessage", Method: "POST", Path: "/api/v1/sessions/{session}/messages",
-		Summary: "Send a message",
+		MaxBodyBytes: maxSendMessageBody,
+		Summary:      "Send a message",
 		Description: "Send one message from the session.\n\n" +
 			"Use `type` in the body to select a supported payload (`text`, `poll`, `location`, `contact`).\n\n" +
 			"Default mode is synchronous and returns 200. Set `async=true` for queued async sends that return 202.\n" +

@@ -58,6 +58,23 @@ func TestSendMessage_SyncHappyPath(t *testing.T) {
 	}
 }
 
+// TestSendMessage_AcceptsInlineMediaOverDefaultBodyLimit protects the send
+// endpoint's media-specific allowance from regressing to Huma's 1 MiB default.
+func TestSendMessage_AcceptsInlineMediaOverDefaultBodyLimit(t *testing.T) {
+	svc := &fakeMessageSvc{result: outbound.SendResult{Mode: outbound.ModeSync, Status: domain.MessageSent}}
+	h := messageRouter(svc, sendOrgPrincipal())
+	data := strings.Repeat("A", (1<<20)+1)
+	body := `{"type":"image","to":"628@s.whatsapp.net","media":{"data":"` + data + `","mimetype":"image/png"}}`
+
+	w := doReq(h, http.MethodPost, "/api/v1/sessions/s1/messages", body)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	if svc.lastReq.Media == nil || svc.lastReq.Media.Data != data {
+		t.Fatal("inline media was not forwarded to the message service")
+	}
+}
+
 // TestSendMessage_AsyncIs202_AndOptionsThreaded verifies the send message async is202 and options threaded behavior remains part of the package contract.
 // It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
 // This catches adapter regressions that could alter authorization, routing, or the documented wire contract.

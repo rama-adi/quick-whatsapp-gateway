@@ -21,6 +21,9 @@ limiting, optional jittered pacing, and a sync/async split.
   live on the `outbox` row only until the send is dispatched, and the store
   strips `media.data` from the payload once the row is marked `sent` (kept on
   `failed` so the async worker can retry). URL payloads retain only the URL.
+  The send-message HTTP operation accepts up to 24 MiB of JSON so the full
+  16 MiB decoded-media allowance fits after base64 expansion; ordinary API
+  operations retain Huma's 1 MiB request-body default.
 - Sync mode (default): block on the whatsmeow ack, return
   `{waMessageId, status, timestamp}`.
 - Async mode (`?async=true`): persist a queued `outbox` row, return its id; the
