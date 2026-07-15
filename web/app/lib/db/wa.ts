@@ -121,7 +121,11 @@ export const webhookDeliveries = mysqlTable(
     lastError: text("last_error"),
     createdAt: bigint("created_at", { mode: "number" }).notNull(),
   },
-  (t) => [index("idx_deliv_retry").on(t.status, t.nextRetryAt)],
+  (t) => [
+    index("idx_deliv_retry").on(t.status, t.nextRetryAt),
+    index("idx_deliv_retention").on(t.status, t.createdAt, t.id),
+    index("idx_deliv_event_status").on(t.eventId, t.status),
+  ],
 );
 
 // ===== Identity / Contacts model (global; not user-scoped) =====
@@ -261,6 +265,7 @@ export const messages = mysqlTable(
     uniqueIndex("uq_msg").on(t.sessionId, t.waMessageId),
     index("idx_msg_chat").on(t.sessionId, t.chatJid, t.id),
     index("idx_msg_sender").on(t.senderLid),
+    index("idx_msg_retention").on(t.timestamp, t.id),
   ],
 );
 
@@ -345,5 +350,6 @@ export const eventLog = mysqlTable(
   (t) => [
     index("idx_event_cursor").on(t.organizationId, t.sessionId, t.id),
     uniqueIndex("uq_event_id").on(t.eventId),
+    index("idx_event_retention").on(t.createdAt, t.id),
   ],
 );

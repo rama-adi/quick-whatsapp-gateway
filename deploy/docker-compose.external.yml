@@ -36,6 +36,9 @@ services:
       WHATSMEOW_STORE_DSN: "${WHATSMEOW_STORE_DSN:-file:/data/keystore/store.db?_pragma=foreign_keys(on)&_pragma=journal_mode(WAL)}"
       REDIS_URL: "${REDIS_URL}"
       REDIS_PREFIX: "${REDIS_PREFIX:-gw}"
+      # All gateway replicas using this work Redis database and REDIS_PREFIX
+      # share one deduplicated daily retention schedule. 0 keeps data forever.
+      RETENTION_DAYS: "${RETENTION_DAYS:-0}"
       WHATSAPP_ADMIN_NUMBER: "${WHATSAPP_ADMIN_NUMBER:-}"
       WHATSAPP_ADMIN_ORG_ID: "${WHATSAPP_ADMIN_ORG_ID:-}"
       WHATSAPP_ADMIN_CMD_PREFIX: "${WHATSAPP_ADMIN_CMD_PREFIX:-am}"

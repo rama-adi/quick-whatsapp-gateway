@@ -262,6 +262,18 @@ func run() error {
 		return fmt.Errorf("start queue server: %w", err)
 	}
 	defer qServer.Shutdown()
+	qClient := queue.NewClient(redisOpt)
+	defer func() {
+		if err := qClient.Close(); err != nil {
+			log.Warn("close queue client", "err", err)
+		}
+	}()
+	retentionStop := queue.NewRetentionScheduler(rdb, qClient, queue.RetentionSchedulerConfig{
+		RetentionDays: cfg.RetentionDays,
+		RedisPrefix:   cfg.RedisPrefix,
+		Log:           log,
+	}).Start(ctx)
+	defer retentionStop()
 
 	// Background webhook dispatch loop.
 	dispatchStop := startDispatchLoop(ctx, dispatcher, log)

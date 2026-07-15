@@ -1,12 +1,14 @@
 # Queue (asynq background jobs)
 
-Status: implemented (Phase 2). Wiring of concrete consumers is Phase 3.
+Status: implemented.
 
 Package: `internal/queue` · import `github.com/ramaadi/quick-whatsapp-gateway/internal/queue`.
 
 ## Scope
 
-Redis-backed background jobs on [hibiken/asynq], covering three masterplan needs:
+Redis-backed background jobs on [hibiken/asynq], covering three masterplan needs.
+The gateway process owns both the worker and retention scheduler; there is no
+separate cron service to deploy.
 
 | Job | Type name | Queue | Masterplan |
 |---|---|---|---|
@@ -47,7 +49,9 @@ collapsible to one instance:
   own `asynq:` prefix; the rate limiter uses `wa:rl:…` (outbound-pipeline.md).
 - stream fan-out channels → `evt:{organization}:{session}` (stream.md).
 - control-bus channels → `ctrl:apikey.revoked`, `ctrl:user.banned`, `ctrl:member.removed`.
-- a `REDIS_PREFIX` env isolates multiple independent stacks on one Redis.
+- `REDIS_PREFIX` namespaces application-owned keys/channels, including the
+  retention claim, but not Asynq's fixed queue keys. Independent stacks need
+  separate Redis databases.
 
 > The control-bus **subscriber** lives in `internal/controlbus`, not this package
 > (asynq is work-queue only). With the central router (Increment A) it runs **on the
@@ -82,7 +86,10 @@ last-option-wins), and return `*asynq.TaskInfo`. `Close()` releases the conn.
 
 `RetentionCutoffMs(now, retentionDays)` computes the prune cutoff and returns
 `ok=false` when `retentionDays <= 0` (§5: 0 = keep forever) so the scheduler can
-skip enqueueing entirely.
+skip enqueueing entirely. `RETENTION_DAYS` is a gateway configuration value:
+negative values are rejected at boot. The daily gateway scheduler uses a UTC
+midnight cutoff, retaining at least the configured number of full UTC days (and
+the current partial day).
 
 ### Consumer interfaces + handlers (`handlers.go`)
 
@@ -100,12 +107,31 @@ Handlers are thin: decode → validate → delegate. A malformed/invalid payload
 wrapped with `asynq.SkipRetry` (never succeeds on retry); a consumer error is
 returned plain so asynq retries per the task's MaxRetry.
 
-### Server (`server.go`)
+### Server and retention scheduling (`server.go`)
 
 `NewServer(redisOpt, ServerConfig{Concurrency, Queues}, handlers) *Server`. Wraps
 `asynq.Server` pre-wired with `handlers.Mux()`. Default queue weights favour
 outbox (6) and webhooks (3) over the once-a-day retention prune (1). Lifecycle:
 `Run()` (blocking), `Start()`/`Shutdown()` (graceful).
+
+At gateway boot, `cmd/server` starts the worker and the daily retention
+scheduler when `RETENTION_DAYS > 0`. All gateway replicas that participate in
+this maintenance job must use the same work `REDIS_URL` database **and**
+`REDIS_PREFIX`. The scheduled task uses Redis-backed singleton/dedup admission,
+so a shared deployment gets one logical prune per cadence, not one destructive
+job per gateway replica. Duplicate delivery is still safe: the worker's deletes
+are idempotent and batch-bounded. Asynq's general queue keys remain in its
+fixed namespace, while retention also includes `REDIS_PREFIX` in its daily
+claim marker and task id. Independent stacks therefore need separate Redis
+databases; `REDIS_PREFIX` alone does not isolate their Asynq queues. With
+`RETENTION_DAYS=0`, the scheduler is not started and no retention task is
+enqueued.
+
+The task payload contains the cutoff captured at enqueue time. `RetentionWorker`
+deletes in bounded batches and repeats only until that batch is exhausted; it
+does not hold a long transaction or monopolize the work queue. Failures are
+returned to Asynq for retry. Retention is deliberately low priority, so routine
+maintenance cannot starve outbound sends or webhook work.
 
 ### REDIS_URL parsing (`redis.go`)
 
@@ -127,6 +153,15 @@ the path (`redis://h/2`) or `?db=` query. Invalid scheme/host/db → error.
   retrying transient failures (network, locked rows).
 - **Separate queues + priority** so async sends aren't starved by a retry storm,
   and retention never blocks live traffic.
+- **Retention is conservative.** A positive `RETENTION_DAYS` prunes old
+  `messages`, `event_log`, and only terminal (`delivered` / `dead`) webhook
+  delivery rows. Pending and retryable-failed webhook rows are never removed by
+  retention, even when their creation time is old: they still need their durable
+  payload and retry state. Their referenced event-log rows are protected too;
+  an old event is deleted only after no pending/failed delivery references it.
+  Deleting other event-log rows bounds realtime resume history; a client whose
+  `since` cursor predates the retained window resumes from the oldest retained
+  event rather than receiving an error or a synthetic gap.
 
 ## How it's tested
 
@@ -142,13 +177,18 @@ the path (`redis://h/2`) or `?db=` query. Invalid scheme/host/db → error.
   is retryable, malformed payload → `SkipRetry` without calling the consumer,
   and unregistered types hit NotFoundHandler. `RetentionCutoffMs` math —
   `handlers_test.go`.
+- Retention worker/repository tests cover positive/disabled retention, a bounded
+  batch loop, terminal-only webhook deletion, and safety under repeated task
+  delivery. Scheduler tests cover shared-Redis singleton/dedup admission so
+  multiple gateways do not enqueue parallel daily sweeps.
 
-## What Phase 3 must wire
+## Production wiring
 
-Provide concrete implementations of `OutboxProcessor` (outbound pipeline),
-`WebhookDeliverer` (webhooks dispatcher), `RetentionPruner` (store), build a
-`Handlers`, construct `Client`/`Server` from `ParseRedisURL(cfg.RedisURL)`, run
-the `Server`, and register a periodic `retention:prune` (asynq Scheduler /
-PeriodicTaskManager) using `RetentionCutoffMs(time.Now(), cfg.RetentionDays)`.
+`cmd/server` provides `OutboxProcessor` and `RetentionPruner`, builds the
+handler set, and starts the server from `ParseRedisURL(cfg.RedisURL)`. It owns
+the retention scheduler and stops it before graceful worker shutdown. Webhook
+delivery is presently driven by the dispatcher cadence described in
+[`webhooks.md`](webhooks.md); retention's terminal-row rule ensures that cadence
+can never lose pending or retryable deliveries.
 
 [hibiken/asynq]: https://github.com/hibiken/asynq

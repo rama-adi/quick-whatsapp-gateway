@@ -41,6 +41,7 @@ type Store struct {
 	PollVotes         *PollVoteRepo
 	Outbox            *OutboxRepo
 	EventLog          *EventLogRepo
+	Retention         *RetentionRepo
 	BackfillImports   *BackfillImportRepo
 	OAuthClients      *OAuthClientRepo
 	OAuthGrants       *OAuthGrantRepo
@@ -66,6 +67,7 @@ func New(db *sql.DB) *Store {
 		PollVotes:         NewPollVoteRepo(db),
 		Outbox:            NewOutboxRepo(db),
 		EventLog:          NewEventLogRepo(db),
+		Retention:         NewRetentionRepo(db),
 		BackfillImports:   NewBackfillImportRepo(db),
 		OAuthClients:      NewOAuthClientRepo(db),
 		OAuthGrants:       NewOAuthGrantRepo(db),

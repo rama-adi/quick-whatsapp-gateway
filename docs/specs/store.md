@@ -35,6 +35,7 @@ api-key `reference_id`, never by joining `member` on the hot path ([`trust-model
 | `poll_votes` | `PollVoteRepo` | via `session_id` |
 | `outbox` | `OutboxRepo` | `organization_id` (idempotency) |
 | `event_log` | `EventLogRepo` | `organization_id` |
+| `messages` + `event_log` + `webhook_deliveries` | `RetentionRepo` | global maintenance (bounded retention batches) |
 | `backfill_imports` | `BackfillImportRepo` | via `session_id` (import job status + once/24h quota) |
 | `oauth_clients` | `OAuthClientRepo` | `organization_id` |
 | `oauth_grants` | `OAuthGrantRepo` | `organization_id` |
@@ -128,6 +129,24 @@ Migration **`0004_gateways_lifecycle.{up,down}.sql`** adds lifecycle/accounting 
 `SessionRepo` gains **`CountByGateway`** (feeds `session_count` in the heartbeat).
 `wa_sessions.gateway_id` is unchanged (already `NOT NULL`) and is now **authoritative for routing**.
 
+## Retention indexes (`migration 0009_retention_indexes`)
+
+The retention worker is a global gateway-maintenance writer, not an
+organization-scoped request path. Migration **`0009_retention_indexes`** adds
+the index support for its bounded deletes:
+
+- `webhook_deliveries(status, created_at, id)` for terminal delivery history;
+- `webhook_deliveries(event_id, status)` to protect events still needed by an
+  active webhook retry;
+- `messages(timestamp, id)` and `event_log(created_at, id)` for ordered
+  delete batches.
+
+No table ownership changes: `RetentionRepo` removes at most a bounded batch per
+statement and repeats until the pass is caught up. Its deletion order is
+terminal webhook-delivery rows, messages, then event-log rows that have no
+`pending` or retryable `failed` webhook delivery. This keeps webhook retries
+able to reload their event body while still bounding completed history.
+
 A session pinned to a gateway that is missing / not `active` / has a stale heartbeat is a *stranded*
 session: the router returns the new **`gateway_unavailable` (HTTP 503)** domain error rather than
 hanging. After running the migration, `cd web && pnpm db:introspect` refreshes the read-only WA
@@ -189,6 +208,19 @@ read queries can compile without making the gateway a writer or migration owner 
   a supplied `ack_level`. Duplicate/stale receipts and unknown message IDs are
   successful no-ops; the latter are expected for pre-capture history and traffic
   from other linked devices.
+- **Retention is a gateway-owned maintenance write.** When `RETENTION_DAYS > 0`,
+  the gateway schedules one shared-Redis-database, deduplicated daily `retention:prune`
+  task. The worker uses the cutoff stored in that task and deletes in bounded
+  batches, so it neither locks a large historical range nor competes indefinitely
+  with foreground writes. `RETENTION_DAYS=0` disables scheduling (keep forever);
+  negative values are invalid configuration. The prune targets are old
+  `messages`, `event_log`, and terminal (`delivered` / `dead`) rows in
+  `webhook_deliveries`. It intentionally preserves `pending` and retryable
+  `failed` delivery rows regardless of age because their payload, attempts, and
+  retry time remain operational state, and retains their referenced event-log
+  rows until those deliveries are terminal. Event-log retention otherwise bounds
+  stream replay: a `since` cursor that is older than the retained history
+  replays from the oldest remaining event.
 - **Timestamps** are caller-supplied epoch-ms `int64` (`domain.NowMs()`) — repos never call the
   clock, staying deterministic/testable.
 - **NULL/JSON.** Nullable columns are `*T`; nullable JSON binds through `nullableJSON`; JSON reads

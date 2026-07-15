@@ -172,9 +172,7 @@ func (w *OutboxWorker) releaseRef(id string, gate *outboxGate) {
 	}
 }
 
-// RetentionWorker prunes old rows past the retention cutoff. The concrete prune
-// queries land in the next stage; for now it is a no-op so the queue handler is
-// registered and the daily task succeeds.
+// RetentionWorker prunes old rows past the retention cutoff.
 type RetentionWorker struct {
 	store *store.Store
 	log   *slog.Logger
@@ -188,9 +186,21 @@ func NewRetentionWorker(s *store.Store, log *slog.Logger) *RetentionWorker {
 	return &RetentionWorker{store: s, log: log}
 }
 
-// Prune removes rows older than cutoffMs. STUB: the prune SQL is implemented in
-// the next stage; for now it logs and succeeds.
+// Prune removes rows older than cutoffMs and logs one aggregate completion
+// record. The retention repository batches each DELETE independently so this
+// queue task never creates one large transaction.
 func (w *RetentionWorker) Prune(ctx context.Context, cutoffMs int64) error {
-	w.log.InfoContext(ctx, "retention prune (no-op stub)", "cutoffMs", cutoffMs)
+	if w.store == nil || w.store.Retention == nil {
+		return fmt.Errorf("retention prune: retention repository is not configured")
+	}
+	result, err := w.store.Retention.Prune(ctx, cutoffMs)
+	if err != nil {
+		return fmt.Errorf("retention prune: %w", err)
+	}
+	w.log.InfoContext(ctx, "retention prune complete",
+		"cutoffMs", cutoffMs,
+		"webhookDeliveries", result.WebhookDeliveries,
+		"messages", result.Messages,
+		"eventLog", result.EventLog)
 	return nil
 }

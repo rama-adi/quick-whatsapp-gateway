@@ -213,7 +213,8 @@ the router's; the rest is the gateway's.
 | `MYSQL_DSN` | — | Shared database. The gateway writes WhatsApp data and reads auth data. |
 | `WHATSMEOW_STORE_DSN` | `file:store.db?...` | SQLite file holding the WhatsApp device keys. In containers, point it at `/data/keystore/store.db` on a persistent volume. |
 | `REDIS_URL` | — | Work Redis for the send queue, rate limiting, idempotency, and event fan-out. |
-| `REDIS_PREFIX` | `gw` | Key/channel namespace, so several stacks can share one Redis. |
+| `REDIS_PREFIX` | `gw` | Namespace for application-owned keys/channels. Asynq queues are not covered; independent stacks sharing a Redis server must use separate Redis databases. |
+| `RETENTION_DAYS` | `0` | Retention window for messages, event-log replay history, and terminal webhook deliveries. `0` keeps data forever; a positive value enables the gateway-owned daily UTC prune and retains at least that many full UTC days. All gateway replicas taking part must use the same `REDIS_URL` database and `REDIS_PREFIX` so it is scheduled once. Independent stacks need separate Redis databases because `REDIS_PREFIX` does not isolate Asynq's general queue keys. Pending and retryable webhook deliveries are preserved. |
 | `WHATSAPP_ADMIN_NUMBER` | — | A number the gateway pairs automatically on boot. See [the admin number](#the-admin-number). |
 | `WHATSAPP_ADMIN_ORG_ID` | — | The organization that owns the admin session. Required when `WHATSAPP_ADMIN_NUMBER` is set. |
 | `WHATSAPP_ADMIN_CMD_PREFIX` | `am` | Command prefix on the admin session's private channel. See [the admin number](#the-admin-number). |

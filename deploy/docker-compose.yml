@@ -57,6 +57,9 @@ services:
       WHATSMEOW_STORE_DSN: "file:/data/keystore/store.db?_pragma=foreign_keys(on)&_pragma=journal_mode(WAL)"
       REDIS_URL: "redis://redis:6379"
       REDIS_PREFIX: "gw"
+      # 0 disables retention; a positive value enables the gateway-owned,
+      # Redis-deduplicated daily maintenance job.
+      RETENTION_DAYS: "${RETENTION_DAYS:-0}"
       WHATSAPP_ADMIN_NUMBER: "${WHATSAPP_ADMIN_NUMBER}"
       LOG_LEVEL: "info"
     volumes: ["keystore_data:/data/keystore"]
