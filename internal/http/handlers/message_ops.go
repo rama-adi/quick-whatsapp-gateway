@@ -95,8 +95,9 @@ func RegisterMessageOps(api huma.API, h *Handlers) {
 
 	huma.Register(api, huma.Operation{
 		OperationID: "sendMessage", Method: "POST", Path: "/api/v1/sessions/{session}/messages",
-		MaxBodyBytes: maxSendMessageBody,
-		Summary:      "Send a message",
+		MaxBodyBytes:    maxSendMessageBody,
+		BodyReadTimeout: -1,
+		Summary:         "Send a message",
 		Description: "Send one message or one grouped media album from the session.\n\n" +
 			"Use `type` in the body to select a supported payload (`text`, `poll`, `location`, `contact`).\n\n" +
 			"Default mode is synchronous and returns 200. Set `async=true` for queued async sends that return 202.\n" +

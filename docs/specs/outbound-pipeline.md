@@ -31,7 +31,11 @@ limiting, optional jittered pacing, and a sync/async split.
   aggregate. Inline album bytes are stripped from a successful outbox payload.
   The send-message HTTP operation accepts up to 88 MiB of JSON so the full
   64 MiB decoded-album allowance fits after base64 expansion; ordinary API
-  operations retain Huma's 1 MiB request-body default.
+  operations retain Huma's 1 MiB request-body default. The operation clears
+  Huma's body-read deadline after the bounded body is decoded: synchronous
+  media upload and WhatsApp acknowledgement may take longer than Huma's
+  five-second default, while the HTTP layer's overall request timeout remains
+  the execution backstop.
 - Sync mode (default): block on the whatsmeow ack, return
   `{waMessageId, status, timestamp}`.
 - Async mode (`?async=true`): persist a queued `outbox` row, return its id; the

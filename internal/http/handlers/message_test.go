@@ -75,6 +75,20 @@ func TestSendMessage_AcceptsInlineMediaOverDefaultBodyLimit(t *testing.T) {
 	}
 }
 
+// TestSendMessage_DisablesBodyReadDeadline protects synchronous media sends
+// from Huma's default five-second read deadline. Body-reading middleware can
+// otherwise leave that deadline active while the handler waits for WhatsApp.
+func TestSendMessage_DisablesBodyReadDeadline(t *testing.T) {
+	r := chi.NewRouter()
+	api := humax.NewAPI(r)
+	RegisterMessageOps(api, &Handlers{Messages: &fakeMessageSvc{}})
+
+	op := api.OpenAPI().Paths["/api/v1/sessions/{session}/messages"].Post
+	if op.BodyReadTimeout >= 0 {
+		t.Fatalf("BodyReadTimeout = %s, want a negative value to clear the read deadline", op.BodyReadTimeout)
+	}
+}
+
 // TestSendMessage_AsyncIs202_AndOptionsThreaded verifies the send message async is202 and options threaded behavior remains part of the package contract.
 // It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
 // This catches adapter regressions that could alter authorization, routing, or the documented wire contract.
