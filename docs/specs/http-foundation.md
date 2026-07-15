@@ -77,8 +77,10 @@ func RateLimit(limiter RateLimiter, keyFn RateLimitKeyFunc) func(http.Handler) h
 ```
 
 The canonical `http_request` event is the single completion record for each
-service hop. Every event includes service, method, concrete path, route pattern,
-status, duration in milliseconds, request ID, and organization. A 5xx event is
+service hop. Every event includes service, method, normalized route pattern,
+status, duration in milliseconds, request ID, and organization. Raw request
+paths are omitted because path parameters can contain JIDs, phone numbers,
+message IDs, or other resource identifiers. A 5xx event is
 emitted at error level. For `503`, the originating seam records a stable
 `failure_cause` (`deadline_exceeded`, `context_canceled`, `upstream_timeout`, or
 `gateway_unavailable`) and `failure_source` (`gateway_handler`, `router_resolve`,

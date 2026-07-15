@@ -393,6 +393,9 @@ func TestLoggerEnriches503WithFailureDBAndSessionState(t *testing.T) {
 	if got := event["reqid"]; got == nil || got == "" {
 		t.Error("canonical event is missing reqid")
 	}
+	if _, ok := event["path"]; ok {
+		t.Error("canonical event must not log raw paths containing JIDs or other resource identifiers")
+	}
 }
 
 func TestClassifyFailureDistinguishesUnavailableCauses(t *testing.T) {

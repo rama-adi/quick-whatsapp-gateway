@@ -144,7 +144,6 @@ func Logger(log *slog.Logger, options ...LoggerOptions) func(http.Handler) http.
 				"event", "http_request",
 				"service", opts.Service,
 				"method", r.Method,
-				"path", r.URL.Path,
 				"route", routePattern(r),
 				"status", rec.status,
 				"duration_ms", float64(duration.Microseconds()) / 1000,
