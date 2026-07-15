@@ -111,7 +111,7 @@ optional or nullable.
 | [`auth.code`](#authcode) | Pairing succeeded. |
 | [`message`](#message) | An inbound message arrives. |
 | [`message.from_me`](#messagefrom_me) | A message is sent from this number, including from another device linked to it. |
-| [`message.status`](#messagestatus) | A receipt updates a sent message. |
+| [`message.status`](#messagestatus) | WhatsApp reports a receipt for one or more messages. |
 | [`message.reaction`](#messagereaction) | Someone reacts to a message. |
 | [`message.edited`](#messageedited) | A message is edited. |
 | [`message.revoked`](#messagerevoked) | A message is deleted for everyone. |
@@ -581,8 +581,11 @@ is `true`.
 
 ### `message.status`
 
-The status of one or more sent messages changed. A single update can cover several
-messages at once, so `messageIds` is a list.
+WhatsApp reported a lifecycle receipt for one or more messages. A single receipt
+can cover several messages at once, so `messageIds` is a list. The list may
+contain an ID the gateway never captured (for example, old history or a message
+sent from another linked device). Consumers should only advance their known
+status and ignore unknown or stale IDs.
 
 The `status` value comes from one of two places:
 
@@ -740,7 +743,8 @@ The message failed to send. Set internally, not from a receipt.
 
 - `chatJid` (string, required) — the chat the message belongs to.
 - `senderJid` (string, optional) — the JID the receipt came from (set on receipt-driven updates).
-- `messageIds` (string[], required) — the `waMessageId`s this receipt updates.
+- `messageIds` (string[], required) — the `waMessageId`s referenced by this receipt;
+  some may be unknown locally.
 - `status` (string, required) — `pending`, `sent`, `delivered`, `read`, `played`, `failed`.
 - `timestamp` (integer, required) — epoch-ms.
 

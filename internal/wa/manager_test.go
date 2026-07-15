@@ -138,11 +138,16 @@ func (f *fakeSink) typeCount(typ string) int {
 }
 
 type fakeInbound struct {
-	mu   sync.Mutex
-	seen []any
+	mu     sync.Mutex
+	seen   []any
+	handle func(context.Context, any)
 }
 
-func (f *fakeInbound) Handle(_ context.Context, _, _ string, _ bool, evt any) {
+func (f *fakeInbound) Handle(ctx context.Context, _, _ string, _ bool, evt any) {
+	if f.handle != nil {
+		f.handle(ctx, evt)
+		return
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.seen = append(f.seen, evt)
@@ -507,6 +512,35 @@ func TestEventHandler_TerminalEventStopsReconnect(t *testing.T) {
 	// Every event is forwarded to inbound, including terminal ones.
 	if inbound.count() != 1 {
 		t.Fatalf("expected event forwarded to inbound, got %d", inbound.count())
+	}
+}
+
+// TestEventHandler_BoundsBackgroundWork proves a stalled inbound dependency
+// cannot hold a database connection or whatsmeow callback forever. Processing
+// remains synchronous, but the callback receives and observes its configured
+// deadline.
+func TestEventHandler_BoundsBackgroundWork(t *testing.T) {
+	m, _, _, inbound, _ := newTestManager(t, Config{InboundEventTimeout: 20 * time.Millisecond})
+	ms := &ManagedSession{SessionID: "sess_1", OrganizationID: "ten_1"}
+	deadlineSeen := make(chan bool, 1)
+	errSeen := make(chan error, 1)
+	inbound.handle = func(ctx context.Context, _ any) {
+		_, ok := ctx.Deadline()
+		deadlineSeen <- ok
+		<-ctx.Done()
+		errSeen <- ctx.Err()
+	}
+
+	started := time.Now()
+	m.eventHandlerFor(ms)(struct{}{})
+	if !<-deadlineSeen {
+		t.Fatal("inbound callback context has no deadline")
+	}
+	if err := <-errSeen; !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("callback context error = %v, want deadline exceeded", err)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("bounded callback took %s", elapsed)
 	}
 }
 

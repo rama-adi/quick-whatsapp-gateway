@@ -1844,7 +1844,7 @@ components:
           description: JID of the chat the receipt is for.
           type: string
         messageIds:
-          description: The message ids whose status advanced.
+          description: The message ids referenced by the receipt. IDs may be unknown locally for pre-capture history or another linked device; consumers should apply statuses monotonically.
           items:
             type: string
           type:

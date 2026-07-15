@@ -84,20 +84,38 @@ func (r *MessageRepo) GetByWAID(ctx context.Context, sessionID, waMessageID stri
 	return messageFromParts(row.ID, row.SessionID, row.WaMessageID, row.ChatJid, row.SenderLid, row.SenderJid, row.FromMe, row.Direction, row.Type, row.Body, row.QuotedMessageID, row.Mentions, row.HasMedia, row.MediaMeta, row.Status, row.AckLevel, row.Error, row.Edited, row.Deleted, row.Timestamp, row.RawJson, row.CreatedAt, row.SenderName)
 }
 
-// UpdateStatus updates the delivery status + ack level of a message (driven by
-// whatsmeow receipts, §7). ackLevel/errMsg may be nil.
-func (r *MessageRepo) UpdateStatus(ctx context.Context, sessionID, waMessageID string, status domain.MessageStatus, ackLevel *int, errMsg *string) error {
-	n, err := r.q.UpdateMessageStatus(ctx, storedb.UpdateMessageStatusParams{
-		Status:      nullMessageStatus(&status),
-		AckLevel:    nullInt32FromPtr(ackLevel),
-		Error:       nullString(errMsg),
-		SessionID:   sessionID,
-		WaMessageID: waMessageID,
+// AdvanceReceiptStatus applies a WhatsApp delivery/read/played receipt without
+// regressing an already-higher lifecycle state. Unknown message IDs are a normal
+// protocol condition (history or another linked device) and are successful
+// no-ops; actual database errors are still returned. A nil ackLevel preserves
+// the stored value, while a supplied value can only increase it.
+func (r *MessageRepo) AdvanceReceiptStatus(ctx context.Context, sessionID, waMessageID string, status domain.MessageStatus, ackLevel *int) error {
+	err := r.q.AdvanceReceiptStatus(ctx, storedb.AdvanceReceiptStatusParams{
+		NextStatusRank: receiptStatusRank(status),
+		NextStatus:     storedb.NullMessagesStatus{MessagesStatus: storedb.MessagesStatus(status), Valid: true},
+		NextAckLevel:   nullInt32FromPtr(ackLevel),
+		SessionID:      sessionID,
+		WaMessageID:    waMessageID,
 	})
 	if err != nil {
-		return fmt.Errorf("store: update message status: %w", err)
+		return fmt.Errorf("store: advance receipt status: %w", err)
 	}
-	return rowsAffectedOrNotFound(n, "message")
+	return nil
+}
+
+func receiptStatusRank(status domain.MessageStatus) int64 {
+	switch status {
+	case domain.MessageSent:
+		return 2
+	case domain.MessageDelivered:
+		return 3
+	case domain.MessageRead:
+		return 4
+	case domain.MessagePlayed:
+		return 5
+	default:
+		return 1
+	}
 }
 
 // MarkEdited flags a message edited and replaces its body (§9 message.edited).

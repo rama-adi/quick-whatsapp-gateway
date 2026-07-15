@@ -184,7 +184,11 @@ read queries can compile without making the gateway a writer or migration owner 
   discovered. Ambiguous or unknown phone JIDs are left unchanged.
 - **Field ownership / no clobber.** Content upserts omit fields with dedicated mutators
   (`messages.status/edited/deleted`, `chats` user flags), so a redelivered capture can't regress a
-  receipt.
+  receipt. The receipt-specific message mutator is monotonic (`pending` → `sent` →
+  `delivered` → `read` → `played`), preserves terminal `failed`, and only increases
+  a supplied `ack_level`. Duplicate/stale receipts and unknown message IDs are
+  successful no-ops; the latter are expected for pre-capture history and traffic
+  from other linked devices.
 - **Timestamps** are caller-supplied epoch-ms `int64` (`domain.NowMs()`) — repos never call the
   clock, staying deterministic/testable.
 - **NULL/JSON.** Nullable columns are `*T`; nullable JSON binds through `nullableJSON`; JSON reads

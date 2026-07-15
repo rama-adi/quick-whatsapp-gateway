@@ -450,7 +450,7 @@ func (r *InboundRepos) MarkMessageDeleted(ctx context.Context, sessionID, waMess
 
 func (r *InboundRepos) UpdateMessageStatus(ctx context.Context, in inbound.MessageStatusUpdate) error {
 	for _, id := range in.WAMessageIDs {
-		if err := r.store.Messages.UpdateStatus(ctx, in.SessionID, id, in.Status, in.AckLevel, nil); err != nil {
+		if err := r.store.Messages.AdvanceReceiptStatus(ctx, in.SessionID, id, in.Status, in.AckLevel); err != nil {
 			return err
 		}
 	}

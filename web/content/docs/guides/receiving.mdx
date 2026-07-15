@@ -158,7 +158,7 @@ all of them, or list just the ones you want.
 | `auth.code` | A pairing code is available. |
 | `message` | A message comes in. |
 | `message.from_me` | A message was sent from this number, including from another linked device. |
-| `message.status` | A delivery receipt updates a sent message (sent, then delivered, then read). |
+| `message.status` | WhatsApp reports a receipt for message IDs; advance known statuses monotonically and ignore unknown/stale IDs. |
 | `message.reaction` | Someone reacts to a message. |
 | `message.edited` | A message is edited. |
 | `message.revoked` | A message is deleted for everyone. |

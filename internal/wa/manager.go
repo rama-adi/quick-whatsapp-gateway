@@ -33,6 +33,12 @@ type Config struct {
 	// DeviceName is the OS/app label shown in WhatsApp's Linked devices list for
 	// newly paired companion devices.
 	DeviceName string
+	// InboundEventTimeout bounds one synchronous whatsmeow callback, including
+	// lifecycle persistence and the inbound pipeline. Zero uses 10 seconds.
+	InboundEventTimeout time.Duration
+	// PresenceTimeout bounds the detached online-presence announcement. Zero uses
+	// 10 seconds.
+	PresenceTimeout time.Duration
 	// DefaultRatePerMin / DefaultRatePerHour seed new sessions' rate limits.
 	DefaultRatePerMin  int
 	DefaultRatePerHour int
@@ -100,6 +106,12 @@ func NewManager(
 	}
 	if cfg.Backoff == (backoffConfig{}) {
 		cfg.Backoff = defaultBackoff
+	}
+	if cfg.InboundEventTimeout <= 0 {
+		cfg.InboundEventTimeout = 10 * time.Second
+	}
+	if cfg.PresenceTimeout <= 0 {
+		cfg.PresenceTimeout = 10 * time.Second
 	}
 	cfg.DeviceName = normalizedDeviceName(cfg.DeviceName, cfg.GatewayID)
 	store.SetOSInfo(cfg.DeviceName, [3]uint32{1, 0, 0})
@@ -859,8 +871,11 @@ func (m *Manager) reconnectLoopAfterPair(ctx context.Context, ms *ManagedSession
 // status state machine, then forwards EVERY event to the inbound handler.
 func (m *Manager) eventHandlerFor(ms *ManagedSession) whatsmeow.EventHandler {
 	return func(evt any) {
-		// Detached background context: event handlers fire outside any request.
-		ctx := context.Background()
+		// Event handlers fire outside any request, but their database and WhatsApp
+		// work must still yield resources if a dependency stalls. Keep the callback
+		// synchronous for per-client ordering while bounding its lifetime.
+		ctx, cancel := context.WithTimeout(context.Background(), m.cfg.InboundEventTimeout)
+		defer cancel()
 		m.applyEvent(ctx, ms, evt)
 		if m.inbound != nil {
 			m.inbound.Handle(ctx, ms.SessionID, ms.OrganizationID, ms.IsAdmin, evt)
@@ -920,7 +935,9 @@ func (m *Manager) sendOnlinePresence(ms *ManagedSession) {
 		return
 	}
 	go func() {
-		err := client.SendPresence(context.Background(), types.PresenceAvailable)
+		ctx, cancel := context.WithTimeout(context.Background(), m.cfg.PresenceTimeout)
+		defer cancel()
+		err := client.SendPresence(ctx, types.PresenceAvailable)
 		switch {
 		case err == nil:
 		case errors.Is(err, whatsmeow.ErrNoPushName):

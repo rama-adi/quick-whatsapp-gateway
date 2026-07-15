@@ -40,7 +40,9 @@ per attached number, each holding a live WebSocket. Responsibilities:
   `GATEWAY_ADMIN_USER_ID`'s org, or left system-owned) and surface the pairing
   code (returned from `Boot` + logged to console + emitted as `auth.code`).
 - Register one whatsmeow event handler per session that forwards EVERY event to
-  the injected inbound handler (tagged session/organization/isAdmin).
+  the injected inbound handler (tagged session/organization/isAdmin). Forwarding
+  remains synchronous/ordered, under a 10-second detached deadline so stalled
+  downstream work yields its callback and database resources.
 
 ## Key types / interfaces
 
@@ -57,7 +59,7 @@ sibling internal imports):
 - `EventSink` — `Publish(ctx, domain.Event)`; the manager only emits
   `session.status`, `auth.qr`, `auth.code`.
 - `InboundHandler` — `Handle(ctx, sessionID, organizationID, isAdmin, evt any)`;
-  every whatsmeow event is forwarded here.
+  every whatsmeow event is forwarded here with the bounded callback context.
 - `Clock` — `NowMs()`; defaults to `domain.NowMs()`.
 - `waClient` (unexported) — the narrow slice of `*whatsmeow.Client` the session
   drives (`Connect/Disconnect/IsConnected/IsLoggedIn/Logout/AddEventHandler/

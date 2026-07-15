@@ -7,7 +7,11 @@ whatsmeow events into `service.InboundPipelineHandler`, backed by the real
 pipeline, the gateway MySQL repos, Redis stream publisher, webhook enqueuer,
 event-log appender, and manager-backed WA live ops. This is what populates
 `chats` / `messages`, sends configured auto-read receipts / composing presence,
-and turns non-heartbeat WhatsApp activity into NDJSON stream events.
+and turns non-heartbeat WhatsApp activity into NDJSON stream events. The
+callback remains synchronous to preserve whatsmeow's per-client event order,
+but the manager supplies a 10-second detached deadline. A stalled MySQL, Redis,
+webhook, or WhatsApp operation therefore unwinds instead of retaining a pool
+connection or callback indefinitely.
 
 The ordered inbound pipeline from masterplan §9. For every whatsmeow event
 (tagged with its session/organization) it runs six stages, in order, with a
@@ -44,7 +48,11 @@ fan-out).
    `member`).
 4. **Persist** (§9) — upsert `chats`; insert `messages` (incl. `raw_json`); a poll
    creation also upserts `polls` (its options, so later votes can be resolved);
-   `edit`/`revoke` flip flags on the target; receipts update `status`/`ack_level`;
+   `edit`/`revoke` flip flags on the target; receipts monotonically advance
+   `status`/`ack_level` for every locally known target. Unknown IDs (history or
+   messages sent from another linked device) and duplicate/stale receipts are
+   harmless no-ops, so they neither abort grouped receipt processing nor block
+   fan-out;
    poll updates insert `poll_votes` idempotently (with the resolved
    `selected_options`; replay of the same poll-update event is ignored by the
    store). **Content-less system messages are dropped
@@ -144,7 +152,8 @@ assertions. Coverage ~84%, `-race` clean. Cases:
   empty-prefix / receipt all processed; registry error still drops.
 - Auto-read ordering (receipt before all fan-out; persist before receipt) and the
   off paths (flag off, no resolver, unknown session, echo, non-message kind).
-- Receipt → `UpdateMessageStatus` (no message insert, no count bump, no
+- Receipt → `UpdateMessageStatus` for every referenced ID, with unknown/stale
+  targets treated as successful no-ops (no message insert, no count bump, no
   auto-read); poll creation → `UpsertPoll` (+ message insert); poll update →
   `InsertPollVote` with a non-empty normalized voter key (canonical LID preferred,
   otherwise sender phone JID); edit/revoke flag flips.

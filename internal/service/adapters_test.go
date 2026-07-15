@@ -5,8 +5,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/apitypes"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
 	waevents "github.com/ramaadi/quick-whatsapp-gateway/internal/wa/events"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa/inbound"
 )
@@ -211,5 +214,58 @@ func TestSplitSenderIDs_PhoneAndLID(t *testing.T) {
 	lid, phoneJID = splitSenderIDs("", "sender-test@lid")
 	if lid != "sender-test@lid" || phoneJID != "" {
 		t.Fatalf("split primary lid = %q %q", lid, phoneJID)
+	}
+}
+
+// TestInboundRepos_UpdateMessageStatus_ContinuesPastUnknown proves a
+// grouped receipt applies every ID. The store intentionally treats a zero-row
+// receipt update as a protocol no-op, so an unknown historical ID cannot block
+// a later locally known message.
+func TestInboundRepos_UpdateMessageStatus_ContinuesPastUnknown(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	repos := NewInboundRepos(store.New(db), nil)
+
+	for _, rows := range []int64{1, 0, 1} {
+		mock.ExpectExec("UPDATE messages.*SET.*status = CASE.*ack_level = CASE").
+			WithArgs(int64(3), domain.MessageDelivered, nil, nil, nil, "sess_1", sqlmock.AnyArg()).
+			WillReturnResult(sqlmock.NewResult(0, rows))
+	}
+	err = repos.UpdateMessageStatus(context.Background(), inbound.MessageStatusUpdate{
+		SessionID:    "sess_1",
+		WAMessageIDs: []string{"known-1", "historical", "known-2"},
+		Status:       domain.MessageDelivered,
+	})
+	if err != nil {
+		t.Fatalf("grouped receipt: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestInboundRepos_UpdateMessageStatus_PropagatesDatabaseFailure distinguishes
+// expected unknown IDs from actual persistence failures, which must still stop
+// the pipeline and surface for retry/diagnosis.
+func TestInboundRepos_UpdateMessageStatus_PropagatesDatabaseFailure(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	repos := NewInboundRepos(store.New(db), nil)
+	want := errors.New("database unavailable")
+	mock.ExpectExec("UPDATE messages.*SET.*status = CASE.*ack_level = CASE").
+		WithArgs(int64(4), domain.MessageRead, nil, nil, nil, "sess_1", "msg-1").
+		WillReturnError(want)
+
+	err = repos.UpdateMessageStatus(context.Background(), inbound.MessageStatusUpdate{
+		SessionID: "sess_1", WAMessageIDs: []string{"msg-1"}, Status: domain.MessageRead,
+	})
+	if !errors.Is(err, want) {
+		t.Fatalf("error = %v, want wrapped database failure", err)
 	}
 }

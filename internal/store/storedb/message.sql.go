@@ -11,6 +11,50 @@ import (
 	"encoding/json"
 )
 
+const advanceReceiptStatus = `-- name: AdvanceReceiptStatus :exec
+UPDATE messages
+SET
+	status = CASE
+		-- A failed send is terminal. Receipt traffic for an unrelated/reused WA id
+		-- must not rewrite the gateway's recorded send outcome.
+		WHEN status = 'failed' THEN status
+		-- Receipts may be duplicated or arrive out of order. Keep the highest
+		-- lifecycle state observed instead of regressing read/played to delivered.
+		WHEN FIELD(COALESCE(status, 'pending'), 'pending', 'sent', 'delivered', 'read', 'played')
+			< CAST(? AS SIGNED)
+			THEN ?
+		ELSE status
+	END,
+	ack_level = CASE
+		WHEN ? IS NULL THEN ack_level
+		WHEN ack_level IS NULL OR ? > ack_level
+			THEN ?
+		ELSE ack_level
+	END
+WHERE session_id = ? AND wa_message_id = ?
+`
+
+type AdvanceReceiptStatusParams struct {
+	NextStatusRank int64              `db:"next_status_rank" json:"next_status_rank"`
+	NextStatus     NullMessagesStatus `db:"next_status" json:"next_status"`
+	NextAckLevel   sql.NullInt32      `db:"next_ack_level" json:"next_ack_level"`
+	SessionID      string             `db:"session_id" json:"session_id"`
+	WaMessageID    string             `db:"wa_message_id" json:"wa_message_id"`
+}
+
+func (q *Queries) AdvanceReceiptStatus(ctx context.Context, arg AdvanceReceiptStatusParams) error {
+	_, err := q.db.ExecContext(ctx, advanceReceiptStatus,
+		arg.NextStatusRank,
+		arg.NextStatus,
+		arg.NextAckLevel,
+		arg.NextAckLevel,
+		arg.NextAckLevel,
+		arg.SessionID,
+		arg.WaMessageID,
+	)
+	return err
+}
+
 const getMessageByWAID = `-- name: GetMessageByWAID :one
 SELECT m.id, m.session_id, m.wa_message_id, m.chat_jid, m.sender_lid,
 	m.sender_jid, m.from_me, m.direction, m.type, m.body, m.quoted_message_id,
@@ -224,33 +268,6 @@ type MarkMessageEditedParams struct {
 
 func (q *Queries) MarkMessageEdited(ctx context.Context, arg MarkMessageEditedParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, markMessageEdited, arg.Body, arg.SessionID, arg.WaMessageID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
-const updateMessageStatus = `-- name: UpdateMessageStatus :execrows
-UPDATE messages SET status = ?, ack_level = ?, error = ?
-WHERE session_id = ? AND wa_message_id = ?
-`
-
-type UpdateMessageStatusParams struct {
-	Status      NullMessagesStatus `db:"status" json:"status"`
-	AckLevel    sql.NullInt32      `db:"ack_level" json:"ack_level"`
-	Error       sql.NullString     `db:"error" json:"error"`
-	SessionID   string             `db:"session_id" json:"session_id"`
-	WaMessageID string             `db:"wa_message_id" json:"wa_message_id"`
-}
-
-func (q *Queries) UpdateMessageStatus(ctx context.Context, arg UpdateMessageStatusParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, updateMessageStatus,
-		arg.Status,
-		arg.AckLevel,
-		arg.Error,
-		arg.SessionID,
-		arg.WaMessageID,
-	)
 	if err != nil {
 		return 0, err
 	}

@@ -26,9 +26,27 @@ FROM messages m
 LEFT JOIN whatsapp_identities i ON i.lid = m.sender_lid
 WHERE m.session_id = ? AND m.wa_message_id = ?;
 
--- name: UpdateMessageStatus :execrows
-UPDATE messages SET status = ?, ack_level = ?, error = ?
-WHERE session_id = ? AND wa_message_id = ?;
+-- name: AdvanceReceiptStatus :exec
+UPDATE messages
+SET
+	status = CASE
+		-- A failed send is terminal. Receipt traffic for an unrelated/reused WA id
+		-- must not rewrite the gateway's recorded send outcome.
+		WHEN status = 'failed' THEN status
+		-- Receipts may be duplicated or arrive out of order. Keep the highest
+		-- lifecycle state observed instead of regressing read/played to delivered.
+		WHEN FIELD(COALESCE(status, 'pending'), 'pending', 'sent', 'delivered', 'read', 'played')
+			< CAST(sqlc.arg(next_status_rank) AS SIGNED)
+			THEN sqlc.arg(next_status)
+		ELSE status
+	END,
+	ack_level = CASE
+		WHEN sqlc.narg(next_ack_level) IS NULL THEN ack_level
+		WHEN ack_level IS NULL OR sqlc.narg(next_ack_level) > ack_level
+			THEN sqlc.narg(next_ack_level)
+		ELSE ack_level
+	END
+WHERE session_id = sqlc.arg(session_id) AND wa_message_id = sqlc.arg(wa_message_id);
 
 -- name: MarkMessageEdited :execrows
 UPDATE messages SET edited = 1, body = ?

@@ -133,18 +133,37 @@ func TestMessageRepo_GetByWAID_NotFound(t *testing.T) {
 	assertNotFound(t, err)
 }
 
-// TestMessageRepo_UpdateStatus verifies receipt state, ack, and error binding.
-// The mutation is scoped by session plus WA message id to prevent cross-account receipt updates.
-func TestMessageRepo_UpdateStatus(t *testing.T) {
+// TestMessageRepo_AdvanceReceiptStatus verifies the receipt-specific monotonic
+// mutation is session scoped. A nil ack is passed through as SQL NULL so the
+// query preserves any existing acknowledgement level.
+func TestMessageRepo_AdvanceReceiptStatus(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewMessageRepo(db)
 
-	mock.ExpectExec("UPDATE messages SET status = ., ack_level = ., error = .").
-		WithArgs(domain.MessageRead, intptr(3), (*string)(nil), "sess_1", "wamid_1").
+	mock.ExpectExec("UPDATE messages.*SET.*status = CASE.*ack_level = CASE").
+		WithArgs(int64(4), domain.MessageRead, intptr(3), intptr(3), intptr(3), "sess_1", "wamid_1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	if err := repo.UpdateStatus(context.Background(), "sess_1", "wamid_1", domain.MessageRead, intptr(3), nil); err != nil {
-		t.Fatalf("UpdateStatus: %v", err)
+	if err := repo.AdvanceReceiptStatus(context.Background(), "sess_1", "wamid_1", domain.MessageRead, intptr(3)); err != nil {
+		t.Fatalf("AdvanceReceiptStatus: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestMessageRepo_AdvanceReceiptStatus_UnknownIsNoOp pins the protocol boundary:
+// receipts for history the gateway never captured are not repository failures.
+func TestMessageRepo_AdvanceReceiptStatus_UnknownIsNoOp(t *testing.T) {
+	db, mock := newMock(t)
+	repo := NewMessageRepo(db)
+
+	mock.ExpectExec("UPDATE messages.*SET.*status = CASE.*ack_level = CASE").
+		WithArgs(int64(3), domain.MessageDelivered, nil, nil, nil, "sess_1", "historical-id").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	if err := repo.AdvanceReceiptStatus(context.Background(), "sess_1", "historical-id", domain.MessageDelivered, nil); err != nil {
+		t.Fatalf("unknown receipt target must be a no-op: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

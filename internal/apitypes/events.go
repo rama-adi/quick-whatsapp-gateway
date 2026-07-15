@@ -98,12 +98,12 @@ type MessagePayload struct {
 	SelectedOptions []string               `json:"selectedOptions,omitempty" doc:"For poll.vote: the option(s) the voter selected, resolved to the poll's option text. Falls back to the raw SHA-256 hash for any option that can't be resolved (e.g. the poll creation was never seen)." example:"[\"Yes\"]"`
 }
 
-// MessageStatusPayload is the payload of a `message.status` event: a delivery
-// receipt advanced one or more messages' status.
+// MessageStatusPayload is the payload of a `message.status` event: WhatsApp sent
+// a lifecycle receipt referencing one or more messages.
 type MessageStatusPayload struct {
 	ChatJID    string   `json:"chatJid" doc:"JID of the chat the receipt is for."`
 	SenderJID  string   `json:"senderJid,omitempty" doc:"JID of the participant the receipt came from (group chats)."`
-	MessageIDs []string `json:"messageIds" doc:"The message ids whose status advanced."`
+	MessageIDs []string `json:"messageIds" doc:"The message ids referenced by the receipt. IDs may be unknown locally for pre-capture history or another linked device; consumers should apply statuses monotonically."`
 	Status     string   `json:"status" doc:"New delivery status, in progression order: sent (left this device) → delivered (reached the recipient device) → read (recipient opened it) → played (voice/video note played). May also be failed." enum:"pending,sent,delivered,read,played,failed" example:"delivered"`
 	Timestamp  int64    `json:"timestamp" doc:"When the receipt was generated, epoch milliseconds."`
 }

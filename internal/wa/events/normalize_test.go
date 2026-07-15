@@ -62,6 +62,7 @@ func TestNormalizeReceipt(t *testing.T) {
 		{"read", types.ReceiptTypeRead, true, domain.MessageRead},
 		{"read-self", types.ReceiptTypeReadSelf, true, domain.MessageRead},
 		{"played", types.ReceiptTypePlayed, true, domain.MessagePlayed},
+		{"played-self", types.ReceiptTypePlayedSelf, true, domain.MessagePlayed},
 		{"sender ignored", types.ReceiptTypeSender, false, ""},
 		{"retry ignored", types.ReceiptTypeRetry, false, ""},
 	}

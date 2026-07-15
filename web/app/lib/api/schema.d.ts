@@ -2863,7 +2863,7 @@ export interface components {
         MessageStatusPayload: {
             /** @description JID of the chat the receipt is for. */
             chatJid: string;
-            /** @description The message ids whose status advanced. */
+            /** @description The message ids referenced by the receipt. IDs may be unknown locally for pre-capture history or another linked device; consumers should apply statuses monotonically. */
             messageIds: string[] | null;
             /** @description JID of the participant the receipt came from (group chats). */
             senderJid?: string;
