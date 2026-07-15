@@ -152,6 +152,13 @@ session: the router returns the new **`gateway_unavailable` (HTTP 503)** domain 
 hanging. After running the migration, `cd web && pnpm db:introspect` refreshes the read-only WA
 Drizzle models.
 
+Both gateway and router open the shared MySQL database through the common pool
+configuration and expose the standard process-local `database/sql` collector.
+On a `503`, the canonical request event snapshots max/open/in-use/idle
+connections plus cumulative wait count/duration. This distinguishes immediate
+request cancellation from pool exhaustion without logging the DSN, SQL text, or
+credentials.
+
 ## Migrations tooling — the binary applies them
 
 The gateway **binary** owns the WA-data plane migrations via **golang-migrate** embedded over

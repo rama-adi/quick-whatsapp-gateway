@@ -73,23 +73,23 @@ func RegisterBackupOps(api huma.API, h *Handlers) {
 
 		key := strings.TrimSpace(form.Key)
 		if key == "" {
-			return nil, humax.Err(domain.ErrValidation("key is required"))
+			return nil, humax.ErrContext(ctx, domain.ErrValidation("key is required"))
 		}
 
 		if !form.File.IsSet {
-			return nil, humax.Err(domain.ErrValidation("file is required"))
+			return nil, humax.ErrContext(ctx, domain.ErrValidation("file is required"))
 		}
 		data, err := io.ReadAll(form.File)
 		if err != nil {
-			return nil, humax.Err(domain.ErrValidation("could not read upload: " + err.Error()))
+			return nil, humax.ErrContext(ctx, domain.ErrValidation("could not read upload: "+err.Error()))
 		}
 		if len(data) == 0 {
-			return nil, humax.Err(domain.ErrValidation("file is empty"))
+			return nil, humax.ErrContext(ctx, domain.ErrValidation("file is empty"))
 		}
 
 		job, err := h.Backup.StartImport(ctx, org, in.Session, p.IsSuperAdmin(), data, key)
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &backupOutput{Body: job}, nil
 	})
@@ -113,7 +113,7 @@ func RegisterBackupOps(api huma.API, h *Handlers) {
 		}
 		job, err := h.Backup.ImportStatus(ctx, org, in.Session, p.IsSuperAdmin())
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &backupOutput{Body: job}, nil
 	})

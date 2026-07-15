@@ -53,6 +53,15 @@ Every `/api/v1` request flows through four steps:
 stale, or implausibly far in the future, the router returns **`503 gateway_unavailable`** with a
 clear message rather than a silent hang (the `gateway_unavailable` domain error code → HTTP 503).
 
+The router preserves the validated/minted `X-Request-Id` on the upstream request,
+so its canonical request event correlates exactly with the gateway event. Local
+503s are classified at their origin (registry/placement resolution, missing or
+invalid base URL, or upstream transport timeout); a forwarded gateway 503 is
+classified as `gateway_response` without guessing from response text. Request,
+gateway, session, and organization IDs are log fields only, never Prometheus
+labels. `GET /metrics` is an open operational surface alongside health/readiness
+and exports low-cardinality failure counters plus router MySQL pool metrics.
+
 ## Internal assertion (`internal/assertion`)
 
 The router → gateway trust seam (plan D3). A **request-bound, single-use Ed25519 JWS** minted per

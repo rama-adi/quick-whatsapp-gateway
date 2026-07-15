@@ -68,13 +68,31 @@ Transport-only middleware (no auth):
 
 ```go
 func Recover(log *slog.Logger) func(http.Handler) http.Handler   // panic -> logged 500 JSON; outermost
-func RequestID() func(http.Handler) http.Handler                 // honor bounded visible-ASCII X-Request-Id else mint; ctx + echo
-func Logger(log *slog.Logger) func(http.Handler) http.Handler    // one slog line: method,path,status,dur,reqid,org
+func RequestID() func(http.Handler) http.Handler                 // honor bounded visible-ASCII X-Request-Id else mint; ctx + echo + forward
+func Logger(log *slog.Logger, ...LoggerOptions) func(http.Handler) http.Handler // one canonical request event
 
 type RateLimiter interface { Allow(ctx, key string) (bool, error) }
 func SessionOrOrganizationKey(r *http.Request) string  // "session:<id>" if :session present, else "org:<id>", else "anon"
 func RateLimit(limiter RateLimiter, keyFn RateLimitKeyFunc) func(http.Handler) http.Handler
 ```
+
+The canonical `http_request` event is the single completion record for each
+service hop. Every event includes service, method, concrete path, route pattern,
+status, duration in milliseconds, request ID, and organization. A 5xx event is
+emitted at error level. For `503`, the originating seam records a stable
+`failure_cause` (`deadline_exceeded`, `context_canceled`, `upstream_timeout`, or
+`gateway_unavailable`) and `failure_source` (`gateway_handler`, `router_resolve`,
+`router_registry`, `router_proxy`, or `gateway_response`). Gateway events also
+include numeric `database/sql` pool pressure and, on session routes, the
+non-identifying WhatsApp status/connected/logged-in snapshot. Bodies, headers,
+tokens, JIDs, phone numbers, and message text are never logged.
+
+`X-Request-Id` is validated or minted once at the router, echoed to the caller,
+stored in context, and forwarded to the gateway. Router and gateway log events
+therefore share one correlation ID even when the caller supplied none. The
+Prometheus endpoint exports `gateway_request_failures_total{service,source,cause}`
+and the standard Go SQL pool collector; labels remain low-cardinality and never
+contain request, session, user, or organization IDs.
 
 Rate-limit key choice: session routes carry `:session` so they limit **per WhatsApp number**;
 others fall back to an **org-wide** bucket (`org:<id>`, renamed from v1's `tenant:`). **Fail-open**

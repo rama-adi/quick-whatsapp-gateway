@@ -104,7 +104,7 @@ func RegisterChatOps(api huma.API, h *Handlers) {
 		}
 		page, err := h.Chats.List(ctx, org, in.Session, in.Cursor, clampLimit(in.Limit))
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &chatListOutput{Body: apitypes.NewList(page.Items, page.NextCursor)}, nil
 	})
@@ -122,7 +122,7 @@ func RegisterChatOps(api huma.API, h *Handlers) {
 		}
 		chat, err := h.Chats.Get(ctx, org, in.Session, in.CID)
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &chatOutput{Body: chat}, nil
 	})
@@ -140,7 +140,7 @@ func RegisterChatOps(api huma.API, h *Handlers) {
 		}
 		page, err := h.Chats.ListMessages(ctx, org, in.Session, in.CID, in.Cursor, clampLimit(in.Limit))
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &chatMessageListOutput{Body: apitypes.NewList(page.Items, page.NextCursor)}, nil
 	})
@@ -158,7 +158,7 @@ func RegisterChatOps(api huma.API, h *Handlers) {
 		}
 		presence, err := h.Chats.GetPresence(ctx, org, in.Session, in.CID)
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &chatPresenceOutput{Body: presence}, nil
 	})
@@ -176,7 +176,7 @@ func RegisterChatOps(api huma.API, h *Handlers) {
 		}
 		chat, err := h.Chats.Read(ctx, org, in.Session, in.CID)
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &chatOutput{Body: chat}, nil
 	})
@@ -199,7 +199,7 @@ func RegisterChatOps(api huma.API, h *Handlers) {
 			Unmute:     in.Body.Unmute,
 		})
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &chatOutput{Body: chat}, nil
 	})
@@ -217,7 +217,7 @@ func RegisterChatOps(api huma.API, h *Handlers) {
 			return nil, err
 		}
 		if err := h.Chats.Delete(ctx, org, in.Session, in.CID); err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &emptyOutput{}, nil
 	})
@@ -235,7 +235,7 @@ func RegisterChatOps(api huma.API, h *Handlers) {
 			return nil, err
 		}
 		if err := h.Chats.SetPresence(ctx, org, in.Session, in.CID, in.Body.State); err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &emptyOutput{}, nil
 	})

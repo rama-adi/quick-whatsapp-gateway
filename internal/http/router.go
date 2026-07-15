@@ -1,6 +1,7 @@
 package httpx
 
 import (
+	"database/sql"
 	"log/slog"
 	"net/http"
 	"os"
@@ -48,6 +49,12 @@ type RouterConfig struct {
 	// returns 503 instead of hanging. Zero uses middleware.DefaultRequestTimeout.
 	RequestTimeout time.Duration
 
+	// DBStats and SessionState enrich only the canonical request log. They expose
+	// numeric pool pressure and non-identifying WhatsApp runtime state; nil omits
+	// those fields (the normal choice for isolated tests).
+	DBStats      func() sql.DBStats
+	SessionState func(sessionID string) (middleware.SessionState, bool)
+
 	Log *slog.Logger
 }
 
@@ -72,7 +79,11 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	// the unauthenticated health/metrics probes.
 	r.Use(middleware.Recover(log))
 	r.Use(middleware.RequestID())
-	r.Use(middleware.Logger(log))
+	r.Use(middleware.Logger(log, middleware.LoggerOptions{
+		Service:      "gateway",
+		DBStats:      cfg.DBStats,
+		SessionState: cfg.SessionState,
+	}))
 
 	// Health / readiness / metrics (unauthenticated).
 	r.Get("/healthz", healthz)

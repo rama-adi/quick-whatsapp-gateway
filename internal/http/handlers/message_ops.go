@@ -111,7 +111,7 @@ func RegisterMessageOps(api huma.API, h *Handlers) {
 		opts := outbound.SendOptions{Async: in.Async, IdempotencyKey: in.IdempotencyKey}
 		res, err := h.Messages.Send(ctx, org, in.Session, in.Body, opts)
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		status := http.StatusOK
 		if res.Mode == outbound.ModeAsync {
@@ -134,7 +134,7 @@ func RegisterMessageOps(api huma.API, h *Handlers) {
 		}
 		res, err := h.Messages.Edit(ctx, org, in.Session, in.Body.Chat, in.MID, in.Body.Text)
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &sendResultOutput{Body: res}, nil
 	})
@@ -153,7 +153,7 @@ func RegisterMessageOps(api huma.API, h *Handlers) {
 		}
 		res, err := h.Messages.Revoke(ctx, org, in.Session, in.Body.Chat, in.Body.Sender, in.MID)
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &sendResultOutput{Body: res}, nil
 	})
@@ -172,7 +172,7 @@ func RegisterMessageOps(api huma.API, h *Handlers) {
 		}
 		res, err := h.Messages.React(ctx, org, in.Session, in.Body.Chat, in.Body.Sender, in.MID, in.Body.Emoji)
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &sendResultOutput{Body: res}, nil
 	})
@@ -192,7 +192,7 @@ func RegisterMessageOps(api huma.API, h *Handlers) {
 		// Empty emoji clears the reaction.
 		res, err := h.Messages.React(ctx, org, in.Session, in.Body.Chat, in.Body.Sender, in.MID, "")
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &sendResultOutput{Body: res}, nil
 	})
@@ -211,7 +211,7 @@ func RegisterMessageOps(api huma.API, h *Handlers) {
 		}
 		res, err := h.Messages.Forward(ctx, org, in.Session, in.Body.Chat, in.Body.Sender, in.MID, in.Body.To)
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &sendResultOutput{Body: res}, nil
 	})
@@ -231,7 +231,7 @@ func RegisterMessageOps(api huma.API, h *Handlers) {
 		}
 		res, err := h.Messages.Vote(ctx, org, in.Session, in.Body.Chat, in.Body.Sender, in.MID, in.Body.Options)
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &sendResultOutput{Body: res}, nil
 	})

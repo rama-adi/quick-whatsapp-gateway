@@ -7,6 +7,7 @@ import (
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/authz"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	httpmiddleware "github.com/ramaadi/quick-whatsapp-gateway/internal/http/middleware"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/httpx"
 )
 
@@ -77,6 +78,7 @@ func Middleware(v *Verifier, opts ...MiddlewareOption) func(http.Handler) http.H
 				KeyID:          p.KeyID,
 				KeyPermissions: p.Permissions,
 			}
+			httpmiddleware.SetRequestOrganization(r.Context(), ap.OrganizationID)
 			next.ServeHTTP(w, r.WithContext(authz.SetPrincipal(r.Context(), ap)))
 		})
 	}

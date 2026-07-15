@@ -73,7 +73,7 @@ func RegisterWebhookOps(api huma.API, h *Handlers) {
 		}
 		hook, err := h.Webhooks.Create(ctx, org, in.Body.toInput())
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &webhookOutput{Body: hook}, nil
 	})
@@ -92,7 +92,7 @@ func RegisterWebhookOps(api huma.API, h *Handlers) {
 		}
 		hooks, err := h.Webhooks.List(ctx, org)
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &webhookListOutput{Body: apitypes.NewList(hooks, "")}, nil
 	})
@@ -110,7 +110,7 @@ func RegisterWebhookOps(api huma.API, h *Handlers) {
 		}
 		hook, err := h.Webhooks.Get(ctx, org, in.ID)
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &webhookOutput{Body: hook}, nil
 	})
@@ -129,7 +129,7 @@ func RegisterWebhookOps(api huma.API, h *Handlers) {
 		}
 		hook, err := h.Webhooks.Update(ctx, org, in.ID, in.Body.toInput())
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &webhookOutput{Body: hook}, nil
 	})
@@ -148,7 +148,7 @@ func RegisterWebhookOps(api huma.API, h *Handlers) {
 			return nil, err
 		}
 		if err := h.Webhooks.Delete(ctx, org, in.ID); err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &emptyOutput{}, nil
 	})

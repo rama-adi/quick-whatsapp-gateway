@@ -147,7 +147,7 @@ func RegisterOAuthAppOps(api huma.API, h *Handlers) {
 		}
 		page, err := h.OAuthApps.List(ctx, p.OrganizationID, p.IsSuperAdmin(), in.Cursor, in.Limit)
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &oauthAppListOutput{Body: apitypes.NewList(page.Items, page.NextCursor)}, nil
 	})
@@ -164,7 +164,7 @@ func RegisterOAuthAppOps(api huma.API, h *Handlers) {
 		}
 		app, err := h.OAuthApps.Create(ctx, p.OrganizationID, in.Body.toInput(&p.UserID))
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &oauthAppSecretOutput{Body: app}, nil
 	})
@@ -181,7 +181,7 @@ func RegisterOAuthAppOps(api huma.API, h *Handlers) {
 		}
 		app, err := h.OAuthApps.Get(ctx, p.OrganizationID, in.ID, p.IsSuperAdmin())
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &oauthAppOutput{Body: app}, nil
 	})
@@ -198,7 +198,7 @@ func RegisterOAuthAppOps(api huma.API, h *Handlers) {
 		}
 		app, err := h.OAuthApps.Update(ctx, p.OrganizationID, in.ID, p.IsSuperAdmin(), in.Body.toInput())
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &oauthAppOutput{Body: app}, nil
 	})
@@ -215,7 +215,7 @@ func RegisterOAuthAppOps(api huma.API, h *Handlers) {
 		}
 		app, err := h.OAuthApps.RotateSecret(ctx, p.OrganizationID, in.ID, p.IsSuperAdmin())
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &oauthAppSecretOutput{Body: app}, nil
 	})
@@ -232,7 +232,7 @@ func RegisterOAuthAppOps(api huma.API, h *Handlers) {
 		}
 		app, err := h.OAuthApps.SetEnabled(ctx, p.OrganizationID, in.ID, p.IsSuperAdmin(), true)
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &oauthAppOutput{Body: app}, nil
 	})
@@ -249,7 +249,7 @@ func RegisterOAuthAppOps(api huma.API, h *Handlers) {
 		}
 		app, err := h.OAuthApps.SetEnabled(ctx, p.OrganizationID, in.ID, p.IsSuperAdmin(), false)
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &oauthAppOutput{Body: app}, nil
 	})
@@ -265,7 +265,7 @@ func RegisterOAuthAppOps(api huma.API, h *Handlers) {
 			return nil, err
 		}
 		if err := h.OAuthApps.Delete(ctx, p.OrganizationID, in.ID, p.IsSuperAdmin()); err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &emptyOutput{}, nil
 	})
@@ -282,7 +282,7 @@ func RegisterOAuthAppOps(api huma.API, h *Handlers) {
 		}
 		page, err := h.OAuthApps.ListGrants(ctx, p.OrganizationID, in.ID, p.IsSuperAdmin(), in.Cursor, in.Limit)
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &oauthGrantListOutput{Body: apitypes.NewList(page.Items, page.NextCursor)}, nil
 	})
@@ -298,7 +298,7 @@ func RegisterOAuthAppOps(api huma.API, h *Handlers) {
 			return nil, err
 		}
 		if err := h.OAuthApps.RevokeGrant(ctx, p.OrganizationID, in.ID, in.GrantID, p.IsSuperAdmin()); err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &emptyOutput{}, nil
 	})
@@ -314,7 +314,7 @@ func RegisterOAuthAppOps(api huma.API, h *Handlers) {
 			return nil, err
 		}
 		if err := h.OAuthApps.RevokeAllGrants(ctx, p.OrganizationID, in.ID, p.IsSuperAdmin()); err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &emptyOutput{}, nil
 	})

@@ -18,6 +18,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/redis/go-redis/v9"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/assertion"
@@ -66,6 +68,7 @@ func run() error {
 		return fmt.Errorf("open mysql: %w", err)
 	}
 	defer db.Close()
+	prometheus.MustRegister(collectors.NewDBStatsCollector(db, "router"))
 	st := store.New(db)
 
 	// --- Redis (control bus; realtime in Increment B) ---
@@ -177,6 +180,7 @@ func run() error {
 		Keys:          keyVerifier,
 		CORSOrigins:   cfg.FrontendOrigins,
 		Readiness:     readiness(db, rdb),
+		DBStats:       db.Stats,
 		OpenAPIPath:   "docs/openapi.yaml",
 		Redis:         rdb,
 		Pump:          pump,

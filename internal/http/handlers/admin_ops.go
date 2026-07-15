@@ -39,7 +39,7 @@ func RegisterAdminOps(api huma.API, h *Handlers) {
 	}, func(ctx context.Context, _ *struct{}) (*adminSessionListOutput, error) {
 		sessions, err := h.Admin.ListAllSessions(ctx)
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &adminSessionListOutput{Body: apitypes.NewList(sessions, "")}, nil
 	})
@@ -57,7 +57,7 @@ func RegisterAdminOps(api huma.API, h *Handlers) {
 	}, func(ctx context.Context, in *adminSessionInput) (*adminBackfillJobOutput, error) {
 		job, err := h.Admin.StartBackfill(ctx, in.Session)
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &adminBackfillJobOutput{Body: job}, nil
 	})
@@ -72,7 +72,7 @@ func RegisterAdminOps(api huma.API, h *Handlers) {
 	}, func(ctx context.Context, in *adminSessionInput) (*adminBackfillJobOutput, error) {
 		job, err := h.Admin.BackfillStatus(ctx, in.Session)
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &adminBackfillJobOutput{Body: job}, nil
 	})

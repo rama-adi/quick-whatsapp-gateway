@@ -161,7 +161,7 @@ func RegisterGroupOps(api huma.API, h *Handlers) {
 		}
 		info, err := h.Groups.Create(ctx, org, in.Session, in.Body.Name, in.Body.Participants)
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &groupInfoOutput{Body: info}, nil
 	})
@@ -179,7 +179,7 @@ func RegisterGroupOps(api huma.API, h *Handlers) {
 		}
 		groups, err := h.Groups.List(ctx, org, in.Session)
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &groupListOutput{Body: apitypes.NewList(groups, "")}, nil
 	})
@@ -196,7 +196,7 @@ func RegisterGroupOps(api huma.API, h *Handlers) {
 		}
 		group, err := h.Groups.Get(ctx, org, in.Session, decodeParam(in.GID))
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &groupOutput{Body: group}, nil
 	})
@@ -213,7 +213,7 @@ func RegisterGroupOps(api huma.API, h *Handlers) {
 		}
 		members, err := h.Groups.Members(ctx, org, in.Session, decodeParam(in.GID))
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &groupMemberListOutput{Body: apitypes.NewList(members, "")}, nil
 	})
@@ -231,7 +231,7 @@ func RegisterGroupOps(api huma.API, h *Handlers) {
 			return nil, err
 		}
 		if err := h.Groups.AddMembers(ctx, org, in.Session, decodeParam(in.GID), in.Body.Participants); err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &emptyOutput{}, nil
 	})
@@ -248,7 +248,7 @@ func RegisterGroupOps(api huma.API, h *Handlers) {
 			return nil, err
 		}
 		if err := h.Groups.RemoveMember(ctx, org, in.Session, decodeParam(in.GID), decodeParam(in.JID)); err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &emptyOutput{}, nil
 	})
@@ -266,7 +266,7 @@ func RegisterGroupOps(api huma.API, h *Handlers) {
 			return nil, err
 		}
 		if err := h.Groups.Promote(ctx, org, in.Session, decodeParam(in.GID), decodeParam(in.JID)); err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &emptyOutput{}, nil
 	})
@@ -284,7 +284,7 @@ func RegisterGroupOps(api huma.API, h *Handlers) {
 			return nil, err
 		}
 		if err := h.Groups.Demote(ctx, org, in.Session, decodeParam(in.GID), decodeParam(in.JID)); err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &emptyOutput{}, nil
 	})
@@ -308,7 +308,7 @@ func RegisterGroupOps(api huma.API, h *Handlers) {
 			Locked:      in.Body.Locked,
 		})
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &emptyOutput{}, nil
 	})
@@ -327,7 +327,7 @@ func RegisterGroupOps(api huma.API, h *Handlers) {
 		}
 		link, err := h.Groups.InviteLink(ctx, org, in.Session, decodeParam(in.GID))
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		out := &inviteOutput{}
 		out.Body.Invite = link
@@ -346,7 +346,7 @@ func RegisterGroupOps(api huma.API, h *Handlers) {
 		}
 		link, err := h.Groups.RevokeInvite(ctx, org, in.Session, decodeParam(in.GID))
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		out := &inviteOutput{}
 		out.Body.Invite = link
@@ -365,7 +365,7 @@ func RegisterGroupOps(api huma.API, h *Handlers) {
 		}
 		jid, err := h.Groups.Join(ctx, org, in.Session, in.Body.Invite)
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		out := &joinGroupOutput{}
 		out.Body.GroupJID = jid
@@ -384,7 +384,7 @@ func RegisterGroupOps(api huma.API, h *Handlers) {
 			return nil, err
 		}
 		if err := h.Groups.Leave(ctx, org, in.Session, decodeParam(in.GID)); err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &emptyOutput{}, nil
 	})
@@ -400,7 +400,7 @@ func RegisterGroupOps(api huma.API, h *Handlers) {
 			return nil, err
 		}
 		if err := h.Groups.ApproveMembers(ctx, org, in.Session, decodeParam(in.GID), in.Body.Participants); err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &emptyOutput{}, nil
 	})

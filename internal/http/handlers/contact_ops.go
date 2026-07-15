@@ -72,7 +72,7 @@ func RegisterContactOps(api huma.API, h *Handlers) {
 		f := store.ContactFilter{Source: in.Source, GroupJID: in.Group, Q: in.Q}
 		page, err := h.Contacts.List(ctx, org, in.Session, f, in.Cursor, clampLimit(in.Limit))
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &contactListOutput{Body: apitypes.NewList(page.Items, page.NextCursor)}, nil
 	})
@@ -91,7 +91,7 @@ func RegisterContactOps(api huma.API, h *Handlers) {
 		}
 		res, err := h.Contacts.Check(ctx, org, in.Session, in.Phone)
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &contactCheckOutput{Body: res}, nil
 	})
@@ -110,7 +110,7 @@ func RegisterContactOps(api huma.API, h *Handlers) {
 		}
 		detail, err := h.Contacts.Get(ctx, org, in.Session, in.LID)
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &contactDetailOutput{Body: detail}, nil
 	})
@@ -129,7 +129,7 @@ func RegisterContactOps(api huma.API, h *Handlers) {
 		}
 		pic, err := h.Contacts.Picture(ctx, org, in.Session, in.JID)
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &contactPictureOutput{Body: pic}, nil
 	})
@@ -148,7 +148,7 @@ func RegisterContactOps(api huma.API, h *Handlers) {
 		}
 		about, err := h.Contacts.About(ctx, org, in.Session, in.JID)
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		out := &contactAboutOutput{}
 		out.Body.About = about
@@ -169,7 +169,7 @@ func RegisterContactOps(api huma.API, h *Handlers) {
 			return nil, err
 		}
 		if err := h.Contacts.SetBlocked(ctx, org, in.Session, in.JID, true); err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &emptyOutput{}, nil
 	})
@@ -188,7 +188,7 @@ func RegisterContactOps(api huma.API, h *Handlers) {
 			return nil, err
 		}
 		if err := h.Contacts.SetBlocked(ctx, org, in.Session, in.JID, false); err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &emptyOutput{}, nil
 	})

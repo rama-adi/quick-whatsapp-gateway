@@ -10,6 +10,7 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/assertion"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/authz"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/http/middleware"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/httpx"
 )
 
@@ -32,12 +33,16 @@ func (s *Server) broker(w http.ResponseWriter, r *http.Request, gateway domain.G
 		return
 	}
 	if gateway.BaseURL == nil || *gateway.BaseURL == "" {
-		httpx.WriteError(w, domain.ErrUnavailable("owning gateway has no base url registered"))
+		err := domain.ErrUnavailable("owning gateway has no base url registered")
+		middleware.RecordFailure(r.Context(), "router_registry", err)
+		httpx.WriteError(w, err)
 		return
 	}
 	target, err := url.Parse(*gateway.BaseURL)
 	if err != nil || target.Scheme == "" || target.Host == "" {
-		httpx.WriteError(w, domain.ErrUnavailable("owning gateway base url is invalid"))
+		err := domain.ErrUnavailable("owning gateway base url is invalid")
+		middleware.RecordFailure(r.Context(), "router_registry", err)
+		httpx.WriteError(w, err)
 		return
 	}
 
@@ -101,9 +106,16 @@ func (s *Server) reverseProxy(target *url.URL, assertionToken string) *httputil.
 			req.Header.Del("Authorization")
 			req.Header.Del("X-Api-Key")
 			req.Header.Set(assertion.HeaderAssertion, assertionToken)
+			req.Header.Set(middleware.RequestIDHeader, httpx.RequestID(req.Context()))
 		},
-		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
-			s.log.Warn("upstream gateway proxy error", "target", target.String(), "err", err)
+		ModifyResponse: func(resp *http.Response) error {
+			if resp.StatusCode == http.StatusServiceUnavailable {
+				middleware.RecordFailure(resp.Request.Context(), "gateway_response", domain.ErrUnavailable("gateway returned unavailable"))
+			}
+			return nil
+		},
+		ErrorHandler: func(w http.ResponseWriter, req *http.Request, err error) {
+			middleware.RecordFailure(req.Context(), "router_proxy", err)
 			httpx.WriteError(w, domain.ErrUnavailable("owning gateway did not respond"))
 		},
 	}

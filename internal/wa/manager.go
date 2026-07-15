@@ -464,6 +464,26 @@ func (m *Manager) Get(id string) *ManagedSession {
 	return m.sessions[id]
 }
 
+// ConnectionState returns a point-in-time, non-identifying runtime snapshot for
+// request-failure telemetry. Status and socket/login state are reported
+// separately because a persisted "working" status can briefly outlive a lost
+// transport connection.
+func (m *Manager) ConnectionState(id string) (status domain.SessionStatus, connected, loggedIn, found bool) {
+	ms := m.Get(id)
+	if ms == nil {
+		return "", false, false, false
+	}
+	ms.mu.Lock()
+	status = ms.status
+	client := ms.client
+	ms.mu.Unlock()
+	if client != nil {
+		connected = client.IsConnected()
+		loggedIn = client.IsLoggedIn()
+	}
+	return status, connected, loggedIn, true
+}
+
 // ClientFor returns the live *whatsmeow.Client for a session, or (nil, false)
 // when the session is unknown or its client is not yet constructed/connected.
 // It is the bridge the outbound send path uses to reach the per-session client

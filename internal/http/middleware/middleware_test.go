@@ -1,9 +1,12 @@
 package middleware
 
 import (
+	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -326,5 +329,107 @@ func TestLoggerPreservesFlusher(t *testing.T) {
 	}
 	if !rec.Flushed {
 		t.Fatal("Flush did not forward to the underlying ResponseWriter")
+	}
+}
+
+func TestLoggerEnriches503WithFailureDBAndSessionState(t *testing.T) {
+	var buf bytes.Buffer
+	log := slog.New(slog.NewJSONHandler(&buf, nil))
+	r := chi.NewRouter()
+	r.Use(RequestID())
+	r.Use(Logger(log, LoggerOptions{
+		Service: "gateway",
+		DBStats: func() sql.DBStats {
+			return sql.DBStats{
+				MaxOpenConnections: 25,
+				OpenConnections:    25,
+				InUse:              25,
+				WaitCount:          42,
+				WaitDuration:       1500 * time.Millisecond,
+			}
+		},
+		SessionState: func(sessionID string) (SessionState, bool) {
+			if sessionID != "sess_1" {
+				t.Fatalf("session id = %q", sessionID)
+			}
+			return SessionState{Status: "working", Connected: false, LoggedIn: true}, true
+		},
+	}))
+	r.Get("/sessions/{session}", func(w http.ResponseWriter, req *http.Request) {
+		SetRequestOrganization(req.Context(), "org_1")
+		RecordFailure(req.Context(), "gateway_handler", context.Canceled)
+		w.WriteHeader(http.StatusServiceUnavailable)
+	})
+
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/sessions/sess_1", nil))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	var event map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &event); err != nil {
+		t.Fatalf("decode log: %v\n%s", err, buf.String())
+	}
+	for key, want := range map[string]any{
+		"event":               "http_request",
+		"service":             "gateway",
+		"failure_cause":       "context_canceled",
+		"failure_source":      "gateway_handler",
+		"context_error":       "context canceled",
+		"organization":        "org_1",
+		"session":             "sess_1",
+		"wa_status":           "working",
+		"wa_connected":        false,
+		"wa_logged_in":        true,
+		"db_max_open":         float64(25),
+		"db_in_use":           float64(25),
+		"db_wait_count":       float64(42),
+		"db_wait_duration_ms": float64(1500),
+	} {
+		if got := event[key]; got != want {
+			t.Errorf("%s = %#v, want %#v", key, got, want)
+		}
+	}
+	if got := event["reqid"]; got == nil || got == "" {
+		t.Error("canonical event is missing reqid")
+	}
+}
+
+func TestClassifyFailureDistinguishesUnavailableCauses(t *testing.T) {
+	tests := []struct {
+		name        string
+		err         error
+		wantCause   string
+		wantContext string
+	}{
+		{
+			name:        "deadline",
+			err:         fmt.Errorf("database query: %w", context.DeadlineExceeded),
+			wantCause:   "deadline_exceeded",
+			wantContext: "context deadline exceeded",
+		},
+		{
+			name:        "caller cancellation",
+			err:         fmt.Errorf("send aborted: %w", context.Canceled),
+			wantCause:   "context_canceled",
+			wantContext: "context canceled",
+		},
+		{
+			name:      "domain unavailable",
+			err:       domain.ErrUnavailable("gateway has no healthy connection"),
+			wantCause: domain.CodeUnavailable,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := classifyFailure("gateway_handler", tt.err)
+			if got.Cause != tt.wantCause {
+				t.Fatalf("cause = %q, want %q", got.Cause, tt.wantCause)
+			}
+			if got.ContextError != tt.wantContext {
+				t.Fatalf("context error = %q, want %q", got.ContextError, tt.wantContext)
+			}
+		})
 	}
 }

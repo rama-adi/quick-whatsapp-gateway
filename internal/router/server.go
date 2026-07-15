@@ -8,6 +8,7 @@
 package router
 
 import (
+	"database/sql"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/assertion"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/authz"
@@ -70,6 +72,7 @@ type Config struct {
 	StaleAfter time.Duration     // optional; <=0 => defaultStaleAfter
 	Transport  http.RoundTripper // optional; nil => http.DefaultTransport
 	Now        func() time.Time  // optional; nil => time.Now
+	DBStats    func() sql.DBStats
 	Log        *slog.Logger
 }
 
@@ -101,6 +104,7 @@ type Server struct {
 	staleAfter    time.Duration
 	transport     http.RoundTripper
 	now           func() time.Time
+	dbStats       func() sql.DBStats
 	log           *slog.Logger
 }
 
@@ -146,6 +150,7 @@ func NewServer(cfg Config) (*Server, error) {
 		staleAfter:    cfg.StaleAfter,
 		transport:     cfg.Transport,
 		now:           cfg.Now,
+		dbStats:       cfg.DBStats,
 		log:           cfg.Log,
 	}
 	if s.staleAfter <= 0 {
@@ -196,7 +201,7 @@ func (s *Server) Handler() http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.Recover(s.log))
 	r.Use(middleware.RequestID())
-	r.Use(middleware.Logger(s.log))
+	r.Use(middleware.Logger(s.log, middleware.LoggerOptions{Service: "router", DBStats: s.dbStats}))
 	if len(s.corsOrigins) > 0 {
 		r.Use(authz.CORS(s.corsOrigins))
 	}
@@ -206,6 +211,7 @@ func (s *Server) Handler() http.Handler {
 		_, _ = w.Write([]byte("ok"))
 	})
 	r.Get("/readyz", s.handleReadyz)
+	r.Handle("/metrics", promhttp.Handler())
 	r.Get(JWKSPath, s.handleJWKS)
 	if s.oauthHandlers != nil {
 		r.Group(func(authed chi.Router) {
@@ -292,10 +298,12 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, domain.ErrUnauthorized("authentication required"))
 		return
 	}
+	middleware.SetRequestOrganization(r.Context(), p.OrganizationID)
 
 	if r.Method == http.MethodPost && r.URL.Path == "/api/v1/sessions" {
 		g, err := s.pickPlacementGateway(r.Context())
 		if err != nil {
+			middleware.RecordFailure(r.Context(), "router_resolve", err)
 			httpx.WriteError(w, err)
 			return
 		}
@@ -306,6 +314,7 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 	if session := sessionFromPath(r.URL.Path); session != "" {
 		g, err := s.resolveSessionGateway(r.Context(), p, session)
 		if err != nil {
+			middleware.RecordFailure(r.Context(), "router_resolve", err)
 			httpx.WriteError(w, err)
 			return
 		}
@@ -315,6 +324,7 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 
 	g, err := s.pickAnyActiveGateway(r.Context())
 	if err != nil {
+		middleware.RecordFailure(r.Context(), "router_resolve", err)
 		httpx.WriteError(w, err)
 		return
 	}

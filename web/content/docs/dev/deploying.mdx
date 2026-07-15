@@ -286,9 +286,14 @@ Both Go services expose health endpoints:
 |---|---|---|
 | Router | `GET /healthz` | Liveness. |
 | Router | `GET /readyz` | Readiness — checks MySQL and Redis. Use this for the router's container healthcheck. |
+| Router | `GET /metrics` | Prometheus request-failure and MySQL pool metrics. |
 | Gateway | `GET /healthz` | Liveness. |
 | Gateway | `GET /readyz` | Readiness — checks MySQL and Redis. Use this for the gateway's container healthcheck. |
-| Gateway | `GET /metrics` | Prometheus metrics. |
+| Gateway | `GET /metrics` | Prometheus request-failure and MySQL pool metrics. |
+
+Scrape the router and every gateway independently. Their canonical request logs
+share `X-Request-Id`, while metrics deliberately avoid high-cardinality request,
+session, user, and organization labels.
 
 ## Running the gateway or router in Docker for development
 

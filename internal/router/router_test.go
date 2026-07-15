@@ -90,6 +90,7 @@ type upstreamGateway struct {
 	gotAuth  string
 	gotAssn  bool
 	gotOrg   string
+	gotReqID string
 	body     string
 }
 
@@ -106,6 +107,7 @@ func newUpstream(t *testing.T, m *assertion.Minter, gatewayID string) *upstreamG
 	u := &upstreamGateway{verifier: v}
 	u.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u.gotAuth = r.Header.Get("Authorization")
+		u.gotReqID = r.Header.Get("X-Request-Id")
 		raw := r.Header.Get(assertion.HeaderAssertion)
 		u.gotAssn = raw != ""
 		body, _ := io.ReadAll(r.Body)
@@ -335,6 +337,9 @@ func TestBroker_SessionScoped_ProxiesUnderAssertion(t *testing.T) {
 	}
 	if up.gotOrg != "org_1" {
 		t.Fatalf("asserted org = %q, want org_1", up.gotOrg)
+	}
+	if up.gotReqID == "" || up.gotReqID != rec.Header().Get("X-Request-Id") {
+		t.Fatalf("request id upstream=%q response=%q; want one correlated id", up.gotReqID, rec.Header().Get("X-Request-Id"))
 	}
 }
 

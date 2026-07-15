@@ -214,6 +214,20 @@ func (c *fakeClient) GetQRChannel(context.Context) (<-chan whatsmeow.QRChannelIt
 	close(ch)
 	return ch, nil
 }
+
+func TestManagerConnectionStateSeparatesStatusFromTransport(t *testing.T) {
+	client := &fakeClient{connected: false}
+	m := &Manager{sessions: map[string]*ManagedSession{
+		"sess_1": {SessionID: "sess_1", status: domain.SessionWorking, client: client},
+	}}
+	status, connected, loggedIn, found := m.ConnectionState("sess_1")
+	if !found || status != domain.SessionWorking || connected || !loggedIn {
+		t.Fatalf("state = status:%s connected:%v loggedIn:%v found:%v", status, connected, loggedIn, found)
+	}
+	if _, _, _, found := m.ConnectionState("missing"); found {
+		t.Fatal("missing session reported as found")
+	}
+}
 func (c *fakeClient) PairPhone(_ context.Context, _ string, _ bool, _ whatsmeow.PairClientType, displayName string) (string, error) {
 	c.mu.Lock()
 	c.pairDisplay = displayName

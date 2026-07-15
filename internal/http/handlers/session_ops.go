@@ -72,7 +72,7 @@ func RegisterSessionOps(api huma.API, h *Handlers) {
 			PresenceTyping: in.Body.PresenceTyping,
 		})
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &sessionOutput{Body: sess}, nil
 	})
@@ -92,7 +92,7 @@ func RegisterSessionOps(api huma.API, h *Handlers) {
 		}
 		sessions, err := h.Sessions.List(ctx, org)
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &sessionListOutput{Body: apitypes.NewList(sessions, "")}, nil
 	})
@@ -112,7 +112,7 @@ func RegisterSessionOps(api huma.API, h *Handlers) {
 		}
 		sess, err := h.Sessions.Get(ctx, org, in.Session)
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &sessionOutput{Body: sess}, nil
 	})
@@ -161,7 +161,7 @@ func RegisterSessionOps(api huma.API, h *Handlers) {
 			return nil, err
 		}
 		if err := h.Sessions.Delete(ctx, org, in.Session); err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &emptyOutput{}, nil
 	})
@@ -180,7 +180,7 @@ func RegisterSessionOps(api huma.API, h *Handlers) {
 		}
 		me, err := h.Sessions.Me(ctx, org, in.Session)
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &sessionMeOutput{Body: me}, nil
 	})
@@ -200,7 +200,7 @@ func RegisterSessionOps(api huma.API, h *Handlers) {
 		}
 		qr, err := h.Sessions.QR(ctx, org, in.Session)
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &sessionQROutput{Body: qr}, nil
 	})
@@ -220,7 +220,7 @@ func RegisterSessionOps(api huma.API, h *Handlers) {
 		}
 		code, err := h.Sessions.PairingCode(ctx, org, in.Session, in.Body.Phone)
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		out := &pairingCodeOutput{}
 		out.Body.Code = code
@@ -240,11 +240,11 @@ func registerSessionAction(api huma.API, h *Handlers, mw huma.Middlewares, opID,
 			return nil, err
 		}
 		if err := fn(ctx, org, in.Session); err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		sess, err := h.Sessions.Get(ctx, org, in.Session)
 		if err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &sessionOutput{Body: sess}, nil
 	})

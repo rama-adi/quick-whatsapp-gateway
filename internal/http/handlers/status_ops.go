@@ -62,14 +62,14 @@ func RegisterStatusOps(api huma.API, h *Handlers) {
 		case "", "text":
 			id, err := h.Status.PostText(ctx, org, in.Session, in.Body.Text)
 			if err != nil {
-				return nil, humax.Err(err)
+				return nil, humax.ErrContext(ctx, err)
 			}
 			out := &postStatusOutput{}
 			out.Body.MessageID = id
 			return out, nil
 		default:
 			// image / video / any media status is 501 in v1, consistent with media send.
-			return nil, humax.Err(domain.ErrNotImplemented(in.Body.Type + " status is not implemented yet"))
+			return nil, humax.ErrContext(ctx, domain.ErrNotImplemented(in.Body.Type+" status is not implemented yet"))
 		}
 	})
 
@@ -89,7 +89,7 @@ func RegisterStatusOps(api huma.API, h *Handlers) {
 			return nil, err
 		}
 		if err := h.Presence.Set(ctx, org, in.Session, in.Body.State); err != nil {
-			return nil, humax.Err(err)
+			return nil, humax.ErrContext(ctx, err)
 		}
 		return &emptyOutput{}, nil
 	})

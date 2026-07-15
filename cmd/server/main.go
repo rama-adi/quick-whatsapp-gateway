@@ -27,6 +27,8 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	migratemysql "github.com/golang-migrate/migrate/v4/database/mysql"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/redis/go-redis/v9"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/assertion"
@@ -35,6 +37,7 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 	gwhttp "github.com/ramaadi/quick-whatsapp-gateway/internal/http"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/http/handlers"
+	httpmiddleware "github.com/ramaadi/quick-whatsapp-gateway/internal/http/middleware"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/oidp"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/queue"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/service"
@@ -87,6 +90,7 @@ func run() error {
 		return fmt.Errorf("open mysql: %w", err)
 	}
 	defer db.Close()
+	prometheus.MustRegister(collectors.NewDBStatsCollector(db, "gateway"))
 
 	st := store.New(db)
 
@@ -302,6 +306,15 @@ func run() error {
 		Auth:      assertion.Middleware(assertionVerifier),
 		Limiter:   nil, // HTTP-edge rate limiting optional; outbound limits sends.
 		Readiness: readiness(db, rdb),
+		DBStats:   db.Stats,
+		SessionState: func(sessionID string) (httpmiddleware.SessionState, bool) {
+			status, connected, loggedIn, ok := manager.ConnectionState(sessionID)
+			return httpmiddleware.SessionState{
+				Status:    string(status),
+				Connected: connected,
+				LoggedIn:  loggedIn,
+			}, ok
+		},
 		// The router serves the public OpenAPI spec now (D9); the gateway does not.
 		Log: log,
 	})

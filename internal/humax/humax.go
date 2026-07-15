@@ -22,6 +22,7 @@ import (
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/authz"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	httpmiddleware "github.com/ramaadi/quick-whatsapp-gateway/internal/http/middleware"
 )
 
 func init() {
@@ -92,6 +93,15 @@ func Err(err error) error {
 		return &apiError{Err: ErrorDetail{Code: domain.CodeUnavailable, Message: "request timed out"}}
 	}
 	return &apiError{Err: ErrorDetail{Code: domain.CodeInternal, Message: "internal server error"}}
+}
+
+// ErrContext records the original internal failure on the request-wide
+// telemetry event before mapping it to the stable public error envelope. The
+// public response remains intentionally coarse; logs retain the distinction
+// between deadline expiry, cancellation, and domain unavailability.
+func ErrContext(ctx context.Context, err error) error {
+	httpmiddleware.RecordFailure(ctx, "gateway_handler", err)
+	return Err(err)
 }
 
 // NewAPI builds a huma API mounted on the given chi router with this gateway's
