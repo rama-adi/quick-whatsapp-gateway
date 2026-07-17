@@ -7,8 +7,9 @@ This is one repo holding two codebases: the Go backend at the root (which runs a
 
 ```
 .
-├── cmd/router/main.go     router entrypoint — the public API service
-├── cmd/server/main.go     gateway entrypoint (also: server migrate up|down)
+├── cmd/api/main.go        API entrypoint — migrates WA schema before serving
+├── cmd/gateway/main.go    gateway runtime — never migrates MySQL
+├── cmd/migrate/main.go    dedicated WA schema up/down command
 ├── internal/              backend packages (Go), shared by the router and gateway
 ├── migrations/            golang-migrate — WA app-data schema only
 ├── web/                   frontend — TanStack Start + better-auth

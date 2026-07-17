@@ -121,7 +121,7 @@ returned plain so asynq retries per the task's MaxRetry.
 outbox (6) and webhooks (3) over the once-a-day retention prune (1). Lifecycle:
 `Run()` (blocking), `Start()`/`Shutdown()` (graceful).
 
-At gateway boot, `cmd/server` starts the worker and the daily retention
+At gateway boot, `cmd/gateway` starts the worker and the daily retention
 scheduler when `RETENTION_DAYS > 0`. All gateway replicas that participate in
 this maintenance job must use the same work `REDIS_URL` database **and**
 `REDIS_PREFIX`. The scheduled task uses Redis-backed singleton/dedup admission,
@@ -191,7 +191,7 @@ the path (`redis://h/2`) or `?db=` query. Invalid scheme/host/db → error.
 
 ## Production wiring
 
-`cmd/server` provides `OutboxProcessor` and `RetentionPruner`, builds the
+`cmd/gateway` provides `OutboxProcessor` and `RetentionPruner`, builds the
 handler set, and starts the server from `ParseRedisURL(cfg.RedisURL)`. It owns
 the retention scheduler and stops it before graceful worker shutdown. Webhook
 delivery is presently driven by the dispatcher cadence described in

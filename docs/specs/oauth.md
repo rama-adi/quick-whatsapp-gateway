@@ -77,7 +77,7 @@ stream, and issuance is bound to the holder of the browser code at that moment.
 
 ## 3. Data model
 
-### 3.1 MySQL (gateway golang-migrate; migration `migrations/0007_oidc_provider.{up,down}.sql`)
+### 3.1 MySQL (API-owned golang-migrate; migration `migrations/0007_oidc_provider.{up,down}.sql`)
 
 Four tables, all matching `store.md` conventions (org-keyed, epoch-ms BIGINT timestamps, ULID
 `VARCHAR(64)` ids, plain-SQL repos in `internal/store/oauth.go`).
@@ -436,7 +436,7 @@ Dedicated EdDSA/Ed25519 keypair(s) in `oauth_signing_keys` — **not** the route
 (different rotation cadence, public federation vs internal seam) and not env-vars (replicas must
 share one JWKS). Rotation: pre-publish `next` → promote → keep `retired` in JWKS until its tokens
 expire. Private key AES-GCM-encrypted at rest (`OIDC_KEY_ENC_KEY`). Minting/rotation via a
-`cmd/router oidp rotate-key` subcommand.
+`cmd/api oidp rotate-key` subcommand.
 
 ### 7.5 Subjects — WhatsApp LID
 
@@ -528,11 +528,11 @@ detections. Management actions audit-logged with org/client/actor.
 
 ## 9. Composition root
 
-`cmd/router`: Redis client (shared with realtime), the four `internal/store` OAuth repos, an
+`cmd/api`: Redis client (shared with realtime), the four `internal/store` OAuth repos, an
 `oidp.Provider` (code minters, `Signer` + JWKS cache, token issuer, wait-stream handler = `Pump`
 core + NDJSON `Sink`, finalize/cancel handlers), control-bus subscriptions for `ctrl:oidp.*`.
 
-`cmd/server` (gateway): `oidp.LoginInterceptor` in inbound stage 2, constructed with the cached
+`cmd/gateway`: `oidp.LoginInterceptor` in inbound stage 2, constructed with the cached
 active-app set per session, the Redis client (Lua claim + publish), and the outbound handler for
 bot reactions/replies.
 

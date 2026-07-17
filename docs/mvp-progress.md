@@ -40,7 +40,7 @@ until later increments replace them.
 | Increment | Status | Notes |
 |---|---|---|
 | **Increment 0** — decisions and contract tooling | 🚧 In progress | Separate public/private Buf modules; pinned reproducible Go generation; `FILE` compatibility checks for both domains; temporary-directory generated drift check; health-only compatibility anchors; small transport-independent ports for session state, account presence, and read receipts with an unwired local WA adapter; target responsibility boundary and operational defaults recorded. No listener or runtime cutover. |
-| **Increment 1** — composition roots + public health | 🚧 In progress | API/gateway roots and config identities renamed. API public gRPC health listener added with shared HTTP readiness and coordinated lifecycle; private gateway gRPC remains unbound. |
+| **Increment 1** — composition roots + public health | 🚧 In progress | API/gateway roots and config identities renamed. API public gRPC health listener added with shared HTTP readiness and coordinated lifecycle. WA schema migration ownership moved from gateway to API startup plus dedicated `cmd/migrate`; private gateway gRPC remains unbound. |
 | **Increment 2+** — control plane through cutover | ⬜ Planned | Add PKI and control stream, desired state, engine slices, reliable events/commands, then remove gateway HTTP/MySQL/Redis. |
 
 ## v1 milestones (archived — code complete)
@@ -136,8 +136,8 @@ e2e smoke against a live WhatsApp number.
 - **Frontend DB layer = Drizzle:** better-auth runs on the **`drizzleAdapter`** (provider
   `mysql`); the same Drizzle client serves the read-only WA queries. Auth tables: schema via
   `@better-auth/cli generate`, migrated with **drizzle-kit** (not the Kysely-only better-auth
-  `migrate`). WA tables: read-only Drizzle models **introspected** from the gateway-migrated DB
-  (the gateway's golang-migrate stays the sole writer). (Masterplan §6.2, §12, §19 #5.)
+  `migrate`). WA tables: read-only Drizzle models **introspected** from the API-migrated DB
+  (API-owned golang-migrate stays the sole schema writer). (Masterplan §6.2, §12, §19 #5.)
 - **Clean-slate migrations:** pre-release, so v2 rewrites `migrations/` from scratch against an
   empty DB — no v1→v2 backfill. (Masterplan §7.)
 - **Gateway visibility:** session API responses + dashboard show each session's `gatewayId` and

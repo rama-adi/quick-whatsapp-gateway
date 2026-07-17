@@ -10,8 +10,8 @@ one Redis.
 
 | Service | Location | Stack | What it does |
 |---|---|---|---|
-| **Router** | `cmd/router`, `internal/router` | Go | The public API service. It authenticates every caller, finds the gateway that owns the target session, forwards requests, and serves the realtime WebSocket and OpenAPI file. |
-| **Gateway** | `cmd/server`, `internal/` | Go, whatsmeow | Holds the live WhatsApp connections and runs the REST handlers. It only accepts requests forwarded by the router. |
+| **API** | `cmd/api`, `internal/router` | Go | The public API service. It authenticates every caller, finds the gateway that owns the target session, forwards requests, and serves realtime and OpenAPI surfaces. |
+| **Gateway** | `cmd/gateway`, `internal/` | Go, whatsmeow | Holds the live WhatsApp connections and runs the private handlers during the gRPC migration. It never migrates MySQL. |
 | **Frontend** | `web/` | TanStack Start, better-auth | The dashboard plus the identity service: login, registration, 2FA, organizations, and API-key management. Renders the dashboard, viewer, and contacts UI. |
 
 The router and gateway are separate processes so you can run several gateways

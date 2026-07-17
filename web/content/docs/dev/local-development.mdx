@@ -17,7 +17,7 @@ router is small and stateless, so you restart it by hand when you change it.
 | Go 1.26+ | Build and run the router and gateway | The Go toolchain auto-switches to the version pinned in `go.mod` (`GOTOOLCHAIN=auto`). |
 | Node 22+ with pnpm | Build and run the frontend | Run `corepack enable` once to get pnpm. |
 | Docker | Run MySQL and Redis | Used for local infrastructure only; the apps run on the host. |
-| `air` | Gateway hot reload | Watches Go files and rebuilds `./cmd/server` on change. |
+| `air` | Gateway hot reload | Watches Go files and rebuilds `./cmd/gateway` on change. |
 | `golangci-lint` | Go linter | Run with `make lint`. |
 
 You do **not** need a C compiler. The gateway's WhatsApp keystore uses a pure-Go
@@ -32,7 +32,7 @@ create the database tables:
 cp deploy/.env.example deploy/.env    # router + gateway env — fill the three secrets below
 cp web/.env.example web/.env          # frontend env — fill BETTER_AUTH_SECRET
 make infra-up                         # start MySQL + Redis (ports bound to localhost)
-make migrate                          # create WA app-data tables (runs `server migrate up`)
+make migrate                          # create WA app-data tables (runs `cmd/migrate up`)
 cd web && pnpm install && pnpm db:migrate && cd ..   # create the auth tables (drizzle-kit)
 ```
 
@@ -50,7 +50,7 @@ Three values have no usable default and must be filled in before the apps start:
 There are two separate migration tools, one per set of tables — don't mix them up:
 
 - `make migrate` creates the WhatsApp app-data tables (gateways, sessions,
-  contacts, …). The gateway binary owns these and embeds golang-migrate.
+  contacts, …). API startup also applies these through API-owned golang-migrate.
 - `pnpm db:migrate` (run in `web/`) creates the better-auth tables (user,
   session, apikey, organization, …) with drizzle-kit.
 
@@ -62,7 +62,7 @@ own terminal:
 ```sh
 make infra-up    # MySQL + Redis (skip if already running)
 make dev         # terminal 1: gateway under air; reloads on change
-make router      # terminal 2: the router; restart after router edits
+make api         # terminal 2: the API; restart after API edits
 make web         # terminal 3: frontend dev server (pnpm dev) on :3000
 ```
 
@@ -73,10 +73,10 @@ already allows `http://localhost:3000` (via `FRONTEND_ORIGINS`), so the three wo
 together with no extra setup.
 
 <Callout type="info">
-`make dev` runs `air`, which builds and watches **`./cmd/server`** (the gateway)
-only. The router is a separate process — `make router` runs it with `go run
-./cmd/router`, with no hot reload, so restart that terminal after you change
-router code. The gateway still hot-reloads on every save.
+`make dev` runs `air`, which builds and watches **`./cmd/gateway`** (the gateway)
+only. The API is a separate process — `make api` runs it with `go run
+./cmd/api`, with no hot reload, so restart that terminal after you change API
+code. The gateway still hot-reloads on every save.
 </Callout>
 
 Prefer the router in a container? Run the gateway in Docker and add the `router`

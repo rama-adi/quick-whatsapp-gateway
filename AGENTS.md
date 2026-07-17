@@ -5,7 +5,7 @@ making a change, so the code, the specs, the API contract, and the docs site sta
 
 The system is two independently deployable services in one repo:
 
-- **Gateway** (Go, `cmd/` + `internal/` + `migrations/`) — the whatsmeow engine. Verifies
+- **Gateway** (Go, `cmd/gateway` + `internal/`) — the whatsmeow engine. Verifies
   caller identity minted by the frontend (better-auth JWTs via JWKS, better-auth api-keys),
   owns WA-domain MySQL tables, keeps the whatsmeow keystore in gateway-local SQLite.
 - **Frontend** (`web/`) — a TanStack Start app with better-auth for identity. Serverless-hostable;
@@ -24,10 +24,11 @@ rulebook: where things live, what to update alongside a change, and the gates th
 | `docs/mvp-progress.md` | Milestone tracker (R0–R6) and the log of locked decisions. |
 | `web/content/docs/*` | The fumadocs site: hand-written user/dev guides (`guides/`) + generated API reference (`api/`). |
 | `web/` | Frontend — TanStack Start, better-auth, Drizzle, ported shadcn. |
-| `cmd/server/` | Gateway entrypoint; also `server migrate up\|down`. |
-| `cmd/router/` | Router entrypoint — the front door + single trust boundary in front of the gateways. |
+| `cmd/gateway/` | Gateway runtime entrypoint; never executes MySQL schema migrations. |
+| `cmd/api/` | API entrypoint — the front door + single trust boundary; applies WA schema migrations before opening listeners. |
+| `cmd/migrate/` | Dedicated WA schema migration command (`up\|down`) for operations and rollback. |
 | `internal/` | Shared packages: `router/` (REST broker: authn, session→gateway resolve + org isolation, reverse proxy, placement), `assertion/` (router→gateway request-bound Ed25519 internal assertion: minter/verifier/nonce-cache), `authz/` (JWKS+JWT+api-key verify — **now consumed by the router**), `controlbus/` (`ctrl:*` subscriber — **now consumed by the router**), `dbconn/` (shared MySQL connection helper), `http/`, `wa/` (manager, session, SQLite store), `store/` (MySQL repos, org-keyed), `webhooks/`, `stream/`, `queue/`. |
-| `migrations/` | golang-migrate files for WA app-data tables (gateway-written MySQL). |
+| `migrations/` | API-owned golang-migrate files for WA app-data tables. |
 | `deploy/` | Two Dockerfiles, compose files, `.env.example`. |
 
 ### The subsystem specs (`docs/specs/`)
@@ -66,7 +67,7 @@ Follow-on steps depend on what you touched. Run them in the same change as the b
 |---|---|
 | The public REST API (paths, request/response shapes) | Edit the **Go types**, not the yaml: the per-resource huma ops in `internal/http/handlers/*_ops.go` (operations + request/response structs with `doc:`/`enum:`/`example:` tags) and shared DTOs/events in `internal/apitypes`. Then `make openapi` (regenerates `docs/openapi.yaml` from the Go types — the contract of record the router serves), then `cd web && pnpm gen:api` (regen typed client `app/lib/api/schema.d.ts`) **and** `pnpm docs:openapi` (regen the fumadocs API reference pages). `make gen` runs all three. CI guards drift with `make openapi-check`. Webhook/realtime **event** shapes live in `internal/apitypes/events.go` (the generated OpenAPI `webhooks` section). |
 | better-auth config (`web/app/lib/auth/server.ts`) | `cd web && pnpm auth:generate` (regen `app/lib/db/auth-schema.ts`), then `pnpm db:migrate` (drizzle-kit) to apply the auth tables. |
-| The gateway MySQL schema | Author a new `migrations/NNNN_*.{up,down}.sql` (golang-migrate), then `cd web && pnpm db:introspect` to refresh the read-only WA Drizzle models (`app/lib/db/wa.ts`). |
+| The WA app-data MySQL schema | Author a new `migrations/NNNN_*.{up,down}.sql` (golang-migrate), then `cd web && pnpm db:introspect` to refresh the read-only WA Drizzle models (`app/lib/db/wa.ts`). |
 
 ### Two migration toolchains — don't cross them
 
@@ -75,10 +76,10 @@ changing:
 
 | Tables | Owner | Tool | Command |
 |---|---|---|---|
-| WA app-data (gateways, sessions, contacts, …) | Gateway | golang-migrate (embedded in the binary) | `make migrate` → `go run ./cmd/server migrate up` (`down` rolls back one) |
+| WA app-data (gateways, sessions, contacts, …) | API/control plane | golang-migrate (embedded library) | `make migrate` → `go run ./cmd/migrate up` (`down` rolls back one); API also applies `up` before startup |
 | Auth (better-auth: user, session, apikey, organization, …) | Frontend | drizzle-kit | `cd web && pnpm db:migrate` |
 
-The gateway's golang-migrate is the **sole writer** of WA tables. The frontend only ever
+The API/control plane's golang-migrate is the **sole schema writer** of WA tables. The frontend only ever
 *introspects* them into read-only Drizzle models (`pnpm db:introspect`) — it never migrates them.
 
 ### Pre-release: reshape the schema freely
@@ -98,7 +99,7 @@ Guidance, not friction:
 - Still obey the **bookkeeping rules above**: a schema change updates `docs/specs/*` (esp.
   `store.md`), runs `pnpm db:introspect` to refresh the read-only WA Drizzle models, and updates
   `docs/openapi.yaml` + regenerates if it changes a REST response shape.
-- The line that does **not** move: WA tables are migrated only by the gateway's golang-migrate
+- The line that does **not** move: WA tables are migrated only by the API-owned golang-migrate
   (the frontend introspects, never migrates), and auth tables only by drizzle-kit. Reshape freely
   **within** the right toolchain — don't cross them.
 - Caveat: when in doubt whether a denormalization actually helps, prefer **read-time resolution

@@ -1,7 +1,6 @@
-// Package migrations embeds the SQL schema migrations so the gateway binary can
-// run them on boot (and via the `server migrate up|down` subcommand) without
-// shipping the .sql files alongside it. The files are applied by golang-migrate
-// over the iofs source.
+// Package migrations embeds the API-owned WA application schema for automatic
+// API startup migration and the dedicated `cmd/migrate up|down` command. The
+// gateway runtime does not import or execute this package.
 package migrations
 
 import "embed"

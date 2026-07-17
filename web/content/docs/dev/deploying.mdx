@@ -117,7 +117,7 @@ its own.
 
 | Tables | Created by | When |
 |---|---|---|
-| WA tables (gateway) | gateway's embedded migrations | automatically, on every boot — nothing to run |
+| WA tables (API control plane) | API startup or `go run ./cmd/migrate up` | automatically when the API starts, or explicitly with the migration CLI |
 | Auth tables (frontend) | `pnpm db:migrate` (drizzle-kit) | you run it once, before first use |
 
 The runtime frontend image does not include `drizzle-kit`, so apply the auth
@@ -314,9 +314,10 @@ docker compose -f deploy/docker-compose.dev.yml --profile router up -d --build
 ```
 
 Each profile reaches the host frontend's signing keys through
-`host.docker.internal` (already allowed in `vite.config.ts`) and applies the WA
-migrations on boot. The two gateway profiles both bind port 8080 — run only one
-at a time.
+`host.docker.internal` (already allowed in `vite.config.ts`). The API applies WA
+migrations before opening its database pool; gateway processes never migrate
+the schema. The two gateway profiles both bind port 8080 — run only one at a
+time.
 
 Every profile reads the **same** `deploy/.env` the host processes use (copy it
 from `deploy/.env.example`), so there is one place to set config. The compose

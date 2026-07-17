@@ -21,7 +21,7 @@ R-milestone that re-implements its subsystem.
 | `api-keys.md` | ✅ v2 + central-router | R1/central-router | No custom Go keys; the router verifies against shared `apikey` and owns the positive cache; gateways receive only the internal assertion. |
 | `whatsmeow-store.md` | ✅ v2 | R2 | Custom MySQL store retired; SQLite via `sqlstore` on `modernc.org/sqlite` (CGO=0), persistent volume, session pinning (§6.1). |
 | `session-manager.md` | ✅ v2 | R2 | SQLite keystore, `gateway_id` pinning, boot orphan-guard (§5). |
-| `store.md` | ✅ v2 | R1 | Ownership `tenant_id`→`organization_id`; v2 DDL (`gateways`+`gateway_id`); golang-migrate via the binary; no `wmstore_*` in MySQL (§7). |
+| `store.md` | ✅ v2 | R1/gRPC Inc 1 | Ownership `tenant_id`→`organization_id`; API startup + `cmd/migrate` own golang-migrate; gateway never migrates MySQL; no `wmstore_*` (§7). |
 | `http-foundation.md` | ✅ v2 + central-router | R1/central-router | Router owns public JWT/API-key auth, CORS, Huma routes, and generated OpenAPI; gateway HTTP trusts only the internal assertion during migration. |
 | `stream.md` | ✅ WebSocket cutover | central-router Increment B | Router ticket mint + WebSocket, replay/tail, event filters, and revocation drop are implemented over shared Redis `evt:*`; gateway NDJSON `/events` is removed. |
 | `webhooks.md` | ✅ v2 | R1 | Config org-owned; dispatch/HMAC/retries unchanged (§11). |

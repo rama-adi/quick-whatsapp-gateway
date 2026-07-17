@@ -8,6 +8,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"net"
@@ -26,6 +27,7 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/config"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/controlbus"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/dbconn"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/dbmigrate"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/http/handlers"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/oidp"
@@ -61,10 +63,10 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// --- Shared routing table (MySQL): wa_sessions + gateways registry ---
-	db, err := dbconn.OpenMySQL(cfg.MySQLDSN)
+	// --- API-owned WA schema, then shared routing table (MySQL) ---
+	db, err := prepareAPIDatabase(cfg.MySQLDSN, dbmigrate.Run, dbconn.OpenMySQL)
 	if err != nil {
-		return fmt.Errorf("open mysql: %w", err)
+		return err
 	}
 	defer func() { _ = db.Close() }()
 	prometheus.MustRegister(collectors.NewDBStatsCollector(db, "router"))
@@ -214,6 +216,17 @@ func run() error {
 	}
 	log.Info("api stopped cleanly")
 	return nil
+}
+
+func prepareAPIDatabase(dsn string, migrate func(string, dbmigrate.Direction) error, open func(string) (*sql.DB, error)) (*sql.DB, error) {
+	if err := migrate(dsn, dbmigrate.Up); err != nil {
+		return nil, fmt.Errorf("run API schema migrations: %w", err)
+	}
+	db, err := open(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("open mysql: %w", err)
+	}
+	return db, nil
 }
 
 func runOIDPRotateKey(ctx context.Context, cfg *config.APIConfig, args []string) error {

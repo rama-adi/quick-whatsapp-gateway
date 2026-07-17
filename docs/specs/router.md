@@ -149,6 +149,11 @@ port, wildcard binds overlap every host; `localhost` is normalized to both loopb
 IPv4-mapped/expanded IPv6 literals are normalized before collision checking. Other hostnames on a
 shared port are rejected rather than resolved through nondeterministic external DNS.
 
+Before opening its normal MySQL pool or binding either public listener, `cmd/api` applies all
+pending WA schema migrations through `internal/dbmigrate`. Migration failure is an attributed
+startup failure, so the API cannot advertise readiness against an old schema. Explicit rollback is
+available only through `cmd/migrate down`; the gateway runtime has no migration command or import.
+
 On the **gateway** side the matching config is `ROUTER_JWKS_URL` (required at runtime — the router's
 JWKS for assertion verify) + `ROUTER_ASSERTION_ISSUER` (default `router`); `GATEWAY_ID` is the
 assertion audience. See [`http-foundation.md`](http-foundation.md).

@@ -30,8 +30,8 @@ api:         ## run the API (the public front door) on the HOST (run infra-up fi
 web:         ## frontend dev server (HMR)
 	cd web && pnpm dev
 
-migrate:     ## apply DB migrations (the gateway binary embeds golang-migrate; no standalone CLI)
-	go run ./cmd/gateway migrate up
+migrate:     ## apply API-owned WA schema migrations
+	go run ./cmd/migrate up
 
 build:       ## production image
 	docker build -t whatsmeow-gateway -f deploy/Dockerfile .

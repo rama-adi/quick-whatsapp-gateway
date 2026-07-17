@@ -2,7 +2,7 @@
 
 Status: implemented. Package `internal/wa/inbound`.
 
-Production wiring lives in `cmd/server`: the `wa.Manager` forwards raw
+Production wiring lives in `cmd/gateway`: the `wa.Manager` forwards raw
 whatsmeow events into `service.InboundPipelineHandler`, backed by the real
 pipeline, the gateway MySQL repos, Redis stream publisher, webhook enqueuer,
 event-log appender, and manager-backed WA live ops. This is what populates

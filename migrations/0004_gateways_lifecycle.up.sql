@@ -2,7 +2,7 @@
 -- adding/removing a gateway is a clean, observable, data-driven operation and the
 -- central router can route by gateway status + load. See docs/specs/router.md and
 -- docs/plans/plan-router-impl.md (D8). The gateway remains the sole writer of WA
--- tables (golang-migrate); the frontend only introspects them.
+-- tables (API-owned golang-migrate); the frontend only introspects them.
 ALTER TABLE gateways
   ADD COLUMN status        VARCHAR(16)  NOT NULL DEFAULT 'active'  -- joining|active|draining|drained|unreachable
     AFTER label,

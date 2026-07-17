@@ -6,14 +6,15 @@ Status: implemented (R1).
 > data becomes API/control-plane runtime state: only the API opens MySQL repositories and performs
 > application-data writes. Gateways report lifecycle/events and request writes through private gRPC;
 > they will not import `internal/store`, `internal/dbconn`, or a MySQL driver. Repository and migration
-> ownership below is still current behavior until those call sites move. The Go control-plane binary
-> remains the schema-migration writer after the runtime gateway loses its database dependency.
+> repository write ownership below is still current behavior until those call sites move. Schema
+> migration ownership has already moved: the API applies `up` before opening its pool/listeners,
+> and `cmd/migrate` provides explicit `up|down`; the gateway never executes migrations.
 
 The app-data persistence layer for the WA-domain plane. Repositories expose `internal/domain`
 types and mostly use generated `sqlc` query bindings over `database/sql` internally; OAuth/OIDC
 repos use the same plain `database/sql` repo boundary directly because their migration was added
-after the sqlc baseline. There is still no ORM and no ORM-owned migrations. The gateway is the
-**sole writer** of these tables; the frontend reads
+after the sqlc baseline. There is still no ORM and no ORM-owned migrations. The gateway remains a
+transitional runtime data writer, while only API/control-plane tooling writes schema; the frontend reads
 them read-only via Drizzle ([`frontend.md`](frontend.md) § hybrid reads). Masterplan §6, §7.
 
 ## Ownership — `organization_id`, not `tenant_id`
@@ -166,13 +167,13 @@ connections plus cumulative wait count/duration. This distinguishes immediate
 request cancellation from pool exhaustion without logging the DSN, SQL text, or
 credentials.
 
-## Migrations tooling — the binary applies them
+## Migrations tooling — API/control-plane ownership
 
-The gateway **binary** owns the WA-data plane migrations via **golang-migrate** embedded over
-`migrations/` (`source/iofs`, `database/mysql`). There is **no standalone migrate CLI**: run
-`server migrate up` / `server migrate down` (`cmd/server/main.go`). The Makefile `migrate` target
-invokes the binary. The auth plane is migrated separately by drizzle-kit in the frontend
-(masterplan §19 #5).
+`internal/dbmigrate` owns WA-data schema execution via **golang-migrate** embedded over
+`migrations/` (`source/iofs`, `database/mysql`). `cmd/api` applies `up` before opening its normal
+MySQL pool or any listener; a failure aborts startup. Operations use `cmd/migrate up|down`, and
+`make migrate` invokes `cmd/migrate up`. `cmd/gateway` imports no migration package and exposes no
+migration subcommand. The auth plane is migrated separately by drizzle-kit in the frontend.
 
 `sqlc` consumes the same migration SQL as schema input plus named queries in
 `internal/store/queries/`; it generates typed query methods in `internal/store/storedb/`.

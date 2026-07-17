@@ -39,7 +39,7 @@ change anything, it calls the gateway. So:
 
 The frontend describes the WhatsApp tables as **read-only** Drizzle definitions in
 `web/app/lib/db/wa.ts`. These definitions mirror the schema the gateway owns. Generate
-them with `drizzle-kit introspect` against the gateway-migrated database so they can't
+them with `drizzle-kit introspect` against the API-migrated database so they can't
 drift out of sync — see [regenerating code](/docs/dev/regenerating-code).
 
 ## Migrations: two sets of tables, two tools
@@ -49,10 +49,10 @@ changing.
 
 | Tables | Migrated by | Command |
 |---|---|---|
-| WhatsApp data (gateway-owned) | golang-migrate, embedded in the gateway binary | `go run ./cmd/server migrate up` (`make migrate`) |
+| WhatsApp data (API schema-owned) | golang-migrate | API startup, or `go run ./cmd/migrate up` (`make migrate`) |
 | Auth (frontend-owned) | drizzle-kit | `cd web && pnpm db:migrate` |
 
-The gateway binary runs golang-migrate itself — there is **no separate migrate CLI**.
+The gateway never runs schema migrations. Use API startup or the dedicated `cmd/migrate up|down`.
 On the frontend side, `drizzle.config.ts` points only at `app/lib/db/auth-schema.ts`
 and is filtered to the auth tables, so a drizzle migration can't generate a statement
 against a gateway-owned table. Keep it that way, and review the generated diff before

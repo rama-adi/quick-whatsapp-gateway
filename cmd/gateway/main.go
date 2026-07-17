@@ -1,14 +1,8 @@
 // Command gateway is the gateway entrypoint and composition root: it loads
-// configuration, opens the data stores, runs migrations, wires every subsystem
+// configuration, opens the data stores, wires every subsystem
 // (auth, keystore, outbound, stream, webhooks, the session manager, the async
 // queue), builds the service layer + HTTP router, and runs an HTTP server with
 // graceful shutdown.
-//
-// Subcommands:
-//
-//	gateway                 run the gateway (default)
-//	gateway migrate up      apply all pending migrations
-//	gateway migrate down    roll back one migration
 package main
 
 import (
@@ -24,9 +18,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/golang-migrate/migrate/v4"
-	migratemysql "github.com/golang-migrate/migrate/v4/database/mysql"
-	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/redis/go-redis/v9"
@@ -34,6 +25,7 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/assertion"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/config"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/crypto"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/dbconn"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 	gwhttp "github.com/ramaadi/quick-whatsapp-gateway/internal/http"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/http/handlers"
@@ -48,17 +40,9 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa/outbound"
 	wastore "github.com/ramaadi/quick-whatsapp-gateway/internal/wa/store"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/webhooks"
-	"github.com/ramaadi/quick-whatsapp-gateway/migrations"
 )
 
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "migrate" {
-		if err := runMigrate(os.Args[2:]); err != nil {
-			slog.Error("migrate failed", "err", err)
-			os.Exit(1)
-		}
-		return
-	}
 	if err := run(); err != nil {
 		slog.Error("gateway exited with error", "err", err)
 		os.Exit(1)
@@ -80,12 +64,8 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// --- App data store (MySQL) + migrations ---
-	if err := migrateUp(cfg.MySQLDSN); err != nil {
-		return fmt.Errorf("run migrations: %w", err)
-	}
-
-	db, err := openMySQL(cfg.MySQLDSN)
+	// --- Transitional app-data store (schema migration is owned by the API) ---
+	db, err := dbconn.OpenMySQL(cfg.MySQLDSN)
 	if err != nil {
 		return fmt.Errorf("open mysql: %w", err)
 	}
@@ -452,49 +432,6 @@ func readiness(db *sql.DB, rdb *redis.Client) func() error {
 	}
 }
 
-func openMySQL(dsn string) (*sql.DB, error) {
-	if dsn == "" {
-		return nil, fmt.Errorf("MYSQL_DSN is required")
-	}
-	// Ensure parseTime is on so DATETIME columns round-trip as time.Time.
-	dsn = ensureDSNParam(dsn, "parseTime", "parseTime=true")
-	// Force CLIENT_FOUND_ROWS so RowsAffected() reports MATCHED rows, not CHANGED
-	// rows. The store uses affectedOrNotFound on UPDATEs as an existence assertion
-	// (e.g. mark-chat-read, PATCH chat flags); without this, an idempotent update
-	// that sets a row to the values it already holds reports 0 affected and is
-	// misread as a 404. clientFoundRows makes "matched a row" the success signal.
-	dsn = ensureDSNParam(dsn, "clientFoundRows", "clientFoundRows=true")
-	db, err := sql.Open("mysql", dsn)
-	if err != nil {
-		return nil, err
-	}
-	db.SetConnMaxLifetime(5 * time.Minute)
-	db.SetMaxOpenConns(25)
-	db.SetMaxIdleConns(25)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := db.PingContext(ctx); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	return db, nil
-}
-
-// ensureDSNParam appends `kv` (e.g. "parseTime=true") to a MySQL DSN's query
-// string unless the named param is already present, picking the right `?`/`&`
-// separator. It leaves an explicitly-set value untouched so a deployment can
-// still override.
-func ensureDSNParam(dsn, name, kv string) string {
-	if strings.Contains(dsn, name+"=") {
-		return dsn
-	}
-	sep := "?"
-	if strings.Contains(dsn, "?") {
-		sep = "&"
-	}
-	return dsn + sep + kv
-}
-
 func openRedis(rawURL string) (*redis.Client, error) {
 	if rawURL == "" {
 		return nil, fmt.Errorf("REDIS_URL is required")
@@ -504,86 +441,6 @@ func openRedis(rawURL string) (*redis.Client, error) {
 		return nil, err
 	}
 	return redis.NewClient(opt), nil
-}
-
-// migrator builds a *migrate.Migrate over the embedded migrations and the DB.
-func migrator(db *sql.DB) (*migrate.Migrate, error) {
-	src, err := iofs.New(migrations.FS, ".")
-	if err != nil {
-		return nil, fmt.Errorf("open migration source: %w", err)
-	}
-	driver, err := migratemysql.WithInstance(db, &migratemysql.Config{})
-	if err != nil {
-		return nil, fmt.Errorf("migrate driver: %w", err)
-	}
-	m, err := migrate.NewWithInstance("iofs", src, "mysql", driver)
-	if err != nil {
-		return nil, fmt.Errorf("migrate instance: %w", err)
-	}
-	return m, nil
-}
-
-func migrateUp(dsn string) error {
-	db, err := openMigrateMySQL(dsn)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = db.Close() }()
-	m, err := migrator(db)
-	if err != nil {
-		return err
-	}
-	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
-		return err
-	}
-	return nil
-}
-
-// openMigrateMySQL opens a MySQL connection for running migrations. golang-migrate's
-// mysql WithInstance driver runs each migration file as a single Exec, so a file
-// with more than one statement (e.g. an ALTER plus a CREATE INDEX, or several
-// CREATE TABLEs) needs multiStatements enabled — otherwise MySQL rejects the
-// second statement with a 1064 syntax error. The app's own pool deliberately
-// leaves this off; only the migrator needs it.
-func openMigrateMySQL(dsn string) (*sql.DB, error) {
-	return openMySQL(ensureDSNParam(dsn, "multiStatements", "multiStatements=true"))
-}
-
-// runMigrate implements `migrate up|down`.
-func runMigrate(args []string) error {
-	cfg, err := config.LoadGateway()
-	if err != nil {
-		return err
-	}
-	setupLogging(cfg.LogLevel)
-	db, err := openMigrateMySQL(cfg.MySQLDSN)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = db.Close() }()
-	m, err := migrator(db)
-	if err != nil {
-		return err
-	}
-	direction := "up"
-	if len(args) > 0 {
-		direction = args[0]
-	}
-	switch direction {
-	case "up":
-		if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
-			return err
-		}
-		fmt.Println("migrations applied")
-	case "down":
-		if err := m.Steps(-1); err != nil && !errors.Is(err, migrate.ErrNoChange) {
-			return err
-		}
-		fmt.Println("rolled back one migration")
-	default:
-		return fmt.Errorf("unknown migrate direction %q (want up|down)", direction)
-	}
-	return nil
 }
 
 // setupLogging installs a JSON slog handler at the configured level.

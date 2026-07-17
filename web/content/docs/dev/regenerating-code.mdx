@@ -15,7 +15,7 @@ All commands run from `web/`, unless a step says otherwise.
 | `app/lib/api/schema.d.ts` — TypeScript types for the gateway client | `docs/openapi.yaml` (the gateway's API contract) | `pnpm gen:api` |
 | `content/docs/api/**` — the API reference pages on the docs site | `docs/openapi.yaml` | `pnpm docs:openapi` |
 | `app/lib/db/auth-schema.ts` — Drizzle table definitions for the auth tables | `app/lib/auth/server.ts` (the better-auth config) | `pnpm auth:generate` |
-| `app/lib/db/wa.ts` — read-only Drizzle definitions for the WhatsApp tables | the live database, after gateway migrations are applied | `pnpm db:introspect` |
+| `app/lib/db/wa.ts` — read-only Drizzle definitions for the WhatsApp tables | the live database, after API-owned migrations are applied | `pnpm db:introspect` |
 
 ## `app/lib/api/schema.d.ts` — gateway client types
 
@@ -50,26 +50,26 @@ tables. Run it after you change the better-auth plugin set or its options.
 
 After regenerating, create and apply a migration with `pnpm db:migrate`
 (drizzle-kit). `drizzle.config.ts` is scoped to the auth tables only, so check
-that the generated migration touches no gateway-owned table — the gateway owns
+that the generated migration touches no WA app-data table — API-owned golang-migrate owns
 the WhatsApp tables and is their only migration writer.
 
 ## `app/lib/db/wa.ts` — WhatsApp table read models
 
 The frontend reads the WhatsApp app-data tables (gateways, sessions, contacts,
 and so on) through the read-only Drizzle definitions in `app/lib/db/wa.ts`. The
-gateway owns these tables and migrates them with golang-migrate; the frontend
+the API owns these schema migrations through golang-migrate; the frontend
 never migrates them, it only mirrors them.
 
 So you don't write `wa.ts` by hand against the Go schema. Instead, apply the
-gateway migration to a database, then have drizzle-kit read that live database
+WA migration to a database, then have drizzle-kit read that live database
 and generate the definitions from it. This keeps `wa.ts` matching what the gateway
 actually created.
 
 After the WhatsApp schema changes:
 
 ```sh
-make migrate            # apply the new gateway migration to your dev DB (from repo root)
+make migrate            # apply the new WA migration to your dev DB (from repo root)
 cd web && pnpm db:introspect   # read the live schema into app/lib/db/wa.ts
 ```
 
-`make migrate` runs `go run ./cmd/server migrate up`.
+`make migrate` runs `go run ./cmd/migrate up`; API startup also applies pending `up` migrations.

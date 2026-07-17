@@ -404,7 +404,7 @@ dashboard/viewer/contacts rendering (TanStack Start server functions querying My
 **not** write them. The frontend's DB layer is **Drizzle**: better-auth runs on the
 `drizzleAdapter`, and the *same* Drizzle client serves the read-only WA queries. The WA tables
 are modeled as **read-only** Drizzle definitions mirroring the gateway-owned schema — generate
-them with `drizzle-kit introspect` (pull) against the gateway-migrated DB so they can't drift. For anything that changes WhatsApp or gateway state — send a message,
+them with `drizzle-kit introspect` (pull) against the API-migrated DB so they can't drift. For anything that changes WhatsApp or gateway state — send a message,
 start/stop a session, fetch a QR, register a webhook — the frontend/browser calls the **router REST
 API**, which currently reverse-proxies to the owning gateway. Realtime comes from the router's
 ticketed WebSocket over shared Redis. So:
@@ -939,7 +939,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -o /out/gateway ./cmd/server   # pure-Go sqlite (modernc) → no CGO
+RUN CGO_ENABLED=0 go build -o /out/gateway ./cmd/gateway  # pure-Go sqlite (modernc) → no CGO
 
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates tzdata
@@ -1026,8 +1026,9 @@ volumes: { mysql_data: {}, redis_data: {}, keystore_data: {} }
 
 ```
 .
-├── cmd/router/main.go              # public front door: auth, REST broker, OpenAPI, WebSocket
-├── cmd/server/main.go              # gateway entrypoint
+├── cmd/api/main.go                 # public front door; migrates schema before serving
+├── cmd/gateway/main.go             # gateway runtime; never migrates MySQL
+├── cmd/migrate/main.go             # dedicated WA schema up/down command
 ├── internal/                       # shared Go packages during router→API migration
 │   ├── config/
 │   ├── router/                     # public broker + WebSocket; transitional private HTTP proxy
@@ -1037,7 +1038,7 @@ volumes: { mysql_data: {}, redis_data: {}, keystore_data: {} }
 │   ├── wa/    (manager, session, store/sqlite, inbound, outbound, events)
 │   ├── store/ (MySQL repos — organization_id keyed)
 │   ├── webhooks/  · stream/  · queue/
-├── migrations/                     # golang-migrate (WA app-data schema only; no wmstore_* in MySQL)
+├── migrations/                     # API-owned golang-migrate WA schema (no wmstore_* in MySQL)
 ├── web/                            # FRONTEND — TanStack Start + better-auth + copied shadcn
 │   ├── app/  (routes, components/ui copied from v1, lib/api, lib/events, lib/auth → better-auth)
 │   ├── src/server/auth.ts          # better-auth config (plugins + drizzleAdapter)
@@ -1086,7 +1087,7 @@ of the WhatsApp engine. Milestones, each leaving the tree green:
   is gone); re-pair the admin number against SQLite.
 - **R3 — Frontend scaffold:** new TanStack Start app; better-auth (email/password, twoFactor,
   admin, apiKey, jwt, **organization**) on MySQL via the **Drizzle adapter** (`@better-auth/cli
-  generate` → Drizzle schema, `drizzle-kit migrate` to apply; introspect the gateway-owned WA
+  generate` → Drizzle schema, `drizzle-kit migrate` to apply; introspect the API-owned WA
   tables into read-only Drizzle models); `definePayload`
   to put `activeOrganizationId`+role in the JWT; **personal-org-on-signup** hook; copy shadcn
   `components/ui` over. **Re-fit the v1 SPA logic to TanStack Start idioms** (route loaders +
@@ -1138,7 +1139,8 @@ proxy. Business labels.
    system-owned (`user_id` sentinel). Default: configured super-admin user id; falls back to
    system-owned if unset.
 4. **History sync on pair** — default **off** (`INGEST_HISTORY` toggle).
-5. **Migrations tooling** — *decided:* `golang-migrate` for the **gateway** WA-data plane;
+5. **Migrations tooling** — *decided:* API-owned `golang-migrate` for the WA-data plane (automatic
+   API startup `up` plus dedicated `cmd/migrate up|down`; never executed by the gateway runtime);
    **drizzle-kit** (`generate`→`migrate`) for the **auth** plane (Drizzle schema produced by
    `npx @better-auth/cli generate`). The better-auth `migrate` CLI (Kysely-only) is **not**
    used. The frontend's WA-table Drizzle models are read-only mirrors — keep in sync via
@@ -1198,7 +1200,7 @@ SQLite).
 
 **`deploy/docker-compose.dev.yml`** — infra only (MySQL + Redis), unchanged from v1 in shape.
 
-**`.air.toml`** — `CGO_ENABLED=0 go build -o ./tmp/gateway ./cmd/server`; exclude
+**`.air.toml`** — `CGO_ENABLED=0 go build -o ./tmp/gateway ./cmd/gateway`; exclude
 `web`/`deploy`/`docs`.
 
 **Day-to-day:** `make infra-up` once, then three terminals — gateway (`air`), frontend

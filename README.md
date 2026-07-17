@@ -142,8 +142,9 @@ lives in `deploy/.env.example` and `web/.env.example`.
 ## Repo layout
 
 ```
-cmd/router/    router entrypoint
-cmd/server/    gateway entrypoint (also: server migrate up|down)
+cmd/api/       API entrypoint (applies WA schema migrations before serving)
+cmd/gateway/   gateway runtime entrypoint (never migrates MySQL)
+cmd/migrate/   dedicated WA schema up/down command
 internal/      router/ · assertion/ · authz/ · http/ · wa/ · store/ · webhooks/ · stream/ · queue/
 migrations/    WhatsApp data tables (golang-migrate)
 web/           frontend: TanStack Start + better-auth + Drizzle + shadcn; docs site under /docs
