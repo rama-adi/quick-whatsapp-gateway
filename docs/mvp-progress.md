@@ -39,7 +39,7 @@ until later increments replace them.
 
 | Increment | Status | Notes |
 |---|---|---|
-| **Increment 0** — decisions and contract tooling | 🚧 In progress | Separate public/private Buf modules; pinned reproducible Go generation; `FILE` compatibility checks for both domains; temporary-directory generated drift check; health-only compatibility anchors; target responsibility boundary and operational defaults recorded. No listener or runtime cutover. |
+| **Increment 0** — decisions and contract tooling | 🚧 In progress | Separate public/private Buf modules; pinned reproducible Go generation; `FILE` compatibility checks for both domains; temporary-directory generated drift check; health-only compatibility anchors; small transport-independent ports for session state, account presence, and read receipts with an unwired local WA adapter; target responsibility boundary and operational defaults recorded. No listener or runtime cutover. |
 | **Increment 1+** — composition roots through cutover | ⬜ Planned | Rename API/gateway roots, add PKI and control stream, desired state, engine slices, reliable events/commands, public gRPC, then remove gateway HTTP/MySQL/Redis. |
 
 ## v1 milestones (archived — code complete)
@@ -71,6 +71,10 @@ e2e smoke against a live WhatsApp number.
 - **Protobuf policy:** `public.v1` and `gateway.v1` are separate Buf modules/compatibility domains;
   both use `FILE` breaking policy. Go bindings are committed and drift is checked by regenerating in
   a temporary directory. BSR adoption remains open and is not required for local/CI checks.
+- **Initial application seam:** session state, account presence, and read receipts are the first
+  transport-independent gateway-engine ports. Their local WA adapter is not wired into any call
+  path. Mutation metadata is carried now, while durable command idempotency and assignment-epoch
+  validation remain explicit later-increment work.
 - **Pre-release migration freedom:** no production backward compatibility is required. Architecture,
   packages, schemas, public APIs, and deployment configuration may be reshaped directly toward the
   clean gRPC target without compatibility shims; every increment must still build, test, and deploy.

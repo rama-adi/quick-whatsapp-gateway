@@ -54,3 +54,26 @@ green gates.
 
 The health services are compatibility anchors only. They are not registered or reachable until a
 later migration increment introduces the API and gateway gRPC listeners.
+
+## Transport-independent engine boundary
+
+Increment 0 also establishes a small consumer-owned boundary in `internal/application`. It contains
+only three capabilities already backed by the local WhatsApp runtime: a session-state snapshot,
+account presence, and read receipts. `internal/wa.ApplicationGatewayAdapter` satisfies that
+boundary over `Manager.ConnectionState` and `LiveOps`, but no composition root constructs it and no
+HTTP or gRPC call path uses it yet.
+
+Commands and results carry organization, session, and gateway identifiers. Mutations additionally
+carry a stable `command_id` and `assignment_epoch`; the adapter preserves those values but does not
+accept epoch zero, claim to deduplicate commands, or validate equality against the current owning
+assignment. Ownership/equality protections require the durable command ledger and assignment
+authority in later increments. Context carries deadlines, cancellation, and tracing rather than
+embedding transport metadata in domain structs.
+
+The presence input is a closed online/offline enum so unknown values cannot silently mean offline.
+Read receipts reject empty message IDs, require the participant sender JID for group receipts, and
+use a caller-supplied timestamp so retries retain one event time. The existing in-process
+read-receipt helper keeps its current `time.Now` behavior. A named 30-second future-clock-skew
+allowance is evaluated through an injected clock; old timestamps have no artificial age limit.
+These application types import neither Huma nor protobuf/generated bindings, stores, the WA
+manager, or outbound implementations.

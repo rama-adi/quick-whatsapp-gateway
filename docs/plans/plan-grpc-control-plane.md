@@ -532,6 +532,12 @@ Each increment should land as a small conventional commit and pass all green gat
 - Add compatibility/version policy and generated-code checks to CI.
 - Introduce shared domain/application interfaces without moving runtime behavior.
 
+The initial application seam is intentionally limited to session state, account presence, and read
+receipts. A local WA adapter proves these existing capabilities fit behind transport-independent
+ports. It remains unwired; `command_id` and `assignment_epoch` are carried but command deduplication
+and current-owner epoch equality/fencing are not implemented until the durable control-plane
+increments. Mutation adapters reject epoch zero as structurally invalid.
+
 Exit: empty/private health protobuf can be generated reproducibly; existing system is unchanged.
 
 ### Increment 1 — API and gateway composition roots

@@ -173,6 +173,7 @@ type fakeClient struct {
 	handler     whatsmeow.EventHandler
 	presence    []types.Presence
 	readIDs     []types.MessageID
+	readAt      time.Time
 	pairDisplay string
 }
 
@@ -243,11 +244,36 @@ func (c *fakeClient) SendPresence(_ context.Context, state types.Presence) error
 func (c *fakeClient) SendChatPresence(context.Context, types.JID, types.ChatPresence, types.ChatPresenceMedia) error {
 	return nil
 }
-func (c *fakeClient) MarkRead(_ context.Context, ids []types.MessageID, _ time.Time, _, _ types.JID, _ ...types.ReceiptType) error {
+func (c *fakeClient) MarkRead(_ context.Context, ids []types.MessageID, readAt time.Time, _, _ types.JID, _ ...types.ReceiptType) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.readIDs = append(c.readIDs, ids...)
+	c.readAt = readAt
 	return nil
+}
+
+func TestLiveOpsReadReceiptTimestamps(t *testing.T) {
+	client := &fakeClient{}
+	m := &Manager{sessions: map[string]*ManagedSession{
+		"sess_1": {SessionID: "sess_1", client: client},
+	}}
+	live := m.LiveOps()
+	exact := time.Date(2026, 7, 18, 1, 2, 3, 4, time.UTC)
+	if err := live.SendReadReceiptAt(context.Background(), "sess_1", "1@g.us", "2@s.whatsapp.net", []string{"m1"}, exact); err != nil {
+		t.Fatal(err)
+	}
+	if !client.readAt.Equal(exact) {
+		t.Fatalf("explicit read timestamp = %s, want %s", client.readAt, exact)
+	}
+
+	before := time.Now()
+	if err := live.SendReadReceipt(context.Background(), "sess_1", "1@g.us", "2@s.whatsapp.net", []string{"m2"}); err != nil {
+		t.Fatal(err)
+	}
+	after := time.Now()
+	if client.readAt.IsZero() || client.readAt.Before(before) || client.readAt.After(after) {
+		t.Fatalf("legacy read timestamp = %s, want within [%s, %s]", client.readAt, before, after)
+	}
 }
 
 func quietLogger() *slog.Logger {

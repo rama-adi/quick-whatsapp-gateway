@@ -49,6 +49,10 @@ type liveClient interface {
 	MarkRead(ctx context.Context, ids []types.MessageID, timestamp time.Time, chat, sender types.JID, receiptTypeExtra ...types.ReceiptType) error
 }
 
+type readReceiptClient interface {
+	MarkRead(ctx context.Context, ids []types.MessageID, timestamp time.Time, chat, sender types.JID, receiptTypeExtra ...types.ReceiptType) error
+}
+
 // LiveOps returns a session-resolving adapter over the manager. It satisfies the
 // service package's GroupOps / ContactDirectory / PresenceController / ChannelOps
 // ports structurally. Wire it into the resource services in the composition root.
@@ -76,6 +80,24 @@ func (l *LiveOps) client(id string) (liveClient, error) {
 		return nil, domain.ErrNotImplemented("live WhatsApp client is not available for this session")
 	}
 	return lc, nil
+}
+
+func (l *LiveOps) receiptClient(id string) (readReceiptClient, error) {
+	ms := l.m.Get(id)
+	if ms == nil {
+		return nil, domain.ErrNotFound("session not found")
+	}
+	ms.mu.Lock()
+	c := ms.client
+	ms.mu.Unlock()
+	if c == nil {
+		return nil, domain.ErrNotImplemented("live WhatsApp client is not available for this session")
+	}
+	rc, ok := c.(readReceiptClient)
+	if !ok {
+		return nil, domain.ErrNotImplemented("live WhatsApp client is not available for this session")
+	}
+	return rc, nil
 }
 
 // DecryptPollVote decrypts an incoming poll-vote (PollUpdateMessage) event and
@@ -687,7 +709,14 @@ func (l *LiveOps) GetPresence(ctx context.Context, sessionID, chatJID string) (d
 
 // SendReadReceipt marks one or more incoming messages as read.
 func (l *LiveOps) SendReadReceipt(ctx context.Context, sessionID, chatJID, senderJID string, messageIDs []string) error {
-	c, err := l.client(sessionID)
+	return l.SendReadReceiptAt(ctx, sessionID, chatJID, senderJID, messageIDs, time.Now())
+}
+
+// SendReadReceiptAt marks messages read with an explicit timestamp. Control
+// plane commands use this form so a retry does not invent a different event
+// time; the legacy in-process port above retains its existing time.Now behavior.
+func (l *LiveOps) SendReadReceiptAt(ctx context.Context, sessionID, chatJID, senderJID string, messageIDs []string, readAt time.Time) error {
+	c, err := l.receiptClient(sessionID)
 	if err != nil {
 		return err
 	}
@@ -708,7 +737,7 @@ func (l *LiveOps) SendReadReceipt(ctx context.Context, sessionID, chatJID, sende
 			ids = append(ids, types.MessageID(id))
 		}
 	}
-	return c.MarkRead(ctx, ids, time.Now(), chat, sender)
+	return c.MarkRead(ctx, ids, readAt, chat, sender)
 }
 
 // SendPresence sends per-chat composing/paused presence for the inbound pipeline.
