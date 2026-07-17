@@ -1,7 +1,7 @@
 # MVP Progress Tracker
 
-Tracks implementation status against [`masterplan-mvp.md`](../masterplan-mvp.md).
-Last updated: 2026-06-27.
+Tracks implementation status against [`masterplan-mvp.md`](plans/masterplan-mvp.md).
+Last updated: 2026-07-18.
 
 > **Pivot to v2 (split architecture).** The single-binary v1 MVP (Go + Authula + embedded
 > React Router SPA + MySQL keystore) was **code-complete (M0–M8)** and is preserved at git
@@ -14,11 +14,11 @@ Last updated: 2026-06-27.
 | Milestone | Status | Notes |
 |---|---|---|
 | **R0** — Snapshot & specs | ✅ Done | v1 archived + tagged `mvp-v1`; masterplan rewritten to v2; `docs/specs/*` carried superseded banners + the `_V2-STATUS.md` index (full rewrites landed with each R-milestone, finalized in R5). |
-| **R1** — Gateway de-auth | ✅ Done | `internal/auth` (Authula) removed; `internal/authz` added (JWKS+JWT verify via `jwx/v3`, api-key verify vs shared `apikey`); ownership `tenant_id`→`organization_id`; `tenants`/`api_keys` dropped; `/auth`+`/keys` routes gone; CORS for `FRONTEND_ORIGINS`; per-gateway key cache + `ctrl:*` control-bus subscriber + boot reconcile. Fresh v2 `migrations/0001_init`. |
+| **R1** — Gateway de-auth | ✅ Done | **Historical R1 state, superseded by the central router:** `internal/auth` (Authula) was removed and `internal/authz` added; ownership changed `tenant_id`→`organization_id`; `/auth` and `/keys` disappeared; JWT/API-key verification, CORS, the positive key cache, and `ctrl:*` subscription initially lived on each gateway. They now live on the router. Fresh v2 `migrations/0001_init`. |
 | **R2** — Keystore → SQLite | ✅ Done | whatsmeow `sqlstore` on `modernc.org/sqlite` (CGO=0); persistent `/data/keystore` volume; `gateways` self-row + `wa_sessions.gateway_id` pinning; boot orphan-guard (skip+`STOPPED` sessions whose org is gone); admin number re-paired against SQLite. |
 | **R3** — Frontend scaffold | ✅ Done | TanStack Start app; better-auth (email/password, twoFactor, admin, apiKey, jwt, **organization**) on MySQL via `drizzleAdapter`; auth tables via drizzle-kit; WA tables read-only Drizzle models; `definePayload` → `activeOrganizationId`+`orgRole`+`role`; **personal-org-on-signup** hook; shadcn `components/ui` ported; SPA logic re-fit to TanStack Start idioms (loaders/`createServerFn`, `createMiddleware`/`beforeLoad`, file-based routing); login/register/TOTP/admin/keys + **org switcher**. |
-| **R4** — Frontend ↔ gateway | ✅ Done | Browser→gateway direct (actions + NDJSON stream) with `Bearer` JWT; server mints JWT (`mintGatewayToken`) + direct-MySQL reads for dashboards/viewer/contacts; webhook config via gateway API; control bus publishes `ctrl:apikey.revoked`/`user.banned`/`member.removed` from better-auth `after` hooks. **Trust seam validated LIVE** against better-auth 1.6.22. |
-| **R5** — Packaging & docs | ✅ Done | Two Dockerfiles + split compose + `.env.example`; `openapi.yaml` (auth/keys paths dropped); README rewritten to the v2 split; **all `docs/specs/*` rewritten to v2** (`_V2-STATUS.md` all-green); contract tests (better-auth JWT ↔ gateway verify; better-auth api-key ↔ gateway verify); e2e smoke (login → mint JWT → start session → pair → send → stream). |
+| **R4** — Frontend ↔ gateway | ✅ Done | **Historical R4 state, superseded by the central router:** browsers initially called gateways directly and consumed NDJSON with a bearer JWT. Today browsers call the router and consume its ticketed WebSocket; gateway NDJSON and public auth/CORS are removed. Direct-MySQL display reads and better-auth `ctrl:*` publishers remain. |
+| **R5** — Packaging & docs | ✅ Done | Historical split packaging/docs milestone. The API contract subsequently moved from hand-maintained YAML to generated Huma OpenAPI served by the router; central-router contract tests supersede the original direct-gateway trust smoke. |
 | **R6** — Collaboration | ⬜ Remaining (fast-follow) | Members & invitations UI on the org plugin (invite by email, accept/reject, role change, remove member); publish `ctrl:member.removed` on removal. Additive — ownership/org plumbing already shipped in R1/R3. |
 
 ## Central router (post-R5 — `feat/central-router`)
@@ -28,8 +28,19 @@ Plan: [`plans/plan-router-impl.md`](plans/plan-router-impl.md). Spec: [`specs/ro
 | Increment | Status | Notes |
 |---|---|---|
 | **Increment A** — REST broker + auth termination + registry Layer 1 | ✅ Done | New `cmd/router` + `internal/router` (stateless front door): two-acceptor authn moved off the gateway to the router; session→owning-gateway resolve + **org isolation** (`404`, super_admin bypass); reverse-proxy with a request-bound **Ed25519 internal assertion** (`internal/assertion`, `X-Internal-Assertion`); routing rules (placement via `PickForPlacement` / session-owner / any-active / stranded `503 gateway_unavailable`); router publishes `/.well-known/router-jwks.json` and serves `/api/v1/openapi.yaml`; `ctrl:*` control-bus subscriber moved to the router (evicts the api-key cache on revocation). Gateway: `assertion.Middleware` on `/api/v1`, dropped client authn + CORS + `internal/controlbus` + the api-key cache/verifiers + OpenAPI serving; **registry lifecycle (Layer 1)** — boot `joining→active`, 30s heartbeat (`last_seen_at`+`session_count`), graceful `draining→drained` on SIGTERM. Migration `0004_gateways_lifecycle` (`status`/`session_count`/`capacity` + `idx_gateways_status_seen`); `GatewayRepo.Heartbeat/SetStatus/ListActive/PickForPlacement` + `SessionRepo.CountByGateway`. `wa_sessions.gateway_id` is now authoritative for routing. |
-| **Increment B** — WebSocket realtime cutover | ⬜ In progress / planned | Router `POST /api/v1/realtime/ticket` (scope-bearing, authz-at-mint) + `GET /api/v1/realtime` WS with single-use Redis `GETDEL` tickets; direct-push / shared-Redis event seam behind `EventSink`; delete NDJSON; gateway drops `/events`; live stream-drop on revocation; frontend WS client. **Not done.** Today the gateway still serves NDJSON `/events` (behind the assertion middleware) and the router proxies it (streaming). |
-| **Increment 0** — code-first OpenAPI (huma) | ⬜ Planned | Shared Go types → generated `docs/openapi.yaml`. **Not done** — the yaml stays hand-authored for now. |
+| **Increment B** — WebSocket realtime cutover | ✅ Done | Router ticket mint + single-use Redis `GETDEL` redemption, WebSocket endpoint, replay/tail pump, frontend WS client, and live stream-drop on revocation are implemented. Gateways publish `evt:*` over shared Redis; gateway NDJSON `/events` is removed. Direct gateway→API ingest is deferred to acknowledged gRPC eventing. |
+| **Increment 0** — code-first OpenAPI (Huma) | ✅ Done | Shared Go DTOs/Huma operations generate `docs/openapi.yaml`; the router serves the generated contract and drift is checked by `make openapi-check`. |
+
+## gRPC control-plane migration (`migration/grpc-control-plane`)
+
+Plan: [`plans/plan-grpc-control-plane.md`](plans/plan-grpc-control-plane.md). The target is locked,
+but the current router/proxy, gateway MySQL/Redis dependencies, and Ed25519 assertion remain live
+until later increments replace them.
+
+| Increment | Status | Notes |
+|---|---|---|
+| **Increment 0** — decisions and contract tooling | 🚧 In progress | Separate public/private Buf modules; pinned reproducible Go generation; `FILE` compatibility checks for both domains; temporary-directory generated drift check; health-only compatibility anchors; target responsibility boundary and operational defaults recorded. No listener or runtime cutover. |
+| **Increment 1+** — composition roots through cutover | ⬜ Planned | Rename API/gateway roots, add PKI and control stream, desired state, engine slices, reliable events/commands, public gRPC, then remove gateway HTTP/MySQL/Redis. |
 
 ## v1 milestones (archived — code complete)
 
@@ -38,6 +49,31 @@ All M0–M8 done as of commit `2ca7467` (tag `mvp-v1`). Full detail in
 e2e smoke against a live WhatsApp number.
 
 ## Key v2 decisions (locked this session)
+
+- **gRPC target boundary (Increment 0; not runtime yet):** the API/control plane becomes the only
+  public front door and owns REST/Huma/OpenAPI, public gRPC, end-user authn/authz, MySQL, Redis,
+  application services, placement, jobs, realtime, webhooks, and event ingestion. Gateways become
+  private whatsmeow engines with local keystore, command ledger, and event journal; they receive no
+  user credentials and require neither shared MySQL nor Redis after cutover.
+- **Initial topology:** API → gateway commands use pooled unary gRPC over persistent HTTP/2, and
+  gateways open a long-lived control/event stream. Every initially supported topology must expose an
+  API-addressable gateway engine endpoint; outbound-only reverse-command mode is deferred.
+- **mTLS CA seam:** development uses a persisted local root plus online intermediate, with the root
+  signing only the intermediate. Production certificate issuance is behind `CertificateSigner`;
+  Vault PKI is the reference implementation, not a vendor lock. Exact production CA remains a
+  deployment choice.
+- **Durable handoff storage:** gateway event/command state lives in a separate `journal.db` on the
+  same persistent volume, never in whatsmeow-owned tables. Configurable initial defaults are a 72h
+  outage sizing objective (not guaranteed RPO), 1 GiB cap with configuration rejected above 25% of
+  volume budget, degraded/pause-optional/critical thresholds at 70/80/90%, at most 256 or 1 MiB
+  events in flight, and seven-day command-ledger retention that must cover the API retry/idempotency
+  window. Increment 5 soak results determine production tuning.
+- **Protobuf policy:** `public.v1` and `gateway.v1` are separate Buf modules/compatibility domains;
+  both use `FILE` breaking policy. Go bindings are committed and drift is checked by regenerating in
+  a temporary directory. BSR adoption remains open and is not required for local/CI checks.
+- **Pre-release migration freedom:** no production backward compatibility is required. Architecture,
+  packages, schemas, public APIs, and deployment configuration may be reshaped directly toward the
+  clean gRPC target without compatibility shims; every increment must still build, test, and deploy.
 
 - **Central router is the single trust boundary + front door (Increment A):** end-user authn
   (better-auth JWT via JWKS / api-key vs the shared `apikey` table) and the `ctrl:*` control-bus
@@ -65,23 +101,19 @@ e2e smoke against a live WhatsApp number.
   30s heartbeat writes `last_seen_at`+`session_count`, SIGTERM drains `draining→drained`.
   `wa_sessions.gateway_id` is **authoritative for routing**. Keystore portability (Layer 2 — live
   re-homing on a shared `sqlstore`/Postgres) is **deferred**.
-- **Deferred to later increments:** the **WebSocket realtime endpoint** (ticket-mint + WS + Redis
-  `GETDEL` single-use tickets + direct-push/shared-Redis event seam + NDJSON deletion + frontend WS
-  client) is **Increment B**, not done — the gateway still serves NDJSON `/events` (behind the
-  assertion middleware) and the router proxies it. The **code-first OpenAPI (huma)** foundation is
-  **Increment 0**, also not done — `docs/openapi.yaml` stays hand-authored, served by the router.
-- **Auth boundary:** humans → better-auth **JWT** verified by the gateway via **JWKS**
-  (`/api/auth/jwks`); machines → better-auth **api-key** plugin, validated by the gateway
-  against the shared `apikey` table. No per-request gateway→frontend callback.
-- **Data:** shared MySQL — frontend writes auth tables, gateway writes WA-domain tables;
-  **hybrid reads** (frontend reads WA tables directly for display, acts via gateway API,
-  realtime via gateway stream). Keystore moves to **gateway-local SQLite** (persistent volume).
-- **API-key revocation:** **instant** via a cross-service Redis **control bus** (`ctrl:*`
-  pub/sub) — frontend publishes on revoke/ban, all gateways evict their cache + drop live
-  streams; ~60-s cache TTL is the backstop, and a **boot-time reconcile sweep** catches up on
-  messages missed while a gateway was down (orphan-guard sessions + prune stale keys). Two Redis
-  roles: `REDIS_URL` (work) + `PUBSUB_REDIS_URL` (control bus, defaults to `REDIS_URL` for
-  single-instance dev), namespaced by `REDIS_PREFIX` to avoid collisions. (Masterplan §4.6.)
+- **Realtime and OpenAPI are router-owned:** browsers mint a scoped ticket and connect to the
+  router WebSocket; gateways publish current runtime events through shared Redis `evt:*`. Gateway
+  NDJSON is removed. Huma operations/Go DTOs generate `docs/openapi.yaml`, which the router serves.
+  Direct acknowledged gateway→API event ingest is part of the gRPC migration, not current runtime.
+- **Current auth boundary:** humans present better-auth JWTs and machines present better-auth API
+  keys to the router. The router verifies both, owns CORS and the positive key cache, and forwards a
+  request-bound internal assertion; gateways do not verify public credentials.
+- **Data:** shared MySQL — frontend writes auth tables, gateway currently writes WA-domain tables;
+  **hybrid reads** use direct MySQL for frontend display, router-mediated REST for actions, and the
+  router WebSocket for realtime. Keystore is **gateway-local SQLite** on a persistent volume.
+- **API-key revocation:** better-auth publishes `ctrl:*`; the router subscriber evicts its positive
+  key cache and drops affected WebSockets. The ~60-second cache TTL is the missed-message backstop.
+  Gateways neither cache public keys nor subscribe to the public-auth control bus.
 - **Ownership = organizations:** resources owned by **`organization_id`** (better-auth
   organization), not `user_id`; **personal org per user** auto-created on signup; org roles
   owner/admin/member gate access; JWT carries `activeOrganizationId`+role. Collaboration
@@ -91,10 +123,9 @@ e2e smoke against a live WhatsApp number.
   long-lived revocable credential, the JWT is a **5-min** access token minted at
   `/api/auth/token`. Revoke the session → refresh stops; `ctrl:user.banned`/`session.revoked`
   kills in-flight JWTs instantly. (Masterplan §4.7.)
-- **Serverless frontend:** the gateway owns all long-lived connections; the **browser talks to
-  the gateway directly** (Bearer JWT) for actions **and** the NDJSON stream — no frontend proxy
-  — so the frontend hosts on serverless. Frontend server only does auth, JWT minting, and direct
-  MySQL reads. (Masterplan §12, §19 #2.)
+- **Serverless frontend:** the browser talks to the **router** for actions and its ticketed
+  WebSocket. The frontend server owns better-auth/JWT minting and direct MySQL display reads, but
+  does not proxy long-lived realtime connections.
 - **Plugin set kept minimal:** email/password, twoFactor, admin, apiKey, jwt, organization.
   Magic-link / passkey / captcha deferred.
 - **Frontend DB layer = Drizzle:** better-auth runs on the **`drizzleAdapter`** (provider

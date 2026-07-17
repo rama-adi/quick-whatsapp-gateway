@@ -8,6 +8,14 @@ fan-out, control-bus stream-drop). Realtime is **WebSocket-only**: the frontend 
 a ticket against the router, and the gateway's legacy NDJSON `/events` transport has been removed
 (the gateway only publishes events to Redis now). See "Realtime" below.
 
+> **Target migration, not current runtime (gRPC control-plane Increment 0).** `cmd/router` evolves
+> into the API/control plane and remains the only public front door, but the reverse proxy and
+> Ed25519 request assertion will be replaced slice-by-slice by private gRPC/mTLS. The API will own
+> public REST/Huma/OpenAPI, optional public gRPC, authn/authz, repositories, Redis work, placement,
+> and event ingestion. Initially every supported topology must provide an API-addressable gateway
+> engine endpoint; outbound-only reverse commands are deferred. The implemented proxy/assertion
+> runtime below has not yet been removed.
+
 ## Purpose
 
 The router is the system's **single front door** and **single trust boundary** in front of the
@@ -106,14 +114,13 @@ config.
 The control-bus (`ctrl:*`) subscriber now lives on the **router** (moved off the gateways — see
 [`queue.md`](queue.md), [`trust-model.md`](trust-model.md)). On `ctrl:apikey.revoked` the router
 **evicts the api-key positive cache** so a revoked key stops working within the window. (Live
-WebSocket stream-drop on revocation — `ctrl:user.banned` / `ctrl:member.removed` dropping live
-connections — arrives with the realtime endpoint in **Increment B**.)
+WebSocket stream-drop on `ctrl:user.banned` / `ctrl:member.removed` is implemented with Increment B.)
 
 ## Other surfaces
 
-- Serves the **public OpenAPI spec** at `GET /api/v1/openapi.yaml` (the gateway no longer serves it
-  — plan D9). The router owns the public route surface + CORS (`FRONTEND_ORIGINS`); browsers hit the
-  router, not the gateway.
+- Serves the **generated Huma OpenAPI spec** at `GET /api/v1/openapi.yaml`; Go DTOs and Huma
+  operations are the source and `make openapi-check` guards drift. The gateway no longer serves it.
+  The router owns the public route surface + CORS (`FRONTEND_ORIGINS`); browsers hit the router.
 - Health probes: `GET /healthz`, `GET /readyz`.
 - `internal/dbconn` — the shared MySQL connection helper the router (and gateway) use to reach the
   shared app-data DB / registry.
@@ -164,16 +171,12 @@ the gateway's legacy NDJSON `/events` transport has been **removed** — nothing
 plan's "direct-push" event seam (gateway → router ingest, no Redis in the event path) is an
 optimization deferred in favor of reusing the existing Redis fan-out.
 
-> **Increment 0 (also not done):** the code-first OpenAPI foundation (huma; shared Go types →
-> generated `docs/openapi.yaml`). For now `docs/openapi.yaml` remains the hand-authored contract the
-> router serves.
+## Future: acknowledged gRPC ingest / Layer 2 keystore portability
 
-## Future: direct-push events / Layer 2 keystore portability
-
-- **Direct-push event seam (Increment B).** The gateway → router event ingest (authenticated by the
-  same Ed25519 mechanism, gateway → router direction) is the default transport once realtime lands;
-  shared-Redis `evt:*` is the HA variant behind the existing `EventSink` interface. Neither is wired
-  yet.
+- **Acknowledged gRPC event ingest.** Shared Redis `evt:*` is the implemented realtime input today.
+  The gRPC control-plane migration replaces gateway publication with a durable local journal plus an
+  acknowledged gateway→API stream; only committed API events then fan out to WebSocket/public gRPC.
+  This is not the old unaudited “direct-push” optimization and is not wired yet.
 - **Layer 2 — keystore portability (deferred).** The whatsmeow keystore is gateway-local SQLite, so
   a session's crypto material lives on exactly one box; this is what makes *removing* a gateway
   non-trivial. True drain/rebalance/failover needs a **shared keystore** (whatsmeow `sqlstore` on

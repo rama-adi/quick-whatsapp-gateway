@@ -11,6 +11,11 @@ The migration is intentionally incremental: every checkpoint must keep the repos
 testable, and deployable. The HTTP proxy, gateway MySQL access, and gateway Redis access are removed
 only after their replacements are operating and verified.
 
+Because the project is pre-release with no production compatibility burden, implementation may
+reshape architecture, packages, schemas, public APIs, and deployment configuration directly toward
+the clean final target. Do not add backward-compatibility shims or preserve transitional designs for
+their own sake; preserve only incremental buildability, testability, and deployability.
+
 ---
 
 ## 1. Goals
@@ -775,22 +780,38 @@ each migration increment becomes real; this plan describes the intended journey 
 13. Session assignments use epochs and leases to prevent split brain.
 14. Automated keystore upload/rehydration is deferred; this migration adds integrity, persistence,
     missing-store, checkpoint, telemetry, and operator-recovery safeguards only.
+15. Pre-release implementation optimizes for the clean target and carries no backward-compatibility
+    obligation; sweeping reshapes are allowed while every increment remains buildable, testable,
+    and deployable.
 
-## 17. Decisions to resolve during Increment 0
+## 17. Increment 0 decisions and remaining tuning
 
-- CA implementation for development and production: internal signer, Vault PKI, SPIRE, or managed
-  private CA.
-- Whether private gateway command endpoints are directly addressable in every supported deployment
-  or whether an outbound-only reverse-command mode is required.
-- Local journal implementation: separate SQLite file versus application-owned tables beside the
-  whatsmeow file. It must never modify whatsmeow-owned tables.
+- **CA:** development uses a persisted local root plus online intermediate; the root signs only the
+  intermediate. Production issuance stays behind a `CertificateSigner` seam, with Vault PKI as the
+  reference implementation rather than a required vendor.
+- **Topology:** every initially supported deployment provides an API-addressable private gateway
+  command endpoint. Outbound-only reverse-command mode is deferred.
+- **Local journal:** use a separate `journal.db` on the same persistent volume. It never modifies
+  whatsmeow-owned tables.
+- **Initial configurable limits:** size for a 72-hour outage objective (not a guaranteed RPO), cap
+  the journal at 1 GiB by default and reject configuration above 25% of the volume budget, report
+  degraded at 70%, pause optional sync at 80%, become critical/unready at 90%, and bound in-flight
+  delivery to 256 events or 1 MiB. Retain command results for seven days and never less than the API
+  retry/idempotency window. Validate and tune after Increment 5 soak tests using observed p50/p95
+  event bytes and peak event rate.
+- **Protobuf compatibility:** public and gateway contracts are separate Buf modules, both using
+  `FILE` breaking policy; generated drift is checked via temporary-directory regeneration.
+
+Remaining choices and deployment-specific tuning:
+
 - Future keystore recovery storage and granularity: whole-gateway snapshot versus one store per
   session, and MySQL blob versus encrypted object storage. This does not block the initial safety
   rails.
-- Maximum supported offline duration and journal disk budget.
-- Command result-ledger retention window.
+- Exact production CA provider, per-deployment journal/volume budgets, and retention tuning.
+- Whether to publish modules to the Buf Schema Registry; local and CI compatibility checks do not
+  require it.
 - Large media transfer: object-storage references, client streaming, or bounded inline payloads.
-- Public gRPC SDK languages and protobuf compatibility baseline.
+- Public gRPC SDK languages and supported-version/publication policy.
 - Whether public server-streaming events ship in the first public gRPC release or follow later.
 
 These decisions affect implementation detail, not the responsibility boundary locked above.

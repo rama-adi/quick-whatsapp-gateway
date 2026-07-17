@@ -2,6 +2,24 @@
 
 Status: implemented (R2).
 
+> **Target migration, not current runtime (gRPC control-plane Increment 0).** The whatsmeow SQLite
+> keystore remains mandatory and gateway-local. Reliable API handoff uses a separate `journal.db` on
+> the same persistent volume; application tables must never be added to whatsmeow-owned storage.
+> Automated remote keystore backup/rehydration remains deferred. Later increments add persistent-path
+> validation, integrity checks, missing/corrupt states, WAL checkpointing, telemetry, assignment
+> fencing, and operator recovery guidance; these safeguards are not implemented yet.
+
+### Initial journal and command-ledger policy (locked defaults; implementation follows)
+
+- Target offline buffering objective: **72 hours**; this is a sizing objective, not a guaranteed RPO.
+- Journal cap: **1 GiB** by default; configuration above **25%** of the persistent-volume budget is
+  rejected. Health becomes degraded at 70%, optional sync pauses at 80%, and the gateway becomes
+  critical/unready at 90%. Core message/receipt events are never silently discarded.
+- Stream in-flight bound: at most **256 events or 1 MiB**, whichever is reached first.
+- Command-result ledger retention: **7 days**, never shorter than the API retry/idempotency window.
+- All values remain configurable. Increment 5 soak testing tunes them using observed p50/p95 event
+  sizes and peak event rate; per-deployment volume caps and final retention remain configurable.
+
 The whatsmeow **device keystore** — device identities, Signal sessions, prekeys, sender keys,
 app-state, the LID map. In v2 it is **SQLite** via whatsmeow's own `sqlstore`, gateway-local on a
 persistent volume. The v1 hand-written **MySQL** store (`internal/wa/store/mysql`, the

@@ -1,0 +1,14 @@
+version: v2
+modules:
+  - path: proto/public
+  - path: proto/gateway
+lint:
+  use:
+    - STANDARD
+  except:
+    # Module roots intentionally carry the public/gateway compatibility-domain name.
+    # Keeping v1 directly beneath each root matches the repository contract layout.
+    - PACKAGE_DIRECTORY_MATCH
+breaking:
+  use:
+    - FILE

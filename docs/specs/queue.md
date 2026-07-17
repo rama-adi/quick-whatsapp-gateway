@@ -4,6 +4,13 @@ Status: implemented.
 
 Package: `internal/queue` · import `github.com/ramaadi/quick-whatsapp-gateway/internal/queue`.
 
+> **Target migration, not current runtime (gRPC control-plane Increment 0).** Redis/asynq,
+> product-level rate limits, retention/poll scheduling, OAuth pending state, control events, and
+> realtime fan-out move to the API. Gateway events move from lossy Redis publication to an
+> acknowledged gRPC ingest stream backed by a separate local `journal.db`; the gateway retains only
+> an in-memory WhatsApp safety limiter. The current gateway-owned queue and Redis roles below remain
+> implemented until their replacement increments land.
+
 ## Scope
 
 Redis-backed background jobs on [hibiken/asynq], covering three masterplan needs.
@@ -27,7 +34,7 @@ collapsible to one instance:
 
 | Role | Env | Carries | Who connects |
 |---|---|---|---|
-| **Work** | `REDIS_URL` | asynq queue (this package), rate-limit buckets, idempotency, NDJSON stream fan-out | gateways (+ the router for `wa:rl:*` edge rate-limit) |
+| **Work/realtime** | `REDIS_URL` | asynq queue, rate-limit buckets, idempotency, gateway `evt:*` publication and router WebSocket fan-out | gateways + router |
 | **Control bus** | `PUBSUB_REDIS_URL` (defaults to `REDIS_URL`) | low-volume `ctrl:*` pub/sub — `ctrl:apikey.revoked` / `ctrl:user.banned` / `ctrl:member.removed` | frontend (publish) + the **router** (subscribe) |
 
 > **Central-router (Increment A):** the `ctrl:*` **subscriber is the router now**, not the gateways
@@ -38,8 +45,8 @@ collapsible to one instance:
 - **Single instance (dev / single server):** leave `PUBSUB_REDIS_URL` unset → it
   falls back to `REDIS_URL`; one Redis does everything.
 - **Split (prod / multi-gateway):** point `PUBSUB_REDIS_URL` at a shared, possibly
-  managed Redis reachable by the frontend and every gateway; keep the high-volume
-  work Redis local to each gateway. The control bus is the frontend's **only** Redis
+  managed Redis reachable by the frontend and router; gateways use the shared event/work Redis
+  until acknowledged gRPC ingest replaces that dependency. The control bus is the frontend's **only** Redis
   dependency (publish-only).
 
 **Key/channel prefixes** (namespacing, not DB numbers — managed Redis often disallows
@@ -57,8 +64,8 @@ collapsible to one instance:
 > (asynq is work-queue only). With the central router (Increment A) it runs **on the
 > router**: it evicts the **api-key cache** (`internal/authz`, a ~60s positive cache
 > keyed by SHA-256 of the raw key, indexed by keyId/userId/orgId) on revocation. The
-> live **stream-drop** on revocation lands with the realtime WebSocket endpoint in
-> Increment B. Redis pub/sub is fire-and-forget; the 60s cache TTL covers any `ctrl:*`
+> live **stream-drop** on revocation is implemented for router WebSockets (Increment B).
+> Redis pub/sub is fire-and-forget; the 60s cache TTL covers any `ctrl:*`
 > message missed while the router was down.
 
 ## Key types

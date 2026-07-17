@@ -1,5 +1,14 @@
 # Trust & auth model (`internal/authz` + `internal/controlbus` + `internal/assertion`)
 
+> **Target migration, not current runtime (gRPC control-plane Increment 0).** Public JWT/API-key
+> authentication and all end-user authorization remain at the API front door. Gateways will receive
+> only authorized service commands and authenticate the API with per-gateway mTLS; they never receive
+> user credentials or permission claims. Development uses a persisted local root plus online
+> intermediate (the root signs only that intermediate). Production is designed behind a
+> `CertificateSigner` seam, with Vault PKI as the reference implementation rather than a locked
+> vendor. The current Ed25519 router assertion described below remains active until gRPC slices cut
+> over.
+
 Status: implemented (R1/R2). Live-validated against better-auth 1.6.22.
 
 > **Central-router (Increment A) — read this first.** Authentication now **terminates at the
@@ -35,7 +44,7 @@ the action by capability (§ Authorization below).
 
 The frontend runs the better-auth **jwt** plugin: a JWKS at `GET {BETTER_AUTH_URL}/api/auth/jwks`
 and short-lived (**~5 min**) **EdDSA/Ed25519** JWTs at `GET /api/auth/token`. The private key
-lives in better-auth's `jwks` table (encrypted at rest); the gateway only ever sees public keys.
+lives in better-auth's `jwks` table (encrypted at rest); the router fetches only public keys.
 
 `internal/authz/jwt.go` (`JWTVerifier`, `github.com/lestrrat-go/jwx/v3`):
 
@@ -55,21 +64,19 @@ lives in better-auth's `jwks` table (encrypted at rest); the gateway only ever s
 | `orgRole` | the member's role in the active org: `owner` / `admin` / `member` |
 | `role` | platform role from the admin plugin (e.g. `super_admin`) — cross-org oversight |
 
-So after verification the gateway has identity, the active org, **and** RBAC with zero shared
+So after verification the router has identity, the active org, **and** RBAC with zero shared
 secrets and zero round-trips on the hot path. `definePayload` claims are optional on the wire —
 their absence is not fatal (a user with no active org simply reaches no org-scoped resources).
 
 **Where the browser gets the JWT:** the TanStack Start server holds the better-auth session
 cookie and mints a token from `/api/auth/token`, handing it to the client. The browser then
-calls the **router** with `Bearer` (the router authenticates, then brokers to the owning gateway —
-[`router.md`](router.md)). The NDJSON stream authenticates the same way (it is `fetch` +
-`ReadableStream`, not `EventSource`, so it can attach a header); the router proxies it to the gateway
-(streaming) until the WebSocket cutover lands in Increment B.
+calls the **router** with `Bearer` for REST or ticket minting. The ticketed WebSocket is implemented;
+gateway NDJSON is removed ([`router.md`](router.md)).
 
 ## 2. Machines — better-auth api-keys verified against the shared table
 
 Programmatic clients present a better-auth **api-key** plugin key (prefix `wa_`). The frontend's
-UI creates/lists/revokes keys; the gateway **validates locally against the shared `apikey`
+UI creates/lists/revokes keys; the router **validates locally against the shared `apikey`
 table** — consistent with the hybrid-read model — so it never depends on the frontend being up.
 
 `internal/authz/apikey.go` (`APIKeyVerifier`):
@@ -86,13 +93,14 @@ running version:
 | Column | Meaning |
 |---|---|
 | `key` | the hash = **`base64url(SHA-256(rawKey))` unpadded** — *not* hex, *not* padded base64. (Go: `base64.RawURLEncoding.EncodeToString(sha256.Sum256([]byte(raw)))`, `authz.DefaultHasher`.) |
-| `reference_id` | the **owning organization id**. The apiKey plugin is configured `references: "organization"`, so `reference_id` is the org and `organizationId` is required on create. The gateway resolves the owning org from this column — the key path needs no JWT. |
+| `reference_id` | the **owning organization id**. The apiKey plugin is configured `references: "organization"`, so `reference_id` is the org and `organizationId` is required on create. The router resolves the owning org from this column — the key path needs no JWT. |
 | `permissions` | resource→actions JSON map, e.g. `{"gateway":["read","send","manage","events"]}`. |
 | `enabled` | disabled keys are rejected. |
 | `expires_at`, `created_at` | `TIMESTAMP(3)`. |
 
 `Hasher` is an interface so the scheme can be swapped if a pinned better-auth version diverges;
-the **R5 contract test** mints a key in better-auth and validates it in the gateway to lock this.
+the **R5 verifier contract test** mints a key in better-auth and validates the Go verifier now
+consumed by the router (historically it was gateway-wired) to lock this.
 **Fallback** if the hash ever proves non-replicable: `internal/authz/apikey_remote.go`
 (`RemoteKeyVerifier`) calls `POST {BETTER_AUTH_URL}/api/auth/api-key/verify` behind a short-TTL
 cache.
@@ -106,8 +114,8 @@ Resources are owned by **`organization_id`** (a better-auth organization id), ne
 user reaches a resource through org **membership** (role owner/admin/member). Every user gets a
 **personal organization** auto-created on signup, so solo use is a one-member org and "sharing a
 WhatsApp connection" = inviting someone into the org. `created_by_user_id` is retained for audit.
-The gateway authorizes from JWT claims (`activeOrganizationId` + `orgRole`) and the api-key's
-`reference_id` — it does **not** join `member` on the hot path. (Schema: `store.md`.)
+The router authorizes from JWT claims (`activeOrganizationId` + `orgRole`) and the API key's
+`reference_id`; the gateway receives the private assertion. (Schema: `store.md`.)
 
 ## Authorization (`internal/authz/gates.go`)
 
@@ -156,9 +164,8 @@ assertion. Full claim set + custody live in [`router.md`](router.md).
 > **Central-router (Increment A):** the `ctrl:*` subscriber + the api-key positive cache moved to
 > the **router**; the **gateway no longer wires `internal/controlbus`** or keeps a key cache (it
 > authenticates nothing). On `ctrl:apikey.revoked` the router evicts its positive cache. The live
-> **stream-drop** on `ctrl:user.banned`/`ctrl:member.removed` lands with the realtime WebSocket
-> endpoint in **Increment B**; today the router still proxies the gateway's NDJSON stream. The
-> description below is the behavior, now owned by the router.
+> **stream-drop** on `ctrl:user.banned`/`ctrl:member.removed` is implemented for router WebSockets.
+> The description below is the behavior, now owned by the router.
 
 The router keeps a small **positive cache** of validated keys (`internal/authz/apikey_cache.go`,
 TTL ~60 s, fail-closed) so a busy client isn't a DB lookup per request. The TTL is the
@@ -188,23 +195,23 @@ to `REDIS_URL`). The frontend publishes; the router subscribes (`Subscriber`,
 > see `whatsmeow-store.md` / `store.md`).
 >
 > **Delivery semantics:** Redis pub/sub is fire-and-forget — a router that's down when a message
-> is published misses it, which the 60 s TTL backstop + boot reconcile cover. Promote `ctrl:*` to
+> is published misses it; the 60 s cache TTL and authoritative DB lookup after cold start bound the
+> revocation window. Promote `ctrl:*` to
 > a Redis Stream with consumer groups if at-least-once is later required; call sites keep shape.
 
 ## Boot reconciliation & orphan-guard
 
-The in-memory cache is cold after a restart, so no stale *cached* key survives a reboot. The
-catch-up is over **persistent** authorizations, a one-time startup sweep:
+Two separate restart safeguards apply; there is no persisted deny-list/known-key reconciliation:
 
-1. Before the Session Manager (`internal/wa/manager.go`) resumes each WhatsApp session from the
+- Before the Session Manager (`internal/wa/manager.go`) resumes each WhatsApp session from the
    SQLite keystore, the gateway checks the session's **owning org still exists and is enabled** in
    MySQL and **skips + marks `STOPPED`** any whose org was deleted/disabled while it was down
    (**orphan-guard**, see `store.go`/`organization.go`).
-2. It reconciles persisted deny-list / known-key state against the shared `apikey` table, dropping
-   entries whose key is now revoked/expired/disabled.
+- After a router restart its in-memory positive cache is empty. The next credential use reads the
+  authoritative `apikey` row; the 60-second TTL bounds a live router's missed-pub/sub window.
 
-This closes the window for `ctrl:*` messages missed during downtime, complementing the live
-subscriber and the 60 s cache TTL.
+The gateway orphan guard protects WhatsApp session ownership. Router DB lookup plus cache TTL
+protect public credential revocation; they are independent mechanisms.
 
 ## JWT lifecycle (refresh & revocation)
 
@@ -215,11 +222,10 @@ credential**, the JWT is a short access token minted from it.
   `/api/auth/token`. `expirationTime` ~5 min keeps the revocation window tiny.
 - **Revoke (blocks refresh):** revoke the **session** (better-auth admin endpoints, or logout).
   Once gone, `/api/auth/token` stops minting; access ends within ≤ the JWT TTL.
-- **Instant kill (in-flight JWTs):** publish `ctrl:user.banned` (§ above); gateways add the user
-  to the short JWT deny-list and drop live streams.
-- **Streams vs short JWTs:** an NDJSON stream is authenticated **at connect**; the client
-  refreshes its JWT and reconnects (`since={lastEventId}`, §11) — a 5-min TTL triggers a
-  transparent reconnect, never tears the consumer's view.
+- **Instant kill (in-flight JWTs):** publish `ctrl:user.banned` (§ above); the router rejects the
+  principal and drops affected WebSockets.
+- **Realtime vs short JWTs:** JWT/API-key auth occurs at ticket mint; reconnect mints a new
+  single-use ticket carrying the `since` cursor.
 
 ## Files
 
@@ -241,7 +247,8 @@ credential**, the JWT is a short access token minted from it.
 Table-driven Go tests with the JWKS fetcher, key repo, cache and stream-dropper faked behind the
 consumer interfaces (`jwt_test.go`, `apikey_test.go`, `apikey_cache_test.go`, `gates_test.go`,
 `middleware_test.go`, `cors_test.go`, `controlbus_test.go`). The **trust seam** is locked by the
-R5 contract tests: one mints a better-auth JWT and verifies it in the gateway; one creates a
-better-auth api-key and validates it in the gateway. Both are CI gates.
+R5 contract tests: one mints a better-auth JWT and one creates a better-auth API key, then each is
+validated by the Go verifier now consumed by the router (historically gateway-wired). Both are CI
+gates.
 
 Run: `CGO_ENABLED=0 go test ./internal/authz/... ./internal/controlbus/...`.

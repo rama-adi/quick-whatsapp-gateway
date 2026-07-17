@@ -1,0 +1,55 @@
+name: Protobuf contracts
+
+on:
+  pull_request:
+    paths:
+      - "proto/**"
+      - "gen/**"
+      - "buf.yaml"
+      - "buf.gen.yaml"
+      - "Makefile"
+      - "go.mod"
+      - "go.sum"
+      - ".github/workflows/protobuf.yml"
+  push:
+    branches: [main]
+    paths:
+      - "proto/**"
+      - "gen/**"
+      - "buf.yaml"
+      - "buf.gen.yaml"
+      - "Makefile"
+      - "go.mod"
+      - "go.sum"
+      - ".github/workflows/protobuf.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Fetch compatibility baseline
+        run: git fetch --no-tags origin main:refs/remotes/origin/main
+
+      - name: Lint contracts
+        run: make proto-lint
+
+      - name: Check breaking changes
+        run: make proto-breaking
+
+      - name: Check generated-code drift
+        run: make proto-check
+
+      - name: Compile generated packages
+        run: go test ./gen/...

@@ -1,0 +1,15 @@
+version: v2
+clean: true
+plugins:
+  - remote: buf.build/protocolbuffers/go:v1.36.11
+    out: gen
+    opt:
+      - paths=import
+      - module=github.com/ramaadi/quick-whatsapp-gateway/gen
+  - remote: buf.build/grpc/go:v1.5.1
+    out: gen
+    opt:
+      - paths=import
+      - module=github.com/ramaadi/quick-whatsapp-gateway/gen
+inputs:
+  - directory: proto

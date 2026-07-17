@@ -2,6 +2,13 @@
 
 Status: implemented (R1).
 
+> **Target migration, not current runtime (gRPC control-plane Increment 0).** Shared WA application
+> data becomes API/control-plane runtime state: only the API opens MySQL repositories and performs
+> application-data writes. Gateways report lifecycle/events and request writes through private gRPC;
+> they will not import `internal/store`, `internal/dbconn`, or a MySQL driver. Repository and migration
+> ownership below is still current behavior until those call sites move. The Go control-plane binary
+> remains the schema-migration writer after the runtime gateway loses its database dependency.
+
 The app-data persistence layer for the WA-domain plane. Repositories expose `internal/domain`
 types and mostly use generated `sqlc` query bindings over `database/sql` internally; OAuth/OIDC
 repos use the same plain `database/sql` repo boundary directly because their migration was added

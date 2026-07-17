@@ -2,6 +2,13 @@
 
 Status: implemented (R1; central-router Increment A).
 
+> **Target migration, not current runtime (gRPC control-plane Increment 0).** Public Huma handlers,
+> validation, errors, OpenAPI generation, and public gRPC adapters will terminate in the API process
+> and invoke shared application services. The private gateway will expose only its mTLS gRPC
+> engine/control contract plus operational probes; it will not host public HTTP, Huma, OpenAPI, or
+> end-user auth middleware. REST remains Huma code-first, and public/private protobuf contracts are
+> separate compatibility domains. The chi/proxy topology below is still implemented today.
+
 Shared transport plumbing and the chi router. The gateway is a **pure WhatsApp engine with no
 human login**: no `/auth` surface, no embedded SPA, no cookie middleware.
 
@@ -45,7 +52,7 @@ verifiers — now on the router), `CORSOrigins` (CORS now on the router), and se
 | Status/Presence | `RequireSend` | `/status`, `/presence` |
 
 > **Removed vs v1:** `/auth/*` (→ better-auth on the frontend), `/keys*` (→ better-auth api-key
-> plugin — the gateway only *verifies* keys), `/auth/admin/*` (→ better-auth admin plugin), and the
+> plugin; the router verifies keys), `/auth/admin/*` (→ better-auth admin plugin), and the
 > embedded SPA static handler.
 
 ## Authz middleware (`internal/authz`)

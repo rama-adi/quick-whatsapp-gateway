@@ -1,5 +1,13 @@
 # Session Manager
 
+> **Target migration, not current runtime (gRPC control-plane Increment 0).** The API will push
+> authoritative desired-state assignments and per-session configuration over the control stream.
+> Assignments carry monotonically increasing epochs and renewable leases; gateways stop expired
+> assignments and the API rejects stale commands/events, preventing split brain. Session placement
+> initially requires an API-addressable gateway engine endpoint. Current MySQL boot reads,
+> self-written registry heartbeat, pin adoption, and orphan-guard behavior below remain active until
+> desired-state reconciliation replaces them.
+
 Status: implemented. Package `internal/wa`, files `manager.go`, `session.go`.
 
 ## Scope

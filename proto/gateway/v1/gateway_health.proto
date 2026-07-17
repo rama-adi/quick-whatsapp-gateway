@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package gateway.v1;
+
+option go_package = "github.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1;gatewayv1";
+
+// GatewayHealthService is the initial private compatibility anchor.
+// It is intentionally empty of engine behavior until the private listener is introduced.
+service GatewayHealthService {
+  rpc Check(GatewayHealthServiceCheckRequest) returns (GatewayHealthServiceCheckResponse);
+}
+
+message GatewayHealthServiceCheckRequest {}
+
+message GatewayHealthServiceCheckResponse {
+  ServingStatus status = 1;
+}
+
+enum ServingStatus {
+  SERVING_STATUS_UNSPECIFIED = 0;
+  SERVING_STATUS_SERVING = 1;
+  SERVING_STATUS_NOT_SERVING = 2;
+}
