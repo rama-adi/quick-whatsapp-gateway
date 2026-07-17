@@ -8,12 +8,63 @@ package storedb
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 )
+
+const createGateway = `-- name: CreateGateway :exec
+INSERT INTO gateways
+(id, label, notes, status, creator_kind, created_by_user_id, capacity, desired_revision, applied_revision, created_at, updated_at)
+VALUES (?, ?, ?, ?, 'user', ?, ?, ?, 0, ?, ?)
+`
+
+type CreateGatewayParams struct {
+	ID              string         `db:"id" json:"id"`
+	Label           sql.NullString `db:"label" json:"label"`
+	Notes           sql.NullString `db:"notes" json:"notes"`
+	Status          GatewaysStatus `db:"status" json:"status"`
+	CreatedByUserID sql.NullString `db:"created_by_user_id" json:"created_by_user_id"`
+	Capacity        sql.NullInt32  `db:"capacity" json:"capacity"`
+	DesiredRevision uint64         `db:"desired_revision" json:"desired_revision"`
+	CreatedAt       int64          `db:"created_at" json:"created_at"`
+	UpdatedAt       int64          `db:"updated_at" json:"updated_at"`
+}
+
+func (q *Queries) CreateGateway(ctx context.Context, arg CreateGatewayParams) error {
+	_, err := q.db.ExecContext(ctx, createGateway,
+		arg.ID,
+		arg.Label,
+		arg.Notes,
+		arg.Status,
+		arg.CreatedByUserID,
+		arg.Capacity,
+		arg.DesiredRevision,
+		arg.CreatedAt,
+		arg.UpdatedAt,
+	)
+	return err
+}
+
+const disableGateway = `-- name: DisableGateway :execrows
+UPDATE gateways SET status='disabled', updated_at=? WHERE id=? AND deleted_at IS NULL AND status<>'disabled'
+`
+
+type DisableGatewayParams struct {
+	UpdatedAt int64  `db:"updated_at" json:"updated_at"`
+	ID        string `db:"id" json:"id"`
+}
+
+func (q *Queries) DisableGateway(ctx context.Context, arg DisableGatewayParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, disableGateway, arg.UpdatedAt, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
 
 const gatewayHeartbeat = `-- name: GatewayHeartbeat :exec
 UPDATE gateways
 SET last_seen_at = ?, session_count = ?, updated_at = ?
-WHERE id = ?
+WHERE id = ? AND deleted_at IS NULL
 `
 
 type GatewayHeartbeatParams struct {
@@ -36,7 +87,7 @@ func (q *Queries) GatewayHeartbeat(ctx context.Context, arg GatewayHeartbeatPara
 const getGateway = `-- name: GetGateway :one
 SELECT id, label, status, session_count, capacity, base_url, last_seen_at, created_at, updated_at
 FROM gateways
-WHERE id = ?
+WHERE id = ? AND deleted_at IS NULL
 `
 
 type GetGatewayParams struct {
@@ -46,7 +97,7 @@ type GetGatewayParams struct {
 type GetGatewayRow struct {
 	ID           string         `db:"id" json:"id"`
 	Label        sql.NullString `db:"label" json:"label"`
-	Status       string         `db:"status" json:"status"`
+	Status       GatewaysStatus `db:"status" json:"status"`
 	SessionCount uint32         `db:"session_count" json:"session_count"`
 	Capacity     sql.NullInt32  `db:"capacity" json:"capacity"`
 	BaseUrl      sql.NullString `db:"base_url" json:"base_url"`
@@ -75,18 +126,18 @@ func (q *Queries) GetGateway(ctx context.Context, arg GetGatewayParams) (GetGate
 const listActiveGateways = `-- name: ListActiveGateways :many
 SELECT id, label, status, session_count, capacity, base_url, last_seen_at, created_at, updated_at
 FROM gateways
-WHERE status = ?
+WHERE status = ? AND deleted_at IS NULL
 ORDER BY session_count ASC, id ASC
 `
 
 type ListActiveGatewaysParams struct {
-	Status string `db:"status" json:"status"`
+	Status GatewaysStatus `db:"status" json:"status"`
 }
 
 type ListActiveGatewaysRow struct {
 	ID           string         `db:"id" json:"id"`
 	Label        sql.NullString `db:"label" json:"label"`
-	Status       string         `db:"status" json:"status"`
+	Status       GatewaysStatus `db:"status" json:"status"`
 	SessionCount uint32         `db:"session_count" json:"session_count"`
 	Capacity     sql.NullInt32  `db:"capacity" json:"capacity"`
 	BaseUrl      sql.NullString `db:"base_url" json:"base_url"`
@@ -128,22 +179,72 @@ func (q *Queries) ListActiveGateways(ctx context.Context, arg ListActiveGateways
 	return items, nil
 }
 
+const listGateways = `-- name: ListGateways :many
+SELECT id, label, status, session_count, capacity, base_url, last_seen_at, created_at, updated_at
+FROM gateways WHERE deleted_at IS NULL ORDER BY created_at DESC, id DESC
+`
+
+type ListGatewaysRow struct {
+	ID           string         `db:"id" json:"id"`
+	Label        sql.NullString `db:"label" json:"label"`
+	Status       GatewaysStatus `db:"status" json:"status"`
+	SessionCount uint32         `db:"session_count" json:"session_count"`
+	Capacity     sql.NullInt32  `db:"capacity" json:"capacity"`
+	BaseUrl      sql.NullString `db:"base_url" json:"base_url"`
+	LastSeenAt   sql.NullInt64  `db:"last_seen_at" json:"last_seen_at"`
+	CreatedAt    int64          `db:"created_at" json:"created_at"`
+	UpdatedAt    int64          `db:"updated_at" json:"updated_at"`
+}
+
+func (q *Queries) ListGateways(ctx context.Context) ([]ListGatewaysRow, error) {
+	rows, err := q.db.QueryContext(ctx, listGateways)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListGatewaysRow{}
+	for rows.Next() {
+		var i ListGatewaysRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Label,
+			&i.Status,
+			&i.SessionCount,
+			&i.Capacity,
+			&i.BaseUrl,
+			&i.LastSeenAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const pickGatewayForPlacement = `-- name: PickGatewayForPlacement :one
 SELECT id, label, status, session_count, capacity, base_url, last_seen_at, created_at, updated_at
 FROM gateways
-WHERE status = ? AND (capacity IS NULL OR session_count < capacity)
+WHERE status = ? AND deleted_at IS NULL AND (capacity IS NULL OR session_count < capacity)
 ORDER BY session_count ASC, last_seen_at DESC, id ASC
 LIMIT 1
 `
 
 type PickGatewayForPlacementParams struct {
-	Status string `db:"status" json:"status"`
+	Status GatewaysStatus `db:"status" json:"status"`
 }
 
 type PickGatewayForPlacementRow struct {
 	ID           string         `db:"id" json:"id"`
 	Label        sql.NullString `db:"label" json:"label"`
-	Status       string         `db:"status" json:"status"`
+	Status       GatewaysStatus `db:"status" json:"status"`
 	SessionCount uint32         `db:"session_count" json:"session_count"`
 	Capacity     sql.NullInt32  `db:"capacity" json:"capacity"`
 	BaseUrl      sql.NullString `db:"base_url" json:"base_url"`
@@ -172,18 +273,97 @@ func (q *Queries) PickGatewayForPlacement(ctx context.Context, arg PickGatewayFo
 const setGatewayStatus = `-- name: SetGatewayStatus :exec
 UPDATE gateways
 SET status = ?, updated_at = ?
-WHERE id = ?
+WHERE id = ? AND deleted_at IS NULL
 `
 
 type SetGatewayStatusParams struct {
-	Status    string `db:"status" json:"status"`
-	UpdatedAt int64  `db:"updated_at" json:"updated_at"`
-	ID        string `db:"id" json:"id"`
+	Status    GatewaysStatus `db:"status" json:"status"`
+	UpdatedAt int64          `db:"updated_at" json:"updated_at"`
+	ID        string         `db:"id" json:"id"`
 }
 
 func (q *Queries) SetGatewayStatus(ctx context.Context, arg SetGatewayStatusParams) error {
 	_, err := q.db.ExecContext(ctx, setGatewayStatus, arg.Status, arg.UpdatedAt, arg.ID)
 	return err
+}
+
+const softDeleteGateway = `-- name: SoftDeleteGateway :execrows
+UPDATE gateways SET status='disabled', deleted_at=?, updated_at=?
+WHERE gateways.id=? AND deleted_at IS NULL AND status IN ('pending_enrollment','drained','disabled')
+  AND NOT EXISTS (SELECT 1 FROM gateway_enrollment_tokens t WHERE t.gateway_id=gateways.id AND t.status IN ('active','redeeming'))
+  AND NOT EXISTS (SELECT 1 FROM gateway_certificates c WHERE c.gateway_id=gateways.id AND c.revoked_at IS NULL)
+`
+
+type SoftDeleteGatewayParams struct {
+	DeletedAt sql.NullInt64 `db:"deleted_at" json:"deleted_at"`
+	UpdatedAt int64         `db:"updated_at" json:"updated_at"`
+	ID        string        `db:"id" json:"id"`
+}
+
+func (q *Queries) SoftDeleteGateway(ctx context.Context, arg SoftDeleteGatewayParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, softDeleteGateway, arg.DeletedAt, arg.UpdatedAt, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const updateGatewayConnectionMetadata = `-- name: UpdateGatewayConnectionMetadata :execrows
+UPDATE gateways SET grpc_endpoint=?, software_version=?, capabilities=?, applied_revision=?, connected_at=?, updated_at=? WHERE id=? AND deleted_at IS NULL
+`
+
+type UpdateGatewayConnectionMetadataParams struct {
+	GrpcEndpoint    sql.NullString  `db:"grpc_endpoint" json:"grpc_endpoint"`
+	SoftwareVersion sql.NullString  `db:"software_version" json:"software_version"`
+	Capabilities    json.RawMessage `db:"capabilities" json:"capabilities"`
+	AppliedRevision uint64          `db:"applied_revision" json:"applied_revision"`
+	ConnectedAt     sql.NullInt64   `db:"connected_at" json:"connected_at"`
+	UpdatedAt       int64           `db:"updated_at" json:"updated_at"`
+	ID              string          `db:"id" json:"id"`
+}
+
+func (q *Queries) UpdateGatewayConnectionMetadata(ctx context.Context, arg UpdateGatewayConnectionMetadataParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateGatewayConnectionMetadata,
+		arg.GrpcEndpoint,
+		arg.SoftwareVersion,
+		arg.Capabilities,
+		arg.AppliedRevision,
+		arg.ConnectedAt,
+		arg.UpdatedAt,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const updateGatewayMetadata = `-- name: UpdateGatewayMetadata :execrows
+UPDATE gateways SET label=?, notes=?, capacity=?, desired_revision=?, updated_at=? WHERE id=? AND deleted_at IS NULL
+`
+
+type UpdateGatewayMetadataParams struct {
+	Label           sql.NullString `db:"label" json:"label"`
+	Notes           sql.NullString `db:"notes" json:"notes"`
+	Capacity        sql.NullInt32  `db:"capacity" json:"capacity"`
+	DesiredRevision uint64         `db:"desired_revision" json:"desired_revision"`
+	UpdatedAt       int64          `db:"updated_at" json:"updated_at"`
+	ID              string         `db:"id" json:"id"`
+}
+
+func (q *Queries) UpdateGatewayMetadata(ctx context.Context, arg UpdateGatewayMetadataParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateGatewayMetadata,
+		arg.Label,
+		arg.Notes,
+		arg.Capacity,
+		arg.DesiredRevision,
+		arg.UpdatedAt,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const upsertGateway = `-- name: UpsertGateway :exec
@@ -197,7 +377,7 @@ ON DUPLICATE KEY UPDATE label=VALUES(label), status=VALUES(status),
 type UpsertGatewayParams struct {
 	ID           string         `db:"id" json:"id"`
 	Label        sql.NullString `db:"label" json:"label"`
-	Status       string         `db:"status" json:"status"`
+	Status       GatewaysStatus `db:"status" json:"status"`
 	SessionCount uint32         `db:"session_count" json:"session_count"`
 	Capacity     sql.NullInt32  `db:"capacity" json:"capacity"`
 	BaseUrl      sql.NullString `db:"base_url" json:"base_url"`

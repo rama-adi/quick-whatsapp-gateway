@@ -11,6 +11,128 @@ import (
 	"fmt"
 )
 
+type AuditEventsActorType string
+
+const (
+	AuditEventsActorTypeUser    AuditEventsActorType = "user"
+	AuditEventsActorTypeGateway AuditEventsActorType = "gateway"
+	AuditEventsActorTypeSystem  AuditEventsActorType = "system"
+)
+
+func (e *AuditEventsActorType) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = AuditEventsActorType(s)
+	case string:
+		*e = AuditEventsActorType(s)
+	default:
+		return fmt.Errorf("unsupported scan type for AuditEventsActorType: %T", src)
+	}
+	return nil
+}
+
+type NullAuditEventsActorType struct {
+	AuditEventsActorType AuditEventsActorType `json:"audit_events_actor_type"`
+	Valid                bool                 `json:"valid"` // Valid is true if AuditEventsActorType is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullAuditEventsActorType) Scan(value interface{}) error {
+	if value == nil {
+		ns.AuditEventsActorType, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.AuditEventsActorType.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullAuditEventsActorType) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.AuditEventsActorType), nil
+}
+
+func (e AuditEventsActorType) Valid() bool {
+	switch e {
+	case AuditEventsActorTypeUser,
+		AuditEventsActorTypeGateway,
+		AuditEventsActorTypeSystem:
+		return true
+	}
+	return false
+}
+
+func AllAuditEventsActorTypeValues() []AuditEventsActorType {
+	return []AuditEventsActorType{
+		AuditEventsActorTypeUser,
+		AuditEventsActorTypeGateway,
+		AuditEventsActorTypeSystem,
+	}
+}
+
+type AuditEventsOutcome string
+
+const (
+	AuditEventsOutcomeSuccess AuditEventsOutcome = "success"
+	AuditEventsOutcomeDenied  AuditEventsOutcome = "denied"
+	AuditEventsOutcomeFailure AuditEventsOutcome = "failure"
+)
+
+func (e *AuditEventsOutcome) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = AuditEventsOutcome(s)
+	case string:
+		*e = AuditEventsOutcome(s)
+	default:
+		return fmt.Errorf("unsupported scan type for AuditEventsOutcome: %T", src)
+	}
+	return nil
+}
+
+type NullAuditEventsOutcome struct {
+	AuditEventsOutcome AuditEventsOutcome `json:"audit_events_outcome"`
+	Valid              bool               `json:"valid"` // Valid is true if AuditEventsOutcome is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullAuditEventsOutcome) Scan(value interface{}) error {
+	if value == nil {
+		ns.AuditEventsOutcome, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.AuditEventsOutcome.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullAuditEventsOutcome) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.AuditEventsOutcome), nil
+}
+
+func (e AuditEventsOutcome) Valid() bool {
+	switch e {
+	case AuditEventsOutcomeSuccess,
+		AuditEventsOutcomeDenied,
+		AuditEventsOutcomeFailure:
+		return true
+	}
+	return false
+}
+
+func AllAuditEventsOutcomeValues() []AuditEventsOutcome {
+	return []AuditEventsOutcome{
+		AuditEventsOutcomeSuccess,
+		AuditEventsOutcomeDenied,
+		AuditEventsOutcomeFailure,
+	}
+}
+
 type BackfillImportsStatus string
 
 const (
@@ -136,6 +258,201 @@ func AllChatsTypeValues() []ChatsType {
 		ChatsTypeNewsletter,
 		ChatsTypeBroadcast,
 		ChatsTypeStatus,
+	}
+}
+
+type GatewayEnrollmentTokensStatus string
+
+const (
+	GatewayEnrollmentTokensStatusActive    GatewayEnrollmentTokensStatus = "active"
+	GatewayEnrollmentTokensStatusRedeeming GatewayEnrollmentTokensStatus = "redeeming"
+	GatewayEnrollmentTokensStatusConsumed  GatewayEnrollmentTokensStatus = "consumed"
+	GatewayEnrollmentTokensStatusRevoked   GatewayEnrollmentTokensStatus = "revoked"
+	GatewayEnrollmentTokensStatusLocked    GatewayEnrollmentTokensStatus = "locked"
+)
+
+func (e *GatewayEnrollmentTokensStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = GatewayEnrollmentTokensStatus(s)
+	case string:
+		*e = GatewayEnrollmentTokensStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for GatewayEnrollmentTokensStatus: %T", src)
+	}
+	return nil
+}
+
+type NullGatewayEnrollmentTokensStatus struct {
+	GatewayEnrollmentTokensStatus GatewayEnrollmentTokensStatus `json:"gateway_enrollment_tokens_status"`
+	Valid                         bool                          `json:"valid"` // Valid is true if GatewayEnrollmentTokensStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullGatewayEnrollmentTokensStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.GatewayEnrollmentTokensStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.GatewayEnrollmentTokensStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullGatewayEnrollmentTokensStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.GatewayEnrollmentTokensStatus), nil
+}
+
+func (e GatewayEnrollmentTokensStatus) Valid() bool {
+	switch e {
+	case GatewayEnrollmentTokensStatusActive,
+		GatewayEnrollmentTokensStatusRedeeming,
+		GatewayEnrollmentTokensStatusConsumed,
+		GatewayEnrollmentTokensStatusRevoked,
+		GatewayEnrollmentTokensStatusLocked:
+		return true
+	}
+	return false
+}
+
+func AllGatewayEnrollmentTokensStatusValues() []GatewayEnrollmentTokensStatus {
+	return []GatewayEnrollmentTokensStatus{
+		GatewayEnrollmentTokensStatusActive,
+		GatewayEnrollmentTokensStatusRedeeming,
+		GatewayEnrollmentTokensStatusConsumed,
+		GatewayEnrollmentTokensStatusRevoked,
+		GatewayEnrollmentTokensStatusLocked,
+	}
+}
+
+type GatewaysCreatorKind string
+
+const (
+	GatewaysCreatorKindSystem GatewaysCreatorKind = "system"
+	GatewaysCreatorKindUser   GatewaysCreatorKind = "user"
+)
+
+func (e *GatewaysCreatorKind) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = GatewaysCreatorKind(s)
+	case string:
+		*e = GatewaysCreatorKind(s)
+	default:
+		return fmt.Errorf("unsupported scan type for GatewaysCreatorKind: %T", src)
+	}
+	return nil
+}
+
+type NullGatewaysCreatorKind struct {
+	GatewaysCreatorKind GatewaysCreatorKind `json:"gateways_creator_kind"`
+	Valid               bool                `json:"valid"` // Valid is true if GatewaysCreatorKind is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullGatewaysCreatorKind) Scan(value interface{}) error {
+	if value == nil {
+		ns.GatewaysCreatorKind, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.GatewaysCreatorKind.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullGatewaysCreatorKind) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.GatewaysCreatorKind), nil
+}
+
+func (e GatewaysCreatorKind) Valid() bool {
+	switch e {
+	case GatewaysCreatorKindSystem,
+		GatewaysCreatorKindUser:
+		return true
+	}
+	return false
+}
+
+func AllGatewaysCreatorKindValues() []GatewaysCreatorKind {
+	return []GatewaysCreatorKind{
+		GatewaysCreatorKindSystem,
+		GatewaysCreatorKindUser,
+	}
+}
+
+type GatewaysStatus string
+
+const (
+	GatewaysStatusPendingEnrollment GatewaysStatus = "pending_enrollment"
+	GatewaysStatusJoining           GatewaysStatus = "joining"
+	GatewaysStatusActive            GatewaysStatus = "active"
+	GatewaysStatusDraining          GatewaysStatus = "draining"
+	GatewaysStatusDrained           GatewaysStatus = "drained"
+	GatewaysStatusDisabled          GatewaysStatus = "disabled"
+)
+
+func (e *GatewaysStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = GatewaysStatus(s)
+	case string:
+		*e = GatewaysStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for GatewaysStatus: %T", src)
+	}
+	return nil
+}
+
+type NullGatewaysStatus struct {
+	GatewaysStatus GatewaysStatus `json:"gateways_status"`
+	Valid          bool           `json:"valid"` // Valid is true if GatewaysStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullGatewaysStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.GatewaysStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.GatewaysStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullGatewaysStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.GatewaysStatus), nil
+}
+
+func (e GatewaysStatus) Valid() bool {
+	switch e {
+	case GatewaysStatusPendingEnrollment,
+		GatewaysStatusJoining,
+		GatewaysStatusActive,
+		GatewaysStatusDraining,
+		GatewaysStatusDrained,
+		GatewaysStatusDisabled:
+		return true
+	}
+	return false
+}
+
+func AllGatewaysStatusValues() []GatewaysStatus {
+	return []GatewaysStatus{
+		GatewaysStatusPendingEnrollment,
+		GatewaysStatusJoining,
+		GatewaysStatusActive,
+		GatewaysStatusDraining,
+		GatewaysStatusDrained,
+		GatewaysStatusDisabled,
 	}
 }
 
@@ -328,6 +645,70 @@ func AllOutboxStatusValues() []OutboxStatus {
 		OutboxStatusSending,
 		OutboxStatusSent,
 		OutboxStatusFailed,
+	}
+}
+
+type PkiAuthoritiesStatus string
+
+const (
+	PkiAuthoritiesStatusActive   PkiAuthoritiesStatus = "active"
+	PkiAuthoritiesStatusRetiring PkiAuthoritiesStatus = "retiring"
+	PkiAuthoritiesStatusRetired  PkiAuthoritiesStatus = "retired"
+	PkiAuthoritiesStatusRevoked  PkiAuthoritiesStatus = "revoked"
+)
+
+func (e *PkiAuthoritiesStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = PkiAuthoritiesStatus(s)
+	case string:
+		*e = PkiAuthoritiesStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for PkiAuthoritiesStatus: %T", src)
+	}
+	return nil
+}
+
+type NullPkiAuthoritiesStatus struct {
+	PkiAuthoritiesStatus PkiAuthoritiesStatus `json:"pki_authorities_status"`
+	Valid                bool                 `json:"valid"` // Valid is true if PkiAuthoritiesStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullPkiAuthoritiesStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.PkiAuthoritiesStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.PkiAuthoritiesStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullPkiAuthoritiesStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.PkiAuthoritiesStatus), nil
+}
+
+func (e PkiAuthoritiesStatus) Valid() bool {
+	switch e {
+	case PkiAuthoritiesStatusActive,
+		PkiAuthoritiesStatusRetiring,
+		PkiAuthoritiesStatusRetired,
+		PkiAuthoritiesStatusRevoked:
+		return true
+	}
+	return false
+}
+
+func AllPkiAuthoritiesStatusValues() []PkiAuthoritiesStatus {
+	return []PkiAuthoritiesStatus{
+		PkiAuthoritiesStatusActive,
+		PkiAuthoritiesStatusRetiring,
+		PkiAuthoritiesStatusRetired,
+		PkiAuthoritiesStatusRevoked,
 	}
 }
 
@@ -538,6 +919,21 @@ type Apikey struct {
 	LastRequest sql.NullTime   `db:"last_request" json:"last_request"`
 }
 
+type AuditEvent struct {
+	ID             string               `db:"id" json:"id"`
+	OrganizationID sql.NullString       `db:"organization_id" json:"organization_id"`
+	ActorType      AuditEventsActorType `db:"actor_type" json:"actor_type"`
+	ActorID        sql.NullString       `db:"actor_id" json:"actor_id"`
+	Action         string               `db:"action" json:"action"`
+	ResourceType   string               `db:"resource_type" json:"resource_type"`
+	ResourceID     sql.NullString       `db:"resource_id" json:"resource_id"`
+	Outcome        AuditEventsOutcome   `db:"outcome" json:"outcome"`
+	RequestID      sql.NullString       `db:"request_id" json:"request_id"`
+	SourceIp       sql.NullString       `db:"source_ip" json:"source_ip"`
+	Metadata       json.RawMessage      `db:"metadata" json:"metadata"`
+	CreatedAt      int64                `db:"created_at" json:"created_at"`
+}
+
 type BackfillImport struct {
 	ID                string                `db:"id" json:"id"`
 	SessionID         string                `db:"session_id" json:"session_id"`
@@ -579,15 +975,60 @@ type EventLog struct {
 }
 
 type Gateway struct {
-	ID           string         `db:"id" json:"id"`
-	Label        sql.NullString `db:"label" json:"label"`
-	BaseUrl      sql.NullString `db:"base_url" json:"base_url"`
-	LastSeenAt   sql.NullInt64  `db:"last_seen_at" json:"last_seen_at"`
-	CreatedAt    int64          `db:"created_at" json:"created_at"`
-	UpdatedAt    int64          `db:"updated_at" json:"updated_at"`
-	Status       string         `db:"status" json:"status"`
-	SessionCount uint32         `db:"session_count" json:"session_count"`
-	Capacity     sql.NullInt32  `db:"capacity" json:"capacity"`
+	ID              string              `db:"id" json:"id"`
+	Label           sql.NullString      `db:"label" json:"label"`
+	Notes           sql.NullString      `db:"notes" json:"notes"`
+	Status          GatewaysStatus      `db:"status" json:"status"`
+	CreatorKind     GatewaysCreatorKind `db:"creator_kind" json:"creator_kind"`
+	CreatedByUserID sql.NullString      `db:"created_by_user_id" json:"created_by_user_id"`
+	BaseUrl         sql.NullString      `db:"base_url" json:"base_url"`
+	GrpcEndpoint    sql.NullString      `db:"grpc_endpoint" json:"grpc_endpoint"`
+	SessionCount    uint32              `db:"session_count" json:"session_count"`
+	Capacity        sql.NullInt32       `db:"capacity" json:"capacity"`
+	DesiredRevision uint64              `db:"desired_revision" json:"desired_revision"`
+	AppliedRevision uint64              `db:"applied_revision" json:"applied_revision"`
+	SoftwareVersion sql.NullString      `db:"software_version" json:"software_version"`
+	Capabilities    json.RawMessage     `db:"capabilities" json:"capabilities"`
+	EnrolledAt      sql.NullInt64       `db:"enrolled_at" json:"enrolled_at"`
+	ConnectedAt     sql.NullInt64       `db:"connected_at" json:"connected_at"`
+	LastSeenAt      sql.NullInt64       `db:"last_seen_at" json:"last_seen_at"`
+	DeletedAt       sql.NullInt64       `db:"deleted_at" json:"deleted_at"`
+	CreatedAt       int64               `db:"created_at" json:"created_at"`
+	UpdatedAt       int64               `db:"updated_at" json:"updated_at"`
+}
+
+type GatewayCertificate struct {
+	ID                     string         `db:"id" json:"id"`
+	GatewayID              string         `db:"gateway_id" json:"gateway_id"`
+	AuthorityID            string         `db:"authority_id" json:"authority_id"`
+	SerialNumber           string         `db:"serial_number" json:"serial_number"`
+	CertificatePem         string         `db:"certificate_pem" json:"certificate_pem"`
+	CertificateFingerprint []byte         `db:"certificate_fingerprint" json:"certificate_fingerprint"`
+	NotBefore              int64          `db:"not_before" json:"not_before"`
+	NotAfter               int64          `db:"not_after" json:"not_after"`
+	RevokedAt              sql.NullInt64  `db:"revoked_at" json:"revoked_at"`
+	RevocationReason       sql.NullString `db:"revocation_reason" json:"revocation_reason"`
+	CreatedAt              int64          `db:"created_at" json:"created_at"`
+}
+
+type GatewayEnrollmentToken struct {
+	ID              string                        `db:"id" json:"id"`
+	GatewayID       string                        `db:"gateway_id" json:"gateway_id"`
+	TokenHash       []byte                        `db:"token_hash" json:"token_hash"`
+	TokenPrefix     string                        `db:"token_prefix" json:"token_prefix"`
+	Status          GatewayEnrollmentTokensStatus `db:"status" json:"status"`
+	AttemptCount    uint32                        `db:"attempt_count" json:"attempt_count"`
+	MaxAttempts     uint32                        `db:"max_attempts" json:"max_attempts"`
+	ExpiresAt       int64                         `db:"expires_at" json:"expires_at"`
+	RedemptionNonce sql.NullString                `db:"redemption_nonce" json:"redemption_nonce"`
+	CsrSha256       sql.NullString                `db:"csr_sha256" json:"csr_sha256"`
+	RedeemingAt     sql.NullInt64                 `db:"redeeming_at" json:"redeeming_at"`
+	LeaseExpiresAt  sql.NullInt64                 `db:"lease_expires_at" json:"lease_expires_at"`
+	ConsumedAt      sql.NullInt64                 `db:"consumed_at" json:"consumed_at"`
+	RevokedAt       sql.NullInt64                 `db:"revoked_at" json:"revoked_at"`
+	CreatedByUserID string                        `db:"created_by_user_id" json:"created_by_user_id"`
+	CreatedAt       int64                         `db:"created_at" json:"created_at"`
+	UpdatedAt       int64                         `db:"updated_at" json:"updated_at"`
 }
 
 type Message struct {
@@ -631,6 +1072,25 @@ type Outbox struct {
 	Error          sql.NullString  `db:"error" json:"error"`
 	CreatedAt      int64           `db:"created_at" json:"created_at"`
 	UpdatedAt      int64           `db:"updated_at" json:"updated_at"`
+}
+
+type PkiAuthority struct {
+	ID                     string               `db:"id" json:"id"`
+	Status                 PkiAuthoritiesStatus `db:"status" json:"status"`
+	CertificatePem         string               `db:"certificate_pem" json:"certificate_pem"`
+	CertificateFingerprint []byte               `db:"certificate_fingerprint" json:"certificate_fingerprint"`
+	EncryptedPrivateKey    []byte               `db:"encrypted_private_key" json:"encrypted_private_key"`
+	PrivateKeyNonce        []byte               `db:"private_key_nonce" json:"private_key_nonce"`
+	EncryptionKeyID        string               `db:"encryption_key_id" json:"encryption_key_id"`
+	NotBefore              int64                `db:"not_before" json:"not_before"`
+	NotAfter               int64                `db:"not_after" json:"not_after"`
+	CreatedAt              int64                `db:"created_at" json:"created_at"`
+	UpdatedAt              int64                `db:"updated_at" json:"updated_at"`
+	ActiveSlot             sql.NullInt16        `db:"active_slot" json:"active_slot"`
+}
+
+type PkiRotationLock struct {
+	ID int8 `db:"id" json:"id"`
 }
 
 type Poll struct {

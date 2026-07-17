@@ -74,12 +74,17 @@ epoch-ms `BIGINT` timestamps, `VARCHAR(64)` ULID PKs (or surrogate `BIGINT UNSIG
 ```sql
 CREATE TABLE gateways (            -- registry + lifecycle; the router reads it to route
   id VARCHAR(64) PRIMARY KEY,      -- = GATEWAY_ID
-  label VARCHAR(255) NULL, base_url TEXT NULL, last_seen_at BIGINT NULL,
-  status VARCHAR(16) NOT NULL DEFAULT 'active',   -- joining|active|draining|drained|unreachable (0004)
-  session_count INT UNSIGNED NOT NULL DEFAULT 0,  -- live session count, written by heartbeat (0004)
-  capacity INT UNSIGNED NULL,                      -- soft cap for placement; NULL = unbounded (0004)
+  label VARCHAR(255) NULL, notes TEXT NULL,
+  status ENUM('pending_enrollment','joining','active','draining','drained','disabled'),
+  creator_kind ENUM('system','user'), created_by_user_id VARCHAR(64) NULL,
+  base_url TEXT NULL, grpc_endpoint VARCHAR(512) NULL,
+  session_count INT UNSIGNED NOT NULL DEFAULT 0, capacity INT UNSIGNED NULL,
+  desired_revision BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  applied_revision BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  software_version VARCHAR(128) NULL, capabilities JSON NULL,
+  enrolled_at BIGINT NULL, connected_at BIGINT NULL, last_seen_at BIGINT NULL,
   created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
-  KEY idx_gateways_status_seen (status, last_seen_at)  -- (0004) active-gateway / stale-heartbeat scans
+  KEY idx_gateways_status_seen (status, last_seen_at)
 );
 
 CREATE TABLE wa_sessions (
@@ -112,21 +117,53 @@ CREATE TABLE wa_sessions (
   defined here; they are frontend-owned (drizzle-kit). Match `organization_id`/`user_id` lengths
   to better-auth ids (`VARCHAR(64)`).
 
-## Gateways registry lifecycle (`migration 0004_gateways_lifecycle`)
+## Gateway control-plane schema foundation (Increment 2.0)
 
-Migration **`0004_gateways_lifecycle.{up,down}.sql`** adds lifecycle/accounting to the existing
-`gateways` table (Layer 1 of the central-router work — [`router.md`](router.md),
-[`session-manager.md`](session-manager.md)):
+Pre-release reshaping folded the former `0004_gateways_lifecycle` into `0001_init`; `0004` no
+longer exists. The normalized foundation adds:
 
-- **`status`** `VARCHAR(16) NOT NULL DEFAULT 'active'` — `joining | active | draining | drained |
-  unreachable`.
-- **`session_count`** `INT UNSIGNED NOT NULL DEFAULT 0` — live sessions on the gateway, refreshed by
-  its heartbeat.
-- **`capacity`** `INT UNSIGNED NULL` — soft placement cap; `NULL` = unbounded.
-- **`INDEX idx_gateways_status_seen (status, last_seen_at)`** — backs active-gateway selection,
-  placement, and stale-heartbeat (`unreachable`) detection.
+- `gateway_enrollment_tokens`: SHA-256 digest + safe display prefix only, attempts and state timestamps.
+- `pki_authorities`: CA certificate plus encrypted private-key ciphertext, nonce, and key id.
+- `gateway_certificates`: public leaf certificates, fingerprints, validity, and revocation.
+- reusable `audit_events`: actor/action/resource/outcome plus bounded JSON metadata.
 
-`GatewayRepo` gains the lifecycle methods:
+Enrollment redemption is a transaction-owned state machine. The public bearer token contains a
+non-secret token id used to lock the row (`SELECT ... WHERE id=? FOR UPDATE`); its SHA-256 digest is
+then compared by the application. Beginning redemption installs a random 16-byte nonce, the
+32-byte CSR digest, and a bounded lease. Only that nonce+CSR owner may finalize or release it;
+expired-lease retries must present the identical CSR, preventing a stale signer from consuming a
+new worker's attempt.
+
+Gateways are soft-deleted and excluded from operational queries. Enrollment and certificate
+foreign keys use `ON DELETE RESTRICT`, retaining security history; deletion is allowed only after
+the gateway is quiescent and has no live token or certificate.
+
+The frontend's reproducible read-only mirror uses pinned Drizzle Kit `0.31.10`, writes generated
+schema/relations/metadata under `web/app/lib/db/wa-generated`, and is re-exported by `wa.ts`.
+Run canonical `pnpm db:introspect` (which delegates to `db:introspect:wa`) with
+`WA_INTROSPECTION_DATABASE_URL` and the explicit allowlist in `web/drizzle.wa.config.ts`; CI uses
+`pnpm db:introspect:wa:check` against a freshly migrated database. That allowlist deliberately excludes enrollment tokens,
+certificates, PKI authorities, and audit events. It is not an authorization boundary: run it with
+a dedicated MySQL account granted `SELECT` only on the listed operational tables (never a wildcard
+schema grant), for example `GRANT SELECT ON app.gateways TO wa_reader` plus one grant per allowlisted
+table. `webhooks` is also excluded because it contains `hmac_secret`; the web UI already uses the
+API's secret-free projection. The API/control-plane migration account remains the sole writer. Using that broad account
+for introspection is unsupported: the read-only account also limits `information_schema` visibility
+to the allowlisted tables and prevents filtered security-table constraints from entering generation.
+
+PKI rotation has two independent database guards. A generated nullable `active_slot` is `1` only
+for an active authority and has a unique index, so MySQL cannot commit two active authorities.
+`pki_rotation_lock` is a permanent singleton row locked `FOR UPDATE` by `Store.RotatePKIAuthority`;
+the same transaction locks and verifies the current active authority, marks it retiring, inserts
+the successor, and rolls everything back if insertion fails. Repositories intentionally do not
+expose a multi-statement rotation helper that could run without this transaction.
+
+This slice is **schema/repository foundation only and is not wired to an API, listener, signer,
+CSR flow, or UI yet**. Current boot self-registration uses the explicit `creator_kind='system'`
+default. Future admin creation requires `creator_kind='user'` and a real creator id; the database
+check forbids ambiguous or fabricated user attribution.
+
+Existing `GatewayRepo` lifecycle methods remain active:
 
 - **`Heartbeat`** — touch `last_seen_at` + `session_count` (the 30s gateway loop).
 - **`SetStatus`** — move through the lifecycle (`joining → active`, `draining → drained` on SIGTERM).

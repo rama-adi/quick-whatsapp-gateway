@@ -9,6 +9,11 @@
 > vendor. The current Ed25519 router assertion described below remains active until gRPC slices cut
 > over.
 
+> **Increment 2.0 foundation (unwired):** normalized enrollment-token, authority,
+> gateway-certificate, and audit-event records now exist. Enrollment persistence contains only a
+> SHA-256 digest and safe prefix; authority private keys are ciphertext plus nonce and key id. No
+> token issuance, CSR validation, signer, mTLS listener, API, or UI consumes these tables yet.
+
 Status: implemented (R1/R2). Live-validated against better-auth 1.6.22.
 
 > **Central-router (Increment A) — read this first.** Authentication now **terminates at the

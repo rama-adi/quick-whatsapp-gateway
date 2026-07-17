@@ -28,6 +28,11 @@ control-plane migration removes them from gateways.
 > migration may reshape packages, schemas, APIs, and deployment topology to reach the clean target
 > without compatibility shims, provided each increment remains buildable, testable, and deployable.
 
+> **Increment 2.0 schema foundation:** normalized gateway lifecycle/revision metadata, hashed
+> enrollment-token records, encrypted CA storage, public gateway certificates, and generic audit
+> events live in the clean `0001` baseline. They remain unwired until subsequent token, CSR,
+> signer, and control-stream slices.
+
 > **Legal / risk notice (ship in README + dashboard footer):** This uses an unofficial
 > WhatsApp client. WhatsApp prohibits bots/unofficial clients; automated use may violate its
 > Terms and get numbers **banned**. Built-in rate limiting and human-mimicry reduce but don't

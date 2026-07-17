@@ -27,7 +27,7 @@ Plan: [`plans/plan-router-impl.md`](plans/plan-router-impl.md). Spec: [`specs/ro
 
 | Increment | Status | Notes |
 |---|---|---|
-| **Increment A** — REST broker + auth termination + registry Layer 1 | ✅ Done | New `cmd/router` + `internal/router` (stateless front door): two-acceptor authn moved off the gateway to the router; session→owning-gateway resolve + **org isolation** (`404`, super_admin bypass); reverse-proxy with a request-bound **Ed25519 internal assertion** (`internal/assertion`, `X-Internal-Assertion`); routing rules (placement via `PickForPlacement` / session-owner / any-active / stranded `503 gateway_unavailable`); router publishes `/.well-known/router-jwks.json` and serves `/api/v1/openapi.yaml`; `ctrl:*` control-bus subscriber moved to the router (evicts the api-key cache on revocation). Gateway: `assertion.Middleware` on `/api/v1`, dropped client authn + CORS + `internal/controlbus` + the api-key cache/verifiers + OpenAPI serving; **registry lifecycle (Layer 1)** — boot `joining→active`, 30s heartbeat (`last_seen_at`+`session_count`), graceful `draining→drained` on SIGTERM. Migration `0004_gateways_lifecycle` (`status`/`session_count`/`capacity` + `idx_gateways_status_seen`); `GatewayRepo.Heartbeat/SetStatus/ListActive/PickForPlacement` + `SessionRepo.CountByGateway`. `wa_sessions.gateway_id` is now authoritative for routing. |
+| **Increment A** — REST broker + auth termination + registry Layer 1 | ✅ Done | Historical router/proxy and gateway lifecycle increment. Its former `0004_gateways_lifecycle` schema was folded into the clean `0001` baseline by gRPC Increment 2.0; runtime `Heartbeat/SetStatus/ListActive/PickForPlacement` behavior remains. |
 | **Increment B** — WebSocket realtime cutover | ✅ Done | Router ticket mint + single-use Redis `GETDEL` redemption, WebSocket endpoint, replay/tail pump, frontend WS client, and live stream-drop on revocation are implemented. Gateways publish `evt:*` over shared Redis; gateway NDJSON `/events` is removed. Direct gateway→API ingest is deferred to acknowledged gRPC eventing. |
 | **Increment 0** — code-first OpenAPI (Huma) | ✅ Done | Shared Go DTOs/Huma operations generate `docs/openapi.yaml`; the router serves the generated contract and drift is checked by `make openapi-check`. |
 
@@ -41,6 +41,7 @@ until later increments replace them.
 |---|---|---|
 | **Increment 0** — decisions and contract tooling | 🚧 In progress | Separate public/private Buf modules; pinned reproducible Go generation; `FILE` compatibility checks for both domains; temporary-directory generated drift check; health-only compatibility anchors; small transport-independent ports for session state, account presence, and read receipts with an unwired local WA adapter; target responsibility boundary and operational defaults recorded. No listener or runtime cutover. |
 | **Increment 1** — composition roots + public health | 🚧 In progress | API/gateway roots, binaries, images, Compose services, and config identities renamed. API public HTTP `8090` and gRPC `8081` listeners share readiness and coordinated lifecycle. WA schema migration ownership moved from gateway to API startup plus dedicated `cmd/migrate`; production gateway HTTP `8080` remains private and private gateway gRPC remains unbound. |
+| **Increment 2.0** — enrollment/PKI schema foundation | 🚧 In progress | Clean `0001` baseline contains normalized gateway lifecycle/revisions, hashed enrollment-token state, encrypted-at-rest CA records, public leaf certificates, and reusable audit events with sqlc primitives. Existing system/bootstrap self-registration remains live. Foundation is intentionally unwired: no token crypto, CSR, signer, listener, API, or UI yet. |
 | **Increment 2+** — control plane through cutover | ⬜ Planned | Add PKI and control stream, desired state, engine slices, reliable events/commands, then remove gateway HTTP/MySQL/Redis. |
 
 ## v1 milestones (archived — code complete)
@@ -101,8 +102,8 @@ e2e smoke against a live WhatsApp number.
   request-binding claims) rather than the plain `JWTVerifier`, reusing the JWKS-cache pattern at
   `ROUTER_JWKS_URL`.
 - **Gateway registry lifecycle = Layer 1 (Increment A):** `gateways` gains `status`
-  (`joining|active|draining|drained|unreachable`) + `session_count` + `capacity` +
-  `idx_gateways_status_seen` (migration `0004_gateways_lifecycle`); boot registers `joining→active`, a
+  lifecycle + `session_count` + `capacity` + `idx_gateways_status_seen` (now folded into `0001`);
+  boot registers `joining→active`, a
   30s heartbeat writes `last_seen_at`+`session_count`, SIGTERM drains `draining→drained`.
   `wa_sessions.gateway_id` is **authoritative for routing**. Keystore portability (Layer 2 — live
   re-homing on a shared `sqlstore`/Postgres) is **deferred**.

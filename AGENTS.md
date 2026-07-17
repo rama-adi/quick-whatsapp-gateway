@@ -67,7 +67,7 @@ Follow-on steps depend on what you touched. Run them in the same change as the b
 |---|---|
 | The public REST API (paths, request/response shapes) | Edit the **Go types**, not the yaml: the per-resource huma ops in `internal/http/handlers/*_ops.go` (operations + request/response structs with `doc:`/`enum:`/`example:` tags) and shared DTOs/events in `internal/apitypes`. Then `make openapi` (regenerates `docs/openapi.yaml` from the Go types — the contract of record the router serves), then `cd web && pnpm gen:api` (regen typed client `app/lib/api/schema.d.ts`) **and** `pnpm docs:openapi` (regen the fumadocs API reference pages). `make gen` runs all three. CI guards drift with `make openapi-check`. Webhook/realtime **event** shapes live in `internal/apitypes/events.go` (the generated OpenAPI `webhooks` section). |
 | better-auth config (`web/app/lib/auth/server.ts`) | `cd web && pnpm auth:generate` (regen `app/lib/db/auth-schema.ts`), then `pnpm db:migrate` (drizzle-kit) to apply the auth tables. |
-| The WA app-data MySQL schema | Author a new `migrations/NNNN_*.{up,down}.sql` (golang-migrate), then `cd web && pnpm db:introspect` to refresh the read-only WA Drizzle models (`app/lib/db/wa.ts`). |
+| The WA app-data MySQL schema | Author a new `migrations/NNNN_*.{up,down}.sql` (golang-migrate), then `cd web && pnpm db:introspect` with `WA_INTROSPECTION_DATABASE_URL` for an exact per-table SELECT-only account. This refreshes `app/lib/db/wa-generated/{schema,relations}.ts`; `wa.ts` only re-exports it. |
 
 ### Two migration toolchains — don't cross them
 

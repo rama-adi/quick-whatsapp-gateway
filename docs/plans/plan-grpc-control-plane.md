@@ -3,6 +3,11 @@
 Status: **proposed** — migration design of record; implementation will proceed on this branch.
 Branch: `migration/grpc-control-plane`.
 
+> **Implemented foundation (Increment 2.0):** normalized gateway lifecycle/revision,
+> enrollment-token digest, encrypted authority, leaf-certificate, and audit-event persistence plus
+> sqlc primitives. This is deliberately unwired; token crypto, CSR/signing, listeners, API, and UI
+> remain later slices.
+
 This plan replaces the current router → gateway HTTP reverse-proxy architecture with an API
 control plane and private WhatsApp engine gateways connected through gRPC. It also introduces a
 separate public gRPC surface alongside the existing REST/OpenAPI API.

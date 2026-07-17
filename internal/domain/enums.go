@@ -44,12 +44,23 @@ func SessionStatusFromName(name string) (s SessionStatus, ok bool) {
 type GatewayStatus string
 
 const (
-	GatewayJoining     GatewayStatus = "joining"
-	GatewayActive      GatewayStatus = "active"
-	GatewayDraining    GatewayStatus = "draining"
-	GatewayDrained     GatewayStatus = "drained"
-	GatewayUnreachable GatewayStatus = "unreachable"
+	GatewayPendingEnrollment GatewayStatus = "pending_enrollment"
+	GatewayJoining           GatewayStatus = "joining"
+	GatewayActive            GatewayStatus = "active"
+	GatewayDraining          GatewayStatus = "draining"
+	GatewayDrained           GatewayStatus = "drained"
+	GatewayDisabled          GatewayStatus = "disabled"
+	GatewayUnreachable       GatewayStatus = "unreachable" // derived API state; never persisted
 )
+
+func (s GatewayStatus) Valid() bool {
+	switch s {
+	case GatewayPendingEnrollment, GatewayJoining, GatewayActive, GatewayDraining, GatewayDrained, GatewayDisabled:
+		return true
+	default:
+		return false
+	}
+}
 
 // ChatType mirrors chats.type.
 type ChatType string

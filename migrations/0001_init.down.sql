@@ -1,5 +1,5 @@
--- Reverse of 0001_init.up.sql. No explicit FK constraints are declared in the up
--- migration, but tables are dropped in reverse creation order anyway.
+-- Reverse of 0001_init.up.sql. FK-dependent control-plane tables are dropped
+-- before their gateway/authority parents.
 DROP TABLE IF EXISTS event_log;
 DROP TABLE IF EXISTS outbox;
 DROP TABLE IF EXISTS poll_votes;
@@ -12,4 +12,9 @@ DROP TABLE IF EXISTS whatsapp_identities;
 DROP TABLE IF EXISTS webhook_deliveries;
 DROP TABLE IF EXISTS webhooks;
 DROP TABLE IF EXISTS wa_sessions;
+DROP TABLE IF EXISTS audit_events;
+DROP TABLE IF EXISTS gateway_certificates;
+DROP TABLE IF EXISTS pki_rotation_lock;
+DROP TABLE IF EXISTS pki_authorities;
+DROP TABLE IF EXISTS gateway_enrollment_tokens;
 DROP TABLE IF EXISTS gateways;

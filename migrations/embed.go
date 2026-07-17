@@ -5,8 +5,9 @@ package migrations
 
 import "embed"
 
-// FS holds every *.sql migration in lexical (version) order:
-// 0001_init.{up,down}.sql (the v2 WA app-data schema). The whatsmeow keystore
+// FS holds every *.sql migration in lexical version order. The normalized
+// gateway lifecycle/enrollment/PKI/audit foundation lives in the clean 0001
+// baseline; the obsolete 0004 lifecycle ALTER was folded into it. The whatsmeow keystore
 // lives in gateway-local SQLite and is auto-migrated by whatsmeow's sqlstore, so
 // there are no wmstore_* migrations here.
 //

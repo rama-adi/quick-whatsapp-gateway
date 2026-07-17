@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
@@ -53,7 +54,7 @@ func (r *GatewayRepo) Upsert(ctx context.Context, g domain.Gateway) error {
 	err := r.q.UpsertGateway(ctx, storedb.UpsertGatewayParams{
 		ID:           g.ID,
 		Label:        nullString(g.Label),
-		Status:       string(g.Status),
+		Status:       storedb.GatewaysStatus(g.Status),
 		SessionCount: uint32(g.SessionCount),
 		Capacity:     nullInt32(g.Capacity),
 		BaseUrl:      nullString(g.BaseURL),
@@ -65,6 +66,40 @@ func (r *GatewayRepo) Upsert(ctx context.Context, g domain.Gateway) error {
 		return fmt.Errorf("store: upsert gateway: %w", err)
 	}
 	return nil
+}
+
+// CreatePending creates an operator-owned gateway awaiting enrollment. Unlike
+// bootstrap Upsert, creatorID is required and persisted as creator_kind=user.
+func (r *GatewayRepo) CreatePending(ctx context.Context, g domain.Gateway, notes, creatorID *string, desiredRevision uint64) error {
+	if creatorID == nil || *creatorID == "" {
+		return fmt.Errorf("store: gateway creator is required")
+	}
+	return r.q.CreateGateway(ctx, storedb.CreateGatewayParams{ID: g.ID, Label: nullString(g.Label), Notes: nullString(notes), Status: storedb.GatewaysStatusPendingEnrollment, CreatedByUserID: nullString(creatorID), Capacity: nullInt32(g.Capacity), DesiredRevision: desiredRevision, CreatedAt: g.CreatedAt, UpdatedAt: g.UpdatedAt})
+}
+
+func (r *GatewayRepo) UpdateMetadata(ctx context.Context, id string, label, notes *string, capacity *int, revision uint64, at int64) (bool, error) {
+	n, err := r.q.UpdateGatewayMetadata(ctx, storedb.UpdateGatewayMetadataParams{Label: nullString(label), Notes: nullString(notes), Capacity: nullInt32(capacity), DesiredRevision: revision, UpdatedAt: at, ID: id})
+	return n == 1, err
+}
+
+func (r *GatewayRepo) Disable(ctx context.Context, id string, at int64) (bool, error) {
+	n, err := r.q.DisableGateway(ctx, storedb.DisableGatewayParams{UpdatedAt: at, ID: id})
+	return n == 1, err
+}
+
+// SoftDelete retains enrollment/certificate history and only hides a safely
+// quiesced gateway with no live credential material.
+func (r *GatewayRepo) SoftDelete(ctx context.Context, id string, at int64) (bool, error) {
+	n, err := r.q.SoftDeleteGateway(ctx, storedb.SoftDeleteGatewayParams{DeletedAt: sql.NullInt64{Int64: at, Valid: true}, UpdatedAt: at, ID: id})
+	return n == 1, err
+}
+
+func (r *GatewayRepo) UpdateConnectionMetadata(ctx context.Context, m domain.GatewayControlMetadata, at int64) (bool, error) {
+	if len(m.Capabilities) > 0 && !json.Valid(m.Capabilities) {
+		return false, fmt.Errorf("store: invalid gateway capabilities")
+	}
+	n, err := r.q.UpdateGatewayConnectionMetadata(ctx, storedb.UpdateGatewayConnectionMetadataParams{GrpcEndpoint: nullString(m.GRPCEndpoint), SoftwareVersion: nullString(m.SoftwareVersion), Capabilities: json.RawMessage(m.Capabilities), AppliedRevision: m.AppliedRevision, ConnectedAt: nullInt64(m.ConnectedAt), UpdatedAt: at, ID: m.GatewayID})
+	return n == 1, err
 }
 
 // Get fetches a gateway by id. Maps no-rows to not_found.
@@ -96,7 +131,7 @@ func (r *GatewayRepo) Heartbeat(ctx context.Context, id string, at int64, sessio
 // draining→drained once in-flight work finishes) and touches updated_at.
 func (r *GatewayRepo) SetStatus(ctx context.Context, id string, status domain.GatewayStatus, at int64) error {
 	err := r.q.SetGatewayStatus(ctx, storedb.SetGatewayStatusParams{
-		Status:    string(status),
+		Status:    storedb.GatewaysStatus(status),
 		UpdatedAt: at,
 		ID:        id,
 	})
@@ -109,7 +144,7 @@ func (r *GatewayRepo) SetStatus(ctx context.Context, id string, status domain.Ga
 // ListActive returns every gateway whose status is `active`, least-loaded first.
 // The router uses it to enumerate placement candidates and for observability.
 func (r *GatewayRepo) ListActive(ctx context.Context) ([]domain.Gateway, error) {
-	rows, err := r.q.ListActiveGateways(ctx, storedb.ListActiveGatewaysParams{Status: string(domain.GatewayActive)})
+	rows, err := r.q.ListActiveGateways(ctx, storedb.ListActiveGatewaysParams{Status: storedb.GatewaysStatusActive})
 	if err != nil {
 		return nil, fmt.Errorf("store: list active gateways: %w", err)
 	}
@@ -126,7 +161,7 @@ func (r *GatewayRepo) ListActive(ctx context.Context) ([]domain.Gateway, error) 
 // "no candidate" to a not_found APIError so the create-session path can surface a
 // clear 503 rather than silently hanging.
 func (r *GatewayRepo) PickForPlacement(ctx context.Context) (domain.Gateway, error) {
-	row, err := r.q.PickGatewayForPlacement(ctx, storedb.PickGatewayForPlacementParams{Status: string(domain.GatewayActive)})
+	row, err := r.q.PickGatewayForPlacement(ctx, storedb.PickGatewayForPlacementParams{Status: storedb.GatewaysStatusActive})
 	if err != nil {
 		return domain.Gateway{}, notFound(err, "placement gateway")
 	}
