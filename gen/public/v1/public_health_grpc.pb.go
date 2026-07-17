@@ -26,8 +26,8 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// PublicHealthService is the initial public protobuf compatibility anchor.
-// It is not served until the API composition root gains its public gRPC listener.
+// PublicHealthService reports whether the API is admitting traffic and its
+// required dependencies are ready.
 type PublicHealthServiceClient interface {
 	Check(ctx context.Context, in *PublicHealthServiceCheckRequest, opts ...grpc.CallOption) (*PublicHealthServiceCheckResponse, error)
 }
@@ -54,8 +54,8 @@ func (c *publicHealthServiceClient) Check(ctx context.Context, in *PublicHealthS
 // All implementations must embed UnimplementedPublicHealthServiceServer
 // for forward compatibility.
 //
-// PublicHealthService is the initial public protobuf compatibility anchor.
-// It is not served until the API composition root gains its public gRPC listener.
+// PublicHealthService reports whether the API is admitting traffic and its
+// required dependencies are ready.
 type PublicHealthServiceServer interface {
 	Check(context.Context, *PublicHealthServiceCheckRequest) (*PublicHealthServiceCheckResponse, error)
 	mustEmbedUnimplementedPublicHealthServiceServer()

@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"net"
+	"net/netip"
 	"strings"
 
 	"github.com/joho/godotenv"
@@ -20,8 +22,9 @@ const DefaultRouterIssuer = "router"
 // later, realtime), the better-auth JWKS inputs, and its own Ed25519 signing key.
 type APIConfig struct {
 	// HTTP / server
-	HTTPAddr  string // API_HTTP_ADDR; deprecated fallback ROUTER_HTTP_ADDR (default :8090)
-	PublicURL string // API_PUBLIC_URL; deprecated fallback ROUTER_PUBLIC_URL
+	HTTPAddr       string // API_HTTP_ADDR; deprecated fallback ROUTER_HTTP_ADDR (default :8090)
+	PublicGRPCAddr string // API_PUBLIC_GRPC_ADDR: plaintext local/trusted ingress hop (default :8081)
+	PublicURL      string // API_PUBLIC_URL; deprecated fallback ROUTER_PUBLIC_URL
 
 	// Trust boundary — authn inputs (same better-auth JWKS the gateway used to use).
 	BetterAuthURL     string   // BETTER_AUTH_URL: JWT iss/aud to enforce
@@ -59,6 +62,7 @@ func LoadAPI() (*APIConfig, error) {
 
 	cfg := &APIConfig{
 		HTTPAddr:                getStringFallback("API_HTTP_ADDR", "ROUTER_HTTP_ADDR", ":8090"),
+		PublicGRPCAddr:          getString("API_PUBLIC_GRPC_ADDR", ":8081"),
 		PublicURL:               getStringFallback("API_PUBLIC_URL", "ROUTER_PUBLIC_URL", ""),
 		BetterAuthURL:           getString("BETTER_AUTH_URL", ""),
 		BetterAuthJWKSURL:       getString("BETTER_AUTH_JWKS_URL", ""),
@@ -102,6 +106,16 @@ func (c *APIConfig) Validate() error {
 	if c.HTTPAddr == "" {
 		return fmt.Errorf("config: API_HTTP_ADDR must not be empty")
 	}
+	if c.PublicGRPCAddr == "" {
+		return fmt.Errorf("config: API_PUBLIC_GRPC_ADDR must not be empty")
+	}
+	overlap, err := tcpEndpointsOverlap(c.HTTPAddr, c.PublicGRPCAddr)
+	if err != nil {
+		return fmt.Errorf("config: public listen addresses: %w", err)
+	}
+	if overlap {
+		return fmt.Errorf("config: API_PUBLIC_GRPC_ADDR must differ from API_HTTP_ADDR")
+	}
 	if c.Ed25519PrivateKey == "" {
 		return fmt.Errorf("config: API_ED25519_PRIVATE_KEY is required (the API signs internal assertions)")
 	}
@@ -138,4 +152,61 @@ func (c *APIConfig) Validate() error {
 		return fmt.Errorf("config: LOG_LEVEL must be one of debug|info|warn|error, got %q", c.LogLevel)
 	}
 	return nil
+}
+
+type normalizedBindHost struct {
+	wildcard bool
+	addrs    map[netip.Addr]struct{}
+}
+
+func tcpEndpointsOverlap(left, right string) (bool, error) {
+	leftHost, leftPort, err := net.SplitHostPort(left)
+	if err != nil {
+		return false, fmt.Errorf("invalid API_HTTP_ADDR %q: %w", left, err)
+	}
+	rightHost, rightPort, err := net.SplitHostPort(right)
+	if err != nil {
+		return false, fmt.Errorf("invalid API_PUBLIC_GRPC_ADDR %q: %w", right, err)
+	}
+	if leftPort != rightPort {
+		return false, nil
+	}
+	l, err := normalizeBindHost(leftHost)
+	if err != nil {
+		return false, fmt.Errorf("API_HTTP_ADDR: %w", err)
+	}
+	r, err := normalizeBindHost(rightHost)
+	if err != nil {
+		return false, fmt.Errorf("API_PUBLIC_GRPC_ADDR: %w", err)
+	}
+	if l.wildcard || r.wildcard {
+		return true, nil
+	}
+	for addr := range l.addrs {
+		if _, ok := r.addrs[addr]; ok {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func normalizeBindHost(host string) (normalizedBindHost, error) {
+	if host == "" {
+		return normalizedBindHost{wildcard: true}, nil
+	}
+	if strings.EqualFold(host, "localhost") {
+		return normalizedBindHost{addrs: map[netip.Addr]struct{}{
+			netip.MustParseAddr("127.0.0.1"): {},
+			netip.MustParseAddr("::1"):       {},
+		}}, nil
+	}
+	addr, err := netip.ParseAddr(host)
+	if err != nil {
+		return normalizedBindHost{}, fmt.Errorf("host %q must be an IP literal, localhost, or wildcard", host)
+	}
+	addr = addr.Unmap()
+	if addr.IsUnspecified() {
+		return normalizedBindHost{wildcard: true}, nil
+	}
+	return normalizedBindHost{addrs: map[netip.Addr]struct{}{addr: {}}}, nil
 }

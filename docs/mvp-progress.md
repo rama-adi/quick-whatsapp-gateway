@@ -40,7 +40,8 @@ until later increments replace them.
 | Increment | Status | Notes |
 |---|---|---|
 | **Increment 0** — decisions and contract tooling | 🚧 In progress | Separate public/private Buf modules; pinned reproducible Go generation; `FILE` compatibility checks for both domains; temporary-directory generated drift check; health-only compatibility anchors; small transport-independent ports for session state, account presence, and read receipts with an unwired local WA adapter; target responsibility boundary and operational defaults recorded. No listener or runtime cutover. |
-| **Increment 1+** — composition roots through cutover | ⬜ Planned | Rename API/gateway roots, add PKI and control stream, desired state, engine slices, reliable events/commands, public gRPC, then remove gateway HTTP/MySQL/Redis. |
+| **Increment 1** — composition roots + public health | 🚧 In progress | API/gateway roots and config identities renamed. API public gRPC health listener added with shared HTTP readiness and coordinated lifecycle; private gateway gRPC remains unbound. |
+| **Increment 2+** — control plane through cutover | ⬜ Planned | Add PKI and control stream, desired state, engine slices, reliable events/commands, then remove gateway HTTP/MySQL/Redis. |
 
 ## v1 milestones (archived — code complete)
 

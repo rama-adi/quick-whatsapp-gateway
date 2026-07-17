@@ -1,4 +1,4 @@
-# Central router (`cmd/router` + `internal/router` + `internal/assertion`)
+# API front door (`cmd/api` + `internal/router` + `internal/assertion`)
 
 Status: implemented (Increment A + Increment B of
 [`../plans/plan-router-impl.md`](../plans/plan-router-impl.md)). Live: the REST broker, auth
@@ -8,10 +8,10 @@ fan-out, control-bus stream-drop). Realtime is **WebSocket-only**: the frontend 
 a ticket against the router, and the gateway's legacy NDJSON `/events` transport has been removed
 (the gateway only publishes events to Redis now). See "Realtime" below.
 
-> **Target migration, not current runtime (gRPC control-plane Increment 0).** `cmd/router` evolves
-> into the API/control plane and remains the only public front door, but the reverse proxy and
+> **Active gRPC migration.** `cmd/api` is the API/control plane and remains the only public front
+> door. Its public gRPC listener currently exposes health only; the reverse proxy and
 > Ed25519 request assertion will be replaced slice-by-slice by private gRPC/mTLS. The API will own
-> public REST/Huma/OpenAPI, optional public gRPC, authn/authz, repositories, Redis work, placement,
+> public REST/Huma/OpenAPI, public gRPC, authn/authz, repositories, Redis work, placement,
 > and event ingestion. Initially every supported topology must provide an API-addressable gateway
 > engine endpoint; outbound-only reverse commands are deferred. The implemented proxy/assertion
 > runtime below has not yet been removed.
@@ -121,18 +121,20 @@ WebSocket stream-drop on `ctrl:user.banned` / `ctrl:member.removed` is implement
 - Serves the **generated Huma OpenAPI spec** at `GET /api/v1/openapi.yaml`; Go DTOs and Huma
   operations are the source and `make openapi-check` guards drift. The gateway no longer serves it.
   The router owns the public route surface + CORS (`FRONTEND_ORIGINS`); browsers hit the router.
-- Health probes: `GET /healthz`, `GET /readyz`.
+- Health probes: `GET /healthz`, `GET /readyz`, plus public gRPC
+  `public.v1.PublicHealthService/Check`. HTTP readiness and gRPC serving status share one predicate.
 - `internal/dbconn` — the shared MySQL connection helper the router (and gateway) use to reach the
   shared app-data DB / registry.
 
-## Config / env (`config.LoadRouter` → `config.RouterConfig`)
+## Config / env (`config.LoadAPI` → `config.APIConfig`)
 
 | Var | Default | Purpose |
 |---|---|---|
-| `ROUTER_HTTP_ADDR` | `:8090` | listen addr |
-| `ROUTER_PUBLIC_URL` | — | external base URL of the router |
-| `ROUTER_ISSUER` | `router` | the assertion `iss` the minter stamps (= `config.DefaultRouterIssuer`) |
-| `ROUTER_ED25519_PRIVATE_KEY` | — (**required**) | base64 seed or full Ed25519 private key the minter signs with |
+| `API_HTTP_ADDR` | `:8090` | public HTTP listen address (`ROUTER_HTTP_ADDR` is a deprecated fallback) |
+| `API_PUBLIC_GRPC_ADDR` | `:8081` | plaintext public gRPC for local/trusted ingress-hop use; must differ from HTTP |
+| `API_PUBLIC_URL` | — | external API base URL (`ROUTER_PUBLIC_URL` is a deprecated fallback) |
+| `API_ISSUER` | `router` | assertion `iss` (`ROUTER_ISSUER` is a deprecated fallback) |
+| `API_ED25519_PRIVATE_KEY` | — (**required**) | assertion signing key (`ROUTER_ED25519_PRIVATE_KEY` is a deprecated fallback) |
 | `MYSQL_DSN` | — | shared app-data DSN (registry + `wa_sessions` + `apikey` read) |
 | `REDIS_URL` | — | work Redis |
 | `PUBSUB_REDIS_URL` | `${REDIS_URL}` | control-bus `ctrl:*` pub/sub |
@@ -141,6 +143,11 @@ WebSocket stream-drop on `ctrl:user.banned` / `ctrl:member.removed` is implement
 | `FRONTEND_ORIGINS` | — | comma-list of allowed CORS origins (browser → router) |
 | `REDIS_PREFIX` | — | key/channel namespace |
 | `LOG_LEVEL` | — | structured logging |
+
+The two public listen addresses may use an IP literal, `localhost`, or a wildcard host. On the same
+port, wildcard binds overlap every host; `localhost` is normalized to both loopback families; and
+IPv4-mapped/expanded IPv6 literals are normalized before collision checking. Other hostnames on a
+shared port are rejected rather than resolved through nondeterministic external DNS.
 
 On the **gateway** side the matching config is `ROUTER_JWKS_URL` (required at runtime — the router's
 JWKS for assertion verify) + `ROUTER_ASSERTION_ISSUER` (default `router`); `GATEWAY_ID` is the

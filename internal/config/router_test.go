@@ -11,7 +11,7 @@ import (
 // This catches configuration drift that could weaken trust assumptions or make startup behavior unpredictable.
 func TestLoadAPI_DefaultsAndValidate(t *testing.T) {
 	keys := []string{
-		"API_HTTP_ADDR", "API_PUBLIC_URL", "API_ISSUER", "API_ED25519_PRIVATE_KEY",
+		"API_HTTP_ADDR", "API_PUBLIC_GRPC_ADDR", "API_PUBLIC_URL", "API_ISSUER", "API_ED25519_PRIVATE_KEY",
 		"ROUTER_HTTP_ADDR", "ROUTER_PUBLIC_URL", "ROUTER_ISSUER",
 		"ROUTER_ED25519_PRIVATE_KEY", "BETTER_AUTH_URL", "BETTER_AUTH_JWKS_URL",
 		"FRONTEND_ORIGINS", "MYSQL_DSN", "REDIS_URL", "PUBSUB_REDIS_URL",
@@ -29,6 +29,9 @@ func TestLoadAPI_DefaultsAndValidate(t *testing.T) {
 	}
 	if cfg.HTTPAddr != ":8090" {
 		t.Errorf("HTTPAddr = %q, want :8090", cfg.HTTPAddr)
+	}
+	if cfg.PublicGRPCAddr != ":8081" {
+		t.Errorf("PublicGRPCAddr = %q, want :8081", cfg.PublicGRPCAddr)
 	}
 	if cfg.Issuer != DefaultRouterIssuer {
 		t.Errorf("Issuer = %q, want %q", cfg.Issuer, DefaultRouterIssuer)
@@ -53,6 +56,55 @@ func TestLoadAPI_DefaultsAndValidate(t *testing.T) {
 	cfg.WebLoginURL = "https://web.example.com/login/whatsapp"
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate on complete config: %v", err)
+	}
+}
+
+func TestLoadAPI_PublicGRPCAddrOverrideAndCollision(t *testing.T) {
+	t.Setenv("API_HTTP_ADDR", ":9000")
+	t.Setenv("API_PUBLIC_GRPC_ADDR", ":9001")
+	cfg, err := LoadAPI()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.PublicGRPCAddr != ":9001" {
+		t.Fatalf("PublicGRPCAddr = %q, want :9001", cfg.PublicGRPCAddr)
+	}
+	cfg.HTTPAddr = ":9001"
+	if err := cfg.Validate(); err == nil || err.Error() != "config: API_PUBLIC_GRPC_ADDR must differ from API_HTTP_ADDR" {
+		t.Fatalf("collision error = %v", err)
+	}
+}
+
+func TestAPIConfigListenAddressOverlap(t *testing.T) {
+	tests := []struct {
+		name, httpAddr, grpcAddr string
+		wantOverlap              bool
+	}{
+		{"wildcard empty and IPv4", ":8090", "0.0.0.0:8090", true},
+		{"localhost and IPv4 loopback", "localhost:8090", "127.0.0.1:8090", true},
+		{"localhost and IPv6 loopback", "localhost:8090", "[::1]:8090", true},
+		{"IPv4 mapped equivalent", "127.0.0.1:8090", "[::ffff:127.0.0.1]:8090", true},
+		{"equivalent IPv6 literals", "[0:0:0:0:0:0:0:1]:8090", "[::1]:8090", true},
+		{"distinct concrete hosts", "127.0.0.1:8090", "127.0.0.2:8090", false},
+		{"distinct ports", ":8090", "0.0.0.0:8081", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := tcpEndpointsOverlap(tt.httpAddr, tt.grpcAddr)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tt.wantOverlap {
+				t.Fatalf("overlap = %v, want %v", got, tt.wantOverlap)
+			}
+		})
+	}
+}
+
+func TestAPIConfigListenAddressRejectsHostnames(t *testing.T) {
+	_, err := tcpEndpointsOverlap("api.internal:8090", ":8090")
+	if err == nil || err.Error() != `API_HTTP_ADDR: host "api.internal" must be an IP literal, localhost, or wildcard` {
+		t.Fatalf("hostname error = %v", err)
 	}
 }
 

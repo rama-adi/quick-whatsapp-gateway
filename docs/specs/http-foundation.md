@@ -28,6 +28,8 @@ human login**: no `/auth` surface, no embedded SPA, no cookie middleware.
 - **Base stack:** `Recover` (outermost) → `RequestID` → `Logger`. **CORS is no longer mounted on the
   gateway** (central-router) — it lives on the router.
 - **Open probes:** `GET /healthz`, `GET /readyz`, `/metrics` (Prometheus) — unauthenticated.
+  API `/readyz` shares its dependency-and-admission predicate with public gRPC health. Admission is
+  false before both public sockets are bound and again before coordinated HTTP/gRPC drain begins.
 - **`/api/v1`** — an authenticated group wraps the **assertion middleware** (`RouterConfig.Auth`,
   `assertion.Middleware`) plus an optional edge `RateLimit`; each resource group then composes its
   capability gate. The gateway **no longer exposes `/events`** — realtime is WebSocket-only on the

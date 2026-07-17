@@ -4,8 +4,8 @@ package public.v1;
 
 option go_package = "github.com/ramaadi/quick-whatsapp-gateway/gen/public/v1;publicv1";
 
-// PublicHealthService is the initial public protobuf compatibility anchor.
-// It is not served until the API composition root gains its public gRPC listener.
+// PublicHealthService reports whether the API is admitting traffic and its
+// required dependencies are ready.
 service PublicHealthService {
   rpc Check(PublicHealthServiceCheckRequest) returns (PublicHealthServiceCheckResponse);
 }

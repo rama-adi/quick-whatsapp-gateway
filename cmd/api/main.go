@@ -8,10 +8,9 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
+	"net"
 	"os"
 	"os/signal"
 	"strings"
@@ -172,6 +171,7 @@ func run() error {
 	controlStop := startControlBus(ctx, cfg.PubSubRedisURL, keyVerifier, dropper, log)
 	defer controlStop()
 
+	readinessGate := &readinessGate{dependencies: readiness(db, rdb)}
 	srv, err := router.NewServer(router.Config{
 		Sessions:      st.Sessions,
 		Gateways:      st.Gateways,
@@ -179,7 +179,7 @@ func run() error {
 		Tokens:        tokenVerifier,
 		Keys:          keyVerifier,
 		CORSOrigins:   cfg.FrontendOrigins,
-		Readiness:     readiness(db, rdb),
+		Readiness:     readinessGate.check,
 		DBStats:       db.Stats,
 		OpenAPIPath:   "docs/openapi.yaml",
 		Redis:         rdb,
@@ -197,31 +197,20 @@ func run() error {
 		return fmt.Errorf("build router: %w", err)
 	}
 
-	httpSrv := &http.Server{
-		Addr:              cfg.HTTPAddr,
-		Handler:           srv.Handler(),
-		ReadHeaderTimeout: 10 * time.Second,
+	grpcServer := newPublicGRPCServer(readinessGate.check)
+	runner := &apiServerRunner{
+		httpAddr:        cfg.HTTPAddr,
+		grpcAddr:        cfg.PublicGRPCAddr,
+		httpHandler:     srv.Handler(),
+		grpcServer:      grpcServer,
+		readiness:       readinessGate,
+		shutdownTimeout: 15 * time.Second,
+		onBound: func(_, _ net.Listener) {
+			log.Info("api listening", "http_addr", cfg.HTTPAddr, "public_grpc_addr", cfg.PublicGRPCAddr, "issuer", cfg.Issuer, "kid", minter.KeyID())
+		},
 	}
-
-	errCh := make(chan error, 1)
-	go func() {
-		log.Info("api listening", "addr", cfg.HTTPAddr, "issuer", cfg.Issuer, "kid", minter.KeyID())
-		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errCh <- err
-		}
-	}()
-
-	select {
-	case err := <-errCh:
-		return fmt.Errorf("http server: %w", err)
-	case <-ctx.Done():
-		log.Info("shutdown signal received, draining connections")
-	}
-
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
-		return fmt.Errorf("graceful shutdown: %w", err)
+	if err := runner.run(ctx); err != nil {
+		return err
 	}
 	log.Info("api stopped cleanly")
 	return nil

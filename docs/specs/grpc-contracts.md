@@ -1,6 +1,7 @@
 # gRPC contract tooling and compatibility
 
-Status: **Increment 0 scaffold**. No gRPC listener or runtime behavior is enabled yet.
+Status: **Increment 1 public health active**. The API serves only `public.v1.PublicHealthService`;
+the private gateway contract remains unregistered and has no listener.
 
 The root Buf v2 workspace contains two deliberately separate modules and compatibility domains:
 
@@ -11,8 +12,8 @@ The root Buf v2 workspace contains two deliberately separate modules and compati
   `v1`. It is an internal protocol
   and must never be published as a public SDK.
 
-Both packages start with a health-only contract so generation and compatibility checks exist before
-runtime migration begins. Generated Go and gRPC bindings are committed under matching
+Both packages start with a health contract so generation and compatibility checks exist before
+the engine migration begins. Generated Go and gRPC bindings are committed under matching
 `gen/public/v1` and `gen/gateway/v1` directories.
 
 ## Generation and checks
@@ -52,8 +53,17 @@ green gates.
 - Generated files are outputs only. Change `.proto` sources and run `make proto`.
 - REST/OpenAPI remains Huma code-first; these contracts do not become a second REST source of truth.
 
-The health services are compatibility anchors only. They are not registered or reachable until a
-later migration increment introduces the API and gateway gRPC listeners.
+The API binds `API_PUBLIC_GRPC_ADDR` (default `:8081`) and registers only
+`public.v1.PublicHealthService`. Its status uses the same readiness predicate as HTTP `/readyz`:
+`SERVING` only while the API admits traffic and MySQL plus configured Redis are ready, otherwise
+`NOT_SERVING`; the RPC itself still completes normally. All public listeners are bound before
+either begins serving, and HTTP plus gRPC drain together on cancellation or a serve failure.
+
+This initial listener is plaintext by design for local development or an explicitly configured
+trusted path behind a TLS-terminating ingress. It is not a claim that direct production plaintext
+gRPC is safe. Production deployments must terminate TLS at the ingress (with a trusted private hop)
+or add application TLS in a later deployment-hardening increment. The API does not bind
+`API_GATEWAY_GRPC_ADDR`, and `gateway.v1` is never registered on the public server.
 
 ## Transport-independent engine boundary
 
