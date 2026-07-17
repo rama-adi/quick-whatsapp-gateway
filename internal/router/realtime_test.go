@@ -133,7 +133,7 @@ func TestRealtime_EndToEnd_WS(t *testing.T) {
 	}
 	var tr ticketResponse
 	_ = json.NewDecoder(httpResp.Body).Decode(&tr)
-	httpResp.Body.Close()
+	_ = httpResp.Body.Close()
 	if tr.Ticket == "" {
 		t.Fatal("no ticket minted")
 	}
@@ -143,7 +143,7 @@ func TestRealtime_EndToEnd_WS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ws dial: %v", err)
 	}
-	defer conn.CloseNow()
+	defer func() { _ = conn.CloseNow() }()
 
 	// First frame is the "connected" envelope.
 	_, data, err := conn.Read(ctx)
@@ -175,7 +175,7 @@ func TestRealtime_EndToEnd_WS(t *testing.T) {
 
 	// Single-use: a second dial with the same ticket must be rejected.
 	if c2, _, err := websocket.Dial(ctx, wsURL, nil); err == nil {
-		c2.CloseNow()
+		_ = c2.CloseNow()
 		t.Fatal("expected single-use ticket to reject the second connection")
 	}
 }

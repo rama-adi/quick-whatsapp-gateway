@@ -226,7 +226,7 @@ func TestInboundRepos_UpdateMessageStatus_ContinuesPastUnknown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	repos := NewInboundRepos(store.New(db), nil)
 
 	for _, rows := range []int64{1, 0, 1} {
@@ -255,7 +255,7 @@ func TestInboundRepos_UpdateMessageStatus_PropagatesDatabaseFailure(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	repos := NewInboundRepos(store.New(db), nil)
 	want := errors.New("database unavailable")
 	mock.ExpectExec("UPDATE messages.*SET.*status = CASE.*ack_level = CASE").

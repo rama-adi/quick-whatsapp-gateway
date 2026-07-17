@@ -183,7 +183,7 @@ func (r *OutboxRepo) claimQueuedForSession(ctx context.Context, sessionID string
 	if err != nil {
 		return nil, fmt.Errorf("store: begin claim queued outbox: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	rows, err := r.claimQueued(ctx, storedb.New(tx), sessionID, limit, updatedAt)
 	if err != nil {
 		return nil, err

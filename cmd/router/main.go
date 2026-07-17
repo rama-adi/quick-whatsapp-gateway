@@ -67,7 +67,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("open mysql: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	prometheus.MustRegister(collectors.NewDBStatsCollector(db, "router"))
 	st := store.New(db)
 
@@ -78,7 +78,7 @@ func run() error {
 		if err != nil {
 			return fmt.Errorf("open redis: %w", err)
 		}
-		defer rdb.Close()
+		defer func() { _ = rdb.Close() }()
 	}
 
 	// --- Trust boundary: authenticate end-user callers (D2). The two-acceptor
@@ -241,7 +241,7 @@ func runOIDPRotateKey(ctx context.Context, cfg *config.RouterConfig, args []stri
 	if err != nil {
 		return fmt.Errorf("open mysql: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	repo := store.New(db).OAuthSigningKeys
 	now := time.Now().UnixMilli()
 	switch args[0] {

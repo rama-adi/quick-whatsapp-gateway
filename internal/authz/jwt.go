@@ -93,11 +93,6 @@ func withFetcher(f jwksFetcher) JWTVerifierOption {
 	return func(v *JWTVerifier) { v.fetch = f }
 }
 
-// withClock injects the time source (tests).
-func withClock(now func() time.Time) JWTVerifierOption {
-	return func(v *JWTVerifier) { v.now = now }
-}
-
 // NewJWTVerifier builds a verifier for the given JWKS URL and better-auth base
 // URL (the enforced iss/aud). Both must be non-empty.
 func NewJWTVerifier(jwksURL, betterAuthURL string, opts ...JWTVerifierOption) (*JWTVerifier, error) {

@@ -39,9 +39,6 @@ func WithTTL(d time.Duration) MinterOption { return func(m *Minter) { m.ttl = d 
 // withMinterClock injects the time source (tests).
 func withMinterClock(now func() time.Time) MinterOption { return func(m *Minter) { m.now = now } }
 
-// withJTIFunc injects the nonce generator (tests).
-func withJTIFunc(f func() string) MinterOption { return func(m *Minter) { m.newJTI = f } }
-
 // NewMinter builds a Minter from the router's Ed25519 private key. issuer is the
 // stable router identity stamped as `iss` (and enforced by the gateway verifier).
 func NewMinter(priv ed25519.PrivateKey, issuer string, opts ...MinterOption) (*Minter, error) {

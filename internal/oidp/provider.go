@@ -269,7 +269,7 @@ func (p *Provider) HandleWaitStream(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithDeadline(r.Context(), time.UnixMilli(req.ExpiresAt))
 	defer cancel()
 	pubsub := p.pending.Subscribe(ctx, code)
-	defer pubsub.Close()
+	defer func() { _ = pubsub.Close() }()
 	ch := pubsub.Channel()
 	t := time.NewTicker(streamHeartbeat)
 	defer t.Stop()

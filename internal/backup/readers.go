@@ -18,7 +18,7 @@ func (d *DB) EachChat(ctx context.Context, fn func(Chat) error) error {
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var (
 			raw, server string
@@ -51,7 +51,7 @@ func (d *DB) EachGroup(ctx context.Context, fn func(Group) error) error {
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var (
 			raw     string
@@ -83,7 +83,7 @@ func (d *DB) EachGroupMember(ctx context.Context, fn func(GroupMember) error) er
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var (
 			groupJID, userJID string
@@ -131,7 +131,7 @@ func (d *DB) EachIdentity(ctx context.Context, fn func(Identity) error) error {
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var raw, server, user string
 		if err := rows.Scan(&raw, &server, &user); err != nil {
@@ -165,7 +165,7 @@ func (d *DB) mentionNames(ctx context.Context) (map[string]string, error) {
 	if err != nil {
 		return out, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var raw, name string
 		if err := rows.Scan(&raw, &name); err != nil {
@@ -193,7 +193,7 @@ func (d *DB) EachMessage(ctx context.Context, fn func(Message) error) error {
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	for rows.Next() {
 		r := scanInto()
@@ -227,7 +227,7 @@ func (d *DB) messageMentions(ctx context.Context) (map[int64][]string, error) {
 	if err != nil {
 		return out, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var (
 			rowID sql.NullInt64

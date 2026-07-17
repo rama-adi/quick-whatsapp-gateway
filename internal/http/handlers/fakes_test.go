@@ -10,7 +10,6 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/httpx"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/service"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa/outbound"
@@ -18,12 +17,6 @@ import (
 
 // testOrganization is the organization id injected into request contexts by withOrganization.
 const testOrganization = "ten_test"
-
-// withOrganization returns r with the organization id set on its context, mirroring what the
-// auth middleware does in production.
-func withOrganization(r *http.Request, organizationID string) *http.Request {
-	return r.WithContext(httpx.SetOrganizationID(r.Context(), organizationID))
-}
 
 // chiReq builds a request whose chi RouteContext carries the given URL params,
 // so handlers reading chi.URLParam see them without a full router.

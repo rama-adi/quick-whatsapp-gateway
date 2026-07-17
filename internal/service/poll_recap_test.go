@@ -179,7 +179,7 @@ func TestPollRecapWorkerBuildPayload_ResolvesVoterNamesFromIdentityRepo(t *testi
 	if err != nil {
 		t.Fatalf("sqlmock.New: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	poll := domain.PollRecapCandidate{
 		SessionID:       "sess_1",

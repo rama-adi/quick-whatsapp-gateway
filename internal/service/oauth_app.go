@@ -106,10 +106,9 @@ type OAuthAppUpdateInput struct {
 }
 
 func (s *OAuthAppService) List(ctx context.Context, org string, isSuperAdmin bool, cursor string, limit int) (store.Page[apitypes.OAuthApp], error) {
-	if isSuperAdmin {
-		// The repo has no cross-org list because the dashboard is org-scoped; super_admin
-		// bypass applies to direct id lookups.
-	}
+	// The repo has no cross-org list because the dashboard is org-scoped; super_admin
+	// bypass applies to direct id lookups.
+	_ = isSuperAdmin
 	page, err := s.clients.ListByOrg(ctx, org, cursor, limit)
 	if err != nil {
 		return store.Page[apitypes.OAuthApp]{}, err

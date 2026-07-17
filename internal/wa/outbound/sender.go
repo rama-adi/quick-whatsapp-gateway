@@ -501,7 +501,7 @@ func fetchMediaURL(ctx context.Context, m *domain.MediaPayload) ([]byte, string,
 	if err != nil {
 		return nil, "", domain.ErrValidation("media.url could not be downloaded")
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, "", domain.ErrValidation(fmt.Sprintf("media.url returned HTTP %d", resp.StatusCode))

@@ -259,6 +259,6 @@ func Decompress(data []byte) ([]byte, error) {
 		}
 		return nil, fmt.Errorf("zlib open failed (decryption may have failed): %w", err)
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 	return io.ReadAll(r)
 }

@@ -308,7 +308,7 @@ func TestInvalidateSessionExpiresOpenPendingStreams(t *testing.T) {
 		ExpiresAt: time.Now().Add(time.Minute).UnixMilli(),
 	}))
 	pubsub := ps.Subscribe(context.Background(), "browser_1")
-	defer pubsub.Close()
+	defer func() { _ = pubsub.Close() }()
 	_, err := pubsub.ReceiveTimeout(context.Background(), time.Second)
 	require.NoError(t, err)
 
@@ -339,7 +339,7 @@ func TestDenyClientPendingPublishesDenied(t *testing.T) {
 		ExpiresAt: time.Now().Add(time.Minute).UnixMilli(),
 	}))
 	pubsub := ps.Subscribe(context.Background(), "browser_1")
-	defer pubsub.Close()
+	defer func() { _ = pubsub.Close() }()
 	_, err := pubsub.ReceiveTimeout(context.Background(), time.Second)
 	require.NoError(t, err)
 

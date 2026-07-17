@@ -138,7 +138,7 @@ func (d *Dispatcher) Deliver(ctx context.Context, del domain.WebhookDelivery) er
 		return d.fail(ctx, del, hook, attempts, nil, fmt.Sprintf("http do: %v", err))
 	}
 	code := resp.StatusCode
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if code >= 200 && code < 300 {
 		// Discard the complete success body so net/http can reuse the connection.

@@ -87,7 +87,7 @@ func (r *WebhookDeliveryRepo) ClaimDue(ctx context.Context, now int64, limit int
 	if err != nil {
 		return nil, fmt.Errorf("store: begin claim due deliveries: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	rows, err := r.claimDue(ctx, storedb.New(tx), now, limit)
 	if err != nil {

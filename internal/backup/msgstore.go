@@ -63,11 +63,11 @@ func Open(path string) (*DB, error) {
 	sqlDB.SetMaxIdleConns(1)
 	caps, err := probe(sqlDB)
 	if err != nil {
-		sqlDB.Close()
+		_ = sqlDB.Close()
 		return nil, err
 	}
 	if !caps.hasTable("message") || !caps.hasTable("chat") || !caps.hasTable("jid") {
-		sqlDB.Close()
+		_ = sqlDB.Close()
 		return nil, fmt.Errorf("unrecognized WhatsApp backup schema: missing core tables (message/chat/jid)")
 	}
 	return &DB{db: sqlDB, caps: caps, finger: fingerprint(sqlDB, caps)}, nil
@@ -96,16 +96,16 @@ func probe(db *sql.DB) (capabilities, error) {
 	for rows.Next() {
 		var name string
 		if err := rows.Scan(&name); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return caps, err
 		}
 		caps.tables[name] = true
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
+		_ = rows.Close()
 		return caps, err
 	}
-	rows.Close()
+	_ = rows.Close()
 
 	for _, t := range tablesProbedForCols {
 		if !caps.tables[t] {
@@ -126,7 +126,7 @@ func tableColumns(ctx context.Context, db *sql.DB, table string) (map[string]boo
 	if err != nil {
 		return nil, fmt.Errorf("probe columns of %s: %w", table, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	out := map[string]bool{}
 	for rows.Next() {
 		var (

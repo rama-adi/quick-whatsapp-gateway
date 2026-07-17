@@ -192,7 +192,7 @@ func (s *Server) handleRealtimeWS(w http.ResponseWriter, r *http.Request) {
 		s.log.Debug("websocket accept failed", "err", err)
 		return // Accept already wrote the error response
 	}
-	defer conn.CloseNow()
+	defer func() { _ = conn.CloseNow() }()
 
 	// CloseRead returns a context cancelled when the peer closes or errors, and it
 	// drains incoming frames so control frames (ping/close) are handled.

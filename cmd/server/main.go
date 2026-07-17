@@ -89,7 +89,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("open mysql: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	prometheus.MustRegister(collectors.NewDBStatsCollector(db, "gateway"))
 
 	st := store.New(db)
@@ -105,7 +105,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("open redis: %w", err)
 	}
-	defer rdb.Close()
+	defer func() { _ = rdb.Close() }()
 
 	// --- Trust seam (§4, D2/D3): the gateway no longer authenticates end users.
 	// The central router terminates authn and vouches a resolved Principal via a
@@ -527,7 +527,7 @@ func migrateUp(dsn string) error {
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	m, err := migrator(db)
 	if err != nil {
 		return err
@@ -559,7 +559,7 @@ func runMigrate(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	m, err := migrator(db)
 	if err != nil {
 		return err

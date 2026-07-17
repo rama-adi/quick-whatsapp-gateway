@@ -19,7 +19,7 @@ func TestPublisher_PublishFanOut(t *testing.T) {
 
 	// Subscriber on the exact organization+session channel.
 	sub := rc.Subscribe(context.Background(), channelFor("ten_a", "sess_1"))
-	defer sub.Close()
+	defer func() { _ = sub.Close() }()
 	if _, err := sub.Receive(context.Background()); err != nil { // wait for subscription
 		t.Fatalf("subscribe confirm: %v", err)
 	}

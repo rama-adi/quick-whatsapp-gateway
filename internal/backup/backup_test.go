@@ -51,7 +51,7 @@ func TestOpenEscapesPathAndFingerprintIncludesColumns(t *testing.T) {
 		t.Fatalf("open fixture: %v", err)
 	}
 	if _, err := raw.Exec(`CREATE TABLE message (id INTEGER); CREATE TABLE chat (id INTEGER); CREATE TABLE jid (id INTEGER)`); err != nil {
-		raw.Close()
+		_ = raw.Close()
 		t.Fatalf("create fixture: %v", err)
 	}
 	if err := raw.Close(); err != nil {
@@ -67,7 +67,7 @@ func TestOpenEscapesPathAndFingerprintIncludesColumns(t *testing.T) {
 	}
 	fingerprint1 := first.Fingerprint()
 	if _, err := first.db.Exec("ALTER TABLE message ADD COLUMN body TEXT"); err == nil {
-		first.Close()
+		_ = first.Close()
 		t.Fatal("immutable backup handle accepted a write")
 	}
 	if err := first.Close(); err != nil {
@@ -80,16 +80,16 @@ func TestOpenEscapesPathAndFingerprintIncludesColumns(t *testing.T) {
 		t.Fatalf("reopen fixture: %v", err)
 	}
 	if _, err := raw.Exec("ALTER TABLE message ADD COLUMN body TEXT"); err != nil {
-		raw.Close()
+		_ = raw.Close()
 		t.Fatalf("alter fixture: %v", err)
 	}
-	raw.Close()
+	_ = raw.Close()
 
 	second, err := Open(path)
 	if err != nil {
 		t.Fatalf("reopen backup: %v", err)
 	}
-	defer second.Close()
+	defer func() { _ = second.Close() }()
 	if fingerprint2 := second.Fingerprint(); fingerprint2 == fingerprint1 {
 		t.Fatalf("fingerprint did not change after column addition: %q", fingerprint1)
 	} else if !strings.Contains(fingerprint2, "caps=") {
@@ -244,7 +244,7 @@ func TestReadSampleMsgstore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	t.Logf("schema fingerprint: %s", db.Fingerprint())
 

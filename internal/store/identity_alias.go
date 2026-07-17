@@ -53,15 +53,15 @@ func mergeDMChatAlias(ctx context.Context, db dbExecQuerier, sessionID, lid, pho
 	}
 
 	_, err := q.GetCanonicalChatIDForAliasMerge(ctx, storedb.GetCanonicalChatIDForAliasMergeParams{SessionID: sessionID, ChatJid: lid})
-	switch {
-	case err == nil:
+	switch err {
+	case nil:
 		if err := q.MergeSessionDMChatAlias(ctx, storedb.MergeSessionDMChatAliasParams{ChatJid: phoneJID, SessionID: sessionID, ChatJid_2: lid}); err != nil {
 			return fmt.Errorf("store: merge chat alias: %w", err)
 		}
 		if err := q.DeleteSessionDMChatAlias(ctx, storedb.DeleteSessionDMChatAliasParams{SessionID: sessionID, ChatJid: phoneJID}); err != nil {
 			return fmt.Errorf("store: delete chat alias: %w", err)
 		}
-	case err == sql.ErrNoRows:
+	case sql.ErrNoRows:
 		if err := q.RenameSessionDMChatAlias(ctx, storedb.RenameSessionDMChatAliasParams{ChatJid: lid, SessionID: sessionID, ChatJid_2: phoneJID}); err != nil {
 			return fmt.Errorf("store: rename chat alias: %w", err)
 		}

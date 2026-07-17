@@ -19,7 +19,7 @@ func TestOpenCreatesDeviceContainer(t *testing.T) {
 	c, err := Open(context.Background(), dsn, nil)
 	require.NoError(t, err)
 	require.NotNil(t, c)
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	dev, err := c.GetFirstDevice(context.Background())
 	require.NoError(t, err)

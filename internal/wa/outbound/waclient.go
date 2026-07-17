@@ -304,7 +304,7 @@ func imageMetadata(data []byte) (width, height uint32, jpegThumbnail []byte) {
 	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 {
 		return 0, 0, nil
 	}
-	thumb := data
+	var thumb []byte
 	if len(data) > 64*1024 {
 		return uint32(cfg.Width), uint32(cfg.Height), nil
 	}

@@ -151,7 +151,7 @@ func writeTempDB(plain []byte) (string, error) {
 		return "", err
 	}
 	if _, err := f.Write(plain); err != nil {
-		f.Close()
+		_ = f.Close()
 		_ = os.Remove(f.Name())
 		return "", err
 	}
@@ -173,7 +173,7 @@ func (s *BackupImportService) runImport(ctx context.Context, job domain.Backfill
 		s.finishFailed(ctx, job, err)
 		return
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	fp := db.Fingerprint()
 	job.SchemaFingerprint = &fp

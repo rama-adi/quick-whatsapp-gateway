@@ -92,7 +92,7 @@ func (r *OAuthClientRepo) ListActiveBySession(ctx context.Context, sessionID str
 	if err != nil {
 		return nil, fmt.Errorf("store: list active oauth clients by session: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var items []domain.OAuthClient
 	for rows.Next() {
 		c, err := scanOAuthClient(rows)
@@ -112,7 +112,7 @@ func (r *OAuthClientRepo) ListBySession(ctx context.Context, sessionID string) (
 	if err != nil {
 		return nil, fmt.Errorf("store: list oauth clients by session: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var items []domain.OAuthClient
 	for rows.Next() {
 		c, err := scanOAuthClient(rows)
@@ -145,7 +145,7 @@ func (r *OAuthClientRepo) ListByOrg(ctx context.Context, orgID, cursor string, l
 	if err != nil {
 		return Page[domain.OAuthClient]{}, fmt.Errorf("store: list oauth clients: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	items := make([]domain.OAuthClient, 0, limit)
 	for rows.Next() {
 		c, err := scanOAuthClient(rows)
@@ -225,7 +225,7 @@ func (r *OAuthGrantRepo) ListByClient(ctx context.Context, orgID, clientID, curs
 	if err != nil {
 		return Page[domain.OAuthGrant]{}, fmt.Errorf("store: list oauth grants: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	items := make([]domain.OAuthGrant, 0, limit)
 	for rows.Next() {
 		g, err := scanOAuthGrant(rows)
@@ -253,7 +253,7 @@ func (r *OAuthGrantRepo) ListActiveIDsByClient(ctx context.Context, orgID, clien
 	if err != nil {
 		return nil, fmt.Errorf("store: list active oauth grant ids by client: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var ids []string
 	for rows.Next() {
 		var id string
@@ -387,7 +387,7 @@ func (r *OAuthRefreshTokenRepo) RotateRefreshToken(ctx context.Context, rot doma
 	if err != nil {
 		return domain.OAuthRefreshToken{}, domain.OAuthGrant{}, fmt.Errorf("store: begin oauth refresh rotation: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	rt, g, err := r.rotateRefreshToken(ctx, tx, rot)
 	if err != nil {
 		if errors.Is(err, errOAuthRefreshReuse) {
@@ -507,7 +507,7 @@ func (r *OAuthSigningKeyRepo) ListPublic(ctx context.Context) ([]domain.OAuthSig
 	if err != nil {
 		return nil, fmt.Errorf("store: list oauth signing keys: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []domain.OAuthSigningKey
 	for rows.Next() {
 		k, err := scanOAuthSigningKey(rows)
@@ -542,7 +542,7 @@ func (r *OAuthSigningKeyRepo) PromoteNext(ctx context.Context, kid string, retir
 	if err != nil {
 		return fmt.Errorf("store: begin oauth signing key promote: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if err := r.promoteNext(ctx, tx, kid, retiredAt); err != nil {
 		return err
 	}
