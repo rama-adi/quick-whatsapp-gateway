@@ -21,7 +21,7 @@ import (
 // This file holds the small impedance-matching adapters the composition root
 // needs to plug the concrete store/stream/queue types into the consumer
 // interfaces declared by internal/wa, internal/webhooks and internal/queue.
-// They live here (a non-main package) so they are unit-testable and so cmd/server
+// They live here (a non-main package) so they are unit-testable and so cmd/gateway
 // stays a thin wiring shim.
 
 // ---------------------------------------------------------------------------

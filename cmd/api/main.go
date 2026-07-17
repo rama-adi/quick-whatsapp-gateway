@@ -1,6 +1,6 @@
-// Command router is the central router entrypoint and composition root: the single
+// Command api is the API/control-plane entrypoint and composition root: the single
 // front door and trust boundary in front of the WhatsApp gateways. It loads the
-// router configuration, opens the shared MySQL routing table and Redis control
+// API configuration, opens the shared MySQL routing table and Redis control
 // bus, builds the two-acceptor authenticator (better-auth JWKS + api-key table)
 // and the Ed25519 assertion minter, and runs the HTTP broker with graceful
 // shutdown. See docs/specs/router.md.
@@ -38,13 +38,13 @@ import (
 
 func main() {
 	if err := run(); err != nil {
-		slog.Error("router exited with error", "err", err)
+		slog.Error("api exited with error", "err", err)
 		os.Exit(1)
 	}
 }
 
 func run() error {
-	cfg, err := config.LoadRouter()
+	cfg, err := config.LoadAPI()
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
@@ -205,7 +205,7 @@ func run() error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		log.Info("router listening", "addr", cfg.HTTPAddr, "issuer", cfg.Issuer, "kid", minter.KeyID())
+		log.Info("api listening", "addr", cfg.HTTPAddr, "issuer", cfg.Issuer, "kid", minter.KeyID())
 		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
@@ -223,13 +223,13 @@ func run() error {
 	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("graceful shutdown: %w", err)
 	}
-	log.Info("router stopped cleanly")
+	log.Info("api stopped cleanly")
 	return nil
 }
 
-func runOIDPRotateKey(ctx context.Context, cfg *config.RouterConfig, args []string) error {
+func runOIDPRotateKey(ctx context.Context, cfg *config.APIConfig, args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: router oidp rotate-key generate-next|promote <kid>|retire <kid>")
+		return fmt.Errorf("usage: api oidp rotate-key generate-next|promote <kid>|retire <kid>")
 	}
 	if cfg.MySQLDSN == "" {
 		return fmt.Errorf("config: MYSQL_DSN is required")
@@ -254,16 +254,16 @@ func runOIDPRotateKey(ctx context.Context, cfg *config.RouterConfig, args []stri
 		return nil
 	case "promote":
 		if len(args) != 2 {
-			return fmt.Errorf("usage: router oidp rotate-key promote <kid>")
+			return fmt.Errorf("usage: api oidp rotate-key promote <kid>")
 		}
 		return oidp.PromoteNextKey(ctx, repo, args[1], now)
 	case "retire":
 		if len(args) != 2 {
-			return fmt.Errorf("usage: router oidp rotate-key retire <kid>")
+			return fmt.Errorf("usage: api oidp rotate-key retire <kid>")
 		}
 		return oidp.RetireKey(ctx, repo, args[1], now)
 	default:
-		return fmt.Errorf("usage: router oidp rotate-key generate-next|promote <kid>|retire <kid>")
+		return fmt.Errorf("usage: api oidp rotate-key generate-next|promote <kid>|retire <kid>")
 	}
 }
 
@@ -295,7 +295,7 @@ func startControlBus(ctx context.Context, pubsubURL string, cache controlbus.Key
 // eventLogReader adapts *store.EventLogRepo to stream.EventLogReader for the
 // realtime pump's ?since= replay: it resolves the opaque event-id cursor to the
 // store's monotonic id, then pages. Kept here (rather than importing the service
-// graph) so the router binary stays lean.
+// graph) so the API binary stays lean.
 type eventLogReader struct{ repo *store.EventLogRepo }
 
 func (a *eventLogReader) ListSince(ctx context.Context, organization, session, afterEventID string, limit int) ([]domain.EventLogEntry, error) {

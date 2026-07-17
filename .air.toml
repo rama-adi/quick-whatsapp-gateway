@@ -2,7 +2,7 @@ root = "."
 tmp_dir = "tmp"
 
 [build]
-  cmd = "CGO_ENABLED=0 go build -o ./tmp/gateway ./cmd/server"
+  cmd = "CGO_ENABLED=0 go build -o ./tmp/gateway ./cmd/gateway"
   bin = "tmp/gateway"
   include_ext = ["go"]
   exclude_dir = ["tmp", "web", "deploy", "docs", ".git"]

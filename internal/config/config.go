@@ -12,12 +12,12 @@ import (
 	"github.com/joho/godotenv"
 )
 
-// Config is the fully-parsed runtime configuration. Every field maps to an ENV
+// GatewayConfig is the fully-parsed gateway runtime configuration. Every field maps to an ENV
 // var documented in masterplan §12.
-type Config struct {
+type GatewayConfig struct {
 	// HTTP / server
-	HTTPAddr  string // HTTP_ADDR
-	PublicURL string // PUBLIC_URL
+	HTTPAddr  string // GATEWAY_HTTP_ADDR; deprecated fallback HTTP_ADDR
+	PublicURL string // GATEWAY_PUBLIC_URL; deprecated fallback PUBLIC_URL
 
 	// Secrets
 	AppEncryptionKey string // APP_ENCRYPTION_KEY (base64 32-byte AES-GCM key)
@@ -96,10 +96,10 @@ type Config struct {
 	LogLevel string // LOG_LEVEL
 }
 
-// Load reads configuration from the environment, applying defaults from
+// LoadGateway reads gateway configuration from the environment, applying defaults from
 // masterplan §12. It loads a .env file first if one exists in the working
 // directory (a no-op when absent, so production can inject real env vars).
-func Load() (*Config, error) {
+func LoadGateway() (*GatewayConfig, error) {
 	// Best-effort .env load; ignore "not found" so prod is unaffected. The
 	// gateway env file lives at deploy/.env (the same file the Docker dev
 	// profiles read); ".env" at the repo root is kept as a fallback. godotenv
@@ -107,9 +107,9 @@ func Load() (*Config, error) {
 	// injected env always wins over these files.
 	_ = godotenv.Load("deploy/.env", ".env")
 
-	cfg := &Config{
-		HTTPAddr:               getString("HTTP_ADDR", ":8080"),
-		PublicURL:              getString("PUBLIC_URL", ""),
+	cfg := &GatewayConfig{
+		HTTPAddr:               getStringFallback("GATEWAY_HTTP_ADDR", "HTTP_ADDR", ":8080"),
+		PublicURL:              getStringFallback("GATEWAY_PUBLIC_URL", "PUBLIC_URL", ""),
 		GatewayID:              getString("GATEWAY_ID", "gw-1"),
 		RouterJWKSURL:          getString("ROUTER_JWKS_URL", ""),
 		RouterAssertionIssuer:  getString("ROUTER_ASSERTION_ISSUER", DefaultRouterIssuer),
@@ -160,9 +160,9 @@ func Load() (*Config, error) {
 // Validate checks invariants that must hold before the server starts. It is
 // intentionally lenient about secrets that are only required by features filled
 // in by later milestones; those subsystems validate their own prerequisites.
-func (c *Config) Validate() error {
+func (c *GatewayConfig) Validate() error {
 	if c.HTTPAddr == "" {
-		return fmt.Errorf("config: HTTP_ADDR must not be empty")
+		return fmt.Errorf("config: GATEWAY_HTTP_ADDR must not be empty")
 	}
 
 	// The whatsmeow keystore is always gateway-local SQLite in v2 (§6.1).
@@ -204,6 +204,13 @@ func getString(key, def string) string {
 		return v
 	}
 	return def
+}
+
+func getStringFallback(primary, fallback, def string) string {
+	if v := getString(primary, ""); v != "" {
+		return v
+	}
+	return getString(fallback, def)
 }
 
 func getInt(key string, def int) int {

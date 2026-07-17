@@ -1,4 +1,4 @@
-// Command server is the gateway entrypoint and composition root: it loads
+// Command gateway is the gateway entrypoint and composition root: it loads
 // configuration, opens the data stores, runs migrations, wires every subsystem
 // (auth, keystore, outbound, stream, webhooks, the session manager, the async
 // queue), builds the service layer + HTTP router, and runs an HTTP server with
@@ -6,9 +6,9 @@
 //
 // Subcommands:
 //
-//	server                 run the gateway (default)
-//	server migrate up      apply all pending migrations
-//	server migrate down    roll back one migration
+//	gateway                 run the gateway (default)
+//	gateway migrate up      apply all pending migrations
+//	gateway migrate down    roll back one migration
 package main
 
 import (
@@ -60,13 +60,13 @@ func main() {
 		return
 	}
 	if err := run(); err != nil {
-		slog.Error("server exited with error", "err", err)
+		slog.Error("gateway exited with error", "err", err)
 		os.Exit(1)
 	}
 }
 
 func run() error {
-	cfg, err := config.Load()
+	cfg, err := config.LoadGateway()
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
@@ -361,15 +361,16 @@ func run() error {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("graceful shutdown: %w", err)
 	}
-	log.Info("server stopped cleanly")
+	log.Info("gateway stopped cleanly")
 	return nil
 }
 
 // registerGateway upserts this gateway's registry row with the given lifecycle
-// status (§7, D8): id=GATEWAY_ID, base_url=PUBLIC_URL, timestamps = epoch-ms now.
+// status (§7, D8): id=GATEWAY_ID, base_url=GATEWAY_PUBLIC_URL (or legacy
+// PUBLIC_URL), timestamps = epoch-ms now.
 // created_at is preserved on update by the repo; the heartbeat maintains
 // last_seen_at + session_count thereafter.
-func registerGateway(ctx context.Context, repo *store.GatewayRepo, cfg *config.Config, status domain.GatewayStatus) error {
+func registerGateway(ctx context.Context, repo *store.GatewayRepo, cfg *config.GatewayConfig, status domain.GatewayStatus) error {
 	now := domain.NowMs()
 	g := domain.Gateway{
 		ID:         cfg.GatewayID,
@@ -388,7 +389,7 @@ func registerGateway(ctx context.Context, repo *store.GatewayRepo, cfg *config.C
 // startGatewayHeartbeat refreshes last_seen_at + session_count on a timer so the
 // router can prune stale gateways and place new sessions on the least-loaded one
 // (D8). It returns a stop func for the shutdown sequence.
-func startGatewayHeartbeat(ctx context.Context, gateways *store.GatewayRepo, sessions *store.SessionRepo, cfg *config.Config, log *slog.Logger) func() {
+func startGatewayHeartbeat(ctx context.Context, gateways *store.GatewayRepo, sessions *store.SessionRepo, cfg *config.GatewayConfig, log *slog.Logger) func() {
 	loopCtx, cancel := context.WithCancel(ctx)
 	beat := func() {
 		count, err := sessions.CountByGateway(loopCtx, cfg.GatewayID)
@@ -550,7 +551,7 @@ func openMigrateMySQL(dsn string) (*sql.DB, error) {
 
 // runMigrate implements `migrate up|down`.
 func runMigrate(args []string) error {
-	cfg, err := config.Load()
+	cfg, err := config.LoadGateway()
 	if err != nil {
 		return err
 	}

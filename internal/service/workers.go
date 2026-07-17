@@ -15,7 +15,7 @@ import (
 )
 
 // This file holds the async-worker adapters the asynq queue dispatches to
-// (queue.OutboxProcessor / queue.RetentionPruner). They are wired in cmd/server
+// (queue.OutboxProcessor / queue.RetentionPruner). They are wired in cmd/gateway
 // onto the queue.Handlers struct.
 
 const (

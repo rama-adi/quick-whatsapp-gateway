@@ -7,7 +7,7 @@ BUF = go run github.com/bufbuild/buf/cmd/buf@$(BUF_VERSION)
 PROTO_BREAKING_BRANCH ?= origin/main
 PROTO_BREAKING_REF ?= refs/remotes/$(PROTO_BREAKING_BRANCH)
 
-.PHONY: infra-up infra-down infra-reset up up-logs down dev router web migrate build lint test tidy sqlc gen openapi openapi-check proto proto-lint proto-breaking proto-check
+.PHONY: infra-up infra-down infra-reset up up-logs down dev api web migrate build lint test tidy sqlc gen openapi openapi-check proto proto-lint proto-breaking proto-check
 
 infra-up:    ## start mysql + redis only (run the gateway on the host with `make dev`)
 	$(COMPOSE_DEV) up -d
@@ -23,15 +23,15 @@ up-logs:     ## follow the dockerized gateway logs (e.g. to read the admin pairi
 down:        ## stop the full dockerized dev stack (keep data; add `-v` target to wipe)
 	$(COMPOSE_GW) down
 
-dev:         ## gateway hot-reload on the HOST under air (run infra-up first; air builds ./cmd/server)
+dev:         ## gateway hot-reload on the HOST under air (run infra-up first; air builds ./cmd/gateway)
 	air
-router:      ## run the central router (the public front door) on the HOST (run infra-up first)
-	go run ./cmd/router
+api:         ## run the API (the public front door) on the HOST (run infra-up first)
+	go run ./cmd/api
 web:         ## frontend dev server (HMR)
 	cd web && pnpm dev
 
 migrate:     ## apply DB migrations (the gateway binary embeds golang-migrate; no standalone CLI)
-	go run ./cmd/server migrate up
+	go run ./cmd/gateway migrate up
 
 build:       ## production image
 	docker build -t whatsmeow-gateway -f deploy/Dockerfile .

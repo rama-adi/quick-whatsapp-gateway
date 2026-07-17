@@ -11,7 +11,7 @@ import (
 func clearEnv(t *testing.T) {
 	t.Helper()
 	keys := []string{
-		"HTTP_ADDR", "PUBLIC_URL", "GATEWAY_ID",
+		"GATEWAY_HTTP_ADDR", "HTTP_ADDR", "GATEWAY_PUBLIC_URL", "PUBLIC_URL", "GATEWAY_ID",
 		"ROUTER_JWKS_URL", "ROUTER_ASSERTION_ISSUER",
 		"BETTER_AUTH_URL", "BETTER_AUTH_JWKS_URL", "FRONTEND_ORIGINS",
 		"APP_ENCRYPTION_KEY", "MYSQL_DSN",
@@ -36,15 +36,15 @@ func clearEnv(t *testing.T) {
 // TestLoad_Defaults verifies an empty environment produces the documented safe defaults.
 // It isolates environment inputs and compares the loaded values or validation error with the deployment contract.
 // This catches configuration drift that could weaken trust assumptions or make startup behavior unpredictable.
-func TestLoad_Defaults(t *testing.T) {
+func TestLoadGateway_Defaults(t *testing.T) {
 	clearEnv(t)
 
-	cfg, err := Load()
+	cfg, err := LoadGateway()
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	want := &Config{
+	want := &GatewayConfig{
 		HTTPAddr:               ":8080",
 		PublicURL:              "",
 		GatewayID:              "gw-1",
@@ -85,14 +85,43 @@ func TestLoad_Defaults(t *testing.T) {
 	}
 }
 
+func TestLoadGateway_EndpointEnvPrecedence(t *testing.T) {
+	tests := []struct {
+		name                   string
+		primaryAddr, aliasAddr string
+		primaryURL, aliasURL   string
+		wantAddr, wantURL      string
+	}{
+		{"primary wins", ":7001", ":7002", "https://primary.example", "https://alias.example", ":7001", "https://primary.example"},
+		{"deprecated aliases", "", ":7002", "", "https://alias.example", ":7002", "https://alias.example"},
+		{"defaults", "", "", "", "", ":8080", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			clearEnv(t)
+			t.Setenv("GATEWAY_HTTP_ADDR", tt.primaryAddr)
+			t.Setenv("HTTP_ADDR", tt.aliasAddr)
+			t.Setenv("GATEWAY_PUBLIC_URL", tt.primaryURL)
+			t.Setenv("PUBLIC_URL", tt.aliasURL)
+			cfg, err := LoadGateway()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.HTTPAddr != tt.wantAddr || cfg.PublicURL != tt.wantURL {
+				t.Fatalf("endpoint = (%q, %q), want (%q, %q)", cfg.HTTPAddr, cfg.PublicURL, tt.wantAddr, tt.wantURL)
+			}
+		})
+	}
+}
+
 // TestLoad_EnvOverride verifies every supported environment override is parsed and retained.
 // It isolates environment inputs and compares the loaded values or validation error with the deployment contract.
 // This catches configuration drift that could weaken trust assumptions or make startup behavior unpredictable.
-func TestLoad_EnvOverride(t *testing.T) {
+func TestLoadGateway_EnvOverride(t *testing.T) {
 	clearEnv(t)
 
-	t.Setenv("HTTP_ADDR", ":9090")
-	t.Setenv("PUBLIC_URL", "https://gw.example.com")
+	t.Setenv("GATEWAY_HTTP_ADDR", ":9090")
+	t.Setenv("GATEWAY_PUBLIC_URL", "https://gw.example.com")
 	t.Setenv("GATEWAY_ID", "gw-east-1")
 	t.Setenv("BETTER_AUTH_URL", "https://auth.example.com")
 	t.Setenv("FRONTEND_ORIGINS", "https://app.example.com, https://admin.example.com")
@@ -115,7 +144,7 @@ func TestLoad_EnvOverride(t *testing.T) {
 	t.Setenv("RETENTION_DAYS", "30")
 	t.Setenv("LOG_LEVEL", "debug")
 
-	cfg, err := Load()
+	cfg, err := LoadGateway()
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -170,12 +199,12 @@ func TestLoad_EnvOverride(t *testing.T) {
 // TestLoad_PubSubRedisURLDefaultsToRedisURL verifies pub/sub reuses the primary Redis URL when unset.
 // It isolates environment inputs and compares the loaded values or validation error with the deployment contract.
 // This catches configuration drift that could weaken trust assumptions or make startup behavior unpredictable.
-func TestLoad_PubSubRedisURLDefaultsToRedisURL(t *testing.T) {
+func TestLoadGateway_PubSubRedisURLDefaultsToRedisURL(t *testing.T) {
 	clearEnv(t)
 	t.Setenv("REDIS_URL", "redis://localhost:6379")
 	// PUBSUB_REDIS_URL deliberately left unset.
 
-	cfg, err := Load()
+	cfg, err := LoadGateway()
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -187,12 +216,12 @@ func TestLoad_PubSubRedisURLDefaultsToRedisURL(t *testing.T) {
 // TestLoad_InvalidIntAndBoolFallBackToDefault verifies malformed optional values cannot erase defaults.
 // It isolates environment inputs and compares the loaded values or validation error with the deployment contract.
 // This catches configuration drift that could weaken trust assumptions or make startup behavior unpredictable.
-func TestLoad_InvalidIntAndBoolFallBackToDefault(t *testing.T) {
+func TestLoadGateway_InvalidIntAndBoolFallBackToDefault(t *testing.T) {
 	clearEnv(t)
 	t.Setenv("DEFAULT_RATE_PER_MIN", "not-a-number")
 	t.Setenv("DEFAULT_AUTO_READ", "definitely-not-a-bool")
 
-	cfg, err := Load()
+	cfg, err := LoadGateway()
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -209,8 +238,8 @@ func TestLoad_InvalidIntAndBoolFallBackToDefault(t *testing.T) {
 // This catches configuration drift that could weaken trust assumptions or make startup behavior unpredictable.
 func TestValidate(t *testing.T) {
 	// base returns a minimally-valid config that Validate accepts.
-	base := func() *Config {
-		return &Config{
+	base := func() *GatewayConfig {
+		return &GatewayConfig{
 			HTTPAddr:           ":8080",
 			GatewayID:          "gw-1",
 			WhatsmeowStoreDSN:  "file:store.db",
@@ -223,20 +252,20 @@ func TestValidate(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		mutate  func(*Config)
+		mutate  func(*GatewayConfig)
 		wantErr bool
 	}{
-		{"valid sqlite", func(*Config) {}, false},
-		{"valid uppercase log level", func(c *Config) { c.LogLevel = "DEBUG" }, false},
-		{"empty HTTP addr", func(c *Config) { c.HTTPAddr = "" }, true},
-		{"empty gateway id", func(c *Config) { c.GatewayID = "" }, true},
-		{"empty store dsn", func(c *Config) { c.WhatsmeowStoreDSN = "" }, true},
-		{"negative rate per min", func(c *Config) { c.DefaultRatePerMin = -1 }, true},
-		{"negative rate per hour", func(c *Config) { c.DefaultRatePerHour = -1 }, true},
-		{"negative retention", func(c *Config) { c.RetentionDays = -1 }, true},
-		{"bad log level", func(c *Config) { c.LogLevel = "verbose" }, true},
-		{"admin number without org", func(c *Config) { c.WhatsAppAdminNumber = "628123456789" }, true},
-		{"admin number with org", func(c *Config) {
+		{"valid sqlite", func(*GatewayConfig) {}, false},
+		{"valid uppercase log level", func(c *GatewayConfig) { c.LogLevel = "DEBUG" }, false},
+		{"empty HTTP addr", func(c *GatewayConfig) { c.HTTPAddr = "" }, true},
+		{"empty gateway id", func(c *GatewayConfig) { c.GatewayID = "" }, true},
+		{"empty store dsn", func(c *GatewayConfig) { c.WhatsmeowStoreDSN = "" }, true},
+		{"negative rate per min", func(c *GatewayConfig) { c.DefaultRatePerMin = -1 }, true},
+		{"negative rate per hour", func(c *GatewayConfig) { c.DefaultRatePerHour = -1 }, true},
+		{"negative retention", func(c *GatewayConfig) { c.RetentionDays = -1 }, true},
+		{"bad log level", func(c *GatewayConfig) { c.LogLevel = "verbose" }, true},
+		{"admin number without org", func(c *GatewayConfig) { c.WhatsAppAdminNumber = "628123456789" }, true},
+		{"admin number with org", func(c *GatewayConfig) {
 			c.WhatsAppAdminNumber = "628123456789"
 			c.WhatsAppAdminOrgID = "org_123"
 		}, false},

@@ -12,16 +12,16 @@ import (
 // agree on the router's identity. Override with ROUTER_ISSUER / ROUTER_ASSERTION_ISSUER.
 const DefaultRouterIssuer = "router"
 
-// RouterConfig is the central router's runtime configuration (docs/specs/router.md).
-// The router is the system's single trust boundary: it authenticates callers
+// APIConfig is the API/control plane runtime configuration. The API remains the
+// system's single trust boundary: it authenticates callers
 // against cached better-auth JWKS + the shared `apikey` table, resolves the owning
 // gateway for each session, and proxies the request under a signed internal
 // assertion. It needs the shared MySQL (routing table), one Redis (control bus +,
 // later, realtime), the better-auth JWKS inputs, and its own Ed25519 signing key.
-type RouterConfig struct {
+type APIConfig struct {
 	// HTTP / server
-	HTTPAddr  string // ROUTER_HTTP_ADDR (default :8090)
-	PublicURL string // ROUTER_PUBLIC_URL (advertised base; realtime WS url is derived from it)
+	HTTPAddr  string // API_HTTP_ADDR; deprecated fallback ROUTER_HTTP_ADDR (default :8090)
+	PublicURL string // API_PUBLIC_URL; deprecated fallback ROUTER_PUBLIC_URL
 
 	// Trust boundary — authn inputs (same better-auth JWKS the gateway used to use).
 	BetterAuthURL     string   // BETTER_AUTH_URL: JWT iss/aud to enforce
@@ -30,8 +30,8 @@ type RouterConfig struct {
 
 	// Internal assertion (router→gateway). The router holds the private key and
 	// publishes the public JWKS at /.well-known/router-jwks.json.
-	Ed25519PrivateKey string // ROUTER_ED25519_PRIVATE_KEY (base64 seed or full key)
-	Issuer            string // ROUTER_ISSUER: assertion `iss` (default DefaultRouterIssuer)
+	Ed25519PrivateKey string // API_ED25519_PRIVATE_KEY; deprecated fallback ROUTER_ED25519_PRIVATE_KEY
+	Issuer            string // API_ISSUER; deprecated fallback ROUTER_ISSUER
 
 	// Shared data + infra.
 	MySQLDSN       string // MYSQL_DSN (the routing table: wa_sessions + gateways)
@@ -40,7 +40,7 @@ type RouterConfig struct {
 	RedisPrefix    string // REDIS_PREFIX: isolates stacks (default "gw")
 
 	// OIDC provider.
-	OIDCIssuer              string // OIDC_ISSUER: defaults to ROUTER_PUBLIC_URL
+	OIDCIssuer              string // OIDC_ISSUER: defaults to API_PUBLIC_URL (including legacy fallback)
 	OIDCKeyEncKey           string // OIDC_KEY_ENC_KEY: base64/raw 32-byte AES-GCM key
 	OAuthClientSecretPepper string // OAUTH_CLIENT_SECRET_PEPPER: pepper for SHA-256(client_secret+pepper)
 	WhatsAppAdminCmdPrefix  string // WHATSAPP_ADMIN_CMD_PREFIX: reserved command namespace prefix
@@ -53,19 +53,18 @@ type RouterConfig struct {
 	LogLevel string // LOG_LEVEL
 }
 
-// LoadRouter reads the router configuration from the environment, mirroring the
-// gateway's Load (it reads the same deploy/.env so a single file configures both).
-func LoadRouter() (*RouterConfig, error) {
+// LoadAPI reads API/control-plane configuration from the environment.
+func LoadAPI() (*APIConfig, error) {
 	_ = godotenv.Load("deploy/.env", ".env")
 
-	cfg := &RouterConfig{
-		HTTPAddr:                getString("ROUTER_HTTP_ADDR", ":8090"),
-		PublicURL:               getString("ROUTER_PUBLIC_URL", ""),
+	cfg := &APIConfig{
+		HTTPAddr:                getStringFallback("API_HTTP_ADDR", "ROUTER_HTTP_ADDR", ":8090"),
+		PublicURL:               getStringFallback("API_PUBLIC_URL", "ROUTER_PUBLIC_URL", ""),
 		BetterAuthURL:           getString("BETTER_AUTH_URL", ""),
 		BetterAuthJWKSURL:       getString("BETTER_AUTH_JWKS_URL", ""),
 		FrontendOrigins:         getCSV("FRONTEND_ORIGINS"),
-		Ed25519PrivateKey:       getString("ROUTER_ED25519_PRIVATE_KEY", ""),
-		Issuer:                  getString("ROUTER_ISSUER", DefaultRouterIssuer),
+		Ed25519PrivateKey:       getStringFallback("API_ED25519_PRIVATE_KEY", "ROUTER_ED25519_PRIVATE_KEY", ""),
+		Issuer:                  getStringFallback("API_ISSUER", "ROUTER_ISSUER", DefaultRouterIssuer),
 		MySQLDSN:                getString("MYSQL_DSN", ""),
 		RedisURL:                getString("REDIS_URL", ""),
 		PubSubRedisURL:          getString("PUBSUB_REDIS_URL", ""),
@@ -99,15 +98,15 @@ func LoadRouter() (*RouterConfig, error) {
 // Validate checks the router's hard prerequisites. Unlike the gateway it cannot
 // start without its trust inputs: without the signing key it cannot mint
 // assertions, and without the better-auth JWKS it cannot authenticate anyone.
-func (c *RouterConfig) Validate() error {
+func (c *APIConfig) Validate() error {
 	if c.HTTPAddr == "" {
-		return fmt.Errorf("config: ROUTER_HTTP_ADDR must not be empty")
+		return fmt.Errorf("config: API_HTTP_ADDR must not be empty")
 	}
 	if c.Ed25519PrivateKey == "" {
-		return fmt.Errorf("config: ROUTER_ED25519_PRIVATE_KEY is required (the router signs internal assertions)")
+		return fmt.Errorf("config: API_ED25519_PRIVATE_KEY is required (the API signs internal assertions)")
 	}
 	if c.Issuer == "" {
-		return fmt.Errorf("config: ROUTER_ISSUER must not be empty")
+		return fmt.Errorf("config: API_ISSUER must not be empty")
 	}
 	if c.MySQLDSN == "" {
 		return fmt.Errorf("config: MYSQL_DSN is required")
@@ -116,10 +115,10 @@ func (c *RouterConfig) Validate() error {
 		return fmt.Errorf("config: BETTER_AUTH_URL (and JWKS) are required for the router to authenticate callers")
 	}
 	if c.PublicURL == "" {
-		return fmt.Errorf("config: ROUTER_PUBLIC_URL is required")
+		return fmt.Errorf("config: API_PUBLIC_URL is required")
 	}
 	if c.OIDCIssuer == "" {
-		return fmt.Errorf("config: OIDC_ISSUER or ROUTER_PUBLIC_URL is required")
+		return fmt.Errorf("config: OIDC_ISSUER or API_PUBLIC_URL is required")
 	}
 	if c.OIDCKeyEncKey == "" {
 		return fmt.Errorf("config: OIDC_KEY_ENC_KEY is required for OIDC signing keys")

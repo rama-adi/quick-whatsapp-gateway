@@ -6,7 +6,7 @@
 //
 // Every service is constructor-injected with its collaborators (no globals).
 // The Services aggregate bundles them all behind one struct so the composition
-// root (cmd/server) wires once and the router receives a single dependency.
+// root (cmd/gateway) wires once and the router receives a single dependency.
 package service
 
 import (
@@ -20,7 +20,7 @@ import (
 )
 
 // Deps groups everything the service layer needs from the composition root. The
-// concrete types are constructed in cmd/server and handed in; the service
+// concrete types are constructed in cmd/gateway and handed in; the service
 // package never opens a DB, a Redis client, or a whatsmeow client itself.
 type Deps struct {
 	Store                      *store.Store
