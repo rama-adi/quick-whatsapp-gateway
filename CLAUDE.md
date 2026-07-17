@@ -114,7 +114,7 @@ Using gpt-5.5 inside workflows and subagents:
 | `cmd/migrate/` | Dedicated WA schema migration command (`up\|down`). |
 | `internal/` | Shared packages: `router/` (REST broker: authn, session→gateway resolve + org isolation, reverse proxy, placement), `assertion/` (router→gateway request-bound Ed25519 internal assertion: minter/verifier/nonce-cache), `authz/` (JWKS+JWT+api-key verify — **now consumed by the router**), `controlbus/` (`ctrl:*` subscriber — **now consumed by the router**), `dbconn/` (shared MySQL connection helper), `http/`, `wa/` (manager, session, SQLite store), `store/` (MySQL repos, org-keyed), `webhooks/`, `stream/`, `queue/`. |
 | `migrations/` | API-owned golang-migrate files for WA app-data tables. |
-| `deploy/` | Two Dockerfiles, compose files, `.env.example`. |
+| `deploy/` | Gateway, API, frontend, dev, and self-host Dockerfiles; compose topologies; `.env.example`. |
 
 ### The subsystem specs (`docs/specs/`)
 

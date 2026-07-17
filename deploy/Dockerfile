@@ -12,7 +12,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -o /out/gateway ./cmd/server
+RUN CGO_ENABLED=0 go build -o /out/gateway ./cmd/gateway
 
 # --- Stage 2: minimal runtime ---
 FROM alpine:3.20

@@ -130,11 +130,11 @@ WebSocket stream-drop on `ctrl:user.banned` / `ctrl:member.removed` is implement
 
 | Var | Default | Purpose |
 |---|---|---|
-| `API_HTTP_ADDR` | `:8090` | public HTTP listen address (`ROUTER_HTTP_ADDR` is a deprecated fallback) |
+| `API_HTTP_ADDR` | `:8090` | public HTTP listen address |
 | `API_PUBLIC_GRPC_ADDR` | `:8081` | plaintext public gRPC for local/trusted ingress-hop use; must differ from HTTP |
-| `API_PUBLIC_URL` | — | external API base URL (`ROUTER_PUBLIC_URL` is a deprecated fallback) |
+| `API_PUBLIC_URL` | — | external API base URL |
 | `API_ISSUER` | `router` | assertion `iss` (`ROUTER_ISSUER` is a deprecated fallback) |
-| `API_ED25519_PRIVATE_KEY` | — (**required**) | assertion signing key (`ROUTER_ED25519_PRIVATE_KEY` is a deprecated fallback) |
+| `API_ED25519_PRIVATE_KEY` | — (**required**) | assertion signing key |
 | `MYSQL_DSN` | — | shared app-data DSN (registry + `wa_sessions` + `apikey` read) |
 | `REDIS_URL` | — | work Redis |
 | `PUBSUB_REDIS_URL` | `${REDIS_URL}` | control-bus `ctrl:*` pub/sub |

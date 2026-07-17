@@ -1,13 +1,12 @@
 COMPOSE_DEV = docker compose -f deploy/docker-compose.dev.yml
-# Same compose, plus the dockerized gateway (hot-reload via air). Compose waits
-# for MySQL + Redis to be healthy before starting the gateway, so one `up` is enough.
-COMPOSE_GW  = $(COMPOSE_DEV) --profile gateway-dev
+# Same compose, plus the dockerized gateway (hot-reload via air).
+COMPOSE_GW  = $(COMPOSE_DEV) --profile api --profile gateway-dev
 BUF_VERSION = v1.47.2
 BUF = go run github.com/bufbuild/buf/cmd/buf@$(BUF_VERSION)
 PROTO_BREAKING_BRANCH ?= origin/main
 PROTO_BREAKING_REF ?= refs/remotes/$(PROTO_BREAKING_BRANCH)
 
-.PHONY: infra-up infra-down infra-reset up up-logs down dev api web migrate build lint test tidy sqlc gen openapi openapi-check proto proto-lint proto-breaking proto-check
+.PHONY: infra-up infra-down infra-reset up up-logs down dev api web migrate build build-api lint test tidy sqlc gen openapi openapi-check proto proto-lint proto-breaking proto-check
 
 infra-up:    ## start mysql + redis only (run the gateway on the host with `make dev`)
 	$(COMPOSE_DEV) up -d
@@ -16,7 +15,7 @@ infra-down:  ## stop infra (keep data)
 infra-reset: ## stop infra + wipe data
 	$(COMPOSE_DEV) down -v
 
-up:          ## one command: build + run gateway + mysql + redis in Docker
+up:          ## build + run API + dev gateway + mysql + redis in Docker
 	$(COMPOSE_GW) up -d --build
 up-logs:     ## follow the dockerized gateway logs (e.g. to read the admin pairing code)
 	$(COMPOSE_GW) logs -f gateway-dev
@@ -33,12 +32,15 @@ web:         ## frontend dev server (HMR)
 migrate:     ## apply API-owned WA schema migrations
 	go run ./cmd/migrate up
 
-build:       ## production image
+build:       ## production gateway image
 	docker build -t whatsmeow-gateway -f deploy/Dockerfile .
+build-api:   ## production API/control-plane image
+	docker build -t whatsmeow-api -f deploy/Dockerfile.api .
 lint:
 	golangci-lint run
 test:
 	go test ./...
+	sh scripts/selfhost-entrypoint-test.sh
 tidy:
 	go mod tidy && cd web && pnpm install
 sqlc:        ## generate typed MySQL store queries from migrations + internal/store/queries

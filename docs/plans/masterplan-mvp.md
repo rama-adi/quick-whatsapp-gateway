@@ -72,7 +72,7 @@ Local development
   the frontend and the gateway read it. **SQLite** (gateway-local, persistent volume) for the
   whatsmeow keystore.
 - Read-only WhatsApp viewer; realtime dashboard fed by the router WebSocket over shared Redis.
-- Docker: router, gateway, and frontend ship as separate roles; compose wires current MySQL/Redis
+- Docker: API, gateway, and frontend ship as separate roles; compose wires current MySQL/Redis
   dependencies and the gateway's persistent keystore volume.
 
 **Designed-for-later (not built in v2, but the seams exist):** **multiple gateways** (a
@@ -885,16 +885,16 @@ Unchanged from v1 (`/sessions/{id}/chats…`, `/contacts…`, `/groups…`, `/ch
 
 ### Router (public front door)
 
-The implemented router uses `ROUTER_HTTP_ADDR`, `ROUTER_PUBLIC_URL`, `MYSQL_DSN`, `REDIS_URL`,
+The implemented API uses `API_HTTP_ADDR`, `API_PUBLIC_GRPC_ADDR`, `API_PUBLIC_URL`, `MYSQL_DSN`, `REDIS_URL`,
 `PUBSUB_REDIS_URL`, better-auth issuer/JWKS settings, `FRONTEND_ORIGINS`, and its Ed25519 assertion
 key/issuer. It owns public auth, CORS, Huma OpenAPI, REST routing, and WebSocket realtime.
 
 ### Gateway (private HTTP engine; transitional to gRPC)
 | Var | Default | Purpose |
 |---|---|---|
-| `HTTP_ADDR` | `:8080` | listen addr |
+| `GATEWAY_HTTP_ADDR` | `:8080` | listen addr |
 | `GATEWAY_ID` | `gw-1` | this gateway's id (rows in `gateways`, `wa_sessions.gateway_id`) |
-| `PUBLIC_URL` | — | internal base URL registered for router proxying; not browser-facing |
+| `GATEWAY_PUBLIC_URL` | — | internal base URL registered for API proxying; not browser-facing |
 | `ROUTER_JWKS_URL` | — | router assertion JWKS |
 | `ROUTER_ASSERTION_ISSUER` | `router` | expected private assertion issuer |
 | `APP_ENCRYPTION_KEY` | — | base64 32-byte AES-GCM key (webhook secrets at rest) |
@@ -968,28 +968,30 @@ CMD ["node", ".output/server/index.mjs"]
 ### compose (local, DB included)
 ```yaml
 services:
-  router:
-    build: { context: ., dockerfile: deploy/Dockerfile.router }
-    ports: ["8090:8090"]
+  api:
+    build: { context: ., dockerfile: deploy/Dockerfile.api }
+    ports: ["8090:8090", "8081:8081"]
     environment:
-      ROUTER_HTTP_ADDR: ":8090"
-      ROUTER_PUBLIC_URL: "http://localhost:8090"
+      API_HTTP_ADDR: ":8090"
+      API_PUBLIC_GRPC_ADDR: ":8081"
+      API_PUBLIC_URL: "http://localhost:8090"
       MYSQL_DSN: "gw:gwpass@tcp(mysql:3306)/gateway?parseTime=true&charset=utf8mb4"
       REDIS_URL: "redis://redis:6379"
       PUBSUB_REDIS_URL: "redis://redis:6379"
       FRONTEND_ORIGINS: "http://localhost:3000"
       BETTER_AUTH_URL: "http://frontend:3000"
-      ROUTER_ED25519_PRIVATE_KEY: "${ROUTER_ED25519_PRIVATE_KEY}"
+      API_ED25519_PRIVATE_KEY: "${API_ED25519_PRIVATE_KEY}"
     depends_on: [mysql, redis]
   gateway:
     build: { context: ., dockerfile: deploy/Dockerfile }
-    ports: ["8080:8080"]
+    expose: ["8080"]
     environment:
       MYSQL_DSN: "gw:gwpass@tcp(mysql:3306)/gateway?parseTime=true&charset=utf8mb4"
       WHATSMEOW_STORE_DSN: "file:/data/keystore/store.db?_pragma=foreign_keys(on)&_pragma=journal_mode(WAL)"
       REDIS_URL: "redis://redis:6379"          # work + (default) control bus — single instance
-      PUBLIC_URL: "http://gateway:8080"        # private router target
-      ROUTER_JWKS_URL: "http://router:8090/.well-known/router-jwks.json"
+      GATEWAY_HTTP_ADDR: ":8080"
+      GATEWAY_PUBLIC_URL: "http://gateway:8080" # private API target
+      ROUTER_JWKS_URL: "http://api:8090/.well-known/router-jwks.json"
       APP_ENCRYPTION_KEY: "${APP_ENCRYPTION_KEY}"
       WHATSAPP_ADMIN_NUMBER: "${WHATSAPP_ADMIN_NUMBER}"
     volumes: ["keystore_data:/data/keystore"]               # <-- keystore persistence
@@ -1001,7 +1003,7 @@ services:
       DATABASE_URL: "mysql://gw:gwpass@mysql:3306/gateway"
       BETTER_AUTH_URL: "http://localhost:3000"
       BETTER_AUTH_SECRET: "${BETTER_AUTH_SECRET}"
-      GATEWAY_URL: "http://router:8090"        # legacy name, router target
+      GATEWAY_URL: "http://api:8090"           # legacy frontend env name, API target
       VITE_GATEWAY_URL: "http://localhost:8090"
       PUBSUB_REDIS_URL: "redis://redis:6379"   # publish ctrl:* revocations (same Redis in dev)
     depends_on: [mysql, redis]
@@ -1045,7 +1047,7 @@ volumes: { mysql_data: {}, redis_data: {}, keystore_data: {} }
 │   ├── src/server/db.ts            # Drizzle client (mysql2)
 │   ├── src/server/schema/          # Drizzle: auth tables (generated) + WA read-models (introspected)
 │   └── drizzle.config.ts           # drizzle-kit config
-├── deploy/                         # Dockerfile (gateway) · Dockerfile.web · compose files · .env.example
+├── deploy/                         # Dockerfile (gateway) · Dockerfile.api · Dockerfile.web · compose files
 ├── docs/  (openapi.yaml · specs/*.md · mvp-progress.md)
 ├── .air.toml · Makefile · README.md
 ```

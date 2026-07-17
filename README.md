@@ -25,7 +25,8 @@ make migrate                    # create the WhatsApp data tables
 cd web && pnpm install && pnpm drizzle-kit migrate && cd ..   # create the auth tables
 
 make dev      # terminal 1: gateway on :8080 (hot reload)
-make web      # terminal 2: frontend on :3000 (HMR)
+make api      # terminal 2: API HTTP :8090 + public gRPC :8081
+make web      # terminal 3: frontend on :3000 (HMR)
 ```
 
 Then, in the browser:
@@ -41,14 +42,14 @@ Then, in the browser:
 ## Common tasks
 
 The dashboard is for humans. For scripts and integrations, mint an **API key** in the dashboard
-(**Settings → API keys**) and call the gateway directly. Keys start with `wa_` and go in the
-`Authorization` header. The API base is `http://localhost:8080/api/v1`; `{session}` is the session
+(**Settings → API keys**) and call the API. Keys start with `wa_` and go in the
+`Authorization` header. The API base is `http://localhost:8090/api/v1`; `{session}` is the session
 id from the dashboard.
 
 **Send a message**
 
 ```sh
-curl -X POST http://localhost:8080/api/v1/sessions/{session}/messages \
+curl -X POST http://localhost:8090/api/v1/sessions/{session}/messages \
   -H "Authorization: Bearer wa_your_api_key" \
   -H "Content-Type: application/json" \
   -d '{"type":"text","to":"6281234567890@s.whatsapp.net","text":"Hello from the gateway"}'
@@ -63,7 +64,7 @@ A long-lived NDJSON stream — one JSON event per line — for incoming messages
 receipts, and connection changes. The key needs the `events` permission.
 
 ```sh
-curl -N http://localhost:8080/api/v1/events \
+curl -N http://localhost:8090/api/v1/events \
   -H "Authorization: Bearer wa_your_api_key"
 # add ?types=message,message.status   to filter (incoming messages + receipts)
 # add ?session={session}              to watch one session
@@ -75,7 +76,7 @@ Have the gateway POST events to your URL instead of (or as well as) the stream. 
 to receive from every session in your organization.
 
 ```sh
-curl -X POST http://localhost:8080/api/v1/webhooks \
+curl -X POST http://localhost:8090/api/v1/webhooks \
   -H "Authorization: Bearer wa_your_api_key" \
   -H "Content-Type: application/json" \
   -d '{
@@ -91,32 +92,24 @@ and the full API reference under `/docs/api`.
 
 ## Architecture
 
-Two services that deploy independently. The dashboard mints identity; the gateway only verifies it
-and does the WhatsApp work, so the two never have to sit on the same machine.
+Three services deploy independently. The frontend mints identity, the API is the
+only public front door, and the gateway holds the live WhatsApp sessions.
 
 ```
-            Bearer token (better-auth JWT or wa_ api-key)
-  Browser ───────────────────────────────────────────►  Gateway (Go, whatsmeow)
-     │  ▲                                                   │   ├─ REST API     /api/v1
-     │  │ session cookie + mint JWT (/api/auth/token)       │   ├─ event stream /events
-     ▼  │                                                   │   └─ webhooks (out)
-  Frontend (TanStack Start + better-auth)                   │
-     ├─ /api/auth/* (JWKS, token, admin, api-keys, orgs)    │  keystore → SQLite (volume)
-     └─ direct read-only Drizzle reads ──┐                  │
-                                         ▼                  ▼
-                              MySQL  (auth tables ⇄ WhatsApp data tables)
-                                         ▲                  │
-   revoke a key / ban a user PUBLISH ──► └── Redis ─────────┘  queue / rate-limit / stream
+Browser / clients ──► API :8090 HTTP or :8081 gRPC ──► Gateway :8080 (private)
+         │                    │                              │
+         ▼                    ▼                              ▼
+Frontend :3000           MySQL + Redis                SQLite keystore
 ```
 
 | Service | Job | Stack |
 | --- | --- | --- |
-| **Router** (Go) | The public API front door. Authenticates JWTs and `wa_` api-keys, resolves which gateway owns a session, and proxies with a request-bound internal assertion. | `CGO_ENABLED=0` |
-| **Gateway** (Go) | Holds the live WhatsApp sessions; serves the internal REST handlers, event stream, and webhooks. It trusts only the router assertion, not end-user credentials. | whatsmeow, `CGO_ENABLED=0` |
-| **Frontend** (`web/`) | The dashboard and the only place humans log in. Owns identity: email/password, 2FA, api-keys, organizations. Reads WhatsApp data straight from MySQL for fast pages; calls the router API. | TanStack Start, better-auth, Drizzle |
+| **API** (Go) | The public front door on HTTP `8090` and gRPC `8081`. Authenticates callers, owns WA schema migration, and brokers current gateway requests. | `CGO_ENABLED=0` |
+| **Gateway** (Go) | Holds live WhatsApp sessions behind private HTTP `8080`. It trusts only the API assertion, not end-user credentials. | whatsmeow, `CGO_ENABLED=0` |
+| **Frontend** (`web/`) | Dashboard and identity service; calls the API for actions. | TanStack Start, better-auth, Drizzle |
 
 Resources are owned by an organization, not a user, so sharing a connection means inviting someone
-into your org. Revoking a key or banning a user in the dashboard reaches the router immediately
+into your org. Revoking a key or banning a user in the dashboard reaches the API immediately
 over a Redis control channel, with cache TTLs as a backstop.
 
 ## Deploying
@@ -124,19 +117,19 @@ over a Redis control channel, with cache TTLs as a backstop.
 Three app images, built and shipped on their own:
 
 ```sh
-docker build -f deploy/Dockerfile.router -t whatsmeow-router .
+docker build -f deploy/Dockerfile.api -t whatsmeow-api .
 docker build -f deploy/Dockerfile -t whatsmeow-gateway .
 docker build -f deploy/Dockerfile.web -t whatsmeow-frontend .
 ```
 
-- `deploy/docker-compose.selfhost.yml` — one-box self-host install: one app container (router + gateway + frontend) + MySQL + Redis.
-- `deploy/docker-compose.yml` — local all-in-one stack with the gateway port also published for inspection.
+- `deploy/docker-compose.selfhost.yml` — one-box self-host install: one app container (API + gateway + frontend) + MySQL + Redis.
+- `deploy/docker-compose.yml` — local full stack; only API HTTP/gRPC and frontend ports are published.
 - `deploy/docker-compose.external.yml` — modular app containers over your own MySQL + Redis.
 - `deploy/docker-compose.dev.yml` — infra only, for the host dev loop above.
 
-The frontend runs anywhere it can reach MySQL and the router. The router is the public API base URL.
-Gateways run near WhatsApp with their `/data/keystore` volumes and a `PUBLIC_URL` reachable by the
-router. The full deployment guide is in `web/content/docs/dev/deploying.mdx`; the full env reference
+The frontend runs anywhere it can reach MySQL and the API. The API is the public base URL.
+Gateways run near WhatsApp with their `/data/keystore` volumes and a `GATEWAY_PUBLIC_URL` reachable by the
+API. The full deployment guide is in `web/content/docs/dev/deploying.mdx`; the full env reference
 lives in `deploy/.env.example` and `web/.env.example`.
 
 ## Repo layout
@@ -166,12 +159,12 @@ cd web && pnpm build && pnpm typecheck && pnpm test # frontend
 ```
 
 `scripts/smoke.sh` drives the trust seam end to end against a running stack — register a user, mint
-a JWT, call the gateway with a Bearer token, create a session, fetch its pairing QR — and fails
+a JWT, call the API with a Bearer token, create a session, fetch its pairing QR — and fails
 loudly on any unexpected status. The pair → send → stream steps need a real phone and print as
 manual instructions at the end.
 
 ```sh
-BETTER_AUTH_URL=http://localhost:3000 GATEWAY_URL=http://localhost:8080 scripts/smoke.sh
+BETTER_AUTH_URL=http://localhost:3000 API_URL=http://localhost:8090 scripts/smoke.sh
 ```
 
 The v1 single-binary version (embedded auth, React SPA, MySQL keystore) is preserved at git tag

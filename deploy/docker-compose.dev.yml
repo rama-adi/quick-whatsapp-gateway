@@ -1,34 +1,5 @@
-# Dev infra: MySQL + Redis with ports bound to localhost.
-# Default (`make infra-up`) starts infra only; run the gateway on the host under
-# `air` and the frontend under Vite (fast inner loop).
-#   make infra-up   # docker compose -f deploy/docker-compose.dev.yml up -d
-#
-# To run the GATEWAY in Docker (against this same dev MySQL/Redis, frontend still
-# on the host under Vite), use one of two profiles — both reach the host
-# frontend's JWKS via host.docker.internal and auto-apply the WA migrations:
-#   --profile gateway      prod image (deploy/Dockerfile); rebuild to pick up code changes
-#   --profile gateway-dev  hot reload via air, source mounted — edit Go on the host,
-#                          the container rebuilds. Same OS/toolchain as prod, no host Go needed.
-#     docker compose -f deploy/docker-compose.dev.yml --profile gateway-dev up -d --build
-# Use only one gateway profile at a time (both publish :8080).
-#
-# The ROUTER (the public front door) runs in Docker via its own profile,
-# alongside a dockerized gateway on the same compose network:
-#   docker compose -f deploy/docker-compose.dev.yml --profile gateway-dev --profile router up -d --build
-# The router publishes :8090 (browsers hit the router, not the gateway). The two
-# talk over the compose network by service name: the gateway verifies the
-# router's assertions at ROUTER_JWKS_URL=http://router:8090/... and the router
-# proxies to the gateway's registered base_url=PUBLIC_URL=http://gateway-dev:8080
-# (or http://gateway:8080 for the prod `gateway` profile). Both are set below.
-# (To instead run the router on the HOST under `make router`, point the gateway's
-# ROUTER_JWKS_URL at host.docker.internal:8090 and PUBLIC_URL back at localhost.)
-#
-# ONE env source: every profile reads deploy/.env — the SAME file the host
-# processes load via `make dev`. The `environment:` block below overrides only
-# the vars that must differ inside a container: the MySQL/Redis service
-# hostnames, the JWKS host (the frontend is on the host), and the keystore path
-# (a named volume). Everything else — secrets, GATEWAY_ID, BETTER_AUTH_URL,
-# FRONTEND_ORIGINS, ROUTER_*, rate limits, … — comes from deploy/.env. Edit it there.
+# Development infrastructure. Default starts MySQL + Redis only. Gateway profiles
+# deliberately publish :8080 for local inspection; no production topology does.
 services:
   gateway:
     profiles: ["gateway"]
@@ -36,25 +7,21 @@ services:
     image: whatsmeow-gateway:dev
     ports: ["8080:8080"]
     env_file: [.env]
-    environment: &gateway_container_overrides
+    environment: &gateway_overrides
       MYSQL_DSN: "gw:gwpass@tcp(mysql:3306)/gateway?parseTime=true&charset=utf8mb4&clientFoundRows=true"
       REDIS_URL: "redis://redis:6379"
       WHATSMEOW_STORE_DSN: "file:/data/keystore/store.db?_pragma=foreign_keys(on)&_pragma=journal_mode(WAL)"
       BETTER_AUTH_JWKS_URL: "http://host.docker.internal:3000/api/auth/jwks"
-      # The router runs in Docker (the `router` profile) on the same compose
-      # network, so the gateway reaches its JWKS (to verify internal assertions)
-      # by the service name. Bring the router up with this profile:
-      #   docker compose -f deploy/docker-compose.dev.yml --profile gateway-dev --profile router up -d --build
-      ROUTER_JWKS_URL: "http://router:8090/.well-known/router-jwks.json"
-      # The router proxies to the gateway by the base_url the gateway registers
-      # (= PUBLIC_URL). Inside the network that must be this service's name, not
-      # localhost. Overridden per-service below (gateway vs gateway-dev hostname).
-      PUBLIC_URL: "http://gateway:8080"
+      ROUTER_JWKS_URL: "http://api:8090/.well-known/router-jwks.json"
+      GATEWAY_HTTP_ADDR: ":8080"
+      GATEWAY_PUBLIC_URL: "http://gateway:8080"
     extra_hosts: ["host.docker.internal:host-gateway"]
     volumes: ["keystore_dev:/data/keystore"]
     depends_on:
       mysql: { condition: service_healthy }
       redis: { condition: service_healthy }
+      api: { condition: service_healthy }
+
   gateway-dev:
     profiles: ["gateway-dev"]
     build: { context: .., dockerfile: deploy/Dockerfile.gateway-dev }
@@ -62,48 +29,55 @@ services:
     ports: ["8080:8080"]
     env_file: [.env]
     environment:
-      <<: *gateway_container_overrides
-      # This service's hostname on the compose network is `gateway-dev`, so the
-      # router must proxy here, not to the `gateway` prod-profile hostname.
-      PUBLIC_URL: "http://gateway-dev:8080"
+      <<: *gateway_overrides
+      GATEWAY_PUBLIC_URL: "http://gateway-dev:8080"
     extra_hosts: ["host.docker.internal:host-gateway"]
     volumes:
-      # Mount the repo so host edits trigger an in-container `air` rebuild.
       - ..:/src
-      # Persist the Go module + build caches so reloads are fast across restarts.
       - gomod_cache:/go/pkg/mod
       - gobuild_cache:/root/.cache/go-build
       - keystore_dev:/data/keystore
     depends_on:
       mysql: { condition: service_healthy }
       redis: { condition: service_healthy }
-  router:
-    profiles: ["router"]
-    build: { context: .., dockerfile: deploy/Dockerfile.router }
-    image: whatsmeow-router:dev
-    # Public front door: browsers/clients hit the router here, not the gateway.
-    ports: ["8090:8090"]
+      api: { condition: service_healthy }
+
+  api:
+    profiles: ["api"]
+    build: { context: .., dockerfile: deploy/Dockerfile.api }
+    image: whatsmeow-api:dev
+    ports:
+      - "8090:8090"
+      - "8081:8081"
     env_file: [.env]
     environment:
+      API_HTTP_ADDR: ":8090"
+      API_PUBLIC_GRPC_ADDR: ":8081"
       MYSQL_DSN: "gw:gwpass@tcp(mysql:3306)/gateway?parseTime=true&charset=utf8mb4&clientFoundRows=true"
       REDIS_URL: "redis://redis:6379"
-      # The host frontend serves better-auth JWKS for end-user authn.
       BETTER_AUTH_JWKS_URL: "http://host.docker.internal:3000/api/auth/jwks"
     extra_hosts: ["host.docker.internal:host-gateway"]
     depends_on:
       mysql: { condition: service_healthy }
       redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8090/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   mysql:
     image: mysql:8.4
     ports: ["3306:3306"]
     environment: { MYSQL_DATABASE: gateway, MYSQL_USER: gw, MYSQL_PASSWORD: gwpass, MYSQL_ROOT_PASSWORD: rootpass }
-    command: ["--character-set-server=utf8mb4","--collation-server=utf8mb4_unicode_ci"]
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
     volumes: ["mysql_dev:/var/lib/mysql"]
     healthcheck:
-      test: ["CMD","mysqladmin","ping","-h","localhost","-prootpass"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-prootpass"]
       interval: 5s
       timeout: 3s
-      retries: 10
+      retries: 20
+
   redis:
     image: redis:7-alpine
     ports: ["6379:6379"]
@@ -112,5 +86,6 @@ services:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
-      retries: 10
+      retries: 20
+
 volumes: { mysql_dev: {}, redis_dev: {}, keystore_dev: {}, gomod_cache: {}, gobuild_cache: {} }

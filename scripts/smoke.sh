@@ -4,18 +4,18 @@
 # "e2e smoke (login -> mint JWT -> start session -> pair -> send -> stream)").
 #
 # It drives the AUTOMATABLE slice of that path against an already-running stack
-# (frontend better-auth + router + gateway, e.g. `docker compose up` from deploy/).
-# GATEWAY_URL is the ROUTER's URL — the single public front door — since the
+# (frontend better-auth + API + gateway, e.g. `docker compose up` from deploy/).
+# API_URL is the API's URL — the single public front door — since the
 # gateway no longer authenticates callers directly:
 #
 #   1. register a user           POST {BETTER_AUTH_URL}/api/auth/sign-up/email
 #   2. mint a short-lived JWT    GET  {BETTER_AUTH_URL}/api/auth/token   (session cookie)
-#   3. list sessions             GET  {GATEWAY_URL}/api/v1/sessions      -> assert 200
-#   4. create a session          POST {GATEWAY_URL}/api/v1/sessions      -> assert 2xx
-#   5. fetch its pairing QR      GET  {GATEWAY_URL}/api/v1/sessions/{id}/qr -> assert 200
+#   3. list sessions             GET  {API_URL}/api/v1/sessions      -> assert 200
+#   4. create a session          POST {API_URL}/api/v1/sessions      -> assert 2xx
+#   5. fetch its pairing QR      GET  {API_URL}/api/v1/sessions/{id}/qr -> assert 200
 #
 # Steps 1-5 prove the seam end to end: a better-auth identity -> a JWKS-verified
-# JWT -> the router authenticates, mints an internal assertion, and proxies an
+# JWT -> the API authenticates, mints an internal assertion, and proxies an
 # org-scoped call that mutates WA-plane state on the owning gateway.
 #
 # The remaining masterplan steps (pair -> send -> stream) need a REAL phone to
@@ -26,12 +26,12 @@
 # a dumped response body. Referenced from README.md ("Smoke test").
 #
 # Usage:
-#   BETTER_AUTH_URL=http://localhost:3000 GATEWAY_URL=http://localhost:8090 \
+#   BETTER_AUTH_URL=http://localhost:3000 API_URL=http://localhost:8090 \
 #     scripts/smoke.sh
 #
 # Env (all optional, with the defaults below):
 #   BETTER_AUTH_URL   frontend origin that serves /api/auth/*   (default http://localhost:3000)
-#   GATEWAY_URL       router origin that serves /api/v1/*        (default http://localhost:8090)
+#   API_URL           API origin that serves /api/v1/*           (default http://localhost:8090)
 #   SMOKE_EMAIL       account to register (default smoke+<epoch>@example.test)
 #   SMOKE_PASSWORD    account password    (default smoke-Passw0rd!)
 #   SMOKE_NAME        display name        (default Smoke Test)
@@ -41,14 +41,14 @@
 set -euo pipefail
 
 BETTER_AUTH_URL="${BETTER_AUTH_URL:-http://localhost:3000}"
-GATEWAY_URL="${GATEWAY_URL:-http://localhost:8090}"
+API_URL="${API_URL:-http://localhost:8090}"
 SMOKE_EMAIL="${SMOKE_EMAIL:-smoke+$(date +%s)@example.test}"
 SMOKE_PASSWORD="${SMOKE_PASSWORD:-smoke-Passw0rd!}"
 SMOKE_NAME="${SMOKE_NAME:-Smoke Test}"
 
 # Strip any trailing slash so URL joins are clean.
 BETTER_AUTH_URL="${BETTER_AUTH_URL%/}"
-GATEWAY_URL="${GATEWAY_URL%/}"
+API_URL="${API_URL%/}"
 
 COOKIE_JAR="$(mktemp -t smoke-cookies.XXXXXX)"
 BODY_FILE="$(mktemp -t smoke-body.XXXXXX)"
@@ -125,13 +125,13 @@ request() {
 
 printf '%ssmoke config%s\n' "$c_dim" "$c_off"
 printf '  BETTER_AUTH_URL = %s\n' "$BETTER_AUTH_URL"
-printf '  GATEWAY_URL     = %s\n' "$GATEWAY_URL"
+printf '  API_URL         = %s\n' "$API_URL"
 printf '  email           = %s\n' "$SMOKE_EMAIL"
 printf '  json parser     = %s\n' "$JSON_TOOL"
 
-step "gateway liveness (GET /healthz)"
-request GET "$GATEWAY_URL/healthz" '2..'
-ok "gateway is up (HTTP $LAST_STATUS)"
+step "API liveness (GET /healthz)"
+request GET "$API_URL/healthz" '2..'
+ok "API is up (HTTP $LAST_STATUS)"
 
 # ---------------------------------------------------------------------------
 # 1. register a user (also opens a better-auth session via the cookie jar)
@@ -166,15 +166,15 @@ AUTH=(-H "Authorization: Bearer $JWT")
 # ---------------------------------------------------------------------------
 
 step "list sessions (GET /api/v1/sessions) — expect 200"
-request GET "$GATEWAY_URL/api/v1/sessions" '200' "${AUTH[@]}"
-ok "gateway accepted the JWT and returned the session list"
+request GET "$API_URL/api/v1/sessions" '200' "${AUTH[@]}"
+ok "API accepted the JWT and returned the session list"
 
 # ---------------------------------------------------------------------------
 # 4. create a session (POST /api/v1/sessions) — expect 2xx (201 Created)
 # ---------------------------------------------------------------------------
 
 step "create session (POST /api/v1/sessions) — expect 2xx"
-request POST "$GATEWAY_URL/api/v1/sessions" '2..' "${AUTH[@]}" \
+request POST "$API_URL/api/v1/sessions" '2..' "${AUTH[@]}" \
   -H 'Content-Type: application/json' \
   --data '{"label":"smoke-test","start":true}'
 SESSION_ID="$(json_get "$BODY_FILE" id)"
@@ -186,7 +186,7 @@ ok "created session $SESSION_ID (HTTP $LAST_STATUS)"
 # ---------------------------------------------------------------------------
 
 step "fetch pairing QR (GET /api/v1/sessions/$SESSION_ID/qr) — expect 200"
-request GET "$GATEWAY_URL/api/v1/sessions/$SESSION_ID/qr" '200' "${AUTH[@]}"
+request GET "$API_URL/api/v1/sessions/$SESSION_ID/qr" '200' "${AUTH[@]}"
 QR_CODE="$(json_get "$BODY_FILE" code)"
 [ -n "$QR_CODE" ] || { sed 's/^/    /' "$BODY_FILE" >&2; die "QR response had no 'code' field"; }
 ok "got a pairing QR code for session $SESSION_ID"
@@ -209,28 +209,28 @@ The masterplan path continues "pair -> send -> stream". Finish it by hand:
      The QR rotates; refetch the JSON (it returns {"code":...,"expiresAt":...})
      with:
        curl -H "Authorization: Bearer \$JWT" \\
-         "$GATEWAY_URL/api/v1/sessions/$SESSION_ID/qr"
+         "$API_URL/api/v1/sessions/$SESSION_ID/qr"
      Alternatively request a pairing code instead of scanning:
        curl -X POST -H "Authorization: Bearer \$JWT" \\
          -H 'Content-Type: application/json' --data '{"phone":"<E.164>"}' \\
-         "$GATEWAY_URL/api/v1/sessions/$SESSION_ID/pairing-code"
+         "$API_URL/api/v1/sessions/$SESSION_ID/pairing-code"
      Wait until GET .../sessions/$SESSION_ID/me reports the session paired.
 
   b. SEND: send yourself a message (JWTs are ~5 min — mint a fresh one):
        curl -X POST -H "Authorization: Bearer \$JWT" \\
          -H 'Content-Type: application/json' \\
          --data '{"type":"text","to":"<E.164>@s.whatsapp.net","text":"hello from smoke"}' \\
-         "$GATEWAY_URL/api/v1/sessions/$SESSION_ID/messages"
+         "$API_URL/api/v1/sessions/$SESSION_ID/messages"
 
   c. STREAM: watch live events over the realtime WebSocket while the send lands.
      First mint a single-use ticket, then connect with it (use a WS client such
      as websocat):
        TICKET=\$(curl -s -X POST -H "Authorization: Bearer \$JWT" \\
          -H 'Content-Type: application/json' --data '{"scope":"organization"}' \\
-         "$GATEWAY_URL/api/v1/realtime/ticket" | jq -r .ticket)
-       websocat "\${GATEWAY_URL/http/ws}/api/v1/realtime?ticket=\$TICKET"
+         "$API_URL/api/v1/realtime/ticket" | jq -r .ticket)
+       websocat "\${API_URL/http/ws}/api/v1/realtime?ticket=\$TICKET"
 
 Cleanup when finished:
        curl -X DELETE -H "Authorization: Bearer \$JWT" \\
-         "$GATEWAY_URL/api/v1/sessions/$SESSION_ID"
+         "$API_URL/api/v1/sessions/$SESSION_ID"
 EOF

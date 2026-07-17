@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1
-# ROUTER image (Go / central router). Build context is the repo root:
-#   docker build -t whatsmeow-router -f deploy/Dockerfile.router .
+# API image (Go / control plane). Build context is the repo root:
+#   docker build -t whatsmeow-api -f deploy/Dockerfile.api .
 #
-# The router is the single public front door / trust boundary in front of the
+# The API is the single public front door / trust boundary in front of the
 # gateways: it authenticates end-user callers (better-auth JWT or api-key),
 # resolves session->owning gateway, and reverse-proxies with a request-bound
 # Ed25519 internal assertion. It is STATELESS — no keystore volume.
@@ -15,16 +15,16 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -o /out/router ./cmd/router
+RUN CGO_ENABLED=0 go build -o /out/api ./cmd/api
 
 # --- Stage 2: minimal runtime ---
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates tzdata
-COPY --from=build /out/router /usr/local/bin/router
-# Ship the generated API contract so the router can serve it at
+COPY --from=build /out/api /usr/local/bin/api
+# Ship the generated API contract so the API can serve it at
 # /api/v1/openapi.yaml (OpenAPIPath defaults to the relative "docs/openapi.yaml",
 # resolved from the working directory).
 WORKDIR /app
 COPY --from=build /src/docs/openapi.yaml ./docs/openapi.yaml
-EXPOSE 8090
-ENTRYPOINT ["router"]
+EXPOSE 8090 8081
+ENTRYPOINT ["api"]

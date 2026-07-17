@@ -68,7 +68,7 @@ stream lives in the gateway and the browser connects to it.
 - **Server** (serverless): auth, token mint, direct MySQL reads. No streaming, no proxy.
 - **Client:** TanStack Query for data; the `fetch`+`ReadableStream` NDJSON consumer for realtime
   (`web/app/lib/events/`), both hitting the gateway with a `Bearer` JWT, refreshed per §4.7.
-- **CORS:** the gateway allows `FRONTEND_ORIGINS`; the gateway env's `PUBLIC_URL`/`GATEWAY_URL`
+- **CORS:** the API allows `FRONTEND_ORIGINS`; `GATEWAY_PUBLIC_URL` is private while `GATEWAY_URL`
   is what the browser targets. `GATEWAY_URL` (server) + `VITE_GATEWAY_URL` (browser).
 
 > **Serverless + MySQL:** direct reads from serverless functions can exhaust DB connections — use

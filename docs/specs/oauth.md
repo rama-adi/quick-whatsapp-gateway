@@ -213,7 +213,7 @@ CRUD is huma-registered inside the authenticated `/api/v1` group.
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/.well-known/openid-configuration` | OIDC discovery. `issuer` = `OIDC_ISSUER` (default `ROUTER_PUBLIC_URL`). |
+| GET | `/.well-known/openid-configuration` | OIDC discovery. `issuer` = `OIDC_ISSUER` (default `API_PUBLIC_URL`). |
 | GET | `/.well-known/oauth-authorization-server` | RFC 8414 alias. |
 | GET | `/.well-known/oauth-jwks.json` | OIDC signing JWKS (`active` + `next`). **Separate** from `router-jwks.json` (internal assertions). |
 
@@ -548,7 +548,7 @@ bot reactions/replies.
 - **Migration** `0007_oidc_provider` → `make migrate` → `cd web && pnpm db:introspect`.
 - **NEW guide** `web/content/docs/guides/sign-in-with-whatsapp.md` (relying-app integration
   quickstart).
-- **Env** (`deploy/.env.example`): `OIDC_ISSUER` (default `ROUTER_PUBLIC_URL`),
+- **Env** (`deploy/.env.example`): `OIDC_ISSUER` (default `API_PUBLIC_URL`),
   `OIDC_KEY_ENC_KEY`, `OAUTH_CLIENT_SECRET_PEPPER`, `WEB_LOGIN_URL`
   (default `${WEB_URL}/login/whatsapp`), TTL overrides (`OIDC_REQUEST_TTL_SECONDS=600`,
   `OIDC_AUTHCODE_TTL_SECONDS=60`).
