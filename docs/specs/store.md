@@ -165,8 +165,14 @@ Increment 2.1a binds issued certificates to their owning enrollment attempt with
 `enrollment_token_id`, canonical `csr_sha256`, and unique `(enrollment_token_id, csr_sha256)` retry
 key. It remains an unwired persistence and crypto-policy foundation.
 
-This slice is **schema/repository foundation only and is not wired to an API, listener, signer,
-CSR flow, or UI yet**. Current boot self-registration uses the explicit `creator_kind='system'`
+Increment 2.1b uses `pki_rotation_lock` to serialize empty-store hierarchy bootstrap and active
+intermediate renewal. Both rows are inserted atomically during bootstrap; renewal marks only the
+old intermediate retiring and inserts its successor in one transaction. Old rows remain history.
+The signer installs its validated cache only after commit, and MySQL receives encrypted PKCS#8 only.
+Authority writes are private to the hierarchy transaction adapter; the general Store/sqlc surface
+does not expose insert or rotation methods that can bypass the singleton lock.
+
+These slices are **not wired to an API, listener, enrollment flow, or UI yet**. Current boot self-registration uses the explicit `creator_kind='system'`
 default. Future admin creation requires `creator_kind='user'` and a real creator id; the database
 check forbids ambiguous or fabricated user attribution.
 

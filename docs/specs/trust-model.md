@@ -17,6 +17,16 @@
 > SPIFFE CSRs, 24-hour issuer-capped client+server-auth leaves, and AES-256-GCM CA-key envelopes
 > whose AAD binds authority id, kind, certificate fingerprint, and encryption-key id.
 
+> **Increment 2.1b local CA (still unwired):** API-owned MySQL persists an Ed25519 root and
+> root-signed intermediate with detached PKCS#8 encrypted by the row-bound envelope. Startup fails
+> closed on corrupt identity, PEM, fingerprint, constraints, parentage, ciphertext, or key mismatch.
+> A hierarchy-wide transaction lock serializes bootstrap and intermediate renewal; history is
+> retained. Invalid root validity requires an explicit root-rotation workflow and is never silently
+> replaced. Leaf signing revalidates the SPIFFE CSR and decrypts only the intermediate signing key.
+> Hierarchy validation/renewal runs on every signing and trust-bundle access, not only at startup.
+> Authority TTLs and renewal windows must preserve at least one full leaf TTL plus clock skew, and
+> issuance refuses a root without that remaining lifetime before any hierarchy mutation.
+
 Status: implemented (R1/R2). Live-validated against better-auth 1.6.22.
 
 > **Central-router (Increment A) — read this first.** Authentication now **terminates at the

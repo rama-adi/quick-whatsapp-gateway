@@ -74,12 +74,12 @@ func ValidateCSR(der []byte, gatewayID string) (ValidatedCSR, error) {
 type SignRequest struct {
 	GatewayID, EnrollmentTokenID, AuthorityID string
 	CSR                                       ValidatedCSR
-	Now                                       time.Time
 }
 type SignedCertificate struct {
-	DER                 []byte
-	Serial              *big.Int
-	NotBefore, NotAfter time.Time
+	DER, ChainPEM, TrustBundlePEM, Fingerprint []byte
+	AuthorityID                                string
+	Serial                                     *big.Int
+	NotBefore, NotAfter                        time.Time
 }
 type Signer interface {
 	Sign(context.Context, SignRequest) (SignedCertificate, error)

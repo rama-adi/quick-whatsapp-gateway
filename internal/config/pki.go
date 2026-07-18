@@ -3,16 +3,17 @@ package config
 import (
 	"encoding/base64"
 	"fmt"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/pki"
 	"os"
 	"time"
+
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/pki"
 )
 
 // PKIConfig is intentionally unwired until the local MySQL signer increment.
 type PKIConfig struct {
-	EncryptionKey      []byte
-	EncryptionKeyID    string
-	LeafTTL, ClockSkew time.Duration
+	EncryptionKey                                                         []byte
+	EncryptionKeyID                                                       string
+	LeafTTL, ClockSkew, RootTTL, IntermediateTTL, IntermediateRenewBefore time.Duration
 }
 
 func LoadPKI() (*PKIConfig, error) { return LoadPKIWith(os.Getenv) }
@@ -38,7 +39,25 @@ func LoadPKIWith(getenv func(string) string) (*PKIConfig, error) {
 			return nil, fmt.Errorf("config: PKI_CLOCK_SKEW: %w", err)
 		}
 	}
-	c := &PKIConfig{EncryptionKey: key, EncryptionKeyID: getenv("PKI_ENCRYPTION_KEY_ID"), LeafTTL: ttl, ClockSkew: skew}
+	parse := func(name string, fallback time.Duration) (time.Duration, error) {
+		if v := getenv(name); v != "" {
+			return time.ParseDuration(v)
+		}
+		return fallback, nil
+	}
+	rootTTL, err := parse("PKI_ROOT_TTL", 10*365*24*time.Hour)
+	if err != nil {
+		return nil, fmt.Errorf("config: PKI_ROOT_TTL: %w", err)
+	}
+	intermediateTTL, err := parse("PKI_INTERMEDIATE_TTL", 90*24*time.Hour)
+	if err != nil {
+		return nil, fmt.Errorf("config: PKI_INTERMEDIATE_TTL: %w", err)
+	}
+	renew, err := parse("PKI_INTERMEDIATE_RENEW_BEFORE", 30*24*time.Hour)
+	if err != nil {
+		return nil, fmt.Errorf("config: PKI_INTERMEDIATE_RENEW_BEFORE: %w", err)
+	}
+	c := &PKIConfig{EncryptionKey: key, EncryptionKeyID: getenv("PKI_ENCRYPTION_KEY_ID"), LeafTTL: ttl, ClockSkew: skew, RootTTL: rootTTL, IntermediateTTL: intermediateTTL, IntermediateRenewBefore: renew}
 	if err := c.Validate(); err != nil {
 		return nil, err
 	}
@@ -56,6 +75,16 @@ func (c *PKIConfig) Validate() error {
 	}
 	if c.ClockSkew < 0 || c.ClockSkew > 15*time.Minute {
 		return fmt.Errorf("config: PKI_CLOCK_SKEW must be within [0,15m]")
+	}
+	if c.RootTTL <= 0 || c.IntermediateTTL <= 0 || c.IntermediateTTL >= c.RootTTL {
+		return fmt.Errorf("config: invalid authority TTLs")
+	}
+	if c.IntermediateRenewBefore <= 0 || c.IntermediateRenewBefore >= c.IntermediateTTL {
+		return fmt.Errorf("config: invalid intermediate renewal window")
+	}
+	minimum := c.LeafTTL + c.ClockSkew
+	if c.IntermediateTTL <= minimum || c.IntermediateRenewBefore < minimum {
+		return fmt.Errorf("config: intermediate TTL and renewal window must cover leaf TTL plus clock skew")
 	}
 	return nil
 }

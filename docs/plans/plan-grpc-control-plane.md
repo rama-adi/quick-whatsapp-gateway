@@ -829,4 +829,9 @@ Remaining choices and deployment-specific tuning:
 - Public gRPC SDK languages and supported-version/publication policy.
 - Whether public server-streaming events ship in the first public gRPC release or follow later.
 
+Increment 2.1b implements the unwired persistent local-MySQL CA: atomic hierarchy bootstrap,
+strict loaded-row and key validation, explicit root-rotation refusal, transaction-safe intermediate
+renewal, exact root trust-bundle publication, and SPIFFE leaf signing. Runtime configuration wiring,
+enrollment RPCs, listeners, Vault integration, and UI remain later increments.
+
 These decisions affect implementation detail, not the responsibility boundary locked above.

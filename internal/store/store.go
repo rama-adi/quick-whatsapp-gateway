@@ -11,9 +11,7 @@ package store
 import (
 	"context"
 	"database/sql"
-	"fmt"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/store/storedb"
 )
 
@@ -55,7 +53,6 @@ type Store struct {
 	EnrollmentTokens    *EnrollmentTokenRepo
 	GatewayCertificates *GatewayCertificateRepo
 	AuditEvents         *AuditRepo
-	PKIAuthorities      *PKIAuthorityRepo
 }
 
 // New builds a Store with every repo bound to the same *sql.DB.
@@ -84,41 +81,8 @@ func New(db *sql.DB) *Store {
 		OAuthRefresh:      NewOAuthRefreshTokenRepo(db),
 		OAuthSigningKeys:  NewOAuthSigningKeyRepo(db),
 		EnrollmentTokens:  NewEnrollmentTokenRepo(db), GatewayCertificates: NewGatewayCertificateRepo(db),
-		AuditEvents: NewAuditRepo(db), PKIAuthorities: NewPKIAuthorityRepo(db),
+		AuditEvents: NewAuditRepo(db),
 	}
-}
-
-// RotatePKIAuthority serializes on the database singleton and atomically
-// retires the current active authority before installing its successor.
-func (s *Store) RotatePKIAuthority(ctx context.Context, next domain.PKIAuthority, now int64) error {
-	if s.db == nil {
-		return fmt.Errorf("store: PKI rotation requires root store")
-	}
-	return InTx(ctx, s.db, func(tx *Store) error {
-		if err := tx.PKIAuthorities.lockRotation(ctx, next.Kind); err != nil {
-			return err
-		}
-		if _, err := tx.PKIAuthorities.activeForRotation(ctx, next.Kind); err != nil {
-			return fmt.Errorf("store: load current PKI authority: %w", err)
-		}
-		if next.Kind == "intermediate" {
-			root, err := tx.PKIAuthorities.ActiveForUpdate(ctx, "root", now)
-			if err != nil {
-				return fmt.Errorf("store: load active parent root: %w", err)
-			}
-			if next.ParentAuthorityID == nil || *next.ParentAuthorityID != root.ID {
-				return fmt.Errorf("store: intermediate parent is not active root")
-			}
-		}
-		n, err := tx.PKIAuthorities.retireActive(ctx, next.Kind, now)
-		if err != nil {
-			return err
-		}
-		if n != 1 {
-			return fmt.Errorf("store: expected one active PKI authority, retired %d", n)
-		}
-		return tx.PKIAuthorities.Insert(ctx, next)
-	})
 }
 
 // InTx runs fn with repositories bound to one transaction. It is intended for
@@ -147,6 +111,6 @@ func newWithDBTX(db storedb.DBTX) *Store {
 		OAuthClients: NewOAuthClientRepo(db), OAuthGrants: NewOAuthGrantRepo(db),
 		OAuthRefresh: NewOAuthRefreshTokenRepo(db), OAuthSigningKeys: NewOAuthSigningKeyRepo(db),
 		EnrollmentTokens: NewEnrollmentTokenRepo(db), GatewayCertificates: NewGatewayCertificateRepo(db),
-		AuditEvents: NewAuditRepo(db), PKIAuthorities: NewPKIAuthorityRepo(db),
+		AuditEvents: NewAuditRepo(db),
 	}
 }

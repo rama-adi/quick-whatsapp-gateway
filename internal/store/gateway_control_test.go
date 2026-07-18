@@ -40,7 +40,7 @@ func TestInTxCommitAndRollback(t *testing.T) {
 				mock.ExpectRollback()
 			}
 			err = InTx(context.Background(), db, func(s *Store) error {
-				if s.EnrollmentTokens == nil || s.PKIAuthorities == nil || s.AuditEvents == nil {
+				if s.EnrollmentTokens == nil || s.AuditEvents == nil {
 					t.Fatal("transaction store incomplete")
 				}
 				return tc.callback
