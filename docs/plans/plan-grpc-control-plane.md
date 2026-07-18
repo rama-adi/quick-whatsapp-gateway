@@ -846,4 +846,8 @@ identity renewal, anonymous-TLS enrollment adapter, and per-RPC strict certifica
 authorization. It intentionally does not add a gateway client, control stream, renewal RPC, or
 administrative UI.
 
+Private transport split C adds the opt-in gateway bootstrap client and durable gateway identity.
+It proves authenticated private health over one reusable mTLS connection, but deliberately adds no
+control stream or engine RPC client yet.
+
 These decisions affect implementation detail, not the responsibility boundary locked above.

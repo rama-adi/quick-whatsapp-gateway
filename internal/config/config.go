@@ -6,10 +6,12 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/joho/godotenv"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/pki"
 )
 
 // GatewayConfig is the fully-parsed gateway runtime configuration. Every field maps to an ENV
@@ -23,7 +25,11 @@ type GatewayConfig struct {
 	AppEncryptionKey string // APP_ENCRYPTION_KEY (base64 32-byte AES-GCM key)
 
 	// Gateway identity (session pinning, gateways registry — §4.5)
-	GatewayID string // GATEWAY_ID
+	GatewayID        string // GATEWAY_ID
+	ControlPlaneAddr string // GATEWAY_CONTROL_PLANE_ADDR; empty disables private gRPC bootstrap
+	CredentialDir    string // GATEWAY_CREDENTIAL_DIR
+	BootstrapCAFile  string // GATEWAY_BOOTSTRAP_CA_FILE
+	EnrollmentToken  string // GATEWAY_ENROLLMENT_TOKEN; bootstrap-only, never persisted
 
 	// Trust model (§4.1/§4.4). After the central-router cutover the gateway no
 	// longer verifies end-user JWTs/api-keys directly: the router authenticates
@@ -111,6 +117,10 @@ func LoadGateway() (*GatewayConfig, error) {
 		HTTPAddr:               getStringFallback("GATEWAY_HTTP_ADDR", "HTTP_ADDR", ":8080"),
 		PublicURL:              getStringFallback("GATEWAY_PUBLIC_URL", "PUBLIC_URL", ""),
 		GatewayID:              getString("GATEWAY_ID", "gw-1"),
+		ControlPlaneAddr:       getString("GATEWAY_CONTROL_PLANE_ADDR", ""),
+		CredentialDir:          getString("GATEWAY_CREDENTIAL_DIR", ""),
+		BootstrapCAFile:        getString("GATEWAY_BOOTSTRAP_CA_FILE", ""),
+		EnrollmentToken:        getString("GATEWAY_ENROLLMENT_TOKEN", ""),
 		RouterJWKSURL:          getString("ROUTER_JWKS_URL", ""),
 		RouterAssertionIssuer:  getString("ROUTER_ASSERTION_ISSUER", DefaultRouterIssuer),
 		BetterAuthURL:          getString("BETTER_AUTH_URL", ""),
@@ -172,6 +182,23 @@ func (c *GatewayConfig) Validate() error {
 
 	if c.GatewayID == "" {
 		return fmt.Errorf("config: GATEWAY_ID must not be empty")
+	}
+	privateConfigured := c.ControlPlaneAddr != "" || c.CredentialDir != "" || c.BootstrapCAFile != "" || c.EnrollmentToken != ""
+	if privateConfigured {
+		if c.ControlPlaneAddr == "" || c.CredentialDir == "" || c.BootstrapCAFile == "" {
+			return fmt.Errorf("config: GATEWAY_CONTROL_PLANE_ADDR, GATEWAY_CREDENTIAL_DIR, and GATEWAY_BOOTSTRAP_CA_FILE must be configured together")
+		}
+		if pki.ValidateGatewayID(c.GatewayID) != nil {
+			return fmt.Errorf("config: GATEWAY_ID must be canonical for private control plane")
+		}
+		if strings.TrimSpace(c.ControlPlaneAddr) != c.ControlPlaneAddr {
+			return fmt.Errorf("config: GATEWAY_CONTROL_PLANE_ADDR must be canonical")
+		}
+		for name, value := range map[string]string{"GATEWAY_CREDENTIAL_DIR": c.CredentialDir, "GATEWAY_BOOTSTRAP_CA_FILE": c.BootstrapCAFile} {
+			if value == "" || !filepath.IsAbs(value) || filepath.Clean(value) != value || value == string(filepath.Separator) {
+				return fmt.Errorf("config: %s must be an absolute clean non-root path", name)
+			}
+		}
 	}
 
 	// A configured admin number must name the organization that owns its session.

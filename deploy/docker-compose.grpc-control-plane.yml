@@ -12,6 +12,14 @@ services:
     volumes: ["api_tls_identity:/data/api-tls"]
     networks: ["default", "gateway-control"]
   gateway:
+    environment:
+      GATEWAY_CONTROL_PLANE_ADDR: "api:8443"
+      GATEWAY_CREDENTIAL_DIR: "/data/gateway-credentials"
+      GATEWAY_BOOTSTRAP_CA_FILE: "/run/secrets/gateway-bootstrap-ca.pem"
+      GATEWAY_ENROLLMENT_TOKEN: "${GATEWAY_ENROLLMENT_TOKEN:-}"
+    volumes:
+      - "gateway_credentials:/data/gateway-credentials"
+      - "${GATEWAY_BOOTSTRAP_CA_FILE:?set GATEWAY_BOOTSTRAP_CA_FILE to the operator CA PEM}:/run/secrets/gateway-bootstrap-ca.pem:ro"
     networks: ["default", "gateway-control"]
 
 networks:
@@ -20,3 +28,4 @@ networks:
 
 volumes:
   api_tls_identity: {}
+  gateway_credentials: {}

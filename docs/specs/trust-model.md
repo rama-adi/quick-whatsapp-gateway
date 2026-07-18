@@ -301,3 +301,9 @@ RPC must match the presented leaf fingerprint/serial/SPIFFE gateway ID to a live
 a non-disabled, non-deleted gateway row. This per-RPC database check deliberately favors immediate
 revocation correctness; a bounded revocation cache can be considered later only with explicit
 invalidation semantics.
+
+The gateway never uses operating-system roots for this channel. Its bootstrap CA file must contain
+exactly one canonical operator root; custom TLS verification performs full ServerAuth chain/time
+validation and requires the sole Ed25519 URI identity `spiffe://quick-wa/api`. Enrollment tokens
+remain process-memory bootstrap input only and are neither written into the credential directory
+nor included in logs.

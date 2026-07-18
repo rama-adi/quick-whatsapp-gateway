@@ -1,0 +1,147 @@
+package controlclient
+
+import (
+	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
+	"net"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	gatewayv1 "github.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/pki"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/pki/gatewayidentity"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/status"
+)
+
+func testRoot(t *testing.T) []byte {
+	t.Helper()
+	now := time.Now()
+	pub, key, _ := ed25519.GenerateKey(rand.Reader)
+	template := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "root"}, NotBefore: now.Add(-time.Hour), NotAfter: now.Add(time.Hour), IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign}
+	der, _ := x509.CreateCertificate(rand.Reader, template, template, pub, key)
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+}
+func TestRetryClassification(t *testing.T) {
+	for _, code := range []codes.Code{codes.Unavailable, codes.DeadlineExceeded, codes.Aborted, codes.ResourceExhausted} {
+		if !retryable(code) {
+			t.Fatalf("%s should retry", code)
+		}
+	}
+	for _, code := range []codes.Code{codes.InvalidArgument, codes.Unauthenticated, codes.PermissionDenied, codes.Internal} {
+		if retryable(code) {
+			t.Fatalf("%s should be terminal", code)
+		}
+	}
+}
+func TestCanceledRetryReusesPendingAndNeverPersistsToken(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "credentials")
+	identity, _ := gatewayidentity.New(gatewayidentity.Config{Directory: dir, GatewayID: "gw_1", BootstrapCA: testRoot(t)})
+	client, _ := New(Config{Target: "127.0.0.1:1", GatewayID: "gw_1", Identity: identity, AttemptTimeout: 20 * time.Millisecond})
+	ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
+	defer cancel()
+	secret := "qwg_enroll_v1_SECRET_NEVER_WRITE"
+	if err := client.Ensure(ctx, secret); err == nil {
+		t.Fatal("unreachable enrollment succeeded")
+	}
+	first, _ := identity.Prepare()
+	second, _ := identity.Prepare()
+	if string(first.CSRDER) != string(second.CSRDER) {
+		t.Fatal("pending CSR changed across retry")
+	}
+	_ = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() {
+			data, _ := os.ReadFile(path)
+			if strings.Contains(string(data), secret) {
+				t.Fatalf("token persisted in %s", path)
+			}
+		}
+		return nil
+	})
+}
+
+type countedPrivateServer struct {
+	gatewayv1.UnimplementedGatewayEnrollmentServiceServer
+	gatewayv1.UnimplementedGatewayHealthServiceServer
+	enrollCalls atomic.Int32
+	healthCalls atomic.Int32
+}
+
+func (s *countedPrivateServer) Enroll(context.Context, *gatewayv1.GatewayEnrollmentServiceEnrollRequest) (*gatewayv1.GatewayEnrollmentServiceEnrollResponse, error) {
+	s.enrollCalls.Add(1)
+	return nil, status.Error(codes.Internal, "enroll must not be called")
+}
+func (s *countedPrivateServer) Check(context.Context, *gatewayv1.GatewayHealthServiceCheckRequest) (*gatewayv1.GatewayHealthServiceCheckResponse, error) {
+	s.healthCalls.Add(1)
+	return &gatewayv1.GatewayHealthServiceCheckResponse{Status: gatewayv1.ServingStatus_SERVING_STATUS_SERVING}, nil
+}
+
+func TestInstalledIdentitySkipsEnrollmentAndUsesMTLSHealth(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	rootPub, rootKey, _ := ed25519.GenerateKey(rand.Reader)
+	rootT := &x509.Certificate{SerialNumber: big.NewInt(101), Subject: pkix.Name{CommonName: "operator-root"}, NotBefore: now.Add(-time.Hour), NotAfter: now.Add(24 * time.Hour), IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign}
+	rootDER, _ := x509.CreateCertificate(rand.Reader, rootT, rootT, rootPub, rootKey)
+	root, _ := x509.ParseCertificate(rootDER)
+	rootPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: rootDER})
+	dir := filepath.Join(t.TempDir(), "credentials")
+	identity, _ := gatewayidentity.New(gatewayidentity.Config{Directory: dir, GatewayID: "gw_1", BootstrapCA: rootPEM})
+	pending, _ := identity.Prepare()
+	csr, _ := x509.ParseCertificateRequest(pending.CSRDER)
+	gatewayT := &x509.Certificate{SerialNumber: big.NewInt(102), NotBefore: now.Add(-time.Minute), NotAfter: now.Add(time.Hour), BasicConstraintsValid: true, KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth}, URIs: csr.URIs}
+	gatewayDER, _ := x509.CreateCertificate(rand.Reader, gatewayT, root, csr.PublicKey, rootKey)
+	gatewayLeaf, _ := x509.ParseCertificate(gatewayDER)
+	gatewayChain := append(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: gatewayDER}), rootPEM...)
+	if err := identity.Install(gatewayidentity.Installation{GatewayID: "gw_1", ChainPEM: gatewayChain, TrustBundlePEM: rootPEM, AuthorityID: "root", Serial: gatewayLeaf.SerialNumber.String(), NotBefore: gatewayLeaf.NotBefore.UnixMilli(), NotAfter: gatewayLeaf.NotAfter.UnixMilli()}); err != nil {
+		t.Fatal(err)
+	}
+	apiPub, apiKey, _ := ed25519.GenerateKey(rand.Reader)
+	apiURI, _ := url.Parse(pki.APIIdentityURI)
+	apiT := &x509.Certificate{SerialNumber: big.NewInt(103), NotBefore: now.Add(-time.Minute), NotAfter: now.Add(time.Hour), BasicConstraintsValid: true, KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, URIs: []*url.URL{apiURI}}
+	apiDER, _ := x509.CreateCertificate(rand.Reader, apiT, root, apiPub, rootKey)
+	apiKeyDER, _ := x509.MarshalPKCS8PrivateKey(apiKey)
+	apiChain := append(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: apiDER}), rootPEM...)
+	apiCert, err := tls.X509KeyPair(apiChain, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: apiKeyDER}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots := x509.NewCertPool()
+	roots.AddCert(root)
+	service := &countedPrivateServer{}
+	server := grpc.NewServer(grpc.Creds(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{apiCert}, ClientAuth: tls.RequireAndVerifyClientCert, ClientCAs: roots})))
+	gatewayv1.RegisterGatewayEnrollmentServiceServer(server, service)
+	gatewayv1.RegisterGatewayHealthServiceServer(server, service)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() { _ = server.Serve(listener); close(done) }()
+	defer func() { server.Stop(); <-done }()
+	reloaded, _ := gatewayidentity.New(gatewayidentity.Config{Directory: dir, GatewayID: "gw_1", BootstrapCA: rootPEM})
+	client, _ := New(Config{Target: listener.Addr().String(), GatewayID: "gw_1", Identity: reloaded, AttemptTimeout: time.Second})
+	if err = client.Ensure(context.Background(), "invalid-token-must-not-be-sent"); err != nil {
+		t.Fatal(err)
+	}
+	if service.enrollCalls.Load() != 0 || service.healthCalls.Load() != 1 || client.Conn() == nil {
+		t.Fatalf("calls enroll=%d health=%d", service.enrollCalls.Load(), service.healthCalls.Load())
+	}
+	if err = client.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if client.Conn() != nil {
+		t.Fatal("connection retained after close")
+	}
+}

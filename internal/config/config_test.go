@@ -2,6 +2,7 @@ package config
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -12,6 +13,7 @@ func clearEnv(t *testing.T) {
 	t.Helper()
 	keys := []string{
 		"GATEWAY_HTTP_ADDR", "HTTP_ADDR", "GATEWAY_PUBLIC_URL", "PUBLIC_URL", "GATEWAY_ID",
+		"GATEWAY_CONTROL_PLANE_ADDR", "GATEWAY_CREDENTIAL_DIR", "GATEWAY_BOOTSTRAP_CA_FILE", "GATEWAY_ENROLLMENT_TOKEN",
 		"ROUTER_JWKS_URL", "ROUTER_ASSERTION_ISSUER",
 		"BETTER_AUTH_URL", "BETTER_AUTH_JWKS_URL", "FRONTEND_ORIGINS",
 		"APP_ENCRYPTION_KEY", "MYSQL_DSN",
@@ -82,6 +84,64 @@ func TestLoadGateway_Defaults(t *testing.T) {
 
 	if !reflect.DeepEqual(cfg, want) {
 		t.Errorf("Load() defaults mismatch:\n got  %+v\n want %+v", cfg, want)
+	}
+}
+
+func TestGatewayControlPlaneConfigIsOptInAndPathsAreStrict(t *testing.T) {
+	base := GatewayConfig{HTTPAddr: ":8080", WhatsmeowStoreDSN: "file:test.db", GatewayID: "gw_1", LogLevel: "info"}
+	if err := base.Validate(); err != nil {
+		t.Fatalf("disabled control plane: %v", err)
+	}
+	for name, mutate := range map[string]func(*GatewayConfig){
+		"orphan target":     func(c *GatewayConfig) { c.ControlPlaneAddr = "api:8443" },
+		"orphan directory":  func(c *GatewayConfig) { c.CredentialDir = "/credentials" },
+		"orphan CA":         func(c *GatewayConfig) { c.BootstrapCAFile = "/ca.pem" },
+		"orphan token":      func(c *GatewayConfig) { c.EnrollmentToken = "secret" },
+		"missing directory": func(c *GatewayConfig) { c.ControlPlaneAddr = "api:8443"; c.BootstrapCAFile = "/ca.pem" },
+		"relative directory": func(c *GatewayConfig) {
+			c.ControlPlaneAddr = "api:8443"
+			c.CredentialDir = "credentials"
+			c.BootstrapCAFile = "/ca.pem"
+		},
+		"unclean CA": func(c *GatewayConfig) {
+			c.ControlPlaneAddr = "api:8443"
+			c.CredentialDir = "/credentials"
+			c.BootstrapCAFile = "/tmp/../ca.pem"
+		},
+		"root directory": func(c *GatewayConfig) {
+			c.ControlPlaneAddr = "api:8443"
+			c.CredentialDir = "/"
+			c.BootstrapCAFile = "/ca.pem"
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := base
+			mutate(&cfg)
+			if cfg.Validate() == nil {
+				t.Fatal("invalid private config accepted")
+			}
+		})
+	}
+	valid := base
+	valid.ControlPlaneAddr = "api:8443"
+	valid.CredentialDir = "/credentials"
+	valid.BootstrapCAFile = "/ca.pem"
+	if err := valid.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestGatewayControlPlaneEnvTypoCannotDowngradeToDisabled(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("GATEWAY_CONTROL_PLANE_ADR", "api:8443") // misspelled target
+	t.Setenv("GATEWAY_CREDENTIAL_DIR", "/credentials")
+	t.Setenv("GATEWAY_BOOTSTRAP_CA_FILE", "/ca.pem")
+	cfg, err := LoadGateway()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = cfg.Validate(); err == nil || !strings.Contains(err.Error(), "must be configured together") {
+		t.Fatalf("typo silently disabled private transport: %v", err)
 	}
 }
 

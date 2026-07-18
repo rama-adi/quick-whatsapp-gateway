@@ -27,7 +27,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
 // GatewayEnrollmentService exchanges a one-time enrollment bearer and Ed25519
-// CSR for the private API-issued gateway identity. It is not registered yet.
+// CSR for the private API-issued gateway identity.
 type GatewayEnrollmentServiceClient interface {
 	Enroll(ctx context.Context, in *GatewayEnrollmentServiceEnrollRequest, opts ...grpc.CallOption) (*GatewayEnrollmentServiceEnrollResponse, error)
 }
@@ -55,7 +55,7 @@ func (c *gatewayEnrollmentServiceClient) Enroll(ctx context.Context, in *Gateway
 // for forward compatibility.
 //
 // GatewayEnrollmentService exchanges a one-time enrollment bearer and Ed25519
-// CSR for the private API-issued gateway identity. It is not registered yet.
+// CSR for the private API-issued gateway identity.
 type GatewayEnrollmentServiceServer interface {
 	Enroll(context.Context, *GatewayEnrollmentServiceEnrollRequest) (*GatewayEnrollmentServiceEnrollResponse, error)
 	mustEmbedUnimplementedGatewayEnrollmentServiceServer()

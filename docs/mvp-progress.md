@@ -186,3 +186,6 @@ e2e smoke against a live WhatsApp number.
 - Private gRPC transport foundation: optional TLS 1.3 API listener, enrollment adapter, strict
   per-RPC gateway certificate authorization, atomic API identity renewal, and internal-only compose
   overlay. Gateway client/control-stream wiring remains a later increment.
+- Gateway private bootstrap: pinned API SPIFFE verification, crash-safe pending CSR/key reuse,
+  atomically installed gateway credentials, replay-aware enrollment retries, and reusable mTLS
+  private-health connection. Control streaming remains deferred.

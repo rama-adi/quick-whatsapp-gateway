@@ -14,14 +14,17 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 	gatewayv1 "github.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/gateway/controlclient"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/pki"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/pki/apiidentity"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/pki/gatewayidentity"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/pki/localmysql"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/service"
 	"google.golang.org/grpc"
@@ -139,6 +142,45 @@ func TestPrivateGatewayTLSMySQLIntegration(t *testing.T) {
 	}
 	if _, err = health.Check(context.Background(), &gatewayv1.GatewayHealthServiceCheckRequest{}); status.Code(err) != codes.Unauthenticated {
 		t.Fatalf("revoked certificate = %v", err)
+	}
+
+	// Exercise the real gateway bootstrap client over loopback: anonymous enrollment,
+	// atomic install, bootstrap close, long-lived mTLS health proof.
+	secondIssued, err := enrollment.CreateGateway(context.Background(), service.CreateGatewayInput{CreatedByUserID: "integration-user"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	credentialDir := filepath.Join(t.TempDir(), "gateway-credentials")
+	gatewayIdentity, err := gatewayidentity.New(gatewayidentity.Config{Directory: credentialDir, GatewayID: secondIssued.GatewayID, BootstrapCA: bundle})
+	if err != nil {
+		t.Fatal(err)
+	}
+	control, err := controlclient.New(controlclient.Config{Target: listener.Addr().String(), GatewayID: secondIssued.GatewayID, Identity: gatewayIdentity, AttemptTimeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = control.Ensure(context.Background(), secondIssued.Token); err != nil {
+		t.Fatal(err)
+	}
+	if control.Conn() == nil || !gatewayIdentity.Ready() {
+		t.Fatal("gateway control connection or identity unavailable")
+	}
+	if err = control.Close(); err != nil {
+		t.Fatal(err)
+	}
+	restartedIdentity, err := gatewayidentity.New(gatewayidentity.Config{Directory: credentialDir, GatewayID: secondIssued.GatewayID, BootstrapCA: bundle})
+	if err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := controlclient.New(controlclient.Config{Target: listener.Addr().String(), GatewayID: secondIssued.GatewayID, Identity: restartedIdentity, AttemptTimeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = restarted.Ensure(context.Background(), "invalid-token-proves-installed-path-skips-enroll"); err != nil {
+		t.Fatalf("installed restart: %v", err)
+	}
+	if err = restarted.Close(); err != nil {
+		t.Fatal(err)
 	}
 }
 

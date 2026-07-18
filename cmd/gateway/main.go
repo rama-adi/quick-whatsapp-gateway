@@ -27,10 +27,12 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/crypto"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/dbconn"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/gateway/controlclient"
 	gwhttp "github.com/ramaadi/quick-whatsapp-gateway/internal/http"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/http/handlers"
 	httpmiddleware "github.com/ramaadi/quick-whatsapp-gateway/internal/http/middleware"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/oidp"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/pki/gatewayidentity"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/queue"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/service"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
@@ -63,6 +65,40 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	// Optional private control-plane bootstrap is fail-closed. With no target this
+	// path performs no filesystem access and the legacy runtime is unchanged.
+	if cfg.ControlPlaneAddr != "" {
+		caInfo, statErr := os.Stat(cfg.BootstrapCAFile)
+		if statErr != nil {
+			return fmt.Errorf("stat gateway bootstrap CA: %w", statErr)
+		}
+		if !caInfo.Mode().IsRegular() || caInfo.Size() <= 0 || caInfo.Size() > 16<<10 {
+			return fmt.Errorf("gateway bootstrap CA must be a regular file within 16 KiB")
+		}
+		bootstrapCA, readErr := os.ReadFile(cfg.BootstrapCAFile)
+		if readErr != nil {
+			return fmt.Errorf("read gateway bootstrap CA: %w", readErr)
+		}
+		identity, identityErr := gatewayidentity.New(gatewayidentity.Config{Directory: cfg.CredentialDir, GatewayID: cfg.GatewayID, BootstrapCA: bootstrapCA})
+		if identityErr != nil {
+			return fmt.Errorf("build gateway identity: %w", identityErr)
+		}
+		control, controlErr := controlclient.New(controlclient.Config{Target: cfg.ControlPlaneAddr, GatewayID: cfg.GatewayID, Identity: identity})
+		if controlErr != nil {
+			return fmt.Errorf("build gateway control client: %w", controlErr)
+		}
+		if controlErr = control.Ensure(ctx, cfg.EnrollmentToken); controlErr != nil {
+			return fmt.Errorf("connect gateway control plane: %w", controlErr)
+		}
+		cfg.EnrollmentToken = ""
+		_ = os.Unsetenv("GATEWAY_ENROLLMENT_TOKEN")
+		defer func() {
+			if closeErr := control.Close(); closeErr != nil {
+				log.Warn("close gateway control plane", "err", closeErr)
+			}
+		}()
+	}
 
 	// --- Transitional app-data store (schema migration is owned by the API) ---
 	db, err := dbconn.OpenMySQL(cfg.MySQLDSN)

@@ -5,7 +5,7 @@ package gateway.v1;
 option go_package = "github.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1;gatewayv1";
 
 // GatewayEnrollmentService exchanges a one-time enrollment bearer and Ed25519
-// CSR for the private API-issued gateway identity. It is not registered yet.
+// CSR for the private API-issued gateway identity.
 service GatewayEnrollmentService {
   rpc Enroll(GatewayEnrollmentServiceEnrollRequest) returns (GatewayEnrollmentServiceEnrollResponse);
 }

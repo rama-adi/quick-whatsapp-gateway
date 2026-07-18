@@ -102,3 +102,9 @@ The enrollment method alone permits a connection with no client certificate. A p
 certificate must still verify. Every other unary or streaming method—including health and unknown
 methods—requires a currently valid, non-revoked certificate for a non-disabled, non-deleted gateway.
 Authorization is checked against MySQL on every RPC so revocation takes effect immediately.
+
+The gateway bootstrap client is opt-in through `GATEWAY_CONTROL_PLANE_ADDR`. It pins one canonical
+operator root, persists and fsyncs a pending Ed25519 key plus exact CSR before enrollment, and reuses
+those bytes across status-aware retries. After validating and atomically publishing the returned
+identity it discards the pending state, closes the anonymous connection, and keeps one mTLS gRPC
+connection after an authenticated private-health proof. No control stream is registered yet.
