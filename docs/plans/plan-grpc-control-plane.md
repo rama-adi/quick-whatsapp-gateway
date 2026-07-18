@@ -841,4 +841,9 @@ replacement, digest-only bearer persistence, nonce/lease-fenced three-phase rede
 same-CSR replay, bounded out-of-transaction signing, and safe audits. REST, public/private gRPC,
 listener, composition-root, and web-interface wiring remain later increments.
 
+Increment 2.3 wires the API side of the private transport: an opt-in TLS 1.3 listener, atomic API
+identity renewal, anonymous-TLS enrollment adapter, and per-RPC strict certificate plus live-row
+authorization. It intentionally does not add a gateway client, control stream, renewal RPC, or
+administrative UI.
+
 These decisions affect implementation detail, not the responsibility boundary locked above.

@@ -1,8 +1,10 @@
 # gRPC contract tooling and compatibility
 
-Status: **Increment 1 public health active; private enrollment contract defined but unwired**. The
-API serves only `public.v1.PublicHealthService`; `gateway.v1.GatewayEnrollmentService` is generated
-but remains unregistered and has no listener.
+Status: **Public health and opt-in private enrollment/health listeners active**. The public API
+gRPC listener serves only `public.v1.PublicHealthService`; private gateway services
+are never registered there and server reflection remains disabled. When `API_GATEWAY_GRPC_ADDR` is
+set, a separate TLS 1.3 listener serves `gateway.v1.GatewayEnrollmentService` and
+`gateway.v1.GatewayHealthService`.
 
 The root Buf v2 workspace contains two deliberately separate modules and compatibility domains:
 
@@ -20,8 +22,8 @@ the engine migration begins. Generated Go and gRPC bindings are committed under 
 The private module also defines unary `GatewayEnrollmentService.Enroll`. Its request carries only
 the one-time enrollment token and DER CSR. Its response returns the resolved gateway id, issued
 certificate chain, exact persisted trust bundle, authority/serial identifiers, and millisecond
-validity bounds. This is a transport contract only: no handler, listener, interceptor, or command
-composition root is wired in this increment.
+validity bounds. The adapter bounds inputs before invoking the enrollment service and maps failures
+to stable gRPC status codes without returning token, CSR, signer, or database details.
 
 ## Generation and checks
 
@@ -69,11 +71,9 @@ either begins serving, and HTTP plus gRPC drain together on cancellation or a se
 This initial listener is plaintext by design for local development or an explicitly configured
 trusted path behind a TLS-terminating ingress. It is not a claim that direct production plaintext
 gRPC is safe. Production deployments must terminate TLS at the ingress (with a trusted private hop)
-or add application TLS in a later deployment-hardening increment. The API does not bind
-`API_GATEWAY_GRPC_ADDR`, and `gateway.v1` is never registered on the public server.
+or configure application TLS. The public server never registers `gateway.v1` services.
 
-The future private listener is disabled while `API_GATEWAY_GRPC_ADDR` is empty. Its configuration
-and API TLS identity persistence are validated now, but the listener is intentionally not created.
+The private listener remains completely disabled while `API_GATEWAY_GRPC_ADDR` is empty.
 
 ## Transport-independent engine boundary
 
@@ -97,3 +97,8 @@ read-receipt helper keeps its current `time.Now` behavior. A named 30-second fut
 allowance is evaluated through an injected clock; old timestamps have no artificial age limit.
 These application types import neither Huma nor protobuf/generated bindings, stores, the WA
 manager, or outbound implementations.
+
+The enrollment method alone permits a connection with no client certificate. A presented client
+certificate must still verify. Every other unary or streaming method—including health and unknown
+methods—requires a currently valid, non-revoked certificate for a non-disabled, non-deleted gateway.
+Authorization is checked against MySQL on every RPC so revocation takes effect immediately.

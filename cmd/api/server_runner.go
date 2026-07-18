@@ -42,15 +42,17 @@ func (s publicHealthService) Check(context.Context, *publicv1.PublicHealthServic
 }
 
 type apiServerRunner struct {
-	httpAddr        string
-	grpcAddr        string
-	httpHandler     http.Handler
-	grpcServer      grpcLifecycle
-	readiness       *readinessGate
-	shutdownTimeout time.Duration
-	listen          func(network, address string) (net.Listener, error)
-	newHTTPServer   func(http.Handler) httpLifecycle
-	onBound         func(httpListener, grpcListener net.Listener)
+	httpAddr          string
+	grpcAddr          string
+	privateGRPCAddr   string
+	httpHandler       http.Handler
+	grpcServer        grpcLifecycle
+	privateGRPCServer grpcLifecycle
+	readiness         *readinessGate
+	shutdownTimeout   time.Duration
+	listen            func(network, address string) (net.Listener, error)
+	newHTTPServer     func(http.Handler) httpLifecycle
+	onBound           func(httpListener, grpcListener, privateGRPCListener net.Listener)
 }
 
 type httpLifecycle interface {
@@ -79,6 +81,20 @@ func (r *apiServerRunner) run(ctx context.Context) error {
 		_ = httpListener.Close()
 		return fmt.Errorf("listen public gRPC %s: %w", r.grpcAddr, err)
 	}
+	var privateGRPCListener net.Listener
+	if r.privateGRPCAddr != "" {
+		if r.privateGRPCServer == nil {
+			_ = grpcListener.Close()
+			_ = httpListener.Close()
+			return errors.New("private gRPC address configured without server")
+		}
+		privateGRPCListener, err = listen("tcp", r.privateGRPCAddr)
+		if err != nil {
+			_ = grpcListener.Close()
+			_ = httpListener.Close()
+			return fmt.Errorf("listen private gateway gRPC %s: %w", r.privateGRPCAddr, err)
+		}
+	}
 
 	newHTTPServer := r.newHTTPServer
 	if newHTTPServer == nil {
@@ -89,15 +105,22 @@ func (r *apiServerRunner) run(ctx context.Context) error {
 	httpServer := newHTTPServer(r.httpHandler)
 	r.readiness.admitting.Store(true)
 	if r.onBound != nil {
-		r.onBound(httpListener, grpcListener)
+		r.onBound(httpListener, grpcListener, privateGRPCListener)
 	}
 
-	serveErrors := make(chan error, 2)
+	serveErrors := make(chan error, 3)
 	go func() {
 		if err := httpServer.Serve(httpListener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serveErrors <- fmt.Errorf("public HTTP serve: %w", err)
 		}
 	}()
+	if privateGRPCListener != nil {
+		go func() {
+			if err := r.privateGRPCServer.Serve(privateGRPCListener); err != nil {
+				serveErrors <- fmt.Errorf("private gateway gRPC serve: %w", err)
+			}
+		}()
+	}
 	go func() {
 		if err := r.grpcServer.Serve(grpcListener); err != nil {
 			serveErrors <- fmt.Errorf("public gRPC serve: %w", err)
@@ -120,14 +143,24 @@ func (r *apiServerRunner) run(ctx context.Context) error {
 
 	httpDone := make(chan error, 1)
 	grpcDone := make(chan struct{})
+	var privateGRPCDone chan struct{}
+	if r.privateGRPCServer != nil {
+		privateGRPCDone = make(chan struct{})
+	}
 	go func() { httpDone <- httpServer.Shutdown(shutdownCtx) }()
 	go func() {
 		r.grpcServer.GracefulStop()
 		close(grpcDone)
 	}()
+	if privateGRPCDone != nil {
+		go func() {
+			r.privateGRPCServer.GracefulStop()
+			close(privateGRPCDone)
+		}()
+	}
 
 	var shutdownErr error
-	for httpDone != nil || grpcDone != nil {
+	for httpDone != nil || grpcDone != nil || privateGRPCDone != nil {
 		select {
 		case err := <-httpDone:
 			if err != nil && !errors.Is(err, context.Canceled) {
@@ -136,8 +169,13 @@ func (r *apiServerRunner) run(ctx context.Context) error {
 			httpDone = nil
 		case <-grpcDone:
 			grpcDone = nil
+		case <-privateGRPCDone:
+			privateGRPCDone = nil
 		case <-shutdownCtx.Done():
 			r.grpcServer.Stop()
+			if r.privateGRPCServer != nil {
+				r.privateGRPCServer.Stop()
+			}
 			_ = httpServer.Close()
 			if shutdownErr == nil {
 				shutdownErr = fmt.Errorf("public server shutdown timeout: %w", shutdownCtx.Err())

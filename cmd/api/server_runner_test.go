@@ -164,7 +164,7 @@ func TestAPIServerRunnerServesBothListenersAndShutsDown(t *testing.T) {
 			_, _ = io.WriteString(w, "ready")
 		}),
 		grpcServer: grpcServer, readiness: gate, shutdownTimeout: time.Second,
-		onBound: func(httpListener, grpcListener net.Listener) {
+		onBound: func(httpListener, grpcListener, _ net.Listener) {
 			bound <- [2]net.Listener{httpListener, grpcListener}
 		},
 	}
@@ -242,8 +242,59 @@ func TestPublicGRPCServerRegistersNoGatewayService(t *testing.T) {
 	if _, ok := services[gatewayv1.GatewayHealthService_ServiceDesc.ServiceName]; ok {
 		t.Fatal("private gateway service registered on public server")
 	}
+	if _, ok := services[gatewayv1.GatewayEnrollmentService_ServiceDesc.ServiceName]; ok {
+		t.Fatal("private enrollment service registered on public server")
+	}
 	if len(services) != 1 {
 		t.Fatalf("public services = %v, want only public health", services)
+	}
+}
+
+func TestAPIServerRunnerThirdBindFailureClosesPriorListeners(t *testing.T) {
+	first, _ := net.Listen("tcp", "127.0.0.1:0")
+	second, _ := net.Listen("tcp", "127.0.0.1:0")
+	calls := 0
+	runner := &apiServerRunner{httpAddr: "http", grpcAddr: "public", privateGRPCAddr: "private", httpHandler: http.NotFoundHandler(), grpcServer: grpc.NewServer(), privateGRPCServer: grpc.NewServer(), readiness: &readinessGate{}, listen: func(_, _ string) (net.Listener, error) {
+		calls++
+		switch calls {
+		case 1:
+			return first, nil
+		case 2:
+			return second, nil
+		default:
+			return nil, errors.New("address in use")
+		}
+	}}
+	err := runner.run(context.Background())
+	if err == nil || err.Error() != "listen private gateway gRPC private: address in use" {
+		t.Fatalf("bind error = %v", err)
+	}
+	for _, listener := range []net.Listener{first, second} {
+		if closeErr := listener.Close(); !errors.Is(closeErr, net.ErrClosed) {
+			t.Fatalf("listener remained open: %v", closeErr)
+		}
+	}
+}
+
+func TestAPIServerRunnerPrivateServeFailureAndDrain(t *testing.T) {
+	httpServer := newFakeHTTP()
+	publicServer := newFakeGRPC()
+	privateServer := newFakeGRPC()
+	privateServer.serveErr = errors.New("private boom")
+	runner := &apiServerRunner{httpAddr: "127.0.0.1:0", grpcAddr: "127.0.0.1:0", privateGRPCAddr: "127.0.0.1:0", httpHandler: http.NotFoundHandler(), grpcServer: publicServer, privateGRPCServer: privateServer, readiness: &readinessGate{}, shutdownTimeout: time.Second, newHTTPServer: func(http.Handler) httpLifecycle { return httpServer }}
+	err := runner.run(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "private gateway gRPC serve: private boom") {
+		t.Fatalf("serve error = %v", err)
+	}
+	select {
+	case <-publicServer.gracefulCalled:
+	default:
+		t.Fatal("public server did not drain")
+	}
+	select {
+	case <-privateServer.gracefulCalled:
+	default:
+		t.Fatal("private server did not drain")
 	}
 }
 
@@ -289,7 +340,7 @@ func TestAPIServerRunnerWaitsForGracefulHTTPAndGRPCDrain(t *testing.T) {
 		httpAddr: "127.0.0.1:0", grpcAddr: "127.0.0.1:0", httpHandler: http.NotFoundHandler(),
 		grpcServer: grpcServer, readiness: &readinessGate{}, shutdownTimeout: time.Second,
 		newHTTPServer: func(http.Handler) httpLifecycle { return httpServer },
-		onBound:       func(net.Listener, net.Listener) { close(bound) },
+		onBound:       func(net.Listener, net.Listener, net.Listener) { close(bound) },
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -326,7 +377,7 @@ func TestAPIServerRunnerForcesStopAfterTimeout(t *testing.T) {
 		httpAddr: "127.0.0.1:0", grpcAddr: "127.0.0.1:0", httpHandler: http.NotFoundHandler(),
 		grpcServer: grpcServer, readiness: &readinessGate{}, shutdownTimeout: 20 * time.Millisecond,
 		newHTTPServer: func(http.Handler) httpLifecycle { return httpServer },
-		onBound:       func(net.Listener, net.Listener) { close(bound) },
+		onBound:       func(net.Listener, net.Listener, net.Listener) { close(bound) },
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)

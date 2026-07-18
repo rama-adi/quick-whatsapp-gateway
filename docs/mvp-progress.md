@@ -183,3 +183,6 @@ e2e smoke against a live WhatsApp number.
   is all-green.
 - **R6 collaboration UI** — members/invitations UI is the remaining fast-follow; org plumbing
   already shipped.
+- Private gRPC transport foundation: optional TLS 1.3 API listener, enrollment adapter, strict
+  per-RPC gateway certificate authorization, atomic API identity renewal, and internal-only compose
+  overlay. Gateway client/control-stream wiring remains a later increment.

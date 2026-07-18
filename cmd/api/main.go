@@ -8,7 +8,9 @@ package main
 
 import (
 	"context"
+	"crypto/x509"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -31,6 +33,8 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/http/handlers"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/oidp"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/pki/apiidentity"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/pki/localmysql"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/router"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/service"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
@@ -174,6 +178,52 @@ func run() error {
 	defer controlStop()
 
 	readinessGate := &readinessGate{dependencies: readiness(db, rdb)}
+	var privateGRPCServer grpcLifecycle
+	var privateReady func() error
+	if cfg.GatewayGRPCAddr != "" {
+		policy, policyErr := cfg.GatewayPKI.Policy()
+		if policyErr != nil {
+			return fmt.Errorf("build gateway PKI policy: %w", policyErr)
+		}
+		signer, signerErr := localmysql.New(db, localmysql.Config{KEK: cfg.GatewayPKI.EncryptionKey, KeyID: cfg.GatewayPKI.EncryptionKeyID, RootTTL: cfg.GatewayPKI.RootTTL, IntermediateTTL: cfg.GatewayPKI.IntermediateTTL, RenewBefore: cfg.GatewayPKI.IntermediateRenewBefore, Policy: policy})
+		if signerErr != nil {
+			return fmt.Errorf("build gateway PKI signer: %w", signerErr)
+		}
+		if signerErr = signer.EnsureHierarchy(ctx); signerErr != nil {
+			return fmt.Errorf("ensure gateway PKI hierarchy: %w", signerErr)
+		}
+		identity, identityErr := apiidentity.New(apiidentity.Config{Directory: cfg.GatewayTLSIdentityDir, RenewBefore: cfg.GatewayTLSRenewBefore}, signer)
+		if identityErr != nil {
+			return fmt.Errorf("build API TLS identity: %w", identityErr)
+		}
+		if identityErr = identity.Ensure(ctx); identityErr != nil {
+			return fmt.Errorf("ensure API TLS identity: %w", identityErr)
+		}
+		bundle, bundleErr := signer.TrustBundle()
+		if bundleErr != nil {
+			return fmt.Errorf("load gateway trust bundle: %w", bundleErr)
+		}
+		clientRoots := x509.NewCertPool()
+		if !clientRoots.AppendCertsFromPEM(bundle) {
+			return fmt.Errorf("load gateway trust bundle: invalid PEM")
+		}
+		tlsConfig := privateGatewayTLSConfig(identity, clientRoots)
+		enrollment, enrollmentErr := service.NewEnrollmentService(db, signer, service.DefaultEnrollmentConfig())
+		if enrollmentErr != nil {
+			return fmt.Errorf("build enrollment service: %w", enrollmentErr)
+		}
+		privateReady = func() error {
+			if !identity.Ready() {
+				return errors.New("API TLS identity unavailable")
+			}
+			if _, err := signer.TrustBundle(); err != nil {
+				return fmt.Errorf("gateway PKI signer unavailable: %w", err)
+			}
+			return readiness(db, nil)()
+		}
+		privateGRPCServer = newPrivateGatewayGRPCServer(tlsConfig, privateGatewayAuthenticator{store: mysqlGatewayCredentialStore{db: db}}, enrollment, privateReady)
+		go renewAPIIdentity(ctx, identity, cfg.GatewayTLSRenewBefore, log)
+	}
 	srv, err := router.NewServer(router.Config{
 		Sessions:      st.Sessions,
 		Gateways:      st.Gateways,
@@ -201,14 +251,16 @@ func run() error {
 
 	grpcServer := newPublicGRPCServer(readinessGate.check)
 	runner := &apiServerRunner{
-		httpAddr:        cfg.HTTPAddr,
-		grpcAddr:        cfg.PublicGRPCAddr,
-		httpHandler:     srv.Handler(),
-		grpcServer:      grpcServer,
-		readiness:       readinessGate,
-		shutdownTimeout: 15 * time.Second,
-		onBound: func(_, _ net.Listener) {
-			log.Info("api listening", "http_addr", cfg.HTTPAddr, "public_grpc_addr", cfg.PublicGRPCAddr, "issuer", cfg.Issuer, "kid", minter.KeyID())
+		httpAddr:          cfg.HTTPAddr,
+		grpcAddr:          cfg.PublicGRPCAddr,
+		httpHandler:       srv.Handler(),
+		grpcServer:        grpcServer,
+		privateGRPCAddr:   cfg.GatewayGRPCAddr,
+		privateGRPCServer: privateGRPCServer,
+		readiness:         readinessGate,
+		shutdownTimeout:   15 * time.Second,
+		onBound: func(_, _, _ net.Listener) {
+			log.Info("api listening", "http_addr", cfg.HTTPAddr, "public_grpc_addr", cfg.PublicGRPCAddr, "private_gateway_grpc_enabled", cfg.GatewayGRPCAddr != "", "issuer", cfg.Issuer, "kid", minter.KeyID())
 		},
 	}
 	if err := runner.run(ctx); err != nil {

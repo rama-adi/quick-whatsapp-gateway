@@ -26,5 +26,5 @@ COPY --from=build /out/api /usr/local/bin/api
 # resolved from the working directory).
 WORKDIR /app
 COPY --from=build /src/docs/openapi.yaml ./docs/openapi.yaml
-EXPOSE 8090 8081
+EXPOSE 8090 8081 8443
 ENTRYPOINT ["api"]

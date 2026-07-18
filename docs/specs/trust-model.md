@@ -288,10 +288,16 @@ gates.
 
 Run: `CGO_ENABLED=0 go test ./internal/authz/... ./internal/controlbus/...`.
 
-> **Private transport split A (unwired):** the local CA has a distinct API server-leaf policy for
+> **Private transport splits A+B:** the local CA has a distinct API server-leaf policy for
 > exactly `spiffe://quick-wa/api`: Ed25519, non-CA, digital-signature-only, ServerAuth-only. The API
 > identity manager stores versioned key/chain/trust generations under a mode-0700 directory, uses
 > mode 0600 for the private key, validates the full chain and metadata on every load, and atomically
 > publishes `current` only after fsync. It retains the previous generation for crash recovery and
-> keeps a still-valid incumbent if renewal fails. Missing/expired identities are not ready. No API
-> listener or TLS interceptor consumes this manager yet.
+> keeps a still-valid incumbent if renewal fails. Missing/expired identities are not ready. The
+> opt-in private TLS 1.3 listener now consumes this identity; it remains disabled by default.
+
+The private API acceptor authenticates a gateway twice: TLS must build to the pinned root, then each
+RPC must match the presented leaf fingerprint/serial/SPIFFE gateway ID to a live certificate row and
+a non-disabled, non-deleted gateway row. This per-RPC database check deliberately favors immediate
+revocation correctness; a bounded revocation cache can be considered later only with explicit
+invalidation semantics.

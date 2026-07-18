@@ -1,0 +1,22 @@
+# Explicit opt-in overlay for the private API<->gateway control-plane network.
+# Port 8443 is exposed only to this internal Docker network and is never host-published.
+services:
+  api:
+    expose: ["8443"]
+    environment:
+      API_GATEWAY_GRPC_ADDR: ":8443"
+      API_GATEWAY_TLS_IDENTITY_DIR: "/data/api-tls"
+      API_GATEWAY_TLS_RENEW_BEFORE: "${API_GATEWAY_TLS_RENEW_BEFORE:-6h}"
+      PKI_ENCRYPTION_KEY: "${PKI_ENCRYPTION_KEY}"
+      PKI_ENCRYPTION_KEY_ID: "${PKI_ENCRYPTION_KEY_ID:-local-v1}"
+    volumes: ["api_tls_identity:/data/api-tls"]
+    networks: ["default", "gateway-control"]
+  gateway:
+    networks: ["default", "gateway-control"]
+
+networks:
+  gateway-control:
+    internal: true
+
+volumes:
+  api_tls_identity: {}

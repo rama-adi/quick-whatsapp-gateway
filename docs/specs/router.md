@@ -16,6 +16,12 @@ a ticket against the router, and the gateway's legacy NDJSON `/events` transport
 > engine endpoint; outbound-only reverse commands are deferred. The implemented proxy/assertion
 > runtime below has not yet been removed.
 
+The optional private gRPC listener is enabled only by `API_GATEWAY_GRPC_ADDR` plus a persistent
+`API_GATEWAY_TLS_IDENTITY_DIR` and PKI configuration. It uses an atomically rotated API certificate,
+TLS 1.3, a pinned gateway root, and `VerifyClientCertIfGiven` solely so first enrollment can be
+anonymous at the TLS layer. It is a distinct acceptor from public HTTP and public gRPC and is not
+host-published by the first-party deployment overlay.
+
 ## Purpose
 
 The router is the system's **single front door** and **single trust boundary** in front of the
@@ -132,7 +138,7 @@ WebSocket stream-drop on `ctrl:user.banned` / `ctrl:member.removed` is implement
 |---|---|---|
 | `API_HTTP_ADDR` | `:8090` | public HTTP listen address |
 | `API_PUBLIC_GRPC_ADDR` | `:8081` | plaintext public gRPC for local/trusted ingress-hop use; must differ from HTTP |
-| `API_GATEWAY_GRPC_ADDR` | empty (disabled) | reserved private mTLS gateway listener; no listener is wired in split A |
+| `API_GATEWAY_GRPC_ADDR` | empty (disabled) | opt-in private TLS 1.3 listener serving anonymous-token `Enroll` plus mTLS-authenticated private health; empty disables the listener |
 | `API_GATEWAY_TLS_IDENTITY_DIR` | — | versioned persistent API TLS identity directory; required with the private address |
 | `API_GATEWAY_TLS_RENEW_BEFORE` | `6h` | validated renewal threshold, shorter than the configured PKI leaf TTL |
 | `API_PUBLIC_URL` | — | external API base URL |
