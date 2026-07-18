@@ -648,6 +648,122 @@ func AllOutboxStatusValues() []OutboxStatus {
 	}
 }
 
+type PkiAuthoritiesKind string
+
+const (
+	PkiAuthoritiesKindRoot         PkiAuthoritiesKind = "root"
+	PkiAuthoritiesKindIntermediate PkiAuthoritiesKind = "intermediate"
+)
+
+func (e *PkiAuthoritiesKind) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = PkiAuthoritiesKind(s)
+	case string:
+		*e = PkiAuthoritiesKind(s)
+	default:
+		return fmt.Errorf("unsupported scan type for PkiAuthoritiesKind: %T", src)
+	}
+	return nil
+}
+
+type NullPkiAuthoritiesKind struct {
+	PkiAuthoritiesKind PkiAuthoritiesKind `json:"pki_authorities_kind"`
+	Valid              bool               `json:"valid"` // Valid is true if PkiAuthoritiesKind is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullPkiAuthoritiesKind) Scan(value interface{}) error {
+	if value == nil {
+		ns.PkiAuthoritiesKind, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.PkiAuthoritiesKind.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullPkiAuthoritiesKind) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.PkiAuthoritiesKind), nil
+}
+
+func (e PkiAuthoritiesKind) Valid() bool {
+	switch e {
+	case PkiAuthoritiesKindRoot,
+		PkiAuthoritiesKindIntermediate:
+		return true
+	}
+	return false
+}
+
+func AllPkiAuthoritiesKindValues() []PkiAuthoritiesKind {
+	return []PkiAuthoritiesKind{
+		PkiAuthoritiesKindRoot,
+		PkiAuthoritiesKindIntermediate,
+	}
+}
+
+type PkiAuthoritiesParentKind string
+
+const (
+	PkiAuthoritiesParentKindRoot         PkiAuthoritiesParentKind = "root"
+	PkiAuthoritiesParentKindIntermediate PkiAuthoritiesParentKind = "intermediate"
+)
+
+func (e *PkiAuthoritiesParentKind) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = PkiAuthoritiesParentKind(s)
+	case string:
+		*e = PkiAuthoritiesParentKind(s)
+	default:
+		return fmt.Errorf("unsupported scan type for PkiAuthoritiesParentKind: %T", src)
+	}
+	return nil
+}
+
+type NullPkiAuthoritiesParentKind struct {
+	PkiAuthoritiesParentKind PkiAuthoritiesParentKind `json:"pki_authorities_parent_kind"`
+	Valid                    bool                     `json:"valid"` // Valid is true if PkiAuthoritiesParentKind is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullPkiAuthoritiesParentKind) Scan(value interface{}) error {
+	if value == nil {
+		ns.PkiAuthoritiesParentKind, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.PkiAuthoritiesParentKind.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullPkiAuthoritiesParentKind) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.PkiAuthoritiesParentKind), nil
+}
+
+func (e PkiAuthoritiesParentKind) Valid() bool {
+	switch e {
+	case PkiAuthoritiesParentKindRoot,
+		PkiAuthoritiesParentKindIntermediate:
+		return true
+	}
+	return false
+}
+
+func AllPkiAuthoritiesParentKindValues() []PkiAuthoritiesParentKind {
+	return []PkiAuthoritiesParentKind{
+		PkiAuthoritiesParentKindRoot,
+		PkiAuthoritiesParentKindIntermediate,
+	}
+}
+
 type PkiAuthoritiesStatus string
 
 const (
@@ -1001,6 +1117,8 @@ type GatewayCertificate struct {
 	ID                     string         `db:"id" json:"id"`
 	GatewayID              string         `db:"gateway_id" json:"gateway_id"`
 	AuthorityID            string         `db:"authority_id" json:"authority_id"`
+	EnrollmentTokenID      string         `db:"enrollment_token_id" json:"enrollment_token_id"`
+	CsrSha256              []byte         `db:"csr_sha256" json:"csr_sha256"`
 	SerialNumber           string         `db:"serial_number" json:"serial_number"`
 	CertificatePem         string         `db:"certificate_pem" json:"certificate_pem"`
 	CertificateFingerprint []byte         `db:"certificate_fingerprint" json:"certificate_fingerprint"`
@@ -1075,18 +1193,21 @@ type Outbox struct {
 }
 
 type PkiAuthority struct {
-	ID                     string               `db:"id" json:"id"`
-	Status                 PkiAuthoritiesStatus `db:"status" json:"status"`
-	CertificatePem         string               `db:"certificate_pem" json:"certificate_pem"`
-	CertificateFingerprint []byte               `db:"certificate_fingerprint" json:"certificate_fingerprint"`
-	EncryptedPrivateKey    []byte               `db:"encrypted_private_key" json:"encrypted_private_key"`
-	PrivateKeyNonce        []byte               `db:"private_key_nonce" json:"private_key_nonce"`
-	EncryptionKeyID        string               `db:"encryption_key_id" json:"encryption_key_id"`
-	NotBefore              int64                `db:"not_before" json:"not_before"`
-	NotAfter               int64                `db:"not_after" json:"not_after"`
-	CreatedAt              int64                `db:"created_at" json:"created_at"`
-	UpdatedAt              int64                `db:"updated_at" json:"updated_at"`
-	ActiveSlot             sql.NullInt16        `db:"active_slot" json:"active_slot"`
+	ID                     string                       `db:"id" json:"id"`
+	Kind                   PkiAuthoritiesKind           `db:"kind" json:"kind"`
+	ParentAuthorityID      sql.NullString               `db:"parent_authority_id" json:"parent_authority_id"`
+	ParentKind             NullPkiAuthoritiesParentKind `db:"parent_kind" json:"parent_kind"`
+	Status                 PkiAuthoritiesStatus         `db:"status" json:"status"`
+	CertificatePem         string                       `db:"certificate_pem" json:"certificate_pem"`
+	CertificateFingerprint []byte                       `db:"certificate_fingerprint" json:"certificate_fingerprint"`
+	EncryptedPrivateKey    []byte                       `db:"encrypted_private_key" json:"encrypted_private_key"`
+	PrivateKeyNonce        []byte                       `db:"private_key_nonce" json:"private_key_nonce"`
+	EncryptionKeyID        string                       `db:"encryption_key_id" json:"encryption_key_id"`
+	NotBefore              int64                        `db:"not_before" json:"not_before"`
+	NotAfter               int64                        `db:"not_after" json:"not_after"`
+	CreatedAt              int64                        `db:"created_at" json:"created_at"`
+	UpdatedAt              int64                        `db:"updated_at" json:"updated_at"`
+	ActiveKind             sql.NullString               `db:"active_kind" json:"active_kind"`
 }
 
 type PkiRotationLock struct {

@@ -151,12 +151,19 @@ API's secret-free projection. The API/control-plane migration account remains th
 for introspection is unsupported: the read-only account also limits `information_schema` visibility
 to the allowlisted tables and prevents filtered security-table constraints from entering generation.
 
-PKI rotation has two independent database guards. A generated nullable `active_slot` is `1` only
-for an active authority and has a unique index, so MySQL cannot commit two active authorities.
-`pki_rotation_lock` is a permanent singleton row locked `FOR UPDATE` by `Store.RotatePKIAuthority`;
+PKI rotation has two independent database guards. A generated nullable `active_kind` is populated
+only for an active authority and has a unique index, so MySQL cannot commit two active roots or two
+active intermediates while allowing one of each. Roots have no parent; intermediates require a
+distinct root parent through a composite `(parent_authority_id,parent_kind)` `ON DELETE RESTRICT`
+self-FK. `pki_rotation_lock` is one hierarchy-wide singleton locked `FOR UPDATE` by
+`Store.RotatePKIAuthority`, ordering root and intermediate changes;
 the same transaction locks and verifies the current active authority, marks it retiring, inserts
 the successor, and rolls everything back if insertion fails. Repositories intentionally do not
 expose a multi-statement rotation helper that could run without this transaction.
+
+Increment 2.1a binds issued certificates to their owning enrollment attempt with a retained
+`enrollment_token_id`, canonical `csr_sha256`, and unique `(enrollment_token_id, csr_sha256)` retry
+key. It remains an unwired persistence and crypto-policy foundation.
 
 This slice is **schema/repository foundation only and is not wired to an API, listener, signer,
 CSR flow, or UI yet**. Current boot self-registration uses the explicit `creator_kind='system'`

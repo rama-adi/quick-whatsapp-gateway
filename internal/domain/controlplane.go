@@ -20,17 +20,19 @@ type GatewayControlMetadata struct {
 
 // PKIAuthority carries encrypted private-key material only.
 type PKIAuthority struct {
-	ID, Status, CertificatePEM, EncryptionKeyID                  string
+	ID, Kind, Status, CertificatePEM, EncryptionKeyID            string
+	ParentAuthorityID                                            *string
 	CertificateFingerprint, EncryptedPrivateKey, PrivateKeyNonce []byte
 	NotBefore, NotAfter, CreatedAt, UpdatedAt                    int64
 }
 
 type GatewayCertificate struct {
-	ID, GatewayID, AuthorityID, SerialNumber, CertificatePEM string
-	Fingerprint                                              []byte
-	NotBefore, NotAfter, CreatedAt                           int64
-	RevokedAt                                                *int64
-	RevocationReason                                         *string
+	ID, GatewayID, AuthorityID, EnrollmentTokenID, SerialNumber, CertificatePEM string
+	CSRSHA256                                                                   []byte
+	Fingerprint                                                                 []byte
+	NotBefore, NotAfter, CreatedAt                                              int64
+	RevokedAt                                                                   *int64
+	RevocationReason                                                            *string
 }
 
 type AuditEvent struct {

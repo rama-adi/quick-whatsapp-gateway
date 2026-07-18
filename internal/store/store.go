@@ -95,13 +95,22 @@ func (s *Store) RotatePKIAuthority(ctx context.Context, next domain.PKIAuthority
 		return fmt.Errorf("store: PKI rotation requires root store")
 	}
 	return InTx(ctx, s.db, func(tx *Store) error {
-		if err := tx.PKIAuthorities.lockRotation(ctx); err != nil {
+		if err := tx.PKIAuthorities.lockRotation(ctx, next.Kind); err != nil {
 			return err
 		}
-		if _, err := tx.PKIAuthorities.activeForRotation(ctx); err != nil {
+		if _, err := tx.PKIAuthorities.activeForRotation(ctx, next.Kind); err != nil {
 			return fmt.Errorf("store: load current PKI authority: %w", err)
 		}
-		n, err := tx.PKIAuthorities.retireActive(ctx, now)
+		if next.Kind == "intermediate" {
+			root, err := tx.PKIAuthorities.ActiveForUpdate(ctx, "root", now)
+			if err != nil {
+				return fmt.Errorf("store: load active parent root: %w", err)
+			}
+			if next.ParentAuthorityID == nil || *next.ParentAuthorityID != root.ID {
+				return fmt.Errorf("store: intermediate parent is not active root")
+			}
+		}
+		n, err := tx.PKIAuthorities.retireActive(ctx, next.Kind, now)
 		if err != nil {
 			return err
 		}

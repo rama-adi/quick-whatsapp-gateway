@@ -154,14 +154,16 @@ func (q *Queries) GetGatewayEnrollmentTokenForUpdate(ctx context.Context, arg Ge
 
 const insertGatewayCertificate = `-- name: InsertGatewayCertificate :exec
 INSERT INTO gateway_certificates
-(id, gateway_id, authority_id, serial_number, certificate_pem, certificate_fingerprint, not_before, not_after, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+(id, gateway_id, authority_id, enrollment_token_id, csr_sha256, serial_number, certificate_pem, certificate_fingerprint, not_before, not_after, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertGatewayCertificateParams struct {
 	ID                     string `db:"id" json:"id"`
 	GatewayID              string `db:"gateway_id" json:"gateway_id"`
 	AuthorityID            string `db:"authority_id" json:"authority_id"`
+	EnrollmentTokenID      string `db:"enrollment_token_id" json:"enrollment_token_id"`
+	CsrSha256              []byte `db:"csr_sha256" json:"csr_sha256"`
 	SerialNumber           string `db:"serial_number" json:"serial_number"`
 	CertificatePem         string `db:"certificate_pem" json:"certificate_pem"`
 	CertificateFingerprint []byte `db:"certificate_fingerprint" json:"certificate_fingerprint"`
@@ -175,6 +177,8 @@ func (q *Queries) InsertGatewayCertificate(ctx context.Context, arg InsertGatewa
 		arg.ID,
 		arg.GatewayID,
 		arg.AuthorityID,
+		arg.EnrollmentTokenID,
+		arg.CsrSha256,
 		arg.SerialNumber,
 		arg.CertificatePem,
 		arg.CertificateFingerprint,
@@ -273,7 +277,7 @@ func (q *Queries) ListAuditEventsByResource(ctx context.Context, arg ListAuditEv
 }
 
 const listGatewayCertificates = `-- name: ListGatewayCertificates :many
-SELECT id, gateway_id, authority_id, serial_number, certificate_pem, certificate_fingerprint, not_before, not_after, revoked_at, revocation_reason, created_at FROM gateway_certificates WHERE gateway_id=? ORDER BY created_at DESC, id DESC
+SELECT id, gateway_id, authority_id, enrollment_token_id, csr_sha256, serial_number, certificate_pem, certificate_fingerprint, not_before, not_after, revoked_at, revocation_reason, created_at FROM gateway_certificates WHERE gateway_id=? ORDER BY created_at DESC, id DESC
 `
 
 type ListGatewayCertificatesParams struct {
@@ -293,6 +297,8 @@ func (q *Queries) ListGatewayCertificates(ctx context.Context, arg ListGatewayCe
 			&i.ID,
 			&i.GatewayID,
 			&i.AuthorityID,
+			&i.EnrollmentTokenID,
+			&i.CsrSha256,
 			&i.SerialNumber,
 			&i.CertificatePem,
 			&i.CertificateFingerprint,

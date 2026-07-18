@@ -81,6 +81,9 @@ CREATE TABLE gateway_enrollment_tokens (
 
 CREATE TABLE pki_authorities (
   id                     VARCHAR(64) PRIMARY KEY,
+  kind                   ENUM('root','intermediate') NOT NULL,
+  parent_authority_id    VARCHAR(64) NULL,
+  parent_kind            ENUM('root','intermediate') NULL,
   status                 ENUM('active','retiring','retired','revoked') NOT NULL,
   certificate_pem        MEDIUMTEXT NOT NULL,
   certificate_fingerprint BINARY(32) NOT NULL,
@@ -91,9 +94,15 @@ CREATE TABLE pki_authorities (
   not_after              BIGINT NOT NULL,
   created_at             BIGINT NOT NULL,
   updated_at             BIGINT NOT NULL,
-  active_slot            TINYINT GENERATED ALWAYS AS (CASE WHEN status = 'active' THEN 1 ELSE NULL END) STORED,
+  active_kind            VARCHAR(16) GENERATED ALWAYS AS (CASE WHEN status = 'active' THEN kind ELSE NULL END) STORED,
+  UNIQUE KEY uq_pki_id_kind (id, kind),
+  CONSTRAINT fk_pki_parent FOREIGN KEY (parent_authority_id, parent_kind) REFERENCES pki_authorities(id, kind) ON DELETE RESTRICT,
+  CONSTRAINT chk_pki_parent CHECK (
+    (kind = 'root' AND parent_authority_id IS NULL AND parent_kind IS NULL) OR
+    (kind = 'intermediate' AND parent_authority_id IS NOT NULL AND parent_kind = 'root' AND parent_authority_id <> id)
+  ),
   UNIQUE KEY uq_pki_fingerprint (certificate_fingerprint),
-  UNIQUE KEY uq_pki_single_active (active_slot),
+  UNIQUE KEY uq_pki_single_active_kind (active_kind),
   CONSTRAINT chk_pki_validity CHECK (not_after > not_before),
   KEY idx_pki_status_expiry (status, not_after)
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -101,7 +110,7 @@ CREATE TABLE pki_authorities (
 -- Stable singleton used solely to serialize authority rotation transactions.
 CREATE TABLE pki_rotation_lock (
   id TINYINT PRIMARY KEY,
-  CONSTRAINT chk_pki_rotation_lock_singleton CHECK (id = 1)
+  CONSTRAINT chk_pki_rotation_lock CHECK (id=1)
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 INSERT INTO pki_rotation_lock (id) VALUES (1);
 
@@ -109,6 +118,8 @@ CREATE TABLE gateway_certificates (
   id                      VARCHAR(64) PRIMARY KEY,
   gateway_id              VARCHAR(64) NOT NULL,
   authority_id            VARCHAR(64) NOT NULL,
+  enrollment_token_id     VARCHAR(64) NOT NULL,
+  csr_sha256               BINARY(32) NOT NULL,
   serial_number           VARCHAR(128) NOT NULL,
   certificate_pem         MEDIUMTEXT NOT NULL,
   certificate_fingerprint BINARY(32) NOT NULL,
@@ -119,6 +130,7 @@ CREATE TABLE gateway_certificates (
   created_at              BIGINT NOT NULL,
   CONSTRAINT fk_gateway_certificate_gateway FOREIGN KEY (gateway_id) REFERENCES gateways(id) ON DELETE RESTRICT,
   CONSTRAINT fk_gateway_certificate_authority FOREIGN KEY (authority_id) REFERENCES pki_authorities(id),
+  CONSTRAINT fk_gateway_certificate_token FOREIGN KEY (enrollment_token_id) REFERENCES gateway_enrollment_tokens(id) ON DELETE RESTRICT,
   CONSTRAINT chk_gateway_certificate_validity CHECK (not_after > not_before),
   CONSTRAINT chk_gateway_certificate_revocation CHECK (
     (revoked_at IS NULL AND revocation_reason IS NULL) OR
@@ -126,6 +138,7 @@ CREATE TABLE gateway_certificates (
   ),
   UNIQUE KEY uq_gateway_certificate_serial (authority_id, serial_number),
   UNIQUE KEY uq_gateway_certificate_fingerprint (certificate_fingerprint),
+  UNIQUE KEY uq_gateway_certificate_token_csr (enrollment_token_id, csr_sha256),
   KEY idx_gateway_certificate_gateway_expiry (gateway_id, not_after),
   KEY idx_gateway_certificate_revoked (gateway_id, revoked_at)
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

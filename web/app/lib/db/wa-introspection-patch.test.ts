@@ -12,4 +12,5 @@ describe("WA introspection emitter patch", () => {
   it("fails loudly on an unexpected emitter shape", () => {
     expect(() => patchGeneratedSchema('import { mysqlTable } from "drizzle-orm/mysql-core"')).toThrow();
   });
+  it("sorts indexes without changing non-index declarations",()=>{const source=emitted+'\n(table) => [\n\tindex("z"),\n\tindex("a"),\n\tprimaryKey("p"),\n]);\n';const out=patchGeneratedSchema(source);expect(out.indexOf('index("a")')).toBeLessThan(out.indexOf('index("z")'));expect(out).toContain('primaryKey("p")')});
 });

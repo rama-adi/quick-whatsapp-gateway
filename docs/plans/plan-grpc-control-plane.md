@@ -556,6 +556,10 @@ Exit: renamed services deploy with existing behavior and clear dependency owners
 
 ### Increment 2 — PKI enrollment and gateway control stream
 
+Increment 2.1a first lands the unwired root/intermediate hierarchy, enrollment-owned issuance
+records, canonical enrollment-token and CSR policy, leaf templates, and row-bound key envelopes.
+The local MySQL signer and all service/listener/API wiring remain follow-up work.
+
 - Add gateway registry enrollment fields and migration.
 - Implement the shared gateway-administration application service and public API operations for
   create/list/get, token replacement, drain/resume, disable/re-enable, re-enroll, and safe deletion.

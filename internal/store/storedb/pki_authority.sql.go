@@ -7,17 +7,25 @@ package storedb
 
 import (
 	"context"
+	"database/sql"
 )
 
 const getActivePKIAuthorityForRotation = `-- name: GetActivePKIAuthorityForRotation :one
-SELECT id, status, certificate_pem, certificate_fingerprint, encrypted_private_key, private_key_nonce, encryption_key_id, not_before, not_after, created_at, updated_at, active_slot FROM pki_authorities WHERE status='active' ORDER BY created_at DESC LIMIT 1 FOR UPDATE
+SELECT id, kind, parent_authority_id, parent_kind, status, certificate_pem, certificate_fingerprint, encrypted_private_key, private_key_nonce, encryption_key_id, not_before, not_after, created_at, updated_at, active_kind FROM pki_authorities WHERE kind=? AND status='active' ORDER BY created_at DESC LIMIT 1 FOR UPDATE
 `
 
-func (q *Queries) GetActivePKIAuthorityForRotation(ctx context.Context) (PkiAuthority, error) {
-	row := q.db.QueryRowContext(ctx, getActivePKIAuthorityForRotation)
+type GetActivePKIAuthorityForRotationParams struct {
+	Kind PkiAuthoritiesKind `db:"kind" json:"kind"`
+}
+
+func (q *Queries) GetActivePKIAuthorityForRotation(ctx context.Context, arg GetActivePKIAuthorityForRotationParams) (PkiAuthority, error) {
+	row := q.db.QueryRowContext(ctx, getActivePKIAuthorityForRotation, arg.Kind)
 	var i PkiAuthority
 	err := row.Scan(
 		&i.ID,
+		&i.Kind,
+		&i.ParentAuthorityID,
+		&i.ParentKind,
 		&i.Status,
 		&i.CertificatePem,
 		&i.CertificateFingerprint,
@@ -28,24 +36,28 @@ func (q *Queries) GetActivePKIAuthorityForRotation(ctx context.Context) (PkiAuth
 		&i.NotAfter,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.ActiveSlot,
+		&i.ActiveKind,
 	)
 	return i, err
 }
 
 const getActivePKIAuthorityForUpdate = `-- name: GetActivePKIAuthorityForUpdate :one
-SELECT id, status, certificate_pem, certificate_fingerprint, encrypted_private_key, private_key_nonce, encryption_key_id, not_before, not_after, created_at, updated_at, active_slot FROM pki_authorities WHERE status='active' AND not_after>? ORDER BY created_at DESC LIMIT 1 FOR UPDATE
+SELECT id, kind, parent_authority_id, parent_kind, status, certificate_pem, certificate_fingerprint, encrypted_private_key, private_key_nonce, encryption_key_id, not_before, not_after, created_at, updated_at, active_kind FROM pki_authorities WHERE kind=? AND status='active' AND not_after>? ORDER BY created_at DESC LIMIT 1 FOR UPDATE
 `
 
 type GetActivePKIAuthorityForUpdateParams struct {
-	NotAfter int64 `db:"not_after" json:"not_after"`
+	Kind     PkiAuthoritiesKind `db:"kind" json:"kind"`
+	NotAfter int64              `db:"not_after" json:"not_after"`
 }
 
 func (q *Queries) GetActivePKIAuthorityForUpdate(ctx context.Context, arg GetActivePKIAuthorityForUpdateParams) (PkiAuthority, error) {
-	row := q.db.QueryRowContext(ctx, getActivePKIAuthorityForUpdate, arg.NotAfter)
+	row := q.db.QueryRowContext(ctx, getActivePKIAuthorityForUpdate, arg.Kind, arg.NotAfter)
 	var i PkiAuthority
 	err := row.Scan(
 		&i.ID,
+		&i.Kind,
+		&i.ParentAuthorityID,
+		&i.ParentKind,
 		&i.Status,
 		&i.CertificatePem,
 		&i.CertificateFingerprint,
@@ -56,33 +68,39 @@ func (q *Queries) GetActivePKIAuthorityForUpdate(ctx context.Context, arg GetAct
 		&i.NotAfter,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.ActiveSlot,
+		&i.ActiveKind,
 	)
 	return i, err
 }
 
 const insertPKIAuthority = `-- name: InsertPKIAuthority :exec
 INSERT INTO pki_authorities
-(id, status, certificate_pem, certificate_fingerprint, encrypted_private_key, private_key_nonce, encryption_key_id, not_before, not_after, created_at, updated_at)
-VALUES (?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+(id, kind, parent_authority_id, parent_kind, status, certificate_pem, certificate_fingerprint, encrypted_private_key, private_key_nonce, encryption_key_id, not_before, not_after, created_at, updated_at)
+VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertPKIAuthorityParams struct {
-	ID                     string `db:"id" json:"id"`
-	CertificatePem         string `db:"certificate_pem" json:"certificate_pem"`
-	CertificateFingerprint []byte `db:"certificate_fingerprint" json:"certificate_fingerprint"`
-	EncryptedPrivateKey    []byte `db:"encrypted_private_key" json:"encrypted_private_key"`
-	PrivateKeyNonce        []byte `db:"private_key_nonce" json:"private_key_nonce"`
-	EncryptionKeyID        string `db:"encryption_key_id" json:"encryption_key_id"`
-	NotBefore              int64  `db:"not_before" json:"not_before"`
-	NotAfter               int64  `db:"not_after" json:"not_after"`
-	CreatedAt              int64  `db:"created_at" json:"created_at"`
-	UpdatedAt              int64  `db:"updated_at" json:"updated_at"`
+	ID                     string                       `db:"id" json:"id"`
+	Kind                   PkiAuthoritiesKind           `db:"kind" json:"kind"`
+	ParentAuthorityID      sql.NullString               `db:"parent_authority_id" json:"parent_authority_id"`
+	ParentKind             NullPkiAuthoritiesParentKind `db:"parent_kind" json:"parent_kind"`
+	CertificatePem         string                       `db:"certificate_pem" json:"certificate_pem"`
+	CertificateFingerprint []byte                       `db:"certificate_fingerprint" json:"certificate_fingerprint"`
+	EncryptedPrivateKey    []byte                       `db:"encrypted_private_key" json:"encrypted_private_key"`
+	PrivateKeyNonce        []byte                       `db:"private_key_nonce" json:"private_key_nonce"`
+	EncryptionKeyID        string                       `db:"encryption_key_id" json:"encryption_key_id"`
+	NotBefore              int64                        `db:"not_before" json:"not_before"`
+	NotAfter               int64                        `db:"not_after" json:"not_after"`
+	CreatedAt              int64                        `db:"created_at" json:"created_at"`
+	UpdatedAt              int64                        `db:"updated_at" json:"updated_at"`
 }
 
 func (q *Queries) InsertPKIAuthority(ctx context.Context, arg InsertPKIAuthorityParams) error {
 	_, err := q.db.ExecContext(ctx, insertPKIAuthority,
 		arg.ID,
+		arg.Kind,
+		arg.ParentAuthorityID,
+		arg.ParentKind,
 		arg.CertificatePem,
 		arg.CertificateFingerprint,
 		arg.EncryptedPrivateKey,
@@ -125,15 +143,16 @@ func (q *Queries) MarkPKIAuthorityRetired(ctx context.Context, arg MarkPKIAuthor
 }
 
 const retireActivePKIAuthorities = `-- name: RetireActivePKIAuthorities :execrows
-UPDATE pki_authorities SET status='retiring', updated_at=? WHERE status='active'
+UPDATE pki_authorities SET status='retiring', updated_at=? WHERE kind=? AND status='active'
 `
 
 type RetireActivePKIAuthoritiesParams struct {
-	UpdatedAt int64 `db:"updated_at" json:"updated_at"`
+	UpdatedAt int64              `db:"updated_at" json:"updated_at"`
+	Kind      PkiAuthoritiesKind `db:"kind" json:"kind"`
 }
 
 func (q *Queries) RetireActivePKIAuthorities(ctx context.Context, arg RetireActivePKIAuthoritiesParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, retireActivePKIAuthorities, arg.UpdatedAt)
+	result, err := q.db.ExecContext(ctx, retireActivePKIAuthorities, arg.UpdatedAt, arg.Kind)
 	if err != nil {
 		return 0, err
 	}

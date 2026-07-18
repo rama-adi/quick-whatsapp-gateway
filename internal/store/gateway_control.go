@@ -61,7 +61,7 @@ func NewGatewayCertificateRepo(db storedb.DBTX) *GatewayCertificateRepo {
 	return &GatewayCertificateRepo{storedb.New(db)}
 }
 func (r *GatewayCertificateRepo) Insert(ctx context.Context, c domain.GatewayCertificate) error {
-	return r.q.InsertGatewayCertificate(ctx, storedb.InsertGatewayCertificateParams{ID: c.ID, GatewayID: c.GatewayID, AuthorityID: c.AuthorityID, SerialNumber: c.SerialNumber, CertificatePem: c.CertificatePEM, CertificateFingerprint: c.Fingerprint, NotBefore: c.NotBefore, NotAfter: c.NotAfter, CreatedAt: c.CreatedAt})
+	return r.q.InsertGatewayCertificate(ctx, storedb.InsertGatewayCertificateParams{ID: c.ID, GatewayID: c.GatewayID, AuthorityID: c.AuthorityID, EnrollmentTokenID: c.EnrollmentTokenID, CsrSha256: c.CSRSHA256, SerialNumber: c.SerialNumber, CertificatePem: c.CertificatePEM, CertificateFingerprint: c.Fingerprint, NotBefore: c.NotBefore, NotAfter: c.NotAfter, CreatedAt: c.CreatedAt})
 }
 func (r *GatewayCertificateRepo) Revoke(ctx context.Context, id, reason string, now int64) (bool, error) {
 	n, e := r.q.RevokeGatewayCertificate(ctx, storedb.RevokeGatewayCertificateParams{RevokedAt: sql.NullInt64{Int64: now, Valid: true}, RevocationReason: sql.NullString{String: reason, Valid: reason != ""}, ID: id})
@@ -74,7 +74,7 @@ func (r *GatewayCertificateRepo) List(ctx context.Context, gatewayID string) ([]
 	}
 	out := make([]domain.GatewayCertificate, 0, len(rows))
 	for _, c := range rows {
-		out = append(out, domain.GatewayCertificate{ID: c.ID, GatewayID: c.GatewayID, AuthorityID: c.AuthorityID, SerialNumber: c.SerialNumber, CertificatePEM: c.CertificatePem, Fingerprint: c.CertificateFingerprint, NotBefore: c.NotBefore, NotAfter: c.NotAfter, CreatedAt: c.CreatedAt, RevokedAt: int64PtrFromNull(c.RevokedAt), RevocationReason: stringPtrFromNull(c.RevocationReason)})
+		out = append(out, domain.GatewayCertificate{ID: c.ID, GatewayID: c.GatewayID, AuthorityID: c.AuthorityID, EnrollmentTokenID: c.EnrollmentTokenID, CSRSHA256: c.CsrSha256, SerialNumber: c.SerialNumber, CertificatePEM: c.CertificatePem, Fingerprint: c.CertificateFingerprint, NotBefore: c.NotBefore, NotAfter: c.NotAfter, CreatedAt: c.CreatedAt, RevokedAt: int64PtrFromNull(c.RevokedAt), RevocationReason: stringPtrFromNull(c.RevocationReason)})
 	}
 	return out, nil
 }

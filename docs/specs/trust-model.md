@@ -9,10 +9,13 @@
 > vendor. The current Ed25519 router assertion described below remains active until gRPC slices cut
 > over.
 
-> **Increment 2.0 foundation (unwired):** normalized enrollment-token, authority,
+> **Increment 2.0/2.1a foundation (unwired):** normalized enrollment-token, authority,
 > gateway-certificate, and audit-event records now exist. Enrollment persistence contains only a
 > SHA-256 digest and safe prefix; authority private keys are ciphertext plus nonce and key id. No
 > token issuance, CSR validation, signer, mTLS listener, API, or UI consumes these tables yet.
+> Pure 2.1a policy uses canonical versioned 256-bit bearer tokens, strict token-bound Ed25519
+> SPIFFE CSRs, 24-hour issuer-capped client+server-auth leaves, and AES-256-GCM CA-key envelopes
+> whose AAD binds authority id, kind, certificate fingerprint, and encryption-key id.
 
 Status: implemented (R1/R2). Live-validated against better-auth 1.6.22.
 

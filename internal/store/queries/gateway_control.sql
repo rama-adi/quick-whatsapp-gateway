@@ -37,8 +37,8 @@ WHERE id=? AND status='redeeming' AND redemption_nonce=? AND csr_sha256=? AND le
 
 -- name: InsertGatewayCertificate :exec
 INSERT INTO gateway_certificates
-(id, gateway_id, authority_id, serial_number, certificate_pem, certificate_fingerprint, not_before, not_after, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+(id, gateway_id, authority_id, enrollment_token_id, csr_sha256, serial_number, certificate_pem, certificate_fingerprint, not_before, not_after, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: ListGatewayCertificates :many
 SELECT * FROM gateway_certificates WHERE gateway_id=? ORDER BY created_at DESC, id DESC;
