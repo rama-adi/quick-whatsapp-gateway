@@ -9,6 +9,15 @@ lint:
     # Module roots intentionally carry the public/gateway compatibility-domain name.
     # Keeping v1 directly beneath each root matches the repository contract layout.
     - PACKAGE_DIRECTORY_MATCH
+  ignore_only:
+    # The control stream deliberately uses directional envelope names and UNKNOWN=0
+    # enum values as part of its reviewed wire contract.
+    RPC_REQUEST_STANDARD_NAME:
+      - proto/gateway/v1/gateway_control.proto
+    RPC_RESPONSE_STANDARD_NAME:
+      - proto/gateway/v1/gateway_control.proto
+    ENUM_ZERO_VALUE_SUFFIX:
+      - proto/gateway/v1/gateway_control.proto
 breaking:
   use:
     - FILE

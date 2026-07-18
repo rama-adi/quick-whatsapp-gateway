@@ -1,0 +1,130 @@
+syntax = "proto3";
+
+package gateway.v1;
+
+option go_package = "github.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1;gatewayv1";
+
+// GatewayControlService is the long-lived private API↔gateway coordination channel.
+// Gateway identity is derived exclusively from the authenticated TLS peer; frames
+// intentionally contain no gateway_id field.
+service GatewayControlService {
+  rpc Connect(stream GatewayFrame) returns (stream ControlFrame);
+}
+
+// GatewayFrame is sent by the gateway. Every frame is versioned and sequenced.
+message GatewayFrame {
+  uint32 protocol_version = 1;
+  uint64 sequence = 2;
+  reserved 3 to 9;
+
+  oneof payload {
+    GatewayHello hello = 10;
+    GatewayHeartbeat heartbeat = 11;
+    GatewayLifecycleReport lifecycle_report = 12;
+  }
+  reserved 13 to 19;
+}
+
+// ControlFrame is sent by the API. Every frame is versioned and sequenced.
+message ControlFrame {
+  uint32 protocol_version = 1;
+  uint64 sequence = 2;
+  reserved 3 to 9;
+
+  oneof payload {
+    ControlWelcome welcome = 10;
+    LifecycleDirective lifecycle_directive = 11;
+  }
+  reserved 12 to 19;
+}
+
+message GatewayHello {
+  string instance_id = 1;
+  string software_version = 2;
+  repeated GatewayCapability capabilities = 3;
+  optional string grpc_endpoint = 4;
+  int64 started_at_unix_ms = 5;
+  uint32 session_count = 6;
+  GatewayRuntimeState runtime_state = 7;
+  reserved 8 to 15;
+}
+
+message GatewayHeartbeat {
+  uint64 connection_epoch = 1;
+  uint64 last_control_sequence = 2;
+  int64 sent_at_unix_ms = 3;
+  uint32 session_count = 4;
+  GatewayRuntimeState runtime_state = 5;
+  reserved 6 to 15;
+}
+
+message GatewayLifecycleReport {
+  uint64 connection_epoch = 1;
+  string directive_id = 2;
+  GatewayRuntimeState state = 3;
+  LifecycleFailure failure = 4;
+  reserved 5 to 15;
+}
+
+message ControlWelcome {
+  string connection_id = 1;
+  uint64 connection_epoch = 2;
+  uint32 heartbeat_interval_ms = 3;
+  uint32 lease_timeout_ms = 4;
+  LifecycleDirectiveAction desired_lifecycle = 5;
+  int64 server_time_unix_ms = 6;
+  reserved 7 to 15;
+}
+
+message LifecycleDirective {
+  string directive_id = 1;
+  uint64 connection_epoch = 2;
+  LifecycleDirectiveAction action = 3;
+  optional int64 drain_deadline_unix_ms = 4;
+  LifecycleDirectiveReason reason = 5;
+  reserved 6 to 15;
+}
+
+enum GatewayCapability {
+  GATEWAY_CAPABILITY_UNKNOWN = 0;
+  GATEWAY_CAPABILITY_SESSION_ENGINE = 1;
+  GATEWAY_CAPABILITY_EVENT_STREAM = 2;
+  GATEWAY_CAPABILITY_COMMAND_EXECUTION = 3;
+  reserved 4 to 15;
+}
+
+enum GatewayRuntimeState {
+  GATEWAY_RUNTIME_STATE_UNKNOWN = 0;
+  GATEWAY_RUNTIME_STATE_STARTING = 1;
+  GATEWAY_RUNTIME_STATE_READY = 2;
+  GATEWAY_RUNTIME_STATE_DRAINING = 3;
+  GATEWAY_RUNTIME_STATE_DRAINED = 4;
+  GATEWAY_RUNTIME_STATE_DEGRADED = 5;
+  reserved 6 to 15;
+}
+
+enum LifecycleFailure {
+  LIFECYCLE_FAILURE_UNKNOWN = 0;
+  LIFECYCLE_FAILURE_NONE = 1;
+  LIFECYCLE_FAILURE_BUSY = 2;
+  LIFECYCLE_FAILURE_TIMEOUT = 3;
+  LIFECYCLE_FAILURE_INTERNAL = 4;
+  reserved 5 to 15;
+}
+
+enum LifecycleDirectiveAction {
+  LIFECYCLE_DIRECTIVE_ACTION_UNKNOWN = 0;
+  LIFECYCLE_DIRECTIVE_ACTION_RUN = 1;
+  LIFECYCLE_DIRECTIVE_ACTION_DRAIN = 2;
+  LIFECYCLE_DIRECTIVE_ACTION_DISABLE = 3;
+  reserved 4 to 15;
+}
+
+enum LifecycleDirectiveReason {
+  LIFECYCLE_DIRECTIVE_REASON_UNKNOWN = 0;
+  LIFECYCLE_DIRECTIVE_REASON_OPERATOR = 1;
+  LIFECYCLE_DIRECTIVE_REASON_MAINTENANCE = 2;
+  LIFECYCLE_DIRECTIVE_REASON_CAPACITY = 3;
+  LIFECYCLE_DIRECTIVE_REASON_POLICY = 4;
+  reserved 5 to 15;
+}

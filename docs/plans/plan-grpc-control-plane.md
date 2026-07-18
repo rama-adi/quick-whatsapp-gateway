@@ -850,4 +850,9 @@ Private transport split C adds the opt-in gateway bootstrap client and durable g
 It proves authenticated private health over one reusable mTLS connection, but deliberately adds no
 control stream or engine RPC client yet.
 
+Control-stream split 1 defines only the versioned/sequenced private bidi wire contract: Hello,
+Heartbeat, LifecycleReport, Welcome, and epoch-fenced lifecycle directives. Generated bindings and
+descriptor invariants land now; registration, persistence, lease handling, and runtime connection
+loops remain explicitly unwired.
+
 These decisions affect implementation detail, not the responsibility boundary locked above.

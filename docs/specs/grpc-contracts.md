@@ -108,3 +108,20 @@ operator root, persists and fsyncs a pending Ed25519 key plus exact CSR before e
 those bytes across status-aware retries. After validating and atomically publishing the returned
 identity it discards the pending state, closes the anonymous connection, and keeps one mTLS gRPC
 connection after an authenticated private-health proof. No control stream is registered yet.
+
+## Unwired gateway control stream contract
+
+`gateway.v1.GatewayControlService.Connect` is now defined as a private bidirectional stream but is
+not registered or consumed by either runtime. Every gateway/API frame carries
+`protocol_version` (field 1), a directional `sequence` (field 2), and exactly one payload. The first
+gateway payload is `Hello`; subsequent heartbeats report the connection epoch, last applied control
+sequence, timestamp, session count, and bounded runtime state. Lifecycle reports acknowledge one
+directive with a bounded failure category. The API answers with `Welcome` (connection identity and
+epoch, heartbeat/lease timing, desired lifecycle, server time) and may send epoch-fenced RUN, DRAIN,
+or DISABLE directives with an optional drain deadline and bounded reason.
+
+Gateway identity is deliberately absent from every frame: the eventual handler must take it only
+from the authenticated TLS context. Instance IDs identify process incarnations, not gateway
+authorization principals. Enum zero values are explicitly `UNKNOWN`; reserved field ranges protect
+future compatible additions. This slice adds no service registration, stream state machine,
+database field, configuration, or runtime behavior.

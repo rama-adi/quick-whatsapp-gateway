@@ -189,3 +189,6 @@ e2e smoke against a live WhatsApp number.
 - Gateway private bootstrap: pinned API SPIFFE verification, crash-safe pending CSR/key reuse,
   atomically installed gateway credentials, replay-aware enrollment retries, and reusable mTLS
   private-health connection. Control streaming remains deferred.
+- Control-stream contract split 1: private bidi `Connect` frames, bounded lifecycle/capability
+  enums, version/sequence/epoch fencing, generated bindings, and descriptor compatibility tests are
+  defined but intentionally unwired.

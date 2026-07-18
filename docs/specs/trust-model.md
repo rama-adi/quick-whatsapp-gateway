@@ -307,3 +307,9 @@ exactly one canonical operator root; custom TLS verification performs full Serve
 validation and requires the sole Ed25519 URI identity `spiffe://quick-wa/api`. Enrollment tokens
 remain process-memory bootstrap input only and are neither written into the credential directory
 nor included in logs.
+
+The unwired `GatewayControlService.Connect` contract carries no `gateway_id`. When implemented, the
+API must bind the stream principal exclusively from the already-verified mTLS context and treat the
+hello `instance_id` only as a process-incarnation identifier. Connection epochs and directional
+sequence numbers fence stale streams and directives; the protobuf definition alone does not yet
+create a lease or authorize lifecycle changes.
