@@ -67,6 +67,9 @@ e2e smoke against a live WhatsApp number.
   signing only the intermediate. Production certificate issuance is behind `CertificateSigner`;
   Vault PKI is the reference implementation, not a vendor lock. Exact production CA remains a
   deployment choice.
+- **Private enrollment transport split A (unwired):** `gateway.v1.GatewayEnrollmentService` and the
+  exact API SPIFFE server-leaf policy are defined. A crash-recoverable, versioned API TLS identity
+  manager is implemented, but no private listener, handler, interceptor, or gateway client is wired.
 - **Durable handoff storage:** gateway event/command state lives in a separate `journal.db` on the
   same persistent volume, never in whatsmeow-owned tables. Configurable initial defaults are a 72h
   outage sizing objective (not guaranteed RPO), 1 GiB cap with configuration rejected above 25% of

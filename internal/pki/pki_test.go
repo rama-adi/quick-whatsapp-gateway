@@ -162,3 +162,51 @@ func TestValidateSignedGateway(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateSignedAPIExactIdentityEKUAndChain(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	rootPub, rootKey, _ := ed25519.GenerateKey(rand.Reader)
+	rootTemplate := &x509.Certificate{SerialNumber: big.NewInt(31), Subject: pkix.Name{CommonName: "root"}, NotBefore: now.Add(-time.Hour), NotAfter: now.Add(24 * time.Hour), IsCA: true, BasicConstraintsValid: true, MaxPathLen: 1, KeyUsage: x509.KeyUsageCertSign}
+	rootDER, _ := x509.CreateCertificate(rand.Reader, rootTemplate, rootTemplate, rootPub, rootKey)
+	root, _ := x509.ParseCertificate(rootDER)
+	issuerPub, issuerKey, _ := ed25519.GenerateKey(rand.Reader)
+	issuerTemplate := &x509.Certificate{SerialNumber: big.NewInt(32), Subject: pkix.Name{CommonName: "issuer"}, NotBefore: now.Add(-time.Hour), NotAfter: now.Add(12 * time.Hour), IsCA: true, BasicConstraintsValid: true, MaxPathLenZero: true, KeyUsage: x509.KeyUsageCertSign}
+	issuerDER, _ := x509.CreateCertificate(rand.Reader, issuerTemplate, root, issuerPub, rootKey)
+	issuer, _ := x509.ParseCertificate(issuerDER)
+	publicKey, _, _ := ed25519.GenerateKey(rand.Reader)
+	makeSigned := func(mutate func(*x509.Certificate)) SignedCertificate {
+		template, _ := NewAPILeafTemplate(publicKey, Policy{TTL: time.Hour, Skew: time.Minute}, now, issuer.NotAfter, rand.Reader)
+		if mutate != nil {
+			mutate(template)
+		}
+		der, _ := x509.CreateCertificate(rand.Reader, template, issuer, publicKey, issuerKey)
+		leaf, _ := x509.ParseCertificate(der)
+		fingerprint := sha256.Sum256(der)
+		return SignedCertificate{DER: der, ChainPEM: append(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: issuerDER})...), TrustBundlePEM: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: rootDER}), Fingerprint: fingerprint[:], AuthorityID: "issuer", Serial: leaf.SerialNumber, NotBefore: leaf.NotBefore, NotAfter: leaf.NotAfter}
+	}
+	if err := ValidateSignedAPI(makeSigned(nil), publicKey, now); err != nil {
+		t.Fatal(err)
+	}
+	wrongURI, _ := url.Parse("spiffe://quick-wa/api/other")
+	for name, mutate := range map[string]func(*x509.Certificate){
+		"identity":   func(c *x509.Certificate) { c.URIs = []*url.URL{wrongURI} },
+		"client EKU": func(c *x509.Certificate) { c.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth} },
+		"extra EKU":  func(c *x509.Certificate) { c.ExtKeyUsage = append(c.ExtKeyUsage, x509.ExtKeyUsageClientAuth) },
+		"CA":         func(c *x509.Certificate) { c.IsCA = true },
+	} {
+		t.Run(name, func(t *testing.T) {
+			if ValidateSignedAPI(makeSigned(mutate), publicKey, now) == nil {
+				t.Fatal("invalid API leaf accepted")
+			}
+		})
+	}
+	badChain := makeSigned(nil)
+	badChain.ChainPEM = badChain.ChainPEM[:len(badChain.ChainPEM)/2]
+	if ValidateSignedAPI(badChain, publicKey, now) == nil {
+		t.Fatal("truncated API chain accepted")
+	}
+	_, foreignKey, _ := ed25519.GenerateKey(rand.Reader)
+	if ValidateSignedAPI(makeSigned(nil), foreignKey.Public().(ed25519.PublicKey), now) == nil {
+		t.Fatal("foreign API key accepted")
+	}
+}

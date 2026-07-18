@@ -287,3 +287,11 @@ validated by the Go verifier now consumed by the router (historically gateway-wi
 gates.
 
 Run: `CGO_ENABLED=0 go test ./internal/authz/... ./internal/controlbus/...`.
+
+> **Private transport split A (unwired):** the local CA has a distinct API server-leaf policy for
+> exactly `spiffe://quick-wa/api`: Ed25519, non-CA, digital-signature-only, ServerAuth-only. The API
+> identity manager stores versioned key/chain/trust generations under a mode-0700 directory, uses
+> mode 0600 for the private key, validates the full chain and metadata on every load, and atomically
+> publishes `current` only after fsync. It retains the previous generation for crash recovery and
+> keeps a still-valid incumbent if renewal fails. Missing/expired identities are not ready. No API
+> listener or TLS interceptor consumes this manager yet.

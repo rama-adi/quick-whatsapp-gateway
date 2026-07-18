@@ -1,7 +1,8 @@
 # gRPC contract tooling and compatibility
 
-Status: **Increment 1 public health active**. The API serves only `public.v1.PublicHealthService`;
-the private gateway contract remains unregistered and has no listener.
+Status: **Increment 1 public health active; private enrollment contract defined but unwired**. The
+API serves only `public.v1.PublicHealthService`; `gateway.v1.GatewayEnrollmentService` is generated
+but remains unregistered and has no listener.
 
 The root Buf v2 workspace contains two deliberately separate modules and compatibility domains:
 
@@ -15,6 +16,12 @@ The root Buf v2 workspace contains two deliberately separate modules and compati
 Both packages start with a health contract so generation and compatibility checks exist before
 the engine migration begins. Generated Go and gRPC bindings are committed under matching
 `gen/public/v1` and `gen/gateway/v1` directories.
+
+The private module also defines unary `GatewayEnrollmentService.Enroll`. Its request carries only
+the one-time enrollment token and DER CSR. Its response returns the resolved gateway id, issued
+certificate chain, exact persisted trust bundle, authority/serial identifiers, and millisecond
+validity bounds. This is a transport contract only: no handler, listener, interceptor, or command
+composition root is wired in this increment.
 
 ## Generation and checks
 
@@ -64,6 +71,9 @@ trusted path behind a TLS-terminating ingress. It is not a claim that direct pro
 gRPC is safe. Production deployments must terminate TLS at the ingress (with a trusted private hop)
 or add application TLS in a later deployment-hardening increment. The API does not bind
 `API_GATEWAY_GRPC_ADDR`, and `gateway.v1` is never registered on the public server.
+
+The future private listener is disabled while `API_GATEWAY_GRPC_ADDR` is empty. Its configuration
+and API TLS identity persistence are validated now, but the listener is intentionally not created.
 
 ## Transport-independent engine boundary
 

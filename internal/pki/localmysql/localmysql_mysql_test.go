@@ -132,6 +132,14 @@ func TestMySQLHierarchy(t *testing.T) {
 	if err != nil || leaf.CheckSignatureFrom(restart.cache.intermediateCert) != nil {
 		t.Fatal("persisted leaf chain did not verify")
 	}
+	apiPublicKey, _, _ := ed25519.GenerateKey(rand.Reader)
+	apiIdentity, err := restart.SignAPI(ctx, base.APISignRequest{PublicKey: apiPublicKey})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = base.ValidateSignedAPI(apiIdentity, apiPublicKey, renewAt()); err != nil {
+		t.Fatalf("persisted API identity did not verify: %v", err)
+	}
 	// A successor-generation failure occurs before retirement and leaves the incumbent active.
 	restart.now = func() time.Time { return fixed.Add(191 * time.Minute) }
 	restart.random = failingEntropy{}

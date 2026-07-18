@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 )
@@ -22,9 +24,13 @@ const DefaultRouterIssuer = "router"
 // later, realtime), the better-auth JWKS inputs, and its own Ed25519 signing key.
 type APIConfig struct {
 	// HTTP / server
-	HTTPAddr       string // API_HTTP_ADDR; deprecated fallback ROUTER_HTTP_ADDR (default :8090)
-	PublicGRPCAddr string // API_PUBLIC_GRPC_ADDR: plaintext local/trusted ingress hop (default :8081)
-	PublicURL      string // API_PUBLIC_URL; deprecated fallback ROUTER_PUBLIC_URL
+	HTTPAddr              string        // API_HTTP_ADDR; deprecated fallback ROUTER_HTTP_ADDR (default :8090)
+	PublicGRPCAddr        string        // API_PUBLIC_GRPC_ADDR: plaintext local/trusted ingress hop (default :8081)
+	GatewayGRPCAddr       string        // API_GATEWAY_GRPC_ADDR: private mTLS listener; empty disables it
+	GatewayTLSIdentityDir string        // API_GATEWAY_TLS_IDENTITY_DIR
+	GatewayTLSRenewBefore time.Duration // API_GATEWAY_TLS_RENEW_BEFORE
+	GatewayPKI            *PKIConfig    // loaded only when the private listener is enabled
+	PublicURL             string        // API_PUBLIC_URL; deprecated fallback ROUTER_PUBLIC_URL
 
 	// Trust boundary — authn inputs (same better-auth JWKS the gateway used to use).
 	BetterAuthURL     string   // BETTER_AUTH_URL: JWT iss/aud to enforce
@@ -63,6 +69,8 @@ func LoadAPI() (*APIConfig, error) {
 	cfg := &APIConfig{
 		HTTPAddr:                getStringFallback("API_HTTP_ADDR", "ROUTER_HTTP_ADDR", ":8090"),
 		PublicGRPCAddr:          getString("API_PUBLIC_GRPC_ADDR", ":8081"),
+		GatewayGRPCAddr:         getString("API_GATEWAY_GRPC_ADDR", ""),
+		GatewayTLSIdentityDir:   getString("API_GATEWAY_TLS_IDENTITY_DIR", ""),
 		PublicURL:               getStringFallback("API_PUBLIC_URL", "ROUTER_PUBLIC_URL", ""),
 		BetterAuthURL:           getString("BETTER_AUTH_URL", ""),
 		BetterAuthJWKSURL:       getString("BETTER_AUTH_JWKS_URL", ""),
@@ -82,6 +90,20 @@ func LoadAPI() (*APIConfig, error) {
 		OIDCAuthCodeTTLSeconds:  getInt("OIDC_AUTHCODE_TTL_SECONDS", 60),
 		OIDCTrustProxy:          getBool("OIDC_TRUST_PROXY", false),
 		LogLevel:                getString("LOG_LEVEL", "info"),
+	}
+	if value := getString("API_GATEWAY_TLS_RENEW_BEFORE", "6h"); value != "" {
+		var err error
+		cfg.GatewayTLSRenewBefore, err = time.ParseDuration(value)
+		if err != nil {
+			return nil, fmt.Errorf("config: API_GATEWAY_TLS_RENEW_BEFORE: %w", err)
+		}
+	}
+	if cfg.GatewayGRPCAddr != "" {
+		pkiConfig, err := LoadPKI()
+		if err != nil {
+			return nil, err
+		}
+		cfg.GatewayPKI = pkiConfig
 	}
 	if cfg.OIDCIssuer == "" {
 		cfg.OIDCIssuer = cfg.PublicURL
@@ -115,6 +137,40 @@ func (c *APIConfig) Validate() error {
 	}
 	if overlap {
 		return fmt.Errorf("config: API_PUBLIC_GRPC_ADDR must differ from API_HTTP_ADDR")
+	}
+	privateConfigured := c.GatewayGRPCAddr != "" || c.GatewayTLSIdentityDir != ""
+	if !privateConfigured {
+		if c.GatewayPKI != nil {
+			return fmt.Errorf("config: private gateway PKI requires API_GATEWAY_GRPC_ADDR")
+		}
+	} else {
+		if c.GatewayGRPCAddr == "" || c.GatewayTLSIdentityDir == "" {
+			return fmt.Errorf("config: API_GATEWAY_GRPC_ADDR and API_GATEWAY_TLS_IDENTITY_DIR must be configured together")
+		}
+		if err = validateTLSIdentityDirectory(c.GatewayTLSIdentityDir); err != nil {
+			return err
+		}
+		if c.GatewayTLSRenewBefore <= 0 {
+			return fmt.Errorf("config: API_GATEWAY_TLS_RENEW_BEFORE must be positive")
+		}
+		if c.GatewayPKI == nil {
+			return fmt.Errorf("config: private gateway listener requires PKI configuration")
+		}
+		if err = c.GatewayPKI.Validate(); err != nil {
+			return err
+		}
+		if c.GatewayTLSRenewBefore >= c.GatewayPKI.LeafTTL {
+			return fmt.Errorf("config: API_GATEWAY_TLS_RENEW_BEFORE must be shorter than PKI_LEAF_TTL")
+		}
+		for _, publicAddr := range []struct{ name, value string }{{"API_HTTP_ADDR", c.HTTPAddr}, {"API_PUBLIC_GRPC_ADDR", c.PublicGRPCAddr}} {
+			overlap, overlapErr := tcpEndpointsOverlap(publicAddr.value, c.GatewayGRPCAddr)
+			if overlapErr != nil {
+				return fmt.Errorf("config: private listen address against %s: %w", publicAddr.name, overlapErr)
+			}
+			if overlap {
+				return fmt.Errorf("config: API_GATEWAY_GRPC_ADDR must differ from %s", publicAddr.name)
+			}
+		}
 	}
 	if c.Ed25519PrivateKey == "" {
 		return fmt.Errorf("config: API_ED25519_PRIVATE_KEY is required (the API signs internal assertions)")
@@ -150,6 +206,20 @@ func (c *APIConfig) Validate() error {
 	case "debug", "info", "warn", "error":
 	default:
 		return fmt.Errorf("config: LOG_LEVEL must be one of debug|info|warn|error, got %q", c.LogLevel)
+	}
+	return nil
+}
+
+func validateTLSIdentityDirectory(path string) error {
+	if path == "" || !filepath.IsAbs(path) {
+		return fmt.Errorf("config: API_GATEWAY_TLS_IDENTITY_DIR must be an absolute path")
+	}
+	clean := filepath.Clean(path)
+	if clean != path {
+		return fmt.Errorf("config: API_GATEWAY_TLS_IDENTITY_DIR must already be clean")
+	}
+	if filepath.Dir(clean) == clean {
+		return fmt.Errorf("config: API_GATEWAY_TLS_IDENTITY_DIR must not be a filesystem root")
 	}
 	return nil
 }

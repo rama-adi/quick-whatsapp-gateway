@@ -180,6 +180,28 @@ func TestHierarchyPersistenceValidationAndSigning(t *testing.T) {
 	}
 }
 
+func TestSignAPIUsesDedicatedIdentityPolicy(t *testing.T) {
+	s := testSigner(t)
+	s.repo = &memoryAuthorities{}
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	s.now = func() time.Time { return now }
+	publicKey, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signed, err := s.SignAPI(context.Background(), base.APISignRequest{PublicKey: publicKey})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = base.ValidateSignedAPI(signed, publicKey, now); err != nil {
+		t.Fatal(err)
+	}
+	leaf, _ := x509.ParseCertificate(signed.DER)
+	if leaf.IsCA || leaf.KeyUsage != x509.KeyUsageDigitalSignature || len(leaf.ExtKeyUsage) != 1 || leaf.ExtKeyUsage[0] != x509.ExtKeyUsageServerAuth || len(leaf.URIs) != 1 || leaf.URIs[0].String() != base.APIIdentityURI {
+		t.Fatal("API leaf policy mismatch")
+	}
+}
+
 func TestRowsFailClosed(t *testing.T) {
 	s := testSigner(t)
 	now := time.Now().UTC().Truncate(time.Millisecond)

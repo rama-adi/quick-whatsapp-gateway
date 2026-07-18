@@ -132,6 +132,9 @@ WebSocket stream-drop on `ctrl:user.banned` / `ctrl:member.removed` is implement
 |---|---|---|
 | `API_HTTP_ADDR` | `:8090` | public HTTP listen address |
 | `API_PUBLIC_GRPC_ADDR` | `:8081` | plaintext public gRPC for local/trusted ingress-hop use; must differ from HTTP |
+| `API_GATEWAY_GRPC_ADDR` | empty (disabled) | reserved private mTLS gateway listener; no listener is wired in split A |
+| `API_GATEWAY_TLS_IDENTITY_DIR` | — | versioned persistent API TLS identity directory; required with the private address |
+| `API_GATEWAY_TLS_RENEW_BEFORE` | `6h` | validated renewal threshold, shorter than the configured PKI leaf TTL |
 | `API_PUBLIC_URL` | — | external API base URL |
 | `API_ISSUER` | `router` | assertion `iss` (`ROUTER_ISSUER` is a deprecated fallback) |
 | `API_ED25519_PRIVATE_KEY` | — (**required**) | assertion signing key |

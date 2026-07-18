@@ -475,6 +475,8 @@ Use separate listeners and policies:
 API_HTTP_ADDR=:8080
 API_PUBLIC_GRPC_ADDR=:8081
 API_GATEWAY_GRPC_ADDR=:8443
+API_GATEWAY_TLS_IDENTITY_DIR=/data/api-gateway-identity
+API_GATEWAY_TLS_RENEW_BEFORE=6h
 ```
 
 The private listener requires mTLS. Public listeners use public server TLS and public authn.

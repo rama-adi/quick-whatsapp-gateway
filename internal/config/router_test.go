@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"testing"
+	"time"
 )
 
 // TestLoadAPI_DefaultsAndValidate verifies a complete API environment loads and validates with defaults.
@@ -17,7 +18,8 @@ func TestLoadAPI_DefaultsAndValidate(t *testing.T) {
 		"FRONTEND_ORIGINS", "MYSQL_DSN", "REDIS_URL", "PUBSUB_REDIS_URL",
 		"REDIS_PREFIX", "OIDC_ISSUER", "OIDC_KEY_ENC_KEY", "OAUTH_CLIENT_SECRET_PEPPER",
 		"WHATSAPP_ADMIN_CMD_PREFIX", "WEB_LOGIN_URL", "OIDC_REQUEST_TTL_SECONDS",
-		"OIDC_AUTHCODE_TTL_SECONDS", "OIDC_TRUST_PROXY", "LOG_LEVEL",
+		"OIDC_AUTHCODE_TTL_SECONDS", "OIDC_TRUST_PROXY", "LOG_LEVEL", "API_GATEWAY_GRPC_ADDR",
+		"API_GATEWAY_TLS_IDENTITY_DIR", "API_GATEWAY_TLS_RENEW_BEFORE", "PKI_ENCRYPTION_KEY", "PKI_ENCRYPTION_KEY_ID",
 	}
 	for _, k := range keys {
 		t.Setenv(k, "")
@@ -32,6 +34,9 @@ func TestLoadAPI_DefaultsAndValidate(t *testing.T) {
 	}
 	if cfg.PublicGRPCAddr != ":8081" {
 		t.Errorf("PublicGRPCAddr = %q, want :8081", cfg.PublicGRPCAddr)
+	}
+	if cfg.GatewayGRPCAddr != "" || cfg.GatewayTLSIdentityDir != "" || cfg.GatewayPKI != nil || cfg.GatewayTLSRenewBefore != 6*time.Hour {
+		t.Fatalf("private gateway transport is not disabled by default: %+v", cfg)
 	}
 	if cfg.Issuer != DefaultRouterIssuer {
 		t.Errorf("Issuer = %q, want %q", cfg.Issuer, DefaultRouterIssuer)
@@ -170,5 +175,55 @@ func TestLoadAPI_JWKSDerivedAndPubSubDefault(t *testing.T) {
 	}
 	if cfg.PubSubRedisURL != "redis://localhost:6379" {
 		t.Errorf("PubSubRedisURL default = %q", cfg.PubSubRedisURL)
+	}
+}
+
+func TestAPIPrivateGatewayConfig(t *testing.T) {
+	t.Run("enabled load", func(t *testing.T) {
+		t.Setenv("API_GATEWAY_GRPC_ADDR", ":8443")
+		t.Setenv("API_GATEWAY_TLS_IDENTITY_DIR", "/var/lib/quick-wa/api-identity")
+		t.Setenv("API_GATEWAY_TLS_RENEW_BEFORE", "4h")
+		t.Setenv("PKI_ENCRYPTION_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
+		t.Setenv("PKI_ENCRYPTION_KEY_ID", "test-key")
+		cfg, err := LoadAPI()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.GatewayGRPCAddr != ":8443" || cfg.GatewayTLSIdentityDir != "/var/lib/quick-wa/api-identity" || cfg.GatewayTLSRenewBefore != 4*time.Hour || cfg.GatewayPKI == nil {
+			t.Fatalf("private config=%+v", cfg)
+		}
+	})
+
+	validPKI := &PKIConfig{EncryptionKey: make([]byte, 32), EncryptionKeyID: "k", LeafTTL: 24 * time.Hour, ClockSkew: time.Minute, RootTTL: 365 * 24 * time.Hour, IntermediateTTL: 90 * 24 * time.Hour, IntermediateRenewBefore: 30 * 24 * time.Hour}
+	for name, cfg := range map[string]*APIConfig{
+		"address only":   {HTTPAddr: ":8090", PublicGRPCAddr: ":8081", GatewayGRPCAddr: ":8443", GatewayTLSRenewBefore: time.Hour, GatewayPKI: validPKI},
+		"directory only": {HTTPAddr: ":8090", PublicGRPCAddr: ":8081", GatewayTLSIdentityDir: "/tmp/id", GatewayTLSRenewBefore: time.Hour},
+		"missing PKI":    {HTTPAddr: ":8090", PublicGRPCAddr: ":8081", GatewayGRPCAddr: ":8443", GatewayTLSIdentityDir: "/tmp/id", GatewayTLSRenewBefore: time.Hour},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if cfg.Validate() == nil {
+				t.Fatal("partial private config accepted")
+			}
+		})
+	}
+	for name, privateAddr := range map[string]string{"HTTP overlap": "0.0.0.0:8090", "public gRPC overlap": "[::]:8081"} {
+		t.Run(name, func(t *testing.T) {
+			cfg := &APIConfig{HTTPAddr: ":8090", PublicGRPCAddr: ":8081", GatewayGRPCAddr: privateAddr, GatewayTLSIdentityDir: "/tmp/id", GatewayTLSRenewBefore: time.Hour, GatewayPKI: validPKI}
+			if cfg.Validate() == nil {
+				t.Fatal("private bind overlap accepted")
+			}
+		})
+	}
+	threshold := &APIConfig{HTTPAddr: ":8090", PublicGRPCAddr: ":8081", GatewayGRPCAddr: ":8443", GatewayTLSIdentityDir: "/tmp/id", GatewayTLSRenewBefore: validPKI.LeafTTL, GatewayPKI: validPKI}
+	if err := threshold.Validate(); err == nil || err.Error() != "config: API_GATEWAY_TLS_RENEW_BEFORE must be shorter than PKI_LEAF_TTL" {
+		t.Fatalf("renewal threshold error=%v", err)
+	}
+	for name, directory := range map[string]string{"relative": "identity", "dot dot": "/var/lib/../identity", "trailing separator": "/var/lib/identity/", "filesystem root": "/"} {
+		t.Run(name, func(t *testing.T) {
+			cfg := &APIConfig{HTTPAddr: ":8090", PublicGRPCAddr: ":8081", GatewayGRPCAddr: ":8443", GatewayTLSIdentityDir: directory, GatewayTLSRenewBefore: time.Hour, GatewayPKI: validPKI}
+			if cfg.Validate() == nil {
+				t.Fatalf("unsafe identity path %q accepted", directory)
+			}
+		})
 	}
 }

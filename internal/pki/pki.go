@@ -19,6 +19,7 @@ import (
 )
 
 const MaxCSRBytes = 16 << 10
+const APIIdentityURI = "spiffe://quick-wa/api"
 
 var oidSAN = asn1.ObjectIdentifier{2, 5, 29, 17}
 
@@ -87,6 +88,80 @@ type CertificateSigner interface {
 	Sign(context.Context, SignRequest) (SignedCertificate, error)
 }
 type Signer = CertificateSigner
+
+type APISignRequest struct {
+	PublicKey   ed25519.PublicKey
+	AuthorityID string
+}
+
+type APIIdentitySigner interface {
+	SignAPI(context.Context, APISignRequest) (SignedCertificate, error)
+}
+
+func NewAPILeafTemplate(publicKey ed25519.PublicKey, policy Policy, now, issuerNotAfter time.Time, randomness io.Reader) (*x509.Certificate, error) {
+	if len(publicKey) != ed25519.PublicKeySize {
+		return nil, errors.New("API identity requires Ed25519 public key")
+	}
+	if _, err := NewPolicy(policy.TTL, policy.Skew); err != nil {
+		return nil, err
+	}
+	serial, err := NewSerial(randomness)
+	if err != nil {
+		return nil, err
+	}
+	notAfter := now.Add(policy.TTL)
+	if issuerNotAfter.Before(notAfter) {
+		notAfter = issuerNotAfter
+	}
+	if !notAfter.After(now) {
+		return nil, errors.New("issuer validity exhausted")
+	}
+	uri, _ := url.Parse(APIIdentityURI)
+	return &x509.Certificate{SerialNumber: serial, Subject: pkix.Name{CommonName: "quick-wa-api"}, NotBefore: now.Add(-policy.Skew), NotAfter: notAfter, KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, URIs: []*url.URL{uri}, BasicConstraintsValid: true}, nil
+}
+
+func ValidateSignedAPI(s SignedCertificate, publicKey ed25519.PublicKey, now time.Time) error {
+	if len(publicKey) != ed25519.PublicKeySize || s.AuthorityID == "" || s.Serial == nil || len(s.DER) == 0 || len(s.Fingerprint) != sha256.Size || len(s.ChainPEM) == 0 || len(s.TrustBundlePEM) == 0 {
+		return errors.New("invalid API identity metadata")
+	}
+	fingerprint := sha256.Sum256(s.DER)
+	if !bytes.Equal(fingerprint[:], s.Fingerprint) {
+		return errors.New("API identity fingerprint mismatch")
+	}
+	leaf, err := x509.ParseCertificate(s.DER)
+	if err != nil || leaf.SerialNumber.Cmp(s.Serial) != 0 || !leaf.NotBefore.Equal(s.NotBefore) || !leaf.NotAfter.Equal(s.NotAfter) {
+		return errors.New("invalid API identity leaf metadata")
+	}
+	leafKey, ok := leaf.PublicKey.(ed25519.PublicKey)
+	if !ok || !bytes.Equal(leafKey, publicKey) || now.Before(leaf.NotBefore) || !now.Before(leaf.NotAfter) {
+		return errors.New("API identity key or validity mismatch")
+	}
+	if leaf.IsCA || !leaf.BasicConstraintsValid || leaf.KeyUsage != x509.KeyUsageDigitalSignature || len(leaf.ExtKeyUsage) != 1 || leaf.ExtKeyUsage[0] != x509.ExtKeyUsageServerAuth || len(leaf.URIs) != 1 || leaf.URIs[0].String() != APIIdentityURI || len(leaf.DNSNames) != 0 || len(leaf.IPAddresses) != 0 || len(leaf.EmailAddresses) != 0 {
+		return errors.New("API identity policy mismatch")
+	}
+	block, rest := pem.Decode(s.ChainPEM)
+	if block == nil || block.Type != "CERTIFICATE" || !bytes.Equal(block.Bytes, s.DER) {
+		return errors.New("API identity chain leaf mismatch")
+	}
+	issuerBlock, trailing := pem.Decode(rest)
+	if issuerBlock == nil || issuerBlock.Type != "CERTIFICATE" || len(trailing) != 0 {
+		return errors.New("invalid API identity chain")
+	}
+	issuer, err := x509.ParseCertificate(issuerBlock.Bytes)
+	if err != nil || leaf.CheckSignatureFrom(issuer) != nil {
+		return errors.New("invalid API identity issuer")
+	}
+	roots := x509.NewCertPool()
+	if !roots.AppendCertsFromPEM(s.TrustBundlePEM) {
+		return errors.New("invalid API identity trust bundle")
+	}
+	intermediates := x509.NewCertPool()
+	intermediates.AddCert(issuer)
+	if _, err = leaf.Verify(x509.VerifyOptions{Roots: roots, Intermediates: intermediates, CurrentTime: now, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}); err != nil {
+		return errors.New("untrusted API identity")
+	}
+	return nil
+}
 
 // ValidateSignedGateway rejects malformed or substituted signer output before persistence.
 func ValidateSignedGateway(s SignedCertificate, csr ValidatedCSR, gatewayID string, now time.Time) error {

@@ -347,6 +347,50 @@ func (s *Signer) SignGateway(ctx context.Context, req base.SignRequest) (base.Si
 	chain := append(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), []byte(c.intermediate.CertificatePEM)...)
 	return base.SignedCertificate{DER: der, ChainPEM: chain, TrustBundlePEM: []byte(c.root.CertificatePEM), Fingerprint: fp[:], AuthorityID: c.intermediate.ID, Serial: leaf.SerialNumber, NotBefore: leaf.NotBefore, NotAfter: leaf.NotAfter}, nil
 }
+
+func (s *Signer) SignAPI(ctx context.Context, req base.APISignRequest) (base.SignedCertificate, error) {
+	if s.repo != nil {
+		if err := s.EnsureHierarchy(ctx); err != nil {
+			return base.SignedCertificate{}, err
+		}
+	}
+	if len(req.PublicKey) != ed25519.PublicKeySize {
+		return base.SignedCertificate{}, errors.New("pki: invalid API public key")
+	}
+	s.mu.RLock()
+	c := s.cache
+	s.mu.RUnlock()
+	if c == nil {
+		return base.SignedCertificate{}, errors.New("pki: hierarchy not initialized")
+	}
+	if req.AuthorityID != "" && req.AuthorityID != c.intermediate.ID {
+		return base.SignedCertificate{}, errors.New("pki: requested authority is not active")
+	}
+	now := s.now().UTC()
+	issuer, intermediateKey, err := s.validate(c.intermediate, now)
+	if err != nil || issuer.CheckSignatureFrom(c.rootCert) != nil || now.Before(issuer.NotBefore) || !now.Before(issuer.NotAfter) {
+		return base.SignedCertificate{}, errors.New("pki: cached issuer validation failed")
+	}
+	template, err := base.NewAPILeafTemplate(req.PublicKey, s.cfg.Policy, now, issuer.NotAfter, s.random)
+	if err != nil {
+		return base.SignedCertificate{}, err
+	}
+	der, err := x509.CreateCertificate(s.random, template, issuer, req.PublicKey, intermediateKey)
+	if err != nil {
+		return base.SignedCertificate{}, err
+	}
+	leaf, err := x509.ParseCertificate(der)
+	if err != nil {
+		return base.SignedCertificate{}, err
+	}
+	fingerprint := sha256.Sum256(der)
+	chain := append(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), []byte(c.intermediate.CertificatePEM)...)
+	out := base.SignedCertificate{DER: der, ChainPEM: chain, TrustBundlePEM: []byte(c.root.CertificatePEM), Fingerprint: fingerprint[:], AuthorityID: c.intermediate.ID, Serial: leaf.SerialNumber, NotBefore: leaf.NotBefore, NotAfter: leaf.NotAfter}
+	if err = base.ValidateSignedAPI(out, req.PublicKey, now); err != nil {
+		return base.SignedCertificate{}, fmt.Errorf("pki: invalid API identity output: %w", err)
+	}
+	return out, nil
+}
 func (s *Signer) TrustBundle() ([]byte, error) {
 	if s.repo != nil {
 		if err := s.EnsureHierarchy(context.Background()); err != nil {
