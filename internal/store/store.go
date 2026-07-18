@@ -28,31 +28,29 @@ type dbExecQuerier interface {
 // Store aggregates every repository behind one struct for convenient wiring,
 // while each repo remains independently constructable via its New<Repo>.
 type Store struct {
-	db                  *sql.DB
-	Gateways            *GatewayRepo
-	Sessions            *SessionRepo
-	APIKeys             *APIKeyRepo
-	Webhooks            *WebhookRepo
-	WebhookDeliveries   *WebhookDeliveryRepo
-	Identities          *IdentityRepo
-	Contacts            *ContactRepo
-	Groups              *GroupRepo
-	GroupMembers        *GroupMemberRepo
-	Chats               *ChatRepo
-	Messages            *MessageRepo
-	Polls               *PollRepo
-	PollVotes           *PollVoteRepo
-	Outbox              *OutboxRepo
-	EventLog            *EventLogRepo
-	Retention           *RetentionRepo
-	BackfillImports     *BackfillImportRepo
-	OAuthClients        *OAuthClientRepo
-	OAuthGrants         *OAuthGrantRepo
-	OAuthRefresh        *OAuthRefreshTokenRepo
-	OAuthSigningKeys    *OAuthSigningKeyRepo
-	EnrollmentTokens    *EnrollmentTokenRepo
-	GatewayCertificates *GatewayCertificateRepo
-	AuditEvents         *AuditRepo
+	db                *sql.DB
+	Gateways          *GatewayRepo
+	Sessions          *SessionRepo
+	APIKeys           *APIKeyRepo
+	Webhooks          *WebhookRepo
+	WebhookDeliveries *WebhookDeliveryRepo
+	Identities        *IdentityRepo
+	Contacts          *ContactRepo
+	Groups            *GroupRepo
+	GroupMembers      *GroupMemberRepo
+	Chats             *ChatRepo
+	Messages          *MessageRepo
+	Polls             *PollRepo
+	PollVotes         *PollVoteRepo
+	Outbox            *OutboxRepo
+	EventLog          *EventLogRepo
+	Retention         *RetentionRepo
+	BackfillImports   *BackfillImportRepo
+	OAuthClients      *OAuthClientRepo
+	OAuthGrants       *OAuthGrantRepo
+	OAuthRefresh      *OAuthRefreshTokenRepo
+	OAuthSigningKeys  *OAuthSigningKeyRepo
+	AuditEvents       *AuditRepo
 }
 
 // New builds a Store with every repo bound to the same *sql.DB.
@@ -80,8 +78,7 @@ func New(db *sql.DB) *Store {
 		OAuthGrants:       NewOAuthGrantRepo(db),
 		OAuthRefresh:      NewOAuthRefreshTokenRepo(db),
 		OAuthSigningKeys:  NewOAuthSigningKeyRepo(db),
-		EnrollmentTokens:  NewEnrollmentTokenRepo(db), GatewayCertificates: NewGatewayCertificateRepo(db),
-		AuditEvents: NewAuditRepo(db),
+		AuditEvents:       NewAuditRepo(db),
 	}
 }
 
@@ -110,7 +107,6 @@ func newWithDBTX(db storedb.DBTX) *Store {
 		EventLog: NewEventLogRepo(db), Retention: NewRetentionRepo(db), BackfillImports: NewBackfillImportRepo(db),
 		OAuthClients: NewOAuthClientRepo(db), OAuthGrants: NewOAuthGrantRepo(db),
 		OAuthRefresh: NewOAuthRefreshTokenRepo(db), OAuthSigningKeys: NewOAuthSigningKeyRepo(db),
-		EnrollmentTokens: NewEnrollmentTokenRepo(db), GatewayCertificates: NewGatewayCertificateRepo(db),
 		AuditEvents: NewAuditRepo(db),
 	}
 }

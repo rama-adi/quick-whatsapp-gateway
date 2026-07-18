@@ -1,6 +1,7 @@
 package pki
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -8,6 +9,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
+	"encoding/pem"
 	"errors"
 	"io"
 	"math/big"
@@ -81,8 +83,70 @@ type SignedCertificate struct {
 	Serial                                     *big.Int
 	NotBefore, NotAfter                        time.Time
 }
-type Signer interface {
+type CertificateSigner interface {
 	Sign(context.Context, SignRequest) (SignedCertificate, error)
+}
+type Signer = CertificateSigner
+
+// ValidateSignedGateway rejects malformed or substituted signer output before persistence.
+func ValidateSignedGateway(s SignedCertificate, csr ValidatedCSR, gatewayID string, now time.Time) error {
+	if s.AuthorityID == "" || s.Serial == nil || len(s.DER) == 0 || len(s.Fingerprint) != sha256.Size || len(s.ChainPEM) == 0 || len(s.TrustBundlePEM) == 0 {
+		return errors.New("invalid signed certificate metadata")
+	}
+	fp := sha256.Sum256(s.DER)
+	if !bytes.Equal(fp[:], s.Fingerprint) {
+		return errors.New("signed certificate fingerprint mismatch")
+	}
+	leaf, err := x509.ParseCertificate(s.DER)
+	if err != nil {
+		return errors.New("invalid signed leaf")
+	}
+	if leaf.SerialNumber.Cmp(s.Serial) != 0 || !leaf.NotBefore.Equal(s.NotBefore) || !leaf.NotAfter.Equal(s.NotAfter) || !leaf.NotAfter.After(now) {
+		return errors.New("signed certificate time or serial mismatch")
+	}
+	parsedCSR, err := x509.ParseCertificateRequest(csr.DER())
+	if err != nil || !publicKeysEqual(leaf.PublicKey, parsedCSR.PublicKey) {
+		return errors.New("signed certificate key mismatch")
+	}
+	if len(leaf.URIs) != 1 || leaf.URIs[0].String() != "spiffe://quick-wa/gateway/"+gatewayID {
+		return errors.New("signed certificate identity mismatch")
+	}
+	if leaf.IsCA || !leaf.BasicConstraintsValid || leaf.KeyUsage != x509.KeyUsageDigitalSignature || leaf.KeyUsage&(x509.KeyUsageCertSign|x509.KeyUsageCRLSign) != 0 {
+		return errors.New("signed certificate constraints mismatch")
+	}
+	if len(leaf.ExtKeyUsage) != 2 || leaf.ExtKeyUsage[0] != x509.ExtKeyUsageClientAuth || leaf.ExtKeyUsage[1] != x509.ExtKeyUsageServerAuth {
+		return errors.New("signed certificate EKU mismatch")
+	}
+	block, rest := pem.Decode(s.ChainPEM)
+	if block == nil || block.Type != "CERTIFICATE" || !bytes.Equal(block.Bytes, s.DER) {
+		return errors.New("certificate chain leaf mismatch")
+	}
+	issuerBlock, trailing := pem.Decode(rest)
+	if issuerBlock == nil || issuerBlock.Type != "CERTIFICATE" || len(trailing) != 0 {
+		return errors.New("invalid certificate chain")
+	}
+	issuer, err := x509.ParseCertificate(issuerBlock.Bytes)
+	if err != nil || leaf.CheckSignatureFrom(issuer) != nil {
+		return errors.New("invalid issuer chain")
+	}
+	roots := x509.NewCertPool()
+	if !roots.AppendCertsFromPEM(s.TrustBundlePEM) {
+		return errors.New("invalid trust bundle")
+	}
+	pool := x509.NewCertPool()
+	pool.AddCert(issuer)
+	if _, err = leaf.Verify(x509.VerifyOptions{Roots: roots, Intermediates: pool, CurrentTime: now, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}); err != nil {
+		return errors.New("untrusted signed certificate")
+	}
+	return nil
+}
+func publicKeysEqual(a, b any) bool {
+	ap, ok := a.(ed25519.PublicKey)
+	if !ok {
+		return false
+	}
+	bp, ok := b.(ed25519.PublicKey)
+	return ok && bytes.Equal(ap, bp)
 }
 
 type Policy struct{ TTL, Skew time.Duration }

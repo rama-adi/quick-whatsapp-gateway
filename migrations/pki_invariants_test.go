@@ -19,6 +19,7 @@ func TestPKISchemaEnforcesSingleActiveAndRotationLock(t *testing.T) {
 		"INSERT INTO pki_rotation_lock (id) VALUES (1)",
 		"CONSTRAINT fk_gateway_certificate_token FOREIGN KEY (enrollment_token_id) REFERENCES gateway_enrollment_tokens(id) ON DELETE RESTRICT",
 		"UNIQUE KEY uq_gateway_certificate_token_csr (enrollment_token_id, csr_sha256)",
+		"trust_bundle_pem        MEDIUMTEXT NOT NULL",
 	} {
 		if !strings.Contains(s, required) {
 			t.Fatalf("missing PKI invariant %q", required)

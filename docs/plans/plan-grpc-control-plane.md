@@ -834,4 +834,9 @@ strict loaded-row and key validation, explicit root-rotation refusal, transactio
 renewal, exact root trust-bundle publication, and SPIFFE leaf signing. Runtime configuration wiring,
 enrollment RPCs, listeners, Vault integration, and UI remain later increments.
 
+Increment 2.2 adds the transport-independent enrollment state machine only: atomic creation and
+replacement, digest-only bearer persistence, nonce/lease-fenced three-phase redemption, exact
+same-CSR replay, bounded out-of-transaction signing, and safe audits. REST, public/private gRPC,
+listener, composition-root, and web-interface wiring remain later increments.
+
 These decisions affect implementation detail, not the responsibility boundary locked above.

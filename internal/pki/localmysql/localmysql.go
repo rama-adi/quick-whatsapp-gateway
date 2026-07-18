@@ -15,7 +15,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math/big"
 	"sync"
 	"time"
 
@@ -341,8 +340,12 @@ func (s *Signer) SignGateway(ctx context.Context, req base.SignRequest) (base.Si
 		return base.SignedCertificate{}, err
 	}
 	fp := sha256.Sum256(der)
+	leaf, err := x509.ParseCertificate(der)
+	if err != nil {
+		return base.SignedCertificate{}, err
+	}
 	chain := append(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), []byte(c.intermediate.CertificatePEM)...)
-	return base.SignedCertificate{DER: der, ChainPEM: chain, TrustBundlePEM: []byte(c.root.CertificatePEM), Fingerprint: fp[:], AuthorityID: c.intermediate.ID, Serial: new(big.Int).Set(t.SerialNumber), NotBefore: t.NotBefore, NotAfter: t.NotAfter}, nil
+	return base.SignedCertificate{DER: der, ChainPEM: chain, TrustBundlePEM: []byte(c.root.CertificatePEM), Fingerprint: fp[:], AuthorityID: c.intermediate.ID, Serial: leaf.SerialNumber, NotBefore: leaf.NotBefore, NotAfter: leaf.NotAfter}, nil
 }
 func (s *Signer) TrustBundle() ([]byte, error) {
 	if s.repo != nil {

@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
+	"encoding/pem"
+	"math/big"
 	"net/url"
 	"testing"
 	"time"
@@ -105,5 +108,57 @@ func TestEnvelopeTamperAndSubstitution(t *testing.T) {
 	binding.AuthorityID = "ca2"
 	if _, err := OpenKey(key, env, binding); err == nil {
 		t.Fatal("substitution accepted")
+	}
+}
+
+func TestValidateSignedGateway(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	rootPub, rootKey, _ := ed25519.GenerateKey(rand.Reader)
+	rootT := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "root"}, NotBefore: now.Add(-time.Hour), NotAfter: now.Add(24 * time.Hour), IsCA: true, BasicConstraintsValid: true, MaxPathLen: 1, KeyUsage: x509.KeyUsageCertSign}
+	rootDER, _ := x509.CreateCertificate(rand.Reader, rootT, rootT, rootPub, rootKey)
+	root, _ := x509.ParseCertificate(rootDER)
+	issuerPub, issuerKey, _ := ed25519.GenerateKey(rand.Reader)
+	issuerT := &x509.Certificate{SerialNumber: big.NewInt(2), Subject: pkix.Name{CommonName: "issuer"}, NotBefore: now.Add(-time.Hour), NotAfter: now.Add(12 * time.Hour), IsCA: true, BasicConstraintsValid: true, MaxPathLenZero: true, KeyUsage: x509.KeyUsageCertSign}
+	issuerDER, _ := x509.CreateCertificate(rand.Reader, issuerT, root, issuerPub, rootKey)
+	issuer, _ := x509.ParseCertificate(issuerDER)
+	csr, _ := ValidateCSR(csrDER(t, "gw", nil), "gw")
+	leafT, _ := NewLeafTemplate("gw", csr, Policy{TTL: time.Hour, Skew: time.Minute}, now, issuer.NotAfter, rand.Reader)
+	parsedCSR, _ := x509.ParseCertificateRequest(csr.DER())
+	leafDER, _ := x509.CreateCertificate(rand.Reader, leafT, issuer, parsedCSR.PublicKey, issuerKey)
+	fp := sha256.Sum256(leafDER)
+	chain := append(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leafDER}), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: issuerDER})...)
+	signed := SignedCertificate{DER: leafDER, ChainPEM: chain, TrustBundlePEM: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: rootDER}), Fingerprint: fp[:], AuthorityID: "issuer", Serial: leafT.SerialNumber, NotBefore: leafT.NotBefore, NotAfter: leafT.NotAfter}
+	if err := ValidateSignedGateway(signed, csr, "gw", now); err != nil {
+		t.Fatal(err)
+	}
+	badFingerprint := signed
+	badFingerprint.Fingerprint = append([]byte(nil), signed.Fingerprint...)
+	badFingerprint.Fingerprint[0] ^= 1
+	if ValidateSignedGateway(badFingerprint, csr, "gw", now) == nil {
+		t.Fatal("tampered fingerprint accepted")
+	}
+	for name, mutate := range map[string]func(*x509.Certificate){
+		"ca":                 func(c *x509.Certificate) { c.IsCA = true },
+		"constraints absent": func(c *x509.Certificate) { c.BasicConstraintsValid = false },
+		"cert sign":          func(c *x509.Certificate) { c.KeyUsage |= x509.KeyUsageCertSign },
+		"crl sign":           func(c *x509.Certificate) { c.KeyUsage |= x509.KeyUsageCRLSign },
+		"key encipherment":   func(c *x509.Certificate) { c.KeyUsage |= x509.KeyUsageKeyEncipherment },
+	} {
+		t.Run(name, func(t *testing.T) {
+			badLeaf := *leafT
+			mutate(&badLeaf)
+			der, err := x509.CreateCertificate(rand.Reader, &badLeaf, issuer, parsedCSR.PublicKey, issuerKey)
+			if err != nil {
+				t.Fatal(err)
+			}
+			parsed, _ := x509.ParseCertificate(der)
+			fingerprint := sha256.Sum256(der)
+			out := signed
+			out.DER, out.Fingerprint, out.Serial, out.NotBefore, out.NotAfter = der, fingerprint[:], parsed.SerialNumber, parsed.NotBefore, parsed.NotAfter
+			out.ChainPEM = append(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: issuerDER})...)
+			if ValidateSignedGateway(out, csr, "gw", now) == nil {
+				t.Fatal("malformed leaf accepted")
+			}
+		})
 	}
 }

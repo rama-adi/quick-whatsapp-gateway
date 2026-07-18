@@ -12,33 +12,33 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/store/storedb"
 )
 
-type EnrollmentTokenRepo struct{ q *storedb.Queries }
+type enrollmentTokenRepo struct{ q *storedb.Queries }
 
-func NewEnrollmentTokenRepo(db storedb.DBTX) *EnrollmentTokenRepo {
-	return &EnrollmentTokenRepo{storedb.New(db)}
+func newEnrollmentTokenRepo(db storedb.DBTX) *enrollmentTokenRepo {
+	return &enrollmentTokenRepo{storedb.New(db)}
 }
-func (r *EnrollmentTokenRepo) Issue(ctx context.Context, t domain.EnrollmentToken) error {
+func (r *enrollmentTokenRepo) issue(ctx context.Context, t domain.EnrollmentToken) error {
 	return r.q.IssueGatewayEnrollmentToken(ctx, storedb.IssueGatewayEnrollmentTokenParams{ID: t.ID, GatewayID: t.GatewayID, TokenHash: t.TokenHash, TokenPrefix: t.TokenPrefix, MaxAttempts: t.MaxAttempts, ExpiresAt: t.ExpiresAt, CreatedByUserID: t.CreatedByUserID, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt})
 }
 
 // GetForUpdate locks the selector row. Callers must use a transaction and
 // compare the presented token digest in constant time before beginning redemption.
-func (r *EnrollmentTokenRepo) GetForUpdate(ctx context.Context, id string) (domain.EnrollmentToken, error) {
+func (r *enrollmentTokenRepo) getForUpdate(ctx context.Context, id string) (domain.EnrollmentToken, error) {
 	t, err := r.q.GetGatewayEnrollmentTokenForUpdate(ctx, storedb.GetGatewayEnrollmentTokenForUpdateParams{ID: id})
 	if err != nil {
 		return domain.EnrollmentToken{}, err
 	}
 	return domain.EnrollmentToken{ID: t.ID, GatewayID: t.GatewayID, TokenPrefix: t.TokenPrefix, Status: string(t.Status), TokenHash: t.TokenHash, AttemptCount: t.AttemptCount, MaxAttempts: t.MaxAttempts, ExpiresAt: t.ExpiresAt, CreatedByUserID: t.CreatedByUserID, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt, RedemptionNonce: []byte(t.RedemptionNonce.String), CSRSHA256: []byte(t.CsrSha256.String), RedeemingAt: int64PtrFromNull(t.RedeemingAt), LeaseExpiresAt: int64PtrFromNull(t.LeaseExpiresAt), ConsumedAt: int64PtrFromNull(t.ConsumedAt), RevokedAt: int64PtrFromNull(t.RevokedAt)}, nil
 }
-func (r *EnrollmentTokenRepo) Begin(ctx context.Context, id string, nonce, csrHash []byte, now, leaseUntil int64) (bool, error) {
+func (r *enrollmentTokenRepo) begin(ctx context.Context, id string, nonce, csrHash []byte, now, leaseUntil int64) (bool, error) {
 	n, e := r.q.BeginGatewayEnrollment(ctx, storedb.BeginGatewayEnrollmentParams{RedemptionNonce: binaryNull(nonce), CsrSha256: binaryNull(csrHash), RedeemingAt: sql.NullInt64{Int64: now, Valid: true}, LeaseExpiresAt: sql.NullInt64{Int64: leaseUntil, Valid: true}, UpdatedAt: now, ID: id, ExpiresAt: now, LeaseExpiresAt_2: sql.NullInt64{Int64: now, Valid: true}, CsrSha256_2: binaryNull(csrHash)})
 	return n == 1, e
 }
-func (r *EnrollmentTokenRepo) Finalize(ctx context.Context, id string, nonce, csrHash []byte, now int64) (bool, error) {
+func (r *enrollmentTokenRepo) finalize(ctx context.Context, id string, nonce, csrHash []byte, now int64) (bool, error) {
 	n, e := r.q.FinalizeGatewayEnrollment(ctx, storedb.FinalizeGatewayEnrollmentParams{ConsumedAt: sql.NullInt64{Int64: now, Valid: true}, UpdatedAt: now, ID: id, RedemptionNonce: binaryNull(nonce), CsrSha256: binaryNull(csrHash), LeaseExpiresAt: sql.NullInt64{Int64: now, Valid: true}})
 	return n == 1, e
 }
-func (r *EnrollmentTokenRepo) Release(ctx context.Context, id string, nonce, csrHash []byte, now int64) (bool, error) {
+func (r *enrollmentTokenRepo) release(ctx context.Context, id string, nonce, csrHash []byte, now int64) (bool, error) {
 	n, e := r.q.ReleaseGatewayEnrollment(ctx, storedb.ReleaseGatewayEnrollmentParams{UpdatedAt: now, ID: id, RedemptionNonce: binaryNull(nonce), CsrSha256: binaryNull(csrHash), LeaseExpiresAt: sql.NullInt64{Int64: now, Valid: true}})
 	return n == 1, e
 }
@@ -46,37 +46,28 @@ func (r *EnrollmentTokenRepo) Release(ctx context.Context, id string, nonce, csr
 func binaryNull(value []byte) sql.NullString {
 	return sql.NullString{String: string(value), Valid: len(value) > 0}
 }
-func (r *EnrollmentTokenRepo) Revoke(ctx context.Context, id string, now int64) (bool, error) {
-	n, e := r.q.RevokeGatewayEnrollmentToken(ctx, storedb.RevokeGatewayEnrollmentTokenParams{RevokedAt: sql.NullInt64{Int64: now, Valid: true}, UpdatedAt: now, ID: id})
-	return n == 1, e
-}
-func (r *EnrollmentTokenRepo) Lock(ctx context.Context, id string, now int64) (bool, error) {
+func (r *enrollmentTokenRepo) lock(ctx context.Context, id string, now int64) (bool, error) {
 	n, e := r.q.LockGatewayEnrollmentToken(ctx, storedb.LockGatewayEnrollmentTokenParams{UpdatedAt: now, ID: id})
 	return n == 1, e
 }
+func (r *enrollmentTokenRepo) revokeLiveByGateway(ctx context.Context, gatewayID string, now int64) (int64, error) {
+	return r.q.RevokeLiveGatewayEnrollmentTokens(ctx, storedb.RevokeLiveGatewayEnrollmentTokensParams{RevokedAt: sql.NullInt64{Int64: now, Valid: true}, UpdatedAt: now, GatewayID: gatewayID})
+}
 
-type GatewayCertificateRepo struct{ q *storedb.Queries }
+type gatewayCertificateRepo struct{ q *storedb.Queries }
 
-func NewGatewayCertificateRepo(db storedb.DBTX) *GatewayCertificateRepo {
-	return &GatewayCertificateRepo{storedb.New(db)}
+func newGatewayCertificateRepo(db storedb.DBTX) *gatewayCertificateRepo {
+	return &gatewayCertificateRepo{storedb.New(db)}
 }
-func (r *GatewayCertificateRepo) Insert(ctx context.Context, c domain.GatewayCertificate) error {
-	return r.q.InsertGatewayCertificate(ctx, storedb.InsertGatewayCertificateParams{ID: c.ID, GatewayID: c.GatewayID, AuthorityID: c.AuthorityID, EnrollmentTokenID: c.EnrollmentTokenID, CsrSha256: c.CSRSHA256, SerialNumber: c.SerialNumber, CertificatePem: c.CertificatePEM, CertificateFingerprint: c.Fingerprint, NotBefore: c.NotBefore, NotAfter: c.NotAfter, CreatedAt: c.CreatedAt})
+func (r *gatewayCertificateRepo) insert(ctx context.Context, c domain.GatewayCertificate) error {
+	return r.q.InsertGatewayCertificate(ctx, storedb.InsertGatewayCertificateParams{ID: c.ID, GatewayID: c.GatewayID, AuthorityID: c.AuthorityID, EnrollmentTokenID: c.EnrollmentTokenID, CsrSha256: c.CSRSHA256, SerialNumber: c.SerialNumber, CertificatePem: c.CertificatePEM, TrustBundlePem: c.TrustBundlePEM, CertificateFingerprint: c.Fingerprint, NotBefore: c.NotBefore, NotAfter: c.NotAfter, CreatedAt: c.CreatedAt})
 }
-func (r *GatewayCertificateRepo) Revoke(ctx context.Context, id, reason string, now int64) (bool, error) {
-	n, e := r.q.RevokeGatewayCertificate(ctx, storedb.RevokeGatewayCertificateParams{RevokedAt: sql.NullInt64{Int64: now, Valid: true}, RevocationReason: sql.NullString{String: reason, Valid: reason != ""}, ID: id})
-	return n == 1, e
-}
-func (r *GatewayCertificateRepo) List(ctx context.Context, gatewayID string) ([]domain.GatewayCertificate, error) {
-	rows, err := r.q.ListGatewayCertificates(ctx, storedb.ListGatewayCertificatesParams{GatewayID: gatewayID})
-	if err != nil {
-		return nil, err
+func (r *gatewayCertificateRepo) getByTokenCSR(ctx context.Context, tokenID string, csr []byte) (domain.GatewayCertificate, error) {
+	c, e := r.q.GetGatewayCertificateByTokenCSR(ctx, storedb.GetGatewayCertificateByTokenCSRParams{EnrollmentTokenID: tokenID, CsrSha256: csr})
+	if e != nil {
+		return domain.GatewayCertificate{}, e
 	}
-	out := make([]domain.GatewayCertificate, 0, len(rows))
-	for _, c := range rows {
-		out = append(out, domain.GatewayCertificate{ID: c.ID, GatewayID: c.GatewayID, AuthorityID: c.AuthorityID, EnrollmentTokenID: c.EnrollmentTokenID, CSRSHA256: c.CsrSha256, SerialNumber: c.SerialNumber, CertificatePEM: c.CertificatePem, Fingerprint: c.CertificateFingerprint, NotBefore: c.NotBefore, NotAfter: c.NotAfter, CreatedAt: c.CreatedAt, RevokedAt: int64PtrFromNull(c.RevokedAt), RevocationReason: stringPtrFromNull(c.RevocationReason)})
-	}
-	return out, nil
+	return domain.GatewayCertificate{ID: c.ID, GatewayID: c.GatewayID, AuthorityID: c.AuthorityID, EnrollmentTokenID: c.EnrollmentTokenID, CSRSHA256: c.CsrSha256, SerialNumber: c.SerialNumber, CertificatePEM: c.CertificatePem, TrustBundlePEM: c.TrustBundlePem, Fingerprint: c.CertificateFingerprint, NotBefore: c.NotBefore, NotAfter: c.NotAfter, CreatedAt: c.CreatedAt}, nil
 }
 
 type AuditRepo struct{ q *storedb.Queries }

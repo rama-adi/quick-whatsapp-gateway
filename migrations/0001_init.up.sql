@@ -122,6 +122,7 @@ CREATE TABLE gateway_certificates (
   csr_sha256               BINARY(32) NOT NULL,
   serial_number           VARCHAR(128) NOT NULL,
   certificate_pem         MEDIUMTEXT NOT NULL,
+  trust_bundle_pem        MEDIUMTEXT NOT NULL,
   certificate_fingerprint BINARY(32) NOT NULL,
   not_before              BIGINT NOT NULL,
   not_after               BIGINT NOT NULL,

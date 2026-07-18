@@ -40,7 +40,7 @@ func TestInTxCommitAndRollback(t *testing.T) {
 				mock.ExpectRollback()
 			}
 			err = InTx(context.Background(), db, func(s *Store) error {
-				if s.EnrollmentTokens == nil || s.AuditEvents == nil {
+				if s.AuditEvents == nil {
 					t.Fatal("transaction store incomplete")
 				}
 				return tc.callback
@@ -64,7 +64,7 @@ func TestEnrollmentOwnershipCASReturnsFalseForStaleWorker(t *testing.T) {
 	mock.ExpectExec("UPDATE gateway_enrollment_tokens").
 		WithArgs(int64(200), int64(200), "tok_1", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 0))
-	ok, err := NewEnrollmentTokenRepo(db).Finalize(context.Background(), "tok_1", []byte("0123456789abcdef"), make([]byte, 32), 200)
+	ok, err := newEnrollmentTokenRepo(db).finalize(context.Background(), "tok_1", []byte("0123456789abcdef"), make([]byte, 32), 200)
 	if err != nil || ok {
 		t.Fatalf("stale finalize: ok=%v err=%v", ok, err)
 	}

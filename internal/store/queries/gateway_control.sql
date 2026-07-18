@@ -6,13 +6,26 @@ VALUES (?, ?, ?, ?, 'active', 0, ?, ?, ?, ?, ?);
 -- name: GetGatewayEnrollmentTokenForUpdate :one
 SELECT * FROM gateway_enrollment_tokens WHERE id = ? FOR UPDATE;
 
+-- name: LockGatewayForEnrollment :one
+SELECT id, status, deleted_at FROM gateways WHERE id=? FOR UPDATE;
+
+-- name: RevokeLiveGatewayEnrollmentTokens :execrows
+UPDATE gateway_enrollment_tokens SET status='revoked', revoked_at=?, updated_at=?, redemption_nonce=NULL, csr_sha256=NULL, redeeming_at=NULL, lease_expires_at=NULL
+WHERE gateway_id=? AND status IN ('active','redeeming');
+
+-- name: EnrollPendingGateway :execrows
+UPDATE gateways SET status='joining', enrolled_at=?, updated_at=? WHERE id=? AND status='pending_enrollment' AND deleted_at IS NULL;
+
+-- name: GetGatewayCertificateByTokenCSR :one
+SELECT * FROM gateway_certificates WHERE enrollment_token_id=? AND csr_sha256=?;
+
 -- name: RevokeGatewayEnrollmentToken :execrows
 UPDATE gateway_enrollment_tokens SET status='revoked', revoked_at=?, updated_at=?
   , redemption_nonce=NULL, csr_sha256=NULL, redeeming_at=NULL, lease_expires_at=NULL
 WHERE id=? AND status IN ('active','redeeming');
 
 -- name: LockGatewayEnrollmentToken :execrows
-UPDATE gateway_enrollment_tokens SET status='locked', updated_at=?
+UPDATE gateway_enrollment_tokens SET status='locked', attempt_count=max_attempts, updated_at=?
   , redemption_nonce=NULL, csr_sha256=NULL, redeeming_at=NULL, lease_expires_at=NULL
 WHERE id=? AND status IN ('active','redeeming');
 
@@ -37,8 +50,8 @@ WHERE id=? AND status='redeeming' AND redemption_nonce=? AND csr_sha256=? AND le
 
 -- name: InsertGatewayCertificate :exec
 INSERT INTO gateway_certificates
-(id, gateway_id, authority_id, enrollment_token_id, csr_sha256, serial_number, certificate_pem, certificate_fingerprint, not_before, not_after, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+(id, gateway_id, authority_id, enrollment_token_id, csr_sha256, serial_number, certificate_pem, trust_bundle_pem, certificate_fingerprint, not_before, not_after, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: ListGatewayCertificates :many
 SELECT * FROM gateway_certificates WHERE gateway_id=? ORDER BY created_at DESC, id DESC;

@@ -88,6 +88,24 @@ func (q *Queries) BeginGatewayEnrollment(ctx context.Context, arg BeginGatewayEn
 	return result.RowsAffected()
 }
 
+const enrollPendingGateway = `-- name: EnrollPendingGateway :execrows
+UPDATE gateways SET status='joining', enrolled_at=?, updated_at=? WHERE id=? AND status='pending_enrollment' AND deleted_at IS NULL
+`
+
+type EnrollPendingGatewayParams struct {
+	EnrolledAt sql.NullInt64 `db:"enrolled_at" json:"enrolled_at"`
+	UpdatedAt  int64         `db:"updated_at" json:"updated_at"`
+	ID         string        `db:"id" json:"id"`
+}
+
+func (q *Queries) EnrollPendingGateway(ctx context.Context, arg EnrollPendingGatewayParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, enrollPendingGateway, arg.EnrolledAt, arg.UpdatedAt, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const finalizeGatewayEnrollment = `-- name: FinalizeGatewayEnrollment :execrows
 UPDATE gateway_enrollment_tokens
 SET status='consumed', consumed_at=?, redemption_nonce=NULL, csr_sha256=NULL,
@@ -117,6 +135,37 @@ func (q *Queries) FinalizeGatewayEnrollment(ctx context.Context, arg FinalizeGat
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const getGatewayCertificateByTokenCSR = `-- name: GetGatewayCertificateByTokenCSR :one
+SELECT id, gateway_id, authority_id, enrollment_token_id, csr_sha256, serial_number, certificate_pem, trust_bundle_pem, certificate_fingerprint, not_before, not_after, revoked_at, revocation_reason, created_at FROM gateway_certificates WHERE enrollment_token_id=? AND csr_sha256=?
+`
+
+type GetGatewayCertificateByTokenCSRParams struct {
+	EnrollmentTokenID string `db:"enrollment_token_id" json:"enrollment_token_id"`
+	CsrSha256         []byte `db:"csr_sha256" json:"csr_sha256"`
+}
+
+func (q *Queries) GetGatewayCertificateByTokenCSR(ctx context.Context, arg GetGatewayCertificateByTokenCSRParams) (GatewayCertificate, error) {
+	row := q.db.QueryRowContext(ctx, getGatewayCertificateByTokenCSR, arg.EnrollmentTokenID, arg.CsrSha256)
+	var i GatewayCertificate
+	err := row.Scan(
+		&i.ID,
+		&i.GatewayID,
+		&i.AuthorityID,
+		&i.EnrollmentTokenID,
+		&i.CsrSha256,
+		&i.SerialNumber,
+		&i.CertificatePem,
+		&i.TrustBundlePem,
+		&i.CertificateFingerprint,
+		&i.NotBefore,
+		&i.NotAfter,
+		&i.RevokedAt,
+		&i.RevocationReason,
+		&i.CreatedAt,
+	)
+	return i, err
 }
 
 const getGatewayEnrollmentTokenForUpdate = `-- name: GetGatewayEnrollmentTokenForUpdate :one
@@ -154,8 +203,8 @@ func (q *Queries) GetGatewayEnrollmentTokenForUpdate(ctx context.Context, arg Ge
 
 const insertGatewayCertificate = `-- name: InsertGatewayCertificate :exec
 INSERT INTO gateway_certificates
-(id, gateway_id, authority_id, enrollment_token_id, csr_sha256, serial_number, certificate_pem, certificate_fingerprint, not_before, not_after, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+(id, gateway_id, authority_id, enrollment_token_id, csr_sha256, serial_number, certificate_pem, trust_bundle_pem, certificate_fingerprint, not_before, not_after, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertGatewayCertificateParams struct {
@@ -166,6 +215,7 @@ type InsertGatewayCertificateParams struct {
 	CsrSha256              []byte `db:"csr_sha256" json:"csr_sha256"`
 	SerialNumber           string `db:"serial_number" json:"serial_number"`
 	CertificatePem         string `db:"certificate_pem" json:"certificate_pem"`
+	TrustBundlePem         string `db:"trust_bundle_pem" json:"trust_bundle_pem"`
 	CertificateFingerprint []byte `db:"certificate_fingerprint" json:"certificate_fingerprint"`
 	NotBefore              int64  `db:"not_before" json:"not_before"`
 	NotAfter               int64  `db:"not_after" json:"not_after"`
@@ -181,6 +231,7 @@ func (q *Queries) InsertGatewayCertificate(ctx context.Context, arg InsertGatewa
 		arg.CsrSha256,
 		arg.SerialNumber,
 		arg.CertificatePem,
+		arg.TrustBundlePem,
 		arg.CertificateFingerprint,
 		arg.NotBefore,
 		arg.NotAfter,
@@ -277,7 +328,7 @@ func (q *Queries) ListAuditEventsByResource(ctx context.Context, arg ListAuditEv
 }
 
 const listGatewayCertificates = `-- name: ListGatewayCertificates :many
-SELECT id, gateway_id, authority_id, enrollment_token_id, csr_sha256, serial_number, certificate_pem, certificate_fingerprint, not_before, not_after, revoked_at, revocation_reason, created_at FROM gateway_certificates WHERE gateway_id=? ORDER BY created_at DESC, id DESC
+SELECT id, gateway_id, authority_id, enrollment_token_id, csr_sha256, serial_number, certificate_pem, trust_bundle_pem, certificate_fingerprint, not_before, not_after, revoked_at, revocation_reason, created_at FROM gateway_certificates WHERE gateway_id=? ORDER BY created_at DESC, id DESC
 `
 
 type ListGatewayCertificatesParams struct {
@@ -301,6 +352,7 @@ func (q *Queries) ListGatewayCertificates(ctx context.Context, arg ListGatewayCe
 			&i.CsrSha256,
 			&i.SerialNumber,
 			&i.CertificatePem,
+			&i.TrustBundlePem,
 			&i.CertificateFingerprint,
 			&i.NotBefore,
 			&i.NotAfter,
@@ -322,7 +374,7 @@ func (q *Queries) ListGatewayCertificates(ctx context.Context, arg ListGatewayCe
 }
 
 const lockGatewayEnrollmentToken = `-- name: LockGatewayEnrollmentToken :execrows
-UPDATE gateway_enrollment_tokens SET status='locked', updated_at=?
+UPDATE gateway_enrollment_tokens SET status='locked', attempt_count=max_attempts, updated_at=?
   , redemption_nonce=NULL, csr_sha256=NULL, redeeming_at=NULL, lease_expires_at=NULL
 WHERE id=? AND status IN ('active','redeeming')
 `
@@ -338,6 +390,27 @@ func (q *Queries) LockGatewayEnrollmentToken(ctx context.Context, arg LockGatewa
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const lockGatewayForEnrollment = `-- name: LockGatewayForEnrollment :one
+SELECT id, status, deleted_at FROM gateways WHERE id=? FOR UPDATE
+`
+
+type LockGatewayForEnrollmentParams struct {
+	ID string `db:"id" json:"id"`
+}
+
+type LockGatewayForEnrollmentRow struct {
+	ID        string         `db:"id" json:"id"`
+	Status    GatewaysStatus `db:"status" json:"status"`
+	DeletedAt sql.NullInt64  `db:"deleted_at" json:"deleted_at"`
+}
+
+func (q *Queries) LockGatewayForEnrollment(ctx context.Context, arg LockGatewayForEnrollmentParams) (LockGatewayForEnrollmentRow, error) {
+	row := q.db.QueryRowContext(ctx, lockGatewayForEnrollment, arg.ID)
+	var i LockGatewayForEnrollmentRow
+	err := row.Scan(&i.ID, &i.Status, &i.DeletedAt)
+	return i, err
 }
 
 const releaseGatewayEnrollment = `-- name: ReleaseGatewayEnrollment :execrows
@@ -402,6 +475,25 @@ type RevokeGatewayEnrollmentTokenParams struct {
 
 func (q *Queries) RevokeGatewayEnrollmentToken(ctx context.Context, arg RevokeGatewayEnrollmentTokenParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, revokeGatewayEnrollmentToken, arg.RevokedAt, arg.UpdatedAt, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const revokeLiveGatewayEnrollmentTokens = `-- name: RevokeLiveGatewayEnrollmentTokens :execrows
+UPDATE gateway_enrollment_tokens SET status='revoked', revoked_at=?, updated_at=?, redemption_nonce=NULL, csr_sha256=NULL, redeeming_at=NULL, lease_expires_at=NULL
+WHERE gateway_id=? AND status IN ('active','redeeming')
+`
+
+type RevokeLiveGatewayEnrollmentTokensParams struct {
+	RevokedAt sql.NullInt64 `db:"revoked_at" json:"revoked_at"`
+	UpdatedAt int64         `db:"updated_at" json:"updated_at"`
+	GatewayID string        `db:"gateway_id" json:"gateway_id"`
+}
+
+func (q *Queries) RevokeLiveGatewayEnrollmentTokens(ctx context.Context, arg RevokeLiveGatewayEnrollmentTokensParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, revokeLiveGatewayEnrollmentTokens, arg.RevokedAt, arg.UpdatedAt, arg.GatewayID)
 	if err != nil {
 		return 0, err
 	}

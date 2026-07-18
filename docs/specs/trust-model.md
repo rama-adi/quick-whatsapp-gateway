@@ -27,6 +27,23 @@
 > Authority TTLs and renewal windows must preserve at least one full leaf TTL plus clock skew, and
 > issuance refuses a root without that remaining lifetime before any hierarchy mutation.
 
+> **Increment 2.2 enrollment application (unwired):** gateway creation and token replacement are
+> atomic operator transactions; only a token digest and safe display prefix persist. Redemption is
+> a three-phase fenced workflow: lock/verify/lease, sign outside MySQL with a deadline, then re-lock
+> and atomically persist the certificate, transition the gateway, consume the token, and audit.
+> Expired leases are reclaimable only by the identical CSR; nonce ownership fences stale workers.
+> Consumed same-CSR retries replay the exact persisted active chain and trust bundle while the
+> nondeleted gateway advances through joining, active, draining, or drained; disabled/deleted
+> gateways and inactive or mismatched issuance records are denied. Every other denial is
+> intentionally generic. Token replacement against a missing or non-pending gateway is a typed,
+> non-retryable state conflict for a future transport-level 409 mapping. No transport invokes this service yet.
+> The sole store aggregate fixes global lock order as gateway row then token row for begin,
+> finalize, replacement, recovery, and cleanup. A nonlocking selector read only discovers the
+> gateway and performs dummy-safe credential work; every transaction re-locks and re-verifies.
+> Signing uses the canonical validated CSR digest and a deadline capped by the lease minus a safety
+> margin. Credential failures use a bounded jitter delay and typed safe errors distinguish invalid
+> credentials, active work, rate limits, cancellation, and transient infrastructure failures.
+
 Status: implemented (R1/R2). Live-validated against better-auth 1.6.22.
 
 > **Central-router (Increment A) — read this first.** Authentication now **terminates at the

@@ -1121,6 +1121,7 @@ type GatewayCertificate struct {
 	CsrSha256              []byte         `db:"csr_sha256" json:"csr_sha256"`
 	SerialNumber           string         `db:"serial_number" json:"serial_number"`
 	CertificatePem         string         `db:"certificate_pem" json:"certificate_pem"`
+	TrustBundlePem         string         `db:"trust_bundle_pem" json:"trust_bundle_pem"`
 	CertificateFingerprint []byte         `db:"certificate_fingerprint" json:"certificate_fingerprint"`
 	NotBefore              int64          `db:"not_before" json:"not_before"`
 	NotAfter               int64          `db:"not_after" json:"not_after"`

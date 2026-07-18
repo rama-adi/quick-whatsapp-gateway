@@ -172,6 +172,20 @@ The signer installs its validated cache only after commit, and MySQL receives en
 Authority writes are private to the hierarchy transaction adapter; the general Store/sqlc surface
 does not expose insert or rotation methods that can bypass the singleton lock.
 
+Increment 2.2 stores `trust_bundle_pem` with each gateway certificate so an idempotent redemption
+retry returns byte-for-byte issuance material rather than rebuilding it from current PKI state.
+`EnrollmentStore` exposes only complete atomic transitions: create-with-token, replace-live-token,
+acquire-lease, finalize-issuance, release-lease, and recover-issuance. Their implementations privately
+own the transaction and always lock the gateway row before the token row; no public callback or
+row-level enrollment mutation toolkit exists. CA signing remains outside the database transaction
+under a bounded lease. The general Store does not publish token or certificate mutation repositories. Cleanup
+audits are appended only when the nonce-owned release changed exactly one row; an expired owner is
+left for identical-CSR reclaim and produces no false failure audit.
+Exact and ambiguous issuance recovery accepts normal post-enrollment lifecycle advancement
+(`joining`, `active`, `draining`, `drained`) but requires a nondeleted gateway, consumed matching
+token, matching CSR/gateway certificate, and a currently active certificate. Disabled/deleted
+gateways are never recovery-eligible.
+
 These slices are **not wired to an API, listener, enrollment flow, or UI yet**. Current boot self-registration uses the explicit `creator_kind='system'`
 default. Future admin creation requires `creator_kind='user'` and a real creator id; the database
 check forbids ambiguous or fabricated user attribution.

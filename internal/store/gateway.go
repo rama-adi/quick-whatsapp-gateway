@@ -76,6 +76,10 @@ func (r *GatewayRepo) CreatePending(ctx context.Context, g domain.Gateway, notes
 	}
 	return r.q.CreateGateway(ctx, storedb.CreateGatewayParams{ID: g.ID, Label: nullString(g.Label), Notes: nullString(notes), Status: storedb.GatewaysStatusPendingEnrollment, CreatedByUserID: nullString(creatorID), Capacity: nullInt32(g.Capacity), DesiredRevision: desiredRevision, CreatedAt: g.CreatedAt, UpdatedAt: g.UpdatedAt})
 }
+func (r *GatewayRepo) markEnrolledJoining(ctx context.Context, id string, at int64) (bool, error) {
+	n, e := r.q.EnrollPendingGateway(ctx, storedb.EnrollPendingGatewayParams{EnrolledAt: sql.NullInt64{Int64: at, Valid: true}, UpdatedAt: at, ID: id})
+	return n == 1, e
+}
 
 func (r *GatewayRepo) UpdateMetadata(ctx context.Context, id string, label, notes *string, capacity *int, revision uint64, at int64) (bool, error) {
 	n, err := r.q.UpdateGatewayMetadata(ctx, storedb.UpdateGatewayMetadataParams{Label: nullString(label), Notes: nullString(notes), Capacity: nullInt32(capacity), DesiredRevision: revision, UpdatedAt: at, ID: id})

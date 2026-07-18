@@ -21,4 +21,13 @@ func TestEnrollmentQueriesUseSelectorAndOwnedLeaseCAS(t *testing.T) {
 	if !strings.Contains(beginGatewayEnrollment, "lease_expires_at<=?") || !strings.Contains(beginGatewayEnrollment, "attempt_count<max_attempts") {
 		t.Fatal("begin lacks expired-lease and bounded-attempt CAS")
 	}
+	if !strings.Contains(lockGatewayForEnrollment, "FOR UPDATE") || !strings.Contains(revokeLiveGatewayEnrollmentTokens, "status IN ('active','redeeming')") || !strings.Contains(enrollPendingGateway, "status='pending_enrollment'") {
+		t.Fatal("gateway enrollment transaction primitives weakened")
+	}
+	if !strings.Contains(getGatewayCertificateByTokenCSR, "enrollment_token_id=? AND csr_sha256=?") || !strings.Contains(insertGatewayCertificate, "trust_bundle_pem") {
+		t.Fatal("certificate replay material is not exact and token-bound")
+	}
+	if !strings.Contains(lockGatewayEnrollmentToken, "attempt_count=max_attempts") {
+		t.Fatal("lock does not exhaust attempts explicitly")
+	}
 }
