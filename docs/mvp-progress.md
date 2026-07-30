@@ -1,7 +1,7 @@
 # MVP Progress Tracker
 
 Tracks implementation status against [`masterplan-mvp.md`](plans/masterplan-mvp.md).
-Last updated: 2026-07-18.
+Last updated: 2026-07-31.
 
 > **Pivot to v2 (split architecture).** The single-binary v1 MVP (Go + Authula + embedded
 > React Router SPA + MySQL keystore) was **code-complete (M0–M8)** and is preserved at git
@@ -39,13 +39,15 @@ until later increments replace them.
 
 | Increment | Status | Notes |
 |---|---|---|
-| **Increment 0** — decisions and contract tooling | 🚧 In progress | Separate public/private Buf modules; pinned reproducible Go generation; `FILE` compatibility checks for both domains; temporary-directory generated drift check; health-only compatibility anchors; small transport-independent ports for session state, account presence, and read receipts with an unwired local WA adapter; target responsibility boundary and operational defaults recorded. No listener or runtime cutover. |
-| **Increment 1** — composition roots + public health | 🚧 In progress | API/gateway roots, binaries, images, Compose services, and config identities renamed. API public HTTP `8090` and gRPC `8081` listeners share readiness and coordinated lifecycle. WA schema migration ownership moved from gateway to API startup plus dedicated `cmd/migrate`; production gateway HTTP `8080` remains private and private gateway gRPC remains unbound. |
-| **Increment 2.0** — enrollment/PKI schema foundation | 🚧 In progress | Clean `0001` baseline contains normalized gateway lifecycle/revisions, hashed enrollment-token state, encrypted-at-rest CA records, public leaf certificates, and reusable audit events with sqlc primitives. Existing system/bootstrap self-registration remains live. Foundation is intentionally unwired: no token crypto, CSR, signer, listener, API, or UI yet. |
-| **Increment 2.1a** — hierarchy + pure crypto policy | 🚧 In review | Adds root/intermediate persistence, enrollment-owned certificate issuance records, canonical token/CSR primitives, leaf policy, and row-bound AES-GCM key envelopes. Still unwired; the local signer and services follow separately. |
-| **Increment 2.1b** — persistent local CA signer | 🚧 In review | Adds unwired atomic MySQL CA bootstrap, fail-closed hierarchy/key validation, intermediate renewal, exact root trust bundles, and SPIFFE leaf signing. Explicit root rotation and runtime wiring remain later work. |
-| **Increment 2.2** — enrollment application service | 🚧 In review | Adds unwired gateway/token creation and replacement plus nonce/lease-fenced three-phase certificate redemption, exact persisted replay material, generic denials, and bounded signing. No network or UI wiring. |
-| **Increment 2+** — control plane through cutover | ⬜ Planned | Add PKI and control stream, desired state, engine slices, reliable events/commands, then remove gateway HTTP/MySQL/Redis. |
+| **Increment 0** — decisions and contract tooling | ✅ Done | Separate public/private Buf modules; reproducible generation and compatibility/drift checks; health anchors; initial transport-independent engine ports; target boundary and operational defaults. |
+| **Increment 1** — composition roots + public health | ✅ Done | API/gateway roots, binaries, images, Compose services, and config identities renamed. API public HTTP `8090` and gRPC `8081` listeners share readiness. WA schema migration ownership moved to API startup plus `cmd/migrate`; transitional gateway HTTP remains private. |
+| **Increment 2.0–2.2** — enrollment persistence, PKI, service | ✅ Done | Normalized registry/enrollment/certificate/audit schema; token/CSR and envelope policy; persistent local root/intermediate signer; nonce/lease-fenced enrollment with exact same-CSR replay. |
+| **Increment 2.3 + bootstrap** — private enrollment transport | ✅ Done | Opt-in TLS 1.3 listener, anonymous access restricted to enrollment, strict live certificate authorization elsewhere, atomic API identity, and crash-safe gateway credential bootstrap over one reusable mTLS connection. |
+| **Increment 2 control contract** — stream protocol | ✅ Done | Private bidi hello/welcome, heartbeat/lifecycle, version/sequence, connection-epoch, and lifecycle-directive contract with generated bindings and compatibility tests. |
+| **Increment 2 control persistence** — DB fencing | ✅ Done | Atomic compare-and-swap epoch allocation stores Hello metadata; rejects non-connectable gateways; and fences heartbeat/lifecycle/metadata writes from stale streams. Accept/heartbeat preserve applied revision, lifecycle preserves session count, and `degraded` is a durable runtime status; reports cannot select administrative states. |
+| **Increment 2 control handler** — API stream | ✅ Done | Private mTLS registration, TLS-context-only identity, envelope-first version/sequence validation, bounded Hello/heartbeat fields, acknowledgement checks, and stale-epoch rejection are implemented. Lifecycle reports remain `FailedPrecondition` and unpersisted until directives are tracked. |
+| **Increment 2 remainder** — runtime lifecycle/admin | ⬜ Planned | Gateway reconnect supervisor, lease/readiness semantics, server-side heartbeat timeout/forced termination, renewal and forced revocation disconnect, removal of self-registration/direct heartbeats, admin API/UI, and lifecycle reconciliation. Disconnect currently has no explicit database status transition; liveness ages out and a replacement epoch fences the old stream. |
+| **Increments 3+** — desired state through cutover | ⬜ Planned | Add desired state, engine slices, reliable events/commands, public application gRPC, placement cutover, then remove gateway HTTP/MySQL/Redis. |
 
 ## v1 milestones (archived — code complete)
 
@@ -67,9 +69,9 @@ e2e smoke against a live WhatsApp number.
   signing only the intermediate. Production certificate issuance is behind `CertificateSigner`;
   Vault PKI is the reference implementation, not a vendor lock. Exact production CA remains a
   deployment choice.
-- **Private enrollment transport split A (unwired):** `gateway.v1.GatewayEnrollmentService` and the
-  exact API SPIFFE server-leaf policy are defined. A crash-recoverable, versioned API TLS identity
-  manager is implemented, but no private listener, handler, interceptor, or gateway client is wired.
+- **Private enrollment transport:** `gateway.v1.GatewayEnrollmentService`, the exact API SPIFFE
+  server-leaf policy, crash-recoverable API TLS identity, private TLS 1.3 listener, enrollment
+  adapter, certificate authorization, and gateway bootstrap client are implemented and opt-in.
 - **Durable handoff storage:** gateway event/command state lives in a separate `journal.db` on the
   same persistent volume, never in whatsmeow-owned tables. Configurable initial defaults are a 72h
   outage sizing objective (not guaranteed RPO), 1 GiB cap with configuration rejected above 25% of
@@ -183,12 +185,9 @@ e2e smoke against a live WhatsApp number.
   is all-green.
 - **R6 collaboration UI** — members/invitations UI is the remaining fast-follow; org plumbing
   already shipped.
-- Private gRPC transport foundation: optional TLS 1.3 API listener, enrollment adapter, strict
-  per-RPC gateway certificate authorization, atomic API identity renewal, and internal-only compose
-  overlay. Gateway client/control-stream wiring remains a later increment.
-- Gateway private bootstrap: pinned API SPIFFE verification, crash-safe pending CSR/key reuse,
-  atomically installed gateway credentials, replay-aware enrollment retries, and reusable mTLS
-  private-health connection. Control streaming remains deferred.
-- Control-stream contract split 1: private bidi `Connect` frames, bounded lifecycle/capability
-  enums, version/sequence/epoch fencing, generated bindings, and descriptor compatibility tests are
-  defined but intentionally unwired.
+- Private gRPC enrollment transport and gateway credential bootstrap are implemented and opt-in,
+  including pinned SPIFFE/root verification, pending CSR/key reuse, replay-aware retries, strict
+  certificate authorization, and a reusable mTLS connection.
+- The private bidi control contract is implemented. API-side stream handling and database epoch
+  fencing are the active slice; gateway reconnect supervision, lease/readiness behavior, legacy
+  heartbeat removal, renewal, revocation-driven termination, and admin UI remain follow-ups.

@@ -1,12 +1,17 @@
 # Plan: gRPC Control Plane and Database-Independent Gateways
 
-Status: **proposed** — migration design of record; implementation will proceed on this branch.
+Status: **active migration** — design of record; implementation is proceeding incrementally on this branch.
 Branch: `migration/grpc-control-plane`.
 
-> **Implemented foundation (Increment 2.0):** normalized gateway lifecycle/revision,
-> enrollment-token digest, encrypted authority, leaf-certificate, and audit-event persistence plus
-> sqlc primitives. This is deliberately unwired; token crypto, CSR/signing, listeners, API, and UI
-> remain later slices.
+> **Current checkpoint (Increment 2):** enrollment persistence and crypto policy, the persistent
+> local CA, the crash-safe enrollment service, the private TLS 1.3 enrollment listener, strict
+> per-RPC certificate authorization, and crash-safe gateway credential bootstrap over a reusable
+> mTLS connection are implemented. The versioned control-stream contract is also implemented.
+> API-side private-stream registration, database-backed connection epochs, protocol validation, and
+> epoch-fenced Hello/heartbeat writes are implemented. Lifecycle reports remain rejected and
+> unpersisted until explicit directive tracking exists.
+> The gateway reconnect supervisor, removal of legacy self-registration/heartbeats, certificate
+> renewal, admin API/UI, desired-state reconciliation, and engine/event cutover remain unfinished.
 
 This plan replaces the current router → gateway HTTP reverse-proxy architecture with an API
 control plane and private WhatsApp engine gateways connected through gRPC. It also introduces a
@@ -558,9 +563,13 @@ Exit: renamed services deploy with existing behavior and clear dependency owners
 
 ### Increment 2 — PKI enrollment and gateway control stream
 
-Increment 2.1a first lands the unwired root/intermediate hierarchy, enrollment-owned issuance
-records, canonical enrollment-token and CSR policy, leaf templates, and row-bound key envelopes.
-The local MySQL signer and all service/listener/API wiring remain follow-up work.
+The completed Increment 2 foundations include the root/intermediate hierarchy,
+enrollment-owned issuance records, canonical enrollment-token and CSR policy, leaf templates,
+row-bound key envelopes, the local MySQL signer, enrollment application service, private TLS
+listener, strict certificate authorization, and gateway credential bootstrap. The API-side
+control-stream slice adds authenticated registration, API-owned connection epochs, protocol
+validation, and fenced stream-originated registry writes; it does not by itself complete gateway
+runtime cutover.
 
 - Add gateway registry enrollment fields and migration.
 - Implement the shared gateway-administration application service and public API operations for
@@ -831,28 +840,28 @@ Remaining choices and deployment-specific tuning:
 - Public gRPC SDK languages and supported-version/publication policy.
 - Whether public server-streaming events ship in the first public gRPC release or follow later.
 
-Increment 2.1b implements the unwired persistent local-MySQL CA: atomic hierarchy bootstrap,
+Increment 2.1b implemented the persistent local-MySQL CA: atomic hierarchy bootstrap,
 strict loaded-row and key validation, explicit root-rotation refusal, transaction-safe intermediate
-renewal, exact root trust-bundle publication, and SPIFFE leaf signing. Runtime configuration wiring,
-enrollment RPCs, listeners, Vault integration, and UI remain later increments.
+renewal, exact root trust-bundle publication, and SPIFFE leaf signing. Vault integration and
+explicit root rotation remain later work.
 
-Increment 2.2 adds the transport-independent enrollment state machine only: atomic creation and
+Increment 2.2 implemented the transport-independent enrollment state machine: atomic creation and
 replacement, digest-only bearer persistence, nonce/lease-fenced three-phase redemption, exact
-same-CSR replay, bounded out-of-transaction signing, and safe audits. REST, public/private gRPC,
-listener, composition-root, and web-interface wiring remain later increments.
+same-CSR replay, bounded out-of-transaction signing, and safe audits. Public administration
+operations and the web interface remain later work.
 
-Increment 2.3 wires the API side of the private transport: an opt-in TLS 1.3 listener, atomic API
+Increment 2.3 implemented the API side of the private enrollment transport: an opt-in TLS 1.3 listener, atomic API
 identity renewal, anonymous-TLS enrollment adapter, and per-RPC strict certificate plus live-row
-authorization. It intentionally does not add a gateway client, control stream, renewal RPC, or
-administrative UI.
+authorization. It does not yet include certificate renewal or the administrative UI.
 
-Private transport split C adds the opt-in gateway bootstrap client and durable gateway identity.
-It proves authenticated private health over one reusable mTLS connection, but deliberately adds no
-control stream or engine RPC client yet.
+Private transport split C implemented the opt-in gateway bootstrap client and durable gateway
+identity. It proves authenticated private health over one reusable mTLS connection. That connection
+is the base for the control supervisor, but no gateway control loop or engine RPC client is wired yet.
 
-Control-stream split 1 defines only the versioned/sequenced private bidi wire contract: Hello,
-Heartbeat, LifecycleReport, Welcome, and epoch-fenced lifecycle directives. Generated bindings and
-descriptor invariants land now; registration, persistence, lease handling, and runtime connection
-loops remain explicitly unwired.
+Control-stream split 1 implemented the versioned/sequenced private bidi wire contract: Hello,
+Heartbeat, LifecycleReport, Welcome, and epoch-fenced lifecycle directives. The API-side slice adds
+database-backed epoch allocation, an authenticated registered stream handler, and fenced registry
+writes. Gateway reconnect supervision, lease-driven readiness, legacy heartbeat removal, renewal,
+and full lifecycle reconciliation remain separate work and must not be inferred from the API-side handler.
 
 These decisions affect implementation detail, not the responsibility boundary locked above.

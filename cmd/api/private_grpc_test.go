@@ -13,6 +13,8 @@ import (
 	"time"
 
 	gatewayv1 "github.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1"
+	apigateway "github.com/ramaadi/quick-whatsapp-gateway/internal/api/gateway"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/pki"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/pki/apiidentity"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/service"
@@ -168,7 +170,7 @@ func TestEnrollmentAdapterBoundsMapsAndReturnsExactFields(t *testing.T) {
 }
 
 func TestPrivateServerRegistersOnlyPrivateServices(t *testing.T) {
-	server := newPrivateGatewayGRPCServer(&tls.Config{}, privateGatewayAuthenticator{}, &fakeRedeemer{}, nil)
+	server := newPrivateGatewayGRPCServer(&tls.Config{}, privateGatewayAuthenticator{}, &fakeRedeemer{}, nil, nil)
 	services := server.GetServiceInfo()
 	if len(services) != 2 {
 		t.Fatalf("services = %v", services)
@@ -178,6 +180,106 @@ func TestPrivateServerRegistersOnlyPrivateServices(t *testing.T) {
 	}
 	if _, ok := services[gatewayv1.GatewayHealthService_ServiceDesc.ServiceName]; !ok {
 		t.Fatal("health absent")
+	}
+}
+
+type fakeGatewayControlRepo struct {
+	accepted    domain.GatewayAcceptedConnection
+	err         error
+	heartbeatOK bool
+	lifecycleOK bool
+	hello       domain.GatewayConnectionHello
+	heartbeat   domain.GatewayHeartbeat
+	lifecycle   domain.GatewayLifecycleReport
+}
+
+func (r *fakeGatewayControlRepo) AcceptConnection(_ context.Context, hello domain.GatewayConnectionHello, _ int64) (domain.GatewayAcceptedConnection, error) {
+	r.hello = hello
+	return r.accepted, r.err
+}
+func (r *fakeGatewayControlRepo) HeartbeatForEpoch(_ context.Context, heartbeat domain.GatewayHeartbeat, _ int64) (bool, error) {
+	r.heartbeat = heartbeat
+	return r.heartbeatOK, r.err
+}
+func (r *fakeGatewayControlRepo) SetStatusForEpoch(_ context.Context, lifecycle domain.GatewayLifecycleReport, _ int64) (bool, error) {
+	r.lifecycle = lifecycle
+	return r.lifecycleOK, r.err
+}
+
+func TestGatewayControlStoreAdaptsAndFencesPersistence(t *testing.T) {
+	repo := &fakeGatewayControlRepo{accepted: domain.GatewayAcceptedConnection{ConnectionEpoch: 9, Status: domain.GatewayActive}, heartbeatOK: true, lifecycleOK: true}
+	controlStore := gatewayControlStore{repo: repo, now: func() time.Time { return time.UnixMilli(55) }}
+	connection, err := controlStore.Accept(context.Background(), "gw_1", apigateway.Hello{
+		SoftwareVersion: "v2", Capabilities: []gatewayv1.GatewayCapability{gatewayv1.GatewayCapability_GATEWAY_CAPABILITY_SESSION_ENGINE}, SessionCount: 3,
+		RuntimeState: gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_READY,
+	})
+	if err != nil || connection.Epoch != 9 || connection.ID == "" || repo.hello.GatewayID != "gw_1" || repo.hello.SessionCount != 3 || repo.hello.Status != domain.GatewayActive {
+		t.Fatalf("accept = %+v hello=%+v err=%v", connection, repo.hello, err)
+	}
+	if err = controlStore.Heartbeat(context.Background(), "gw_1", 9, apigateway.Heartbeat{SessionCount: 4, RuntimeState: gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DEGRADED}); err != nil || repo.heartbeat.ConnectionEpoch != 9 || repo.heartbeat.Status != domain.GatewayDegraded {
+		t.Fatalf("heartbeat = %+v err=%v", repo.heartbeat, err)
+	}
+	if err = controlStore.Lifecycle(context.Background(), "gw_1", 9, apigateway.LifecycleReport{State: gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINING}); err != nil || repo.lifecycle.Status != domain.GatewayDraining {
+		t.Fatalf("lifecycle = %+v err=%v", repo.lifecycle, err)
+	}
+	repo.heartbeatOK = false
+	if err = controlStore.Heartbeat(context.Background(), "gw_1", 9, apigateway.Heartbeat{RuntimeState: gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_READY}); !errors.Is(err, apigateway.ErrStaleEpoch) {
+		t.Fatalf("stale heartbeat error = %v", err)
+	}
+	repo.err = domain.ErrNotFound("connectable gateway not found")
+	if _, err = controlStore.Accept(context.Background(), "gw_disabled", apigateway.Hello{RuntimeState: gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_STARTING}); !errors.Is(err, apigateway.ErrUnauthorized) {
+		t.Fatalf("disabled gateway error = %v", err)
+	}
+	if _, err = controlStore.Accept(context.Background(), "gw_1", apigateway.Hello{}); !errors.Is(err, apigateway.ErrConflict) {
+		t.Fatalf("unknown runtime error = %v", err)
+	}
+}
+
+func TestGatewayControlStorePreservesAdministrativeDrainOnReconnect(t *testing.T) {
+	for _, durableStatus := range []domain.GatewayStatus{domain.GatewayDraining, domain.GatewayDrained} {
+		t.Run(string(durableStatus), func(t *testing.T) {
+			repo := &fakeGatewayControlRepo{accepted: domain.GatewayAcceptedConnection{ConnectionEpoch: 11, Status: durableStatus}}
+			connection, err := (gatewayControlStore{repo: repo}).Accept(context.Background(), "gw_1", apigateway.Hello{
+				RuntimeState: gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_READY,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if connection.DesiredLifecycle != gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DRAIN {
+				t.Fatalf("desired lifecycle = %v", connection.DesiredLifecycle)
+			}
+		})
+	}
+	repo := &fakeGatewayControlRepo{err: domain.ErrConflict("connection superseded")}
+	if _, err := (gatewayControlStore{repo: repo}).Accept(context.Background(), "gw_1", apigateway.Hello{
+		RuntimeState: gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_READY,
+	}); !errors.Is(err, apigateway.ErrConflict) {
+		t.Fatalf("superseded accept error = %v", err)
+	}
+}
+
+func TestGatewayControlStorePreservesContextErrors(t *testing.T) {
+	for _, contextErr := range []error{context.Canceled, context.DeadlineExceeded} {
+		t.Run(contextErr.Error(), func(t *testing.T) {
+			repo := &fakeGatewayControlRepo{err: contextErr}
+			controlStore := gatewayControlStore{repo: repo}
+			_, acceptErr := controlStore.Accept(context.Background(), "gw_1", apigateway.Hello{RuntimeState: gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_READY})
+			if !errors.Is(acceptErr, contextErr) || !errors.Is(acceptErr, apigateway.ErrUnavailable) {
+				t.Fatalf("accept error = %v", acceptErr)
+			}
+			heartbeatErr := controlStore.Heartbeat(context.Background(), "gw_1", 1, apigateway.Heartbeat{RuntimeState: gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_READY})
+			if !errors.Is(heartbeatErr, contextErr) || !errors.Is(heartbeatErr, apigateway.ErrUnavailable) {
+				t.Fatalf("heartbeat error = %v", heartbeatErr)
+			}
+		})
+	}
+}
+
+func TestPrivateServerRegistersGatewayControl(t *testing.T) {
+	control := &apigateway.Server{}
+	server := newPrivateGatewayGRPCServer(&tls.Config{}, privateGatewayAuthenticator{}, &fakeRedeemer{}, nil, control)
+	if _, ok := server.GetServiceInfo()[gatewayv1.GatewayControlService_ServiceDesc.ServiceName]; !ok {
+		t.Fatal("gateway control absent")
 	}
 }
 

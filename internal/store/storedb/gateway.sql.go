@@ -11,6 +11,62 @@ import (
 	"encoding/json"
 )
 
+const allocateGatewayConnectionEpoch = `-- name: AllocateGatewayConnectionEpoch :execrows
+UPDATE gateways
+SET connection_epoch = connection_epoch + 1,
+    connected_at = ?,
+    last_seen_at = ?,
+    grpc_endpoint = ?,
+    software_version = ?,
+    capabilities = ?,
+    session_count = ?,
+    status = CASE
+      WHEN status = 'draining' AND CAST(? AS UNSIGNED) = 1 THEN 'drained'
+      WHEN status IN ('draining', 'drained') THEN status
+      ELSE ?
+    END,
+    updated_at = ?
+WHERE id = ?
+  AND connection_epoch = ?
+  AND deleted_at IS NULL
+  AND enrolled_at IS NOT NULL
+  AND status NOT IN ('pending_enrollment', 'disabled')
+`
+
+type AllocateGatewayConnectionEpochParams struct {
+	ConnectedAt     sql.NullInt64   `db:"connected_at" json:"connected_at"`
+	LastSeenAt      sql.NullInt64   `db:"last_seen_at" json:"last_seen_at"`
+	GrpcEndpoint    sql.NullString  `db:"grpc_endpoint" json:"grpc_endpoint"`
+	SoftwareVersion sql.NullString  `db:"software_version" json:"software_version"`
+	Capabilities    json.RawMessage `db:"capabilities" json:"capabilities"`
+	SessionCount    uint32          `db:"session_count" json:"session_count"`
+	DrainCompleted  int64           `db:"drain_completed" json:"drain_completed"`
+	ReportedStatus  GatewaysStatus  `db:"reported_status" json:"reported_status"`
+	UpdatedAt       int64           `db:"updated_at" json:"updated_at"`
+	ID              string          `db:"id" json:"id"`
+	ConnectionEpoch uint64          `db:"connection_epoch" json:"connection_epoch"`
+}
+
+func (q *Queries) AllocateGatewayConnectionEpoch(ctx context.Context, arg AllocateGatewayConnectionEpochParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, allocateGatewayConnectionEpoch,
+		arg.ConnectedAt,
+		arg.LastSeenAt,
+		arg.GrpcEndpoint,
+		arg.SoftwareVersion,
+		arg.Capabilities,
+		arg.SessionCount,
+		arg.DrainCompleted,
+		arg.ReportedStatus,
+		arg.UpdatedAt,
+		arg.ID,
+		arg.ConnectionEpoch,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const createGateway = `-- name: CreateGateway :exec
 INSERT INTO gateways
 (id, label, notes, status, creator_kind, created_by_user_id, capacity, desired_revision, applied_revision, created_at, updated_at)
@@ -84,6 +140,65 @@ func (q *Queries) GatewayHeartbeat(ctx context.Context, arg GatewayHeartbeatPara
 	return err
 }
 
+const gatewayHeartbeatForEpoch = `-- name: GatewayHeartbeatForEpoch :execrows
+UPDATE gateways
+SET last_seen_at = ?, session_count = ?,
+    status = CASE
+      WHEN status = 'draining' AND CAST(? AS UNSIGNED) = 1 THEN 'drained'
+      WHEN status IN ('draining', 'drained') THEN status
+      ELSE ?
+    END,
+    updated_at = ?
+WHERE id = ? AND connection_epoch = ? AND deleted_at IS NULL
+  AND status NOT IN ('pending_enrollment', 'disabled')
+`
+
+type GatewayHeartbeatForEpochParams struct {
+	LastSeenAt      sql.NullInt64  `db:"last_seen_at" json:"last_seen_at"`
+	SessionCount    uint32         `db:"session_count" json:"session_count"`
+	DrainCompleted  int64          `db:"drain_completed" json:"drain_completed"`
+	ReportedStatus  GatewaysStatus `db:"reported_status" json:"reported_status"`
+	UpdatedAt       int64          `db:"updated_at" json:"updated_at"`
+	ID              string         `db:"id" json:"id"`
+	ConnectionEpoch uint64         `db:"connection_epoch" json:"connection_epoch"`
+}
+
+func (q *Queries) GatewayHeartbeatForEpoch(ctx context.Context, arg GatewayHeartbeatForEpochParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, gatewayHeartbeatForEpoch,
+		arg.LastSeenAt,
+		arg.SessionCount,
+		arg.DrainCompleted,
+		arg.ReportedStatus,
+		arg.UpdatedAt,
+		arg.ID,
+		arg.ConnectionEpoch,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const getAcceptedGatewayConnectionStatus = `-- name: GetAcceptedGatewayConnectionStatus :one
+SELECT status
+FROM gateways
+WHERE id = ? AND connection_epoch = ? AND deleted_at IS NULL
+  AND status NOT IN ('pending_enrollment', 'disabled')
+LIMIT 1
+`
+
+type GetAcceptedGatewayConnectionStatusParams struct {
+	ID              string `db:"id" json:"id"`
+	ConnectionEpoch uint64 `db:"connection_epoch" json:"connection_epoch"`
+}
+
+func (q *Queries) GetAcceptedGatewayConnectionStatus(ctx context.Context, arg GetAcceptedGatewayConnectionStatusParams) (GatewaysStatus, error) {
+	row := q.db.QueryRowContext(ctx, getAcceptedGatewayConnectionStatus, arg.ID, arg.ConnectionEpoch)
+	var status GatewaysStatus
+	err := row.Scan(&status)
+	return status, err
+}
+
 const getGateway = `-- name: GetGateway :one
 SELECT id, label, status, session_count, capacity, base_url, last_seen_at, created_at, updated_at
 FROM gateways
@@ -121,6 +236,47 @@ func (q *Queries) GetGateway(ctx context.Context, arg GetGatewayParams) (GetGate
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const getGatewayConnectionEpochForAllocation = `-- name: GetGatewayConnectionEpochForAllocation :one
+SELECT connection_epoch
+FROM gateways
+WHERE id = ?
+  AND deleted_at IS NULL
+  AND enrolled_at IS NOT NULL
+  AND status NOT IN ('pending_enrollment', 'disabled')
+LIMIT 1
+`
+
+type GetGatewayConnectionEpochForAllocationParams struct {
+	ID string `db:"id" json:"id"`
+}
+
+func (q *Queries) GetGatewayConnectionEpochForAllocation(ctx context.Context, arg GetGatewayConnectionEpochForAllocationParams) (uint64, error) {
+	row := q.db.QueryRowContext(ctx, getGatewayConnectionEpochForAllocation, arg.ID)
+	var connection_epoch uint64
+	err := row.Scan(&connection_epoch)
+	return connection_epoch, err
+}
+
+const isGatewayConnectionCurrent = `-- name: IsGatewayConnectionCurrent :one
+SELECT EXISTS(
+  SELECT 1 FROM gateways
+  WHERE id = ? AND connection_epoch = ? AND deleted_at IS NULL
+    AND status NOT IN ('pending_enrollment', 'disabled')
+) AS is_current
+`
+
+type IsGatewayConnectionCurrentParams struct {
+	ID              string `db:"id" json:"id"`
+	ConnectionEpoch uint64 `db:"connection_epoch" json:"connection_epoch"`
+}
+
+func (q *Queries) IsGatewayConnectionCurrent(ctx context.Context, arg IsGatewayConnectionCurrentParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, isGatewayConnectionCurrent, arg.ID, arg.ConnectionEpoch)
+	var is_current bool
+	err := row.Scan(&is_current)
+	return is_current, err
 }
 
 const listActiveGateways = `-- name: ListActiveGateways :many
@@ -287,6 +443,40 @@ func (q *Queries) SetGatewayStatus(ctx context.Context, arg SetGatewayStatusPara
 	return err
 }
 
+const setGatewayStatusForEpoch = `-- name: SetGatewayStatusForEpoch :execrows
+UPDATE gateways
+SET status = CASE
+      WHEN status = 'draining' AND CAST(? AS UNSIGNED) = 1 THEN 'drained'
+      WHEN status IN ('draining', 'drained') THEN status
+      ELSE ?
+    END,
+    updated_at = ?
+WHERE id = ? AND connection_epoch = ? AND deleted_at IS NULL
+  AND status NOT IN ('pending_enrollment', 'disabled')
+`
+
+type SetGatewayStatusForEpochParams struct {
+	DrainCompleted  int64          `db:"drain_completed" json:"drain_completed"`
+	ReportedStatus  GatewaysStatus `db:"reported_status" json:"reported_status"`
+	UpdatedAt       int64          `db:"updated_at" json:"updated_at"`
+	ID              string         `db:"id" json:"id"`
+	ConnectionEpoch uint64         `db:"connection_epoch" json:"connection_epoch"`
+}
+
+func (q *Queries) SetGatewayStatusForEpoch(ctx context.Context, arg SetGatewayStatusForEpochParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setGatewayStatusForEpoch,
+		arg.DrainCompleted,
+		arg.ReportedStatus,
+		arg.UpdatedAt,
+		arg.ID,
+		arg.ConnectionEpoch,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const softDeleteGateway = `-- name: SoftDeleteGateway :execrows
 UPDATE gateways SET status='disabled', deleted_at=?, updated_at=?
 WHERE gateways.id=? AND deleted_at IS NULL AND status IN ('pending_enrollment','drained','disabled')
@@ -331,6 +521,42 @@ func (q *Queries) UpdateGatewayConnectionMetadata(ctx context.Context, arg Updat
 		arg.ConnectedAt,
 		arg.UpdatedAt,
 		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const updateGatewayConnectionMetadataForEpoch = `-- name: UpdateGatewayConnectionMetadataForEpoch :execrows
+UPDATE gateways
+SET grpc_endpoint = ?, software_version = ?, capabilities = ?,
+    applied_revision = ?, last_seen_at = ?, updated_at = ?
+WHERE id = ? AND connection_epoch = ? AND deleted_at IS NULL
+  AND status NOT IN ('pending_enrollment', 'disabled')
+`
+
+type UpdateGatewayConnectionMetadataForEpochParams struct {
+	GrpcEndpoint    sql.NullString  `db:"grpc_endpoint" json:"grpc_endpoint"`
+	SoftwareVersion sql.NullString  `db:"software_version" json:"software_version"`
+	Capabilities    json.RawMessage `db:"capabilities" json:"capabilities"`
+	AppliedRevision uint64          `db:"applied_revision" json:"applied_revision"`
+	LastSeenAt      sql.NullInt64   `db:"last_seen_at" json:"last_seen_at"`
+	UpdatedAt       int64           `db:"updated_at" json:"updated_at"`
+	ID              string          `db:"id" json:"id"`
+	ConnectionEpoch uint64          `db:"connection_epoch" json:"connection_epoch"`
+}
+
+func (q *Queries) UpdateGatewayConnectionMetadataForEpoch(ctx context.Context, arg UpdateGatewayConnectionMetadataForEpochParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateGatewayConnectionMetadataForEpoch,
+		arg.GrpcEndpoint,
+		arg.SoftwareVersion,
+		arg.Capabilities,
+		arg.AppliedRevision,
+		arg.LastSeenAt,
+		arg.UpdatedAt,
+		arg.ID,
+		arg.ConnectionEpoch,
 	)
 	if err != nil {
 		return 0, err

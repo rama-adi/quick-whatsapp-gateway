@@ -6,13 +6,17 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/url"
 	"strings"
 	"time"
 
 	gatewayv1 "github.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1"
+	apigateway "github.com/ramaadi/quick-whatsapp-gateway/internal/api/gateway"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/pki"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/pki/apiidentity"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/service"
@@ -207,10 +211,141 @@ func (h privateGatewayHealth) Check(context.Context, *gatewayv1.GatewayHealthSer
 	return &gatewayv1.GatewayHealthServiceCheckResponse{Status: serving}, nil
 }
 
-func newPrivateGatewayGRPCServer(tlsConfig *tls.Config, auth privateGatewayAuthenticator, enrollment enrollmentRedeemer, readiness func() error) *grpc.Server {
+type gatewayControlRepo interface {
+	AcceptConnection(context.Context, domain.GatewayConnectionHello, int64) (domain.GatewayAcceptedConnection, error)
+	HeartbeatForEpoch(context.Context, domain.GatewayHeartbeat, int64) (bool, error)
+	SetStatusForEpoch(context.Context, domain.GatewayLifecycleReport, int64) (bool, error)
+}
+
+type gatewayControlStore struct {
+	repo gatewayControlRepo
+	now  func() time.Time
+}
+
+func (s gatewayControlStore) Accept(ctx context.Context, gatewayID string, hello apigateway.Hello) (apigateway.Connection, error) {
+	runtimeStatus, ok := runtimeGatewayStatus(hello.RuntimeState)
+	if !ok {
+		return apigateway.Connection{}, apigateway.ErrConflict
+	}
+	capabilities, err := json.Marshal(hello.Capabilities)
+	if err != nil {
+		return apigateway.Connection{}, err
+	}
+	endpoint, version := optionalString(hello.GRPCEndpoint), optionalString(hello.SoftwareVersion)
+	accepted, err := s.repo.AcceptConnection(ctx, domain.GatewayConnectionHello{
+		GatewayID: gatewayID, GRPCEndpoint: endpoint, SoftwareVersion: version,
+		Capabilities: capabilities, SessionCount: int(hello.SessionCount), Status: runtimeStatus,
+	}, s.clock().UnixMilli())
+	if err != nil {
+		var apiErr *domain.APIError
+		hasAPIError := errors.As(err, &apiErr)
+		if errors.Is(err, sql.ErrNoRows) || (hasAPIError && apiErr.Code == domain.CodeNotFound) {
+			return apigateway.Connection{}, apigateway.ErrUnauthorized
+		}
+		if hasAPIError && apiErr.Code == domain.CodeConflict {
+			return apigateway.Connection{}, apigateway.ErrConflict
+		}
+		return apigateway.Connection{}, fmt.Errorf("%w: %w", apigateway.ErrUnavailable, err)
+	}
+	desiredLifecycle, ok := desiredLifecycleForStatus(accepted.Status)
+	if !ok {
+		return apigateway.Connection{}, apigateway.ErrConflict
+	}
+	return apigateway.Connection{
+		ID: domain.NewULID(), Epoch: accepted.ConnectionEpoch, HeartbeatInterval: 5 * time.Second,
+		LeaseTimeout:     15 * time.Second,
+		DesiredLifecycle: desiredLifecycle,
+	}, nil
+}
+
+func (s gatewayControlStore) Heartbeat(ctx context.Context, gatewayID string, epoch uint64, heartbeat apigateway.Heartbeat) error {
+	runtimeStatus, valid := runtimeGatewayStatus(heartbeat.RuntimeState)
+	if !valid {
+		return apigateway.ErrConflict
+	}
+	applied, err := s.repo.HeartbeatForEpoch(ctx, domain.GatewayHeartbeat{
+		GatewayConnection: domain.GatewayConnection{GatewayID: gatewayID, ConnectionEpoch: epoch},
+		SessionCount:      int(heartbeat.SessionCount),
+		Status:            runtimeStatus,
+	}, s.clock().UnixMilli())
+	return fencedStoreResult(applied, err)
+}
+
+func (s gatewayControlStore) Lifecycle(ctx context.Context, gatewayID string, epoch uint64, report apigateway.LifecycleReport) error {
+	lifecycle, ok := runtimeGatewayStatus(report.State)
+	if !ok {
+		return apigateway.ErrConflict
+	}
+	updated, err := s.repo.SetStatusForEpoch(ctx, domain.GatewayLifecycleReport{
+		GatewayConnection: domain.GatewayConnection{GatewayID: gatewayID, ConnectionEpoch: epoch},
+		Status:            lifecycle,
+	}, s.clock().UnixMilli())
+	return fencedStoreResult(updated, err)
+}
+
+// Disconnect is currently observational only. The persisted lease expires from
+// the last fenced heartbeat; a replacement stream immediately advances epoch.
+func (gatewayControlStore) Disconnect(context.Context, string, uint64) error { return nil }
+
+func (s gatewayControlStore) clock() time.Time {
+	if s.now != nil {
+		return s.now().UTC()
+	}
+	return time.Now().UTC()
+}
+
+func optionalString(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
+}
+
+func fencedStoreResult(updated bool, err error) error {
+	if err != nil {
+		return fmt.Errorf("%w: %w", apigateway.ErrUnavailable, err)
+	}
+	if !updated {
+		return apigateway.ErrStaleEpoch
+	}
+	return nil
+}
+
+func desiredLifecycleForStatus(status domain.GatewayStatus) (gatewayv1.LifecycleDirectiveAction, bool) {
+	switch status {
+	case domain.GatewayDraining, domain.GatewayDrained:
+		return gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DRAIN, true
+	case domain.GatewayJoining, domain.GatewayActive, domain.GatewayDegraded:
+		return gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN, true
+	default:
+		return gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_UNKNOWN, false
+	}
+}
+
+func runtimeGatewayStatus(state gatewayv1.GatewayRuntimeState) (domain.GatewayStatus, bool) {
+	switch state {
+	case gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_STARTING:
+		return domain.GatewayJoining, true
+	case gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_READY:
+		return domain.GatewayActive, true
+	case gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINING:
+		return domain.GatewayDraining, true
+	case gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED:
+		return domain.GatewayDrained, true
+	case gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DEGRADED:
+		return domain.GatewayDegraded, true
+	default:
+		return "", false
+	}
+}
+
+func newPrivateGatewayGRPCServer(tlsConfig *tls.Config, auth privateGatewayAuthenticator, enrollment enrollmentRedeemer, readiness func() error, control gatewayv1.GatewayControlServiceServer) *grpc.Server {
 	server := grpc.NewServer(grpc.Creds(credentials.NewTLS(tlsConfig)), grpc.UnaryInterceptor(auth.unary), grpc.StreamInterceptor(auth.stream))
 	gatewayv1.RegisterGatewayEnrollmentServiceServer(server, gatewayEnrollmentGRPC{service: enrollment})
 	gatewayv1.RegisterGatewayHealthServiceServer(server, privateGatewayHealth{readiness: readiness})
+	if control != nil {
+		gatewayv1.RegisterGatewayControlServiceServer(server, control)
+	}
 	return server
 }
 

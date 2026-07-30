@@ -394,6 +394,7 @@ const (
 	GatewaysStatusActive            GatewaysStatus = "active"
 	GatewaysStatusDraining          GatewaysStatus = "draining"
 	GatewaysStatusDrained           GatewaysStatus = "drained"
+	GatewaysStatusDegraded          GatewaysStatus = "degraded"
 	GatewaysStatusDisabled          GatewaysStatus = "disabled"
 )
 
@@ -439,6 +440,7 @@ func (e GatewaysStatus) Valid() bool {
 		GatewaysStatusActive,
 		GatewaysStatusDraining,
 		GatewaysStatusDrained,
+		GatewaysStatusDegraded,
 		GatewaysStatusDisabled:
 		return true
 	}
@@ -452,6 +454,7 @@ func AllGatewaysStatusValues() []GatewaysStatus {
 		GatewaysStatusActive,
 		GatewaysStatusDraining,
 		GatewaysStatusDrained,
+		GatewaysStatusDegraded,
 		GatewaysStatusDisabled,
 	}
 }
@@ -1105,6 +1108,7 @@ type Gateway struct {
 	AppliedRevision uint64              `db:"applied_revision" json:"applied_revision"`
 	SoftwareVersion sql.NullString      `db:"software_version" json:"software_version"`
 	Capabilities    json.RawMessage     `db:"capabilities" json:"capabilities"`
+	ConnectionEpoch uint64              `db:"connection_epoch" json:"connection_epoch"`
 	EnrolledAt      sql.NullInt64       `db:"enrolled_at" json:"enrolled_at"`
 	ConnectedAt     sql.NullInt64       `db:"connected_at" json:"connected_at"`
 	LastSeenAt      sql.NullInt64       `db:"last_seen_at" json:"last_seen_at"`

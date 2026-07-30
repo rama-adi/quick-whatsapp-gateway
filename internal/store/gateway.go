@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
@@ -19,6 +20,8 @@ import (
 type GatewayRepo struct {
 	q *storedb.Queries
 }
+
+const connectionEpochAllocationAttempts = 8
 
 // NewGatewayRepo constructs a GatewayRepo.
 func NewGatewayRepo(db storedb.DBTX) *GatewayRepo { return &GatewayRepo{q: storedb.New(db)} }
@@ -104,6 +107,124 @@ func (r *GatewayRepo) UpdateConnectionMetadata(ctx context.Context, m domain.Gat
 	}
 	n, err := r.q.UpdateGatewayConnectionMetadata(ctx, storedb.UpdateGatewayConnectionMetadataParams{GrpcEndpoint: nullString(m.GRPCEndpoint), SoftwareVersion: nullString(m.SoftwareVersion), Capabilities: json.RawMessage(m.Capabilities), AppliedRevision: m.AppliedRevision, ConnectedAt: nullInt64(m.ConnectedAt), UpdatedAt: at, ID: m.GatewayID})
 	return n == 1, err
+}
+
+// AcceptConnection atomically claims the next stream incarnation and persists
+// its initial report for an enrolled, enabled gateway.
+func (r *GatewayRepo) AcceptConnection(ctx context.Context, hello domain.GatewayConnectionHello, at int64) (domain.GatewayAcceptedConnection, error) {
+	if hello.GatewayID == "" || hello.SessionCount < 0 || !gatewayReportedStatus(hello.Status) || (len(hello.Capabilities) > 0 && !json.Valid(hello.Capabilities)) {
+		return domain.GatewayAcceptedConnection{}, fmt.Errorf("store: invalid gateway connection hello")
+	}
+	for range connectionEpochAllocationAttempts {
+		current, err := r.q.GetGatewayConnectionEpochForAllocation(ctx, storedb.GetGatewayConnectionEpochForAllocationParams{ID: hello.GatewayID})
+		if err != nil {
+			return domain.GatewayAcceptedConnection{}, notFound(err, "connectable gateway")
+		}
+		n, err := r.q.AllocateGatewayConnectionEpoch(ctx, storedb.AllocateGatewayConnectionEpochParams{
+			ConnectedAt:  sql.NullInt64{Int64: at, Valid: true},
+			LastSeenAt:   sql.NullInt64{Int64: at, Valid: true},
+			GrpcEndpoint: nullString(hello.GRPCEndpoint), SoftwareVersion: nullString(hello.SoftwareVersion),
+			Capabilities: json.RawMessage(hello.Capabilities), SessionCount: uint32(hello.SessionCount),
+			DrainCompleted: boolInt64(hello.Status == domain.GatewayDrained),
+			ReportedStatus: storedb.GatewaysStatus(hello.Status), UpdatedAt: at, ID: hello.GatewayID, ConnectionEpoch: current,
+		})
+		if err != nil {
+			return domain.GatewayAcceptedConnection{}, fmt.Errorf("store: allocate gateway connection epoch: %w", err)
+		}
+		if n == 1 {
+			epoch := current + 1
+			status, err := r.q.GetAcceptedGatewayConnectionStatus(ctx, storedb.GetAcceptedGatewayConnectionStatusParams{
+				ID: hello.GatewayID, ConnectionEpoch: epoch,
+			})
+			if err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					return domain.GatewayAcceptedConnection{}, domain.ErrConflict("gateway connection was superseded during acceptance")
+				}
+				return domain.GatewayAcceptedConnection{}, fmt.Errorf("store: read accepted gateway connection: %w", err)
+			}
+			return domain.GatewayAcceptedConnection{ConnectionEpoch: epoch, Status: domain.GatewayStatus(status)}, nil
+		}
+	}
+	return domain.GatewayAcceptedConnection{}, fmt.Errorf("store: allocate gateway connection epoch: concurrent allocation contention")
+}
+
+func (r *GatewayRepo) HeartbeatForEpoch(ctx context.Context, h domain.GatewayHeartbeat, at int64) (bool, error) {
+	if h.ConnectionEpoch == 0 || h.SessionCount < 0 || !gatewayReportedStatus(h.Status) {
+		return false, fmt.Errorf("store: invalid fenced gateway heartbeat")
+	}
+	n, err := r.q.GatewayHeartbeatForEpoch(ctx, storedb.GatewayHeartbeatForEpochParams{
+		LastSeenAt: sql.NullInt64{Int64: at, Valid: true}, SessionCount: uint32(h.SessionCount),
+		DrainCompleted: boolInt64(h.Status == domain.GatewayDrained),
+		ReportedStatus: storedb.GatewaysStatus(h.Status), UpdatedAt: at, ID: h.GatewayID,
+		ConnectionEpoch: h.ConnectionEpoch,
+	})
+	if err != nil {
+		return false, fmt.Errorf("store: fenced gateway heartbeat: %w", err)
+	}
+	return r.fencedWriteApplied(ctx, n, h.GatewayConnection)
+}
+
+func (r *GatewayRepo) SetStatusForEpoch(ctx context.Context, report domain.GatewayLifecycleReport, at int64) (bool, error) {
+	if report.ConnectionEpoch == 0 || !gatewayReportedStatus(report.Status) {
+		return false, fmt.Errorf("store: invalid fenced gateway lifecycle")
+	}
+	n, err := r.q.SetGatewayStatusForEpoch(ctx, storedb.SetGatewayStatusForEpochParams{
+		DrainCompleted: boolInt64(report.Status == domain.GatewayDrained),
+		ReportedStatus: storedb.GatewaysStatus(report.Status), UpdatedAt: at,
+		ID: report.GatewayID, ConnectionEpoch: report.ConnectionEpoch,
+	})
+	if err != nil {
+		return false, fmt.Errorf("store: fenced gateway lifecycle: %w", err)
+	}
+	return r.fencedWriteApplied(ctx, n, report.GatewayConnection)
+}
+
+func (r *GatewayRepo) UpdateConnectionMetadataForEpoch(ctx context.Context, connection domain.GatewayConnection, m domain.GatewayControlMetadata, at int64) (bool, error) {
+	if connection.ConnectionEpoch == 0 || connection.GatewayID != m.GatewayID {
+		return false, fmt.Errorf("store: gateway connection metadata id mismatch")
+	}
+	if len(m.Capabilities) > 0 && !json.Valid(m.Capabilities) {
+		return false, fmt.Errorf("store: invalid gateway capabilities")
+	}
+	n, err := r.q.UpdateGatewayConnectionMetadataForEpoch(ctx, storedb.UpdateGatewayConnectionMetadataForEpochParams{
+		GrpcEndpoint: nullString(m.GRPCEndpoint), SoftwareVersion: nullString(m.SoftwareVersion),
+		Capabilities: json.RawMessage(m.Capabilities), AppliedRevision: m.AppliedRevision,
+		LastSeenAt: sql.NullInt64{Int64: at, Valid: true}, UpdatedAt: at,
+		ID: connection.GatewayID, ConnectionEpoch: connection.ConnectionEpoch,
+	})
+	if err != nil {
+		return false, fmt.Errorf("store: fenced gateway connection metadata: %w", err)
+	}
+	return r.fencedWriteApplied(ctx, n, connection)
+}
+
+func (r *GatewayRepo) fencedWriteApplied(ctx context.Context, changed int64, connection domain.GatewayConnection) (bool, error) {
+	if changed == 1 {
+		return true, nil
+	}
+	current, err := r.q.IsGatewayConnectionCurrent(ctx, storedb.IsGatewayConnectionCurrentParams{
+		ID: connection.GatewayID, ConnectionEpoch: connection.ConnectionEpoch,
+	})
+	if err != nil {
+		return false, fmt.Errorf("store: verify gateway connection epoch: %w", err)
+	}
+	return current, nil
+}
+
+func boolInt64(value bool) int64 {
+	if value {
+		return 1
+	}
+	return 0
+}
+
+func gatewayReportedStatus(status domain.GatewayStatus) bool {
+	switch status {
+	case domain.GatewayJoining, domain.GatewayActive, domain.GatewayDraining, domain.GatewayDrained, domain.GatewayDegraded:
+		return true
+	default:
+		return false
+	}
 }
 
 // Get fetches a gateway by id. Maps no-rows to not_found.

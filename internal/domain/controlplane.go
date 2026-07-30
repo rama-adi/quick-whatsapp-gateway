@@ -18,6 +18,38 @@ type GatewayControlMetadata struct {
 	EnrolledAt, ConnectedAt              *int64
 }
 
+// GatewayConnection identifies one accepted control-stream incarnation. Epochs
+// increase for the lifetime of a gateway row and fence writes from stale streams.
+type GatewayConnection struct {
+	GatewayID       string
+	ConnectionEpoch uint64
+}
+
+type GatewayAcceptedConnection struct {
+	ConnectionEpoch uint64
+	Status          GatewayStatus
+}
+
+type GatewayConnectionHello struct {
+	GatewayID       string
+	GRPCEndpoint    *string
+	SoftwareVersion *string
+	Capabilities    []byte
+	SessionCount    int
+	Status          GatewayStatus
+}
+
+type GatewayHeartbeat struct {
+	GatewayConnection
+	SessionCount int
+	Status       GatewayStatus
+}
+
+type GatewayLifecycleReport struct {
+	GatewayConnection
+	Status GatewayStatus
+}
+
 // PKIAuthority carries encrypted private-key material only.
 type PKIAuthority struct {
 	ID, Kind, Status, CertificatePEM, EncryptionKeyID            string

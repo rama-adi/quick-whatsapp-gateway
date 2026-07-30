@@ -85,7 +85,7 @@ func TestPrivateGatewayTLSMySQLIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	server := newPrivateGatewayGRPCServer(privateGatewayTLSConfig(manager, roots), privateGatewayAuthenticator{store: mysqlGatewayCredentialStore{db: db}}, enrollment, func() error { return nil })
+	server := newPrivateGatewayGRPCServer(privateGatewayTLSConfig(manager, roots), privateGatewayAuthenticator{store: mysqlGatewayCredentialStore{db: db}}, enrollment, func() error { return nil }, nil)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)

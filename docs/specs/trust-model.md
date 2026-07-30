@@ -9,15 +9,16 @@
 > vendor. The current Ed25519 router assertion described below remains active until gRPC slices cut
 > over.
 
-> **Increment 2.0/2.1a foundation (unwired):** normalized enrollment-token, authority,
+> **Increment 2.0/2.1a foundation:** normalized enrollment-token, authority,
 > gateway-certificate, and audit-event records now exist. Enrollment persistence contains only a
-> SHA-256 digest and safe prefix; authority private keys are ciphertext plus nonce and key id. No
-> token issuance, CSR validation, signer, mTLS listener, API, or UI consumes these tables yet.
+> SHA-256 digest and safe prefix; authority private keys are ciphertext plus nonce and key id.
+> The implemented enrollment service and private transport now consume this foundation; the
+> operator-facing administration API/UI does not.
 > Pure 2.1a policy uses canonical versioned 256-bit bearer tokens, strict token-bound Ed25519
 > SPIFFE CSRs, 24-hour issuer-capped client+server-auth leaves, and AES-256-GCM CA-key envelopes
 > whose AAD binds authority id, kind, certificate fingerprint, and encryption-key id.
 
-> **Increment 2.1b local CA (still unwired):** API-owned MySQL persists an Ed25519 root and
+> **Increment 2.1b local CA:** API-owned MySQL persists an Ed25519 root and
 > root-signed intermediate with detached PKCS#8 encrypted by the row-bound envelope. Startup fails
 > closed on corrupt identity, PEM, fingerprint, constraints, parentage, ciphertext, or key mismatch.
 > A hierarchy-wide transaction lock serializes bootstrap and intermediate renewal; history is
@@ -27,7 +28,7 @@
 > Authority TTLs and renewal windows must preserve at least one full leaf TTL plus clock skew, and
 > issuance refuses a root without that remaining lifetime before any hierarchy mutation.
 
-> **Increment 2.2 enrollment application (unwired):** gateway creation and token replacement are
+> **Increment 2.2 enrollment application:** gateway creation and token replacement are
 > atomic operator transactions; only a token digest and safe display prefix persist. Redemption is
 > a three-phase fenced workflow: lock/verify/lease, sign outside MySQL with a deadline, then re-lock
 > and atomically persist the certificate, transition the gateway, consume the token, and audit.
@@ -42,7 +43,9 @@
 > gateway and performs dummy-safe credential work; every transaction re-locks and re-verifies.
 > Signing uses the canonical validated CSR digest and a deadline capped by the lease minus a safety
 > margin. Credential failures use a bounded jitter delay and typed safe errors distinguish invalid
-> credentials, active work, rate limits, cancellation, and transient infrastructure failures.
+> credentials, active work, rate limits, cancellation, and transient infrastructure failures. The
+> private enrollment RPC invokes this service; public administration operations and UI do not yet
+> expose creation or token replacement.
 
 Status: implemented (R1/R2). Live-validated against better-auth 1.6.22.
 
@@ -308,8 +311,16 @@ validation and requires the sole Ed25519 URI identity `spiffe://quick-wa/api`. E
 remain process-memory bootstrap input only and are neither written into the credential directory
 nor included in logs.
 
-The unwired `GatewayControlService.Connect` contract carries no `gateway_id`. When implemented, the
-API must bind the stream principal exclusively from the already-verified mTLS context and treat the
+`GatewayControlService.Connect` carries no `gateway_id`. The API binds the stream principal
+exclusively from the already-verified mTLS context and treats the
 hello `instance_id` only as a process-incarnation identifier. Connection epochs and directional
-sequence numbers fence stale streams and directives; the protobuf definition alone does not yet
-create a lease or authorize lifecycle changes.
+sequence numbers fence stale streams and directives. API-side handler registration, epoch
+allocation, protocol validation, and fenced registry writes are implemented, but the gateway
+reconnect supervisor, lease-driven readiness, server-side heartbeat timeout/forced termination,
+certificate renewal, and revocation-triggered stream shutdown remain unfinished. Disconnect does
+not explicitly change database lifecycle state; liveness is lease/`last_seen_at` based and a newer
+accepted stream fences the old epoch. The legacy gateway runtime therefore still uses its existing
+self-registration and heartbeat path. Lifecycle acknowledgements are also fail-closed: until the
+API tracks an issued directive, every lifecycle report is rejected with `FailedPrecondition` and is
+not persisted. Welcome itself has no `directive_id`; its desired lifecycle is derived only from the
+authoritative post-accept database status, never from gateway-supplied Hello state.

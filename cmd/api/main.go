@@ -24,6 +24,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/redis/go-redis/v9"
 
+	apigateway "github.com/ramaadi/quick-whatsapp-gateway/internal/api/gateway"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/assertion"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/authz"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/config"
@@ -221,7 +222,14 @@ func run() error {
 			}
 			return readiness(db, nil)()
 		}
-		privateGRPCServer = newPrivateGatewayGRPCServer(tlsConfig, privateGatewayAuthenticator{store: mysqlGatewayCredentialStore{db: db}}, enrollment, privateReady)
+		control := &apigateway.Server{
+			Store: gatewayControlStore{repo: st.Gateways},
+			ResolveGatewayID: func(ctx context.Context) (string, bool) {
+				identity, ok := gatewayIdentityFromContext(ctx)
+				return identity.GatewayID, ok
+			},
+		}
+		privateGRPCServer = newPrivateGatewayGRPCServer(tlsConfig, privateGatewayAuthenticator{store: mysqlGatewayCredentialStore{db: db}}, enrollment, privateReady, control)
 		go renewAPIIdentity(ctx, identity, cfg.GatewayTLSRenewBefore, log)
 	}
 	srv, err := router.NewServer(router.Config{

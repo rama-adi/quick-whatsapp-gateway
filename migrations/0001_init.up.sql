@@ -15,7 +15,7 @@ CREATE TABLE gateways (
   id                    VARCHAR(64) PRIMARY KEY,
   label                 VARCHAR(255) NULL,
   notes                 TEXT NULL,
-  status                ENUM('pending_enrollment','joining','active','draining','drained','disabled') NOT NULL DEFAULT 'pending_enrollment',
+  status                ENUM('pending_enrollment','joining','active','draining','drained','degraded','disabled') NOT NULL DEFAULT 'pending_enrollment',
   creator_kind          ENUM('system','user') NOT NULL DEFAULT 'system',
   created_by_user_id    VARCHAR(64) NULL,
   base_url              TEXT NULL, -- transitional HTTP proxy address; removable after gRPC cutover
@@ -26,6 +26,7 @@ CREATE TABLE gateways (
   applied_revision      BIGINT UNSIGNED NOT NULL DEFAULT 0,
   software_version      VARCHAR(128) NULL,
   capabilities          JSON NULL,
+  connection_epoch      BIGINT UNSIGNED NOT NULL DEFAULT 0,
   enrolled_at           BIGINT NULL,
   connected_at          BIGINT NULL,
   last_seen_at          BIGINT NULL,

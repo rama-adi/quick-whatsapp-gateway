@@ -75,13 +75,14 @@ epoch-ms `BIGINT` timestamps, `VARCHAR(64)` ULID PKs (or surrogate `BIGINT UNSIG
 CREATE TABLE gateways (            -- registry + lifecycle; the router reads it to route
   id VARCHAR(64) PRIMARY KEY,      -- = GATEWAY_ID
   label VARCHAR(255) NULL, notes TEXT NULL,
-  status ENUM('pending_enrollment','joining','active','draining','drained','disabled'),
+  status ENUM('pending_enrollment','joining','active','draining','drained','degraded','disabled'),
   creator_kind ENUM('system','user'), created_by_user_id VARCHAR(64) NULL,
   base_url TEXT NULL, grpc_endpoint VARCHAR(512) NULL,
   session_count INT UNSIGNED NOT NULL DEFAULT 0, capacity INT UNSIGNED NULL,
   desired_revision BIGINT UNSIGNED NOT NULL DEFAULT 0,
   applied_revision BIGINT UNSIGNED NOT NULL DEFAULT 0,
   software_version VARCHAR(128) NULL, capabilities JSON NULL,
+  connection_epoch BIGINT UNSIGNED NOT NULL DEFAULT 0,
   enrolled_at BIGINT NULL, connected_at BIGINT NULL, last_seen_at BIGINT NULL,
   created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
   KEY idx_gateways_status_seen (status, last_seen_at)
@@ -163,7 +164,7 @@ expose a multi-statement rotation helper that could run without this transaction
 
 Increment 2.1a binds issued certificates to their owning enrollment attempt with a retained
 `enrollment_token_id`, canonical `csr_sha256`, and unique `(enrollment_token_id, csr_sha256)` retry
-key. It remains an unwired persistence and crypto-policy foundation.
+key. The enrollment service and private enrollment transport now consume this foundation.
 
 Increment 2.1b uses `pki_rotation_lock` to serialize empty-store hierarchy bootstrap and active
 intermediate renewal. Both rows are inserted atomically during bootstrap; renewal marks only the
@@ -186,9 +187,26 @@ Exact and ambiguous issuance recovery accepts normal post-enrollment lifecycle a
 token, matching CSR/gateway certificate, and a currently active certificate. Disabled/deleted
 gateways are never recovery-eligible.
 
-These slices are **not wired to an API, listener, enrollment flow, or UI yet**. Current boot self-registration uses the explicit `creator_kind='system'`
-default. Future admin creation requires `creator_kind='user'` and a real creator id; the database
-check forbids ambiguous or fabricated user attribution.
+Enrollment is wired to the opt-in private TLS listener and crash-safe gateway bootstrap. It is not
+yet exposed through an operator administration API or UI. Current boot self-registration uses the
+explicit `creator_kind='system'` default. Future admin creation requires `creator_kind='user'` and
+a real creator id; the database check forbids ambiguous or fabricated user attribution.
+
+The control-stream persistence slice adds database-backed `gateways.connection_epoch`.
+`AcceptConnection` atomically compare-and-swap increments the epoch and persists validated Hello
+metadata in the same write. It rejects missing, deleted, disabled, pending-enrollment, and unenrolled
+gateways. The persisted post-accept status is authoritative for Welcome desired lifecycle:
+`draining`/`drained` become DRAIN and `joining`/`active`/`degraded` become RUN; Hello cannot choose
+it. Stream-originated heartbeat, lifecycle, and connection-metadata writes include the gateway
+id and current epoch in their update predicate. Accept and heartbeat writes never change
+`applied_revision`; heartbeats update liveness, session count, and runtime-derived status only.
+Lifecycle reports update only reported lifecycle state—never `session_count`—and cannot select
+administrative states such as `disabled` or `pending_enrollment`. `degraded` is a durable
+gateway-reported status. Once a newer stream is accepted, writes from the older epoch become no-ops
+even if that process has not observed the replacement connection. Stream disconnect does not write a terminal database status:
+liveness is derived from the lease/`last_seen_at`, and the next accepted stream fences the old
+epoch. This fences control-plane registry mutation only; it is not yet a session assignment epoch
+or a command idempotency ledger.
 
 Existing `GatewayRepo` lifecycle methods remain active:
 

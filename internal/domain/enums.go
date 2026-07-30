@@ -49,13 +49,14 @@ const (
 	GatewayActive            GatewayStatus = "active"
 	GatewayDraining          GatewayStatus = "draining"
 	GatewayDrained           GatewayStatus = "drained"
+	GatewayDegraded          GatewayStatus = "degraded"
 	GatewayDisabled          GatewayStatus = "disabled"
 	GatewayUnreachable       GatewayStatus = "unreachable" // derived API state; never persisted
 )
 
 func (s GatewayStatus) Valid() bool {
 	switch s {
-	case GatewayPendingEnrollment, GatewayJoining, GatewayActive, GatewayDraining, GatewayDrained, GatewayDisabled:
+	case GatewayPendingEnrollment, GatewayJoining, GatewayActive, GatewayDraining, GatewayDrained, GatewayDegraded, GatewayDisabled:
 		return true
 	default:
 		return false
