@@ -61,6 +61,8 @@ export const gateways = mysqlTable("gateways", {
 	label: varchar({ length: 255 }),
 	notes: text(),
 	status: mysqlEnum(['pending_enrollment','joining','active','draining','drained','degraded','disabled']).default('pending_enrollment').notNull(),
+	desiredLifecycle: mysqlEnum("desired_lifecycle", ['run','drain']).default('run').notNull(),
+	connectionMode: mysqlEnum("connection_mode", ['legacy','control']).default('legacy').notNull(),
 	creatorKind: mysqlEnum("creator_kind", ['system','user']).default('system').notNull(),
 	createdByUserId: varchar("created_by_user_id", { length: 64 }),
 	baseUrl: text("base_url"),
@@ -84,7 +86,7 @@ export const gateways = mysqlTable("gateways", {
 	index("idx_gateways_revision").on(table.desiredRevision, table.appliedRevision),
 	index("idx_gateways_status_seen").on(table.status, table.lastSeenAt),
 	primaryKey({ columns: [table.id], name: "gateways_id"}),
-	check("chk_gateway_creator", sql`(((\`creator_kind\` = _utf8mb4\'system\') and (\`created_by_user_id\` is null)) or ((\`creator_kind\` = _utf8mb4\'user\') and (\`created_by_user_id\` is not null)))`),
+	check("chk_gateway_creator", sql`(((\`creator_kind\` = _latin1\'system\') and (\`created_by_user_id\` is null)) or ((\`creator_kind\` = _latin1\'user\') and (\`created_by_user_id\` is not null)))`),
 	check("chk_gateway_revisions", sql`(\`applied_revision\` <= \`desired_revision\`)`),
 ]);
 

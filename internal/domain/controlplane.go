@@ -26,12 +26,13 @@ type GatewayConnection struct {
 }
 
 type GatewayAcceptedConnection struct {
-	ConnectionEpoch uint64
-	Status          GatewayStatus
+	ConnectionEpoch  uint64
+	DesiredLifecycle string
 }
 
 type GatewayConnectionHello struct {
 	GatewayID       string
+	BaseURL         *string
 	GRPCEndpoint    *string
 	SoftwareVersion *string
 	Capabilities    []byte

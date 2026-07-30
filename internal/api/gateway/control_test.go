@@ -15,13 +15,14 @@ import (
 )
 
 type fakeStore struct {
-	connection Connection
-	acceptErr  error
-	writeErr   error
-	acceptedID string
-	heartbeats []uint64
-	lifecycles []uint64
-	disconnect []uint64
+	connection            Connection
+	acceptErr             error
+	writeErr              error
+	acceptedID            string
+	heartbeats            []uint64
+	lifecycles            []uint64
+	disconnect            []uint64
+	disconnectHasDeadline bool
 }
 
 func (s *fakeStore) Accept(_ context.Context, id string, _ Hello) (Connection, error) {
@@ -36,8 +37,9 @@ func (s *fakeStore) Lifecycle(_ context.Context, _ string, epoch uint64, _ Lifec
 	s.lifecycles = append(s.lifecycles, epoch)
 	return s.writeErr
 }
-func (s *fakeStore) Disconnect(_ context.Context, _ string, epoch uint64) error {
+func (s *fakeStore) Disconnect(ctx context.Context, _ string, epoch uint64) error {
 	s.disconnect = append(s.disconnect, epoch)
+	_, s.disconnectHasDeadline = ctx.Deadline()
 	return nil
 }
 
@@ -45,6 +47,7 @@ type fakeStream struct {
 	ctx    context.Context
 	frames []*gatewayv1.GatewayFrame
 	sent   []*gatewayv1.ControlFrame
+	send   func(*gatewayv1.ControlFrame) error
 }
 
 func (s *fakeStream) Context() context.Context { return s.ctx }
@@ -58,6 +61,9 @@ func (s *fakeStream) Recv() (*gatewayv1.GatewayFrame, error) {
 }
 func (s *fakeStream) Send(frame *gatewayv1.ControlFrame) error {
 	s.sent = append(s.sent, frame)
+	if s.send != nil {
+		return s.send(frame)
+	}
 	return nil
 }
 func (*fakeStream) SetHeader(metadata.MD) error  { return nil }
@@ -98,11 +104,130 @@ func TestConnectUsesTLSIdentityAndSendsSequencedWelcome(t *testing.T) {
 	if store.acceptedID != "gw_cert" || len(store.heartbeats) != 1 || store.heartbeats[0] != 7 {
 		t.Fatalf("store calls = id %q heartbeats %v", store.acceptedID, store.heartbeats)
 	}
-	if len(stream.sent) != 1 || stream.sent[0].Sequence != 1 || stream.sent[0].ProtocolVersion != ProtocolVersion || stream.sent[0].GetWelcome().ConnectionEpoch != 7 {
-		t.Fatalf("welcome = %+v", stream.sent)
+	if len(stream.sent) != 2 || stream.sent[0].Sequence != 1 || stream.sent[0].ProtocolVersion != ProtocolVersion || stream.sent[0].GetWelcome().ConnectionEpoch != 7 {
+		t.Fatalf("control frames = %+v", stream.sent)
+	}
+	ack := stream.sent[1]
+	if ack.Sequence != 2 || ack.GetHeartbeatAck().AcknowledgedGatewaySequence != 2 || ack.GetHeartbeatAck().ConnectionEpoch != 7 || ack.GetHeartbeatAck().ServerTimeUnixMs != 1234 {
+		t.Fatalf("heartbeat ack = %+v", ack)
 	}
 	if len(store.disconnect) != 1 || store.disconnect[0] != 7 {
 		t.Fatalf("disconnects = %v", store.disconnect)
+	}
+	if !store.disconnectHasDeadline {
+		t.Fatal("disconnect cleanup context has no deadline")
+	}
+}
+
+func TestHeartbeatAckIsSentOnlyAfterPersistence(t *testing.T) {
+	store := connectedStore()
+	stream := &fakeStream{ctx: context.Background(), frames: []*gatewayv1.GatewayFrame{hello(1), heartbeat(2, 7, 1)}}
+	stream.send = func(frame *gatewayv1.ControlFrame) error {
+		if frame.GetHeartbeatAck() != nil && len(store.heartbeats) != 1 {
+			t.Fatal("heartbeat ack sent before persistence completed")
+		}
+		return nil
+	}
+	if err := testServer(store).Connect(stream); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHeartbeatPersistenceErrorSendsNoAck(t *testing.T) {
+	store := connectedStore()
+	store.writeErr = ErrUnavailable
+	stream := &fakeStream{ctx: context.Background(), frames: []*gatewayv1.GatewayFrame{hello(1), heartbeat(2, 7, 1)}}
+	err := testServer(store).Connect(stream)
+	if status.Code(err) != codes.Unavailable || len(stream.sent) != 1 || stream.sent[0].GetWelcome() == nil {
+		t.Fatalf("err = %v, control frames = %+v", err, stream.sent)
+	}
+}
+
+func TestConnectAllowsControlAckLagButRejectsFutureAndRegression(t *testing.T) {
+	t.Run("lag", func(t *testing.T) {
+		store := connectedStore()
+		stream := &fakeStream{ctx: context.Background(), frames: []*gatewayv1.GatewayFrame{
+			hello(1), heartbeat(2, 7, 1), heartbeat(3, 7, 1), heartbeat(4, 7, 2),
+		}}
+		if err := testServer(store).Connect(stream); err != nil {
+			t.Fatal(err)
+		}
+		if len(stream.sent) != 4 || stream.sent[3].Sequence != 4 {
+			t.Fatalf("control frames = %+v", stream.sent)
+		}
+	})
+	t.Run("future", func(t *testing.T) {
+		err := testServer(connectedStore()).Connect(&fakeStream{ctx: context.Background(), frames: []*gatewayv1.GatewayFrame{
+			hello(1), heartbeat(2, 7, 1), heartbeat(3, 7, 3),
+		}})
+		if status.Code(err) != codes.FailedPrecondition {
+			t.Fatalf("code = %v, err = %v", status.Code(err), err)
+		}
+	})
+	t.Run("regression", func(t *testing.T) {
+		err := testServer(connectedStore()).Connect(&fakeStream{ctx: context.Background(), frames: []*gatewayv1.GatewayFrame{
+			hello(1), heartbeat(2, 7, 1), heartbeat(3, 7, 2), heartbeat(4, 7, 1),
+		}})
+		if status.Code(err) != codes.FailedPrecondition {
+			t.Fatalf("code = %v, err = %v", status.Code(err), err)
+		}
+	})
+}
+
+type blockingStream struct {
+	*fakeStream
+	recv chan *gatewayv1.GatewayFrame
+}
+
+func (s *blockingStream) Recv() (*gatewayv1.GatewayFrame, error) {
+	select {
+	case frame := <-s.recv:
+		return frame, nil
+	case <-s.ctx.Done():
+		return nil, s.ctx.Err()
+	}
+}
+
+func TestConnectHelloDeadlineWhileRecvIsBlocked(t *testing.T) {
+	store := connectedStore()
+	server := testServer(store)
+	server.HelloTimeout = 10 * time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stream := &blockingStream{fakeStream: &fakeStream{ctx: ctx}, recv: make(chan *gatewayv1.GatewayFrame)}
+	err := server.Connect(stream)
+	if status.Code(err) != codes.DeadlineExceeded || store.acceptedID != "" {
+		t.Fatalf("code = %v accepted = %q err = %v", status.Code(err), store.acceptedID, err)
+	}
+}
+
+func TestDisconnectCleanupContextIsDetachedAndBounded(t *testing.T) {
+	parent, cancelParent := context.WithCancel(context.Background())
+	cancelParent()
+	server := &Server{DisconnectTimeout: time.Second}
+	ctx, cancel := server.disconnectContext(parent)
+	defer cancel()
+	if ctx.Err() != nil {
+		t.Fatalf("cleanup inherited parent cancellation: %v", ctx.Err())
+	}
+	deadline, ok := ctx.Deadline()
+	if !ok || time.Until(deadline) <= 0 || time.Until(deadline) > time.Second {
+		t.Fatalf("cleanup deadline = %v, ok=%v", deadline, ok)
+	}
+}
+
+func TestConnectLeaseExpiresWhileRecvIsBlocked(t *testing.T) {
+	store := connectedStore()
+	store.connection.LeaseTimeout = 10 * time.Millisecond
+	server := testServer(store)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	recv := make(chan *gatewayv1.GatewayFrame, 1)
+	recv <- hello(1)
+	stream := &blockingStream{fakeStream: &fakeStream{ctx: ctx}, recv: recv}
+	err := server.Connect(stream)
+	if status.Code(err) != codes.DeadlineExceeded || len(store.disconnect) != 1 {
+		t.Fatalf("code = %v disconnects = %v err = %v", status.Code(err), store.disconnect, err)
 	}
 }
 
@@ -196,6 +321,12 @@ func TestConnectRejectsInvalidBoundedFields(t *testing.T) {
 		"too many capabilities": func() []*gatewayv1.GatewayFrame {
 			v := hello(1)
 			v.GetHello().Capabilities = tooManyCapabilities
+			return []*gatewayv1.GatewayFrame{v}
+		},
+		"invalid HTTP base URL": func() []*gatewayv1.GatewayFrame {
+			v := hello(1)
+			raw := "https://user@gateway.test/path?query=yes#fragment"
+			v.GetHello().HttpBaseUrl = &raw
 			return []*gatewayv1.GatewayFrame{v}
 		},
 		"invalid heartbeat time": func() []*gatewayv1.GatewayFrame {

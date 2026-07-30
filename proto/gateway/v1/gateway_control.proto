@@ -34,8 +34,9 @@ message ControlFrame {
   oneof payload {
     ControlWelcome welcome = 10;
     LifecycleDirective lifecycle_directive = 11;
+    ControlHeartbeatAck heartbeat_ack = 12;
   }
-  reserved 12 to 19;
+  reserved 13 to 19;
 }
 
 message GatewayHello {
@@ -46,7 +47,8 @@ message GatewayHello {
   int64 started_at_unix_ms = 5;
   uint32 session_count = 6;
   GatewayRuntimeState runtime_state = 7;
-  reserved 8 to 15;
+  optional string http_base_url = 8;
+  reserved 9 to 15;
 }
 
 message GatewayHeartbeat {
@@ -56,6 +58,16 @@ message GatewayHeartbeat {
   uint32 session_count = 4;
   GatewayRuntimeState runtime_state = 5;
   reserved 6 to 15;
+}
+
+// ControlHeartbeatAck confirms that the API durably applied one gateway
+// heartbeat. Its containing ControlFrame sequence participates in the normal
+// control-stream sequencing acknowledged by later gateway heartbeats.
+message ControlHeartbeatAck {
+  uint64 acknowledged_gateway_sequence = 1;
+  uint64 connection_epoch = 2;
+  int64 server_time_unix_ms = 3;
+  reserved 4 to 15;
 }
 
 message GatewayLifecycleReport {

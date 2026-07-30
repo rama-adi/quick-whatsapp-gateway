@@ -45,8 +45,9 @@ until later increments replace them.
 | **Increment 2.3 + bootstrap** — private enrollment transport | ✅ Done | Opt-in TLS 1.3 listener, anonymous access restricted to enrollment, strict live certificate authorization elsewhere, atomic API identity, and crash-safe gateway credential bootstrap over one reusable mTLS connection. |
 | **Increment 2 control contract** — stream protocol | ✅ Done | Private bidi hello/welcome, heartbeat/lifecycle, version/sequence, connection-epoch, and lifecycle-directive contract with generated bindings and compatibility tests. |
 | **Increment 2 control persistence** — DB fencing | ✅ Done | Atomic compare-and-swap epoch allocation stores Hello metadata; rejects non-connectable gateways; and fences heartbeat/lifecycle/metadata writes from stale streams. Accept/heartbeat preserve applied revision, lifecycle preserves session count, and `degraded` is a durable runtime status; reports cannot select administrative states. |
-| **Increment 2 control handler** — API stream | ✅ Done | Private mTLS registration, TLS-context-only identity, envelope-first version/sequence validation, bounded Hello/heartbeat fields, acknowledgement checks, and stale-epoch rejection are implemented. Lifecycle reports remain `FailedPrecondition` and unpersisted until directives are tracked. |
-| **Increment 2 remainder** — runtime lifecycle/admin | ⬜ Planned | Gateway reconnect supervisor, lease/readiness semantics, server-side heartbeat timeout/forced termination, renewal and forced revocation disconnect, removal of self-registration/direct heartbeats, admin API/UI, and lifecycle reconciliation. Disconnect currently has no explicit database status transition; liveness ages out and a replacement epoch fences the old stream. |
+| **Increment 2 control runtime** — durable liveness | ✅ Done | API Hello/heartbeat watchdogs and post-persistence HeartbeatAck are implemented. The wired gateway supervisor validates sequences/epochs, sends one heartbeat per durable ack, reconnects transient failures, and gates readiness on acknowledged READY/RUN state. Control-enabled mode exclusively owns registry liveness and skips the five legacy joining/active/heartbeat/draining/drained writes; control-disabled mode retains them. |
+| **Increment 2 lifecycle bridge** — transitional drain/routing | ✅ Done | Registry rows separate observed status, admin-owned desired RUN/DRAIN, and explicit control/legacy mode. Placement requires desired RUN; mode selects 15s/90s freshness. Irreversible engine admission and Asynq startup require acknowledged RUN+READY; drain waits admitted requests and joins workers before manager shutdown. The lifetime watcher covers delayed Boot and terminal supervisor errors exit cleanly. SIGTERM uses reconnect-safe Flush acknowledgements; disconnect cleanup is detached and capped at 5s. |
+| **Increment 2 remainder** — directives/renewal/admin | ⬜ Planned | Strict post-Welcome directive execution and lifecycle reports, certificate renewal/rollover, forced revocation disconnect, admin API/UI, and desired-state reconciliation remain. The shutdown heartbeats are not directive acknowledgements, and disconnect does not invent a terminal lifecycle status. Increment 2 is not complete. |
 | **Increments 3+** — desired state through cutover | ⬜ Planned | Add desired state, engine slices, reliable events/commands, public application gRPC, placement cutover, then remove gateway HTTP/MySQL/Redis. |
 
 ## v1 milestones (archived — code complete)
@@ -189,5 +190,11 @@ e2e smoke against a live WhatsApp number.
   including pinned SPIFFE/root verification, pending CSR/key reuse, replay-aware retries, strict
   certificate authorization, and a reusable mTLS connection.
 - The private bidi control contract is implemented. API-side stream handling and database epoch
-  fencing are the active slice; gateway reconnect supervision, lease/readiness behavior, legacy
-  heartbeat removal, renewal, revocation-driven termination, and admin UI remain follow-ups.
+  fencing, durable heartbeat acknowledgements, Hello/lease watchdogs, gateway reconnect
+  supervision, and readiness gating are implemented. Control mode owns registry writes exclusively;
+  the legacy five-write path remains only when control is disabled. Authenticated transitional HTTP
+  addressing, fenced disconnect liveness, observed/desired lifecycle separation, explicit
+  connection-mode freshness, full engine-route admission draining, deferred RUN boot, and
+  reconnect-safe acknowledged shutdown heartbeats are implemented. Strict post-Welcome lifecycle
+  directives/reports, renewal, revocation-driven termination, and admin UI remain
+  follow-ups, so full Increment 2 is not claimed.

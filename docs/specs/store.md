@@ -76,6 +76,8 @@ CREATE TABLE gateways (            -- registry + lifecycle; the router reads it 
   id VARCHAR(64) PRIMARY KEY,      -- = GATEWAY_ID
   label VARCHAR(255) NULL, notes TEXT NULL,
   status ENUM('pending_enrollment','joining','active','draining','drained','degraded','disabled'),
+  desired_lifecycle ENUM('run','drain'),
+  connection_mode ENUM('legacy','control'),
   creator_kind ENUM('system','user'), created_by_user_id VARCHAR(64) NULL,
   base_url TEXT NULL, grpc_endpoint VARCHAR(512) NULL,
   session_count INT UNSIGNED NOT NULL DEFAULT 0, capacity INT UNSIGNED NULL,
@@ -188,33 +190,65 @@ token, matching CSR/gateway certificate, and a currently active certificate. Dis
 gateways are never recovery-eligible.
 
 Enrollment is wired to the opt-in private TLS listener and crash-safe gateway bootstrap. It is not
-yet exposed through an operator administration API or UI. Current boot self-registration uses the
-explicit `creator_kind='system'` default. Future admin creation requires `creator_kind='user'` and
-a real creator id; the database check forbids ambiguous or fabricated user attribution.
+yet exposed through an operator administration API or UI. Control-disabled boot self-registration
+uses the explicit `creator_kind='system'` default. Future admin creation requires
+`creator_kind='user'` and a real creator id; the database check forbids ambiguous or fabricated
+user attribution.
 
 The control-stream persistence slice adds database-backed `gateways.connection_epoch`.
 `AcceptConnection` atomically compare-and-swap increments the epoch and persists validated Hello
-metadata in the same write. It rejects missing, deleted, disabled, pending-enrollment, and unenrolled
-gateways. The persisted post-accept status is authoritative for Welcome desired lifecycle:
-`draining`/`drained` become DRAIN and `joining`/`active`/`degraded` become RUN; Hello cannot choose
-it. Stream-originated heartbeat, lifecycle, and connection-metadata writes include the gateway
+metadata in the same write. That metadata includes the optional authenticated transitional
+`http_base_url`; when supplied it updates `gateways.base_url`, and when absent the existing value is
+preserved. This keeps fresh control-enabled gateways routable without reintroducing the legacy
+unfenced Upsert. It rejects missing, deleted, disabled, pending-enrollment, and unenrolled
+gateways. Observed `status` and authoritative `desired_lifecycle` are separate. Accept reads
+`desired_lifecycle` for Welcome; Hello cannot choose it. Stream Hello/heartbeat updates observed
+status only, so reporting DRAINING/DRAINED during shutdown does not persist a desired drain.
+`connection_mode` is also explicit: control accept writes `control`, while legacy self-registration
+writes `legacy`. Stream-originated heartbeat, lifecycle, and connection-metadata writes include the gateway
 id and current epoch in their update predicate. Accept and heartbeat writes never change
 `applied_revision`; heartbeats update liveness, session count, and runtime-derived status only.
 Lifecycle reports update only reported lifecycle state—never `session_count`—and cannot select
 administrative states such as `disabled` or `pending_enrollment`. `degraded` is a durable
 gateway-reported status. Once a newer stream is accepted, writes from the older epoch become no-ops
-even if that process has not observed the replacement connection. Stream disconnect does not write a terminal database status:
-liveness is derived from the lease/`last_seen_at`, and the next accepted stream fences the old
-epoch. This fences control-plane registry mutation only; it is not yet a session assignment epoch
-or a command idempotency ledger.
+even if that process has not observed the replacement connection. Stream disconnect clears
+`last_seen_at` and `connected_at` only when its gateway id and epoch are still current. It does not
+write a terminal database status, and an old stream cannot clear a replacement stream's liveness.
+A crash still becomes unreachable through the lease/freshness window. This fences control-plane
+registry mutation only; it is not yet a session assignment epoch or a command idempotency ledger.
 
-Existing `GatewayRepo` lifecycle methods remain active:
+The API sends `HeartbeatAck` only after `HeartbeatForEpoch` succeeds, so an acknowledgement is
+evidence that the liveness/session-count/runtime-state update passed the epoch predicate and was
+durably applied. Failure or lease expiry sends no acknowledgement. The gateway supervisor waits for
+that acknowledgement before scheduling its next heartbeat.
+
+Existing unfenced `GatewayRepo` lifecycle methods remain active only in control-disabled mode:
 
 - **`Heartbeat`** — touch `last_seen_at` + `session_count` (the 30s gateway loop).
-- **`SetStatus`** — move through the lifecycle (`joining → active`, `draining → drained` on SIGTERM).
+- **`SetStatus`** — write observed runtime lifecycle only (`joining`, `active`, `draining`,
+  `drained`, or `degraded`); it never changes administrative intent.
+- **`SetDesiredLifecycle`** — the separate administrative mutation for enrolled gateways; accepts
+  only `run` or `drain`.
 - **`ListActive`** — the `active` gateways (gateway-agnostic routing target).
 - **`PickForPlacement`** — choose the least-loaded `active` gateway for a new session
   (`POST /sessions` placement).
+
+When `GATEWAY_CONTROL_PLANE_ADDR` enables the control stream, it is the exclusive gateway-registry
+writer. The composition root gates off exactly five legacy mutations: joining registration, active
+registration, periodic `Heartbeat`, shutdown `SetStatus(draining)`, and shutdown
+`SetStatus(drained)`. `ListActive` and `PickForPlacement` remain control-plane reads. This does not
+yet remove other gateway MySQL dependencies, nor does it implement directive-owned graceful
+lifecycle transitions.
+
+Router reachability uses `connection_mode`: control rows have a 15-second freshness window matching
+their advertised lease; legacy rows retain 90 seconds so their 30-second heartbeat remains viable.
+A control-to-legacy registration changes the mode and therefore changes the applicable freshness
+window. A fenced disconnect makes a current control row immediately unusable by clearing its
+liveness timestamps. Placement additionally requires observed `active`, desired `run`, capacity,
+and freshness; a shutdown report cannot accidentally make a desired drain sticky, and an
+operator-desired drain cannot receive new placement merely because observed status is active.
+The disconnect write is attempted on a detached context bounded to five seconds after stream exit;
+the epoch predicate remains the authority that prevents stale cleanup from clearing a replacement.
 
 `SessionRepo` gains **`CountByGateway`** (feeds `session_count` in the heartbeat).
 `wa_sessions.gateway_id` is unchanged (already `NOT NULL`) and is now **authoritative for routing**.

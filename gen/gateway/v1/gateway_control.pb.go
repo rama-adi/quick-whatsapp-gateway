@@ -417,6 +417,7 @@ type ControlFrame struct {
 	//
 	//	*ControlFrame_Welcome
 	//	*ControlFrame_LifecycleDirective
+	//	*ControlFrame_HeartbeatAck
 	Payload       isControlFrame_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -491,6 +492,15 @@ func (x *ControlFrame) GetLifecycleDirective() *LifecycleDirective {
 	return nil
 }
 
+func (x *ControlFrame) GetHeartbeatAck() *ControlHeartbeatAck {
+	if x != nil {
+		if x, ok := x.Payload.(*ControlFrame_HeartbeatAck); ok {
+			return x.HeartbeatAck
+		}
+	}
+	return nil
+}
+
 type isControlFrame_Payload interface {
 	isControlFrame_Payload()
 }
@@ -503,9 +513,15 @@ type ControlFrame_LifecycleDirective struct {
 	LifecycleDirective *LifecycleDirective `protobuf:"bytes,11,opt,name=lifecycle_directive,json=lifecycleDirective,proto3,oneof"`
 }
 
+type ControlFrame_HeartbeatAck struct {
+	HeartbeatAck *ControlHeartbeatAck `protobuf:"bytes,12,opt,name=heartbeat_ack,json=heartbeatAck,proto3,oneof"`
+}
+
 func (*ControlFrame_Welcome) isControlFrame_Payload() {}
 
 func (*ControlFrame_LifecycleDirective) isControlFrame_Payload() {}
+
+func (*ControlFrame_HeartbeatAck) isControlFrame_Payload() {}
 
 type GatewayHello struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
@@ -516,6 +532,7 @@ type GatewayHello struct {
 	StartedAtUnixMs int64                  `protobuf:"varint,5,opt,name=started_at_unix_ms,json=startedAtUnixMs,proto3" json:"started_at_unix_ms,omitempty"`
 	SessionCount    uint32                 `protobuf:"varint,6,opt,name=session_count,json=sessionCount,proto3" json:"session_count,omitempty"`
 	RuntimeState    GatewayRuntimeState    `protobuf:"varint,7,opt,name=runtime_state,json=runtimeState,proto3,enum=gateway.v1.GatewayRuntimeState" json:"runtime_state,omitempty"`
+	HttpBaseUrl     *string                `protobuf:"bytes,8,opt,name=http_base_url,json=httpBaseUrl,proto3,oneof" json:"http_base_url,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -599,6 +616,13 @@ func (x *GatewayHello) GetRuntimeState() GatewayRuntimeState {
 	return GatewayRuntimeState_GATEWAY_RUNTIME_STATE_UNKNOWN
 }
 
+func (x *GatewayHello) GetHttpBaseUrl() string {
+	if x != nil && x.HttpBaseUrl != nil {
+		return *x.HttpBaseUrl
+	}
+	return ""
+}
+
 type GatewayHeartbeat struct {
 	state               protoimpl.MessageState `protogen:"open.v1"`
 	ConnectionEpoch     uint64                 `protobuf:"varint,1,opt,name=connection_epoch,json=connectionEpoch,proto3" json:"connection_epoch,omitempty"`
@@ -675,6 +699,69 @@ func (x *GatewayHeartbeat) GetRuntimeState() GatewayRuntimeState {
 	return GatewayRuntimeState_GATEWAY_RUNTIME_STATE_UNKNOWN
 }
 
+// ControlHeartbeatAck confirms that the API durably applied one gateway
+// heartbeat. Its containing ControlFrame sequence participates in the normal
+// control-stream sequencing acknowledged by later gateway heartbeats.
+type ControlHeartbeatAck struct {
+	state                       protoimpl.MessageState `protogen:"open.v1"`
+	AcknowledgedGatewaySequence uint64                 `protobuf:"varint,1,opt,name=acknowledged_gateway_sequence,json=acknowledgedGatewaySequence,proto3" json:"acknowledged_gateway_sequence,omitempty"`
+	ConnectionEpoch             uint64                 `protobuf:"varint,2,opt,name=connection_epoch,json=connectionEpoch,proto3" json:"connection_epoch,omitempty"`
+	ServerTimeUnixMs            int64                  `protobuf:"varint,3,opt,name=server_time_unix_ms,json=serverTimeUnixMs,proto3" json:"server_time_unix_ms,omitempty"`
+	unknownFields               protoimpl.UnknownFields
+	sizeCache                   protoimpl.SizeCache
+}
+
+func (x *ControlHeartbeatAck) Reset() {
+	*x = ControlHeartbeatAck{}
+	mi := &file_v1_gateway_control_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ControlHeartbeatAck) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ControlHeartbeatAck) ProtoMessage() {}
+
+func (x *ControlHeartbeatAck) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_control_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ControlHeartbeatAck.ProtoReflect.Descriptor instead.
+func (*ControlHeartbeatAck) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_control_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *ControlHeartbeatAck) GetAcknowledgedGatewaySequence() uint64 {
+	if x != nil {
+		return x.AcknowledgedGatewaySequence
+	}
+	return 0
+}
+
+func (x *ControlHeartbeatAck) GetConnectionEpoch() uint64 {
+	if x != nil {
+		return x.ConnectionEpoch
+	}
+	return 0
+}
+
+func (x *ControlHeartbeatAck) GetServerTimeUnixMs() int64 {
+	if x != nil {
+		return x.ServerTimeUnixMs
+	}
+	return 0
+}
+
 type GatewayLifecycleReport struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	ConnectionEpoch uint64                 `protobuf:"varint,1,opt,name=connection_epoch,json=connectionEpoch,proto3" json:"connection_epoch,omitempty"`
@@ -687,7 +774,7 @@ type GatewayLifecycleReport struct {
 
 func (x *GatewayLifecycleReport) Reset() {
 	*x = GatewayLifecycleReport{}
-	mi := &file_v1_gateway_control_proto_msgTypes[4]
+	mi := &file_v1_gateway_control_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -699,7 +786,7 @@ func (x *GatewayLifecycleReport) String() string {
 func (*GatewayLifecycleReport) ProtoMessage() {}
 
 func (x *GatewayLifecycleReport) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_control_proto_msgTypes[4]
+	mi := &file_v1_gateway_control_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -712,7 +799,7 @@ func (x *GatewayLifecycleReport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GatewayLifecycleReport.ProtoReflect.Descriptor instead.
 func (*GatewayLifecycleReport) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_control_proto_rawDescGZIP(), []int{4}
+	return file_v1_gateway_control_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *GatewayLifecycleReport) GetConnectionEpoch() uint64 {
@@ -757,7 +844,7 @@ type ControlWelcome struct {
 
 func (x *ControlWelcome) Reset() {
 	*x = ControlWelcome{}
-	mi := &file_v1_gateway_control_proto_msgTypes[5]
+	mi := &file_v1_gateway_control_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -769,7 +856,7 @@ func (x *ControlWelcome) String() string {
 func (*ControlWelcome) ProtoMessage() {}
 
 func (x *ControlWelcome) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_control_proto_msgTypes[5]
+	mi := &file_v1_gateway_control_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -782,7 +869,7 @@ func (x *ControlWelcome) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ControlWelcome.ProtoReflect.Descriptor instead.
 func (*ControlWelcome) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_control_proto_rawDescGZIP(), []int{5}
+	return file_v1_gateway_control_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ControlWelcome) GetConnectionId() string {
@@ -840,7 +927,7 @@ type LifecycleDirective struct {
 
 func (x *LifecycleDirective) Reset() {
 	*x = LifecycleDirective{}
-	mi := &file_v1_gateway_control_proto_msgTypes[6]
+	mi := &file_v1_gateway_control_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -852,7 +939,7 @@ func (x *LifecycleDirective) String() string {
 func (*LifecycleDirective) ProtoMessage() {}
 
 func (x *LifecycleDirective) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_control_proto_msgTypes[6]
+	mi := &file_v1_gateway_control_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -865,7 +952,7 @@ func (x *LifecycleDirective) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LifecycleDirective.ProtoReflect.Descriptor instead.
 func (*LifecycleDirective) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_control_proto_rawDescGZIP(), []int{6}
+	return file_v1_gateway_control_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *LifecycleDirective) GetDirectiveId() string {
@@ -917,15 +1004,16 @@ const file_v1_gateway_control_proto_rawDesc = "" +
 	"\theartbeat\x18\v \x01(\v2\x1c.gateway.v1.GatewayHeartbeatH\x00R\theartbeat\x12O\n" +
 	"\x10lifecycle_report\x18\f \x01(\v2\".gateway.v1.GatewayLifecycleReportH\x00R\x0flifecycleReportB\t\n" +
 	"\apayloadJ\x04\b\x03\x10\n" +
-	"J\x04\b\r\x10\x14\"\xf7\x01\n" +
+	"J\x04\b\r\x10\x14\"\xbf\x02\n" +
 	"\fControlFrame\x12)\n" +
 	"\x10protocol_version\x18\x01 \x01(\rR\x0fprotocolVersion\x12\x1a\n" +
 	"\bsequence\x18\x02 \x01(\x04R\bsequence\x126\n" +
 	"\awelcome\x18\n" +
 	" \x01(\v2\x1a.gateway.v1.ControlWelcomeH\x00R\awelcome\x12Q\n" +
-	"\x13lifecycle_directive\x18\v \x01(\v2\x1e.gateway.v1.LifecycleDirectiveH\x00R\x12lifecycleDirectiveB\t\n" +
+	"\x13lifecycle_directive\x18\v \x01(\v2\x1e.gateway.v1.LifecycleDirectiveH\x00R\x12lifecycleDirective\x12F\n" +
+	"\rheartbeat_ack\x18\f \x01(\v2\x1f.gateway.v1.ControlHeartbeatAckH\x00R\fheartbeatAckB\t\n" +
 	"\apayloadJ\x04\b\x03\x10\n" +
-	"J\x04\b\f\x10\x14\"\xf7\x02\n" +
+	"J\x04\b\r\x10\x14\"\xb2\x03\n" +
 	"\fGatewayHello\x12\x1f\n" +
 	"\vinstance_id\x18\x01 \x01(\tR\n" +
 	"instanceId\x12)\n" +
@@ -934,14 +1022,20 @@ const file_v1_gateway_control_proto_rawDesc = "" +
 	"\rgrpc_endpoint\x18\x04 \x01(\tH\x00R\fgrpcEndpoint\x88\x01\x01\x12+\n" +
 	"\x12started_at_unix_ms\x18\x05 \x01(\x03R\x0fstartedAtUnixMs\x12#\n" +
 	"\rsession_count\x18\x06 \x01(\rR\fsessionCount\x12D\n" +
-	"\rruntime_state\x18\a \x01(\x0e2\x1f.gateway.v1.GatewayRuntimeStateR\fruntimeStateB\x10\n" +
-	"\x0e_grpc_endpointJ\x04\b\b\x10\x10\"\x89\x02\n" +
+	"\rruntime_state\x18\a \x01(\x0e2\x1f.gateway.v1.GatewayRuntimeStateR\fruntimeState\x12'\n" +
+	"\rhttp_base_url\x18\b \x01(\tH\x01R\vhttpBaseUrl\x88\x01\x01B\x10\n" +
+	"\x0e_grpc_endpointB\x10\n" +
+	"\x0e_http_base_urlJ\x04\b\t\x10\x10\"\x89\x02\n" +
 	"\x10GatewayHeartbeat\x12)\n" +
 	"\x10connection_epoch\x18\x01 \x01(\x04R\x0fconnectionEpoch\x122\n" +
 	"\x15last_control_sequence\x18\x02 \x01(\x04R\x13lastControlSequence\x12%\n" +
 	"\x0fsent_at_unix_ms\x18\x03 \x01(\x03R\fsentAtUnixMs\x12#\n" +
 	"\rsession_count\x18\x04 \x01(\rR\fsessionCount\x12D\n" +
-	"\rruntime_state\x18\x05 \x01(\x0e2\x1f.gateway.v1.GatewayRuntimeStateR\fruntimeStateJ\x04\b\x06\x10\x10\"\xdb\x01\n" +
+	"\rruntime_state\x18\x05 \x01(\x0e2\x1f.gateway.v1.GatewayRuntimeStateR\fruntimeStateJ\x04\b\x06\x10\x10\"\xb9\x01\n" +
+	"\x13ControlHeartbeatAck\x12B\n" +
+	"\x1dacknowledged_gateway_sequence\x18\x01 \x01(\x04R\x1backnowledgedGatewaySequence\x12)\n" +
+	"\x10connection_epoch\x18\x02 \x01(\x04R\x0fconnectionEpoch\x12-\n" +
+	"\x13server_time_unix_ms\x18\x03 \x01(\x03R\x10serverTimeUnixMsJ\x04\b\x04\x10\x10\"\xdb\x01\n" +
 	"\x16GatewayLifecycleReport\x12)\n" +
 	"\x10connection_epoch\x18\x01 \x01(\x04R\x0fconnectionEpoch\x12!\n" +
 	"\fdirective_id\x18\x02 \x01(\tR\vdirectiveId\x125\n" +
@@ -1006,7 +1100,7 @@ func file_v1_gateway_control_proto_rawDescGZIP() []byte {
 }
 
 var file_v1_gateway_control_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_v1_gateway_control_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_v1_gateway_control_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_v1_gateway_control_proto_goTypes = []any{
 	(GatewayCapability)(0),         // 0: gateway.v1.GatewayCapability
 	(GatewayRuntimeState)(0),       // 1: gateway.v1.GatewayRuntimeState
@@ -1017,31 +1111,33 @@ var file_v1_gateway_control_proto_goTypes = []any{
 	(*ControlFrame)(nil),           // 6: gateway.v1.ControlFrame
 	(*GatewayHello)(nil),           // 7: gateway.v1.GatewayHello
 	(*GatewayHeartbeat)(nil),       // 8: gateway.v1.GatewayHeartbeat
-	(*GatewayLifecycleReport)(nil), // 9: gateway.v1.GatewayLifecycleReport
-	(*ControlWelcome)(nil),         // 10: gateway.v1.ControlWelcome
-	(*LifecycleDirective)(nil),     // 11: gateway.v1.LifecycleDirective
+	(*ControlHeartbeatAck)(nil),    // 9: gateway.v1.ControlHeartbeatAck
+	(*GatewayLifecycleReport)(nil), // 10: gateway.v1.GatewayLifecycleReport
+	(*ControlWelcome)(nil),         // 11: gateway.v1.ControlWelcome
+	(*LifecycleDirective)(nil),     // 12: gateway.v1.LifecycleDirective
 }
 var file_v1_gateway_control_proto_depIdxs = []int32{
 	7,  // 0: gateway.v1.GatewayFrame.hello:type_name -> gateway.v1.GatewayHello
 	8,  // 1: gateway.v1.GatewayFrame.heartbeat:type_name -> gateway.v1.GatewayHeartbeat
-	9,  // 2: gateway.v1.GatewayFrame.lifecycle_report:type_name -> gateway.v1.GatewayLifecycleReport
-	10, // 3: gateway.v1.ControlFrame.welcome:type_name -> gateway.v1.ControlWelcome
-	11, // 4: gateway.v1.ControlFrame.lifecycle_directive:type_name -> gateway.v1.LifecycleDirective
-	0,  // 5: gateway.v1.GatewayHello.capabilities:type_name -> gateway.v1.GatewayCapability
-	1,  // 6: gateway.v1.GatewayHello.runtime_state:type_name -> gateway.v1.GatewayRuntimeState
-	1,  // 7: gateway.v1.GatewayHeartbeat.runtime_state:type_name -> gateway.v1.GatewayRuntimeState
-	1,  // 8: gateway.v1.GatewayLifecycleReport.state:type_name -> gateway.v1.GatewayRuntimeState
-	2,  // 9: gateway.v1.GatewayLifecycleReport.failure:type_name -> gateway.v1.LifecycleFailure
-	3,  // 10: gateway.v1.ControlWelcome.desired_lifecycle:type_name -> gateway.v1.LifecycleDirectiveAction
-	3,  // 11: gateway.v1.LifecycleDirective.action:type_name -> gateway.v1.LifecycleDirectiveAction
-	4,  // 12: gateway.v1.LifecycleDirective.reason:type_name -> gateway.v1.LifecycleDirectiveReason
-	5,  // 13: gateway.v1.GatewayControlService.Connect:input_type -> gateway.v1.GatewayFrame
-	6,  // 14: gateway.v1.GatewayControlService.Connect:output_type -> gateway.v1.ControlFrame
-	14, // [14:15] is the sub-list for method output_type
-	13, // [13:14] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	10, // 2: gateway.v1.GatewayFrame.lifecycle_report:type_name -> gateway.v1.GatewayLifecycleReport
+	11, // 3: gateway.v1.ControlFrame.welcome:type_name -> gateway.v1.ControlWelcome
+	12, // 4: gateway.v1.ControlFrame.lifecycle_directive:type_name -> gateway.v1.LifecycleDirective
+	9,  // 5: gateway.v1.ControlFrame.heartbeat_ack:type_name -> gateway.v1.ControlHeartbeatAck
+	0,  // 6: gateway.v1.GatewayHello.capabilities:type_name -> gateway.v1.GatewayCapability
+	1,  // 7: gateway.v1.GatewayHello.runtime_state:type_name -> gateway.v1.GatewayRuntimeState
+	1,  // 8: gateway.v1.GatewayHeartbeat.runtime_state:type_name -> gateway.v1.GatewayRuntimeState
+	1,  // 9: gateway.v1.GatewayLifecycleReport.state:type_name -> gateway.v1.GatewayRuntimeState
+	2,  // 10: gateway.v1.GatewayLifecycleReport.failure:type_name -> gateway.v1.LifecycleFailure
+	3,  // 11: gateway.v1.ControlWelcome.desired_lifecycle:type_name -> gateway.v1.LifecycleDirectiveAction
+	3,  // 12: gateway.v1.LifecycleDirective.action:type_name -> gateway.v1.LifecycleDirectiveAction
+	4,  // 13: gateway.v1.LifecycleDirective.reason:type_name -> gateway.v1.LifecycleDirectiveReason
+	5,  // 14: gateway.v1.GatewayControlService.Connect:input_type -> gateway.v1.GatewayFrame
+	6,  // 15: gateway.v1.GatewayControlService.Connect:output_type -> gateway.v1.ControlFrame
+	15, // [15:16] is the sub-list for method output_type
+	14, // [14:15] is the sub-list for method input_type
+	14, // [14:14] is the sub-list for extension type_name
+	14, // [14:14] is the sub-list for extension extendee
+	0,  // [0:14] is the sub-list for field type_name
 }
 
 func init() { file_v1_gateway_control_proto_init() }
@@ -1057,16 +1153,17 @@ func file_v1_gateway_control_proto_init() {
 	file_v1_gateway_control_proto_msgTypes[1].OneofWrappers = []any{
 		(*ControlFrame_Welcome)(nil),
 		(*ControlFrame_LifecycleDirective)(nil),
+		(*ControlFrame_HeartbeatAck)(nil),
 	}
 	file_v1_gateway_control_proto_msgTypes[2].OneofWrappers = []any{}
-	file_v1_gateway_control_proto_msgTypes[6].OneofWrappers = []any{}
+	file_v1_gateway_control_proto_msgTypes[7].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_v1_gateway_control_proto_rawDesc), len(file_v1_gateway_control_proto_rawDesc)),
 			NumEnums:      5,
-			NumMessages:   7,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

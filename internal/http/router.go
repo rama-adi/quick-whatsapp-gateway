@@ -1,10 +1,12 @@
 package httpx
 
 import (
+	"context"
 	"database/sql"
 	"log/slog"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -39,6 +41,7 @@ type RouterConfig struct {
 
 	// Readiness pings backends for /readyz. nil => always ready.
 	Readiness func() error
+	Admission *AdmissionGate
 
 	// OpenAPIPath is the on-disk path to docs/openapi.yaml (served at
 	// /api/v1/openapi.yaml). Empty disables the route.
@@ -113,6 +116,9 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// a 503 instead of hanging the caller indefinitely. Health/metrics/openapi
 		// routes above are intentionally excluded — they never touch the wedged path.
 		authed.Use(middleware.Timeout(timeout))
+		if cfg.Admission != nil {
+			authed.Use(admission(cfg.Admission))
+		}
 		if cfg.Auth != nil {
 			authed.Use(cfg.Auth)
 		}
@@ -129,6 +135,89 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	})
 
 	return r
+}
+
+type AdmissionGate struct {
+	mu       sync.Mutex
+	open     bool
+	active   int
+	terminal bool
+	changed  chan struct{}
+}
+
+func NewAdmissionGate(open bool) *AdmissionGate {
+	return &AdmissionGate{open: open, changed: make(chan struct{})}
+}
+
+func (g *AdmissionGate) SetOpen(open bool) {
+	g.mu.Lock()
+	if g.terminal && open {
+		g.mu.Unlock()
+		return
+	}
+	g.open = open
+	g.signalLocked()
+	g.mu.Unlock()
+}
+
+func (g *AdmissionGate) CloseForever() {
+	g.mu.Lock()
+	g.terminal = true
+	g.open = false
+	g.signalLocked()
+	g.mu.Unlock()
+}
+
+func (g *AdmissionGate) enter() (func(), bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if !g.open {
+		return nil, false
+	}
+	g.active++
+	return func() {
+		g.mu.Lock()
+		g.active--
+		g.signalLocked()
+		g.mu.Unlock()
+	}, true
+}
+
+func (g *AdmissionGate) CloseAndWait(ctx context.Context) error {
+	g.CloseForever()
+	for {
+		g.mu.Lock()
+		if g.active == 0 {
+			g.mu.Unlock()
+			return nil
+		}
+		changed := g.changed
+		g.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-changed:
+		}
+	}
+}
+
+func (g *AdmissionGate) signalLocked() {
+	close(g.changed)
+	g.changed = make(chan struct{})
+}
+
+func admission(gate *AdmissionGate) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			leave, ok := gate.enter()
+			if !ok {
+				shttpx.WriteError(w, domain.ErrUnavailable("gateway is not accepting engine requests"))
+				return
+			}
+			defer leave()
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 func healthz(w http.ResponseWriter, _ *http.Request) {

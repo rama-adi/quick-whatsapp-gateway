@@ -28,15 +28,18 @@ func NewGatewayRepo(db storedb.DBTX) *GatewayRepo { return &GatewayRepo{q: store
 
 func gatewayFromRow(row storedb.GetGatewayRow) domain.Gateway {
 	return domain.Gateway{
-		ID:           row.ID,
-		Label:        stringPtrFromNull(row.Label),
-		Status:       domain.GatewayStatus(row.Status),
-		SessionCount: int(row.SessionCount),
-		Capacity:     intPtrFromNull32(row.Capacity),
-		BaseURL:      stringPtrFromNull(row.BaseUrl),
-		LastSeenAt:   int64PtrFromNull(row.LastSeenAt),
-		CreatedAt:    row.CreatedAt,
-		UpdatedAt:    row.UpdatedAt,
+		ID:               row.ID,
+		Label:            stringPtrFromNull(row.Label),
+		Status:           domain.GatewayStatus(row.Status),
+		SessionCount:     int(row.SessionCount),
+		Capacity:         intPtrFromNull32(row.Capacity),
+		BaseURL:          stringPtrFromNull(row.BaseUrl),
+		ConnectionEpoch:  row.ConnectionEpoch,
+		ConnectionMode:   string(row.ConnectionMode),
+		DesiredLifecycle: string(row.DesiredLifecycle),
+		LastSeenAt:       int64PtrFromNull(row.LastSeenAt),
+		CreatedAt:        row.CreatedAt,
+		UpdatedAt:        row.UpdatedAt,
 	}
 }
 
@@ -121,11 +124,10 @@ func (r *GatewayRepo) AcceptConnection(ctx context.Context, hello domain.Gateway
 			return domain.GatewayAcceptedConnection{}, notFound(err, "connectable gateway")
 		}
 		n, err := r.q.AllocateGatewayConnectionEpoch(ctx, storedb.AllocateGatewayConnectionEpochParams{
-			ConnectedAt:  sql.NullInt64{Int64: at, Valid: true},
-			LastSeenAt:   sql.NullInt64{Int64: at, Valid: true},
-			GrpcEndpoint: nullString(hello.GRPCEndpoint), SoftwareVersion: nullString(hello.SoftwareVersion),
+			ConnectedAt: sql.NullInt64{Int64: at, Valid: true},
+			LastSeenAt:  sql.NullInt64{Int64: at, Valid: true},
+			BaseUrl:     nullString(hello.BaseURL), GrpcEndpoint: nullString(hello.GRPCEndpoint), SoftwareVersion: nullString(hello.SoftwareVersion),
 			Capabilities: json.RawMessage(hello.Capabilities), SessionCount: uint32(hello.SessionCount),
-			DrainCompleted: boolInt64(hello.Status == domain.GatewayDrained),
 			ReportedStatus: storedb.GatewaysStatus(hello.Status), UpdatedAt: at, ID: hello.GatewayID, ConnectionEpoch: current,
 		})
 		if err != nil {
@@ -133,7 +135,7 @@ func (r *GatewayRepo) AcceptConnection(ctx context.Context, hello domain.Gateway
 		}
 		if n == 1 {
 			epoch := current + 1
-			status, err := r.q.GetAcceptedGatewayConnectionStatus(ctx, storedb.GetAcceptedGatewayConnectionStatusParams{
+			desired, err := r.q.GetAcceptedGatewayDesiredLifecycle(ctx, storedb.GetAcceptedGatewayDesiredLifecycleParams{
 				ID: hello.GatewayID, ConnectionEpoch: epoch,
 			})
 			if err != nil {
@@ -142,7 +144,7 @@ func (r *GatewayRepo) AcceptConnection(ctx context.Context, hello domain.Gateway
 				}
 				return domain.GatewayAcceptedConnection{}, fmt.Errorf("store: read accepted gateway connection: %w", err)
 			}
-			return domain.GatewayAcceptedConnection{ConnectionEpoch: epoch, Status: domain.GatewayStatus(status)}, nil
+			return domain.GatewayAcceptedConnection{ConnectionEpoch: epoch, DesiredLifecycle: string(desired)}, nil
 		}
 	}
 	return domain.GatewayAcceptedConnection{}, fmt.Errorf("store: allocate gateway connection epoch: concurrent allocation contention")
@@ -154,7 +156,6 @@ func (r *GatewayRepo) HeartbeatForEpoch(ctx context.Context, h domain.GatewayHea
 	}
 	n, err := r.q.GatewayHeartbeatForEpoch(ctx, storedb.GatewayHeartbeatForEpochParams{
 		LastSeenAt: sql.NullInt64{Int64: at, Valid: true}, SessionCount: uint32(h.SessionCount),
-		DrainCompleted: boolInt64(h.Status == domain.GatewayDrained),
 		ReportedStatus: storedb.GatewaysStatus(h.Status), UpdatedAt: at, ID: h.GatewayID,
 		ConnectionEpoch: h.ConnectionEpoch,
 	})
@@ -169,7 +170,6 @@ func (r *GatewayRepo) SetStatusForEpoch(ctx context.Context, report domain.Gatew
 		return false, fmt.Errorf("store: invalid fenced gateway lifecycle")
 	}
 	n, err := r.q.SetGatewayStatusForEpoch(ctx, storedb.SetGatewayStatusForEpochParams{
-		DrainCompleted: boolInt64(report.Status == domain.GatewayDrained),
 		ReportedStatus: storedb.GatewaysStatus(report.Status), UpdatedAt: at,
 		ID: report.GatewayID, ConnectionEpoch: report.ConnectionEpoch,
 	})
@@ -177,6 +177,22 @@ func (r *GatewayRepo) SetStatusForEpoch(ctx context.Context, report domain.Gatew
 		return false, fmt.Errorf("store: fenced gateway lifecycle: %w", err)
 	}
 	return r.fencedWriteApplied(ctx, n, report.GatewayConnection)
+}
+
+// DisconnectForEpoch immediately removes the routing liveness marker without
+// changing administrative lifecycle state. The epoch fence prevents an old
+// stream's deferred cleanup from evicting a replacement connection.
+func (r *GatewayRepo) DisconnectForEpoch(ctx context.Context, connection domain.GatewayConnection, at int64) (bool, error) {
+	if connection.GatewayID == "" || connection.ConnectionEpoch == 0 {
+		return false, fmt.Errorf("store: invalid fenced gateway disconnect")
+	}
+	n, err := r.q.DisconnectGatewayForEpoch(ctx, storedb.DisconnectGatewayForEpochParams{
+		UpdatedAt: at, ID: connection.GatewayID, ConnectionEpoch: connection.ConnectionEpoch,
+	})
+	if err != nil {
+		return false, fmt.Errorf("store: fenced gateway disconnect: %w", err)
+	}
+	return r.fencedWriteApplied(ctx, n, connection)
 }
 
 func (r *GatewayRepo) UpdateConnectionMetadataForEpoch(ctx context.Context, connection domain.GatewayConnection, m domain.GatewayControlMetadata, at int64) (bool, error) {
@@ -264,6 +280,21 @@ func (r *GatewayRepo) SetStatus(ctx context.Context, id string, status domain.Ga
 		return fmt.Errorf("store: set gateway status: %w", err)
 	}
 	return nil
+}
+
+// SetDesiredLifecycle is the administrative mutation for control-stream intent.
+// Runtime and legacy status reports intentionally use SetStatus instead.
+func (r *GatewayRepo) SetDesiredLifecycle(ctx context.Context, id, desired string, at int64) (bool, error) {
+	if desired != "run" && desired != "drain" {
+		return false, fmt.Errorf("store: invalid gateway desired lifecycle")
+	}
+	n, err := r.q.SetGatewayDesiredLifecycle(ctx, storedb.SetGatewayDesiredLifecycleParams{
+		DesiredLifecycle: storedb.GatewaysDesiredLifecycle(desired), UpdatedAt: at, ID: id,
+	})
+	if err != nil {
+		return false, fmt.Errorf("store: set gateway desired lifecycle: %w", err)
+	}
+	return n == 1, nil
 }
 
 // ListActive returns every gateway whose status is `active`, least-loaded first.

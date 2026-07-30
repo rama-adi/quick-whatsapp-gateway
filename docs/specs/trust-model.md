@@ -315,12 +315,48 @@ nor included in logs.
 exclusively from the already-verified mTLS context and treats the
 hello `instance_id` only as a process-incarnation identifier. Connection epochs and directional
 sequence numbers fence stale streams and directives. API-side handler registration, epoch
-allocation, protocol validation, and fenced registry writes are implemented, but the gateway
-reconnect supervisor, lease-driven readiness, server-side heartbeat timeout/forced termination,
-certificate renewal, and revocation-triggered stream shutdown remain unfinished. Disconnect does
-not explicitly change database lifecycle state; liveness is lease/`last_seen_at` based and a newer
-accepted stream fences the old epoch. The legacy gateway runtime therefore still uses its existing
-self-registration and heartbeat path. Lifecycle acknowledgements are also fail-closed: until the
-API tracks an issued directive, every lifecycle report is rejected with `FailedPrecondition` and is
-not persisted. Welcome itself has no `directive_id`; its desired lifecycle is derived only from the
-authoritative post-accept database status, never from gateway-supplied Hello state.
+allocation, protocol validation, fenced registry writes, a bounded Hello deadline, and heartbeat
+lease termination are implemented. The API sends a sequenced heartbeat acknowledgement only after
+the current-epoch write succeeds.
+
+The gateway reconnect supervisor is wired over the bootstrap client's reusable mTLS connection. It
+validates Welcome and every durable heartbeat acknowledgement, reconnects transient failures with
+backoff, and gates readiness and all transitional engine-route admission on an acknowledged READY/RUN
+heartbeat. An installed local identity can start while the API is unavailable; connection recovery
+belongs to the supervisor rather than a synchronous startup health proof. In control-enabled mode
+the stream exclusively owns registry liveness and the gateway skips its five legacy direct writes:
+joining registration, active registration, periodic heartbeat, shutdown draining, and shutdown
+drained. Control-disabled mode retains those writes.
+
+The registry separates observed `status` from authoritative `desired_lifecycle` (`run`/`drain`) and
+records explicit `connection_mode` (`legacy`/`control`). Hello's optional authenticated
+`http_base_url` is persisted during epoch allocation and keeps the
+transitional HTTP proxy addressable without restoring an unfenced gateway Upsert. Disconnect
+clears liveness only for the current epoch, so an ending stale stream cannot clear a replacement
+stream; it does not synthesize a terminal lifecycle state. Control accept sets mode `control`;
+legacy Upsert sets it back to `legacy`. Those modes select a 15-second stream freshness window or a
+90-second legacy window respectively.
+
+DRAIN/DISABLE Welcome closes all engine-route admission terminally for that process. Initial DRAIN
+prevents manager Boot; post-Boot DRAIN drains already-admitted requests before shutting down manager
+work. Shutdown DRAINING/DRAINED heartbeats update observed status without changing desired
+lifecycle, so a clean exit does not turn a desired RUN into a persistent drain. On SIGTERM the independently-lived
+supervisor durably flushes DRAINING and DRAINED runtime heartbeats around manager shutdown before
+its stream is cancelled, subject to bounded waits. Flush requires a post-call acknowledgement and
+reissues the report after an epoch change, preventing a reconnect from satisfying it with stale
+state. Lifecycle acknowledgements remain fail-closed:
+until the API tracks an issued directive, every lifecycle report is rejected with
+`FailedPrecondition` and is not persisted, while the gateway treats a post-Welcome lifecycle
+directive as unsupported. Welcome itself has no `directive_id`; its desired lifecycle is derived
+only from the authoritative post-accept database status, never from gateway-supplied Hello state.
+Strict directive-owned lifecycle reporting, certificate renewal, and revocation-triggered stream
+shutdown remain unfinished.
+
+For an installed identity, a transient pre-Welcome outage brings up diagnostics unready with engine
+admission closed and boots the manager only after a later RUN Welcome. The lifetime lifecycle
+watcher also covers that delayed Boot. Terminal authentication and protocol failures, whether
+before or after the diagnostics listener starts, terminate the gateway cleanly as explicit process
+errors.
+
+Disconnect cleanup deliberately detaches from the cancelled stream context but is capped at five
+seconds. Authorization and epoch fencing still apply to the cleanup write.

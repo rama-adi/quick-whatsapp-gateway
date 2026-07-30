@@ -551,7 +551,7 @@ func TestGatewayUsableRequiresPlausibleHeartbeat(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	srv.now = func() time.Time { return now }
 	base := "http://gateway.test"
-	g := domain.Gateway{ID: "gw", Status: domain.GatewayActive, BaseURL: &base}
+	g := domain.Gateway{ID: "gw", Status: domain.GatewayActive, BaseURL: &base, ConnectionEpoch: 1, ConnectionMode: "control"}
 	if srv.gatewayUsable(g) {
 		t.Fatal("gateway without a heartbeat must be unusable")
 	}
@@ -564,5 +564,23 @@ func TestGatewayUsableRequiresPlausibleHeartbeat(t *testing.T) {
 	g.LastSeenAt = &fresh
 	if !srv.gatewayUsable(g) {
 		t.Fatal("gateway with a fresh heartbeat must be usable")
+	}
+
+	legacy := g
+	legacy.ConnectionMode = "legacy"
+	legacySeen := now.Add(-2 * defaultStaleAfter).UnixMilli()
+	legacy.LastSeenAt = &legacySeen
+	if !srv.gatewayUsable(legacy) {
+		t.Fatal("legacy gateway inside the 90-second compatibility window must be usable")
+	}
+	control := legacy
+	control.ConnectionMode = "control"
+	if srv.gatewayUsable(control) {
+		t.Fatal("control gateway outside its advertised lease must be unusable")
+	}
+	atLease := now.Add(-defaultStaleAfter).UnixMilli()
+	control.LastSeenAt = &atLease
+	if srv.gatewayUsable(control) {
+		t.Fatal("control gateway exactly at its lease deadline must be unusable")
 	}
 }

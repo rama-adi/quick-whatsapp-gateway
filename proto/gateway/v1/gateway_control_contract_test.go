@@ -30,7 +30,7 @@ func TestControlFrameWireNumbersAndOneofs(t *testing.T) {
 		oneof   []protoreflect.Name
 	}{
 		{gatewayv1.File_v1_gateway_control_proto.Messages().ByName("GatewayFrame"), map[protoreflect.Name]protoreflect.FieldNumber{"protocol_version": 1, "sequence": 2, "hello": 10, "heartbeat": 11, "lifecycle_report": 12}, []protoreflect.Name{"hello", "heartbeat", "lifecycle_report"}},
-		{gatewayv1.File_v1_gateway_control_proto.Messages().ByName("ControlFrame"), map[protoreflect.Name]protoreflect.FieldNumber{"protocol_version": 1, "sequence": 2, "welcome": 10, "lifecycle_directive": 11}, []protoreflect.Name{"welcome", "lifecycle_directive"}},
+		{gatewayv1.File_v1_gateway_control_proto.Messages().ByName("ControlFrame"), map[protoreflect.Name]protoreflect.FieldNumber{"protocol_version": 1, "sequence": 2, "welcome": 10, "lifecycle_directive": 11, "heartbeat_ack": 12}, []protoreflect.Name{"welcome", "lifecycle_directive", "heartbeat_ack"}},
 	}
 	for _, tt := range tests {
 		if tt.message == nil || tt.message.Fields().ByName("gateway_id") != nil || tt.message.Oneofs().Len() != 1 || tt.message.Oneofs().Get(0).Name() != "payload" {
@@ -52,10 +52,11 @@ func TestControlFrameWireNumbersAndOneofs(t *testing.T) {
 
 func TestControlMessagesHaveStableFieldsAndNoGatewayID(t *testing.T) {
 	want := map[protoreflect.Name]map[protoreflect.Name]protoreflect.FieldNumber{
-		"GatewayHello":           {"instance_id": 1, "software_version": 2, "capabilities": 3, "grpc_endpoint": 4, "started_at_unix_ms": 5, "session_count": 6, "runtime_state": 7},
+		"GatewayHello":           {"instance_id": 1, "software_version": 2, "capabilities": 3, "grpc_endpoint": 4, "started_at_unix_ms": 5, "session_count": 6, "runtime_state": 7, "http_base_url": 8},
 		"GatewayHeartbeat":       {"connection_epoch": 1, "last_control_sequence": 2, "sent_at_unix_ms": 3, "session_count": 4, "runtime_state": 5},
 		"GatewayLifecycleReport": {"connection_epoch": 1, "directive_id": 2, "state": 3, "failure": 4},
 		"ControlWelcome":         {"connection_id": 1, "connection_epoch": 2, "heartbeat_interval_ms": 3, "lease_timeout_ms": 4, "desired_lifecycle": 5, "server_time_unix_ms": 6},
+		"ControlHeartbeatAck":    {"acknowledged_gateway_sequence": 1, "connection_epoch": 2, "server_time_unix_ms": 3},
 		"LifecycleDirective":     {"directive_id": 1, "connection_epoch": 2, "action": 3, "drain_deadline_unix_ms": 4, "reason": 5},
 	}
 	messages := gatewayv1.File_v1_gateway_control_proto.Messages()
@@ -71,7 +72,7 @@ func TestControlMessagesHaveStableFieldsAndNoGatewayID(t *testing.T) {
 			}
 		}
 	}
-	if !messages.ByName("GatewayHello").Fields().ByName("grpc_endpoint").HasOptionalKeyword() || !messages.ByName("LifecycleDirective").Fields().ByName("drain_deadline_unix_ms").HasOptionalKeyword() {
+	if !messages.ByName("GatewayHello").Fields().ByName("grpc_endpoint").HasOptionalKeyword() || !messages.ByName("GatewayHello").Fields().ByName("http_base_url").HasOptionalKeyword() || !messages.ByName("LifecycleDirective").Fields().ByName("drain_deadline_unix_ms").HasOptionalKeyword() {
 		t.Fatal("optional presence semantics changed")
 	}
 	for _, enumName := range []protoreflect.Name{"GatewayCapability", "GatewayRuntimeState", "LifecycleFailure", "LifecycleDirectiveAction", "LifecycleDirectiveReason"} {

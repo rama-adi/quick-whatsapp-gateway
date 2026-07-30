@@ -8,10 +8,24 @@ Branch: `migration/grpc-control-plane`.
 > per-RPC certificate authorization, and crash-safe gateway credential bootstrap over a reusable
 > mTLS connection are implemented. The versioned control-stream contract is also implemented.
 > API-side private-stream registration, database-backed connection epochs, protocol validation, and
-> epoch-fenced Hello/heartbeat writes are implemented. Lifecycle reports remain rejected and
-> unpersisted until explicit directive tracking exists.
-> The gateway reconnect supervisor, removal of legacy self-registration/heartbeats, certificate
-> renewal, admin API/UI, desired-state reconciliation, and engine/event cutover remain unfinished.
+> epoch-fenced Hello/heartbeat writes are implemented. The API acknowledges a heartbeat only after
+> its fenced persistence succeeds, enforces both a Hello deadline and the advertised heartbeat
+> lease, and the wired gateway supervisor reconnects with backoff, validates acknowledgements, and
+> gates readiness on an acknowledged READY/RUN heartbeat.
+> In control-enabled mode that stream is the exclusive registry writer: the five legacy boot,
+> heartbeat, and shutdown mutations are gated off. Control-disabled deployments retain the legacy
+> path. Authenticated Hello persistence carries the transitional HTTP base URL; fenced disconnect
+> clears liveness; explicit control/legacy connection mode selects the 15/90-second freshness
+> window. Observed runtime status is separate from desired RUN/DRAIN, and placement requires desired
+> RUN. Engine admission stays closed until acknowledged RUN+READY; DRAIN drains admitted requests
+> and terminally stops and joins Asynq workers before manager work. Admission close is irreversible.
+> Transient startup outages expose diagnostics unready and boot under the same lifetime lifecycle
+> watcher after a later RUN, while terminal supervisor errors always terminate cleanly. Graceful
+> shutdown uses reconnect-safe Flush calls
+> for acknowledged DRAINING/DRAINED heartbeats before stream cancellation. Strict post-Welcome
+> lifecycle directives/reports, certificate renewal, admin
+> API/UI, desired-state reconciliation, and engine/event cutover remain unfinished; Increment 2 is
+> therefore not complete.
 
 This plan replaces the current router → gateway HTTP reverse-proxy architecture with an API
 control plane and private WhatsApp engine gateways connected through gRPC. It also introduces a
@@ -568,8 +582,14 @@ enrollment-owned issuance records, canonical enrollment-token and CSR policy, le
 row-bound key envelopes, the local MySQL signer, enrollment application service, private TLS
 listener, strict certificate authorization, and gateway credential bootstrap. The API-side
 control-stream slice adds authenticated registration, API-owned connection epochs, protocol
-validation, and fenced stream-originated registry writes; it does not by itself complete gateway
-runtime cutover.
+validation, fenced stream-originated registry writes, post-persistence heartbeat acknowledgements,
+and Hello/heartbeat watchdogs. The gateway-side slice now wires a reconnecting supervisor and
+lease-gated readiness. In control-enabled mode it exclusively owns registry writes, while the
+control-disabled compatibility mode retains the five legacy mutations (joining registration,
+active registration, periodic heartbeat, shutdown draining, and shutdown drained). The supervisor
+also performs the bounded acknowledged DRAINING/DRAINED shutdown bridge. These slices do not
+complete Increment 2: strict post-Welcome lifecycle directives/reports, renewal, and administration
+remain open.
 
 - Add gateway registry enrollment fields and migration.
 - Implement the shared gateway-administration application service and public API operations for
@@ -855,13 +875,39 @@ identity renewal, anonymous-TLS enrollment adapter, and per-RPC strict certifica
 authorization. It does not yet include certificate renewal or the administrative UI.
 
 Private transport split C implemented the opt-in gateway bootstrap client and durable gateway
-identity. It proves authenticated private health over one reusable mTLS connection. That connection
-is the base for the control supervisor, but no gateway control loop or engine RPC client is wired yet.
+identity. An installed identity can construct its reusable mTLS connection during an API outage;
+the supervisor, rather than synchronous startup health proof, owns connection retry. That connection
+now carries the gateway control supervisor; no engine RPC client is wired yet.
 
 Control-stream split 1 implemented the versioned/sequenced private bidi wire contract: Hello,
-Heartbeat, LifecycleReport, Welcome, and epoch-fenced lifecycle directives. The API-side slice adds
-database-backed epoch allocation, an authenticated registered stream handler, and fenced registry
-writes. Gateway reconnect supervision, lease-driven readiness, legacy heartbeat removal, renewal,
-and full lifecycle reconciliation remain separate work and must not be inferred from the API-side handler.
+Heartbeat, durable HeartbeatAck, LifecycleReport, Welcome, and epoch-fenced lifecycle directives.
+The API-side slice adds database-backed epoch allocation, an authenticated registered stream
+handler, fenced registry writes, a bounded Hello wait, and forced stream termination when the
+heartbeat lease expires. HeartbeatAck is emitted only after the current-epoch heartbeat write
+succeeds. The gateway supervisor sends sequenced Hello/heartbeats, waits for the matching durable
+acknowledgement before sending another heartbeat, reconnects transient failures with backoff, and
+makes readiness false on disconnect, lease expiry, non-RUN desired lifecycle, or a non-READY
+runtime snapshot.
+
+When `GATEWAY_CONTROL_PLANE_ADDR` enables control mode, the supervisor is the exclusive owner of
+gateway registry liveness: the legacy joining/active registrations, periodic MySQL heartbeat, and
+shutdown draining/drained writes are not executed. With control mode disabled those five mutations
+remain as the deployable compatibility path. Hello's optional authenticated HTTP base URL is
+persisted with epoch acceptance for the transitional proxy. Current-epoch disconnect clears
+liveness, and routing applies the 15-second stream lease while retaining 90 seconds for legacy
+heartbeats according to explicit connection mode. Observed status is independent from authoritative
+desired RUN/DRAIN, placement requires desired RUN, and shutdown status reports do not latch desired
+drain. Control-mode engine admission opens only after an acknowledged RUN+READY heartbeat; initial
+DRAIN skips Boot, later DRAIN drains admitted requests before stopping manager work, and a transient
+pre-Welcome outage boots after a later RUN while diagnostics remain available unready. SIGTERM
+flushes acknowledged DRAINING/DRAINED heartbeats before stream cancellation; Flush requires a
+post-call acknowledgement and follows reconnects across epochs. Admission closure is irreversible;
+control-mode Asynq starts only after durable RUN+READY and stops/joins before manager shutdown.
+The lifetime supervisor error terminates the process, the lifecycle watcher covers delayed Boot,
+runtime status writers remain observed-only, and administrative desired lifecycle has its own
+mutation. Disconnect cleanup is detached but bounded to five seconds. This is not the Increment 2 exit: strict
+post-Welcome directive execution and lifecycle reports, certificate
+renewal/rollover, revocation-driven termination, and full lifecycle reconciliation remain separate
+work.
 
 These decisions affect implementation detail, not the responsibility boundary locked above.

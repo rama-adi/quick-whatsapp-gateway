@@ -328,6 +328,64 @@ func AllGatewayEnrollmentTokensStatusValues() []GatewayEnrollmentTokensStatus {
 	}
 }
 
+type GatewaysConnectionMode string
+
+const (
+	GatewaysConnectionModeLegacy  GatewaysConnectionMode = "legacy"
+	GatewaysConnectionModeControl GatewaysConnectionMode = "control"
+)
+
+func (e *GatewaysConnectionMode) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = GatewaysConnectionMode(s)
+	case string:
+		*e = GatewaysConnectionMode(s)
+	default:
+		return fmt.Errorf("unsupported scan type for GatewaysConnectionMode: %T", src)
+	}
+	return nil
+}
+
+type NullGatewaysConnectionMode struct {
+	GatewaysConnectionMode GatewaysConnectionMode `json:"gateways_connection_mode"`
+	Valid                  bool                   `json:"valid"` // Valid is true if GatewaysConnectionMode is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullGatewaysConnectionMode) Scan(value interface{}) error {
+	if value == nil {
+		ns.GatewaysConnectionMode, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.GatewaysConnectionMode.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullGatewaysConnectionMode) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.GatewaysConnectionMode), nil
+}
+
+func (e GatewaysConnectionMode) Valid() bool {
+	switch e {
+	case GatewaysConnectionModeLegacy,
+		GatewaysConnectionModeControl:
+		return true
+	}
+	return false
+}
+
+func AllGatewaysConnectionModeValues() []GatewaysConnectionMode {
+	return []GatewaysConnectionMode{
+		GatewaysConnectionModeLegacy,
+		GatewaysConnectionModeControl,
+	}
+}
+
 type GatewaysCreatorKind string
 
 const (
@@ -383,6 +441,64 @@ func AllGatewaysCreatorKindValues() []GatewaysCreatorKind {
 	return []GatewaysCreatorKind{
 		GatewaysCreatorKindSystem,
 		GatewaysCreatorKindUser,
+	}
+}
+
+type GatewaysDesiredLifecycle string
+
+const (
+	GatewaysDesiredLifecycleRun   GatewaysDesiredLifecycle = "run"
+	GatewaysDesiredLifecycleDrain GatewaysDesiredLifecycle = "drain"
+)
+
+func (e *GatewaysDesiredLifecycle) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = GatewaysDesiredLifecycle(s)
+	case string:
+		*e = GatewaysDesiredLifecycle(s)
+	default:
+		return fmt.Errorf("unsupported scan type for GatewaysDesiredLifecycle: %T", src)
+	}
+	return nil
+}
+
+type NullGatewaysDesiredLifecycle struct {
+	GatewaysDesiredLifecycle GatewaysDesiredLifecycle `json:"gateways_desired_lifecycle"`
+	Valid                    bool                     `json:"valid"` // Valid is true if GatewaysDesiredLifecycle is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullGatewaysDesiredLifecycle) Scan(value interface{}) error {
+	if value == nil {
+		ns.GatewaysDesiredLifecycle, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.GatewaysDesiredLifecycle.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullGatewaysDesiredLifecycle) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.GatewaysDesiredLifecycle), nil
+}
+
+func (e GatewaysDesiredLifecycle) Valid() bool {
+	switch e {
+	case GatewaysDesiredLifecycleRun,
+		GatewaysDesiredLifecycleDrain:
+		return true
+	}
+	return false
+}
+
+func AllGatewaysDesiredLifecycleValues() []GatewaysDesiredLifecycle {
+	return []GatewaysDesiredLifecycle{
+		GatewaysDesiredLifecycleRun,
+		GatewaysDesiredLifecycleDrain,
 	}
 }
 
@@ -1094,27 +1210,29 @@ type EventLog struct {
 }
 
 type Gateway struct {
-	ID              string              `db:"id" json:"id"`
-	Label           sql.NullString      `db:"label" json:"label"`
-	Notes           sql.NullString      `db:"notes" json:"notes"`
-	Status          GatewaysStatus      `db:"status" json:"status"`
-	CreatorKind     GatewaysCreatorKind `db:"creator_kind" json:"creator_kind"`
-	CreatedByUserID sql.NullString      `db:"created_by_user_id" json:"created_by_user_id"`
-	BaseUrl         sql.NullString      `db:"base_url" json:"base_url"`
-	GrpcEndpoint    sql.NullString      `db:"grpc_endpoint" json:"grpc_endpoint"`
-	SessionCount    uint32              `db:"session_count" json:"session_count"`
-	Capacity        sql.NullInt32       `db:"capacity" json:"capacity"`
-	DesiredRevision uint64              `db:"desired_revision" json:"desired_revision"`
-	AppliedRevision uint64              `db:"applied_revision" json:"applied_revision"`
-	SoftwareVersion sql.NullString      `db:"software_version" json:"software_version"`
-	Capabilities    json.RawMessage     `db:"capabilities" json:"capabilities"`
-	ConnectionEpoch uint64              `db:"connection_epoch" json:"connection_epoch"`
-	EnrolledAt      sql.NullInt64       `db:"enrolled_at" json:"enrolled_at"`
-	ConnectedAt     sql.NullInt64       `db:"connected_at" json:"connected_at"`
-	LastSeenAt      sql.NullInt64       `db:"last_seen_at" json:"last_seen_at"`
-	DeletedAt       sql.NullInt64       `db:"deleted_at" json:"deleted_at"`
-	CreatedAt       int64               `db:"created_at" json:"created_at"`
-	UpdatedAt       int64               `db:"updated_at" json:"updated_at"`
+	ID               string                   `db:"id" json:"id"`
+	Label            sql.NullString           `db:"label" json:"label"`
+	Notes            sql.NullString           `db:"notes" json:"notes"`
+	Status           GatewaysStatus           `db:"status" json:"status"`
+	DesiredLifecycle GatewaysDesiredLifecycle `db:"desired_lifecycle" json:"desired_lifecycle"`
+	ConnectionMode   GatewaysConnectionMode   `db:"connection_mode" json:"connection_mode"`
+	CreatorKind      GatewaysCreatorKind      `db:"creator_kind" json:"creator_kind"`
+	CreatedByUserID  sql.NullString           `db:"created_by_user_id" json:"created_by_user_id"`
+	BaseUrl          sql.NullString           `db:"base_url" json:"base_url"`
+	GrpcEndpoint     sql.NullString           `db:"grpc_endpoint" json:"grpc_endpoint"`
+	SessionCount     uint32                   `db:"session_count" json:"session_count"`
+	Capacity         sql.NullInt32            `db:"capacity" json:"capacity"`
+	DesiredRevision  uint64                   `db:"desired_revision" json:"desired_revision"`
+	AppliedRevision  uint64                   `db:"applied_revision" json:"applied_revision"`
+	SoftwareVersion  sql.NullString           `db:"software_version" json:"software_version"`
+	Capabilities     json.RawMessage          `db:"capabilities" json:"capabilities"`
+	ConnectionEpoch  uint64                   `db:"connection_epoch" json:"connection_epoch"`
+	EnrolledAt       sql.NullInt64            `db:"enrolled_at" json:"enrolled_at"`
+	ConnectedAt      sql.NullInt64            `db:"connected_at" json:"connected_at"`
+	LastSeenAt       sql.NullInt64            `db:"last_seen_at" json:"last_seen_at"`
+	DeletedAt        sql.NullInt64            `db:"deleted_at" json:"deleted_at"`
+	CreatedAt        int64                    `db:"created_at" json:"created_at"`
+	UpdatedAt        int64                    `db:"updated_at" json:"updated_at"`
 }
 
 type GatewayCertificate struct {

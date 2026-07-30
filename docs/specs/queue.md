@@ -121,8 +121,8 @@ returned plain so asynq retries per the task's MaxRetry.
 outbox (6) and webhooks (3) over the once-a-day retention prune (1). Lifecycle:
 `Run()` (blocking), `Start()`/`Shutdown()` (graceful).
 
-At gateway boot, `cmd/gateway` starts the worker and the daily retention
-scheduler when `RETENTION_DAYS > 0`. All gateway replicas that participate in
+At gateway boot, `cmd/gateway` prepares the worker and starts the daily retention
+scheduler when `RETENTION_DAYS > 0`; worker start timing depends on admission mode below. All gateway replicas that participate in
 this maintenance job must use the same work `REDIS_URL` database **and**
 `REDIS_PREFIX`. The scheduled task uses Redis-backed singleton/dedup admission,
 so a shared deployment gets one logical prune per cadence, not one destructive
@@ -133,6 +133,14 @@ claim marker and task id. Independent stacks therefore need separate Redis
 databases; `REDIS_PREFIX` alone does not isolate their Asynq queues. With
 `RETENTION_DAYS=0`, the scheduler is not started and no retention task is
 enqueued.
+
+The Asynq server itself follows engine admission in private-control mode: it starts only after a
+RUN+READY heartbeat has been durably acknowledged. Authoritative drain or SIGTERM irreversibly
+closes HTTP engine admission and waits for admitted requests, then stops and joins the Asynq server
+before manager shutdown. This prevents queued work from entering the WhatsApp engine during drain.
+Control-disabled legacy mode retains eager worker startup. The retention scheduler remains owned by
+the application context and follows normal process shutdown; moving all workers to the API remains
+a later migration increment.
 
 The task payload contains the cutoff captured at enqueue time. `RetentionWorker`
 deletes in bounded batches and repeats only until that batch is exhausted; it
@@ -192,7 +200,8 @@ the path (`redis://h/2`) or `?db=` query. Invalid scheme/host/db → error.
 ## Production wiring
 
 `cmd/gateway` provides `OutboxProcessor` and `RetentionPruner`, builds the
-handler set, and starts the server from `ParseRedisURL(cfg.RedisURL)`. It owns
+handler set, and starts the server from `ParseRedisURL(cfg.RedisURL)` eagerly in legacy mode or
+after durable RUN+READY in control mode. It owns
 the retention scheduler and stops it before graceful worker shutdown. Webhook
 delivery is presently driven by the dispatcher cadence described in
 [`webhooks.md`](webhooks.md); retention's terminal-row rule ensures that cadence

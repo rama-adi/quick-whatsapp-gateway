@@ -107,8 +107,10 @@ The gateway bootstrap client is opt-in through `GATEWAY_CONTROL_PLANE_ADDR`. It 
 operator root, persists and fsyncs a pending Ed25519 key plus exact CSR before enrollment, and reuses
 those bytes across status-aware retries. After validating and atomically publishing the returned
 identity it discards the pending state, closes the anonymous connection, and keeps one mTLS gRPC
-connection after an authenticated private-health proof. The gateway does not open the registered
-control stream yet.
+connection. An already-installed identity does not synchronously require the API to be reachable:
+the wired supervisor opens the registered control stream over that connection and reconnects
+transient failures with bounded backoff. First enrollment still requires successful token
+redemption before the gateway can authenticate.
 
 ## Gateway control stream contract and API-side fencing
 
@@ -119,7 +121,9 @@ gateway payload is `Hello`; subsequent heartbeats report the connection epoch, l
 sequence, timestamp, session count, and bounded runtime state. Lifecycle reports acknowledge one
 directive with a bounded failure category. The API answers with `Welcome` (connection identity and
 epoch, heartbeat/lease timing, desired lifecycle, server time) and may send epoch-fenced RUN, DRAIN,
-or DISABLE directives with an optional drain deadline and bounded reason.
+or DISABLE directives with an optional drain deadline and bounded reason. A `HeartbeatAck` identifies
+the gateway sequence and connection epoch whose heartbeat the API durably persisted; its containing
+control sequence is acknowledged by a later gateway heartbeat.
 
 Gateway identity is deliberately absent from every frame: the API handler takes it only from the
 authenticated TLS context. Instance IDs identify process incarnations, not gateway
@@ -127,7 +131,11 @@ authorization principals. Enum zero values are explicitly `UNKNOWN`; reserved fi
 future compatible additions.
 
 The persistence layer atomically allocates a monotonically increasing `connection_epoch` from MySQL
-and stores validated Hello metadata for each accepted connection. Missing, deleted, disabled,
+and stores validated Hello metadata for each accepted connection. Hello may carry an optional
+authenticated `http_base_url`, distinct from the future private `grpc_endpoint`; the API validates
+it as a canonical absolute HTTP(S) URL and persists it in the same fenced accept write so the
+transitional HTTP router can address a freshly enrolled gateway without an unfenced self-Upsert.
+Missing, deleted, disabled,
 pending-enrollment, and unenrolled gateways cannot allocate an epoch. Heartbeat,
 connection-metadata, and the reserved lifecycle persistence primitive require the current epoch;
 that lifecycle primitive cannot select administrative states and preserves `session_count`.
@@ -138,25 +146,74 @@ The private mTLS server registers the API handler. It derives gateway identity e
 authenticated context. For every inbound frame it validates envelope protocol version and exact
 directional sequence before inspecting the payload. Invalid payload fields return
 `InvalidArgument`; ordering, acknowledgement, and epoch conflicts return `FailedPrecondition`.
+The API requires Hello within ten seconds by default and terminates a registered stream with
+`DeadlineExceeded` when no valid heartbeat arrives within its database-derived lease. A successful
+current-epoch heartbeat write resets that watchdog and is followed by exactly one sequenced
+`HeartbeatAck`; persistence failure sends no acknowledgement.
 
-Welcome derives `desired_lifecycle` from the authoritative gateway status returned after the
-accept transaction, never from Hello: `draining`/`drained` map to DRAIN, while
-`joining`/`active`/`degraded` map to RUN.
+Welcome derives `desired_lifecycle` from the gateway row's separate authoritative
+`desired_lifecycle` field after the accept transaction, never from Hello or from the observed
+runtime `status`. The desired value is RUN or DRAIN; a DRAINING/DRAINED heartbeat changes observed
+status only and cannot latch an operator desire to drain across the next process start.
 
-Hello requires instance ID and software version lengths of 1–128 bytes, an optional endpoint of at
-most 512 bytes, a positive representable Unix-millisecond start time, a known runtime state, and at
-most 16 unique known capabilities. Heartbeat requires a nonzero connection epoch, a positive
-representable Unix-millisecond timestamp, and a known runtime state; the accepted epoch and Welcome
-sequence must also match. Stale-epoch writes fail the stream rather than being accepted as current.
+Hello requires instance ID and software version lengths of 1–128 bytes, optional gRPC and
+transitional HTTP endpoints of at most 512 bytes, a positive representable Unix-millisecond start
+time, a known runtime state, and at most 16 unique known capabilities. Heartbeat requires a nonzero
+connection epoch, a positive representable Unix-millisecond timestamp, and a known runtime state;
+the accepted epoch and Welcome sequence must also match. Stale-epoch writes fail the stream rather
+than being accepted as current.
 
 Although the wire contract reserves lifecycle reports for directive acknowledgements and the store
 has an epoch-fenced lifecycle primitive, the handler does not persist any lifecycle report yet.
 Welcome carries no `directive_id`, so there is nothing a lifecycle report can validly acknowledge.
 Until explicit directive tracking exists, every lifecycle report returns `FailedPrecondition`.
 
-This is not gateway runtime parity. The gateway reconnecting supervisor is not wired, so the
-transitional gateway still self-registers and writes its legacy MySQL heartbeat. Lease-driven
-readiness, server-side heartbeat timeout/forced termination, renewal, revocation-triggered stream
-termination, lifecycle reconciliation, and engine commands remain unfinished. A stream disconnect
-does not currently force a database lifecycle transition; liveness ages out through
-`last_seen_at`/lease policy, and a replacement stream fences the old epoch.
+The gateway supervisor sends Hello and one heartbeat at a time, validates the complete Welcome/ack
+sequence and epoch, and reconnects transient failures with backoff. It becomes ready only after the
+API durably acknowledges a heartbeat whose runtime snapshot is READY while authoritative desired
+lifecycle is RUN. Disconnect, lease expiry, DRAIN/DISABLE Welcome, and non-READY runtime state keep
+readiness false. Control-enabled engine-route admission remains closed until that acknowledged
+RUN+READY state. The gate covers every registered engine route, including live GET operations; only
+the unauthenticated diagnostics probes remain outside it. A DRAIN/DISABLE Welcome closes admission
+terminally for that process: an initial DRAIN skips manager Boot, while a post-Boot DRAIN first
+waits for already-admitted requests to leave and then shuts down the manager and its live sessions.
+
+An installed identity may start while the API is transiently unavailable. After a bounded initial
+Welcome wait, the diagnostics listener comes up unready with engine admission closed while the
+supervisor keeps reconnecting. A later RUN Welcome boots the manager, reports READY, and opens
+admission only after the durable acknowledgement. A terminal pre-Welcome authentication or protocol
+failure exits clearly instead of leaving a permanently inert process.
+The lifetime supervisor result is also part of the composition root's main select: a terminal error
+after the diagnostics listener starts terminates the gateway cleanly and is returned as the process
+error. The same lifecycle watcher is installed for an immediate or delayed Boot, so a DRAIN arriving
+after deferred startup follows the normal admission/worker/manager drain path.
+
+On graceful process shutdown the supervisor has a lifetime independent from the signal-cancelled
+application context. Admission closes first; the gateway sends an immediate DRAINING heartbeat and
+waits for its durable acknowledgement, shuts down manager work, then sends and waits for a DRAINED
+heartbeat before cancelling the stream. Each acknowledgement wait is bounded, so an unavailable
+control plane cannot prevent process exit. These are runtime-state heartbeats, not lifecycle
+directive reports. `Flush` is generation- and epoch-aware: success requires an acknowledgement
+newer than the call, and a reconnect causes the requested runtime snapshot to be reported on the
+replacement epoch rather than accepting an old acknowledgement.
+
+Control-enabled mode exclusively owns registry liveness through the stream. It gates off exactly
+five legacy direct-MySQL mutations: joining registration, active registration, periodic heartbeat,
+shutdown draining, and shutdown drained. Control-disabled mode retains that legacy path.
+
+The API's epoch-fenced disconnect write clears liveness only when the ending stream still owns the
+current epoch; a stale stream therefore cannot make its replacement unreachable. The explicit
+`connection_mode` written by registration/accept selects freshness: `control` rows use 15 seconds,
+matching the advertised lease, while `legacy` rows retain 90 seconds for the 30-second heartbeat
+cadence. A later legacy registration switches the row back to legacy freshness.
+
+This is still not full gateway runtime parity. Strict post-Welcome lifecycle directives are
+rejected by the supervisor and lifecycle reports remain rejected by the API until issued directives
+are tracked; the graceful shutdown heartbeats do not implement that directive/report protocol.
+Certificate renewal, revocation-triggered termination, lifecycle reconciliation, and engine
+commands also remain unfinished. Disconnect clears liveness but does not invent a terminal
+lifecycle status, and a replacement stream fences the old epoch.
+
+Disconnect cleanup runs on a detached context bounded to five seconds. It can therefore clear the
+current epoch's liveness after the stream context is cancelled without delaying server teardown
+indefinitely.

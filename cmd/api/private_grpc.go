@@ -215,6 +215,7 @@ type gatewayControlRepo interface {
 	AcceptConnection(context.Context, domain.GatewayConnectionHello, int64) (domain.GatewayAcceptedConnection, error)
 	HeartbeatForEpoch(context.Context, domain.GatewayHeartbeat, int64) (bool, error)
 	SetStatusForEpoch(context.Context, domain.GatewayLifecycleReport, int64) (bool, error)
+	DisconnectForEpoch(context.Context, domain.GatewayConnection, int64) (bool, error)
 }
 
 type gatewayControlStore struct {
@@ -232,8 +233,9 @@ func (s gatewayControlStore) Accept(ctx context.Context, gatewayID string, hello
 		return apigateway.Connection{}, err
 	}
 	endpoint, version := optionalString(hello.GRPCEndpoint), optionalString(hello.SoftwareVersion)
+	baseURL := optionalString(hello.HTTPBaseURL)
 	accepted, err := s.repo.AcceptConnection(ctx, domain.GatewayConnectionHello{
-		GatewayID: gatewayID, GRPCEndpoint: endpoint, SoftwareVersion: version,
+		GatewayID: gatewayID, BaseURL: baseURL, GRPCEndpoint: endpoint, SoftwareVersion: version,
 		Capabilities: capabilities, SessionCount: int(hello.SessionCount), Status: runtimeStatus,
 	}, s.clock().UnixMilli())
 	if err != nil {
@@ -247,13 +249,13 @@ func (s gatewayControlStore) Accept(ctx context.Context, gatewayID string, hello
 		}
 		return apigateway.Connection{}, fmt.Errorf("%w: %w", apigateway.ErrUnavailable, err)
 	}
-	desiredLifecycle, ok := desiredLifecycleForStatus(accepted.Status)
+	desiredLifecycle, ok := desiredLifecycleForStoredValue(accepted.DesiredLifecycle)
 	if !ok {
 		return apigateway.Connection{}, apigateway.ErrConflict
 	}
 	return apigateway.Connection{
-		ID: domain.NewULID(), Epoch: accepted.ConnectionEpoch, HeartbeatInterval: 5 * time.Second,
-		LeaseTimeout:     15 * time.Second,
+		ID: domain.NewULID(), Epoch: accepted.ConnectionEpoch, HeartbeatInterval: apigateway.DefaultHeartbeatInterval,
+		LeaseTimeout:     apigateway.DefaultLeaseTimeout,
 		DesiredLifecycle: desiredLifecycle,
 	}, nil
 }
@@ -283,9 +285,12 @@ func (s gatewayControlStore) Lifecycle(ctx context.Context, gatewayID string, ep
 	return fencedStoreResult(updated, err)
 }
 
-// Disconnect is currently observational only. The persisted lease expires from
-// the last fenced heartbeat; a replacement stream immediately advances epoch.
-func (gatewayControlStore) Disconnect(context.Context, string, uint64) error { return nil }
+func (s gatewayControlStore) Disconnect(ctx context.Context, gatewayID string, epoch uint64) error {
+	applied, err := s.repo.DisconnectForEpoch(ctx, domain.GatewayConnection{
+		GatewayID: gatewayID, ConnectionEpoch: epoch,
+	}, s.clock().UnixMilli())
+	return fencedStoreResult(applied, err)
+}
 
 func (s gatewayControlStore) clock() time.Time {
 	if s.now != nil {
@@ -311,11 +316,11 @@ func fencedStoreResult(updated bool, err error) error {
 	return nil
 }
 
-func desiredLifecycleForStatus(status domain.GatewayStatus) (gatewayv1.LifecycleDirectiveAction, bool) {
-	switch status {
-	case domain.GatewayDraining, domain.GatewayDrained:
+func desiredLifecycleForStoredValue(desired string) (gatewayv1.LifecycleDirectiveAction, bool) {
+	switch desired {
+	case "drain":
 		return gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DRAIN, true
-	case domain.GatewayJoining, domain.GatewayActive, domain.GatewayDegraded:
+	case "run":
 		return gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN, true
 	default:
 		return gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_UNKNOWN, false

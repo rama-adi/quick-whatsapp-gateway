@@ -191,6 +191,7 @@ type fakeGatewayControlRepo struct {
 	hello       domain.GatewayConnectionHello
 	heartbeat   domain.GatewayHeartbeat
 	lifecycle   domain.GatewayLifecycleReport
+	disconnect  domain.GatewayConnection
 }
 
 func (r *fakeGatewayControlRepo) AcceptConnection(_ context.Context, hello domain.GatewayConnectionHello, _ int64) (domain.GatewayAcceptedConnection, error) {
@@ -205,15 +206,19 @@ func (r *fakeGatewayControlRepo) SetStatusForEpoch(_ context.Context, lifecycle 
 	r.lifecycle = lifecycle
 	return r.lifecycleOK, r.err
 }
+func (r *fakeGatewayControlRepo) DisconnectForEpoch(_ context.Context, connection domain.GatewayConnection, _ int64) (bool, error) {
+	r.disconnect = connection
+	return r.heartbeatOK, r.err
+}
 
 func TestGatewayControlStoreAdaptsAndFencesPersistence(t *testing.T) {
-	repo := &fakeGatewayControlRepo{accepted: domain.GatewayAcceptedConnection{ConnectionEpoch: 9, Status: domain.GatewayActive}, heartbeatOK: true, lifecycleOK: true}
+	repo := &fakeGatewayControlRepo{accepted: domain.GatewayAcceptedConnection{ConnectionEpoch: 9, DesiredLifecycle: "run"}, heartbeatOK: true, lifecycleOK: true}
 	controlStore := gatewayControlStore{repo: repo, now: func() time.Time { return time.UnixMilli(55) }}
 	connection, err := controlStore.Accept(context.Background(), "gw_1", apigateway.Hello{
-		SoftwareVersion: "v2", Capabilities: []gatewayv1.GatewayCapability{gatewayv1.GatewayCapability_GATEWAY_CAPABILITY_SESSION_ENGINE}, SessionCount: 3,
+		SoftwareVersion: "v2", HTTPBaseURL: "https://gateway.test", Capabilities: []gatewayv1.GatewayCapability{gatewayv1.GatewayCapability_GATEWAY_CAPABILITY_SESSION_ENGINE}, SessionCount: 3,
 		RuntimeState: gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_READY,
 	})
-	if err != nil || connection.Epoch != 9 || connection.ID == "" || repo.hello.GatewayID != "gw_1" || repo.hello.SessionCount != 3 || repo.hello.Status != domain.GatewayActive {
+	if err != nil || connection.Epoch != 9 || connection.ID == "" || repo.hello.GatewayID != "gw_1" || repo.hello.BaseURL == nil || *repo.hello.BaseURL != "https://gateway.test" || repo.hello.SessionCount != 3 || repo.hello.Status != domain.GatewayActive {
 		t.Fatalf("accept = %+v hello=%+v err=%v", connection, repo.hello, err)
 	}
 	if err = controlStore.Heartbeat(context.Background(), "gw_1", 9, apigateway.Heartbeat{SessionCount: 4, RuntimeState: gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DEGRADED}); err != nil || repo.heartbeat.ConnectionEpoch != 9 || repo.heartbeat.Status != domain.GatewayDegraded {
@@ -222,9 +227,15 @@ func TestGatewayControlStoreAdaptsAndFencesPersistence(t *testing.T) {
 	if err = controlStore.Lifecycle(context.Background(), "gw_1", 9, apigateway.LifecycleReport{State: gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINING}); err != nil || repo.lifecycle.Status != domain.GatewayDraining {
 		t.Fatalf("lifecycle = %+v err=%v", repo.lifecycle, err)
 	}
+	if err = controlStore.Disconnect(context.Background(), "gw_1", 9); err != nil || repo.disconnect.GatewayID != "gw_1" || repo.disconnect.ConnectionEpoch != 9 {
+		t.Fatalf("disconnect = %+v err=%v", repo.disconnect, err)
+	}
 	repo.heartbeatOK = false
 	if err = controlStore.Heartbeat(context.Background(), "gw_1", 9, apigateway.Heartbeat{RuntimeState: gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_READY}); !errors.Is(err, apigateway.ErrStaleEpoch) {
 		t.Fatalf("stale heartbeat error = %v", err)
+	}
+	if err = controlStore.Disconnect(context.Background(), "gw_1", 9); !errors.Is(err, apigateway.ErrStaleEpoch) {
+		t.Fatalf("stale disconnect error = %v", err)
 	}
 	repo.err = domain.ErrNotFound("connectable gateway not found")
 	if _, err = controlStore.Accept(context.Background(), "gw_disabled", apigateway.Hello{RuntimeState: gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_STARTING}); !errors.Is(err, apigateway.ErrUnauthorized) {
@@ -236,9 +247,9 @@ func TestGatewayControlStoreAdaptsAndFencesPersistence(t *testing.T) {
 }
 
 func TestGatewayControlStorePreservesAdministrativeDrainOnReconnect(t *testing.T) {
-	for _, durableStatus := range []domain.GatewayStatus{domain.GatewayDraining, domain.GatewayDrained} {
-		t.Run(string(durableStatus), func(t *testing.T) {
-			repo := &fakeGatewayControlRepo{accepted: domain.GatewayAcceptedConnection{ConnectionEpoch: 11, Status: durableStatus}}
+	for _, desired := range []string{"drain"} {
+		t.Run(desired, func(t *testing.T) {
+			repo := &fakeGatewayControlRepo{accepted: domain.GatewayAcceptedConnection{ConnectionEpoch: 11, DesiredLifecycle: desired}}
 			connection, err := (gatewayControlStore{repo: repo}).Accept(context.Background(), "gw_1", apigateway.Hello{
 				RuntimeState: gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_READY,
 			})
@@ -255,6 +266,28 @@ func TestGatewayControlStorePreservesAdministrativeDrainOnReconnect(t *testing.T
 		RuntimeState: gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_READY,
 	}); !errors.Is(err, apigateway.ErrConflict) {
 		t.Fatalf("superseded accept error = %v", err)
+	}
+}
+
+func TestGatewayControlStoreObservedShutdownDoesNotLatchNextRestartToDrain(t *testing.T) {
+	repo := &fakeGatewayControlRepo{
+		accepted:    domain.GatewayAcceptedConnection{ConnectionEpoch: 12, DesiredLifecycle: "run"},
+		lifecycleOK: true,
+	}
+	controlStore := gatewayControlStore{repo: repo}
+	if err := controlStore.Lifecycle(context.Background(), "gw_1", 11, apigateway.LifecycleReport{
+		State: gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	connection, err := controlStore.Accept(context.Background(), "gw_1", apigateway.Hello{
+		RuntimeState: gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_STARTING,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repo.lifecycle.Status != domain.GatewayDrained || connection.DesiredLifecycle != gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN {
+		t.Fatalf("observed=%q desired=%v", repo.lifecycle.Status, connection.DesiredLifecycle)
 	}
 }
 

@@ -66,6 +66,19 @@ Every `/api/v1` request flows through four steps:
 **Stranded session.** If the owning gateway is missing, not `active`, or its heartbeat is missing,
 stale, or implausibly far in the future, the router returns **`503 gateway_unavailable`** with a
 clear message rather than a silent hang (the `gateway_unavailable` domain error code → HTTP 503).
+Rows explicitly marked `connection_mode=control` use a 15-second freshness window matching the
+advertised heartbeat lease. Rows marked `legacy` retain a 90-second window because their heartbeat
+cadence is 30 seconds; a later legacy registration switches a formerly controlled row back to that
+mode. A current-epoch stream disconnect clears its liveness immediately;
+the epoch predicate prevents an old stream from making its replacement unreachable. During the
+HTTP-to-engine transition, authenticated Hello may supply `http_base_url`, which the API persists
+with epoch acceptance as the proxy target.
+
+New-session placement requires both observed `status=active` and
+`desired_lifecycle=run`, in addition to capacity and freshness. Observed shutdown
+DRAINING/DRAINED reports do not mutate desired lifecycle, so they do not latch a drain across
+restart; conversely, an operator-desired drain remains ineligible even if the last observed runtime
+status was active.
 
 The router preserves the validated/minted `X-Request-Id` on the upstream request,
 so its canonical request event correlates exactly with the gateway event. Local

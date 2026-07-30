@@ -1,12 +1,12 @@
 -- name: UpsertGateway :exec
-INSERT INTO gateways (id, label, status, session_count, capacity, base_url, last_seen_at, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO gateways (id, label, status, connection_mode, session_count, capacity, base_url, last_seen_at, created_at, updated_at)
+VALUES (?, ?, ?, 'legacy', ?, ?, ?, ?, ?, ?)
 ON DUPLICATE KEY UPDATE label=VALUES(label), status=VALUES(status),
-	capacity=VALUES(capacity), base_url=VALUES(base_url),
+	connection_mode='legacy', capacity=VALUES(capacity), base_url=VALUES(base_url),
 	last_seen_at=VALUES(last_seen_at), updated_at=VALUES(updated_at);
 
 -- name: GetGateway :one
-SELECT id, label, status, session_count, capacity, base_url, last_seen_at, created_at, updated_at
+SELECT id, label, status, session_count, capacity, base_url, connection_epoch, connection_mode, desired_lifecycle, last_seen_at, created_at, updated_at
 FROM gateways
 WHERE id = ? AND deleted_at IS NULL;
 
@@ -20,16 +20,24 @@ UPDATE gateways
 SET status = ?, updated_at = ?
 WHERE id = ? AND deleted_at IS NULL;
 
+-- name: SetGatewayDesiredLifecycle :execrows
+UPDATE gateways
+SET desired_lifecycle = ?, updated_at = ?
+WHERE id = ? AND deleted_at IS NULL
+  AND enrolled_at IS NOT NULL
+  AND status NOT IN ('pending_enrollment', 'disabled');
+
 -- name: ListActiveGateways :many
-SELECT id, label, status, session_count, capacity, base_url, last_seen_at, created_at, updated_at
+SELECT id, label, status, session_count, capacity, base_url, connection_epoch, connection_mode, desired_lifecycle, last_seen_at, created_at, updated_at
 FROM gateways
 WHERE status = ? AND deleted_at IS NULL
 ORDER BY session_count ASC, id ASC;
 
 -- name: PickGatewayForPlacement :one
-SELECT id, label, status, session_count, capacity, base_url, last_seen_at, created_at, updated_at
+SELECT id, label, status, session_count, capacity, base_url, connection_epoch, connection_mode, desired_lifecycle, last_seen_at, created_at, updated_at
 FROM gateways
-WHERE status = ? AND deleted_at IS NULL AND (capacity IS NULL OR session_count < capacity)
+WHERE status = ? AND (connection_mode = 'legacy' OR desired_lifecycle = 'run')
+  AND deleted_at IS NULL AND (capacity IS NULL OR session_count < capacity)
 ORDER BY session_count ASC, last_seen_at DESC, id ASC
 LIMIT 1;
 
@@ -39,7 +47,7 @@ INSERT INTO gateways
 VALUES (?, ?, ?, ?, 'user', ?, ?, ?, 0, ?, ?);
 
 -- name: ListGateways :many
-SELECT id, label, status, session_count, capacity, base_url, last_seen_at, created_at, updated_at
+SELECT id, label, status, session_count, capacity, base_url, connection_epoch, connection_mode, desired_lifecycle, last_seen_at, created_at, updated_at
 FROM gateways WHERE deleted_at IS NULL ORDER BY created_at DESC, id DESC;
 
 -- name: UpdateGatewayMetadata :execrows
@@ -69,17 +77,15 @@ LIMIT 1;
 -- name: AllocateGatewayConnectionEpoch :execrows
 UPDATE gateways
 SET connection_epoch = connection_epoch + 1,
+    connection_mode = 'control',
     connected_at = ?,
     last_seen_at = ?,
+    base_url = COALESCE(?, base_url),
     grpc_endpoint = ?,
     software_version = ?,
     capabilities = ?,
     session_count = ?,
-    status = CASE
-      WHEN status = 'draining' AND CAST(sqlc.arg(drain_completed) AS UNSIGNED) = 1 THEN 'drained'
-      WHEN status IN ('draining', 'drained') THEN status
-      ELSE sqlc.arg(reported_status)
-    END,
+    status = sqlc.arg(reported_status),
     updated_at = ?
 WHERE id = ?
   AND connection_epoch = ?
@@ -90,23 +96,21 @@ WHERE id = ?
 -- name: GatewayHeartbeatForEpoch :execrows
 UPDATE gateways
 SET last_seen_at = ?, session_count = ?,
-    status = CASE
-      WHEN status = 'draining' AND CAST(sqlc.arg(drain_completed) AS UNSIGNED) = 1 THEN 'drained'
-      WHEN status IN ('draining', 'drained') THEN status
-      ELSE sqlc.arg(reported_status)
-    END,
+    status = sqlc.arg(reported_status),
     updated_at = ?
 WHERE id = ? AND connection_epoch = ? AND deleted_at IS NULL
   AND status NOT IN ('pending_enrollment', 'disabled');
 
 -- name: SetGatewayStatusForEpoch :execrows
 UPDATE gateways
-SET status = CASE
-      WHEN status = 'draining' AND CAST(sqlc.arg(drain_completed) AS UNSIGNED) = 1 THEN 'drained'
-      WHEN status IN ('draining', 'drained') THEN status
-      ELSE sqlc.arg(reported_status)
-    END,
+SET status = sqlc.arg(reported_status),
     updated_at = ?
+WHERE id = ? AND connection_epoch = ? AND deleted_at IS NULL
+  AND status NOT IN ('pending_enrollment', 'disabled');
+
+-- name: DisconnectGatewayForEpoch :execrows
+UPDATE gateways
+SET connected_at = NULL, last_seen_at = NULL, updated_at = ?
 WHERE id = ? AND connection_epoch = ? AND deleted_at IS NULL
   AND status NOT IN ('pending_enrollment', 'disabled');
 
@@ -124,8 +128,8 @@ SELECT EXISTS(
     AND status NOT IN ('pending_enrollment', 'disabled')
 ) AS is_current;
 
--- name: GetAcceptedGatewayConnectionStatus :one
-SELECT status
+-- name: GetAcceptedGatewayDesiredLifecycle :one
+SELECT desired_lifecycle
 FROM gateways
 WHERE id = ? AND connection_epoch = ? AND deleted_at IS NULL
   AND status NOT IN ('pending_enrollment', 'disabled')

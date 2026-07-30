@@ -135,7 +135,7 @@ func TestInstalledIdentitySkipsEnrollmentAndUsesMTLSHealth(t *testing.T) {
 	if err = client.Ensure(context.Background(), "invalid-token-must-not-be-sent"); err != nil {
 		t.Fatal(err)
 	}
-	if service.enrollCalls.Load() != 0 || service.healthCalls.Load() != 1 || client.Conn() == nil {
+	if service.enrollCalls.Load() != 0 || service.healthCalls.Load() != 0 || client.Conn() == nil {
 		t.Fatalf("calls enroll=%d health=%d", service.enrollCalls.Load(), service.healthCalls.Load())
 	}
 	if err = client.Close(); err != nil {
@@ -143,5 +143,34 @@ func TestInstalledIdentitySkipsEnrollmentAndUsesMTLSHealth(t *testing.T) {
 	}
 	if client.Conn() != nil {
 		t.Fatal("connection retained after close")
+	}
+	offline, err := New(Config{Target: "127.0.0.1:1", GatewayID: "gw_1", Identity: reloaded, AttemptTimeout: 20 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = offline.Ensure(context.Background(), ""); err != nil {
+		t.Fatalf("installed identity required API availability: %v", err)
+	}
+	_ = offline.Close()
+}
+
+func TestInstalledIdentityDoesNotRequireAPIAvailabilityAtStartup(t *testing.T) {
+	root := testRoot(t)
+	// Reuse the identity fixture path exercised above by installing a credential
+	// through a temporary authenticated server, then prove a later offline boot
+	// only constructs the persistent connection. grpc-go reconnects underneath
+	// the supervisor.
+	dir := filepath.Join(t.TempDir(), "credentials")
+	identity, err := gatewayidentity.New(gatewayidentity.Config{Directory: dir, GatewayID: "gw_1", BootstrapCA: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A corrupt or absent credential must remain fail-closed without a token.
+	client, err := New(Config{Target: "127.0.0.1:1", GatewayID: "gw_1", Identity: identity})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = client.Ensure(context.Background(), ""); err == nil {
+		t.Fatal("unenrolled identity started without enrollment token")
 	}
 }

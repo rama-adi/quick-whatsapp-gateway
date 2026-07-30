@@ -92,8 +92,12 @@ func (s *Server) gatewayUsable(g domain.Gateway) bool {
 		if g.LastSeenAt == nil {
 			return false
 		}
+		staleAfter := s.staleAfter
+		if g.ConnectionMode != "control" && staleAfter == defaultStaleAfter {
+			staleAfter = legacyStaleAfter
+		}
 		age := s.now().Sub(time.UnixMilli(*g.LastSeenAt))
-		if age > s.staleAfter || age < -s.staleAfter {
+		if age >= staleAfter || age <= -staleAfter {
 			return false
 		}
 	}

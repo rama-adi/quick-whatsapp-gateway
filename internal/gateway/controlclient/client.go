@@ -107,13 +107,6 @@ func (c *Client) connectAuthenticated(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	checkCtx, cancel := context.WithTimeout(ctx, c.cfg.AttemptTimeout)
-	defer cancel()
-	response, err := gatewayv1.NewGatewayHealthServiceClient(conn).Check(checkCtx, &gatewayv1.GatewayHealthServiceCheckRequest{})
-	if err != nil || response.Status != gatewayv1.ServingStatus_SERVING_STATUS_SERVING {
-		_ = conn.Close()
-		return errors.New("control client: private health unavailable")
-	}
 	c.conn = conn
 	return nil
 }

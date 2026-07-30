@@ -30,9 +30,10 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/stream"
 )
 
-// defaultStaleAfter is how long after a gateway's last heartbeat the router treats
-// it as unreachable (≈ several missed heartbeats). Derived, not stored (D8).
-const defaultStaleAfter = 90 * time.Second
+// defaultStaleAfter matches the lease advertised by the API control stream. A
+// deployment overriding one must pass the same duration through Config.
+const defaultStaleAfter = 15 * time.Second
+const legacyStaleAfter = 90 * time.Second
 
 // JWKSPath is where the router publishes its assertion-verification public keys.
 const JWKSPath = "/.well-known/router-jwks.json"

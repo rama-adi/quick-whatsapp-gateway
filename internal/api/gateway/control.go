@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net/url"
 	"time"
 
 	gatewayv1 "github.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1"
@@ -16,11 +17,16 @@ import (
 const ProtocolVersion uint32 = 1
 
 const (
-	MaxInstanceIDBytes      = 128
-	MaxSoftwareVersionBytes = 128
-	MaxGRPCEndpointBytes    = 512
-	MaxGatewayCapabilities  = 16
-	maxUnixMillis           = int64(253402300799999)
+	DefaultHelloTimeout      = 10 * time.Second
+	DefaultHeartbeatInterval = 5 * time.Second
+	DefaultLeaseTimeout      = 15 * time.Second
+	DefaultDisconnectTimeout = 5 * time.Second
+	MaxInstanceIDBytes       = 128
+	MaxSoftwareVersionBytes  = 128
+	MaxGRPCEndpointBytes     = 512
+	MaxHTTPBaseURLBytes      = 512
+	MaxGatewayCapabilities   = 16
+	maxUnixMillis            = int64(253402300799999)
 )
 
 var (
@@ -31,11 +37,11 @@ var (
 )
 
 type Hello struct {
-	InstanceID, SoftwareVersion, GRPCEndpoint string
-	Capabilities                              []gatewayv1.GatewayCapability
-	StartedAt                                 time.Time
-	SessionCount                              uint32
-	RuntimeState                              gatewayv1.GatewayRuntimeState
+	InstanceID, SoftwareVersion, GRPCEndpoint, HTTPBaseURL string
+	Capabilities                                           []gatewayv1.GatewayCapability
+	StartedAt                                              time.Time
+	SessionCount                                           uint32
+	RuntimeState                                           gatewayv1.GatewayRuntimeState
 }
 
 type Heartbeat struct {
@@ -73,8 +79,10 @@ type Server struct {
 	Store Store
 	// ResolveGatewayID must read the identity installed by the private listener's
 	// mTLS authenticator. It must never inspect a control-frame payload.
-	ResolveGatewayID func(context.Context) (string, bool)
-	Now              func() time.Time
+	ResolveGatewayID  func(context.Context) (string, bool)
+	Now               func() time.Time
+	HelloTimeout      time.Duration
+	DisconnectTimeout time.Duration
 }
 
 func (s *Server) Connect(stream gatewayv1.GatewayControlService_ConnectServer) (result error) {
@@ -89,7 +97,10 @@ func (s *Server) Connect(stream gatewayv1.GatewayControlService_ConnectServer) (
 		return status.Error(codes.Unavailable, "gateway control unavailable")
 	}
 
-	first, err := stream.Recv()
+	received := receiveFrames(stream)
+	helloTimer := time.NewTimer(s.helloTimeout())
+	defer helloTimer.Stop()
+	first, err := receiveBefore(stream.Context(), received, helloTimer.C, "gateway hello deadline exceeded")
 	if err != nil {
 		return receiveStatus(err)
 	}
@@ -111,7 +122,8 @@ func (s *Server) Connect(stream gatewayv1.GatewayControlService_ConnectServer) (
 		return status.Error(codes.Internal, "invalid gateway connection allocation")
 	}
 	defer func() {
-		ctx := context.WithoutCancel(stream.Context())
+		ctx, cancel := s.disconnectContext(stream.Context())
+		defer cancel()
 		_ = s.Store.Disconnect(ctx, gatewayID, connection.Epoch)
 	}()
 
@@ -131,13 +143,17 @@ func (s *Server) Connect(stream gatewayv1.GatewayControlService_ConnectServer) (
 		return sendStatus(err)
 	}
 
+	leaseTimer := time.NewTimer(connection.LeaseTimeout)
+	defer leaseTimer.Stop()
+	outboundSequence := welcome.Sequence
+	lastAcknowledgedControlSequence := welcome.Sequence
 	for expected := uint64(2); ; expected++ {
-		frame, recvErr := stream.Recv()
+		frame, recvErr := receiveBefore(stream.Context(), received, leaseTimer.C, "gateway heartbeat lease expired")
 		if recvErr != nil {
 			if errors.Is(recvErr, io.EOF) {
 				return nil
 			}
-			return receiveStatus(recvErr)
+			return recvErr
 		}
 		if err = validateEnvelope(frame, expected); err != nil {
 			return err
@@ -150,10 +166,27 @@ func (s *Server) Connect(stream gatewayv1.GatewayControlService_ConnectServer) (
 			if payload.Heartbeat.ConnectionEpoch != connection.Epoch {
 				return status.Error(codes.FailedPrecondition, "gateway connection epoch mismatch")
 			}
-			if payload.Heartbeat.LastControlSequence != welcome.Sequence {
+			if payload.Heartbeat.LastControlSequence > outboundSequence || payload.Heartbeat.LastControlSequence < lastAcknowledgedControlSequence {
 				return status.Error(codes.FailedPrecondition, "gateway control acknowledgement mismatch")
 			}
+			lastAcknowledgedControlSequence = payload.Heartbeat.LastControlSequence
 			err = s.Store.Heartbeat(stream.Context(), gatewayID, connection.Epoch, heartbeatValue(payload.Heartbeat))
+			if err == nil {
+				resetTimer(leaseTimer, connection.LeaseTimeout)
+				outboundSequence++
+				err = stream.Send(&gatewayv1.ControlFrame{
+					ProtocolVersion: ProtocolVersion,
+					Sequence:        outboundSequence,
+					Payload: &gatewayv1.ControlFrame_HeartbeatAck{HeartbeatAck: &gatewayv1.ControlHeartbeatAck{
+						AcknowledgedGatewaySequence: frame.Sequence,
+						ConnectionEpoch:             connection.Epoch,
+						ServerTimeUnixMs:            s.clock().UnixMilli(),
+					}},
+				})
+				if err != nil {
+					return sendStatus(err)
+				}
+			}
 		case *gatewayv1.GatewayFrame_LifecycleReport:
 			return status.Error(codes.FailedPrecondition, "no lifecycle directive is awaiting acknowledgement")
 		default:
@@ -163,6 +196,57 @@ func (s *Server) Connect(stream gatewayv1.GatewayControlService_ConnectServer) (
 			return storeStatus(err)
 		}
 	}
+}
+
+type receiveResult struct {
+	frame *gatewayv1.GatewayFrame
+	err   error
+}
+
+func receiveFrames(stream gatewayv1.GatewayControlService_ConnectServer) <-chan receiveResult {
+	results := make(chan receiveResult, 1)
+	go func() {
+		defer close(results)
+		for {
+			frame, err := stream.Recv()
+			select {
+			case results <- receiveResult{frame: frame, err: err}:
+			case <-stream.Context().Done():
+				return
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	return results
+}
+
+func receiveBefore(ctx context.Context, received <-chan receiveResult, deadline <-chan time.Time, timeoutMessage string) (*gatewayv1.GatewayFrame, error) {
+	select {
+	case <-ctx.Done():
+		return nil, receiveStatus(ctx.Err())
+	case <-deadline:
+		return nil, status.Error(codes.DeadlineExceeded, timeoutMessage)
+	case result, ok := <-received:
+		if !ok {
+			return nil, status.Error(codes.Unavailable, "gateway control stream unavailable")
+		}
+		if result.err != nil {
+			return nil, result.err
+		}
+		return result.frame, nil
+	}
+}
+
+func resetTimer(timer *time.Timer, duration time.Duration) {
+	if !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
+		}
+	}
+	timer.Reset(duration)
 }
 
 func validateHello(hello *gatewayv1.GatewayHello) error {
@@ -177,6 +261,11 @@ func validateHello(hello *gatewayv1.GatewayHello) error {
 	}
 	if hello.GrpcEndpoint != nil && len(*hello.GrpcEndpoint) > MaxGRPCEndpointBytes {
 		return status.Error(codes.InvalidArgument, "invalid gateway gRPC endpoint")
+	}
+	if hello.HttpBaseUrl != nil {
+		if err := validateHTTPBaseURL(*hello.HttpBaseUrl); err != nil {
+			return err
+		}
 	}
 	if hello.StartedAtUnixMs <= 0 || hello.StartedAtUnixMs > maxUnixMillis {
 		return status.Error(codes.InvalidArgument, "invalid gateway start time")
@@ -249,7 +338,25 @@ func helloValue(v *gatewayv1.GatewayHello) Hello {
 	if v.GrpcEndpoint != nil {
 		endpoint = *v.GrpcEndpoint
 	}
-	return Hello{InstanceID: v.InstanceId, SoftwareVersion: v.SoftwareVersion, GRPCEndpoint: endpoint, Capabilities: append([]gatewayv1.GatewayCapability(nil), v.Capabilities...), StartedAt: time.UnixMilli(v.StartedAtUnixMs).UTC(), SessionCount: v.SessionCount, RuntimeState: v.RuntimeState}
+	httpBaseURL := ""
+	if v.HttpBaseUrl != nil {
+		httpBaseURL = *v.HttpBaseUrl
+	}
+	return Hello{InstanceID: v.InstanceId, SoftwareVersion: v.SoftwareVersion, GRPCEndpoint: endpoint, HTTPBaseURL: httpBaseURL, Capabilities: append([]gatewayv1.GatewayCapability(nil), v.Capabilities...), StartedAt: time.UnixMilli(v.StartedAtUnixMs).UTC(), SessionCount: v.SessionCount, RuntimeState: v.RuntimeState}
+}
+
+func validateHTTPBaseURL(raw string) error {
+	if len(raw) == 0 || len(raw) > MaxHTTPBaseURLBytes {
+		return status.Error(codes.InvalidArgument, "invalid gateway HTTP base URL")
+	}
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.RawPath != "" || u.Path != "" {
+		return status.Error(codes.InvalidArgument, "invalid gateway HTTP base URL")
+	}
+	if u.String() != raw {
+		return status.Error(codes.InvalidArgument, "invalid gateway HTTP base URL")
+	}
+	return nil
 }
 
 func heartbeatValue(v *gatewayv1.GatewayHeartbeat) Heartbeat {
@@ -275,6 +382,24 @@ func (s *Server) clock() time.Time {
 	return time.Now().UTC()
 }
 
+func (s *Server) helloTimeout() time.Duration {
+	if s.HelloTimeout > 0 {
+		return s.HelloTimeout
+	}
+	return DefaultHelloTimeout
+}
+
+func (s *Server) disconnectTimeout() time.Duration {
+	if s.DisconnectTimeout > 0 {
+		return s.DisconnectTimeout
+	}
+	return DefaultDisconnectTimeout
+}
+
+func (s *Server) disconnectContext(parent context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(parent), s.disconnectTimeout())
+}
+
 func storeStatus(err error) error {
 	switch {
 	case errors.Is(err, context.Canceled):
@@ -295,6 +420,9 @@ func storeStatus(err error) error {
 }
 
 func receiveStatus(err error) error {
+	if status.Code(err) != codes.Unknown {
+		return err
+	}
 	if errors.Is(err, io.EOF) {
 		return status.Error(codes.FailedPrecondition, "hello frame required")
 	}

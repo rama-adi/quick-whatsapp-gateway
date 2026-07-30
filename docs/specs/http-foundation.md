@@ -38,9 +38,19 @@ human login**: no `/auth` surface, no embedded SPA, no cookie middleware.
 - **No SPA, no `/auth`:** any unmatched path is a JSON `404` via `WriteError(ErrNotFound)`.
 
 `RouterConfig` carries `Auth func(http.Handler) http.Handler` (the assertion middleware),
-`Limiter`, `Readiness`, `Log`. **Dropped vs R1 (central-router):** `Tokens`/`Keys` (end-user
+`Limiter`, `Readiness`, `Admission`, `Log`. In control-enabled mode `Admission` rejects every
+registered transitional engine request with `503 gateway_unavailable` until the control plane has
+acknowledged a RUN+READY heartbeat. This includes GET/HEAD operations that consult live manager
+state. DRAIN/DISABLE closes the gate terminally for the process and `CloseAndWait` waits for
+requests already admitted through the gate before manager shutdown. Health, readiness, metrics, and
+other diagnostics outside the registered engine group remain available. Control-disabled mode
+retains the legacy always-admitting behavior. **Dropped vs R1 (central-router):** `Tokens`/`Keys` (end-user
 verifiers — now on the router), `CORSOrigins` (CORS now on the router), and serving the OpenAPI spec
 (`OpenAPIPath` — the router serves `/api/v1/openapi.yaml`, plan D9).
+
+The terminal close is `AdmissionGate.CloseForever`: later readiness/status notifications cannot
+reopen it. SIGTERM and authoritative DRAIN both use this irreversible close before waiting for the
+active request count to reach zero.
 
 ### Route surface (capability per group)
 

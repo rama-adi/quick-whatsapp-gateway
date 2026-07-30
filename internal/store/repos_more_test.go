@@ -12,7 +12,7 @@ import (
 func gatewayRows() *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
 		"id", "label", "status", "session_count", "capacity",
-		"base_url", "last_seen_at", "created_at", "updated_at",
+		"base_url", "connection_epoch", "connection_mode", "desired_lifecycle", "last_seen_at", "created_at", "updated_at",
 	})
 }
 
@@ -26,21 +26,21 @@ func TestGatewayRepo_UpsertAndGet(t *testing.T) {
 		ID: "gw_1", Label: strptr("primary"), Status: domain.GatewayActive,
 		BaseURL: strptr("https://gw"), CreatedAt: 1, UpdatedAt: 2,
 	}
-	mock.ExpectExec("INSERT INTO gateways.*ON DUPLICATE KEY UPDATE").
+	mock.ExpectExec("(?s)INSERT INTO gateways .*connection_mode.*'legacy'.*ON DUPLICATE KEY UPDATE.*connection_mode='legacy'").
 		WithArgs(g.ID, g.Label, g.Status, g.SessionCount, g.Capacity, g.BaseURL, g.LastSeenAt, g.CreatedAt, g.UpdatedAt).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	if err := repo.Upsert(context.Background(), g); err != nil {
 		t.Fatalf("Upsert: %v", err)
 	}
 
-	rows := gatewayRows().AddRow("gw_1", "primary", "active", 3, nil, "https://gw", nil, int64(1), int64(2))
+	rows := gatewayRows().AddRow("gw_1", "primary", "active", 3, nil, "https://gw", uint64(7), "control", "run", nil, int64(1), int64(2))
 	mock.ExpectQuery("SELECT .* FROM gateways WHERE id = .").
 		WithArgs("gw_1").WillReturnRows(rows)
 	got, err := repo.Get(context.Background(), "gw_1")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if got.ID != "gw_1" || got.Status != domain.GatewayActive || got.SessionCount != 3 {
+	if got.ID != "gw_1" || got.Status != domain.GatewayActive || got.SessionCount != 3 || got.ConnectionMode != "control" || got.DesiredLifecycle != "run" {
 		t.Fatalf("unexpected gateway: %+v", got)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -78,6 +78,13 @@ func TestGatewayRepo_HeartbeatAndSetStatus(t *testing.T) {
 	if err := repo.SetStatus(context.Background(), "gw_1", domain.GatewayDraining, 200); err != nil {
 		t.Fatalf("SetStatus: %v", err)
 	}
+
+	mock.ExpectExec("UPDATE gateways\\s+SET desired_lifecycle = \\?, updated_at = \\?").
+		WithArgs("drain", int64(201), "gw_1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	if updated, err := repo.SetDesiredLifecycle(context.Background(), "gw_1", "drain", 201); err != nil || !updated {
+		t.Fatalf("SetDesiredLifecycle: updated=%v err=%v", updated, err)
+	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +96,7 @@ func TestGatewayRepo_PickForPlacement(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewGatewayRepo(db)
 
-	rows := gatewayRows().AddRow("gw_b", nil, "active", 1, nil, "https://b", int64(9), int64(1), int64(2))
+	rows := gatewayRows().AddRow("gw_b", nil, "active", 1, nil, "https://b", uint64(7), "control", "run", int64(9), int64(1), int64(2))
 	mock.ExpectQuery("SELECT .* FROM gateways").
 		WithArgs(domain.GatewayActive).WillReturnRows(rows)
 	got, err := repo.PickForPlacement(context.Background())
@@ -119,8 +126,8 @@ func TestGatewayRepo_ListActive(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewGatewayRepo(db)
 	rows := gatewayRows().
-		AddRow("gw_a", nil, "active", 0, nil, "https://a", int64(1), int64(1), int64(1)).
-		AddRow("gw_b", nil, "active", 2, 10, "https://b", int64(1), int64(1), int64(1))
+		AddRow("gw_a", nil, "active", 0, nil, "https://a", uint64(7), "control", "run", int64(1), int64(1), int64(1)).
+		AddRow("gw_b", nil, "active", 2, 10, "https://b", uint64(8), "control", "run", int64(1), int64(1), int64(1))
 	mock.ExpectQuery("SELECT .* FROM gateways WHERE status = .").
 		WithArgs(domain.GatewayActive).WillReturnRows(rows)
 	got, err := repo.ListActive(context.Background())
