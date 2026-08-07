@@ -122,8 +122,9 @@ func RegisterSessionOps(api huma.API, h *Handlers) {
 	// The action is selected inside the closure (not as a method value here) so
 	// registration never dereferences h.Sessions.
 	registerSessionAction(api, h, manage, "startSession", "/api/v1/sessions/{session}:start", "Start a session",
-		"Connect a paired session to WhatsApp.\n\n"+
-			"Precondition: the session must already be paired and owned by your organization.\n\n"+
+		"Start the session. A paired session connects to WhatsApp; an unpaired or logged-out session begins QR pairing.\n\n"+
+			"To use a phone pairing code instead, request the code directly without calling `:start` first.\n\n"+
+			"The session must be owned by your organization.\n\n"+
 			"Returns updated session row. Calling start repeatedly is idempotent.\n\n"+
 			"Errors: `not_found` (404), `unauthorized` (401), `forbidden` (403).",
 		func(ctx context.Context, org, id string) error { return h.Sessions.Start(ctx, org, id) })
@@ -134,8 +135,8 @@ func RegisterSessionOps(api huma.API, h *Handlers) {
 			"Errors: `not_found` (404), `unauthorized` (401), `forbidden` (403).",
 		func(ctx context.Context, org, id string) error { return h.Sessions.Stop(ctx, org, id) })
 	registerSessionAction(api, h, manage, "restartSession", "/api/v1/sessions/{session}:restart", "Restart a session",
-		"Reconnect a session by performing stop then start while keeping its current attachment.\n\n"+
-			"Use this for transient failed/reconnecting states. The action is idempotent.\n\n"+
+		"Restart a session by performing stop then start. A paired session keeps its attachment and reconnects; an unpaired session begins a fresh QR pairing flow.\n\n"+
+			"Use this for transient failed/reconnecting states or to reset an in-progress QR flow. The action is idempotent.\n\n"+
 			"Errors: `not_found` (404), `unauthorized` (401), `forbidden` (403).",
 		func(ctx context.Context, org, id string) error { return h.Sessions.Restart(ctx, org, id) })
 	registerSessionAction(api, h, manage, "logoutSession", "/api/v1/sessions/{session}:logout", "Log out a session (unpair the device)",

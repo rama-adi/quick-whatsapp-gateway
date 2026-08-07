@@ -49,11 +49,14 @@ export function useSessionMe(s: string): UseQueryResult<SessionMe, ApiError> {
   });
 }
 
-export function useSessionQR(s: string): UseQueryResult<QRCode, ApiError> {
+export function useSessionQR(
+  s: string,
+  enabled = true,
+): UseQueryResult<QRCode, ApiError> {
   // The live value arrives via the auth.qr event; this seeds the initial value.
   return useQuery({
     queryKey: qk.sessionQR(s),
-    enabled: Boolean(s),
+    enabled: Boolean(s) && enabled,
     queryFn: () => fetchJSON<QRCode>(apiUrl(`/sessions/${encodeURIComponent(s)}/qr`)),
     staleTime: Infinity, // events keep it fresh; don't auto-refetch
   });

@@ -19,10 +19,13 @@ In the dashboard, open your organization's sessions page, create a session, and
 give it a label.
 
 To do it from code, send `POST /sessions` with an optional label and a `start`
-flag. See [create a session](/docs/api/sessions/createSession).
+flag. See [create a session](/docs/api/sessions/createSession). If the session
+was created without starting, call `POST /sessions/{id}:start` to begin QR
+pairing. Calling `:start` on an already paired session connects it normally.
 
-A new session starts in the `scan_qr_code` status, meaning it is waiting for a
-phone to link.
+A new session created with `start: true` moves to `scan_qr_code`, meaning it is
+waiting for a phone to link. With `start: false`, it stays `stopped` until you
+start it or request a phone pairing code directly.
 
 ## 2. Link the phone
 
@@ -40,6 +43,9 @@ code shown in the dashboard.
 To fetch the current code from code instead, call
 [get the QR code](/docs/api/sessions/sessionQR). The endpoint returns JSON with a
 `code` string — your client renders the QR image from that string.
+
+Starting chooses the QR flow. If you prefer a phone pairing code, request it
+directly without calling `:start` first.
 
 ### Option B: Enter a pairing code
 

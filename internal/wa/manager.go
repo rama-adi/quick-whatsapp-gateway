@@ -536,15 +536,27 @@ func (m *Manager) Forget(id string) {
 	m.mu.Unlock()
 }
 
-// Start connects an already-paired session and begins the reconnect loop. For
-// unpaired devices use StartQR / StartPairingCode instead.
+// Start connects a paired session and begins the reconnect loop. For an
+// unpaired session it starts QR pairing, making the lifecycle action useful for
+// both fresh/logged-out sessions and existing attachments. Repeated calls while
+// either connection or pairing is already running are idempotent.
 func (m *Manager) Start(ctx context.Context, id string) error {
 	ms := m.Get(id)
 	if ms == nil {
 		return domain.ErrNotFound("session not found")
 	}
-	if ms.device.ID == nil {
-		return domain.ErrValidation("session not paired; use QR or pairing code")
+	ms.mu.Lock()
+	if ms.device == nil {
+		ms.device = m.keystore.NewDevice()
+	}
+	unpaired := ms.device.ID == nil
+	running := ms.client != nil
+	ms.mu.Unlock()
+	if running {
+		return nil
+	}
+	if unpaired {
+		return m.StartQR(ctx, id)
 	}
 	m.startManaged(ctx, id)
 	return nil
@@ -744,13 +756,22 @@ func (m *Manager) StartQR(ctx context.Context, id string) error {
 	}
 	ms.mu.Lock()
 	if ms.client != nil {
+		// Starting/refreshing the same QR flow is idempotent. A paired running
+		// client is still a conflict, though the service normally rejects that
+		// from the durable wa_jid precondition before reaching the manager.
+		unpaired := ms.device == nil || ms.device.ID == nil
 		ms.mu.Unlock()
+		if unpaired {
+			return nil
+		}
 		return domain.ErrConflict("session already running")
 	}
 	loopCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	ms.cancel = cancel
 	ms.reconnect = true
 	ms.attempt = 0
+	ms.lastQR = ""
+	ms.lastQRExpires = 0
 	client := m.newClient(ms.device)
 	ms.client = client
 	ms.handlerID = client.AddEventHandler(m.eventHandlerFor(ms))
@@ -856,6 +877,8 @@ func (m *Manager) startPairingCode(ctx context.Context, sess *domain.WASession, 
 	ms.cancel = cancel
 	ms.reconnect = true
 	ms.attempt = 0
+	ms.lastQR = ""
+	ms.lastQRExpires = 0
 	client := m.newClient(ms.device)
 	ms.client = client
 	ms.handlerID = client.AddEventHandler(m.eventHandlerFor(ms))

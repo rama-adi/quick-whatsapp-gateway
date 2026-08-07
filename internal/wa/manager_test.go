@@ -685,20 +685,47 @@ func TestCreateSession_PersistsAndRegisters(t *testing.T) {
 	}
 }
 
-// TestStart_UnpairedRejected asks the manager to start a session whose device has no paired JID. It
-// returns the pairing-required error without connecting, so normal start cannot bypass the explicit
-// bootstrap flow.
-func TestStart_UnpairedRejected(t *testing.T) {
+// TestStart_UnpairedBeginsQRPairing asks the manager to start a fresh session.
+// Start is the common lifecycle entrypoint: without a device JID it opens the QR
+// flow, and repeating start leaves that in-progress flow alone.
+func TestStart_UnpairedBeginsQRPairing(t *testing.T) {
+	m, _, _, _, fc := newTestManager(t, Config{})
+	sess, _ := m.CreateSession(context.Background(), "ten_1", nil, true, false)
+	if err := m.Start(context.Background(), sess.ID); err != nil {
+		t.Fatalf("start unpaired session: %v", err)
+	}
+	ms := m.Get(sess.ID)
+	if ms.Status() != domain.SessionScanQR {
+		t.Fatalf("status = %s, want scan_qr_code", ms.Status())
+	}
+	if !fc.IsConnected() {
+		t.Fatal("QR pairing client was not connected")
+	}
+	ms.mu.Lock()
+	firstClient := ms.client
+	ms.mu.Unlock()
+	if err := m.Start(context.Background(), sess.ID); err != nil {
+		t.Fatalf("repeat start: %v", err)
+	}
+	ms.mu.Lock()
+	secondClient := ms.client
+	ms.mu.Unlock()
+	if secondClient != firstClient {
+		t.Fatal("repeat start replaced the in-progress QR client")
+	}
+}
+
+// TestRestart_UnpairedBeginsQRPairing covers the formerly partial restart: stop
+// used to persist STOPPED and then start failed validation. Restart now completes
+// the same unpaired QR transition as Start.
+func TestRestart_UnpairedBeginsQRPairing(t *testing.T) {
 	m, _, _, _, _ := newTestManager(t, Config{})
 	sess, _ := m.CreateSession(context.Background(), "ten_1", nil, true, false)
-	// CreateSession registers a device with ID == nil (unpaired).
-	err := m.Start(context.Background(), sess.ID)
-	if err == nil {
-		t.Fatal("expected error starting an unpaired session")
+	if err := m.Restart(context.Background(), sess.ID); err != nil {
+		t.Fatalf("restart unpaired session: %v", err)
 	}
-	var apiErr *domain.APIError
-	if !errors.As(err, &apiErr) || apiErr.Code != domain.CodeValidationError {
-		t.Fatalf("expected validation_error, got %v", err)
+	if got := m.Get(sess.ID).Status(); got != domain.SessionScanQR {
+		t.Fatalf("status = %s, want scan_qr_code", got)
 	}
 }
 
@@ -785,9 +812,6 @@ func TestLogout_DeletesDeviceAndMarksLoggedOut(t *testing.T) {
 	}
 	if got.WAJID != nil || got.WALID != nil || got.PhoneNumber != nil {
 		t.Fatalf("repeat logout did not repair stale pairing identity: %+v", got)
-	}
-	if err := m.Start(context.Background(), "sess_1"); err == nil {
-		t.Fatal("restart should reject the now-unpaired session")
 	}
 	if code, err := m.StartPairingCode(context.Background(), "sess_1", "628111"); err != nil {
 		t.Fatalf("pairing after logout: %v", err)

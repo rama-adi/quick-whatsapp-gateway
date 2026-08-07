@@ -99,6 +99,12 @@ the work Redis. Gateways subscribe and revoke instantly ([`trust-model.md`](trus
   app top bar (`components/shell/org-switcher.tsx`); that org's sessions (create/start/stop/QR/
   pairing, each tagged with its gateway); API keys (`keys.tsx`), webhooks (`webhooks.tsx`), viewer.
   Members & invitations UI is the R6 fast-follow.
+- **Pairing state is attachment-driven.** The session detail shows pairing controls whenever
+  `waJid` is absent (including `logged_out`) and treats a stopped session with a `waJid` as still
+  paired. The QR query is enabled only after status reaches `scan_qr_code`, because `GET /qr` starts
+  a QR flow as a side effect; this lets users choose phone-code pairing without an automatic QR
+  client racing it. A `logged_out` event clears cached identity/old codes, while `working`
+  invalidates session rows so the newly persisted JID appears immediately after PairSuccess.
 - **Viewer** (read-only) — chats + message timeline; media → "not downloaded" placeholder.
 - **Contacts** — searchable found-users list; drill into DM + groups.
 

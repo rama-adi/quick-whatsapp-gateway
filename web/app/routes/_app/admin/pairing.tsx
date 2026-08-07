@@ -223,8 +223,14 @@ function PairingPanel({
   );
 }
 
-function QrPanel({ sessionId, needsScan }: { sessionId: string; needsScan: boolean }) {
-  const qr = useSessionQR(sessionId);
+function QrPanel({
+  sessionId,
+  needsScan,
+}: {
+  sessionId: string;
+  needsScan: boolean;
+}) {
+  const qr = useSessionQR(sessionId, needsScan);
   // Bust the image cache when a fresh QR arrives (the auth.qr event refetches
   // the seed query, changing data.code).
   const code = qr.data?.code;

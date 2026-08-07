@@ -1404,9 +1404,9 @@ export interface paths {
         put?: never;
         /**
          * Restart a session
-         * @description Reconnect a session by performing stop then start while keeping its current attachment.
+         * @description Restart a session by performing stop then start. A paired session keeps its attachment and reconnects; an unpaired session begins a fresh QR pairing flow.
          *
-         *     Use this for transient failed/reconnecting states. The action is idempotent.
+         *     Use this for transient failed/reconnecting states or to reset an in-progress QR flow. The action is idempotent.
          *
          *     Errors: `not_found` (404), `unauthorized` (401), `forbidden` (403).
          */
@@ -1428,9 +1428,11 @@ export interface paths {
         put?: never;
         /**
          * Start a session
-         * @description Connect a paired session to WhatsApp.
+         * @description Start the session. A paired session connects to WhatsApp; an unpaired or logged-out session begins QR pairing.
          *
-         *     Precondition: the session must already be paired and owned by your organization.
+         *     To use a phone pairing code instead, request the code directly without calling `:start` first.
+         *
+         *     The session must be owned by your organization.
          *
          *     Returns updated session row. Calling start repeatedly is idempotent.
          *

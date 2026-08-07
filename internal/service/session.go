@@ -85,7 +85,7 @@ func (s *SessionService) Get(ctx context.Context, organizationID, id string) (do
 	return sess, nil
 }
 
-// Start connects an already-paired session.
+// Start connects a paired session or begins QR pairing for an unpaired one.
 func (s *SessionService) Start(ctx context.Context, organizationID, id string) error {
 	if _, err := s.Get(ctx, organizationID, id); err != nil {
 		return err

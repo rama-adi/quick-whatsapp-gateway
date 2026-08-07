@@ -26,7 +26,11 @@ per attached number, each holding a live WebSocket. Responsibilities:
 - **Boot orphan-guard** (§4.6 boot reconciliation): before resuming a session, check
   its **owning organization** still exists and is enabled in MySQL; **skip + mark
   `STOPPED`** any session whose org was deleted/disabled while the gateway was down.
-- Lifecycle: create / start / stop / restart / logout. Logout is a full pairing
+- Lifecycle: create / start / stop / restart / logout. `start` connects an
+  attached device or begins QR pairing when the session is unpaired; repeating
+  it while either flow is running is idempotent. `restart` is stop + that same
+  start transition, so it also begins QR pairing for an unpaired session rather
+  than partially stopping and then failing validation. Logout is a full pairing
   reset: it removes the local whatsmeow device, installs a fresh unpaired device
   in the managed session, and atomically persists `LOGGED_OUT` with `wa_jid`,
   `wa_lid`, and `phone_number` cleared. Repeating logout performs the durable
@@ -153,7 +157,9 @@ Core types:
   when presence actually sticks on a freshly-paired session. A missing push name is
   benign (debug-logged, retried), not a warning.
 - Lifecycle: `CreateSession` persists + registers + applies rate defaults;
-  `Start` rejects unpaired; `Stop` tears down + marks STOPPED; `Logout` calls
+  `Start` connects paired sessions and starts QR for unpaired sessions;
+  `Restart` completes stop + the same start behavior; `Stop` tears down + marks
+  STOPPED; `Logout` calls
   `client.Logout`, deletes the keystore device, clears all persisted pairing
   identity, installs a fresh device, marks LOGGED_OUT, and can immediately begin
   a new pairing-code flow; external `LoggedOut` performs the same reset;

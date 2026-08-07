@@ -93,10 +93,10 @@ export function SessionOverview({ sessionId }: { sessionId: string }) {
     );
   };
 
-  const needsPairing =
-    s.status === "scan_qr_code" ||
-    s.status === "starting" ||
-    s.status === "stopped";
+  // Pairing is an attachment fact, not a lifecycle-status guess. In particular,
+  // logged_out is unpaired, while a deliberately stopped session may still have
+  // a valid attachment.
+  const needsPairing = !s.waJid;
 
   return (
     <div className="space-y-4">
@@ -254,14 +254,25 @@ function PairingCard({
 }
 
 function QrPanel({ sessionId, ready }: { sessionId: string; ready: boolean }) {
-  const qr = useSessionQR(sessionId);
+  // GET /qr starts QR pairing when none exists, so don't issue it merely because
+  // the pairing card mounted. This lets the user choose phone-code pairing
+  // without an accidental QR client competing with PairPhone.
+  const qr = useSessionQR(sessionId, ready);
   const poll = usePollingInterval();
 
   useEffect(() => {
-    if (!poll) return;
+    if (!poll || !ready) return;
     const t = window.setInterval(() => void qr.refetch(), poll);
     return () => window.clearInterval(t);
-  }, [poll, qr]);
+  }, [poll, qr, ready]);
+
+  if (!ready) {
+    return (
+      <p className="py-6 text-center text-sm text-muted-foreground">
+        Start the session to generate a QR code, or choose pairing code.
+      </p>
+    );
+  }
 
   if (qr.isLoading) {
     return <Skeleton className="mx-auto size-56" />;
@@ -291,9 +302,7 @@ function QrPanel({ sessionId, ready }: { sessionId: string; ready: boolean }) {
   if (!qr.data?.code) {
     return (
       <p className="py-6 text-center text-sm text-muted-foreground">
-        {ready
-          ? "Waiting for a QR code..."
-          : "Start the session to generate a QR code."}
+        Waiting for a QR code...
       </p>
     );
   }
