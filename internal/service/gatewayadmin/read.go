@@ -6,7 +6,9 @@ package gatewayadmin
 import (
 	"context"
 	"fmt"
+	"io"
 	"math"
+	"time"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 )
@@ -31,6 +33,12 @@ type Service struct {
 	gateways GatewayReader
 	sessions SessionReader
 	audit    AuditReader
+
+	enrollment EnrollmentIssuer
+	mutations  GatewayAdminMutator
+	now        func() time.Time
+	entropy    io.Reader
+	id         func() string
 }
 
 func New(gateways GatewayReader, sessions SessionReader, audit AuditReader) *Service {
