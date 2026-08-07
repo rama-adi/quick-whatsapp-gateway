@@ -46,7 +46,7 @@ func NewAPIPeerTLSConfig(caPEM []byte, now func() time.Time) (*tls.Config, error
 		if _, verifyErr := leaf.Verify(x509.VerifyOptions{Roots: roots, Intermediates: intermediates, CurrentTime: now().UTC(), KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}); verifyErr != nil {
 			return errors.New("pki: API certificate verification failed")
 		}
-		if _, ok := leaf.PublicKey.(ed25519.PublicKey); !ok || leaf.PublicKeyAlgorithm != x509.Ed25519 || leaf.IsCA || !leaf.BasicConstraintsValid || leaf.KeyUsage != x509.KeyUsageDigitalSignature || len(leaf.ExtKeyUsage) != 1 || leaf.ExtKeyUsage[0] != x509.ExtKeyUsageServerAuth || len(leaf.URIs) != 1 || leaf.URIs[0].String() != APIIdentityURI || len(leaf.DNSNames) != 0 || len(leaf.IPAddresses) != 0 || len(leaf.EmailAddresses) != 0 {
+		if _, ok := leaf.PublicKey.(ed25519.PublicKey); !ok || leaf.PublicKeyAlgorithm != x509.Ed25519 || leaf.IsCA || !leaf.BasicConstraintsValid || leaf.KeyUsage != x509.KeyUsageDigitalSignature || len(leaf.ExtKeyUsage) != 2 || leaf.ExtKeyUsage[0] != x509.ExtKeyUsageServerAuth || leaf.ExtKeyUsage[1] != x509.ExtKeyUsageClientAuth || len(leaf.URIs) != 1 || leaf.URIs[0].String() != APIIdentityURI || len(leaf.DNSNames) != 0 || len(leaf.IPAddresses) != 0 || len(leaf.EmailAddresses) != 0 {
 			return errors.New("pki: invalid API identity")
 		}
 		return nil

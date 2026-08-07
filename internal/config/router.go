@@ -24,13 +24,14 @@ const DefaultRouterIssuer = "router"
 // later, realtime), the better-auth JWKS inputs, and its own Ed25519 signing key.
 type APIConfig struct {
 	// HTTP / server
-	HTTPAddr              string        // API_HTTP_ADDR; deprecated fallback ROUTER_HTTP_ADDR (default :8090)
-	PublicGRPCAddr        string        // API_PUBLIC_GRPC_ADDR: plaintext local/trusted ingress hop (default :8081)
-	GatewayGRPCAddr       string        // API_GATEWAY_GRPC_ADDR: private mTLS listener; empty disables it
-	GatewayTLSIdentityDir string        // API_GATEWAY_TLS_IDENTITY_DIR
-	GatewayTLSRenewBefore time.Duration // API_GATEWAY_TLS_RENEW_BEFORE
-	GatewayPKI            *PKIConfig    // loaded only when the private listener is enabled
-	PublicURL             string        // API_PUBLIC_URL; deprecated fallback ROUTER_PUBLIC_URL
+	HTTPAddr                   string        // API_HTTP_ADDR; deprecated fallback ROUTER_HTTP_ADDR (default :8090)
+	PublicGRPCAddr             string        // API_PUBLIC_GRPC_ADDR: plaintext local/trusted ingress hop (default :8081)
+	GatewayGRPCAddr            string        // API_GATEWAY_GRPC_ADDR: private mTLS listener; empty disables it
+	GatewayTLSIdentityDir      string        // API_GATEWAY_TLS_IDENTITY_DIR
+	GatewayTLSRenewBefore      time.Duration // API_GATEWAY_TLS_RENEW_BEFORE
+	GatewayEngineUnaryDeadline time.Duration // API_GATEWAY_ENGINE_UNARY_DEADLINE; required when private engine is enabled
+	GatewayPKI                 *PKIConfig    // loaded only when the private listener is enabled
+	PublicURL                  string        // API_PUBLIC_URL; deprecated fallback ROUTER_PUBLIC_URL
 
 	// Trust boundary — authn inputs (same better-auth JWKS the gateway used to use).
 	BetterAuthURL     string   // BETTER_AUTH_URL: JWT iss/aud to enforce
@@ -67,29 +68,30 @@ func LoadAPI() (*APIConfig, error) {
 	_ = godotenv.Load("deploy/.env", ".env")
 
 	cfg := &APIConfig{
-		HTTPAddr:                getStringFallback("API_HTTP_ADDR", "ROUTER_HTTP_ADDR", ":8090"),
-		PublicGRPCAddr:          getString("API_PUBLIC_GRPC_ADDR", ":8081"),
-		GatewayGRPCAddr:         getString("API_GATEWAY_GRPC_ADDR", ""),
-		GatewayTLSIdentityDir:   getString("API_GATEWAY_TLS_IDENTITY_DIR", ""),
-		PublicURL:               getStringFallback("API_PUBLIC_URL", "ROUTER_PUBLIC_URL", ""),
-		BetterAuthURL:           getString("BETTER_AUTH_URL", ""),
-		BetterAuthJWKSURL:       getString("BETTER_AUTH_JWKS_URL", ""),
-		FrontendOrigins:         getCSV("FRONTEND_ORIGINS"),
-		Ed25519PrivateKey:       getStringFallback("API_ED25519_PRIVATE_KEY", "ROUTER_ED25519_PRIVATE_KEY", ""),
-		Issuer:                  getStringFallback("API_ISSUER", "ROUTER_ISSUER", DefaultRouterIssuer),
-		MySQLDSN:                getString("MYSQL_DSN", ""),
-		RedisURL:                getString("REDIS_URL", ""),
-		PubSubRedisURL:          getString("PUBSUB_REDIS_URL", ""),
-		RedisPrefix:             getString("REDIS_PREFIX", "gw"),
-		OIDCIssuer:              getString("OIDC_ISSUER", ""),
-		OIDCKeyEncKey:           getString("OIDC_KEY_ENC_KEY", ""),
-		OAuthClientSecretPepper: getString("OAUTH_CLIENT_SECRET_PEPPER", ""),
-		WhatsAppAdminCmdPrefix:  getString("WHATSAPP_ADMIN_CMD_PREFIX", "am"),
-		WebLoginURL:             getString("WEB_LOGIN_URL", ""),
-		OIDCRequestTTLSeconds:   getInt("OIDC_REQUEST_TTL_SECONDS", 600),
-		OIDCAuthCodeTTLSeconds:  getInt("OIDC_AUTHCODE_TTL_SECONDS", 60),
-		OIDCTrustProxy:          getBool("OIDC_TRUST_PROXY", false),
-		LogLevel:                getString("LOG_LEVEL", "info"),
+		HTTPAddr:                   getStringFallback("API_HTTP_ADDR", "ROUTER_HTTP_ADDR", ":8090"),
+		PublicGRPCAddr:             getString("API_PUBLIC_GRPC_ADDR", ":8081"),
+		GatewayGRPCAddr:            getString("API_GATEWAY_GRPC_ADDR", ""),
+		GatewayTLSIdentityDir:      getString("API_GATEWAY_TLS_IDENTITY_DIR", ""),
+		GatewayEngineUnaryDeadline: 0,
+		PublicURL:                  getStringFallback("API_PUBLIC_URL", "ROUTER_PUBLIC_URL", ""),
+		BetterAuthURL:              getString("BETTER_AUTH_URL", ""),
+		BetterAuthJWKSURL:          getString("BETTER_AUTH_JWKS_URL", ""),
+		FrontendOrigins:            getCSV("FRONTEND_ORIGINS"),
+		Ed25519PrivateKey:          getStringFallback("API_ED25519_PRIVATE_KEY", "ROUTER_ED25519_PRIVATE_KEY", ""),
+		Issuer:                     getStringFallback("API_ISSUER", "ROUTER_ISSUER", DefaultRouterIssuer),
+		MySQLDSN:                   getString("MYSQL_DSN", ""),
+		RedisURL:                   getString("REDIS_URL", ""),
+		PubSubRedisURL:             getString("PUBSUB_REDIS_URL", ""),
+		RedisPrefix:                getString("REDIS_PREFIX", "gw"),
+		OIDCIssuer:                 getString("OIDC_ISSUER", ""),
+		OIDCKeyEncKey:              getString("OIDC_KEY_ENC_KEY", ""),
+		OAuthClientSecretPepper:    getString("OAUTH_CLIENT_SECRET_PEPPER", ""),
+		WhatsAppAdminCmdPrefix:     getString("WHATSAPP_ADMIN_CMD_PREFIX", "am"),
+		WebLoginURL:                getString("WEB_LOGIN_URL", ""),
+		OIDCRequestTTLSeconds:      getInt("OIDC_REQUEST_TTL_SECONDS", 600),
+		OIDCAuthCodeTTLSeconds:     getInt("OIDC_AUTHCODE_TTL_SECONDS", 60),
+		OIDCTrustProxy:             getBool("OIDC_TRUST_PROXY", false),
+		LogLevel:                   getString("LOG_LEVEL", "info"),
 	}
 	if value := getString("API_GATEWAY_TLS_RENEW_BEFORE", "6h"); value != "" {
 		var err error
@@ -99,6 +101,15 @@ func LoadAPI() (*APIConfig, error) {
 		}
 	}
 	if cfg.GatewayGRPCAddr != "" {
+		value := getString("API_GATEWAY_ENGINE_UNARY_DEADLINE", "")
+		if value == "" {
+			return nil, fmt.Errorf("config: API_GATEWAY_ENGINE_UNARY_DEADLINE is required")
+		}
+		duration, parseErr := time.ParseDuration(value)
+		if parseErr != nil || duration <= 0 {
+			return nil, fmt.Errorf("config: invalid API_GATEWAY_ENGINE_UNARY_DEADLINE")
+		}
+		cfg.GatewayEngineUnaryDeadline = duration
 		pkiConfig, err := LoadPKI()
 		if err != nil {
 			return nil, err

@@ -135,6 +135,8 @@ func TestGatewayControlPlaneConfigIsOptInAndPathsAreStrict(t *testing.T) {
 	valid.CredentialDir = "/credentials"
 	valid.BootstrapCAFile = "/ca.pem"
 	valid.CertificateRenewBefore = time.Hour
+	valid.EngineGRPCAddr = ":9443"
+	valid.EngineGRPCAdvertise = "gw.example:9443"
 	valid.WhatsmeowStoreDSN = "file:/data/keystore/store.db?_pragma=foreign_keys(on)"
 	if err := valid.Validate(); err != nil {
 		t.Fatal(err)

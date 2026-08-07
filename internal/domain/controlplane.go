@@ -63,6 +63,13 @@ type GatewayDesiredSession struct {
 	LeaseExpiresAt                       int64
 }
 
+// SessionEngineTarget is the complete API-authoritative route and fence for a
+// private engine call. It is never caller-supplied.
+type SessionEngineTarget struct {
+	SessionID, OrganizationID, GatewayID, GRPCEndpoint string
+	AssignmentEpoch, ConnectionEpoch                   uint64
+}
+
 // PKIAuthority carries encrypted private-key material only.
 type PKIAuthority struct {
 	ID, Kind, Status, CertificatePEM, EncryptionKeyID            string

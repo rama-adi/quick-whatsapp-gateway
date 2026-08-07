@@ -56,6 +56,22 @@ func testApplicationAdapter(live engineLiveOps) *ApplicationGatewayAdapter {
 	}
 }
 
+type fakeAssignmentFence struct{ owns, allows bool }
+
+func (f fakeAssignmentFence) AllowsMutation(string, string, uint64) bool { return f.allows }
+func (f fakeAssignmentFence) OwnsSession(string, string, uint64) bool    { return f.owns }
+
+func TestApplicationGatewayAdapterRejectsStaleAssignmentBeforeLiveOperation(t *testing.T) {
+	live := &fakeEngineLiveOps{}
+	a := testApplicationAdapter(live)
+	a.fence = fakeAssignmentFence{owns: true, allows: false}
+	_, err := a.SetAccountPresence(context.Background(), application.SetPresenceCommand{CommandID: "c", OrganizationID: "o", SessionID: "s", GatewayID: "gateway-1", AssignmentEpoch: 1, State: application.AccountPresenceOnline})
+	assertAPIError(t, err, domain.CodeConflict, "session assignment epoch is stale or lease expired")
+	if live.calls != 0 {
+		t.Fatalf("stale mutation reached live engine")
+	}
+}
+
 func assertAPIError(t *testing.T, err error, code, message string) {
 	t.Helper()
 	var apiErr *domain.APIError

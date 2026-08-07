@@ -175,3 +175,16 @@ SET applied_revision = ?, updated_at = ?
 WHERE id = ? AND connection_epoch = ? AND desired_revision = ? AND deleted_at IS NULL
   AND status NOT IN ('pending_enrollment', 'disabled')
   AND applied_revision <= ?;
+
+-- name: ResolveSessionEngineTarget :one
+SELECT s.id AS session_id, s.organization_id, a.gateway_id, a.assignment_epoch,
+       g.grpc_endpoint, g.connection_epoch
+FROM wa_sessions AS s
+JOIN gateway_session_assignments AS a ON a.session_id=s.id
+JOIN gateways AS g ON g.id=a.gateway_id
+WHERE s.id=? AND s.organization_id=? AND g.deleted_at IS NULL
+  AND g.connection_mode='control' AND g.status='active'
+  AND g.desired_lifecycle='run' AND g.reconciliation_status='healthy'
+  AND g.desired_revision=g.applied_revision
+  AND g.connected_at IS NOT NULL AND g.grpc_endpoint IS NOT NULL
+LIMIT 1;

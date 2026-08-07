@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+package gateway.v1;
+
+option go_package = "github.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1;gatewayv1";
+
+// GatewayEngineService is the gateway-local private unary engine surface. It
+// is served only by the gateway's private TLS listener.
+service GatewayEngineService {
+  rpc GetSessionState(GetSessionStateRequest) returns (GetSessionStateResponse);
+  rpc SetAccountPresence(SetAccountPresenceRequest) returns (SetAccountPresenceResponse);
+  rpc MarkRead(MarkReadRequest) returns (MarkReadResponse);
+}
+
+message SessionTarget {
+  string organization_id = 1;
+  string session_id = 2;
+  string gateway_id = 3;
+  reserved 4 to 15;
+}
+
+message GetSessionStateRequest { SessionTarget target = 1; uint64 assignment_epoch = 2; reserved 3 to 15; }
+message GetSessionStateResponse {
+  SessionTarget target = 1;
+  GatewaySessionStatus status = 2;
+  bool connected = 3;
+  bool logged_in = 4;
+  reserved 5 to 15;
+}
+
+enum GatewaySessionStatus { GATEWAY_SESSION_STATUS_UNSPECIFIED = 0; GATEWAY_SESSION_STATUS_STOPPED = 1; GATEWAY_SESSION_STATUS_STARTING = 2; GATEWAY_SESSION_STATUS_SCAN_QR = 3; GATEWAY_SESSION_STATUS_WORKING = 4; GATEWAY_SESSION_STATUS_LOGGED_OUT = 5; }
+enum AccountPresence { ACCOUNT_PRESENCE_UNSPECIFIED = 0; ACCOUNT_PRESENCE_ONLINE = 1; ACCOUNT_PRESENCE_OFFLINE = 2; }
+message SetAccountPresenceRequest {
+  SessionTarget target = 1;
+  uint64 assignment_epoch = 2;
+  string command_id = 3;
+  AccountPresence state = 4;
+  reserved 5 to 15;
+}
+message MarkReadRequest {
+  SessionTarget target = 1;
+  uint64 assignment_epoch = 2;
+  string command_id = 3;
+  string chat_jid = 4;
+  string sender_jid = 5;
+  repeated string message_ids = 6;
+  int64 read_at_unix_ms = 7;
+  reserved 8 to 15;
+}
+message SetAccountPresenceResponse {
+  string command_id = 1;
+  SessionTarget target = 2;
+  uint64 assignment_epoch = 3;
+  reserved 4 to 15;
+}
+message MarkReadResponse {
+  string command_id = 1;
+  SessionTarget target = 2;
+  uint64 assignment_epoch = 3;
+  reserved 4 to 15;
+}

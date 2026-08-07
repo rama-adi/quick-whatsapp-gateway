@@ -6,6 +6,15 @@ are never registered there and server reflection remains disabled. When `API_GAT
 set, a separate TLS 1.3 listener serves `gateway.v1.GatewayEnrollmentService` and
 `gateway.v1.GatewayHealthService`.
 
+Each private-control gateway also requires an explicit `GATEWAY_ENGINE_GRPC_ADDR` listener and
+`GATEWAY_ENGINE_GRPC_ADVERTISE_ADDR` endpoint. The gateway serves only `GatewayEngineService` there
+over TLS 1.3 with a verified client certificate chained to the pinned root and exact
+`spiffe://quick-wa/api` identity; it advertises that configured endpoint in `GatewayHello`.
+The API resolves that endpoint only from the authenticated gateway control record, pools mTLS
+connections by gateway, and applies the explicitly configured `API_GATEWAY_ENGINE_UNARY_DEADLINE`
+to every unary operation. Gateway certificates are verified against the pinned root and exact
+gateway SPIFFE identity; request credentials never select an endpoint or identity.
+
 The root Buf v2 workspace contains two deliberately separate modules and compatibility domains:
 
 - the module rooted at `proto/public` defines the future API-facing gRPC surface under `v1`. Only

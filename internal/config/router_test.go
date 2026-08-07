@@ -183,6 +183,7 @@ func TestAPIPrivateGatewayConfig(t *testing.T) {
 		t.Setenv("API_GATEWAY_GRPC_ADDR", ":8443")
 		t.Setenv("API_GATEWAY_TLS_IDENTITY_DIR", "/var/lib/quick-wa/api-identity")
 		t.Setenv("API_GATEWAY_TLS_RENEW_BEFORE", "4h")
+		t.Setenv("API_GATEWAY_ENGINE_UNARY_DEADLINE", "2s")
 		t.Setenv("PKI_ENCRYPTION_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
 		t.Setenv("PKI_ENCRYPTION_KEY_ID", "test-key")
 		cfg, err := LoadAPI()

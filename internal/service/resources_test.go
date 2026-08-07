@@ -7,6 +7,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/application"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
 )
@@ -45,6 +46,25 @@ type fakePresenceController struct {
 	chatState string
 	presence  domain.PresenceStatus
 	err       error
+}
+
+type fakeGatewayLiveFacade struct {
+	state                        application.SessionState
+	stateErr                     error
+	presenceErr                  error
+	stateCalls                   int
+	presenceOrg, presenceSession string
+	presenceState                application.AccountPresence
+}
+
+func (f *fakeGatewayLiveFacade) GetSessionState(context.Context, string, string) (application.SessionState, error) {
+	f.stateCalls++
+	return f.state, f.stateErr
+}
+
+func (f *fakeGatewayLiveFacade) SetAccountPresence(_ context.Context, organizationID, sessionID string, state application.AccountPresence) error {
+	f.presenceOrg, f.presenceSession, f.presenceState = organizationID, sessionID, state
+	return f.presenceErr
 }
 
 func (f *fakePresenceController) SetPresence(_ context.Context, _, state string) error {
@@ -162,6 +182,39 @@ func TestPresenceService_NilControllerNotImplemented(t *testing.T) {
 	var apiErr *domain.APIError
 	if !errors.As(err, &apiErr) || apiErr.Code != domain.CodeNotImplemented {
 		t.Fatalf("err = %v, want not_implemented", err)
+	}
+}
+
+func TestPresenceServiceSetUsesResolvedFacadeAfterOwnershipAndValidation(t *testing.T) {
+	st, mock := newStore(t)
+	expectSession(mock, "sess_1", "ten_1")
+	facade := &fakeGatewayLiveFacade{}
+	svc := NewPresenceService(st, nil, nil)
+	svc.SetGatewayLiveFacade(facade)
+	if err := svc.Set(context.Background(), "ten_1", "sess_1", "online"); err != nil {
+		t.Fatal(err)
+	}
+	if facade.presenceOrg != "ten_1" || facade.presenceSession != "sess_1" || facade.presenceState != application.AccountPresenceOnline {
+		t.Fatalf("presence facade call = org=%q session=%q state=%q", facade.presenceOrg, facade.presenceSession, facade.presenceState)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPresenceServiceSetRejectsForeignOwnerBeforeResolvedFacade(t *testing.T) {
+	st, mock := newStore(t)
+	expectSession(mock, "sess_1", "other_organization")
+	facade := &fakeGatewayLiveFacade{}
+	svc := NewPresenceService(st, nil, nil)
+	svc.SetGatewayLiveFacade(facade)
+	err := svc.Set(context.Background(), "ten_1", "sess_1", "online")
+	var apiErr *domain.APIError
+	if !errors.As(err, &apiErr) || apiErr.Code != domain.CodeNotFound || facade.presenceSession != "" {
+		t.Fatalf("err=%v facade session=%q", err, facade.presenceSession)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -179,6 +179,18 @@ func TestStatus_MissingCapability403(t *testing.T) {
 	}
 }
 
+func TestSetPresence_MissingCapabilityStopsServiceBeforeLiveRPC(t *testing.T) {
+	svc := &fakePresenceSvc{}
+	h := statusRouter(nil, svc, readOnlyPrincipal())
+	w := doReq(h, http.MethodPut, "/api/v1/sessions/sess_1/presence", `{"state":"online"}`)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403; body=%s", w.Code, w.Body.String())
+	}
+	if svc.lastSess != "" || svc.lastSt != "" {
+		t.Fatalf("service was called before capability check: session=%q state=%q", svc.lastSess, svc.lastSt)
+	}
+}
+
 // TestSetPresence_HappyPath verifies the valid set presence flow and its observable contract.
 // It drives the registered HTTP surface with controlled service doubles and checks the response or forwarded arguments.
 // This catches adapter regressions that could alter authorization, routing, or the documented wire contract.

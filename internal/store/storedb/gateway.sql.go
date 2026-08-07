@@ -715,6 +715,48 @@ func (q *Queries) PickGatewayForPlacement(ctx context.Context, arg PickGatewayFo
 	return i, err
 }
 
+const resolveSessionEngineTarget = `-- name: ResolveSessionEngineTarget :one
+SELECT s.id AS session_id, s.organization_id, a.gateway_id, a.assignment_epoch,
+       g.grpc_endpoint, g.connection_epoch
+FROM wa_sessions AS s
+JOIN gateway_session_assignments AS a ON a.session_id=s.id
+JOIN gateways AS g ON g.id=a.gateway_id
+WHERE s.id=? AND s.organization_id=? AND g.deleted_at IS NULL
+  AND g.connection_mode='control' AND g.status='active'
+  AND g.desired_lifecycle='run' AND g.reconciliation_status='healthy'
+  AND g.desired_revision=g.applied_revision
+  AND g.connected_at IS NOT NULL AND g.grpc_endpoint IS NOT NULL
+LIMIT 1
+`
+
+type ResolveSessionEngineTargetParams struct {
+	ID             string `db:"id" json:"id"`
+	OrganizationID string `db:"organization_id" json:"organization_id"`
+}
+
+type ResolveSessionEngineTargetRow struct {
+	SessionID       string         `db:"session_id" json:"session_id"`
+	OrganizationID  string         `db:"organization_id" json:"organization_id"`
+	GatewayID       string         `db:"gateway_id" json:"gateway_id"`
+	AssignmentEpoch uint64         `db:"assignment_epoch" json:"assignment_epoch"`
+	GrpcEndpoint    sql.NullString `db:"grpc_endpoint" json:"grpc_endpoint"`
+	ConnectionEpoch uint64         `db:"connection_epoch" json:"connection_epoch"`
+}
+
+func (q *Queries) ResolveSessionEngineTarget(ctx context.Context, arg ResolveSessionEngineTargetParams) (ResolveSessionEngineTargetRow, error) {
+	row := q.db.QueryRowContext(ctx, resolveSessionEngineTarget, arg.ID, arg.OrganizationID)
+	var i ResolveSessionEngineTargetRow
+	err := row.Scan(
+		&i.SessionID,
+		&i.OrganizationID,
+		&i.GatewayID,
+		&i.AssignmentEpoch,
+		&i.GrpcEndpoint,
+		&i.ConnectionEpoch,
+	)
+	return i, err
+}
+
 const setGatewayDesiredLifecycle = `-- name: SetGatewayDesiredLifecycle :execrows
 UPDATE gateways
 SET desired_lifecycle = ?, desired_revision = desired_revision + 1, updated_at = ?

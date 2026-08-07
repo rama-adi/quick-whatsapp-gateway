@@ -21,9 +21,10 @@ const (
 // SessionStateQuery identifies the gateway-owned session whose live state is
 // requested. Authentication and ownership checks remain the caller's job.
 type SessionStateQuery struct {
-	OrganizationID string
-	SessionID      string
-	GatewayID      string
+	OrganizationID  string
+	SessionID       string
+	GatewayID       string
+	AssignmentEpoch uint64
 }
 
 // SessionState is a point-in-time snapshot from the gateway runtime.

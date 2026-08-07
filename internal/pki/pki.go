@@ -117,7 +117,7 @@ func NewAPILeafTemplate(publicKey ed25519.PublicKey, policy Policy, now, issuerN
 		return nil, errors.New("issuer validity exhausted")
 	}
 	uri, _ := url.Parse(APIIdentityURI)
-	return &x509.Certificate{SerialNumber: serial, Subject: pkix.Name{CommonName: "quick-wa-api"}, NotBefore: now.Add(-policy.Skew), NotAfter: notAfter, KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, URIs: []*url.URL{uri}, BasicConstraintsValid: true}, nil
+	return &x509.Certificate{SerialNumber: serial, Subject: pkix.Name{CommonName: "quick-wa-api"}, NotBefore: now.Add(-policy.Skew), NotAfter: notAfter, KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}, URIs: []*url.URL{uri}, BasicConstraintsValid: true}, nil
 }
 
 func ValidateSignedAPI(s SignedCertificate, publicKey ed25519.PublicKey, now time.Time) error {
@@ -136,7 +136,7 @@ func ValidateSignedAPI(s SignedCertificate, publicKey ed25519.PublicKey, now tim
 	if !ok || !bytes.Equal(leafKey, publicKey) || now.Before(leaf.NotBefore) || !now.Before(leaf.NotAfter) {
 		return errors.New("API identity key or validity mismatch")
 	}
-	if leaf.IsCA || !leaf.BasicConstraintsValid || leaf.KeyUsage != x509.KeyUsageDigitalSignature || len(leaf.ExtKeyUsage) != 1 || leaf.ExtKeyUsage[0] != x509.ExtKeyUsageServerAuth || len(leaf.URIs) != 1 || leaf.URIs[0].String() != APIIdentityURI || len(leaf.DNSNames) != 0 || len(leaf.IPAddresses) != 0 || len(leaf.EmailAddresses) != 0 {
+	if leaf.IsCA || !leaf.BasicConstraintsValid || leaf.KeyUsage != x509.KeyUsageDigitalSignature || len(leaf.ExtKeyUsage) != 2 || leaf.ExtKeyUsage[0] != x509.ExtKeyUsageServerAuth || leaf.ExtKeyUsage[1] != x509.ExtKeyUsageClientAuth || len(leaf.URIs) != 1 || leaf.URIs[0].String() != APIIdentityURI || len(leaf.DNSNames) != 0 || len(leaf.IPAddresses) != 0 || len(leaf.EmailAddresses) != 0 {
 		return errors.New("API identity policy mismatch")
 	}
 	block, rest := pem.Decode(s.ChainPEM)

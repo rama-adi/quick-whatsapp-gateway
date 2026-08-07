@@ -179,6 +179,24 @@ func (r *Reconciler) CurrentEpoch(sessionID string) (uint64, bool) {
 	return a.AssignmentEpoch, ok
 }
 
+// AllowsMutation proves that the session remains locally assigned at exactly
+// epoch with a live lease. Engine commands must check this immediately before
+// dispatching a WhatsApp side effect.
+func (r *Reconciler) AllowsMutation(organizationID, sessionID string, epoch uint64) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	a, ok := r.assignments[sessionID]
+	return ok && a.OrganizationID == organizationID && a.DesiredRun && a.AssignmentEpoch == epoch && a.LeaseExpiresAt.After(r.now())
+}
+
+// OwnsSession is the read-side ownership check for gateway-local live state.
+func (r *Reconciler) OwnsSession(organizationID, sessionID string, epoch uint64) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	a, ok := r.assignments[sessionID]
+	return ok && a.OrganizationID == organizationID && a.DesiredRun && a.AssignmentEpoch == epoch && a.LeaseExpiresAt.After(r.now())
+}
+
 func (r *Reconciler) Revision() uint64 { r.mu.RLock(); defer r.mu.RUnlock(); return r.revision }
 
 // AssignmentCount returns the current authoritative assignment set after the

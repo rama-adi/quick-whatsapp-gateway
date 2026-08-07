@@ -190,3 +190,16 @@ func TestSession_MissingCapability403(t *testing.T) {
 		t.Fatalf("status = %d, want 403; body=%s", w.Code, w.Body.String())
 	}
 }
+
+func TestSessionMe_MissingCapabilityStopsServiceBeforeLiveRPC(t *testing.T) {
+	p := &authz.Principal{Kind: authz.KindAPIKey, OrganizationID: testOrganization, KeyPermissions: domain.Permissions{Read: true}}
+	svc := &fakeSessionSvc{}
+	h := sessionRouter(svc, p)
+	w := doReq(h, http.MethodGet, "/api/v1/sessions/sess_1/me", "")
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403; body=%s", w.Code, w.Body.String())
+	}
+	if svc.lastID != "" {
+		t.Fatalf("service was called before capability check: %q", svc.lastID)
+	}
+}

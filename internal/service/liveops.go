@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/application"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 )
 
@@ -66,6 +67,14 @@ type PresenceController interface {
 	// current REST snapshot. WhatsApp may not send a concrete state until a later
 	// presence.update event arrives.
 	GetPresence(ctx context.Context, sessionID, chatJID string) (domain.PresenceStatus, error)
+}
+
+// GatewayLiveFacade is the API-facing, resolved live-operation port. Its
+// implementation owns session-to-gateway resolution and assignment fencing;
+// REST services retain authorization and public-input validation only.
+type GatewayLiveFacade interface {
+	GetSessionState(context.Context, string, string) (application.SessionState, error)
+	SetAccountPresence(context.Context, string, string, application.AccountPresence) error
 }
 
 // ChannelOps is the live channel/newsletter surface (§11 Channels).

@@ -19,6 +19,11 @@ type engineLiveOps interface {
 	SendReadReceiptAt(context.Context, string, string, string, []string, time.Time) error
 }
 
+type assignmentFence interface {
+	AllowsMutation(string, string, uint64) bool
+	OwnsSession(string, string, uint64) bool
+}
+
 // ApplicationGatewayAdapter exposes existing in-process WhatsApp operations
 // through the transport-independent application boundary. It is intentionally
 // not wired into a request path yet.
@@ -28,22 +33,23 @@ type ApplicationGatewayAdapter struct {
 	live          engineLiveOps
 	now           func() time.Time
 	maxFutureSkew time.Duration
+	fence         assignmentFence
 }
 
 // DefaultReadReceiptFutureSkew tolerates small clock differences between the
 // API and gateway without accepting timestamps far in the future.
 const DefaultReadReceiptFutureSkew = 30 * time.Second
 
-// NewApplicationGatewayAdapter constructs the local adapter used by a future
-// gRPC server. The adapter does not implement command deduplication or epoch
-// fencing; those metadata fields are preserved for the future control plane.
-func NewApplicationGatewayAdapter(gatewayID string, manager *Manager) *ApplicationGatewayAdapter {
+// NewApplicationGatewayAdapter constructs the local adapter used by the private
+// gRPC server. The supplied fence is checked immediately before live operations.
+func NewApplicationGatewayAdapter(gatewayID string, manager *Manager, fence assignmentFence) *ApplicationGatewayAdapter {
 	return &ApplicationGatewayAdapter{
 		gatewayID:     gatewayID,
 		sessions:      manager,
 		live:          manager.LiveOps(),
 		now:           time.Now,
 		maxFutureSkew: DefaultReadReceiptFutureSkew,
+		fence:         fence,
 	}
 }
 
@@ -52,6 +58,9 @@ var _ application.GatewayEngine = (*ApplicationGatewayAdapter)(nil)
 func (a *ApplicationGatewayAdapter) GetSessionState(_ context.Context, query application.SessionStateQuery) (application.SessionState, error) {
 	if err := a.validateTarget(query.OrganizationID, query.SessionID, query.GatewayID); err != nil {
 		return application.SessionState{}, err
+	}
+	if a.fence != nil && (query.AssignmentEpoch == 0 || !a.fence.OwnsSession(query.OrganizationID, query.SessionID, query.AssignmentEpoch)) {
+		return application.SessionState{}, domain.ErrConflict("session assignment is not live")
 	}
 	status, connected, loggedIn, found := a.sessions.ConnectionState(query.SessionID)
 	if !found {
@@ -74,6 +83,9 @@ func (a *ApplicationGatewayAdapter) SetAccountPresence(ctx context.Context, comm
 	if command.AssignmentEpoch == 0 {
 		return application.MutationResult{}, domain.ErrValidation("assignment_epoch must be at least 1")
 	}
+	if a.fence != nil && !a.fence.AllowsMutation(command.OrganizationID, command.SessionID, command.AssignmentEpoch) {
+		return application.MutationResult{}, domain.ErrConflict("session assignment epoch is stale or lease expired")
+	}
 	if command.State != application.AccountPresenceOnline && command.State != application.AccountPresenceOffline {
 		return application.MutationResult{}, domain.ErrValidation("presence state must be online or offline")
 	}
@@ -89,6 +101,9 @@ func (a *ApplicationGatewayAdapter) MarkRead(ctx context.Context, command applic
 	}
 	if command.AssignmentEpoch == 0 {
 		return application.MutationResult{}, domain.ErrValidation("assignment_epoch must be at least 1")
+	}
+	if a.fence != nil && !a.fence.AllowsMutation(command.OrganizationID, command.SessionID, command.AssignmentEpoch) {
+		return application.MutationResult{}, domain.ErrConflict("session assignment epoch is stale or lease expired")
 	}
 	if command.ChatJID == "" || len(command.MessageIDs) == 0 || command.ReadAt.IsZero() {
 		return application.MutationResult{}, domain.ErrValidation("chat_jid, message_ids, and read_at are required")

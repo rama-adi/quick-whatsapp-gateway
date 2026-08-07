@@ -378,6 +378,14 @@ func (r *GatewayRepo) ListReconciliationResults(ctx context.Context, gatewayID s
 	return out, nil
 }
 
+func (r *GatewayRepo) ResolveSessionEngineTarget(ctx context.Context, organizationID, sessionID string) (domain.SessionEngineTarget, error) {
+	row, err := r.q.ResolveSessionEngineTarget(ctx, storedb.ResolveSessionEngineTargetParams{ID: sessionID, OrganizationID: organizationID})
+	if err != nil {
+		return domain.SessionEngineTarget{}, notFound(err, "session engine target")
+	}
+	return domain.SessionEngineTarget{SessionID: row.SessionID, OrganizationID: row.OrganizationID, GatewayID: row.GatewayID, GRPCEndpoint: row.GrpcEndpoint.String, AssignmentEpoch: row.AssignmentEpoch, ConnectionEpoch: row.ConnectionEpoch}, nil
+}
+
 // Heartbeat refreshes the liveness signal the router prunes stale gateways by:
 // last_seen_at and the current session_count, without rewriting the rest of the
 // row. The gateway calls this on a timer (D8).

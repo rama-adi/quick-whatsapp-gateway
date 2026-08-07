@@ -64,6 +64,7 @@ type Config struct {
 	InstanceID       string
 	SoftwareVersion  string
 	HTTPBaseURL      string
+	GRPCEndpoint     string
 	StartedAt        time.Time
 	Runtime          RuntimeSource
 	DesiredState     DesiredStateApplier
@@ -232,6 +233,9 @@ func (s *Supervisor) ProveCurrentConnection(ctx context.Context) (func(), error)
 	}}}
 	if s.cfg.HTTPBaseURL != "" {
 		hello.GetHello().HttpBaseUrl = &s.cfg.HTTPBaseURL
+	}
+	if s.cfg.GRPCEndpoint != "" {
+		hello.GetHello().GrpcEndpoint = &s.cfg.GRPCEndpoint
 	}
 	probeCtx, cancel := context.WithCancel(ctx)
 	if err = s.sendHandshake(probeCtx, cancel, stream, hello); err != nil {
@@ -487,6 +491,9 @@ func (s *Supervisor) runStream(ctx context.Context) error {
 	}
 	if s.cfg.HTTPBaseURL != "" {
 		hello.HttpBaseUrl = &s.cfg.HTTPBaseURL
+	}
+	if s.cfg.GRPCEndpoint != "" {
+		hello.GrpcEndpoint = &s.cfg.GRPCEndpoint
 	}
 	helloFrame := &gatewayv1.GatewayFrame{
 		ProtocolVersion: ProtocolVersion,

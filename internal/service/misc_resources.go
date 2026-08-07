@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"sync"
 
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/application"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
 )
@@ -164,9 +165,10 @@ func (s *StatusService) PostImage(ctx context.Context, organizationID, sessionID
 
 // PresenceService backs the presence endpoint.
 type PresenceService struct {
-	store   *store.Store
-	control PresenceController
-	log     *slog.Logger
+	store      *store.Store
+	control    PresenceController
+	liveFacade GatewayLiveFacade
+	log        *slog.Logger
 }
 
 // NewPresenceService constructs a PresenceService.
@@ -175,6 +177,13 @@ func NewPresenceService(s *store.Store, control PresenceController, log *slog.Lo
 		log = slog.Default()
 	}
 	return &PresenceService{store: s, control: control, log: log}
+}
+
+// SetGatewayLiveFacade switches account-presence mutations to the API-owned,
+// resolved gateway facade. Gateway-local composition keeps its manager-backed
+// controller until API composition supplies this seam.
+func (s *PresenceService) SetGatewayLiveFacade(facade GatewayLiveFacade) {
+	s.liveFacade = facade
 }
 
 func (s *PresenceService) requireSession(ctx context.Context, organizationID, sessionID string) error {
@@ -195,6 +204,9 @@ func (s *PresenceService) Set(ctx context.Context, organizationID, sessionID, st
 	}
 	if state != "online" && state != "offline" {
 		return domain.ErrValidation("state must be online or offline")
+	}
+	if s.liveFacade != nil {
+		return s.liveFacade.SetAccountPresence(ctx, organizationID, sessionID, application.AccountPresence(state))
 	}
 	if s.control == nil {
 		return errLiveUnavailable()

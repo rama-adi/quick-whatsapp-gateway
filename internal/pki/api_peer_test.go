@@ -21,7 +21,7 @@ func apiPeerFixture(t *testing.T, mutate func(*x509.Certificate)) ([]byte, tls.C
 	root, _ := x509.ParseCertificate(rootDER)
 	leafPub, _, _ := ed25519.GenerateKey(rand.Reader)
 	u, _ := url.Parse(APIIdentityURI)
-	leafT := &x509.Certificate{SerialNumber: big.NewInt(2), NotBefore: now.Add(-time.Minute), NotAfter: now.Add(time.Hour), BasicConstraintsValid: true, KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, URIs: []*url.URL{u}}
+	leafT := &x509.Certificate{SerialNumber: big.NewInt(2), NotBefore: now.Add(-time.Minute), NotAfter: now.Add(time.Hour), BasicConstraintsValid: true, KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}, URIs: []*url.URL{u}}
 	if mutate != nil {
 		mutate(leafT)
 	}

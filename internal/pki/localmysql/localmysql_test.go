@@ -197,7 +197,7 @@ func TestSignAPIUsesDedicatedIdentityPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	leaf, _ := x509.ParseCertificate(signed.DER)
-	if leaf.IsCA || leaf.KeyUsage != x509.KeyUsageDigitalSignature || len(leaf.ExtKeyUsage) != 1 || leaf.ExtKeyUsage[0] != x509.ExtKeyUsageServerAuth || len(leaf.URIs) != 1 || leaf.URIs[0].String() != base.APIIdentityURI {
+	if leaf.IsCA || leaf.KeyUsage != x509.KeyUsageDigitalSignature || len(leaf.ExtKeyUsage) != 2 || leaf.ExtKeyUsage[0] != x509.ExtKeyUsageServerAuth || leaf.ExtKeyUsage[1] != x509.ExtKeyUsageClientAuth || len(leaf.URIs) != 1 || leaf.URIs[0].String() != base.APIIdentityURI {
 		t.Fatal("API leaf policy mismatch")
 	}
 }

@@ -182,6 +182,12 @@ func run() error {
 	readinessGate := &readinessGate{dependencies: readiness(db, rdb)}
 	var privateGRPCServer grpcLifecycle
 	var privateReady func() error
+	var engineClient *apigateway.EngineClient
+	defer func() {
+		if engineClient != nil {
+			_ = engineClient.Close()
+		}
+	}()
 	if cfg.GatewayGRPCAddr != "" {
 		policy, policyErr := cfg.GatewayPKI.Policy()
 		if policyErr != nil {
@@ -209,6 +215,12 @@ func run() error {
 		if !clientRoots.AppendCertsFromPEM(bundle) {
 			return fmt.Errorf("load gateway trust bundle: invalid PEM")
 		}
+		engineClient, identityErr = apigateway.NewEngineClient(st.Gateways, apigateway.NewEngineMTLSDial(identity.GetCertificate, clientRoots), cfg.GatewayEngineUnaryDeadline)
+		if identityErr != nil {
+			return fmt.Errorf("build gateway engine client: %w", identityErr)
+		}
+		services.Sessions.SetGatewayLiveFacade(engineClient)
+		services.Presence.SetGatewayLiveFacade(engineClient)
 		tlsConfig := privateGatewayTLSConfig(identity, clientRoots)
 		enrollment, enrollmentErr := service.NewEnrollmentService(db, signer, service.DefaultEnrollmentConfig())
 		if enrollmentErr != nil {

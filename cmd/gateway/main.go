@@ -130,6 +130,7 @@ func run() error {
 			InstanceID:      instanceID,
 			SoftwareVersion: softwareVersion,
 			HTTPBaseURL:     cfg.PublicURL,
+			GRPCEndpoint:    cfg.EngineGRPCAdvertise,
 			StartedAt:       time.Now(),
 			Runtime:         controlRuntime,
 		}, opener)
@@ -328,8 +329,10 @@ func run() error {
 	// `organization` table; orphaned sessions are marked STOPPED and not resumed.
 	orgReader := store.NewOrganizationReader(db)
 	manager.SetOrgExists(orgReader.Exists)
+	var desiredReconciler *desiredstate.Reconciler
 	if controlEnabled {
 		reconciler := desiredstate.New(manager, nil)
+		desiredReconciler = reconciler
 		controlRuntime.setSessionCounter(func(context.Context) (int, error) {
 			return reconciler.AssignmentCount(), nil
 		})
@@ -354,6 +357,14 @@ func run() error {
 			close(supervisorExited)
 		}()
 		supervisorStarted = true
+	}
+	if controlEnabled {
+		engine := wa.NewApplicationGatewayAdapter(cfg.GatewayID, manager, desiredReconciler)
+		stopEngine, engineErr := startPrivateEngine(cfg.EngineGRPCAddr, cfg.GatewayID, controlIdentity, engine)
+		if engineErr != nil {
+			return fmt.Errorf("start private gateway engine: %w", engineErr)
+		}
+		defer stopEngine()
 	}
 
 	// Registry lifecycle (D8). Register as `joining` before the manager adopts

@@ -33,6 +33,8 @@ type GatewayConfig struct {
 	BootstrapCAFile        string        // GATEWAY_BOOTSTRAP_CA_FILE
 	EnrollmentToken        string        // GATEWAY_ENROLLMENT_TOKEN; bootstrap-only, never persisted
 	CertificateRenewBefore time.Duration // GATEWAY_CERTIFICATE_RENEW_BEFORE; required with the private control plane
+	EngineGRPCAddr         string        // GATEWAY_ENGINE_GRPC_ADDR: private mTLS listener
+	EngineGRPCAdvertise    string        // GATEWAY_ENGINE_GRPC_ADVERTISE_ADDR: canonical endpoint advertised to API
 
 	// Trust model (§4.1/§4.4). After the central-router cutover the gateway no
 	// longer verifies end-user JWTs/api-keys directly: the router authenticates
@@ -125,6 +127,8 @@ func LoadGateway() (*GatewayConfig, error) {
 		BootstrapCAFile:        getString("GATEWAY_BOOTSTRAP_CA_FILE", ""),
 		EnrollmentToken:        getString("GATEWAY_ENROLLMENT_TOKEN", ""),
 		CertificateRenewBefore: getDuration("GATEWAY_CERTIFICATE_RENEW_BEFORE", 0),
+		EngineGRPCAddr:         getString("GATEWAY_ENGINE_GRPC_ADDR", ""),
+		EngineGRPCAdvertise:    getString("GATEWAY_ENGINE_GRPC_ADVERTISE_ADDR", ""),
 		RouterJWKSURL:          getString("ROUTER_JWKS_URL", ""),
 		RouterAssertionIssuer:  getString("ROUTER_ASSERTION_ISSUER", DefaultRouterIssuer),
 		BetterAuthURL:          getString("BETTER_AUTH_URL", ""),
@@ -200,6 +204,9 @@ func (c *GatewayConfig) Validate() error {
 		}
 		if c.CertificateRenewBefore <= 0 {
 			return fmt.Errorf("config: GATEWAY_CERTIFICATE_RENEW_BEFORE must be positive when the private control plane is configured")
+		}
+		if c.EngineGRPCAddr == "" || c.EngineGRPCAdvertise == "" {
+			return fmt.Errorf("config: GATEWAY_ENGINE_GRPC_ADDR and GATEWAY_ENGINE_GRPC_ADVERTISE_ADDR are required with the private control plane")
 		}
 		for name, value := range map[string]string{"GATEWAY_CREDENTIAL_DIR": c.CredentialDir, "GATEWAY_BOOTSTRAP_CA_FILE": c.BootstrapCAFile} {
 			if value == "" || !filepath.IsAbs(value) || filepath.Clean(value) != value || value == string(filepath.Separator) {

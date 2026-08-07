@@ -16,6 +16,7 @@ import (
 type SessionService struct {
 	repo          *store.SessionRepo
 	manager       *wa.Manager
+	liveFacade    GatewayLiveFacade
 	log           *slog.Logger
 	oauthCascader sessionOAuthCascader
 }
@@ -34,6 +35,13 @@ func NewSessionService(repo *store.SessionRepo, manager *wa.Manager, log *slog.L
 
 func (s *SessionService) SetOAuthCascader(c sessionOAuthCascader) {
 	s.oauthCascader = c
+}
+
+// SetGatewayLiveFacade switches live session-state reads to the API-owned,
+// resolved gateway facade. Gateway-local composition deliberately leaves this
+// unset until API composition wires the resolver/facade.
+func (s *SessionService) SetGatewayLiveFacade(facade GatewayLiveFacade) {
+	s.liveFacade = facade
 }
 
 // CreateInput is the body of POST /sessions.
@@ -159,10 +167,21 @@ func (s *SessionService) Me(ctx context.Context, organizationID, id string) (Me,
 	if sess.WAJID == nil {
 		return Me{}, domain.ErrNotFound("session is not paired")
 	}
-	connected := sess.Status == domain.SessionWorking
+	status := sess.Status
+	connected := status == domain.SessionWorking
+	if s.liveFacade != nil {
+		state, err := s.liveFacade.GetSessionState(ctx, organizationID, sess.ID)
+		if err != nil {
+			return Me{}, err
+		}
+		if state.OrganizationID != organizationID || state.SessionID != sess.ID || state.GatewayID != sess.GatewayID {
+			return Me{}, domain.ErrConflict("gateway returned mismatched session state")
+		}
+		status, connected = state.Status, state.Connected
+	}
 	return Me{
 		SessionID:   sess.ID,
-		Status:      sess.Status,
+		Status:      status,
 		WAJID:       sess.WAJID,
 		WALID:       sess.WALID,
 		PhoneNumber: sess.PhoneNumber,
