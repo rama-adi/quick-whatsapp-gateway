@@ -305,12 +305,18 @@ a non-disabled, non-deleted gateway row. This per-RPC database check deliberatel
 revocation correctness; a bounded revocation cache can be considered later only with explicit
 invalidation semantics.
 
-Renewal persistence is prepared but is not yet transport-wired. A renewal is tokenless and is
-idempotent by gateway plus canonical CSR digest. Its store transaction locks the gateway and
+`GatewayEnrollmentService.Renew` is authenticated mTLS-only; it accepts only a replacement CSR and
+derives the gateway plus incumbent certificate id, fingerprint, and serial exclusively from the
+already-authorized TLS context. A renewal is tokenless and is idempotent by gateway plus canonical
+CSR digest. Its prepare transaction locks the gateway and returns an exact persisted replay before
+signing; signing occurs outside that transaction, and finalize re-locks the gateway and
 revalidates the exact authenticated incumbent certificate (id, fingerprint, serial, gateway,
 validity, and revocation) after signing before inserting the new leaf and audit event. This prevents
 revocation or disablement during signing from becoming an authorized issuance; concurrent identical
-CSR completion returns the already-persisted exact certificate and trust bundle.
+CSR completion returns the already-persisted exact certificate and trust bundle. An ambiguous
+finalize result is recovered with the same authenticated prepare/replay lookup. Invalid CSR,
+incumbent, and authorization details map to an undifferentiated private-transport authentication
+failure and are not returned to the gateway.
 
 The gateway never uses operating-system roots for this channel. Its bootstrap CA file must contain
 exactly one canonical operator root; custom TLS verification performs full ServerAuth chain/time

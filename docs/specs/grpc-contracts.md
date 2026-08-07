@@ -25,6 +25,13 @@ certificate chain, exact persisted trust bundle, authority/serial identifiers, a
 validity bounds. The adapter bounds inputs before invoking the enrollment service and maps failures
 to stable gRPC status codes without returning token, CSR, signer, or database details.
 
+The same service defines authenticated unary `Renew`. Its request carries only a replacement DER
+CSR: gateway identity and the incumbent certificate are never request fields and come only from the
+per-RPC mTLS principal. The adapter bounds the CSR, validates it through the shared CSR policy, and
+maps invalid incumbent/CSR state to `Unauthenticated`, transient persistence or signing failures to
+`Unavailable`, and unknown failures to `Internal` without exposing certificate, signer, or database
+details. Exact canonical-CSR retries return the stored issuance material.
+
 ## Generation and checks
 
 Buf CLI `v1.47.2` is invoked through `go run`, so contributors do not need a separately installed

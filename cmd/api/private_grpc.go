@@ -33,8 +33,8 @@ const (
 )
 
 type gatewayIdentity struct {
-	GatewayID, AuthorityID, SerialNumber string
-	Fingerprint                          []byte
+	GatewayID, CertificateID, AuthorityID, SerialNumber string
+	Fingerprint                                         []byte
 }
 type gatewayIdentityKey struct{}
 
@@ -50,10 +50,10 @@ type gatewayCredentialStore interface {
 type mysqlGatewayCredentialStore struct{ db *sql.DB }
 
 func (s mysqlGatewayCredentialStore) AuthorizeGatewayCertificate(ctx context.Context, identity gatewayIdentity, now int64) (gatewayIdentity, error) {
-	err := s.db.QueryRowContext(ctx, `SELECT c.authority_id FROM gateways g JOIN gateway_certificates c ON c.gateway_id=g.id
+	err := s.db.QueryRowContext(ctx, `SELECT c.id, c.authority_id FROM gateways g JOIN gateway_certificates c ON c.gateway_id=g.id
 		WHERE g.id=? AND g.deleted_at IS NULL AND g.status<>'disabled'
 		AND c.serial_number=? AND c.certificate_fingerprint=? AND c.revoked_at IS NULL
-		AND c.not_before<=? AND c.not_after>? LIMIT 1`, identity.GatewayID, identity.SerialNumber, identity.Fingerprint, now, now).Scan(&identity.AuthorityID)
+		AND c.not_before<=? AND c.not_after>? LIMIT 1`, identity.GatewayID, identity.SerialNumber, identity.Fingerprint, now, now).Scan(&identity.CertificateID, &identity.AuthorityID)
 	return identity, err
 }
 
@@ -157,6 +157,29 @@ type enrollmentRedeemer interface {
 type gatewayEnrollmentGRPC struct {
 	gatewayv1.UnimplementedGatewayEnrollmentServiceServer
 	service enrollmentRedeemer
+	renewal renewalIssuer
+}
+
+type renewalIssuer interface {
+	Renew(context.Context, service.RenewalInput) (service.EnrollmentResult, error)
+}
+
+func (h gatewayEnrollmentGRPC) Renew(ctx context.Context, req *gatewayv1.GatewayEnrollmentServiceRenewRequest) (*gatewayv1.GatewayEnrollmentServiceRenewResponse, error) {
+	identity, ok := gatewayIdentityFromContext(ctx)
+	if !ok {
+		return nil, status.Error(codes.Unauthenticated, "renewal authentication failed")
+	}
+	if h.renewal == nil {
+		return nil, status.Error(codes.Internal, "renewal unavailable")
+	}
+	if req == nil || len(req.CsrDer) == 0 || len(req.CsrDer) > pki.MaxCSRBytes {
+		return nil, status.Error(codes.InvalidArgument, "invalid renewal request")
+	}
+	result, err := h.renewal.Renew(ctx, service.RenewalInput{Credential: service.RenewalCredential{GatewayID: identity.GatewayID, CertificateID: identity.CertificateID, SerialNumber: identity.SerialNumber, Fingerprint: identity.Fingerprint}, CSRDER: req.CsrDer})
+	if err != nil {
+		return nil, renewalStatus(err)
+	}
+	return &gatewayv1.GatewayEnrollmentServiceRenewResponse{GatewayId: result.GatewayID, CertificateChainPem: []byte(result.CertificatePEM), TrustBundlePem: []byte(result.TrustBundlePEM), AuthorityId: result.AuthorityID, SerialNumber: result.SerialNumber, NotBeforeUnixMs: result.NotBefore, NotAfterUnixMs: result.NotAfter}, nil
 }
 
 func (h gatewayEnrollmentGRPC) Enroll(ctx context.Context, req *gatewayv1.GatewayEnrollmentServiceEnrollRequest) (*gatewayv1.GatewayEnrollmentServiceEnrollResponse, error) {
@@ -195,6 +218,25 @@ func enrollmentStatus(err error) error {
 		return status.Error(codes.Unavailable, "enrollment temporarily unavailable")
 	default:
 		return status.Error(codes.Internal, "enrollment failed")
+	}
+}
+
+func renewalStatus(err error) error {
+	if errors.Is(err, context.Canceled) {
+		return status.Error(codes.Canceled, "renewal canceled")
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return status.Error(codes.DeadlineExceeded, "renewal deadline exceeded")
+	}
+	var invalid *service.InvalidCredentialError
+	var transient *service.TransientError
+	switch {
+	case errors.As(err, &invalid):
+		return status.Error(codes.Unauthenticated, "renewal authentication failed")
+	case errors.As(err, &transient):
+		return status.Error(codes.Unavailable, "renewal temporarily unavailable")
+	default:
+		return status.Error(codes.Internal, "renewal failed")
 	}
 }
 
@@ -352,9 +394,9 @@ func runtimeGatewayStatus(state gatewayv1.GatewayRuntimeState) (domain.GatewaySt
 	}
 }
 
-func newPrivateGatewayGRPCServer(tlsConfig *tls.Config, auth privateGatewayAuthenticator, enrollment enrollmentRedeemer, readiness func() error, control gatewayv1.GatewayControlServiceServer) *grpc.Server {
+func newPrivateGatewayGRPCServer(tlsConfig *tls.Config, auth privateGatewayAuthenticator, enrollment enrollmentRedeemer, renewal renewalIssuer, readiness func() error, control gatewayv1.GatewayControlServiceServer) *grpc.Server {
 	server := grpc.NewServer(grpc.Creds(credentials.NewTLS(tlsConfig)), grpc.UnaryInterceptor(auth.unary), grpc.StreamInterceptor(auth.stream))
-	gatewayv1.RegisterGatewayEnrollmentServiceServer(server, gatewayEnrollmentGRPC{service: enrollment})
+	gatewayv1.RegisterGatewayEnrollmentServiceServer(server, gatewayEnrollmentGRPC{service: enrollment, renewal: renewal})
 	gatewayv1.RegisterGatewayHealthServiceServer(server, privateGatewayHealth{readiness: readiness})
 	if control != nil {
 		gatewayv1.RegisterGatewayControlServiceServer(server, control)

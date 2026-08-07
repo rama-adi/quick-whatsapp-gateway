@@ -133,9 +133,39 @@ type fakeRedeemer struct {
 	calls  int
 }
 
+type fakeRenewalIssuer struct {
+	result service.EnrollmentResult
+	err    error
+	input  service.RenewalInput
+	calls  int
+}
+
+func (f *fakeRenewalIssuer) Renew(_ context.Context, input service.RenewalInput) (service.EnrollmentResult, error) {
+	f.calls++
+	f.input = input
+	return f.result, f.err
+}
+
 func (f *fakeRedeemer) RedeemWithInput(context.Context, service.RedeemInput) (service.EnrollmentResult, error) {
 	f.calls++
 	return f.result, f.err
+}
+
+func TestRenewalAdapterUsesAuthenticatedIdentityAndDoesNotLeakErrors(t *testing.T) {
+	issuer := &fakeRenewalIssuer{result: service.EnrollmentResult{GatewayID: "gw_1", CertificatePEM: "chain", TrustBundlePEM: "root", AuthorityID: "ca_2", SerialNumber: "10", NotBefore: 11, NotAfter: 22}}
+	h := gatewayEnrollmentGRPC{renewal: issuer}
+	ctx := context.WithValue(context.Background(), gatewayIdentityKey{}, gatewayIdentity{GatewayID: "gw_1", CertificateID: "cert_1", SerialNumber: "9", Fingerprint: []byte("fingerprint")})
+	response, err := h.Renew(ctx, &gatewayv1.GatewayEnrollmentServiceRenewRequest{CsrDer: []byte{1}})
+	if err != nil || response.GatewayId != "gw_1" || response.SerialNumber != "10" || issuer.calls != 1 || issuer.input.Credential.GatewayID != "gw_1" || issuer.input.Credential.CertificateID != "cert_1" || issuer.input.Credential.SerialNumber != "9" {
+		t.Fatalf("response=%+v input=%+v err=%v", response, issuer.input, err)
+	}
+	if _, err = h.Renew(context.Background(), &gatewayv1.GatewayEnrollmentServiceRenewRequest{CsrDer: []byte{1}}); status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("missing authenticated identity = %v", err)
+	}
+	issuer.err = errors.New("private signer detail")
+	if _, err = h.Renew(ctx, &gatewayv1.GatewayEnrollmentServiceRenewRequest{CsrDer: []byte{1}}); status.Code(err) != codes.Internal || strings.Contains(err.Error(), "private signer detail") {
+		t.Fatalf("renewal failure leaked = %v", err)
+	}
 }
 
 func TestEnrollmentAdapterBoundsMapsAndReturnsExactFields(t *testing.T) {
@@ -170,7 +200,7 @@ func TestEnrollmentAdapterBoundsMapsAndReturnsExactFields(t *testing.T) {
 }
 
 func TestPrivateServerRegistersOnlyPrivateServices(t *testing.T) {
-	server := newPrivateGatewayGRPCServer(&tls.Config{}, privateGatewayAuthenticator{}, &fakeRedeemer{}, nil, nil)
+	server := newPrivateGatewayGRPCServer(&tls.Config{}, privateGatewayAuthenticator{}, &fakeRedeemer{}, nil, nil, nil)
 	services := server.GetServiceInfo()
 	if len(services) != 2 {
 		t.Fatalf("services = %v", services)
@@ -311,7 +341,7 @@ func TestGatewayControlStorePreservesContextErrors(t *testing.T) {
 
 func TestPrivateServerRegistersGatewayControl(t *testing.T) {
 	control := &apigateway.Server{}
-	server := newPrivateGatewayGRPCServer(&tls.Config{}, privateGatewayAuthenticator{}, &fakeRedeemer{}, nil, control)
+	server := newPrivateGatewayGRPCServer(&tls.Config{}, privateGatewayAuthenticator{}, &fakeRedeemer{}, nil, nil, control)
 	if _, ok := server.GetServiceInfo()[gatewayv1.GatewayControlService_ServiceDesc.ServiceName]; !ok {
 		t.Fatal("gateway control absent")
 	}

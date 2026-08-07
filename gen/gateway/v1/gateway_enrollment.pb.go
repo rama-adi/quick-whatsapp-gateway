@@ -165,6 +165,142 @@ func (x *GatewayEnrollmentServiceEnrollResponse) GetNotAfterUnixMs() int64 {
 	return 0
 }
 
+type GatewayEnrollmentServiceRenewRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	CsrDer        []byte                 `protobuf:"bytes,1,opt,name=csr_der,json=csrDer,proto3" json:"csr_der,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GatewayEnrollmentServiceRenewRequest) Reset() {
+	*x = GatewayEnrollmentServiceRenewRequest{}
+	mi := &file_v1_gateway_enrollment_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GatewayEnrollmentServiceRenewRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GatewayEnrollmentServiceRenewRequest) ProtoMessage() {}
+
+func (x *GatewayEnrollmentServiceRenewRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_enrollment_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GatewayEnrollmentServiceRenewRequest.ProtoReflect.Descriptor instead.
+func (*GatewayEnrollmentServiceRenewRequest) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_enrollment_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *GatewayEnrollmentServiceRenewRequest) GetCsrDer() []byte {
+	if x != nil {
+		return x.CsrDer
+	}
+	return nil
+}
+
+type GatewayEnrollmentServiceRenewResponse struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	GatewayId           string                 `protobuf:"bytes,1,opt,name=gateway_id,json=gatewayId,proto3" json:"gateway_id,omitempty"`
+	CertificateChainPem []byte                 `protobuf:"bytes,2,opt,name=certificate_chain_pem,json=certificateChainPem,proto3" json:"certificate_chain_pem,omitempty"`
+	TrustBundlePem      []byte                 `protobuf:"bytes,3,opt,name=trust_bundle_pem,json=trustBundlePem,proto3" json:"trust_bundle_pem,omitempty"`
+	AuthorityId         string                 `protobuf:"bytes,4,opt,name=authority_id,json=authorityId,proto3" json:"authority_id,omitempty"`
+	SerialNumber        string                 `protobuf:"bytes,5,opt,name=serial_number,json=serialNumber,proto3" json:"serial_number,omitempty"`
+	NotBeforeUnixMs     int64                  `protobuf:"varint,6,opt,name=not_before_unix_ms,json=notBeforeUnixMs,proto3" json:"not_before_unix_ms,omitempty"`
+	NotAfterUnixMs      int64                  `protobuf:"varint,7,opt,name=not_after_unix_ms,json=notAfterUnixMs,proto3" json:"not_after_unix_ms,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *GatewayEnrollmentServiceRenewResponse) Reset() {
+	*x = GatewayEnrollmentServiceRenewResponse{}
+	mi := &file_v1_gateway_enrollment_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GatewayEnrollmentServiceRenewResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GatewayEnrollmentServiceRenewResponse) ProtoMessage() {}
+
+func (x *GatewayEnrollmentServiceRenewResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_enrollment_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GatewayEnrollmentServiceRenewResponse.ProtoReflect.Descriptor instead.
+func (*GatewayEnrollmentServiceRenewResponse) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_enrollment_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *GatewayEnrollmentServiceRenewResponse) GetGatewayId() string {
+	if x != nil {
+		return x.GatewayId
+	}
+	return ""
+}
+
+func (x *GatewayEnrollmentServiceRenewResponse) GetCertificateChainPem() []byte {
+	if x != nil {
+		return x.CertificateChainPem
+	}
+	return nil
+}
+
+func (x *GatewayEnrollmentServiceRenewResponse) GetTrustBundlePem() []byte {
+	if x != nil {
+		return x.TrustBundlePem
+	}
+	return nil
+}
+
+func (x *GatewayEnrollmentServiceRenewResponse) GetAuthorityId() string {
+	if x != nil {
+		return x.AuthorityId
+	}
+	return ""
+}
+
+func (x *GatewayEnrollmentServiceRenewResponse) GetSerialNumber() string {
+	if x != nil {
+		return x.SerialNumber
+	}
+	return ""
+}
+
+func (x *GatewayEnrollmentServiceRenewResponse) GetNotBeforeUnixMs() int64 {
+	if x != nil {
+		return x.NotBeforeUnixMs
+	}
+	return 0
+}
+
+func (x *GatewayEnrollmentServiceRenewResponse) GetNotAfterUnixMs() int64 {
+	if x != nil {
+		return x.NotAfterUnixMs
+	}
+	return 0
+}
+
 var File_v1_gateway_enrollment_proto protoreflect.FileDescriptor
 
 const file_v1_gateway_enrollment_proto_rawDesc = "" +
@@ -182,9 +318,21 @@ const file_v1_gateway_enrollment_proto_rawDesc = "" +
 	"\fauthority_id\x18\x04 \x01(\tR\vauthorityId\x12#\n" +
 	"\rserial_number\x18\x05 \x01(\tR\fserialNumber\x12+\n" +
 	"\x12not_before_unix_ms\x18\x06 \x01(\x03R\x0fnotBeforeUnixMs\x12)\n" +
-	"\x11not_after_unix_ms\x18\a \x01(\x03R\x0enotAfterUnixMs2\x8b\x01\n" +
+	"\x11not_after_unix_ms\x18\a \x01(\x03R\x0enotAfterUnixMs\"?\n" +
+	"$GatewayEnrollmentServiceRenewRequest\x12\x17\n" +
+	"\acsr_der\x18\x01 \x01(\fR\x06csrDer\"\xc4\x02\n" +
+	"%GatewayEnrollmentServiceRenewResponse\x12\x1d\n" +
+	"\n" +
+	"gateway_id\x18\x01 \x01(\tR\tgatewayId\x122\n" +
+	"\x15certificate_chain_pem\x18\x02 \x01(\fR\x13certificateChainPem\x12(\n" +
+	"\x10trust_bundle_pem\x18\x03 \x01(\fR\x0etrustBundlePem\x12!\n" +
+	"\fauthority_id\x18\x04 \x01(\tR\vauthorityId\x12#\n" +
+	"\rserial_number\x18\x05 \x01(\tR\fserialNumber\x12+\n" +
+	"\x12not_before_unix_ms\x18\x06 \x01(\x03R\x0fnotBeforeUnixMs\x12)\n" +
+	"\x11not_after_unix_ms\x18\a \x01(\x03R\x0enotAfterUnixMs2\xf9\x01\n" +
 	"\x18GatewayEnrollmentService\x12o\n" +
-	"\x06Enroll\x121.gateway.v1.GatewayEnrollmentServiceEnrollRequest\x1a2.gateway.v1.GatewayEnrollmentServiceEnrollResponseBDZBgithub.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1;gatewayv1b\x06proto3"
+	"\x06Enroll\x121.gateway.v1.GatewayEnrollmentServiceEnrollRequest\x1a2.gateway.v1.GatewayEnrollmentServiceEnrollResponse\x12l\n" +
+	"\x05Renew\x120.gateway.v1.GatewayEnrollmentServiceRenewRequest\x1a1.gateway.v1.GatewayEnrollmentServiceRenewResponseBDZBgithub.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1;gatewayv1b\x06proto3"
 
 var (
 	file_v1_gateway_enrollment_proto_rawDescOnce sync.Once
@@ -198,16 +346,20 @@ func file_v1_gateway_enrollment_proto_rawDescGZIP() []byte {
 	return file_v1_gateway_enrollment_proto_rawDescData
 }
 
-var file_v1_gateway_enrollment_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_v1_gateway_enrollment_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_v1_gateway_enrollment_proto_goTypes = []any{
 	(*GatewayEnrollmentServiceEnrollRequest)(nil),  // 0: gateway.v1.GatewayEnrollmentServiceEnrollRequest
 	(*GatewayEnrollmentServiceEnrollResponse)(nil), // 1: gateway.v1.GatewayEnrollmentServiceEnrollResponse
+	(*GatewayEnrollmentServiceRenewRequest)(nil),   // 2: gateway.v1.GatewayEnrollmentServiceRenewRequest
+	(*GatewayEnrollmentServiceRenewResponse)(nil),  // 3: gateway.v1.GatewayEnrollmentServiceRenewResponse
 }
 var file_v1_gateway_enrollment_proto_depIdxs = []int32{
 	0, // 0: gateway.v1.GatewayEnrollmentService.Enroll:input_type -> gateway.v1.GatewayEnrollmentServiceEnrollRequest
-	1, // 1: gateway.v1.GatewayEnrollmentService.Enroll:output_type -> gateway.v1.GatewayEnrollmentServiceEnrollResponse
-	1, // [1:2] is the sub-list for method output_type
-	0, // [0:1] is the sub-list for method input_type
+	2, // 1: gateway.v1.GatewayEnrollmentService.Renew:input_type -> gateway.v1.GatewayEnrollmentServiceRenewRequest
+	1, // 2: gateway.v1.GatewayEnrollmentService.Enroll:output_type -> gateway.v1.GatewayEnrollmentServiceEnrollResponse
+	3, // 3: gateway.v1.GatewayEnrollmentService.Renew:output_type -> gateway.v1.GatewayEnrollmentServiceRenewResponse
+	2, // [2:4] is the sub-list for method output_type
+	0, // [0:2] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
 	0, // [0:0] is the sub-list for extension extendee
 	0, // [0:0] is the sub-list for field type_name
@@ -224,7 +376,7 @@ func file_v1_gateway_enrollment_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_v1_gateway_enrollment_proto_rawDesc), len(file_v1_gateway_enrollment_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

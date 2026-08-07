@@ -20,6 +20,7 @@ const _ = grpc.SupportPackageIsVersion9
 
 const (
 	GatewayEnrollmentService_Enroll_FullMethodName = "/gateway.v1.GatewayEnrollmentService/Enroll"
+	GatewayEnrollmentService_Renew_FullMethodName  = "/gateway.v1.GatewayEnrollmentService/Renew"
 )
 
 // GatewayEnrollmentServiceClient is the client API for GatewayEnrollmentService service.
@@ -30,6 +31,10 @@ const (
 // CSR for the private API-issued gateway identity.
 type GatewayEnrollmentServiceClient interface {
 	Enroll(ctx context.Context, in *GatewayEnrollmentServiceEnrollRequest, opts ...grpc.CallOption) (*GatewayEnrollmentServiceEnrollResponse, error)
+	// Renew exchanges an authenticated gateway's new Ed25519 CSR for a
+	// replacement private API-issued identity. The gateway identity and
+	// incumbent certificate are derived exclusively from the mTLS peer.
+	Renew(ctx context.Context, in *GatewayEnrollmentServiceRenewRequest, opts ...grpc.CallOption) (*GatewayEnrollmentServiceRenewResponse, error)
 }
 
 type gatewayEnrollmentServiceClient struct {
@@ -50,6 +55,16 @@ func (c *gatewayEnrollmentServiceClient) Enroll(ctx context.Context, in *Gateway
 	return out, nil
 }
 
+func (c *gatewayEnrollmentServiceClient) Renew(ctx context.Context, in *GatewayEnrollmentServiceRenewRequest, opts ...grpc.CallOption) (*GatewayEnrollmentServiceRenewResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GatewayEnrollmentServiceRenewResponse)
+	err := c.cc.Invoke(ctx, GatewayEnrollmentService_Renew_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // GatewayEnrollmentServiceServer is the server API for GatewayEnrollmentService service.
 // All implementations must embed UnimplementedGatewayEnrollmentServiceServer
 // for forward compatibility.
@@ -58,6 +73,10 @@ func (c *gatewayEnrollmentServiceClient) Enroll(ctx context.Context, in *Gateway
 // CSR for the private API-issued gateway identity.
 type GatewayEnrollmentServiceServer interface {
 	Enroll(context.Context, *GatewayEnrollmentServiceEnrollRequest) (*GatewayEnrollmentServiceEnrollResponse, error)
+	// Renew exchanges an authenticated gateway's new Ed25519 CSR for a
+	// replacement private API-issued identity. The gateway identity and
+	// incumbent certificate are derived exclusively from the mTLS peer.
+	Renew(context.Context, *GatewayEnrollmentServiceRenewRequest) (*GatewayEnrollmentServiceRenewResponse, error)
 	mustEmbedUnimplementedGatewayEnrollmentServiceServer()
 }
 
@@ -70,6 +89,9 @@ type UnimplementedGatewayEnrollmentServiceServer struct{}
 
 func (UnimplementedGatewayEnrollmentServiceServer) Enroll(context.Context, *GatewayEnrollmentServiceEnrollRequest) (*GatewayEnrollmentServiceEnrollResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Enroll not implemented")
+}
+func (UnimplementedGatewayEnrollmentServiceServer) Renew(context.Context, *GatewayEnrollmentServiceRenewRequest) (*GatewayEnrollmentServiceRenewResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Renew not implemented")
 }
 func (UnimplementedGatewayEnrollmentServiceServer) mustEmbedUnimplementedGatewayEnrollmentServiceServer() {
 }
@@ -111,6 +133,24 @@ func _GatewayEnrollmentService_Enroll_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _GatewayEnrollmentService_Renew_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GatewayEnrollmentServiceRenewRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayEnrollmentServiceServer).Renew(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GatewayEnrollmentService_Renew_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayEnrollmentServiceServer).Renew(ctx, req.(*GatewayEnrollmentServiceRenewRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // GatewayEnrollmentService_ServiceDesc is the grpc.ServiceDesc for GatewayEnrollmentService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -121,6 +161,10 @@ var GatewayEnrollmentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Enroll",
 			Handler:    _GatewayEnrollmentService_Enroll_Handler,
+		},
+		{
+			MethodName: "Renew",
+			Handler:    _GatewayEnrollmentService_Renew_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

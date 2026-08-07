@@ -213,6 +213,10 @@ func run() error {
 		if enrollmentErr != nil {
 			return fmt.Errorf("build enrollment service: %w", enrollmentErr)
 		}
+		renewal, renewalErr := service.NewRenewalService(db, signer)
+		if renewalErr != nil {
+			return fmt.Errorf("build renewal service: %w", renewalErr)
+		}
 		privateReady = func() error {
 			if !identity.Ready() {
 				return errors.New("API TLS identity unavailable")
@@ -229,7 +233,7 @@ func run() error {
 				return identity.GatewayID, ok
 			},
 		}
-		privateGRPCServer = newPrivateGatewayGRPCServer(tlsConfig, privateGatewayAuthenticator{store: mysqlGatewayCredentialStore{db: db}}, enrollment, privateReady, control)
+		privateGRPCServer = newPrivateGatewayGRPCServer(tlsConfig, privateGatewayAuthenticator{store: mysqlGatewayCredentialStore{db: db}}, enrollment, renewal, privateReady, control)
 		go renewAPIIdentity(ctx, identity, cfg.GatewayTLSRenewBefore, log)
 	}
 	srv, err := router.NewServer(router.Config{

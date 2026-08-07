@@ -80,12 +80,16 @@ func TestPrivateGatewayTLSMySQLIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	renewal, err := service.NewRenewalService(db, signer)
+	if err != nil {
+		t.Fatal(err)
+	}
 	issued, err := enrollment.CreateGateway(context.Background(), service.CreateGatewayInput{CreatedByUserID: "integration-user"})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	server := newPrivateGatewayGRPCServer(privateGatewayTLSConfig(manager, roots), privateGatewayAuthenticator{store: mysqlGatewayCredentialStore{db: db}}, enrollment, func() error { return nil }, nil)
+	server := newPrivateGatewayGRPCServer(privateGatewayTLSConfig(manager, roots), privateGatewayAuthenticator{store: mysqlGatewayCredentialStore{db: db}}, enrollment, renewal, func() error { return nil }, nil)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -127,6 +131,23 @@ func TestPrivateGatewayTLSMySQLIntegration(t *testing.T) {
 	health := gatewayv1.NewGatewayHealthServiceClient(conn)
 	if _, err = health.Check(context.Background(), &gatewayv1.GatewayHealthServiceCheckRequest{}); err != nil {
 		t.Fatalf("authenticated health: %v", err)
+	}
+	_, renewalKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	renewalCSR, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{Subject: pkix.Name{CommonName: issued.GatewayID}, URIs: []*url.URL{u}}, renewalKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client = gatewayv1.NewGatewayEnrollmentServiceClient(conn)
+	renewed, err := client.Renew(context.Background(), &gatewayv1.GatewayEnrollmentServiceRenewRequest{CsrDer: renewalCSR})
+	if err != nil {
+		t.Fatalf("renew authenticated mTLS identity: %v", err)
+	}
+	replayed, err := client.Renew(context.Background(), &gatewayv1.GatewayEnrollmentServiceRenewRequest{CsrDer: renewalCSR})
+	if err != nil || renewed.SerialNumber != replayed.SerialNumber || string(renewed.CertificateChainPem) != string(replayed.CertificateChainPem) || string(renewed.TrustBundlePem) != string(replayed.TrustBundlePem) {
+		t.Fatalf("renewal replay = (%+v, %v), initial=%+v", replayed, err, renewed)
 	}
 	if _, err = db.Exec("UPDATE gateways SET status='disabled' WHERE id=?", issued.GatewayID); err != nil {
 		t.Fatal(err)

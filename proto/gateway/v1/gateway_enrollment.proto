@@ -8,6 +8,11 @@ option go_package = "github.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1;ga
 // CSR for the private API-issued gateway identity.
 service GatewayEnrollmentService {
   rpc Enroll(GatewayEnrollmentServiceEnrollRequest) returns (GatewayEnrollmentServiceEnrollResponse);
+
+  // Renew exchanges an authenticated gateway's new Ed25519 CSR for a
+  // replacement private API-issued identity. The gateway identity and
+  // incumbent certificate are derived exclusively from the mTLS peer.
+  rpc Renew(GatewayEnrollmentServiceRenewRequest) returns (GatewayEnrollmentServiceRenewResponse);
 }
 
 message GatewayEnrollmentServiceEnrollRequest {
@@ -16,6 +21,20 @@ message GatewayEnrollmentServiceEnrollRequest {
 }
 
 message GatewayEnrollmentServiceEnrollResponse {
+  string gateway_id = 1;
+  bytes certificate_chain_pem = 2;
+  bytes trust_bundle_pem = 3;
+  string authority_id = 4;
+  string serial_number = 5;
+  int64 not_before_unix_ms = 6;
+  int64 not_after_unix_ms = 7;
+}
+
+message GatewayEnrollmentServiceRenewRequest {
+  bytes csr_der = 1;
+}
+
+message GatewayEnrollmentServiceRenewResponse {
   string gateway_id = 1;
   bytes certificate_chain_pem = 2;
   bytes trust_bundle_pem = 3;
