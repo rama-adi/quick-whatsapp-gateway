@@ -95,6 +95,13 @@ func (m *Manager) Load() error {
 	return nil
 }
 func (m *Manager) Ready() bool { _, err := m.GetClientCertificate(nil); return err == nil }
+func (m *Manager) Expiry() time.Time {
+	id := m.active.Load()
+	if id == nil {
+		return time.Time{}
+	}
+	return id.expiry
+}
 func (m *Manager) GetClientCertificate(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
 	id := m.active.Load()
 	if id == nil || !time.Now().UTC().Before(id.expiry) {

@@ -214,6 +214,43 @@ func TestHelloAndHeartbeatSequenceEpochAndRuntime(t *testing.T) {
 	}
 }
 
+func TestProveCurrentConnectionCompletesOverlappingWelcomeAndHeartbeat(t *testing.T) {
+	clock := &fakeClock{now: time.Unix(100, 0)}
+	replacement := newFakeStream()
+	replacement.recv <- receiveResult{frame: welcome(gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN)}
+	replacement.recv <- receiveResult{frame: heartbeatAck(2, 2, 7)}
+	supervisor := testSupervisor(t, clock, &fakeOpener{streams: []*fakeStream{replacement}})
+
+	// The proof opens the second stream without touching the incumbent stream or
+	// supervisor status; callers can therefore retire the old connection only
+	// after this independently authenticated exchange succeeds.
+	type result struct {
+		close func()
+		err   error
+	}
+	done := make(chan result, 1)
+	go func() {
+		close, err := supervisor.ProveCurrentConnection(context.Background())
+		done <- result{close, err}
+	}()
+	hello := <-replacement.sent
+	if hello.Sequence != 1 || hello.GetHello() == nil {
+		t.Fatalf("replacement hello = %#v", hello)
+	}
+	heartbeat := <-replacement.sent
+	if heartbeat.Sequence != 2 || heartbeat.GetHeartbeat() == nil {
+		t.Fatalf("replacement heartbeat = %#v", heartbeat)
+	}
+	proof := <-done
+	if proof.err != nil {
+		t.Fatalf("prove replacement stream: %v", proof.err)
+	}
+	proof.close()
+	if supervisor.Status().Connected {
+		t.Fatal("overlapping proof must not replace incumbent supervisor status")
+	}
+}
+
 func TestDrainWelcomeIsConnectedButUnreadyAndSendsNoLifecycleReport(t *testing.T) {
 	clock := &fakeClock{now: time.Unix(100, 0)}
 	stream := newFakeStream()

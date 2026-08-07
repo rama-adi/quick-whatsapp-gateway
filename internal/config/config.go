@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/pki"
@@ -25,11 +26,12 @@ type GatewayConfig struct {
 	AppEncryptionKey string // APP_ENCRYPTION_KEY (base64 32-byte AES-GCM key)
 
 	// Gateway identity (session pinning, gateways registry — §4.5)
-	GatewayID        string // GATEWAY_ID
-	ControlPlaneAddr string // GATEWAY_CONTROL_PLANE_ADDR; empty disables private gRPC bootstrap
-	CredentialDir    string // GATEWAY_CREDENTIAL_DIR
-	BootstrapCAFile  string // GATEWAY_BOOTSTRAP_CA_FILE
-	EnrollmentToken  string // GATEWAY_ENROLLMENT_TOKEN; bootstrap-only, never persisted
+	GatewayID              string        // GATEWAY_ID
+	ControlPlaneAddr       string        // GATEWAY_CONTROL_PLANE_ADDR; empty disables private gRPC bootstrap
+	CredentialDir          string        // GATEWAY_CREDENTIAL_DIR
+	BootstrapCAFile        string        // GATEWAY_BOOTSTRAP_CA_FILE
+	EnrollmentToken        string        // GATEWAY_ENROLLMENT_TOKEN; bootstrap-only, never persisted
+	CertificateRenewBefore time.Duration // GATEWAY_CERTIFICATE_RENEW_BEFORE; required with the private control plane
 
 	// Trust model (§4.1/§4.4). After the central-router cutover the gateway no
 	// longer verifies end-user JWTs/api-keys directly: the router authenticates
@@ -121,6 +123,7 @@ func LoadGateway() (*GatewayConfig, error) {
 		CredentialDir:          getString("GATEWAY_CREDENTIAL_DIR", ""),
 		BootstrapCAFile:        getString("GATEWAY_BOOTSTRAP_CA_FILE", ""),
 		EnrollmentToken:        getString("GATEWAY_ENROLLMENT_TOKEN", ""),
+		CertificateRenewBefore: getDuration("GATEWAY_CERTIFICATE_RENEW_BEFORE", 0),
 		RouterJWKSURL:          getString("ROUTER_JWKS_URL", ""),
 		RouterAssertionIssuer:  getString("ROUTER_ASSERTION_ISSUER", DefaultRouterIssuer),
 		BetterAuthURL:          getString("BETTER_AUTH_URL", ""),
@@ -194,6 +197,9 @@ func (c *GatewayConfig) Validate() error {
 		if strings.TrimSpace(c.ControlPlaneAddr) != c.ControlPlaneAddr {
 			return fmt.Errorf("config: GATEWAY_CONTROL_PLANE_ADDR must be canonical")
 		}
+		if c.CertificateRenewBefore <= 0 {
+			return fmt.Errorf("config: GATEWAY_CERTIFICATE_RENEW_BEFORE must be positive when the private control plane is configured")
+		}
 		for name, value := range map[string]string{"GATEWAY_CREDENTIAL_DIR": c.CredentialDir, "GATEWAY_BOOTSTRAP_CA_FILE": c.BootstrapCAFile} {
 			if value == "" || !filepath.IsAbs(value) || filepath.Clean(value) != value || value == string(filepath.Separator) {
 				return fmt.Errorf("config: %s must be an absolute clean non-root path", name)
@@ -247,6 +253,18 @@ func getInt(key string, def int) int {
 		}
 	}
 	return def
+}
+
+func getDuration(key string, def time.Duration) time.Duration {
+	value, ok := os.LookupEnv(key)
+	if !ok || value == "" {
+		return def
+	}
+	duration, err := time.ParseDuration(strings.TrimSpace(value))
+	if err != nil {
+		return def
+	}
+	return duration
 }
 
 func getBool(key string, def bool) bool {

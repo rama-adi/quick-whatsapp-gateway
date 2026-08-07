@@ -341,6 +341,19 @@ the stream exclusively owns registry liveness and the gateway skips its five leg
 joining registration, active registration, periodic heartbeat, shutdown draining, and shutdown
 drained. Control-disabled mode retains those writes.
 
+Gateway certificate rollover is enabled only with an explicit
+`GATEWAY_CERTIFICATE_RENEW_BEFORE` duration. The gateway derives every renewal
+attempt from the active identity certificate's actual `NotAfter` minus that
+operator-configured window. It uses the generated `GatewayEnrollmentService.Renew`
+RPC over its incumbent mTLS connection, stages a replacement gRPC connection,
+and opens an overlapping replacement control stream. The old connection is
+retired only after that stream has completed Welcome and a durable heartbeat
+acknowledgement; `grpc.NewClient` construction alone is not authentication or
+availability proof. Any failed proof restores the incumbent. Transient renewal
+failures retry only while the incumbent is valid; expiry marks the runtime
+degraded and drives normal admission-closing shutdown rather than operating
+with an expired identity.
+
 The registry separates observed `status` from authoritative `desired_lifecycle` (`run`/`drain`) and
 records explicit `connection_mode` (`legacy`/`control`). Hello's optional authenticated
 `http_base_url` is persisted during epoch allocation and keeps the

@@ -17,6 +17,7 @@ services:
       GATEWAY_CREDENTIAL_DIR: "/data/gateway-credentials"
       GATEWAY_BOOTSTRAP_CA_FILE: "/run/secrets/gateway-bootstrap-ca.pem"
       GATEWAY_ENROLLMENT_TOKEN: "${GATEWAY_ENROLLMENT_TOKEN:-}"
+      GATEWAY_CERTIFICATE_RENEW_BEFORE: "${GATEWAY_CERTIFICATE_RENEW_BEFORE:?set an authoritative renewal window}"
     volumes:
       - "gateway_credentials:/data/gateway-credentials"
       - "${GATEWAY_BOOTSTRAP_CA_FILE:?set GATEWAY_BOOTSTRAP_CA_FILE to the operator CA PEM}:/run/secrets/gateway-bootstrap-ca.pem:ro"

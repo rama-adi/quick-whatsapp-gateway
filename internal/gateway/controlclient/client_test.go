@@ -96,7 +96,7 @@ func TestRenewReplacesConnectionOnlyAfterInstallingValidatedIdentity(t *testing.
 	}
 	incumbent := client.Conn()
 	called := false
-	err = client.Renew(context.Background(), RenewalFunc(func(_ context.Context, conn *grpc.ClientConn, csrDER []byte) (gatewayidentity.Installation, error) {
+	rollover, err := client.BeginRenewal(context.Background(), RenewalFunc(func(_ context.Context, conn *grpc.ClientConn, csrDER []byte) (gatewayidentity.Installation, error) {
 		called = true
 		if conn != incumbent {
 			t.Fatal("renewal did not use the incumbent connection")
@@ -106,8 +106,14 @@ func TestRenewReplacesConnectionOnlyAfterInstallingValidatedIdentity(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !called || client.Conn() == incumbent || incumbent.GetState() != connectivity.Shutdown {
-		t.Fatal("renewal did not replace and retire the incumbent connection")
+	if !called || client.Conn() == incumbent || incumbent.GetState() == connectivity.Shutdown {
+		t.Fatal("renewal did not stage a replacement while retaining the incumbent")
+	}
+	if err = rollover.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if incumbent.GetState() != connectivity.Shutdown {
+		t.Fatal("renewal did not retire the incumbent after commit")
 	}
 	if err = client.Close(); err != nil {
 		t.Fatal(err)

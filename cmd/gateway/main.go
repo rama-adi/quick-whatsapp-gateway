@@ -80,10 +80,12 @@ func run() error {
 	var control *controlclient.Client
 	var controlSupervisor *controlsupervisor.Supervisor
 	var controlRuntime *gatewayControlRuntime
+	var controlIdentity *gatewayidentity.Manager
 	var supervisorCtx context.Context
 	var supervisorExited chan struct{}
 	var supervisorResultMu sync.Mutex
 	var supervisorResult error
+	var certificateRenewalExpired chan error
 	lifecycleDisabled := make(chan struct{}, 1)
 	if controlEnabled {
 		caInfo, statErr := os.Stat(cfg.BootstrapCAFile)
@@ -101,6 +103,7 @@ func run() error {
 		if identityErr != nil {
 			return fmt.Errorf("build gateway identity: %w", identityErr)
 		}
+		controlIdentity = identity
 		control, err = controlclient.New(controlclient.Config{Target: cfg.ControlPlaneAddr, GatewayID: cfg.GatewayID, Identity: identity})
 		if err != nil {
 			return fmt.Errorf("build gateway control client: %w", err)
@@ -110,7 +113,7 @@ func run() error {
 		}
 		cfg.EnrollmentToken = ""
 		_ = os.Unsetenv("GATEWAY_ENROLLMENT_TOKEN")
-		opener, openerErr := controlsupervisor.NewConnOpener(control.Conn())
+		opener, openerErr := controlsupervisor.NewCurrentConnOpener(control)
 		if openerErr != nil {
 			_ = control.Close()
 			return fmt.Errorf("build gateway control stream: %w", openerErr)
@@ -143,6 +146,16 @@ func run() error {
 			supervisorResult = result
 			supervisorResultMu.Unlock()
 			close(supervisorExited)
+		}()
+		certificateRenewalExpired = make(chan error, 1)
+		go func() {
+			renewalErr := renewGatewayCertificate(supervisorCtx, controlIdentity, cfg.CertificateRenewBefore, control, controlSupervisor, func() {
+				controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DEGRADED)
+				reportControlRuntime(log, controlSupervisor, gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DEGRADED, 5*time.Second)
+			})
+			if renewalErr != nil {
+				certificateRenewalExpired <- renewalErr
+			}
 		}()
 		go func() {
 			status := controlSupervisor.Status()
@@ -659,6 +672,7 @@ func run() error {
 		}
 	}()
 
+	var terminalErr error
 	select {
 	case err := <-errCh:
 		return fmt.Errorf("http server: %w", err)
@@ -667,6 +681,9 @@ func run() error {
 		result := supervisorResult
 		supervisorResultMu.Unlock()
 		return fmt.Errorf("gateway control supervisor stopped: %w", result)
+	case renewalErr := <-certificateRenewalExpired:
+		terminalErr = renewalErr
+		log.Error("gateway certificate renewal ended", "err", renewalErr)
 	case <-lifecycleDisabled:
 		log.Info("gateway disabled by control-plane directive")
 	case <-ctx.Done():
@@ -703,6 +720,9 @@ func run() error {
 	}
 	if shutdownErr != nil {
 		return fmt.Errorf("graceful shutdown: %w", shutdownErr)
+	}
+	if terminalErr != nil {
+		return terminalErr
 	}
 	log.Info("gateway stopped cleanly")
 	return nil

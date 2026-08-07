@@ -36,10 +36,30 @@ func (f RenewalFunc) RenewCertificate(ctx context.Context, conn *grpc.ClientConn
 	return f(ctx, conn, csrDER)
 }
 
+// GRPCRenewalTransport invokes the generated private enrollment client over
+// the incumbent mTLS connection.
+type GRPCRenewalTransport struct{}
+
+func (GRPCRenewalTransport) RenewCertificate(ctx context.Context, conn *grpc.ClientConn, csrDER []byte) (gatewayidentity.Installation, error) {
+	response, err := gatewayv1.NewGatewayEnrollmentServiceClient(conn).Renew(ctx, &gatewayv1.GatewayEnrollmentServiceRenewRequest{CsrDer: csrDER})
+	if err != nil {
+		return gatewayidentity.Installation{}, err
+	}
+	return gatewayidentity.Installation{GatewayID: response.GatewayId, ChainPEM: response.CertificateChainPem, TrustBundlePEM: response.TrustBundlePem, AuthorityID: response.AuthorityId, Serial: response.SerialNumber, NotBefore: response.NotBeforeUnixMs, NotAfter: response.NotAfterUnixMs}, nil
+}
+
 type Client struct {
 	cfg  Config
 	mu   sync.Mutex
 	conn *grpc.ClientConn
+}
+
+// Renewal is a staged credential rollover. The replacement connection is
+// current so reconnecting users pick it up, but the incumbent remains open
+// until the caller proves the replacement control stream is authenticated.
+type Renewal struct {
+	client                 *Client
+	incumbent, replacement *grpc.ClientConn
 }
 
 func New(cfg Config) (*Client, error) {
@@ -75,32 +95,75 @@ func (c *Client) Ensure(ctx context.Context, token string) error {
 // creates a new reusable mTLS connection before closing the old one. A failed
 // renewal leaves the incumbent connection in place.
 func (c *Client) Renew(ctx context.Context, transport RenewalTransport) error {
+	renewal, err := c.BeginRenewal(ctx, transport)
+	if err != nil {
+		return err
+	}
+	return renewal.Commit()
+}
+
+// BeginRenewal stages a replacement connection without retiring the
+// incumbent. Call Commit only after an authenticated use of the replacement
+// has succeeded; Rollback restores the incumbent for every failed proof.
+func (c *Client) BeginRenewal(ctx context.Context, transport RenewalTransport) (*Renewal, error) {
 	if transport == nil {
-		return errors.New("control client: renewal transport required")
+		return nil, errors.New("control client: renewal transport required")
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.conn == nil || !c.cfg.Identity.Ready() {
-		return errors.New("control client: authenticated connection required")
+		return nil, errors.New("control client: authenticated connection required")
 	}
 	pending, err := c.cfg.Identity.Prepare()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	installation, err := transport.RenewCertificate(ctx, c.conn, pending.CSRDER)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err = c.cfg.Identity.Install(installation); err != nil {
-		return err
+		return nil, err
 	}
 	replacement, err := c.newAuthenticatedConn()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	incumbent := c.conn
 	c.conn = replacement
-	return incumbent.Close()
+	return &Renewal{client: c, incumbent: incumbent, replacement: replacement}, nil
+}
+
+// Commit retires the incumbent after the replacement has been independently
+// authenticated by the caller.
+func (r *Renewal) Commit() error {
+	if r == nil || r.client == nil || r.incumbent == nil || r.replacement == nil {
+		return errors.New("control client: invalid renewal")
+	}
+	r.client.mu.Lock()
+	defer r.client.mu.Unlock()
+	if r.client.conn != r.replacement {
+		return errors.New("control client: replacement is no longer current")
+	}
+	err := r.incumbent.Close()
+	r.incumbent = nil
+	return err
+}
+
+// Rollback restores the incumbent and closes the unproven replacement.
+func (r *Renewal) Rollback() error {
+	if r == nil || r.client == nil || r.incumbent == nil || r.replacement == nil {
+		return errors.New("control client: invalid renewal")
+	}
+	r.client.mu.Lock()
+	defer r.client.mu.Unlock()
+	if r.client.conn != r.replacement {
+		return errors.New("control client: replacement is no longer current")
+	}
+	r.client.conn = r.incumbent
+	err := r.replacement.Close()
+	r.replacement = nil
+	return err
 }
 func (c *Client) enroll(ctx context.Context, token string) error {
 	pending, err := c.cfg.Identity.Prepare()
@@ -145,6 +208,10 @@ func retryable(code codes.Code) bool {
 		return false
 	}
 }
+
+// Retryable reports whether an RPC failure is safe to retry while the
+// incumbent credential remains valid.
+func Retryable(err error) bool { return retryable(status.Code(err)) }
 func (c *Client) connectAuthenticated(ctx context.Context) error {
 	conn, err := c.newAuthenticatedConn()
 	if err != nil {

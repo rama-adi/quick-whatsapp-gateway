@@ -9,6 +9,7 @@ import (
 	"os"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	gatewayv1 "github.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/gateway/controlsupervisor"
@@ -113,6 +114,13 @@ func TestGatewayInstanceIDIsProcessUnique(t *testing.T) {
 	}
 	if len(first) != 32 || len(second) != 32 || first == second {
 		t.Fatalf("instance ids %q and %q", first, second)
+	}
+}
+
+func TestCertificateRenewalDeadlineUsesCertificateExpiryAndConfiguredWindow(t *testing.T) {
+	expiry := time.Date(2026, time.August, 7, 12, 0, 0, 0, time.UTC)
+	if got, want := renewalDeadline(expiry, 90*time.Minute), expiry.Add(-90*time.Minute); !got.Equal(want) {
+		t.Fatalf("renewal deadline = %s, want %s", got, want)
 	}
 }
 

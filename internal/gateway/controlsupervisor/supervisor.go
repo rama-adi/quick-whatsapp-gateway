@@ -163,6 +163,90 @@ func (s *Supervisor) WaitForWelcome(ctx context.Context) (Status, error) {
 	}
 }
 
+// ProveCurrentConnection opens an overlapping stream through the current
+// opener and proves it has completed the full authenticated control handshake.
+// It intentionally does not mutate the incumbent stream's status: callers use
+// it to decide whether retiring that incumbent connection is safe.
+func (s *Supervisor) ProveCurrentConnection(ctx context.Context) (func(), error) {
+	stream, err := s.opener.Open(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("open replacement control stream: %w", err)
+	}
+	runtime := s.cfg.Runtime.Snapshot()
+	if !validRuntimeState(runtime.State) {
+		return nil, fmt.Errorf("%w: invalid runtime state", ErrProtocol)
+	}
+	hello := &gatewayv1.GatewayFrame{ProtocolVersion: ProtocolVersion, Sequence: 1, Payload: &gatewayv1.GatewayFrame_Hello{Hello: &gatewayv1.GatewayHello{
+		InstanceId: s.cfg.InstanceID, SoftwareVersion: s.cfg.SoftwareVersion, StartedAtUnixMs: s.cfg.StartedAt.UnixMilli(), SessionCount: runtime.SessionCount, RuntimeState: runtime.State,
+	}}}
+	if s.cfg.HTTPBaseURL != "" {
+		hello.GetHello().HttpBaseUrl = &s.cfg.HTTPBaseURL
+	}
+	probeCtx, cancel := context.WithCancel(ctx)
+	if err = s.sendHandshake(probeCtx, cancel, stream, hello); err != nil {
+		cancel()
+		return nil, fmt.Errorf("send replacement hello: %w", err)
+	}
+	received := make(chan receiveResult, 1)
+	go receive(stream, received)
+	var first receiveResult
+	select {
+	case <-ctx.Done():
+		cancel()
+		return nil, ctx.Err()
+	case <-s.cfg.Clock.After(s.cfg.HandshakeTimeout):
+		cancel()
+		return nil, errors.New("control supervisor: replacement welcome timeout")
+	case first = <-received:
+	}
+	if first.err != nil {
+		cancel()
+		return nil, fmt.Errorf("receive replacement welcome: %w", first.err)
+	}
+	welcome, err := validateWelcome(first.frame)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	heartbeatInterval := time.Duration(welcome.HeartbeatIntervalMs) * time.Millisecond
+	leaseTimeout := time.Duration(welcome.LeaseTimeoutMs) * time.Millisecond
+	if heartbeatInterval < s.cfg.MinHeartbeat || heartbeatInterval > s.cfg.MaxHeartbeat || leaseTimeout <= heartbeatInterval {
+		cancel()
+		return nil, fmt.Errorf("%w: invalid replacement timing", ErrProtocol)
+	}
+	heartbeat := &gatewayv1.GatewayFrame{ProtocolVersion: ProtocolVersion, Sequence: 2, Payload: &gatewayv1.GatewayFrame_Heartbeat{Heartbeat: &gatewayv1.GatewayHeartbeat{
+		ConnectionEpoch: welcome.ConnectionEpoch, LastControlSequence: first.frame.Sequence, SentAtUnixMs: s.cfg.Clock.Now().UnixMilli(), SessionCount: runtime.SessionCount, RuntimeState: runtime.State,
+	}}}
+	if err = s.sendWithin(probeCtx, cancel, stream, heartbeat, leaseTimeout-heartbeatInterval); err != nil {
+		cancel()
+		return nil, fmt.Errorf("send replacement heartbeat: %w", err)
+	}
+	acked := make(chan receiveResult, 1)
+	go receive(stream, acked)
+	select {
+	case <-ctx.Done():
+		cancel()
+		return nil, ctx.Err()
+	case <-s.cfg.Clock.After(leaseTimeout):
+		cancel()
+		return nil, errors.New("control supervisor: replacement heartbeat acknowledgement timeout")
+	case result := <-acked:
+		if result.err != nil {
+			cancel()
+			return nil, fmt.Errorf("receive replacement heartbeat acknowledgement: %w", result.err)
+		}
+		if err = validateControl(result.frame, first.frame.Sequence+1, welcome.ConnectionEpoch, 2, s.cfg.Clock.Now()); err != nil {
+			cancel()
+			return nil, err
+		}
+		if result.frame.GetHeartbeatAck() == nil {
+			cancel()
+			return nil, fmt.Errorf("%w: replacement control frame is not a heartbeat acknowledgement", ErrProtocol)
+		}
+	}
+	return cancel, nil
+}
+
 func (s *Supervisor) WaitForLifecycleChange(ctx context.Context, epoch uint64, desired gatewayv1.LifecycleDirectiveAction) (Status, error) {
 	for {
 		s.mu.RLock()
@@ -750,6 +834,10 @@ type ConnOpener struct {
 	conn grpc.ClientConnInterface
 }
 
+type ConnProvider interface{ Conn() *grpc.ClientConn }
+
+type CurrentConnOpener struct{ provider ConnProvider }
+
 func NewConnOpener(conn grpc.ClientConnInterface) (*ConnOpener, error) {
 	if conn == nil {
 		return nil, errors.New("control supervisor: nil connection")
@@ -759,4 +847,19 @@ func NewConnOpener(conn grpc.ClientConnInterface) (*ConnOpener, error) {
 
 func (o *ConnOpener) Open(ctx context.Context) (Stream, error) {
 	return gatewayv1.NewGatewayControlServiceClient(o.conn).Connect(ctx)
+}
+
+func NewCurrentConnOpener(provider ConnProvider) (*CurrentConnOpener, error) {
+	if provider == nil || provider.Conn() == nil {
+		return nil, errors.New("control supervisor: nil connection provider")
+	}
+	return &CurrentConnOpener{provider: provider}, nil
+}
+
+func (o *CurrentConnOpener) Open(ctx context.Context) (Stream, error) {
+	conn := o.provider.Conn()
+	if conn == nil {
+		return nil, errors.New("control supervisor: no current connection")
+	}
+	return gatewayv1.NewGatewayControlServiceClient(conn).Connect(ctx)
 }

@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 // clearEnv unsets every ENV key Load reads so each test starts from a clean
@@ -13,7 +14,7 @@ func clearEnv(t *testing.T) {
 	t.Helper()
 	keys := []string{
 		"GATEWAY_HTTP_ADDR", "HTTP_ADDR", "GATEWAY_PUBLIC_URL", "PUBLIC_URL", "GATEWAY_ID",
-		"GATEWAY_CONTROL_PLANE_ADDR", "GATEWAY_CREDENTIAL_DIR", "GATEWAY_BOOTSTRAP_CA_FILE", "GATEWAY_ENROLLMENT_TOKEN",
+		"GATEWAY_CONTROL_PLANE_ADDR", "GATEWAY_CREDENTIAL_DIR", "GATEWAY_BOOTSTRAP_CA_FILE", "GATEWAY_ENROLLMENT_TOKEN", "GATEWAY_CERTIFICATE_RENEW_BEFORE",
 		"ROUTER_JWKS_URL", "ROUTER_ASSERTION_ISSUER",
 		"BETTER_AUTH_URL", "BETTER_AUTH_JWKS_URL", "FRONTEND_ORIGINS",
 		"APP_ENCRYPTION_KEY", "MYSQL_DSN",
@@ -50,6 +51,7 @@ func TestLoadGateway_Defaults(t *testing.T) {
 		HTTPAddr:               ":8080",
 		PublicURL:              "",
 		GatewayID:              "gw-1",
+		CertificateRenewBefore: 0,
 		RouterJWKSURL:          "",
 		RouterAssertionIssuer:  DefaultRouterIssuer,
 		BetterAuthURL:          "",
@@ -126,6 +128,7 @@ func TestGatewayControlPlaneConfigIsOptInAndPathsAreStrict(t *testing.T) {
 	valid.ControlPlaneAddr = "api:8443"
 	valid.CredentialDir = "/credentials"
 	valid.BootstrapCAFile = "/ca.pem"
+	valid.CertificateRenewBefore = time.Hour
 	if err := valid.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -183,6 +186,7 @@ func TestLoadGateway_EnvOverride(t *testing.T) {
 	t.Setenv("GATEWAY_HTTP_ADDR", ":9090")
 	t.Setenv("GATEWAY_PUBLIC_URL", "https://gw.example.com")
 	t.Setenv("GATEWAY_ID", "gw-east-1")
+	t.Setenv("GATEWAY_CERTIFICATE_RENEW_BEFORE", "2h")
 	t.Setenv("BETTER_AUTH_URL", "https://auth.example.com")
 	t.Setenv("FRONTEND_ORIGINS", "https://app.example.com, https://admin.example.com")
 	t.Setenv("APP_ENCRYPTION_KEY", "deadbeef")
@@ -217,6 +221,7 @@ func TestLoadGateway_EnvOverride(t *testing.T) {
 		{"HTTPAddr", cfg.HTTPAddr, ":9090"},
 		{"PublicURL", cfg.PublicURL, "https://gw.example.com"},
 		{"GatewayID", cfg.GatewayID, "gw-east-1"},
+		{"CertificateRenewBefore", cfg.CertificateRenewBefore, 2 * time.Hour},
 		{"BetterAuthURL", cfg.BetterAuthURL, "https://auth.example.com"},
 		// BETTER_AUTH_JWKS_URL unset → derived from BETTER_AUTH_URL.
 		{"BetterAuthJWKSURL", cfg.BetterAuthJWKSURL, "https://auth.example.com/api/auth/jwks"},
