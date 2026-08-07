@@ -60,12 +60,13 @@ type PKIAuthority struct {
 }
 
 type GatewayCertificate struct {
-	ID, GatewayID, AuthorityID, EnrollmentTokenID, SerialNumber, CertificatePEM, TrustBundlePEM string
-	CSRSHA256                                                                                   []byte
-	Fingerprint                                                                                 []byte
-	NotBefore, NotAfter, CreatedAt                                                              int64
-	RevokedAt                                                                                   *int64
-	RevocationReason                                                                            *string
+	ID, GatewayID, AuthorityID, IssuanceKind, SerialNumber, CertificatePEM, TrustBundlePEM string
+	EnrollmentTokenID                                                                      *string
+	CSRSHA256                                                                              []byte
+	Fingerprint                                                                            []byte
+	NotBefore, NotAfter, CreatedAt                                                         int64
+	RevokedAt                                                                              *int64
+	RevocationReason                                                                       *string
 }
 
 type AuditEvent struct {

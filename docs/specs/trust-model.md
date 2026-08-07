@@ -305,6 +305,13 @@ a non-disabled, non-deleted gateway row. This per-RPC database check deliberatel
 revocation correctness; a bounded revocation cache can be considered later only with explicit
 invalidation semantics.
 
+Renewal persistence is prepared but is not yet transport-wired. A renewal is tokenless and is
+idempotent by gateway plus canonical CSR digest. Its store transaction locks the gateway and
+revalidates the exact authenticated incumbent certificate (id, fingerprint, serial, gateway,
+validity, and revocation) after signing before inserting the new leaf and audit event. This prevents
+revocation or disablement during signing from becoming an authorized issuance; concurrent identical
+CSR completion returns the already-persisted exact certificate and trust bundle.
+
 The gateway never uses operating-system roots for this channel. Its bootstrap CA file must contain
 exactly one canonical operator root; custom TLS verification performs full ServerAuth chain/time
 validation and requires the sole Ed25519 URI identity `spiffe://quick-wa/api`. Enrollment tokens
@@ -349,8 +356,8 @@ until the API tracks an issued directive, every lifecycle report is rejected wit
 `FailedPrecondition` and is not persisted, while the gateway treats a post-Welcome lifecycle
 directive as unsupported. Welcome itself has no `directive_id`; its desired lifecycle is derived
 only from the authoritative post-accept database status, never from gateway-supplied Hello state.
-Strict directive-owned lifecycle reporting, certificate renewal, and revocation-triggered stream
-shutdown remain unfinished.
+Strict directive-owned lifecycle reporting, renewal RPC/client scheduling and rollover, and
+revocation-triggered stream shutdown remain unfinished.
 
 For an installed identity, a transient pre-Welcome outage brings up diagnostics unready with engine
 admission closed and boots the manager only after a later RUN Welcome. The lifetime lifecycle

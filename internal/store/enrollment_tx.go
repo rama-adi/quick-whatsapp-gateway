@@ -327,7 +327,7 @@ func (t *enrollmentTx) gatewayDuplicateFinalizeEligible(duplicateIssuance bool) 
 	return duplicateIssuance && !t.gatewayDeleted && t.gatewayStatus == gatewayStatusJoining
 }
 func certificateMatches(cert domain.GatewayCertificate, gatewayID, tokenID string, csrHash []byte, now int64) bool {
-	return cert.GatewayID == gatewayID && cert.EnrollmentTokenID == tokenID && equalBytes(cert.CSRSHA256, csrHash) && cert.NotBefore <= now && cert.NotAfter > now
+	return cert.GatewayID == gatewayID && cert.IssuanceKind == "enrollment" && cert.EnrollmentTokenID != nil && *cert.EnrollmentTokenID == tokenID && equalBytes(cert.CSRSHA256, csrHash) && cert.NotBefore <= now && cert.NotAfter > now
 }
 func (t *enrollmentTx) loadToken(ctx context.Context, id string, hash []byte) (domain.EnrollmentToken, error) {
 	token, err := t.lockToken(ctx, id)

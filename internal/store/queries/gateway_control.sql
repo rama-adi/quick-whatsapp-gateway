@@ -17,7 +17,15 @@ WHERE gateway_id=? AND status IN ('active','redeeming');
 UPDATE gateways SET status='joining', enrolled_at=?, updated_at=? WHERE id=? AND status='pending_enrollment' AND deleted_at IS NULL;
 
 -- name: GetGatewayCertificateByTokenCSR :one
-SELECT * FROM gateway_certificates WHERE enrollment_token_id=? AND csr_sha256=?;
+SELECT * FROM gateway_certificates WHERE issuance_kind='enrollment' AND enrollment_token_id=? AND csr_sha256=?;
+
+-- name: GetGatewayCertificateByGatewayCSR :one
+SELECT * FROM gateway_certificates WHERE gateway_id=? AND csr_sha256=?;
+
+-- name: GetGatewayCertificateForRenewal :one
+SELECT * FROM gateway_certificates
+WHERE id=? AND gateway_id=? AND certificate_fingerprint=? AND serial_number=?
+FOR UPDATE;
 
 -- name: RevokeGatewayEnrollmentToken :execrows
 UPDATE gateway_enrollment_tokens SET status='revoked', revoked_at=?, updated_at=?
@@ -50,11 +58,18 @@ WHERE id=? AND status='redeeming' AND redemption_nonce=? AND csr_sha256=? AND le
 
 -- name: InsertGatewayCertificate :exec
 INSERT INTO gateway_certificates
-(id, gateway_id, authority_id, enrollment_token_id, csr_sha256, serial_number, certificate_pem, trust_bundle_pem, certificate_fingerprint, not_before, not_after, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+(id, gateway_id, authority_id, issuance_kind, enrollment_token_id, csr_sha256, serial_number, certificate_pem, trust_bundle_pem, certificate_fingerprint, not_before, not_after, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: ListGatewayCertificates :many
 SELECT * FROM gateway_certificates WHERE gateway_id=? ORDER BY created_at DESC, id DESC;
+
+-- name: ListGatewayCertificateSummaries :many
+SELECT id, authority_id, serial_number, certificate_fingerprint, not_before,
+       not_after, revoked_at, revocation_reason, created_at
+FROM gateway_certificates
+WHERE gateway_id=?
+ORDER BY created_at DESC, id DESC;
 
 -- name: RevokeGatewayCertificate :execrows
 UPDATE gateway_certificates SET revoked_at=?, revocation_reason=?

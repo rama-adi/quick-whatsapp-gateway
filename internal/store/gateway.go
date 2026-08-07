@@ -30,13 +30,21 @@ func gatewayFromRow(row storedb.GetGatewayRow) domain.Gateway {
 	return domain.Gateway{
 		ID:               row.ID,
 		Label:            stringPtrFromNull(row.Label),
+		Notes:            stringPtrFromNull(row.Notes),
 		Status:           domain.GatewayStatus(row.Status),
 		SessionCount:     int(row.SessionCount),
 		Capacity:         intPtrFromNull32(row.Capacity),
 		BaseURL:          stringPtrFromNull(row.BaseUrl),
+		GRPCEndpoint:     stringPtrFromNull(row.GrpcEndpoint),
+		SoftwareVersion:  stringPtrFromNull(row.SoftwareVersion),
+		Capabilities:     append(json.RawMessage(nil), row.Capabilities...),
 		ConnectionEpoch:  row.ConnectionEpoch,
 		ConnectionMode:   string(row.ConnectionMode),
 		DesiredLifecycle: string(row.DesiredLifecycle),
+		DesiredRevision:  row.DesiredRevision,
+		AppliedRevision:  row.AppliedRevision,
+		EnrolledAt:       int64PtrFromNull(row.EnrolledAt),
+		ConnectedAt:      int64PtrFromNull(row.ConnectedAt),
 		LastSeenAt:       int64PtrFromNull(row.LastSeenAt),
 		CreatedAt:        row.CreatedAt,
 		UpdatedAt:        row.UpdatedAt,
@@ -48,6 +56,10 @@ func gatewayFromListActiveRow(row storedb.ListActiveGatewaysRow) domain.Gateway 
 }
 
 func gatewayFromPlacementRow(row storedb.PickGatewayForPlacementRow) domain.Gateway {
+	return gatewayFromRow(storedb.GetGatewayRow(row))
+}
+
+func gatewayFromListRow(row storedb.ListGatewaysRow) domain.Gateway {
 	return gatewayFromRow(storedb.GetGatewayRow(row))
 }
 
@@ -250,6 +262,40 @@ func (r *GatewayRepo) Get(ctx context.Context, id string) (domain.Gateway, error
 		return domain.Gateway{}, notFound(err, "gateway")
 	}
 	return gatewayFromRow(row), nil
+}
+
+// List returns every non-deleted gateway with the complete, non-secret registry
+// metadata required by an operator read model.
+func (r *GatewayRepo) List(ctx context.Context) ([]domain.Gateway, error) {
+	rows, err := r.q.ListGateways(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("store: list gateways: %w", err)
+	}
+	out := make([]domain.Gateway, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, gatewayFromListRow(row))
+	}
+	return out, nil
+}
+
+// ListCertificateSummaries returns certificate metadata without selecting PEM,
+// CSR, trust-bundle, or enrollment-token material.
+func (r *GatewayRepo) ListCertificateSummaries(ctx context.Context, gatewayID string) ([]domain.GatewayCertificateSummary, error) {
+	rows, err := r.q.ListGatewayCertificateSummaries(ctx, storedb.ListGatewayCertificateSummariesParams{GatewayID: gatewayID})
+	if err != nil {
+		return nil, fmt.Errorf("store: list gateway certificate summaries: %w", err)
+	}
+	out := make([]domain.GatewayCertificateSummary, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, domain.GatewayCertificateSummary{
+			ID: row.ID, AuthorityID: row.AuthorityID, SerialNumber: row.SerialNumber,
+			Fingerprint: append([]byte(nil), row.CertificateFingerprint...),
+			NotBefore:   row.NotBefore, NotAfter: row.NotAfter, CreatedAt: row.CreatedAt,
+			RevokedAt:        int64PtrFromNull(row.RevokedAt),
+			RevocationReason: stringPtrFromNull(row.RevocationReason),
+		})
+	}
+	return out, nil
 }
 
 // Heartbeat refreshes the liveness signal the router prunes stale gateways by:

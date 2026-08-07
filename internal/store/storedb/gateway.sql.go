@@ -213,7 +213,10 @@ func (q *Queries) GetAcceptedGatewayDesiredLifecycle(ctx context.Context, arg Ge
 }
 
 const getGateway = `-- name: GetGateway :one
-SELECT id, label, status, session_count, capacity, base_url, connection_epoch, connection_mode, desired_lifecycle, last_seen_at, created_at, updated_at
+SELECT id, label, notes, status, session_count, capacity, base_url, grpc_endpoint,
+       software_version, capabilities, connection_epoch, connection_mode,
+       desired_lifecycle, desired_revision, applied_revision, enrolled_at,
+       connected_at, last_seen_at, created_at, updated_at
 FROM gateways
 WHERE id = ? AND deleted_at IS NULL
 `
@@ -225,13 +228,21 @@ type GetGatewayParams struct {
 type GetGatewayRow struct {
 	ID               string                   `db:"id" json:"id"`
 	Label            sql.NullString           `db:"label" json:"label"`
+	Notes            sql.NullString           `db:"notes" json:"notes"`
 	Status           GatewaysStatus           `db:"status" json:"status"`
 	SessionCount     uint32                   `db:"session_count" json:"session_count"`
 	Capacity         sql.NullInt32            `db:"capacity" json:"capacity"`
 	BaseUrl          sql.NullString           `db:"base_url" json:"base_url"`
+	GrpcEndpoint     sql.NullString           `db:"grpc_endpoint" json:"grpc_endpoint"`
+	SoftwareVersion  sql.NullString           `db:"software_version" json:"software_version"`
+	Capabilities     json.RawMessage          `db:"capabilities" json:"capabilities"`
 	ConnectionEpoch  uint64                   `db:"connection_epoch" json:"connection_epoch"`
 	ConnectionMode   GatewaysConnectionMode   `db:"connection_mode" json:"connection_mode"`
 	DesiredLifecycle GatewaysDesiredLifecycle `db:"desired_lifecycle" json:"desired_lifecycle"`
+	DesiredRevision  uint64                   `db:"desired_revision" json:"desired_revision"`
+	AppliedRevision  uint64                   `db:"applied_revision" json:"applied_revision"`
+	EnrolledAt       sql.NullInt64            `db:"enrolled_at" json:"enrolled_at"`
+	ConnectedAt      sql.NullInt64            `db:"connected_at" json:"connected_at"`
 	LastSeenAt       sql.NullInt64            `db:"last_seen_at" json:"last_seen_at"`
 	CreatedAt        int64                    `db:"created_at" json:"created_at"`
 	UpdatedAt        int64                    `db:"updated_at" json:"updated_at"`
@@ -243,13 +254,21 @@ func (q *Queries) GetGateway(ctx context.Context, arg GetGatewayParams) (GetGate
 	err := row.Scan(
 		&i.ID,
 		&i.Label,
+		&i.Notes,
 		&i.Status,
 		&i.SessionCount,
 		&i.Capacity,
 		&i.BaseUrl,
+		&i.GrpcEndpoint,
+		&i.SoftwareVersion,
+		&i.Capabilities,
 		&i.ConnectionEpoch,
 		&i.ConnectionMode,
 		&i.DesiredLifecycle,
+		&i.DesiredRevision,
+		&i.AppliedRevision,
+		&i.EnrolledAt,
+		&i.ConnectedAt,
 		&i.LastSeenAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -299,7 +318,10 @@ func (q *Queries) IsGatewayConnectionCurrent(ctx context.Context, arg IsGatewayC
 }
 
 const listActiveGateways = `-- name: ListActiveGateways :many
-SELECT id, label, status, session_count, capacity, base_url, connection_epoch, connection_mode, desired_lifecycle, last_seen_at, created_at, updated_at
+SELECT id, label, notes, status, session_count, capacity, base_url, grpc_endpoint,
+       software_version, capabilities, connection_epoch, connection_mode,
+       desired_lifecycle, desired_revision, applied_revision, enrolled_at,
+       connected_at, last_seen_at, created_at, updated_at
 FROM gateways
 WHERE status = ? AND deleted_at IS NULL
 ORDER BY session_count ASC, id ASC
@@ -312,13 +334,21 @@ type ListActiveGatewaysParams struct {
 type ListActiveGatewaysRow struct {
 	ID               string                   `db:"id" json:"id"`
 	Label            sql.NullString           `db:"label" json:"label"`
+	Notes            sql.NullString           `db:"notes" json:"notes"`
 	Status           GatewaysStatus           `db:"status" json:"status"`
 	SessionCount     uint32                   `db:"session_count" json:"session_count"`
 	Capacity         sql.NullInt32            `db:"capacity" json:"capacity"`
 	BaseUrl          sql.NullString           `db:"base_url" json:"base_url"`
+	GrpcEndpoint     sql.NullString           `db:"grpc_endpoint" json:"grpc_endpoint"`
+	SoftwareVersion  sql.NullString           `db:"software_version" json:"software_version"`
+	Capabilities     json.RawMessage          `db:"capabilities" json:"capabilities"`
 	ConnectionEpoch  uint64                   `db:"connection_epoch" json:"connection_epoch"`
 	ConnectionMode   GatewaysConnectionMode   `db:"connection_mode" json:"connection_mode"`
 	DesiredLifecycle GatewaysDesiredLifecycle `db:"desired_lifecycle" json:"desired_lifecycle"`
+	DesiredRevision  uint64                   `db:"desired_revision" json:"desired_revision"`
+	AppliedRevision  uint64                   `db:"applied_revision" json:"applied_revision"`
+	EnrolledAt       sql.NullInt64            `db:"enrolled_at" json:"enrolled_at"`
+	ConnectedAt      sql.NullInt64            `db:"connected_at" json:"connected_at"`
 	LastSeenAt       sql.NullInt64            `db:"last_seen_at" json:"last_seen_at"`
 	CreatedAt        int64                    `db:"created_at" json:"created_at"`
 	UpdatedAt        int64                    `db:"updated_at" json:"updated_at"`
@@ -336,13 +366,21 @@ func (q *Queries) ListActiveGateways(ctx context.Context, arg ListActiveGateways
 		if err := rows.Scan(
 			&i.ID,
 			&i.Label,
+			&i.Notes,
 			&i.Status,
 			&i.SessionCount,
 			&i.Capacity,
 			&i.BaseUrl,
+			&i.GrpcEndpoint,
+			&i.SoftwareVersion,
+			&i.Capabilities,
 			&i.ConnectionEpoch,
 			&i.ConnectionMode,
 			&i.DesiredLifecycle,
+			&i.DesiredRevision,
+			&i.AppliedRevision,
+			&i.EnrolledAt,
+			&i.ConnectedAt,
 			&i.LastSeenAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -361,20 +399,31 @@ func (q *Queries) ListActiveGateways(ctx context.Context, arg ListActiveGateways
 }
 
 const listGateways = `-- name: ListGateways :many
-SELECT id, label, status, session_count, capacity, base_url, connection_epoch, connection_mode, desired_lifecycle, last_seen_at, created_at, updated_at
+SELECT id, label, notes, status, session_count, capacity, base_url, grpc_endpoint,
+       software_version, capabilities, connection_epoch, connection_mode,
+       desired_lifecycle, desired_revision, applied_revision, enrolled_at,
+       connected_at, last_seen_at, created_at, updated_at
 FROM gateways WHERE deleted_at IS NULL ORDER BY created_at DESC, id DESC
 `
 
 type ListGatewaysRow struct {
 	ID               string                   `db:"id" json:"id"`
 	Label            sql.NullString           `db:"label" json:"label"`
+	Notes            sql.NullString           `db:"notes" json:"notes"`
 	Status           GatewaysStatus           `db:"status" json:"status"`
 	SessionCount     uint32                   `db:"session_count" json:"session_count"`
 	Capacity         sql.NullInt32            `db:"capacity" json:"capacity"`
 	BaseUrl          sql.NullString           `db:"base_url" json:"base_url"`
+	GrpcEndpoint     sql.NullString           `db:"grpc_endpoint" json:"grpc_endpoint"`
+	SoftwareVersion  sql.NullString           `db:"software_version" json:"software_version"`
+	Capabilities     json.RawMessage          `db:"capabilities" json:"capabilities"`
 	ConnectionEpoch  uint64                   `db:"connection_epoch" json:"connection_epoch"`
 	ConnectionMode   GatewaysConnectionMode   `db:"connection_mode" json:"connection_mode"`
 	DesiredLifecycle GatewaysDesiredLifecycle `db:"desired_lifecycle" json:"desired_lifecycle"`
+	DesiredRevision  uint64                   `db:"desired_revision" json:"desired_revision"`
+	AppliedRevision  uint64                   `db:"applied_revision" json:"applied_revision"`
+	EnrolledAt       sql.NullInt64            `db:"enrolled_at" json:"enrolled_at"`
+	ConnectedAt      sql.NullInt64            `db:"connected_at" json:"connected_at"`
 	LastSeenAt       sql.NullInt64            `db:"last_seen_at" json:"last_seen_at"`
 	CreatedAt        int64                    `db:"created_at" json:"created_at"`
 	UpdatedAt        int64                    `db:"updated_at" json:"updated_at"`
@@ -392,13 +441,21 @@ func (q *Queries) ListGateways(ctx context.Context) ([]ListGatewaysRow, error) {
 		if err := rows.Scan(
 			&i.ID,
 			&i.Label,
+			&i.Notes,
 			&i.Status,
 			&i.SessionCount,
 			&i.Capacity,
 			&i.BaseUrl,
+			&i.GrpcEndpoint,
+			&i.SoftwareVersion,
+			&i.Capabilities,
 			&i.ConnectionEpoch,
 			&i.ConnectionMode,
 			&i.DesiredLifecycle,
+			&i.DesiredRevision,
+			&i.AppliedRevision,
+			&i.EnrolledAt,
+			&i.ConnectedAt,
 			&i.LastSeenAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -417,7 +474,10 @@ func (q *Queries) ListGateways(ctx context.Context) ([]ListGatewaysRow, error) {
 }
 
 const pickGatewayForPlacement = `-- name: PickGatewayForPlacement :one
-SELECT id, label, status, session_count, capacity, base_url, connection_epoch, connection_mode, desired_lifecycle, last_seen_at, created_at, updated_at
+SELECT id, label, notes, status, session_count, capacity, base_url, grpc_endpoint,
+       software_version, capabilities, connection_epoch, connection_mode,
+       desired_lifecycle, desired_revision, applied_revision, enrolled_at,
+       connected_at, last_seen_at, created_at, updated_at
 FROM gateways
 WHERE status = ? AND (connection_mode = 'legacy' OR desired_lifecycle = 'run')
   AND deleted_at IS NULL AND (capacity IS NULL OR session_count < capacity)
@@ -432,13 +492,21 @@ type PickGatewayForPlacementParams struct {
 type PickGatewayForPlacementRow struct {
 	ID               string                   `db:"id" json:"id"`
 	Label            sql.NullString           `db:"label" json:"label"`
+	Notes            sql.NullString           `db:"notes" json:"notes"`
 	Status           GatewaysStatus           `db:"status" json:"status"`
 	SessionCount     uint32                   `db:"session_count" json:"session_count"`
 	Capacity         sql.NullInt32            `db:"capacity" json:"capacity"`
 	BaseUrl          sql.NullString           `db:"base_url" json:"base_url"`
+	GrpcEndpoint     sql.NullString           `db:"grpc_endpoint" json:"grpc_endpoint"`
+	SoftwareVersion  sql.NullString           `db:"software_version" json:"software_version"`
+	Capabilities     json.RawMessage          `db:"capabilities" json:"capabilities"`
 	ConnectionEpoch  uint64                   `db:"connection_epoch" json:"connection_epoch"`
 	ConnectionMode   GatewaysConnectionMode   `db:"connection_mode" json:"connection_mode"`
 	DesiredLifecycle GatewaysDesiredLifecycle `db:"desired_lifecycle" json:"desired_lifecycle"`
+	DesiredRevision  uint64                   `db:"desired_revision" json:"desired_revision"`
+	AppliedRevision  uint64                   `db:"applied_revision" json:"applied_revision"`
+	EnrolledAt       sql.NullInt64            `db:"enrolled_at" json:"enrolled_at"`
+	ConnectedAt      sql.NullInt64            `db:"connected_at" json:"connected_at"`
 	LastSeenAt       sql.NullInt64            `db:"last_seen_at" json:"last_seen_at"`
 	CreatedAt        int64                    `db:"created_at" json:"created_at"`
 	UpdatedAt        int64                    `db:"updated_at" json:"updated_at"`
@@ -450,13 +518,21 @@ func (q *Queries) PickGatewayForPlacement(ctx context.Context, arg PickGatewayFo
 	err := row.Scan(
 		&i.ID,
 		&i.Label,
+		&i.Notes,
 		&i.Status,
 		&i.SessionCount,
 		&i.Capacity,
 		&i.BaseUrl,
+		&i.GrpcEndpoint,
+		&i.SoftwareVersion,
+		&i.Capabilities,
 		&i.ConnectionEpoch,
 		&i.ConnectionMode,
 		&i.DesiredLifecycle,
+		&i.DesiredRevision,
+		&i.AppliedRevision,
+		&i.EnrolledAt,
+		&i.ConnectedAt,
 		&i.LastSeenAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,

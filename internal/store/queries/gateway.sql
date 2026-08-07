@@ -6,7 +6,10 @@ ON DUPLICATE KEY UPDATE label=VALUES(label), status=VALUES(status),
 	last_seen_at=VALUES(last_seen_at), updated_at=VALUES(updated_at);
 
 -- name: GetGateway :one
-SELECT id, label, status, session_count, capacity, base_url, connection_epoch, connection_mode, desired_lifecycle, last_seen_at, created_at, updated_at
+SELECT id, label, notes, status, session_count, capacity, base_url, grpc_endpoint,
+       software_version, capabilities, connection_epoch, connection_mode,
+       desired_lifecycle, desired_revision, applied_revision, enrolled_at,
+       connected_at, last_seen_at, created_at, updated_at
 FROM gateways
 WHERE id = ? AND deleted_at IS NULL;
 
@@ -28,13 +31,19 @@ WHERE id = ? AND deleted_at IS NULL
   AND status NOT IN ('pending_enrollment', 'disabled');
 
 -- name: ListActiveGateways :many
-SELECT id, label, status, session_count, capacity, base_url, connection_epoch, connection_mode, desired_lifecycle, last_seen_at, created_at, updated_at
+SELECT id, label, notes, status, session_count, capacity, base_url, grpc_endpoint,
+       software_version, capabilities, connection_epoch, connection_mode,
+       desired_lifecycle, desired_revision, applied_revision, enrolled_at,
+       connected_at, last_seen_at, created_at, updated_at
 FROM gateways
 WHERE status = ? AND deleted_at IS NULL
 ORDER BY session_count ASC, id ASC;
 
 -- name: PickGatewayForPlacement :one
-SELECT id, label, status, session_count, capacity, base_url, connection_epoch, connection_mode, desired_lifecycle, last_seen_at, created_at, updated_at
+SELECT id, label, notes, status, session_count, capacity, base_url, grpc_endpoint,
+       software_version, capabilities, connection_epoch, connection_mode,
+       desired_lifecycle, desired_revision, applied_revision, enrolled_at,
+       connected_at, last_seen_at, created_at, updated_at
 FROM gateways
 WHERE status = ? AND (connection_mode = 'legacy' OR desired_lifecycle = 'run')
   AND deleted_at IS NULL AND (capacity IS NULL OR session_count < capacity)
@@ -47,7 +56,10 @@ INSERT INTO gateways
 VALUES (?, ?, ?, ?, 'user', ?, ?, ?, 0, ?, ?);
 
 -- name: ListGateways :many
-SELECT id, label, status, session_count, capacity, base_url, connection_epoch, connection_mode, desired_lifecycle, last_seen_at, created_at, updated_at
+SELECT id, label, notes, status, session_count, capacity, base_url, grpc_endpoint,
+       software_version, capabilities, connection_epoch, connection_mode,
+       desired_lifecycle, desired_revision, applied_revision, enrolled_at,
+       connected_at, last_seen_at, created_at, updated_at
 FROM gateways WHERE deleted_at IS NULL ORDER BY created_at DESC, id DESC;
 
 -- name: UpdateGatewayMetadata :execrows

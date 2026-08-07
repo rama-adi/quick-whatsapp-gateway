@@ -27,6 +27,17 @@ func TestEnrollmentQueriesUseSelectorAndOwnedLeaseCAS(t *testing.T) {
 	if !strings.Contains(getGatewayCertificateByTokenCSR, "enrollment_token_id=? AND csr_sha256=?") || !strings.Contains(insertGatewayCertificate, "trust_bundle_pem") {
 		t.Fatal("certificate replay material is not exact and token-bound")
 	}
+	if !strings.Contains(getGatewayCertificateByTokenCSR, "issuance_kind='enrollment'") {
+		t.Fatal("enrollment replay can select a renewal certificate")
+	}
+	if !strings.Contains(getGatewayCertificateForRenewal, "FOR UPDATE") ||
+		!strings.Contains(getGatewayCertificateForRenewal, "certificate_fingerprint=?") ||
+		!strings.Contains(getGatewayCertificateForRenewal, "serial_number=?") {
+		t.Fatal("renewal does not lock and revalidate the authenticated certificate")
+	}
+	if !strings.Contains(getGatewayCertificateByGatewayCSR, "gateway_id=? AND csr_sha256=?") {
+		t.Fatal("renewal replay is not gateway/CSR idempotent")
+	}
 	if !strings.Contains(lockGatewayEnrollmentToken, "attempt_count=max_attempts") {
 		t.Fatal("lock does not exhaust attempts explicitly")
 	}

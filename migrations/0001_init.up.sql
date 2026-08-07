@@ -121,7 +121,8 @@ CREATE TABLE gateway_certificates (
   id                      VARCHAR(64) PRIMARY KEY,
   gateway_id              VARCHAR(64) NOT NULL,
   authority_id            VARCHAR(64) NOT NULL,
-  enrollment_token_id     VARCHAR(64) NOT NULL,
+  issuance_kind           ENUM('enrollment','renewal') NOT NULL,
+  enrollment_token_id     VARCHAR(64) NULL,
   csr_sha256               BINARY(32) NOT NULL,
   serial_number           VARCHAR(128) NOT NULL,
   certificate_pem         MEDIUMTEXT NOT NULL,
@@ -136,13 +137,17 @@ CREATE TABLE gateway_certificates (
   CONSTRAINT fk_gateway_certificate_authority FOREIGN KEY (authority_id) REFERENCES pki_authorities(id),
   CONSTRAINT fk_gateway_certificate_token FOREIGN KEY (enrollment_token_id) REFERENCES gateway_enrollment_tokens(id) ON DELETE RESTRICT,
   CONSTRAINT chk_gateway_certificate_validity CHECK (not_after > not_before),
+  CONSTRAINT chk_gateway_certificate_issuance CHECK (
+    (issuance_kind='enrollment' AND enrollment_token_id IS NOT NULL) OR
+    (issuance_kind='renewal' AND enrollment_token_id IS NULL)
+  ),
   CONSTRAINT chk_gateway_certificate_revocation CHECK (
     (revoked_at IS NULL AND revocation_reason IS NULL) OR
     (revoked_at IS NOT NULL AND revocation_reason IS NOT NULL)
   ),
   UNIQUE KEY uq_gateway_certificate_serial (authority_id, serial_number),
   UNIQUE KEY uq_gateway_certificate_fingerprint (certificate_fingerprint),
-  UNIQUE KEY uq_gateway_certificate_token_csr (enrollment_token_id, csr_sha256),
+  UNIQUE KEY uq_gateway_certificate_gateway_csr (gateway_id, csr_sha256),
   KEY idx_gateway_certificate_gateway_expiry (gateway_id, not_after),
   KEY idx_gateway_certificate_revoked (gateway_id, revoked_at)
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

@@ -165,8 +165,11 @@ the successor, and rolls everything back if insertion fails. Repositories intent
 expose a multi-statement rotation helper that could run without this transaction.
 
 Increment 2.1a binds issued certificates to their owning enrollment attempt with a retained
-`enrollment_token_id`, canonical `csr_sha256`, and unique `(enrollment_token_id, csr_sha256)` retry
-key. The enrollment service and private enrollment transport now consume this foundation.
+`enrollment_token_id`, canonical `csr_sha256`, and an `issuance_kind='enrollment'` discriminator.
+The database check requires enrollment rows to retain a token and renewal rows to have no token.
+The unique `(gateway_id, csr_sha256)` retry key supports both exact enrollment replay and future
+authenticated renewal without allowing a renewal row to masquerade as a token redemption. The
+enrollment service and private enrollment transport now consume this foundation.
 
 Increment 2.1b uses `pki_rotation_lock` to serialize empty-store hierarchy bootstrap and active
 intermediate renewal. Both rows are inserted atomically during bootstrap; renewal marks only the
@@ -188,6 +191,13 @@ Exact and ambiguous issuance recovery accepts normal post-enrollment lifecycle a
 (`joining`, `active`, `draining`, `drained`) but requires a nondeleted gateway, consumed matching
 token, matching CSR/gateway certificate, and a currently active certificate. Disabled/deleted
 gateways are never recovery-eligible.
+
+The renewal persistence foundation similarly exposes transaction-owned prepare and finalize
+operations, without yet adding an RPC or gateway scheduler. Both lock the gateway and the exact
+presented certificate row, matching certificate id, fingerprint, serial, and gateway, then
+revalidate its time window and revocation state. Finalize repeats that authorization after signing
+to close the TOCTOU window, inserts the tokenless `issuance_kind='renewal'` row and success audit
+atomically, and recovers a uniqueness race by returning the exact persisted gateway+CSR issuance.
 
 Enrollment is wired to the opt-in private TLS listener and crash-safe gateway bootstrap. It is not
 yet exposed through an operator administration API or UI. Control-disabled boot self-registration

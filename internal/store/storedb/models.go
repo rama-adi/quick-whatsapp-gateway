@@ -261,6 +261,64 @@ func AllChatsTypeValues() []ChatsType {
 	}
 }
 
+type GatewayCertificatesIssuanceKind string
+
+const (
+	GatewayCertificatesIssuanceKindEnrollment GatewayCertificatesIssuanceKind = "enrollment"
+	GatewayCertificatesIssuanceKindRenewal    GatewayCertificatesIssuanceKind = "renewal"
+)
+
+func (e *GatewayCertificatesIssuanceKind) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = GatewayCertificatesIssuanceKind(s)
+	case string:
+		*e = GatewayCertificatesIssuanceKind(s)
+	default:
+		return fmt.Errorf("unsupported scan type for GatewayCertificatesIssuanceKind: %T", src)
+	}
+	return nil
+}
+
+type NullGatewayCertificatesIssuanceKind struct {
+	GatewayCertificatesIssuanceKind GatewayCertificatesIssuanceKind `json:"gateway_certificates_issuance_kind"`
+	Valid                           bool                            `json:"valid"` // Valid is true if GatewayCertificatesIssuanceKind is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullGatewayCertificatesIssuanceKind) Scan(value interface{}) error {
+	if value == nil {
+		ns.GatewayCertificatesIssuanceKind, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.GatewayCertificatesIssuanceKind.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullGatewayCertificatesIssuanceKind) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.GatewayCertificatesIssuanceKind), nil
+}
+
+func (e GatewayCertificatesIssuanceKind) Valid() bool {
+	switch e {
+	case GatewayCertificatesIssuanceKindEnrollment,
+		GatewayCertificatesIssuanceKindRenewal:
+		return true
+	}
+	return false
+}
+
+func AllGatewayCertificatesIssuanceKindValues() []GatewayCertificatesIssuanceKind {
+	return []GatewayCertificatesIssuanceKind{
+		GatewayCertificatesIssuanceKindEnrollment,
+		GatewayCertificatesIssuanceKindRenewal,
+	}
+}
+
 type GatewayEnrollmentTokensStatus string
 
 const (
@@ -1236,20 +1294,21 @@ type Gateway struct {
 }
 
 type GatewayCertificate struct {
-	ID                     string         `db:"id" json:"id"`
-	GatewayID              string         `db:"gateway_id" json:"gateway_id"`
-	AuthorityID            string         `db:"authority_id" json:"authority_id"`
-	EnrollmentTokenID      string         `db:"enrollment_token_id" json:"enrollment_token_id"`
-	CsrSha256              []byte         `db:"csr_sha256" json:"csr_sha256"`
-	SerialNumber           string         `db:"serial_number" json:"serial_number"`
-	CertificatePem         string         `db:"certificate_pem" json:"certificate_pem"`
-	TrustBundlePem         string         `db:"trust_bundle_pem" json:"trust_bundle_pem"`
-	CertificateFingerprint []byte         `db:"certificate_fingerprint" json:"certificate_fingerprint"`
-	NotBefore              int64          `db:"not_before" json:"not_before"`
-	NotAfter               int64          `db:"not_after" json:"not_after"`
-	RevokedAt              sql.NullInt64  `db:"revoked_at" json:"revoked_at"`
-	RevocationReason       sql.NullString `db:"revocation_reason" json:"revocation_reason"`
-	CreatedAt              int64          `db:"created_at" json:"created_at"`
+	ID                     string                          `db:"id" json:"id"`
+	GatewayID              string                          `db:"gateway_id" json:"gateway_id"`
+	AuthorityID            string                          `db:"authority_id" json:"authority_id"`
+	IssuanceKind           GatewayCertificatesIssuanceKind `db:"issuance_kind" json:"issuance_kind"`
+	EnrollmentTokenID      sql.NullString                  `db:"enrollment_token_id" json:"enrollment_token_id"`
+	CsrSha256              []byte                          `db:"csr_sha256" json:"csr_sha256"`
+	SerialNumber           string                          `db:"serial_number" json:"serial_number"`
+	CertificatePem         string                          `db:"certificate_pem" json:"certificate_pem"`
+	TrustBundlePem         string                          `db:"trust_bundle_pem" json:"trust_bundle_pem"`
+	CertificateFingerprint []byte                          `db:"certificate_fingerprint" json:"certificate_fingerprint"`
+	NotBefore              int64                           `db:"not_before" json:"not_before"`
+	NotAfter               int64                           `db:"not_after" json:"not_after"`
+	RevokedAt              sql.NullInt64                   `db:"revoked_at" json:"revoked_at"`
+	RevocationReason       sql.NullString                  `db:"revocation_reason" json:"revocation_reason"`
+	CreatedAt              int64                           `db:"created_at" json:"created_at"`
 }
 
 type GatewayEnrollmentToken struct {

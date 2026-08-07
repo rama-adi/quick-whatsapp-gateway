@@ -11,8 +11,11 @@ import (
 
 func gatewayRows() *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
-		"id", "label", "status", "session_count", "capacity",
-		"base_url", "connection_epoch", "connection_mode", "desired_lifecycle", "last_seen_at", "created_at", "updated_at",
+		"id", "label", "notes", "status", "session_count", "capacity",
+		"base_url", "grpc_endpoint", "software_version", "capabilities",
+		"connection_epoch", "connection_mode", "desired_lifecycle",
+		"desired_revision", "applied_revision", "enrolled_at", "connected_at",
+		"last_seen_at", "created_at", "updated_at",
 	})
 }
 
@@ -33,7 +36,7 @@ func TestGatewayRepo_UpsertAndGet(t *testing.T) {
 		t.Fatalf("Upsert: %v", err)
 	}
 
-	rows := gatewayRows().AddRow("gw_1", "primary", "active", 3, nil, "https://gw", uint64(7), "control", "run", nil, int64(1), int64(2))
+	rows := gatewayRows().AddRow("gw_1", "primary", "notes", "active", 3, nil, "https://gw", "gw:8443", "v2", []byte(`{"renewal":true}`), uint64(7), "control", "run", uint64(9), uint64(8), int64(3), int64(4), nil, int64(1), int64(2))
 	mock.ExpectQuery("SELECT .* FROM gateways WHERE id = .").
 		WithArgs("gw_1").WillReturnRows(rows)
 	got, err := repo.Get(context.Background(), "gw_1")
@@ -96,7 +99,7 @@ func TestGatewayRepo_PickForPlacement(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewGatewayRepo(db)
 
-	rows := gatewayRows().AddRow("gw_b", nil, "active", 1, nil, "https://b", uint64(7), "control", "run", int64(9), int64(1), int64(2))
+	rows := gatewayRows().AddRow("gw_b", nil, nil, "active", 1, nil, "https://b", nil, nil, nil, uint64(7), "control", "run", uint64(0), uint64(0), nil, nil, int64(9), int64(1), int64(2))
 	mock.ExpectQuery("SELECT .* FROM gateways").
 		WithArgs(domain.GatewayActive).WillReturnRows(rows)
 	got, err := repo.PickForPlacement(context.Background())
@@ -126,8 +129,8 @@ func TestGatewayRepo_ListActive(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewGatewayRepo(db)
 	rows := gatewayRows().
-		AddRow("gw_a", nil, "active", 0, nil, "https://a", uint64(7), "control", "run", int64(1), int64(1), int64(1)).
-		AddRow("gw_b", nil, "active", 2, 10, "https://b", uint64(8), "control", "run", int64(1), int64(1), int64(1))
+		AddRow("gw_a", nil, nil, "active", 0, nil, "https://a", nil, nil, nil, uint64(7), "control", "run", uint64(0), uint64(0), nil, nil, int64(1), int64(1), int64(1)).
+		AddRow("gw_b", nil, nil, "active", 2, 10, "https://b", nil, nil, nil, uint64(8), "control", "run", uint64(0), uint64(0), nil, nil, int64(1), int64(1), int64(1))
 	mock.ExpectQuery("SELECT .* FROM gateways WHERE status = .").
 		WithArgs(domain.GatewayActive).WillReturnRows(rows)
 	got, err := repo.ListActive(context.Background())

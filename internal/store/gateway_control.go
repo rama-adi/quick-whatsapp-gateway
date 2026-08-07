@@ -60,14 +60,25 @@ func newGatewayCertificateRepo(db storedb.DBTX) *gatewayCertificateRepo {
 	return &gatewayCertificateRepo{storedb.New(db)}
 }
 func (r *gatewayCertificateRepo) insert(ctx context.Context, c domain.GatewayCertificate) error {
-	return r.q.InsertGatewayCertificate(ctx, storedb.InsertGatewayCertificateParams{ID: c.ID, GatewayID: c.GatewayID, AuthorityID: c.AuthorityID, EnrollmentTokenID: c.EnrollmentTokenID, CsrSha256: c.CSRSHA256, SerialNumber: c.SerialNumber, CertificatePem: c.CertificatePEM, TrustBundlePem: c.TrustBundlePEM, CertificateFingerprint: c.Fingerprint, NotBefore: c.NotBefore, NotAfter: c.NotAfter, CreatedAt: c.CreatedAt})
+	return r.q.InsertGatewayCertificate(ctx, storedb.InsertGatewayCertificateParams{ID: c.ID, GatewayID: c.GatewayID, AuthorityID: c.AuthorityID, IssuanceKind: storedb.GatewayCertificatesIssuanceKind(c.IssuanceKind), EnrollmentTokenID: nullString(c.EnrollmentTokenID), CsrSha256: c.CSRSHA256, SerialNumber: c.SerialNumber, CertificatePem: c.CertificatePEM, TrustBundlePem: c.TrustBundlePEM, CertificateFingerprint: c.Fingerprint, NotBefore: c.NotBefore, NotAfter: c.NotAfter, CreatedAt: c.CreatedAt})
 }
 func (r *gatewayCertificateRepo) getByTokenCSR(ctx context.Context, tokenID string, csr []byte) (domain.GatewayCertificate, error) {
-	c, e := r.q.GetGatewayCertificateByTokenCSR(ctx, storedb.GetGatewayCertificateByTokenCSRParams{EnrollmentTokenID: tokenID, CsrSha256: csr})
+	c, e := r.q.GetGatewayCertificateByTokenCSR(ctx, storedb.GetGatewayCertificateByTokenCSRParams{EnrollmentTokenID: sql.NullString{String: tokenID, Valid: true}, CsrSha256: csr})
 	if e != nil {
 		return domain.GatewayCertificate{}, e
 	}
-	return domain.GatewayCertificate{ID: c.ID, GatewayID: c.GatewayID, AuthorityID: c.AuthorityID, EnrollmentTokenID: c.EnrollmentTokenID, CSRSHA256: c.CsrSha256, SerialNumber: c.SerialNumber, CertificatePEM: c.CertificatePem, TrustBundlePEM: c.TrustBundlePem, Fingerprint: c.CertificateFingerprint, NotBefore: c.NotBefore, NotAfter: c.NotAfter, CreatedAt: c.CreatedAt}, nil
+	return certificateFromDB(c), nil
+}
+func (r *gatewayCertificateRepo) getByGatewayCSR(ctx context.Context, gatewayID string, csr []byte) (domain.GatewayCertificate, error) {
+	c, err := r.q.GetGatewayCertificateByGatewayCSR(ctx, storedb.GetGatewayCertificateByGatewayCSRParams{GatewayID: gatewayID, CsrSha256: csr})
+	return certificateFromDB(c), err
+}
+func (r *gatewayCertificateRepo) getForRenewal(ctx context.Context, id, gatewayID string, fingerprint []byte, serial string) (domain.GatewayCertificate, error) {
+	c, err := r.q.GetGatewayCertificateForRenewal(ctx, storedb.GetGatewayCertificateForRenewalParams{ID: id, GatewayID: gatewayID, CertificateFingerprint: fingerprint, SerialNumber: serial})
+	return certificateFromDB(c), err
+}
+func certificateFromDB(c storedb.GatewayCertificate) domain.GatewayCertificate {
+	return domain.GatewayCertificate{ID: c.ID, GatewayID: c.GatewayID, AuthorityID: c.AuthorityID, IssuanceKind: string(c.IssuanceKind), EnrollmentTokenID: stringPtrFromNull(c.EnrollmentTokenID), CSRSHA256: c.CsrSha256, SerialNumber: c.SerialNumber, CertificatePEM: c.CertificatePem, TrustBundlePEM: c.TrustBundlePem, Fingerprint: c.CertificateFingerprint, NotBefore: c.NotBefore, NotAfter: c.NotAfter, RevokedAt: int64PtrFromNull(c.RevokedAt), RevocationReason: stringPtrFromNull(c.RevocationReason), CreatedAt: c.CreatedAt}
 }
 
 type AuditRepo struct{ q *storedb.Queries }

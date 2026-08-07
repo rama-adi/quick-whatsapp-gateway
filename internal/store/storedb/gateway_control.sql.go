@@ -137,13 +137,45 @@ func (q *Queries) FinalizeGatewayEnrollment(ctx context.Context, arg FinalizeGat
 	return result.RowsAffected()
 }
 
+const getGatewayCertificateByGatewayCSR = `-- name: GetGatewayCertificateByGatewayCSR :one
+SELECT id, gateway_id, authority_id, issuance_kind, enrollment_token_id, csr_sha256, serial_number, certificate_pem, trust_bundle_pem, certificate_fingerprint, not_before, not_after, revoked_at, revocation_reason, created_at FROM gateway_certificates WHERE gateway_id=? AND csr_sha256=?
+`
+
+type GetGatewayCertificateByGatewayCSRParams struct {
+	GatewayID string `db:"gateway_id" json:"gateway_id"`
+	CsrSha256 []byte `db:"csr_sha256" json:"csr_sha256"`
+}
+
+func (q *Queries) GetGatewayCertificateByGatewayCSR(ctx context.Context, arg GetGatewayCertificateByGatewayCSRParams) (GatewayCertificate, error) {
+	row := q.db.QueryRowContext(ctx, getGatewayCertificateByGatewayCSR, arg.GatewayID, arg.CsrSha256)
+	var i GatewayCertificate
+	err := row.Scan(
+		&i.ID,
+		&i.GatewayID,
+		&i.AuthorityID,
+		&i.IssuanceKind,
+		&i.EnrollmentTokenID,
+		&i.CsrSha256,
+		&i.SerialNumber,
+		&i.CertificatePem,
+		&i.TrustBundlePem,
+		&i.CertificateFingerprint,
+		&i.NotBefore,
+		&i.NotAfter,
+		&i.RevokedAt,
+		&i.RevocationReason,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getGatewayCertificateByTokenCSR = `-- name: GetGatewayCertificateByTokenCSR :one
-SELECT id, gateway_id, authority_id, enrollment_token_id, csr_sha256, serial_number, certificate_pem, trust_bundle_pem, certificate_fingerprint, not_before, not_after, revoked_at, revocation_reason, created_at FROM gateway_certificates WHERE enrollment_token_id=? AND csr_sha256=?
+SELECT id, gateway_id, authority_id, issuance_kind, enrollment_token_id, csr_sha256, serial_number, certificate_pem, trust_bundle_pem, certificate_fingerprint, not_before, not_after, revoked_at, revocation_reason, created_at FROM gateway_certificates WHERE issuance_kind='enrollment' AND enrollment_token_id=? AND csr_sha256=?
 `
 
 type GetGatewayCertificateByTokenCSRParams struct {
-	EnrollmentTokenID string `db:"enrollment_token_id" json:"enrollment_token_id"`
-	CsrSha256         []byte `db:"csr_sha256" json:"csr_sha256"`
+	EnrollmentTokenID sql.NullString `db:"enrollment_token_id" json:"enrollment_token_id"`
+	CsrSha256         []byte         `db:"csr_sha256" json:"csr_sha256"`
 }
 
 func (q *Queries) GetGatewayCertificateByTokenCSR(ctx context.Context, arg GetGatewayCertificateByTokenCSRParams) (GatewayCertificate, error) {
@@ -153,6 +185,48 @@ func (q *Queries) GetGatewayCertificateByTokenCSR(ctx context.Context, arg GetGa
 		&i.ID,
 		&i.GatewayID,
 		&i.AuthorityID,
+		&i.IssuanceKind,
+		&i.EnrollmentTokenID,
+		&i.CsrSha256,
+		&i.SerialNumber,
+		&i.CertificatePem,
+		&i.TrustBundlePem,
+		&i.CertificateFingerprint,
+		&i.NotBefore,
+		&i.NotAfter,
+		&i.RevokedAt,
+		&i.RevocationReason,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getGatewayCertificateForRenewal = `-- name: GetGatewayCertificateForRenewal :one
+SELECT id, gateway_id, authority_id, issuance_kind, enrollment_token_id, csr_sha256, serial_number, certificate_pem, trust_bundle_pem, certificate_fingerprint, not_before, not_after, revoked_at, revocation_reason, created_at FROM gateway_certificates
+WHERE id=? AND gateway_id=? AND certificate_fingerprint=? AND serial_number=?
+FOR UPDATE
+`
+
+type GetGatewayCertificateForRenewalParams struct {
+	ID                     string `db:"id" json:"id"`
+	GatewayID              string `db:"gateway_id" json:"gateway_id"`
+	CertificateFingerprint []byte `db:"certificate_fingerprint" json:"certificate_fingerprint"`
+	SerialNumber           string `db:"serial_number" json:"serial_number"`
+}
+
+func (q *Queries) GetGatewayCertificateForRenewal(ctx context.Context, arg GetGatewayCertificateForRenewalParams) (GatewayCertificate, error) {
+	row := q.db.QueryRowContext(ctx, getGatewayCertificateForRenewal,
+		arg.ID,
+		arg.GatewayID,
+		arg.CertificateFingerprint,
+		arg.SerialNumber,
+	)
+	var i GatewayCertificate
+	err := row.Scan(
+		&i.ID,
+		&i.GatewayID,
+		&i.AuthorityID,
+		&i.IssuanceKind,
 		&i.EnrollmentTokenID,
 		&i.CsrSha256,
 		&i.SerialNumber,
@@ -203,23 +277,24 @@ func (q *Queries) GetGatewayEnrollmentTokenForUpdate(ctx context.Context, arg Ge
 
 const insertGatewayCertificate = `-- name: InsertGatewayCertificate :exec
 INSERT INTO gateway_certificates
-(id, gateway_id, authority_id, enrollment_token_id, csr_sha256, serial_number, certificate_pem, trust_bundle_pem, certificate_fingerprint, not_before, not_after, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+(id, gateway_id, authority_id, issuance_kind, enrollment_token_id, csr_sha256, serial_number, certificate_pem, trust_bundle_pem, certificate_fingerprint, not_before, not_after, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertGatewayCertificateParams struct {
-	ID                     string `db:"id" json:"id"`
-	GatewayID              string `db:"gateway_id" json:"gateway_id"`
-	AuthorityID            string `db:"authority_id" json:"authority_id"`
-	EnrollmentTokenID      string `db:"enrollment_token_id" json:"enrollment_token_id"`
-	CsrSha256              []byte `db:"csr_sha256" json:"csr_sha256"`
-	SerialNumber           string `db:"serial_number" json:"serial_number"`
-	CertificatePem         string `db:"certificate_pem" json:"certificate_pem"`
-	TrustBundlePem         string `db:"trust_bundle_pem" json:"trust_bundle_pem"`
-	CertificateFingerprint []byte `db:"certificate_fingerprint" json:"certificate_fingerprint"`
-	NotBefore              int64  `db:"not_before" json:"not_before"`
-	NotAfter               int64  `db:"not_after" json:"not_after"`
-	CreatedAt              int64  `db:"created_at" json:"created_at"`
+	ID                     string                          `db:"id" json:"id"`
+	GatewayID              string                          `db:"gateway_id" json:"gateway_id"`
+	AuthorityID            string                          `db:"authority_id" json:"authority_id"`
+	IssuanceKind           GatewayCertificatesIssuanceKind `db:"issuance_kind" json:"issuance_kind"`
+	EnrollmentTokenID      sql.NullString                  `db:"enrollment_token_id" json:"enrollment_token_id"`
+	CsrSha256              []byte                          `db:"csr_sha256" json:"csr_sha256"`
+	SerialNumber           string                          `db:"serial_number" json:"serial_number"`
+	CertificatePem         string                          `db:"certificate_pem" json:"certificate_pem"`
+	TrustBundlePem         string                          `db:"trust_bundle_pem" json:"trust_bundle_pem"`
+	CertificateFingerprint []byte                          `db:"certificate_fingerprint" json:"certificate_fingerprint"`
+	NotBefore              int64                           `db:"not_before" json:"not_before"`
+	NotAfter               int64                           `db:"not_after" json:"not_after"`
+	CreatedAt              int64                           `db:"created_at" json:"created_at"`
 }
 
 func (q *Queries) InsertGatewayCertificate(ctx context.Context, arg InsertGatewayCertificateParams) error {
@@ -227,6 +302,7 @@ func (q *Queries) InsertGatewayCertificate(ctx context.Context, arg InsertGatewa
 		arg.ID,
 		arg.GatewayID,
 		arg.AuthorityID,
+		arg.IssuanceKind,
 		arg.EnrollmentTokenID,
 		arg.CsrSha256,
 		arg.SerialNumber,
@@ -327,8 +403,65 @@ func (q *Queries) ListAuditEventsByResource(ctx context.Context, arg ListAuditEv
 	return items, nil
 }
 
+const listGatewayCertificateSummaries = `-- name: ListGatewayCertificateSummaries :many
+SELECT id, authority_id, serial_number, certificate_fingerprint, not_before,
+       not_after, revoked_at, revocation_reason, created_at
+FROM gateway_certificates
+WHERE gateway_id=?
+ORDER BY created_at DESC, id DESC
+`
+
+type ListGatewayCertificateSummariesParams struct {
+	GatewayID string `db:"gateway_id" json:"gateway_id"`
+}
+
+type ListGatewayCertificateSummariesRow struct {
+	ID                     string         `db:"id" json:"id"`
+	AuthorityID            string         `db:"authority_id" json:"authority_id"`
+	SerialNumber           string         `db:"serial_number" json:"serial_number"`
+	CertificateFingerprint []byte         `db:"certificate_fingerprint" json:"certificate_fingerprint"`
+	NotBefore              int64          `db:"not_before" json:"not_before"`
+	NotAfter               int64          `db:"not_after" json:"not_after"`
+	RevokedAt              sql.NullInt64  `db:"revoked_at" json:"revoked_at"`
+	RevocationReason       sql.NullString `db:"revocation_reason" json:"revocation_reason"`
+	CreatedAt              int64          `db:"created_at" json:"created_at"`
+}
+
+func (q *Queries) ListGatewayCertificateSummaries(ctx context.Context, arg ListGatewayCertificateSummariesParams) ([]ListGatewayCertificateSummariesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listGatewayCertificateSummaries, arg.GatewayID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListGatewayCertificateSummariesRow{}
+	for rows.Next() {
+		var i ListGatewayCertificateSummariesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.AuthorityID,
+			&i.SerialNumber,
+			&i.CertificateFingerprint,
+			&i.NotBefore,
+			&i.NotAfter,
+			&i.RevokedAt,
+			&i.RevocationReason,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listGatewayCertificates = `-- name: ListGatewayCertificates :many
-SELECT id, gateway_id, authority_id, enrollment_token_id, csr_sha256, serial_number, certificate_pem, trust_bundle_pem, certificate_fingerprint, not_before, not_after, revoked_at, revocation_reason, created_at FROM gateway_certificates WHERE gateway_id=? ORDER BY created_at DESC, id DESC
+SELECT id, gateway_id, authority_id, issuance_kind, enrollment_token_id, csr_sha256, serial_number, certificate_pem, trust_bundle_pem, certificate_fingerprint, not_before, not_after, revoked_at, revocation_reason, created_at FROM gateway_certificates WHERE gateway_id=? ORDER BY created_at DESC, id DESC
 `
 
 type ListGatewayCertificatesParams struct {
@@ -348,6 +481,7 @@ func (q *Queries) ListGatewayCertificates(ctx context.Context, arg ListGatewayCe
 			&i.ID,
 			&i.GatewayID,
 			&i.AuthorityID,
+			&i.IssuanceKind,
 			&i.EnrollmentTokenID,
 			&i.CsrSha256,
 			&i.SerialNumber,
