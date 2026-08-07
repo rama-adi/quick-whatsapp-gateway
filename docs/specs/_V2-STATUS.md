@@ -15,13 +15,13 @@ R-milestone that re-implements its subsystem.
 
 | Spec | v2 disposition | Owning milestone | Notes |
 |---|---|---|---|
-| `grpc-contracts.md` | 🚧 Increment 3 active | gRPC control plane | Increment 2 is complete: private enrollment/control, fenced epochs/liveness, durable acknowledgements, reconnect supervision, strict lifecycle directives/reports, automatic overlapping-stream certificate rollover, and audited API/web administration are implemented. Desired-state reconciliation is active; engine/event cutover remains. |
+| `grpc-contracts.md` | 🚧 Increment 4 active | gRPC control plane | Enrollment, lifecycle, renewal, administration, and revision/epoch/lease-fenced desired-state reconciliation are implemented. Private engine RPC migration is active; reliable events/commands and public gRPC remain. |
 | `router.md` | ✅ Increments A+B + Huma | central-router | Single front door/trust boundary: router-owned auth/CORS/control bus, REST broker, Ed25519 assertion, generated Huma OpenAPI, and ticketed WebSocket over shared Redis. Gateway NDJSON is removed. |
 | `trust-model.md` | ✅ v2 (replaced `auth-tenancy.md`) | R1/R2 + central-router | Two caller identities (JWKS-JWT, api-key); org ownership; control bus + cache + revocation; boot orphan-guard (§4). **Central-router (Increment A):** authn + control-bus subscriber moved to the router; the gateway now trusts the router's Ed25519 assertion. |
 | `api-keys.md` | ✅ v2 + central-router | R1/central-router | No custom Go keys; the router verifies against shared `apikey` and owns the positive cache; gateways receive only the internal assertion. |
-| `whatsmeow-store.md` | ✅ v2 | R2 | Custom MySQL store retired; SQLite via `sqlstore` on `modernc.org/sqlite` (CGO=0), persistent volume, session pinning (§6.1). |
-| `session-manager.md` | ✅ v2 | R2 | SQLite keystore, `gateway_id` pinning, boot orphan-guard (§5). |
-| `store.md` | 🚧 gRPC foundation | R1/gRPC Inc 2.0 | Normalized gateway/enrollment/PKI/audit schema and sqlc primitives exist but are unwired; API startup + `cmd/migrate` own migrations. |
+| `whatsmeow-store.md` | ✅ Increment 3 | R2/gRPC Inc 3 | SQLite keystore plus persistent-path validation, integrity health, fail-closed missing/corrupt handling, checkpointed close, and tested operator recovery procedure. |
+| `session-manager.md` | ✅ Increment 3 | R2/gRPC Inc 3 | API-authored assignments/config, local inventory reconciliation, assignment epochs/leases, and control-mode boot without MySQL lifecycle reads. |
+| `store.md` | 🚧 Increment 4 active | R1/gRPC Inc 3 | API owns gateway PKI, administration, atomic assignments/config revisions, durable reconciliation health/results, and placement fencing; engine/event cutover remains. |
 | `http-foundation.md` | ✅ v2 + central-router | R1/central-router | Router owns public JWT/API-key auth, CORS, Huma routes, and generated OpenAPI; gateway HTTP trusts only the internal assertion during migration. |
 | `stream.md` | ✅ WebSocket cutover | central-router Increment B | Router ticket mint + WebSocket, replay/tail, event filters, and revocation drop are implemented over shared Redis `evt:*`; gateway NDJSON `/events` is removed. |
 | `webhooks.md` | ✅ v2 | R1 | Config org-owned; dispatch/HMAC/retries unchanged (§11). |

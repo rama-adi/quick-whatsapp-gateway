@@ -3,7 +3,7 @@
 Status: **active migration** — design of record; implementation is proceeding incrementally on this branch.
 Branch: `migration/grpc-control-plane`.
 
-> **Current checkpoint (Increment 3):** Increment 2 and its web administration follow-up are
+> **Current checkpoint (Increment 4):** Increments 2, 2a, and 3 are
 > complete. Enrollment persistence and crypto policy, the persistent
 > local CA, the crash-safe enrollment service, the private TLS 1.3 enrollment listener, strict
 > per-RPC certificate authorization, and crash-safe gateway credential bootstrap over a reusable
@@ -27,8 +27,14 @@ Branch: `migration/grpc-control-plane`.
 > supervisor. Automatic certificate renewal proves a replacement control stream before retiring the
 > incumbent connection. Audited API-local gateway administration and the `super_admin` web workflow
 > cover creation, one-time enrollment, observation, lifecycle control, re-enrollment, and safe
-> deletion without persisting plaintext enrollment tokens. Desired-state reconciliation and the
-> engine/event cutover remain unfinished; Increment 3 is active.
+> deletion without persisting plaintext enrollment tokens. The API now streams atomic revisioned
+> assignments, configuration, assignment epochs, and renewable leases. Gateways reconcile only
+> matching local devices, stop removed/expired assignments, report missing/corrupt/unexpected state,
+> and boot without MySQL lifecycle reads. Control-mode placement requires a healthy, current
+> reconciliation. Persistent-volume validation, SQLite integrity checks, fail-closed missing-store
+> handling, WAL checkpoint shutdown, operator recovery guidance, and admin observability are wired.
+> Private engine RPC migration is the active Increment 4 boundary; event/command and final dependency
+> cutovers remain unfinished.
 
 This plan replaces the current router → gateway HTTP reverse-proxy architecture with an API
 control plane and private WhatsApp engine gateways connected through gRPC. It also introduces a
