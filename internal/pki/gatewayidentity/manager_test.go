@@ -84,6 +84,41 @@ func TestRejectsResponseTrustAndMetadataTamper(t *testing.T) {
 	}
 }
 
+func TestRejectedReplacementRetainsIncumbent(t *testing.T) {
+	ca, root, key := fixture(t)
+	m, err := New(Config{Directory: filepath.Join(t.TempDir(), "id"), GatewayID: "gw_1", BootstrapCA: ca})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := m.Prepare()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = m.Install(installation(t, first, ca, root, key)); err != nil {
+		t.Fatal(err)
+	}
+	incumbent, err := m.GetClientCertificate(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending, err := m.Prepare()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad := installation(t, pending, ca, root, key)
+	bad.Serial = "substituted"
+	if err = m.Install(bad); err == nil {
+		t.Fatal("substituted replacement accepted")
+	}
+	active, err := m.GetClientCertificate(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if active.Leaf.SerialNumber.Cmp(incumbent.Leaf.SerialNumber) != 0 {
+		t.Fatal("rejected replacement displaced incumbent")
+	}
+}
+
 func TestRecoveryFallsBackToPreviousGeneration(t *testing.T) {
 	ca, root, key := fixture(t)
 	dir := filepath.Join(t.TempDir(), "id")

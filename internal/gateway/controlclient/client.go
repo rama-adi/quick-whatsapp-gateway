@@ -21,6 +21,21 @@ type Config struct {
 	Identity          *gatewayidentity.Manager
 	AttemptTimeout    time.Duration
 }
+
+// RenewalTransport isolates the generated private renewal RPC from credential
+// rollover. Implementations must use the supplied incumbent connection to
+// authenticate the renewal request.
+type RenewalTransport interface {
+	RenewCertificate(context.Context, *grpc.ClientConn, []byte) (gatewayidentity.Installation, error)
+}
+
+// RenewalFunc adapts a function into RenewalTransport.
+type RenewalFunc func(context.Context, *grpc.ClientConn, []byte) (gatewayidentity.Installation, error)
+
+func (f RenewalFunc) RenewCertificate(ctx context.Context, conn *grpc.ClientConn, csrDER []byte) (gatewayidentity.Installation, error) {
+	return f(ctx, conn, csrDER)
+}
+
 type Client struct {
 	cfg  Config
 	mu   sync.Mutex
@@ -53,6 +68,39 @@ func (c *Client) Ensure(ctx context.Context, token string) error {
 		}
 	}
 	return c.connectAuthenticated(ctx)
+}
+
+// Renew obtains a replacement identity over the incumbent authenticated
+// connection, validates and publishes it through the identity manager, and
+// creates a new reusable mTLS connection before closing the old one. A failed
+// renewal leaves the incumbent connection in place.
+func (c *Client) Renew(ctx context.Context, transport RenewalTransport) error {
+	if transport == nil {
+		return errors.New("control client: renewal transport required")
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.conn == nil || !c.cfg.Identity.Ready() {
+		return errors.New("control client: authenticated connection required")
+	}
+	pending, err := c.cfg.Identity.Prepare()
+	if err != nil {
+		return err
+	}
+	installation, err := transport.RenewCertificate(ctx, c.conn, pending.CSRDER)
+	if err != nil {
+		return err
+	}
+	if err = c.cfg.Identity.Install(installation); err != nil {
+		return err
+	}
+	replacement, err := c.newAuthenticatedConn()
+	if err != nil {
+		return err
+	}
+	incumbent := c.conn
+	c.conn = replacement
+	return incumbent.Close()
 }
 func (c *Client) enroll(ctx context.Context, token string) error {
 	pending, err := c.cfg.Identity.Prepare()
@@ -98,17 +146,24 @@ func retryable(code codes.Code) bool {
 	}
 }
 func (c *Client) connectAuthenticated(ctx context.Context) error {
-	tlsConfig, err := pki.NewAPIPeerTLSConfig(c.cfg.Identity.BootstrapCA(), time.Now)
-	if err != nil {
-		return err
-	}
-	tlsConfig.GetClientCertificate = c.cfg.Identity.GetClientCertificate
-	conn, err := grpc.NewClient(c.cfg.Target, grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)))
+	conn, err := c.newAuthenticatedConn()
 	if err != nil {
 		return err
 	}
 	c.conn = conn
 	return nil
+}
+func (c *Client) newAuthenticatedConn() (*grpc.ClientConn, error) {
+	tlsConfig, err := pki.NewAPIPeerTLSConfig(c.cfg.Identity.BootstrapCA(), time.Now)
+	if err != nil {
+		return nil, err
+	}
+	tlsConfig.GetClientCertificate = c.cfg.Identity.GetClientCertificate
+	conn, err := grpc.NewClient(c.cfg.Target, grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)))
+	if err != nil {
+		return nil, err
+	}
+	return conn, nil
 }
 func (c *Client) Conn() *grpc.ClientConn { c.mu.Lock(); defer c.mu.Unlock(); return c.conn }
 func (c *Client) Close() error {

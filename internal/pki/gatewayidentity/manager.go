@@ -243,21 +243,41 @@ func (m *Manager) Install(in Installation) error {
 		return err
 	}
 	gen := "identity-" + ulid.Make().String()
-	d := filepath.Join(m.cfg.Directory, gen)
-	if err = os.Mkdir(d, 0o700); err != nil {
+	staging := filepath.Join(m.cfg.Directory, "."+gen+".tmp")
+	if err = os.Mkdir(staging, 0o700); err != nil {
 		return err
 	}
+	published := false
+	defer func() {
+		if !published {
+			_ = os.RemoveAll(staging)
+			_ = os.RemoveAll(filepath.Join(m.cfg.Directory, gen))
+		}
+	}()
 	meta, _ := json.Marshal(metadata{Version: version, Generation: gen, GatewayID: m.cfg.GatewayID, Authority: in.AuthorityID, Serial: in.Serial, NotBefore: in.NotBefore, NotAfter: in.NotAfter})
 	for _, f := range []struct {
 		name string
 		data []byte
 		mode os.FileMode
 	}{{"key.pem", keyPEM, 0o600}, {"chain.pem", in.ChainPEM, 0o644}, {"trust.pem", in.TrustBundlePEM, 0o644}, {"metadata.json", append(meta, '\n'), 0o644}} {
-		if err = writeSync(filepath.Join(d, f.name), f.data, f.mode); err != nil {
+		if err = writeSync(filepath.Join(staging, f.name), f.data, f.mode); err != nil {
 			return err
 		}
 	}
-	if err = syncDir(d); err != nil {
+	if err = syncDir(staging); err != nil {
+		return err
+	}
+	d := filepath.Join(m.cfg.Directory, gen)
+	if err = os.Rename(staging, d); err != nil {
+		return err
+	}
+	if err = syncDir(m.cfg.Directory); err != nil {
+		return err
+	}
+	// Read the candidate back before publishing it. A failed candidate is never
+	// referenced by current, so the incumbent remains usable.
+	loaded, err := m.loadGeneration(gen)
+	if err != nil {
 		return err
 	}
 	previous, _ := readPointer(m.cfg.Directory, "current")
@@ -269,10 +289,7 @@ func (m *Manager) Install(in Installation) error {
 	if err = publishPointer(m.cfg.Directory, "current", gen); err != nil {
 		return err
 	}
-	loaded, err := m.loadGeneration(gen)
-	if err != nil {
-		return err
-	}
+	published = true
 	m.active.Store(loaded)
 	if err = os.RemoveAll(filepath.Join(m.cfg.Directory, "pending")); err != nil {
 		return err
