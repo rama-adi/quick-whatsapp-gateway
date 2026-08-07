@@ -1,6 +1,6 @@
 # Session Manager
 
-> **Target migration, not current runtime (gRPC control-plane Increment 0).** The API will push
+> **Increment 3 gateway reconciliation active.** The API pushes
 > authoritative desired-state assignments and per-session configuration over the control stream.
 > Assignments carry monotonically increasing epochs and renewable leases; gateways stop expired
 > assignments and the API rejects stale commands/events, preventing split brain. Session placement
@@ -44,8 +44,8 @@ per attached number, each holding a live WebSocket. Responsibilities:
   acknowledged DRAINING and DRAINED runtime heartbeats before its independently-owned stream is
   cancelled. Those are observed states and do not change the separate desired lifecycle. Flush
   requires a newer acknowledgement and follows a reconnect onto its replacement epoch. This coarse
-  process drain is transitional; per-session desired-state reconciliation and assignment leases
-  remain deferred. A post-Welcome RUN can start or affirm engine work only before terminal drain;
+  process drain is transitional. The protocol now carries per-session desired-state snapshots and
+  renewable leases, but gateway-side reconciliation remains pending. A post-Welcome RUN can start or affirm engine work only before terminal drain;
   DRAIN is terminal for the process, and DISABLE follows the same drain path before stopping it.
 - **Control-mode worker lifetime.** The gateway-owned transitional Asynq server does not start until
   the supervisor has a durably acknowledged RUN+READY state. Terminal DRAIN closes admission and
@@ -55,6 +55,16 @@ per attached number, each holding a live WebSocket. Responsibilities:
 - **Boot orphan-guard** (§4.6 boot reconciliation): before resuming a session, check
   its **owning organization** still exists and is enabled in MySQL; **skip + mark
   `STOPPED`** any session whose org was deleted/disabled while the gateway was down.
+
+## Desired-state assignment foundation
+
+After authenticated connection, the API emits a complete revisioned assignment snapshot, and emits
+a fresh snapshot after every durably persisted heartbeat to renew leases. Each assignment includes
+the organization ID, nonzero durable `assignment_epoch`, absolute lease expiry, and the session's
+auto-read, typing, and rate settings. The gateway acknowledges the applied snapshot revision; the
+API persists that acknowledgement only for the still-current connection epoch and desired revision.
+The gateway reconciliation runtime will consume this contract by stopping unassigned or expired
+sessions and carrying the epoch on all commands and events.
 - Lifecycle: create / start / stop / restart / logout.
 - Reconnect with exponential backoff + full jitter.
 - Status state machine `STARTING · SCAN_QR_CODE · WORKING · FAILED · STOPPED ·

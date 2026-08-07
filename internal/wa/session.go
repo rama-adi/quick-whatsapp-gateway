@@ -12,6 +12,7 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/gateway/desiredstate"
 )
 
 // ----------------------------------------------------------------------------
@@ -113,6 +114,7 @@ type ManagedSession struct {
 	SessionID      string
 	OrganizationID string
 	IsAdmin        bool
+	assignedConfig *desiredstate.Config
 
 	device *store.Device
 	client waClient

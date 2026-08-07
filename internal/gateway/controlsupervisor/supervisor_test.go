@@ -14,6 +14,12 @@ type staticRuntime struct{ snapshot RuntimeSnapshot }
 
 func (s staticRuntime) Snapshot() RuntimeSnapshot { return s.snapshot }
 
+type staticDesiredState struct{}
+
+func (staticDesiredState) ApplyDesiredState(_ context.Context, epoch uint64, snapshot *gatewayv1.DesiredStateSnapshot) (*gatewayv1.DesiredStateReport, error) {
+	return &gatewayv1.DesiredStateReport{ConnectionEpoch: epoch, ProcessedRevision: snapshot.Revision, KeystoreHealth: &gatewayv1.KeystoreHealth{State: gatewayv1.KeystoreHealthState_KEYSTORE_HEALTH_STATE_HEALTHY}}, nil
+}
+
 type fakeClock struct {
 	mu     sync.Mutex
 	now    time.Time
@@ -167,6 +173,7 @@ func TestHelloAndHeartbeatSequenceEpochAndRuntime(t *testing.T) {
 	stream := newFakeStream()
 	stream.recv <- receiveResult{frame: welcome(gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN)}
 	supervisor := testSupervisor(t, clock, &fakeOpener{streams: []*fakeStream{stream}})
+	supervisor.cfg.DesiredState = staticDesiredState{}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- supervisor.runStream(ctx) }()
@@ -185,23 +192,31 @@ func TestHelloAndHeartbeatSequenceEpochAndRuntime(t *testing.T) {
 	if supervisor.Status().Ready {
 		t.Fatal("welcome without durable heartbeat acknowledgement reported ready")
 	}
+	stream.recv <- receiveResult{frame: &gatewayv1.ControlFrame{ProtocolVersion: ProtocolVersion, Sequence: 2, Payload: &gatewayv1.ControlFrame_DesiredStateSnapshot{DesiredStateSnapshot: &gatewayv1.DesiredStateSnapshot{Revision: 1}}}}
+	report := <-stream.sent
+	if report.Sequence != 2 || report.GetDesiredStateReport() == nil {
+		t.Fatalf("desired-state report = %#v", report)
+	}
 	if !clock.fire(time.Second) {
 		t.Fatal("heartbeat timer not registered")
 	}
 	heartbeat := <-stream.sent
-	if heartbeat.Sequence != 2 || heartbeat.GetHeartbeat().ConnectionEpoch != 7 ||
-		heartbeat.GetHeartbeat().LastControlSequence != 1 || heartbeat.GetHeartbeat().SessionCount != 3 {
+	if heartbeat.Sequence != 3 || heartbeat.GetHeartbeat().ConnectionEpoch != 7 ||
+		heartbeat.GetHeartbeat().LastControlSequence != 2 || heartbeat.GetHeartbeat().SessionCount != 3 {
 		t.Fatalf("invalid heartbeat: %#v", heartbeat)
 	}
-	stream.recv <- receiveResult{frame: heartbeatAck(2, 2, 7)}
-	waitStatus(t, supervisor, func(status Status) bool { return status.Ready })
+	stream.recv <- receiveResult{frame: heartbeatAck(3, 3, 7)}
+	waitStatus(t, supervisor, func(status Status) bool { return status.ConfirmedHeartbeat })
+	if !supervisor.Status().Ready {
+		t.Fatal("healthy desired-state snapshot and heartbeat did not report ready")
+	}
 	flushDone := make(chan error, 1)
 	go func() { flushDone <- supervisor.Flush(context.Background()) }()
 	flushedHeartbeat := <-stream.sent
-	if flushedHeartbeat.Sequence != 3 {
+	if flushedHeartbeat.Sequence != 4 {
 		t.Fatalf("flush heartbeat sequence = %d", flushedHeartbeat.Sequence)
 	}
-	stream.recv <- receiveResult{frame: heartbeatAck(3, 3, 7)}
+	stream.recv <- receiveResult{frame: heartbeatAck(4, 4, 7)}
 	if err := <-flushDone; err != nil {
 		t.Fatal(err)
 	}

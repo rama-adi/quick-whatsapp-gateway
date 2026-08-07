@@ -18,6 +18,7 @@ import (
 	waLog "go.mau.fi/whatsmeow/util/log"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/gateway/desiredstate"
 )
 
 // Config holds the manager's tunables, populated from ENV by the composition root.
@@ -168,6 +169,85 @@ func (m *Manager) SetWALogger(l waLog.Logger) { m.waLogger = l }
 // configuration-time state and must be installed before Boot.
 func (m *Manager) SetOrgExists(pred func(ctx context.Context, orgID string) (bool, error)) {
 	m.orgExists = pred
+}
+
+// Inventory returns paired local device identities for desired-state
+// reconciliation. It does not inspect app-data tables: the local keystore is
+// the only inventory source in control mode.
+func (m *Manager) Inventory(ctx context.Context) (desiredstate.Inventory, error) {
+	devices, err := m.keystore.GetAllDevices(ctx)
+	if err != nil {
+		return desiredstate.Inventory{}, err
+	}
+	result := desiredstate.Inventory{PairedJIDs: make([]string, 0, len(devices))}
+	for _, device := range devices {
+		if device == nil || device.ID == nil {
+			continue
+		}
+		result.PairedJIDs = append(result.PairedJIDs, device.ID.String())
+	}
+	return result, nil
+}
+
+// StartAssigned materializes an assignment directly from control-plane metadata
+// and its mapped local device. In particular, it never reads wa_sessions or an
+// organization during boot/reconciliation.
+func (m *Manager) StartAssigned(ctx context.Context, assignment desiredstate.Assignment) error {
+	devices, err := m.keystore.GetAllDevices(ctx)
+	if err != nil {
+		return fmt.Errorf("load local devices: %w", err)
+	}
+	var device *store.Device
+	for _, candidate := range devices {
+		if candidate != nil && candidate.ID != nil && candidate.ID.String() == assignment.DeviceJID {
+			device = candidate
+			break
+		}
+	}
+	if device == nil {
+		return domain.ErrNotFound("assigned local device not found")
+	}
+	m.mu.Lock()
+	ms := m.sessions[assignment.SessionID]
+	if ms == nil {
+		ms = &ManagedSession{SessionID: assignment.SessionID, OrganizationID: assignment.OrganizationID, device: device, status: domain.SessionStopped}
+		m.sessions[assignment.SessionID] = ms
+	}
+	config := assignment.Config
+	ms.mu.Lock()
+	ms.assignedConfig = &config
+	ms.mu.Unlock()
+	m.mu.Unlock()
+	m.startManaged(ctx, assignment.SessionID)
+	return nil
+}
+
+// AssignedConfig exposes the last control-plane session configuration. It is
+// intentionally in-memory; control mode does not read wa_sessions for runtime
+// settings.
+func (m *Manager) AssignedConfig(id string) (desiredstate.Config, bool) {
+	ms := m.Get(id)
+	if ms == nil {
+		return desiredstate.Config{}, false
+	}
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+	if ms.assignedConfig == nil {
+		return desiredstate.Config{}, false
+	}
+	return *ms.assignedConfig, true
+}
+
+// StopAssigned stops only a locally materialized assignment. A missing runtime
+// is already reconciled and is intentionally not treated as an error.
+func (m *Manager) StopAssigned(ctx context.Context, sessionID string) error {
+	ms := m.Get(sessionID)
+	if ms == nil {
+		return nil
+	}
+	m.teardown(ms)
+	m.setStatus(ctx, ms, domain.SessionStopped)
+	return nil
 }
 
 // ----------------------------------------------------------------------------

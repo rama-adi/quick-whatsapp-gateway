@@ -33,6 +33,7 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/gateway/controlclient"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/gateway/controlsupervisor"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/gateway/desiredstate"
 	gwhttp "github.com/ramaadi/quick-whatsapp-gateway/internal/http"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/http/handlers"
 	httpmiddleware "github.com/ramaadi/quick-whatsapp-gateway/internal/http/middleware"
@@ -85,6 +86,7 @@ func run() error {
 	var supervisorExited chan struct{}
 	var supervisorResultMu sync.Mutex
 	var supervisorResult error
+	var supervisorStarted bool
 	var certificateRenewalExpired chan error
 	lifecycleDisabled := make(chan struct{}, 1)
 	if controlEnabled {
@@ -140,13 +142,6 @@ func run() error {
 		var cancelSupervisor context.CancelFunc
 		supervisorCtx, cancelSupervisor = context.WithCancel(context.Background())
 		supervisorExited = make(chan struct{})
-		go func() {
-			result := controlSupervisor.Run(supervisorCtx)
-			supervisorResultMu.Lock()
-			supervisorResult = result
-			supervisorResultMu.Unlock()
-			close(supervisorExited)
-		}()
 		certificateRenewalExpired = make(chan error, 1)
 		go func() {
 			renewalErr := renewGatewayCertificate(supervisorCtx, controlIdentity, cfg.CertificateRenewBefore, control, controlSupervisor, func() {
@@ -170,7 +165,9 @@ func run() error {
 		}()
 		defer func() {
 			cancelSupervisor()
-			<-supervisorExited
+			if supervisorStarted {
+				<-supervisorExited
+			}
 			supervisorResultMu.Lock()
 			result := supervisorResult
 			supervisorResultMu.Unlock()
@@ -192,11 +189,6 @@ func run() error {
 	prometheus.MustRegister(collectors.NewDBStatsCollector(db, "gateway"))
 
 	st := store.New(db)
-	if controlRuntime != nil {
-		controlRuntime.setSessionCounter(func(ctx context.Context) (int, error) {
-			return st.Sessions.CountByGateway(ctx, cfg.GatewayID)
-		})
-	}
 
 	// --- Crypto (AES-GCM for secrets at rest) ---
 	aes, err := crypto.NewAESGCM(cfg.AppEncryptionKey)
@@ -228,9 +220,25 @@ func run() error {
 	}
 
 	// --- whatsmeow keystore (gateway-local SQLite, §6.1) ---
-	keystore, err := wastore.Open(ctx, cfg.WhatsmeowStoreDSN, nil)
-	if err != nil {
-		return fmt.Errorf("open whatsmeow keystore: %w", err)
+	// Control-mode adoption is fail-closed: a missing/corrupt volume remains
+	// observable to the control plane but cannot become a replacement device
+	// store. Legacy mode retains its create-on-first-use local-development path.
+	var keystore wa.Keystore
+	var controlKeystore *gatewayKeystoreRuntime
+	if controlEnabled {
+		controlKeystore, err = openControlKeystore(ctx, cfg.WhatsmeowStoreDSN)
+		if err != nil {
+			return fmt.Errorf("inspect whatsmeow keystore: %w", err)
+		}
+		keystore = controlKeystore.holder
+		if controlKeystore.Health().GetState() != gatewayv1.KeystoreHealthState_KEYSTORE_HEALTH_STATE_HEALTHY {
+			controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DEGRADED)
+		}
+	} else {
+		keystore, err = wastore.Open(ctx, cfg.WhatsmeowStoreDSN, nil)
+		if err != nil {
+			return fmt.Errorf("open whatsmeow keystore: %w", err)
+		}
 	}
 
 	// --- Stream publisher (event fan-out over Redis pub/sub) ---
@@ -296,6 +304,13 @@ func run() error {
 		inbound.WithLogger(log),
 		inbound.WithLoginInterceptor(loginInterceptor),
 		inbound.WithSessionConfig(func(sessionID string) (inbound.SessionConfig, bool) {
+			if controlEnabled {
+				config, ok := manager.AssignedConfig(sessionID)
+				if !ok {
+					return inbound.SessionConfig{}, false
+				}
+				return inbound.SessionConfig{AutoRead: config.AutoRead, PresenceTyping: config.PresenceTyping}, true
+			}
 			s, err := st.Sessions.Get(context.Background(), sessionID)
 			if err != nil {
 				return inbound.SessionConfig{}, false
@@ -313,6 +328,33 @@ func run() error {
 	// `organization` table; orphaned sessions are marked STOPPED and not resumed.
 	orgReader := store.NewOrganizationReader(db)
 	manager.SetOrgExists(orgReader.Exists)
+	if controlEnabled {
+		reconciler := desiredstate.New(manager, nil)
+		controlRuntime.setSessionCounter(func(context.Context) (int, error) {
+			return reconciler.AssignmentCount(), nil
+		})
+		applier := &desiredstate.ControlApplier{Reconciler: reconciler, Health: controlKeystore.Health, OnLeaseExpired: func(expireErr error) {
+			if expireErr != nil {
+				log.Warn("expire desired-state leases", "err", expireErr)
+			}
+			controlSupervisor.MarkDesiredStateUnhealthy()
+			controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DEGRADED)
+			controlSupervisor.ReportNow()
+		}}
+		controlSupervisor.SetDesiredState(&bootstrapControlApplier{delegate: applier, keystore: controlKeystore, onReport: func(state gatewayv1.GatewayRuntimeState) {
+			controlRuntime.setState(state)
+			controlSupervisor.ReportNow()
+		}})
+		defer applier.Stop()
+		go func() {
+			result := controlSupervisor.Run(supervisorCtx)
+			supervisorResultMu.Lock()
+			supervisorResult = result
+			supervisorResultMu.Unlock()
+			close(supervisorExited)
+		}()
+		supervisorStarted = true
+	}
 
 	// Registry lifecycle (D8). Register as `joining` before the manager adopts
 	// sessions, flip to `active` once boot succeeds, then heartbeat last_seen_at +
@@ -332,6 +374,12 @@ func run() error {
 		managerLifecycleMu.Lock()
 		defer managerLifecycleMu.Unlock()
 		if managerTerminal || managerBooted {
+			return "", nil
+		}
+		if controlEnabled {
+			// Desired-state reconciliation owns control-mode session startup. Never
+			// let the legacy manager Boot read wa_sessions or organizations here.
+			managerBooted = true
 			return "", nil
 		}
 		adminCode, bootErr := manager.Boot(bootCtx)
@@ -354,6 +402,11 @@ func run() error {
 			defer cancel()
 			if shutdownErr := manager.Shutdown(shutdownCtx); shutdownErr != nil {
 				log.Warn("shutdown session manager", "err", shutdownErr)
+			}
+			if controlKeystore != nil {
+				if closeErr := controlKeystore.Close(); closeErr != nil {
+					log.Warn("checkpoint and close whatsmeow keystore", "err", closeErr)
+				}
 			}
 		})
 	}
@@ -379,6 +432,11 @@ func run() error {
 				return fmt.Errorf("wait for gateway control welcome: %w", result.err)
 			}
 			bootAllowed = result.status.DesiredLifecycle == gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN
+			if bootAllowed {
+				if _, desiredErr := controlSupervisor.WaitForDesiredState(ctx, result.status.ConnectionEpoch); desiredErr != nil {
+					return fmt.Errorf("wait for gateway desired state: %w", desiredErr)
+				}
+			}
 		case <-supervisorExited:
 			supervisorResultMu.Lock()
 			result := supervisorResult
@@ -407,7 +465,7 @@ func run() error {
 			controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DEGRADED)
 		}
 	} else if controlRuntime != nil && bootAllowed {
-		controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_READY)
+		controlRuntime.setState(controlRuntimeStateForKeystore(controlKeystore))
 		controlSupervisor.ReportNow()
 	}
 	if adminCode != "" {
@@ -447,6 +505,9 @@ func run() error {
 				controlSupervisor.ReportNow()
 				return
 			}
+			if _, desiredErr := controlSupervisor.WaitForDesiredState(supervisorCtx, status.ConnectionEpoch); desiredErr != nil {
+				return
+			}
 			adminCode, bootErr := bootManager(supervisorCtx)
 			if bootErr != nil {
 				log.Error("deferred session manager boot failed", "err", bootErr)
@@ -457,7 +518,7 @@ func run() error {
 				log.Info("admin session pairing code", "code", adminCode, "number", cfg.WhatsAppAdminNumber)
 				fmt.Printf("\n=== WhatsApp admin pairing code: %s (number %s) ===\n\n", adminCode, cfg.WhatsAppAdminNumber)
 			}
-			controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_READY)
+			controlRuntime.setState(controlRuntimeStateForKeystore(controlKeystore))
 			controlSupervisor.ReportNow()
 		}()
 	}
@@ -512,7 +573,7 @@ func run() error {
 				}
 				afterSequence = directive.Sequence
 				if directive.Action == gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN {
-					runtimeState := gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_READY
+					runtimeState := controlRuntimeStateForKeystore(controlKeystore)
 					failure := gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_NONE
 					terminal, _ := managerState()
 					if terminal {
@@ -879,6 +940,13 @@ func (r *gatewayControlRuntime) Snapshot() controlsupervisor.RuntimeSnapshot {
 		sessionCount = int(^uint32(0))
 	}
 	return controlsupervisor.RuntimeSnapshot{State: state, SessionCount: uint32(sessionCount)}
+}
+
+func controlRuntimeStateForKeystore(keystore *gatewayKeystoreRuntime) gatewayv1.GatewayRuntimeState {
+	if keystore != nil {
+		return keystore.RuntimeState()
+	}
+	return gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_READY
 }
 
 func newGatewayInstanceID() (string, error) {

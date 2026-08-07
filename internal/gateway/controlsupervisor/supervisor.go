@@ -35,6 +35,13 @@ type RuntimeSource interface {
 	Snapshot() RuntimeSnapshot
 }
 
+// DesiredStateApplier applies one complete authoritative desired-state snapshot.
+// Apply must not return until the snapshot has been made effective locally: the
+// supervisor sends its acknowledgement only after that point.
+type DesiredStateApplier interface {
+	ApplyDesiredState(context.Context, uint64, *gatewayv1.DesiredStateSnapshot) (*gatewayv1.DesiredStateReport, error)
+}
+
 type Clock interface {
 	Now() time.Time
 	After(time.Duration) <-chan time.Time
@@ -59,6 +66,7 @@ type Config struct {
 	HTTPBaseURL      string
 	StartedAt        time.Time
 	Runtime          RuntimeSource
+	DesiredState     DesiredStateApplier
 	Clock            Clock
 	Backoff          Backoff
 	MinHeartbeat     time.Duration
@@ -67,16 +75,19 @@ type Config struct {
 }
 
 type Status struct {
-	Ready               bool
-	Connected           bool
-	ConfirmedHeartbeat  bool
-	Stable              bool
-	ConnectionEpoch     uint64
-	LastControlSequence uint64
-	AcknowledgedRuntime gatewayv1.GatewayRuntimeState
-	DesiredLifecycle    gatewayv1.LifecycleDirectiveAction
-	Directive           *LifecycleDirective
-	LastError           error
+	Ready                bool
+	Connected            bool
+	ConfirmedHeartbeat   bool
+	Stable               bool
+	ConnectionEpoch      uint64
+	LastControlSequence  uint64
+	AcknowledgedRuntime  gatewayv1.GatewayRuntimeState
+	DesiredLifecycle     gatewayv1.LifecycleDirectiveAction
+	DesiredStateRevision uint64
+	DesiredStateApplied  bool
+	DesiredStateHealthy  bool
+	Directive            *LifecycleDirective
+	LastError            error
 }
 
 // LifecycleDirective is a validated API lifecycle instruction. Unlike the
@@ -161,6 +172,46 @@ func (s *Supervisor) WaitForWelcome(ctx context.Context) (Status, error) {
 		case <-changed:
 		}
 	}
+}
+
+// SetDesiredState installs the snapshot applier before Run starts. It exists to
+// let the composition root construct the local session engine before opening
+// the control stream.
+func (s *Supervisor) SetDesiredState(applier DesiredStateApplier) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cfg.DesiredState = applier
+}
+
+// WaitForDesiredState waits for an authoritative snapshot to be successfully
+// applied on the current connection. A Welcome alone never authorizes engine
+// work, because it contains no session ownership information.
+func (s *Supervisor) WaitForDesiredState(ctx context.Context, epoch uint64) (Status, error) {
+	for {
+		s.mu.RLock()
+		if s.status.Connected && s.status.ConnectionEpoch == epoch && s.status.DesiredStateApplied {
+			status := copyStatus(s.status)
+			s.mu.RUnlock()
+			return status, nil
+		}
+		changed := s.changed
+		s.mu.RUnlock()
+		select {
+		case <-ctx.Done():
+			return Status{}, ctx.Err()
+		case <-changed:
+		}
+	}
+}
+
+// MarkDesiredStateUnhealthy closes admission immediately after a local lease
+// expires. Only a later successfully applied desired-state report can reopen it.
+func (s *Supervisor) MarkDesiredStateUnhealthy() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.status.DesiredStateHealthy = false
+	s.status.Ready = false
+	s.signalChangedLocked()
 }
 
 // ProveCurrentConnection opens an overlapping stream through the current
@@ -527,6 +578,27 @@ func (s *Supervisor) runStream(ctx context.Context) error {
 			lastControlSequence = result.frame.Sequence
 			if directive := result.frame.GetLifecycleDirective(); directive != nil {
 				s.directiveReceived(lifecycleDirectiveValue(directive, result.frame.Sequence))
+			} else if snapshot := result.frame.GetDesiredStateSnapshot(); snapshot != nil {
+				if s.cfg.DesiredState == nil {
+					return fmt.Errorf("%w: received desired state without applier", ErrProtocol)
+				}
+				if err := validateDesiredState(snapshot); err != nil {
+					return err
+				}
+				report, err := s.cfg.DesiredState.ApplyDesiredState(streamCtx, welcome.ConnectionEpoch, snapshot)
+				if err != nil {
+					return fmt.Errorf("apply desired state: %w", err)
+				}
+				if report == nil || report.ConnectionEpoch != welcome.ConnectionEpoch || report.ProcessedRevision != snapshot.Revision {
+					return fmt.Errorf("%w: invalid desired-state report", ErrProtocol)
+				}
+				ack := &gatewayv1.GatewayFrame{ProtocolVersion: ProtocolVersion, Sequence: nextGatewaySequence,
+					Payload: &gatewayv1.GatewayFrame_DesiredStateReport{DesiredStateReport: report}}
+				if err := s.sendWithin(streamCtx, cancel, stream, ack, leaseTimeout-heartbeatInterval); err != nil {
+					return fmt.Errorf("send desired state acknowledgement: %w", err)
+				}
+				nextGatewaySequence++
+				s.desiredStateApplied(snapshot.Revision, desiredStateHealthy(report))
 			} else {
 				acknowledgedCycles++
 				s.heartbeatAcknowledged(lastControlSequence, runtime.State, acknowledgedCycles >= 2)
@@ -640,10 +712,30 @@ func validateControl(frame *gatewayv1.ControlFrame, sequence, epoch, gatewaySequ
 	if directive := frame.GetLifecycleDirective(); directive != nil {
 		return validateDirective(directive, epoch, now)
 	}
+	if snapshot := frame.GetDesiredStateSnapshot(); snapshot != nil {
+		return validateDesiredState(snapshot)
+	}
 	ack := frame.GetHeartbeatAck()
 	if ack == nil || ack.ConnectionEpoch != epoch || ack.AcknowledgedGatewaySequence != gatewaySequence ||
 		ack.ServerTimeUnixMs <= 0 || gatewaySequence <= 1 {
 		return fmt.Errorf("%w: invalid heartbeat acknowledgement", ErrProtocol)
+	}
+	return nil
+}
+
+func validateDesiredState(snapshot *gatewayv1.DesiredStateSnapshot) error {
+	if snapshot == nil || snapshot.Revision == 0 {
+		return fmt.Errorf("%w: invalid desired state snapshot", ErrProtocol)
+	}
+	seen := make(map[string]struct{}, len(snapshot.Assignments))
+	for _, assignment := range snapshot.Assignments {
+		if assignment == nil || assignment.SessionId == "" || assignment.OrganizationId == "" || assignment.AssignmentEpoch == 0 || assignment.LeaseExpiresAtUnixMs <= 0 || (assignment.DesiredAction != gatewayv1.SessionDesiredAction_SESSION_DESIRED_ACTION_RUN && assignment.DesiredAction != gatewayv1.SessionDesiredAction_SESSION_DESIRED_ACTION_STOP) || (assignment.DesiredAction == gatewayv1.SessionDesiredAction_SESSION_DESIRED_ACTION_RUN && assignment.DeviceJid == nil) {
+			return fmt.Errorf("%w: invalid session assignment", ErrProtocol)
+		}
+		if _, exists := seen[assignment.SessionId]; exists {
+			return fmt.Errorf("%w: duplicate session assignment", ErrProtocol)
+		}
+		seen[assignment.SessionId] = struct{}{}
 	}
 	return nil
 }
@@ -724,6 +816,27 @@ func (s *Supervisor) connected(welcome *gatewayv1.ControlWelcome, runtime gatewa
 	s.signalChangedLocked()
 }
 
+func desiredStateHealthy(report *gatewayv1.DesiredStateReport) bool {
+	if report.GetKeystoreHealth().GetState() != gatewayv1.KeystoreHealthState_KEYSTORE_HEALTH_STATE_HEALTHY {
+		return false
+	}
+	for _, result := range report.GetResults() {
+		if result.GetStatus() != gatewayv1.ReconciliationResultStatus_RECONCILIATION_RESULT_STATUS_APPLIED {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Supervisor) desiredStateApplied(revision uint64, healthy bool) {
+	s.mu.Lock()
+	s.status.DesiredStateRevision = revision
+	s.status.DesiredStateApplied = true
+	s.status.DesiredStateHealthy = healthy
+	s.signalChangedLocked()
+	s.mu.Unlock()
+}
+
 func (s *Supervisor) heartbeatAcknowledged(sequence uint64, runtime gatewayv1.GatewayRuntimeState, stable bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -732,7 +845,7 @@ func (s *Supervisor) heartbeatAcknowledged(sequence uint64, runtime gatewayv1.Ga
 	s.status.LastControlSequence = sequence
 	s.status.AcknowledgedRuntime = runtime
 	s.status.Ready = s.status.DesiredLifecycle == gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN &&
-		runtime == gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_READY
+		runtime == gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_READY && s.status.DesiredStateApplied && s.status.DesiredStateHealthy
 	s.signalChangedLocked()
 }
 

@@ -13,6 +13,7 @@ import (
 
 	gatewayv1 "github.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/gateway/controlsupervisor"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/gateway/desiredstate"
 )
 
 type fixedControlStatus struct{ status controlsupervisor.Status }
@@ -102,6 +103,30 @@ func TestGatewayControlRuntimeSnapshot(t *testing.T) {
 		t.Fatalf("ready snapshot = %#v", snapshot)
 	}
 }
+
+func TestGatewayControlRuntimeCountsAppliedAssignmentsWithoutRepository(t *testing.T) {
+	now := time.Unix(100, 0)
+	reconciler := desiredstate.New(&controlCountRuntime{}, func() time.Time { return now })
+	if _, err := reconciler.Apply(context.Background(), desiredstate.Snapshot{Revision: 1, Assignments: []desiredstate.Assignment{
+		{SessionID: "one", OrganizationID: "org", DeviceJID: "one", AssignmentEpoch: 1, LeaseExpiresAt: now.Add(time.Minute), DesiredRun: true},
+		{SessionID: "two", OrganizationID: "org", DeviceJID: "two", AssignmentEpoch: 2, LeaseExpiresAt: now.Add(time.Minute), DesiredRun: true},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	runtime := newGatewayControlRuntime(slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	runtime.setSessionCounter(func(context.Context) (int, error) { return reconciler.AssignmentCount(), nil })
+	if snapshot := runtime.Snapshot(); snapshot.SessionCount != 2 {
+		t.Fatalf("control heartbeat session count = %d", snapshot.SessionCount)
+	}
+}
+
+type controlCountRuntime struct{}
+
+func (*controlCountRuntime) Inventory(context.Context) (desiredstate.Inventory, error) {
+	return desiredstate.Inventory{PairedJIDs: []string{"one", "two"}}, nil
+}
+func (*controlCountRuntime) StartAssigned(context.Context, desiredstate.Assignment) error { return nil }
+func (*controlCountRuntime) StopAssigned(context.Context, string) error                   { return nil }
 
 func TestGatewayInstanceIDIsProcessUnique(t *testing.T) {
 	first, err := newGatewayInstanceID()

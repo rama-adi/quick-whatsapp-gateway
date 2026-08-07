@@ -15,6 +15,7 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/gateway/desiredstate"
 )
 
 // ----------------------------------------------------------------------------
@@ -62,6 +63,21 @@ type statusUpdate struct {
 
 func newFakeRepo() *fakeRepo {
 	return &fakeRepo{byID: map[string]*domain.WASession{}, byJID: map[string]*domain.WASession{}}
+}
+
+func TestStartAssignedUsesControlConfigWithoutSessionLookup(t *testing.T) {
+	jid := types.NewJID("6281", types.DefaultUserServer)
+	keystore := &fakeKeystore{devices: []*store.Device{{ID: &jid}}}
+	manager := NewManager(keystore, newFakeRepo(), nil, nil, nil, nil, Config{})
+	manager.SetClientFactory(func(*store.Device) waClient { return &fakeClient{} })
+	assignment := desiredstate.Assignment{SessionID: "session", OrganizationID: "org", DeviceJID: jid.String(), AssignmentEpoch: 1, LeaseExpiresAt: time.Now().Add(time.Minute), DesiredRun: true, Config: desiredstate.Config{Revision: 4, AutoRead: true, PresenceTyping: true, RatePerMin: 12, RatePerHour: 34}}
+	if err := manager.StartAssigned(context.Background(), assignment); err != nil {
+		t.Fatal(err)
+	}
+	config, ok := manager.AssignedConfig("session")
+	if !ok || config != assignment.Config {
+		t.Fatalf("assigned config = %#v, %v", config, ok)
+	}
 }
 
 func (f *fakeRepo) Get(_ context.Context, id string) (*domain.WASession, error) {
