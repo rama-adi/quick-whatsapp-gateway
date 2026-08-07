@@ -63,6 +63,25 @@ Every `/api/v1` request flows through four steps:
 | any path naming a specific session (`.../sessions/{id}...`, incl. `/admin/sessions/{id}:action`) | the session's **owning** gateway | `wa_sessions.gateway_id` (authoritative) → registry `base_url` |
 | everything else — webhooks, `GET /sessions` list, admin list | **any active** gateway (gateway-agnostic) | served from shared MySQL, so any `active` gateway answers |
 
+### API-local gateway administration
+
+`/api/v1/admin/gateways` is an exception to proxy routing: it is served directly
+by `cmd/api` from the shared registry/enrollment store and is never forwarded to
+a gateway. Every operation requires a login JWT whose platform role is exactly
+`super_admin`; API keys and organization roles receive `forbidden` before the
+gateway-administration service runs. The API provides create/list/detail,
+replacement enrollment tokens, drain/resume, disable/re-enable, explicit
+re-enrollment, and soft deletion.
+
+Creation, token replacement, and re-enrollment return the plaintext single-use
+enrollment bearer once. Read models, audit entries, and every other response
+exclude bearer, token hash, CSR, PEM, private-key, and trust-bundle material.
+Lifecycle state conflicts—including unsafe/missing gateway mutations—map to the
+stable `conflict` envelope. Deletion additionally requires
+`consequencesAcknowledged=true`; durable checks require a drained or disabled
+gateway with no assigned sessions, active enrollment token, or usable
+certificate.
+
 **Stranded session.** If the owning gateway is missing, not `active`, or its heartbeat is missing,
 stale, or implausibly far in the future, the router returns **`503 gateway_unavailable`** with a
 clear message rather than a silent hang (the `gateway_unavailable` domain error code → HTTP 503).

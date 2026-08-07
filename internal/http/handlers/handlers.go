@@ -15,6 +15,7 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/apitypes"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/service"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/service/gatewayadmin"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa/outbound"
 )
@@ -62,6 +63,21 @@ type AdminSvc interface {
 	ListAllSessions(ctx context.Context) ([]domain.WASession, error)
 	StartBackfill(ctx context.Context, sessionID string) (domain.BackfillJob, error)
 	BackfillStatus(ctx context.Context, sessionID string) (domain.BackfillJob, error)
+}
+
+// GatewayAdminSvc is the platform-only gateway inventory and lifecycle surface.
+// It stays separate from AdminSvc because it owns one-time enrollment bearers.
+type GatewayAdminSvc interface {
+	ListGateways(context.Context) ([]domain.Gateway, error)
+	GetGateway(context.Context, string) (domain.GatewayAdminDetail, error)
+	CreateGateway(context.Context, gatewayadmin.CreateGatewayInput) (gatewayadmin.IssuedEnrollment, error)
+	ReplaceEnrollmentToken(context.Context, string, gatewayadmin.Actor) (gatewayadmin.IssuedEnrollment, error)
+	Drain(context.Context, string, gatewayadmin.Actor) error
+	Resume(context.Context, string, gatewayadmin.Actor) error
+	Disable(context.Context, string, gatewayadmin.Actor) error
+	Reenable(context.Context, string, gatewayadmin.Actor) error
+	Reenroll(context.Context, string, gatewayadmin.Actor) (gatewayadmin.IssuedEnrollment, error)
+	Delete(context.Context, string, bool, gatewayadmin.Actor) error
 }
 
 // BackupSvc is the user-facing WhatsApp backup (crypt15) import surface.
@@ -145,36 +161,38 @@ type OAuthAppSvc interface {
 
 // Compile-time proof that the concrete services satisfy the handler interfaces.
 var (
-	_ SessionSvc  = (*service.SessionService)(nil)
-	_ MessageSvc  = (*service.MessageService)(nil)
-	_ WebhookSvc  = (*service.WebhookService)(nil)
-	_ AdminSvc    = (*service.AdminService)(nil)
-	_ BackupSvc   = (*service.BackupImportService)(nil)
-	_ ChatSvc     = (*service.ChatService)(nil)
-	_ ContactSvc  = (*service.ContactService)(nil)
-	_ GroupSvc    = (*service.GroupService)(nil)
-	_ ChannelSvc  = (*service.ChannelService)(nil)
-	_ StatusSvc   = (*service.StatusService)(nil)
-	_ PresenceSvc = (*service.PresenceService)(nil)
-	_ OAuthAppSvc = (*service.OAuthAppService)(nil)
+	_ SessionSvc      = (*service.SessionService)(nil)
+	_ MessageSvc      = (*service.MessageService)(nil)
+	_ WebhookSvc      = (*service.WebhookService)(nil)
+	_ AdminSvc        = (*service.AdminService)(nil)
+	_ BackupSvc       = (*service.BackupImportService)(nil)
+	_ ChatSvc         = (*service.ChatService)(nil)
+	_ ContactSvc      = (*service.ContactService)(nil)
+	_ GroupSvc        = (*service.GroupService)(nil)
+	_ ChannelSvc      = (*service.ChannelService)(nil)
+	_ StatusSvc       = (*service.StatusService)(nil)
+	_ PresenceSvc     = (*service.PresenceService)(nil)
+	_ OAuthAppSvc     = (*service.OAuthAppService)(nil)
+	_ GatewayAdminSvc = (*gatewayadmin.Service)(nil)
 )
 
 // Handlers bundles the service dependencies and exposes one http.HandlerFunc
 // method per §11 endpoint. Realtime is no longer served here — the router owns
 // the WebSocket transport; the gateway only publishes events to Redis.
 type Handlers struct {
-	Sessions  SessionSvc
-	Messages  MessageSvc
-	Webhooks  WebhookSvc
-	Admin     AdminSvc
-	Backup    BackupSvc
-	Chats     ChatSvc
-	Contacts  ContactSvc
-	Groups    GroupSvc
-	Channels  ChannelSvc
-	Status    StatusSvc
-	Presence  PresenceSvc
-	OAuthApps OAuthAppSvc
+	Sessions     SessionSvc
+	Messages     MessageSvc
+	Webhooks     WebhookSvc
+	Admin        AdminSvc
+	Backup       BackupSvc
+	Chats        ChatSvc
+	Contacts     ContactSvc
+	Groups       GroupSvc
+	Channels     ChannelSvc
+	Status       StatusSvc
+	Presence     PresenceSvc
+	OAuthApps    OAuthAppSvc
+	GatewayAdmin GatewayAdminSvc
 
 	Log *slog.Logger
 }

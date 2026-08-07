@@ -1,0 +1,16 @@
+{
+  "title": "Gateway Administration",
+  "description": "Platform super-admin gateway inventory, enrollment, and lifecycle operations. Enrollment bearers are returned exactly once and never appear in read models.",
+  "pages": [
+    "listAdminGateways",
+    "createAdminGateway",
+    "getAdminGateway",
+    "deleteAdminGateway",
+    "disableAdminGateway",
+    "drainAdminGateway",
+    "reenableAdminGateway",
+    "reenrollAdminGateway",
+    "replaceAdminGatewayEnrollmentToken",
+    "resumeAdminGateway"
+  ]
+}

@@ -38,6 +38,7 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/pki/localmysql"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/router"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/service"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/service/gatewayadmin"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/stream"
 )
@@ -213,6 +214,11 @@ func run() error {
 		if enrollmentErr != nil {
 			return fmt.Errorf("build enrollment service: %w", enrollmentErr)
 		}
+		gatewayAdminService, enrollmentErr := gatewayadmin.NewWithActions(st.Gateways, st.Sessions, st.AuditEvents, enrollment, store.NewGatewayAdminStore(db))
+		if enrollmentErr != nil {
+			return fmt.Errorf("build gateway administration service: %w", enrollmentErr)
+		}
+		apiHandlers.GatewayAdmin = gatewayAdminService
 		renewal, renewalErr := service.NewRenewalService(db, signer)
 		if renewalErr != nil {
 			return fmt.Errorf("build renewal service: %w", renewalErr)
@@ -255,6 +261,7 @@ func run() error {
 		OIDPSigner:    oidpSigner,
 		OIDPProvider:  oidpProvider,
 		OAuthHandlers: apiHandlers,
+		AdminHandlers: apiHandlers,
 		Log:           log,
 	})
 	if err != nil {

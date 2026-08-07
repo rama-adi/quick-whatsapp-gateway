@@ -4,6 +4,174 @@
  */
 
 export interface paths {
+    "/api/v1/admin/gateways": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List gateways (super_admin)
+         * @description List every non-deleted gateway with non-secret registry and reconciliation metadata. Requires a login JWT with platform role `super_admin`; api-keys are rejected.
+         */
+        get: operations["listAdminGateways"];
+        put?: never;
+        /**
+         * Create a gateway and return its one-time enrollment token (super_admin)
+         * @description Create a gateway registry row and issue a single-use enrollment bearer. The plaintext token is returned only in this response; it is never available from list/detail/audit APIs. Requires a login JWT with platform role `super_admin`; api-keys are rejected.
+         */
+        post: operations["createAdminGateway"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/gateways/{gatewayId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get gateway administration detail (super_admin)
+         * @description Get non-secret gateway metadata, assigned sessions, certificate summaries, and recent audit entries. Requires platform `super_admin`.
+         */
+        get: operations["getAdminGateway"];
+        put?: never;
+        post?: never;
+        /**
+         * Safely delete a gateway (super_admin)
+         * @description Soft-delete a gateway only after it is drained or disabled, has no assigned sessions, no active enrollment token, and no usable certificate. `consequencesAcknowledged` must be true. Invalid or unsafe state returns `conflict` without revealing whether the gateway exists. Requires platform `super_admin`.
+         */
+        delete: operations["deleteAdminGateway"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/gateways/{gatewayId}:disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Disable a gateway (super_admin)
+         * @description Changes the gateway's durable administrative state and records a non-secret audit event. Requires platform `super_admin`; invalid lifecycle state returns `conflict`.
+         */
+        post: operations["disableAdminGateway"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/gateways/{gatewayId}:drain": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Drain a gateway (super_admin)
+         * @description Changes the gateway's durable administrative state and records a non-secret audit event. Requires platform `super_admin`; invalid lifecycle state returns `conflict`.
+         */
+        post: operations["drainAdminGateway"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/gateways/{gatewayId}:reenable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Re-enable a gateway (super_admin)
+         * @description Changes the gateway's durable administrative state and records a non-secret audit event. Requires platform `super_admin`; invalid lifecycle state returns `conflict`.
+         */
+        post: operations["reenableAdminGateway"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/gateways/{gatewayId}:reenroll": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Re-enroll a drained or disabled gateway (super_admin)
+         * @description Returns a plaintext single-use enrollment bearer exactly once. Requires platform `super_admin`; invalid lifecycle state returns `conflict`.
+         */
+        post: operations["reenrollAdminGateway"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/gateways/{gatewayId}:replace-enrollment-token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Replace an unredeemed enrollment token (super_admin)
+         * @description Returns a plaintext single-use enrollment bearer exactly once. Requires platform `super_admin`; invalid lifecycle state returns `conflict`.
+         */
+        post: operations["replaceAdminGatewayEnrollmentToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/gateways/{gatewayId}:resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resume placement on a drained gateway (super_admin)
+         * @description Changes the gateway's durable administrative state and records a non-secret audit event. Requires platform `super_admin`; invalid lifecycle state returns `conflict`.
+         */
+        post: operations["resumeAdminGateway"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/sessions": {
         parameters: {
             query?: never;
@@ -2178,6 +2346,13 @@ export interface components {
              */
             start?: boolean;
         };
+        DeleteGatewayAdminInputBody: {
+            /**
+             * @description Must be true. Confirms that the gateway is drained/disabled and its session/device consequences were reviewed.
+             * @example true
+             */
+            consequencesAcknowledged: boolean;
+        };
         EditMessageInputBody: {
             /**
              * @description Chat JID for the message.
@@ -2230,6 +2405,185 @@ export interface components {
              * @example 6289876543210@s.whatsapp.net
              */
             to?: string;
+        };
+        GatewayAdmin: {
+            /**
+             * Format: int64
+             * @example 5
+             */
+            appliedRevision: number;
+            /** @example https://gw-sg-1.example.com */
+            baseUrl?: string;
+            capabilities?: unknown;
+            /**
+             * Format: int64
+             * @example 100
+             */
+            capacity?: number;
+            /**
+             * Format: int64
+             * @example 1719662400000
+             */
+            connectedAt?: number;
+            /**
+             * Format: int64
+             * @example 4
+             */
+            connectionEpoch: number;
+            /**
+             * @example control
+             * @enum {string}
+             */
+            connectionMode: "legacy" | "control";
+            /**
+             * Format: int64
+             * @example 1719662400000
+             */
+            createdAt: number;
+            /**
+             * @example run
+             * @enum {string}
+             */
+            desiredLifecycle: "run" | "drain";
+            /**
+             * Format: int64
+             * @example 5
+             */
+            desiredRevision: number;
+            /**
+             * Format: int64
+             * @example 1719662400000
+             */
+            enrolledAt?: number;
+            /** @example gw-sg-1.internal:8443 */
+            grpcEndpoint?: string;
+            /** @example gw_01J9ZX8K2QHV0M3T6R7P4N5W8C */
+            id: string;
+            /** @example Singapore primary */
+            label?: string;
+            /**
+             * Format: int64
+             * @example 1719662400000
+             */
+            lastSeenAt?: number;
+            /** @example Runs the APAC production pool. */
+            notes?: string;
+            /**
+             * Format: int64
+             * @example 12
+             */
+            sessionCount: number;
+            /** @example 2.0.0 */
+            softwareVersion?: string;
+            /**
+             * @example active
+             * @enum {string}
+             */
+            status: "pending_enrollment" | "joining" | "active" | "draining" | "drained" | "degraded" | "disabled";
+            /**
+             * Format: int64
+             * @example 1719662400000
+             */
+            updatedAt: number;
+        };
+        GatewayAdminBody: {
+            /**
+             * Format: int64
+             * @description Optional soft cap on placed sessions. Null or omitted means no cap.
+             * @example 100
+             */
+            capacity?: number;
+            /**
+             * @description Optional operator-facing gateway name.
+             * @example Singapore primary
+             */
+            label?: string;
+            /**
+             * @description Optional operator notes. Never sent to gateway processes.
+             * @example Runs the APAC production pool.
+             */
+            notes?: string;
+        };
+        GatewayAdminDetail: {
+            activeCertificate?: components["schemas"]["GatewayCertificateSummary"];
+            /**
+             * Format: int64
+             * @example 2
+             */
+            assignedSessionCount: number;
+            assignedSessions: components["schemas"]["WASession"][] | null;
+            audit: components["schemas"]["GatewayAuditEntry"][] | null;
+            certificates: components["schemas"]["GatewayCertificateSummary"][] | null;
+            gateway: components["schemas"]["GatewayAdmin"];
+        };
+        GatewayAuditEntry: {
+            /** @example gateway.drained */
+            action: string;
+            /** @example user_01J9ZX8K2QHV0M3T6R7P4N5W8C */
+            actorId?: string;
+            /**
+             * @example user
+             * @enum {string}
+             */
+            actorType: "user" | "system";
+            /**
+             * Format: int64
+             * @example 1719662400000
+             */
+            createdAt: number;
+            /** @example aud_01J9ZX8K2QHV0M3T6R7P4N5W8C */
+            id: string;
+            metadata?: {
+                [key: string]: unknown;
+            };
+            /** @example success */
+            outcome: string;
+            /** @example req_01J9ZX8K2QHV0M3T6R7P4N5W8C */
+            requestId?: string;
+        };
+        GatewayCertificateSummary: {
+            /** @example pki_int_01J9ZX8K2QHV0M3T6R7P4N5W8C */
+            authorityId: string;
+            /**
+             * Format: int64
+             * @example 1719662400000
+             */
+            createdAt: number;
+            /** @description SHA-256 certificate fingerprint, base64 encoded by JSON. */
+            fingerprint: string;
+            /** @example gcrt_01J9ZX8K2QHV0M3T6R7P4N5W8C */
+            id: string;
+            /**
+             * Format: int64
+             * @example 1719748800000
+             */
+            notAfter: number;
+            /**
+             * Format: int64
+             * @example 1719662400000
+             */
+            notBefore: number;
+            revocationReason?: string;
+            /** Format: int64 */
+            revokedAt?: number;
+            /** @example 4ae91c2f */
+            serialNumber: string;
+        };
+        GatewayEnrollmentResult: {
+            /**
+             * Format: int64
+             * @example 1719663300000
+             */
+            expiresAt: number;
+            /** @example gw_01J9ZX8K2QHV0M3T6R7P4N5W8C */
+            gatewayId: string;
+            /**
+             * @description Single-use enrollment bearer. Copy it now: it is never returned by read APIs or audit data.
+             * @example qwg_enroll_v1_example
+             */
+            token: string;
+            /** @example ent_01J9ZX8K2QHV0M3T6R7P4N5W8C */
+            tokenId: string;
         };
         Group: {
             /**
@@ -2482,6 +2836,10 @@ export interface components {
         };
         ListContact: {
             data: components["schemas"]["Contact"][] | null;
+            nextCursor?: string;
+        };
+        ListGatewayAdmin: {
+            data: components["schemas"]["GatewayAdmin"][] | null;
             nextCursor?: string;
         };
         ListGroup: {
@@ -4079,6 +4437,318 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    listAdminGateways: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListGatewayAdmin"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    createAdminGateway: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GatewayAdminBody"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GatewayEnrollmentResult"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getAdminGateway: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Gateway identifier. */
+                gatewayId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GatewayAdminDetail"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    deleteAdminGateway: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Gateway identifier. */
+                gatewayId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteGatewayAdminInputBody"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    disableAdminGateway: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Gateway identifier. */
+                gatewayId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    drainAdminGateway: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Gateway identifier. */
+                gatewayId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    reenableAdminGateway: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Gateway identifier. */
+                gatewayId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    reenrollAdminGateway: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Gateway identifier. */
+                gatewayId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GatewayEnrollmentResult"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    replaceAdminGatewayEnrollmentToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Gateway identifier. */
+                gatewayId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GatewayEnrollmentResult"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    resumeAdminGateway: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Gateway identifier. */
+                gatewayId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
     adminListSessions: {
         parameters: {
             query?: never;

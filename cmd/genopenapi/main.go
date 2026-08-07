@@ -35,6 +35,7 @@ func main() {
 	// function of the huma API, so the generator assembles the unified spec without
 	// a live server or real service dependencies.
 	handlers.RegisterAllOps(api, &handlers.Handlers{})
+	handlers.RegisterGatewayAdminOps(api, &handlers.Handlers{})
 
 	// Register the typed event catalog as an OpenAPI 3.1 `webhooks` section so
 	// webhook receivers (and the realtime WebSocket client) get a fully typed,
@@ -150,6 +151,7 @@ location, and contact message types do work.`)
 		{Name: "Status & Presence", Description: "Post text status updates and set whether the WhatsApp session is available, unavailable, typing, recording, or paused. Image status returns 501 in v1."},
 		{Name: "Webhooks", Description: "Create webhook endpoints that receive events over HTTP. Optional HMAC signing lets receivers verify the request body."},
 		{Name: "Admin", Description: "Platform super-admin endpoints for listing all sessions and starting or checking history backfills."},
+		{Name: "Gateway Administration", Description: "Platform super-admin gateway inventory, enrollment, and lifecycle operations. Enrollment bearers are returned exactly once and never appear in read models."},
 	}
 }
 

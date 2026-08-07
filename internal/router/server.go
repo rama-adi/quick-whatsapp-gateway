@@ -69,6 +69,7 @@ type Config struct {
 	OIDPSigner    *oidp.Signer
 	OIDPProvider  *oidp.Provider
 	OAuthHandlers *handlersapi.Handlers
+	AdminHandlers *handlersapi.Handlers // API-local super-admin operations; never proxied
 
 	StaleAfter time.Duration     // optional; <=0 => defaultStaleAfter
 	Transport  http.RoundTripper // optional; nil => http.DefaultTransport
@@ -101,6 +102,7 @@ type Server struct {
 	oidpSigner    *oidp.Signer
 	oidpProvider  *oidp.Provider
 	oauthHandlers *handlersapi.Handlers
+	adminHandlers *handlersapi.Handlers
 	wsOrigins     []string
 	staleAfter    time.Duration
 	transport     http.RoundTripper
@@ -147,6 +149,7 @@ func NewServer(cfg Config) (*Server, error) {
 		oidpSigner:    cfg.OIDPSigner,
 		oidpProvider:  cfg.OIDPProvider,
 		oauthHandlers: cfg.OAuthHandlers,
+		adminHandlers: cfg.AdminHandlers,
 		wsOrigins:     cfg.CORSOrigins,
 		staleAfter:    cfg.StaleAfter,
 		transport:     cfg.Transport,
@@ -219,6 +222,15 @@ func (s *Server) Handler() http.Handler {
 			authed.Use(authz.Authenticate(s.tokens, s.keys))
 			hapi := humax.NewAPI(authed)
 			handlersapi.RegisterOAuthAppOps(hapi, s.oauthHandlers)
+		})
+	}
+	if s.adminHandlers != nil {
+		r.Group(func(authed chi.Router) {
+			authed.Use(authz.Authenticate(s.tokens, s.keys))
+			hapi := humax.NewAPI(authed)
+			if s.adminHandlers.GatewayAdmin != nil {
+				handlersapi.RegisterGatewayAdminOps(hapi, s.adminHandlers)
+			}
 		})
 	}
 	if s.oidpSigner != nil {

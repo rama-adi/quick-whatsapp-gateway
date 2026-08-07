@@ -835,6 +835,17 @@ components:
             - true
           type: boolean
       type: object
+    DeleteGatewayAdminInputBody:
+      additionalProperties: false
+      properties:
+        consequencesAcknowledged:
+          description: Must be true. Confirms that the gateway is drained/disabled and its session/device consequences were reviewed.
+          examples:
+            - true
+          type: boolean
+      required:
+        - consequencesAcknowledged
+      type: object
     EditMessageInputBody:
       additionalProperties: false
       properties:
@@ -916,6 +927,304 @@ components:
           examples:
             - 6289876543210@s.whatsapp.net
           type: string
+      type: object
+    GatewayAdmin:
+      additionalProperties: false
+      properties:
+        appliedRevision:
+          examples:
+            - 5
+          format: int64
+          minimum: 0
+          type: integer
+        baseUrl:
+          examples:
+            - https://gw-sg-1.example.com
+          type: string
+        capabilities: {}
+        capacity:
+          examples:
+            - 100
+          format: int64
+          type: integer
+        connectedAt:
+          examples:
+            - 1719662400000
+          format: int64
+          type: integer
+        connectionEpoch:
+          examples:
+            - 4
+          format: int64
+          minimum: 0
+          type: integer
+        connectionMode:
+          enum:
+            - legacy
+            - control
+          examples:
+            - control
+          type: string
+        createdAt:
+          examples:
+            - 1719662400000
+          format: int64
+          type: integer
+        desiredLifecycle:
+          enum:
+            - run
+            - drain
+          examples:
+            - run
+          type: string
+        desiredRevision:
+          examples:
+            - 5
+          format: int64
+          minimum: 0
+          type: integer
+        enrolledAt:
+          examples:
+            - 1719662400000
+          format: int64
+          type: integer
+        grpcEndpoint:
+          examples:
+            - gw-sg-1.internal:8443
+          type: string
+        id:
+          examples:
+            - gw_01J9ZX8K2QHV0M3T6R7P4N5W8C
+          type: string
+        label:
+          examples:
+            - Singapore primary
+          type: string
+        lastSeenAt:
+          examples:
+            - 1719662400000
+          format: int64
+          type: integer
+        notes:
+          examples:
+            - Runs the APAC production pool.
+          type: string
+        sessionCount:
+          examples:
+            - 12
+          format: int64
+          type: integer
+        softwareVersion:
+          examples:
+            - 2.0.0
+          type: string
+        status:
+          enum:
+            - pending_enrollment
+            - joining
+            - active
+            - draining
+            - drained
+            - degraded
+            - disabled
+          examples:
+            - active
+          type: string
+        updatedAt:
+          examples:
+            - 1719662400000
+          format: int64
+          type: integer
+      required:
+        - id
+        - status
+        - sessionCount
+        - connectionEpoch
+        - connectionMode
+        - desiredLifecycle
+        - desiredRevision
+        - appliedRevision
+        - createdAt
+        - updatedAt
+      type: object
+    GatewayAdminBody:
+      additionalProperties: false
+      properties:
+        capacity:
+          description: Optional soft cap on placed sessions. Null or omitted means no cap.
+          examples:
+            - 100
+          format: int64
+          minimum: 0
+          type: integer
+        label:
+          description: Optional operator-facing gateway name.
+          examples:
+            - Singapore primary
+          maxLength: 255
+          type: string
+        notes:
+          description: Optional operator notes. Never sent to gateway processes.
+          examples:
+            - Runs the APAC production pool.
+          type: string
+      type: object
+    GatewayAdminDetail:
+      additionalProperties: false
+      properties:
+        activeCertificate:
+          $ref: "#/components/schemas/GatewayCertificateSummary"
+        assignedSessionCount:
+          examples:
+            - 2
+          format: int64
+          type: integer
+        assignedSessions:
+          items:
+            $ref: "#/components/schemas/WASession"
+          type:
+            - array
+            - "null"
+        audit:
+          items:
+            $ref: "#/components/schemas/GatewayAuditEntry"
+          type:
+            - array
+            - "null"
+        certificates:
+          items:
+            $ref: "#/components/schemas/GatewayCertificateSummary"
+          type:
+            - array
+            - "null"
+        gateway:
+          $ref: "#/components/schemas/GatewayAdmin"
+      required:
+        - gateway
+        - assignedSessionCount
+        - assignedSessions
+        - certificates
+        - audit
+      type: object
+    GatewayAuditEntry:
+      additionalProperties: false
+      properties:
+        action:
+          examples:
+            - gateway.drained
+          type: string
+        actorId:
+          examples:
+            - user_01J9ZX8K2QHV0M3T6R7P4N5W8C
+          type: string
+        actorType:
+          enum:
+            - user
+            - system
+          examples:
+            - user
+          type: string
+        createdAt:
+          examples:
+            - 1719662400000
+          format: int64
+          type: integer
+        id:
+          examples:
+            - aud_01J9ZX8K2QHV0M3T6R7P4N5W8C
+          type: string
+        metadata:
+          additionalProperties: {}
+          type: object
+        outcome:
+          examples:
+            - success
+          type: string
+        requestId:
+          examples:
+            - req_01J9ZX8K2QHV0M3T6R7P4N5W8C
+          type: string
+      required:
+        - id
+        - actorType
+        - action
+        - outcome
+        - createdAt
+      type: object
+    GatewayCertificateSummary:
+      additionalProperties: false
+      properties:
+        authorityId:
+          examples:
+            - pki_int_01J9ZX8K2QHV0M3T6R7P4N5W8C
+          type: string
+        createdAt:
+          examples:
+            - 1719662400000
+          format: int64
+          type: integer
+        fingerprint:
+          contentEncoding: base64
+          description: SHA-256 certificate fingerprint, base64 encoded by JSON.
+          type: string
+        id:
+          examples:
+            - gcrt_01J9ZX8K2QHV0M3T6R7P4N5W8C
+          type: string
+        notAfter:
+          examples:
+            - 1719748800000
+          format: int64
+          type: integer
+        notBefore:
+          examples:
+            - 1719662400000
+          format: int64
+          type: integer
+        revocationReason:
+          type: string
+        revokedAt:
+          format: int64
+          type: integer
+        serialNumber:
+          examples:
+            - 4ae91c2f
+          type: string
+      required:
+        - id
+        - authorityId
+        - serialNumber
+        - fingerprint
+        - notBefore
+        - notAfter
+        - createdAt
+      type: object
+    GatewayEnrollmentResult:
+      additionalProperties: false
+      properties:
+        expiresAt:
+          examples:
+            - 1719663300000
+          format: int64
+          type: integer
+        gatewayId:
+          examples:
+            - gw_01J9ZX8K2QHV0M3T6R7P4N5W8C
+          type: string
+        token:
+          description: "Single-use enrollment bearer. Copy it now: it is never returned by read APIs or audit data."
+          examples:
+            - qwg_enroll_v1_example
+          type: string
+        tokenId:
+          examples:
+            - ent_01J9ZX8K2QHV0M3T6R7P4N5W8C
+          type: string
+      required:
+        - gatewayId
+        - tokenId
+        - token
+        - expiresAt
       type: object
     Group:
       additionalProperties: false
@@ -1279,6 +1588,20 @@ components:
         data:
           items:
             $ref: "#/components/schemas/Contact"
+          type:
+            - array
+            - "null"
+        nextCursor:
+          type: string
+      required:
+        - data
+      type: object
+    ListGatewayAdmin:
+      additionalProperties: false
+      properties:
+        data:
+          items:
+            $ref: "#/components/schemas/GatewayAdmin"
           type:
             - array
             - "null"
@@ -3502,6 +3825,276 @@ info:
   version: 1.0.0
 openapi: 3.1.0
 paths:
+  /api/v1/admin/gateways:
+    get:
+      description: List every non-deleted gateway with non-secret registry and reconciliation metadata. Requires a login JWT with platform role `super_admin`; api-keys are rejected.
+      operationId: listAdminGateways
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListGatewayAdmin"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: List gateways (super_admin)
+      tags:
+        - Gateway Administration
+    post:
+      description: Create a gateway registry row and issue a single-use enrollment bearer. The plaintext token is returned only in this response; it is never available from list/detail/audit APIs. Requires a login JWT with platform role `super_admin`; api-keys are rejected.
+      operationId: createAdminGateway
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GatewayAdminBody"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GatewayEnrollmentResult"
+          description: Created
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Create a gateway and return its one-time enrollment token (super_admin)
+      tags:
+        - Gateway Administration
+  /api/v1/admin/gateways/{gatewayId}:
+    delete:
+      description: Soft-delete a gateway only after it is drained or disabled, has no assigned sessions, no active enrollment token, and no usable certificate. `consequencesAcknowledged` must be true. Invalid or unsafe state returns `conflict` without revealing whether the gateway exists. Requires platform `super_admin`.
+      operationId: deleteAdminGateway
+      parameters:
+        - description: Gateway identifier.
+          in: path
+          name: gatewayId
+          required: true
+          schema:
+            description: Gateway identifier.
+            examples:
+              - gw_01J9ZX8K2QHV0M3T6R7P4N5W8C
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeleteGatewayAdminInputBody"
+        required: true
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Safely delete a gateway (super_admin)
+      tags:
+        - Gateway Administration
+    get:
+      description: Get non-secret gateway metadata, assigned sessions, certificate summaries, and recent audit entries. Requires platform `super_admin`.
+      operationId: getAdminGateway
+      parameters:
+        - description: Gateway identifier.
+          in: path
+          name: gatewayId
+          required: true
+          schema:
+            description: Gateway identifier.
+            examples:
+              - gw_01J9ZX8K2QHV0M3T6R7P4N5W8C
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GatewayAdminDetail"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Get gateway administration detail (super_admin)
+      tags:
+        - Gateway Administration
+  /api/v1/admin/gateways/{gatewayId}:disable:
+    post:
+      description: Changes the gateway's durable administrative state and records a non-secret audit event. Requires platform `super_admin`; invalid lifecycle state returns `conflict`.
+      operationId: disableAdminGateway
+      parameters:
+        - description: Gateway identifier.
+          in: path
+          name: gatewayId
+          required: true
+          schema:
+            description: Gateway identifier.
+            examples:
+              - gw_01J9ZX8K2QHV0M3T6R7P4N5W8C
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Disable a gateway (super_admin)
+      tags:
+        - Gateway Administration
+  /api/v1/admin/gateways/{gatewayId}:drain:
+    post:
+      description: Changes the gateway's durable administrative state and records a non-secret audit event. Requires platform `super_admin`; invalid lifecycle state returns `conflict`.
+      operationId: drainAdminGateway
+      parameters:
+        - description: Gateway identifier.
+          in: path
+          name: gatewayId
+          required: true
+          schema:
+            description: Gateway identifier.
+            examples:
+              - gw_01J9ZX8K2QHV0M3T6R7P4N5W8C
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Drain a gateway (super_admin)
+      tags:
+        - Gateway Administration
+  /api/v1/admin/gateways/{gatewayId}:reenable:
+    post:
+      description: Changes the gateway's durable administrative state and records a non-secret audit event. Requires platform `super_admin`; invalid lifecycle state returns `conflict`.
+      operationId: reenableAdminGateway
+      parameters:
+        - description: Gateway identifier.
+          in: path
+          name: gatewayId
+          required: true
+          schema:
+            description: Gateway identifier.
+            examples:
+              - gw_01J9ZX8K2QHV0M3T6R7P4N5W8C
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Re-enable a gateway (super_admin)
+      tags:
+        - Gateway Administration
+  /api/v1/admin/gateways/{gatewayId}:reenroll:
+    post:
+      description: Returns a plaintext single-use enrollment bearer exactly once. Requires platform `super_admin`; invalid lifecycle state returns `conflict`.
+      operationId: reenrollAdminGateway
+      parameters:
+        - description: Gateway identifier.
+          in: path
+          name: gatewayId
+          required: true
+          schema:
+            description: Gateway identifier.
+            examples:
+              - gw_01J9ZX8K2QHV0M3T6R7P4N5W8C
+            type: string
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GatewayEnrollmentResult"
+          description: Created
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Re-enroll a drained or disabled gateway (super_admin)
+      tags:
+        - Gateway Administration
+  /api/v1/admin/gateways/{gatewayId}:replace-enrollment-token:
+    post:
+      description: Returns a plaintext single-use enrollment bearer exactly once. Requires platform `super_admin`; invalid lifecycle state returns `conflict`.
+      operationId: replaceAdminGatewayEnrollmentToken
+      parameters:
+        - description: Gateway identifier.
+          in: path
+          name: gatewayId
+          required: true
+          schema:
+            description: Gateway identifier.
+            examples:
+              - gw_01J9ZX8K2QHV0M3T6R7P4N5W8C
+            type: string
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GatewayEnrollmentResult"
+          description: Created
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Replace an unredeemed enrollment token (super_admin)
+      tags:
+        - Gateway Administration
+  /api/v1/admin/gateways/{gatewayId}:resume:
+    post:
+      description: Changes the gateway's durable administrative state and records a non-secret audit event. Requires platform `super_admin`; invalid lifecycle state returns `conflict`.
+      operationId: resumeAdminGateway
+      parameters:
+        - description: Gateway identifier.
+          in: path
+          name: gatewayId
+          required: true
+          schema:
+            description: Gateway identifier.
+            examples:
+              - gw_01J9ZX8K2QHV0M3T6R7P4N5W8C
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Resume placement on a drained gateway (super_admin)
+      tags:
+        - Gateway Administration
   /api/v1/admin/sessions:
     get:
       description: |-
@@ -6682,6 +7275,8 @@ tags:
     name: Webhooks
   - description: Platform super-admin endpoints for listing all sessions and starting or checking history backfills.
     name: Admin
+  - description: Platform super-admin gateway inventory, enrollment, and lifecycle operations. Enrollment bearers are returned exactly once and never appear in read models.
+    name: Gateway Administration
 webhooks:
   event:
     post:
