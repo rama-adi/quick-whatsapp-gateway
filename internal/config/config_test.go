@@ -95,6 +95,12 @@ func TestGatewayControlPlaneConfigIsOptInAndPathsAreStrict(t *testing.T) {
 		t.Fatalf("disabled control plane: %v", err)
 	}
 	for name, mutate := range map[string]func(*GatewayConfig){
+		"relative keystore": func(c *GatewayConfig) {
+			c.ControlPlaneAddr = "api:8443"
+			c.CredentialDir = "/credentials"
+			c.BootstrapCAFile = "/ca.pem"
+			c.CertificateRenewBefore = time.Hour
+		},
 		"orphan target":     func(c *GatewayConfig) { c.ControlPlaneAddr = "api:8443" },
 		"orphan directory":  func(c *GatewayConfig) { c.CredentialDir = "/credentials" },
 		"orphan CA":         func(c *GatewayConfig) { c.BootstrapCAFile = "/ca.pem" },
@@ -129,6 +135,7 @@ func TestGatewayControlPlaneConfigIsOptInAndPathsAreStrict(t *testing.T) {
 	valid.CredentialDir = "/credentials"
 	valid.BootstrapCAFile = "/ca.pem"
 	valid.CertificateRenewBefore = time.Hour
+	valid.WhatsmeowStoreDSN = "file:/data/keystore/store.db?_pragma=foreign_keys(on)"
 	if err := valid.Validate(); err != nil {
 		t.Fatal(err)
 	}

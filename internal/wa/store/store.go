@@ -40,3 +40,20 @@ func Open(ctx context.Context, dsn string, log waLog.Logger) (Keystore, error) {
 	}
 	return sqlitestore.Open(ctx, dsn, log)
 }
+
+// OpenExisting is the desired-state adoption seam: it refuses a missing or
+// corrupt SQLite file instead of creating a replacement keystore.
+func OpenExisting(ctx context.Context, dsn string, log waLog.Logger) (*sqlitestore.Managed, error) {
+	if dsn == "" {
+		return nil, fmt.Errorf("wastore: sqlite keystore requires a non-empty dsn")
+	}
+	return sqlitestore.OpenExisting(ctx, dsn, log)
+}
+
+// OpenManaged returns lifecycle hooks for graceful checkpoint-and-close.
+func OpenManaged(ctx context.Context, dsn string, log waLog.Logger) (*sqlitestore.Managed, error) {
+	if dsn == "" {
+		return nil, fmt.Errorf("wastore: sqlite keystore requires a non-empty dsn")
+	}
+	return sqlitestore.OpenManaged(ctx, dsn, log)
+}

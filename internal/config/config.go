@@ -13,6 +13,7 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/pki"
+	sqlitestore "github.com/ramaadi/quick-whatsapp-gateway/internal/wa/store/sqlite"
 )
 
 // GatewayConfig is the fully-parsed gateway runtime configuration. Every field maps to an ENV
@@ -204,6 +205,9 @@ func (c *GatewayConfig) Validate() error {
 			if value == "" || !filepath.IsAbs(value) || filepath.Clean(value) != value || value == string(filepath.Separator) {
 				return fmt.Errorf("config: %s must be an absolute clean non-root path", name)
 			}
+		}
+		if _, err := sqlitestore.FilePath(c.WhatsmeowStoreDSN); err != nil {
+			return fmt.Errorf("config: WHATSMEOW_STORE_DSN must be an explicit absolute persistent SQLite file path with the private control plane: %w", err)
 		}
 	}
 
