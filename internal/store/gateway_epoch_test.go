@@ -28,10 +28,10 @@ func TestGatewayRepoAllocateConnectionUsesCASAndRetries(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery("SELECT desired_lifecycle.*FROM gateways").
 		WithArgs("gw_1", uint64(6)).
-		WillReturnRows(sqlmock.NewRows([]string{"desired_lifecycle"}).AddRow("run"))
+		WillReturnRows(sqlmock.NewRows([]string{"desired_lifecycle", "desired_revision"}).AddRow("run", uint64(2)))
 
 	accepted, err := repo.AcceptConnection(context.Background(), domain.GatewayConnectionHello{GatewayID: "gw_1", BaseURL: &baseURL, Status: domain.GatewayJoining}, 100)
-	if err != nil || accepted.ConnectionEpoch != 6 || accepted.DesiredLifecycle != "run" {
+	if err != nil || accepted.ConnectionEpoch != 6 || accepted.DesiredLifecycle != "run" || accepted.DesiredRevision != 2 {
 		t.Fatalf("AcceptConnection: accepted=%+v err=%v", accepted, err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -51,12 +51,12 @@ func TestGatewayRepoAcceptReturnsPreservedAdministrativeDrain(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery("SELECT desired_lifecycle.*FROM gateways").
 		WithArgs("gw_1", uint64(9)).
-		WillReturnRows(sqlmock.NewRows([]string{"desired_lifecycle"}).AddRow("drain"))
+		WillReturnRows(sqlmock.NewRows([]string{"desired_lifecycle", "desired_revision"}).AddRow("drain", uint64(3)))
 
 	accepted, err := repo.AcceptConnection(context.Background(), domain.GatewayConnectionHello{
 		GatewayID: "gw_1", Status: domain.GatewayActive, SessionCount: 2,
 	}, 100)
-	if err != nil || accepted.ConnectionEpoch != 9 || accepted.DesiredLifecycle != "drain" {
+	if err != nil || accepted.ConnectionEpoch != 9 || accepted.DesiredLifecycle != "drain" || accepted.DesiredRevision != 3 {
 		t.Fatalf("AcceptConnection: accepted=%+v err=%v", accepted, err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -82,12 +82,12 @@ func TestGatewayRepoLegacyShutdownDoesNotLatchControlRestartToDrain(t *testing.T
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery("SELECT desired_lifecycle.*FROM gateways").
 		WithArgs("gw_1", uint64(3)).
-		WillReturnRows(sqlmock.NewRows([]string{"desired_lifecycle"}).AddRow("run"))
+		WillReturnRows(sqlmock.NewRows([]string{"desired_lifecycle", "desired_revision"}).AddRow("run", uint64(4)))
 
 	accepted, err := repo.AcceptConnection(context.Background(), domain.GatewayConnectionHello{
 		GatewayID: "gw_1", Status: domain.GatewayJoining,
 	}, 100)
-	if err != nil || accepted.DesiredLifecycle != "run" {
+	if err != nil || accepted.DesiredLifecycle != "run" || accepted.DesiredRevision != 4 {
 		t.Fatalf("accepted=%+v err=%v", accepted, err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -116,7 +116,7 @@ func TestGatewayRepoFencedWritesReturnFalseForStaleEpoch(t *testing.T) {
 	mock.ExpectQuery("SELECT EXISTS").
 		WithArgs("gw_1", uint64(9)).
 		WillReturnRows(sqlmock.NewRows([]string{"is_current"}).AddRow(false))
-	applied, err := repo.HeartbeatForEpoch(context.Background(), domain.GatewayHeartbeat{
+	_, applied, err := repo.HeartbeatForEpoch(context.Background(), domain.GatewayHeartbeat{
 		GatewayConnection: connection, SessionCount: 3, Status: domain.GatewayDegraded,
 	}, 200)
 	if err != nil || applied {
@@ -198,11 +198,17 @@ func TestGatewayRepoRuntimeReportDoesNotWriteDesiredLifecycle(t *testing.T) {
 	mock.ExpectExec("UPDATE gateways.*last_seen_at = \\?, session_count = \\?,\\s+status = \\?").
 		WithArgs(int64(201), 3, domain.GatewayActive, int64(201), "gw_1", uint64(9)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	applied, err := repo.HeartbeatForEpoch(context.Background(), domain.GatewayHeartbeat{
+	mock.ExpectQuery("SELECT desired_lifecycle, desired_revision").
+		WithArgs("gw_1", uint64(9)).
+		WillReturnRows(sqlmock.NewRows([]string{"desired_lifecycle", "desired_revision"}).AddRow("run", uint64(4)))
+	desired, applied, err := repo.HeartbeatForEpoch(context.Background(), domain.GatewayHeartbeat{
 		GatewayConnection: connection, SessionCount: 3, Status: domain.GatewayActive,
 	}, 201)
 	if err != nil || !applied {
 		t.Fatalf("guarded heartbeat: applied=%v err=%v", applied, err)
+	}
+	if desired.ConnectionEpoch != 9 || desired.DesiredLifecycle != "run" || desired.DesiredRevision != 4 {
+		t.Fatalf("heartbeat desired lifecycle = %+v", desired)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

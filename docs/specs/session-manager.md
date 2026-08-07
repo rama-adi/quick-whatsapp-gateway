@@ -44,8 +44,9 @@ per attached number, each holding a live WebSocket. Responsibilities:
   acknowledged DRAINING and DRAINED runtime heartbeats before its independently-owned stream is
   cancelled. Those are observed states and do not change the separate desired lifecycle. Flush
   requires a newer acknowledgement and follows a reconnect onto its replacement epoch. This coarse
-  process drain is transitional; per-session desired-state reconciliation,
-  assignment leases, and reversible RUN/DRAIN directives remain deferred.
+  process drain is transitional; per-session desired-state reconciliation and assignment leases
+  remain deferred. A post-Welcome RUN can start or affirm engine work only before terminal drain;
+  DRAIN is terminal for the process, and DISABLE follows the same drain path before stopping it.
 - **Control-mode worker lifetime.** The gateway-owned transitional Asynq server does not start until
   the supervisor has a durably acknowledged RUN+READY state. Terminal DRAIN closes admission and
   drains admitted requests, then stops and joins Asynq workers before shutting down the manager.

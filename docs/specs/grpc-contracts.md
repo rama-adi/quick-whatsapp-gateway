@@ -163,10 +163,11 @@ connection epoch, a positive representable Unix-millisecond timestamp, and a kno
 the accepted epoch and Welcome sequence must also match. Stale-epoch writes fail the stream rather
 than being accepted as current.
 
-Although the wire contract reserves lifecycle reports for directive acknowledgements and the store
-has an epoch-fenced lifecycle primitive, the handler does not persist any lifecycle report yet.
-Welcome carries no `directive_id`, so there is nothing a lifecycle report can validly acknowledge.
-Until explicit directive tracking exists, every lifecycle report returns `FailedPrecondition`.
+Welcome carries no `directive_id`, so it cannot be acknowledged by a lifecycle report. A strict
+post-Welcome directive is instead epoch- and sequence-fenced, and the gateway submits one terminal
+`GatewayLifecycleReport` for that exact directive ID and epoch. The supervisor rejects reports for
+a superseded directive or replacement connection rather than attributing an old outcome to newer
+control state.
 
 The gateway supervisor sends Hello and one heartbeat at a time, validates the complete Welcome/ack
 sequence and epoch, and reconnects transient failures with backoff. It becomes ready only after the
@@ -207,11 +208,13 @@ current epoch; a stale stream therefore cannot make its replacement unreachable.
 matching the advertised lease, while `legacy` rows retain 90 seconds for the 30-second heartbeat
 cadence. A later legacy registration switches the row back to legacy freshness.
 
-This is still not full gateway runtime parity. Strict post-Welcome lifecycle directives are
-rejected by the supervisor and lifecycle reports remain rejected by the API until issued directives
-are tracked; the graceful shutdown heartbeats do not implement that directive/report protocol.
-Certificate renewal, revocation-triggered termination, lifecycle reconciliation, and engine
-commands also remain unfinished. Disconnect clears liveness but does not invent a terminal
+This is still not full gateway runtime parity. A post-Welcome RUN starts or affirms engine work
+only before terminal drain; a later RUN receives a bounded failure report instead of restarting it.
+DRAIN closes admission irreversibly, drains admitted work, stops workers before manager shutdown,
+and reports its terminal outcome. DISABLE follows that drain path and then terminates the process.
+The graceful-shutdown heartbeats remain observed-state reports, distinct from the directive-bound
+terminal report. Certificate renewal, revocation-triggered termination, lifecycle reconciliation,
+and engine commands remain unfinished. Disconnect clears liveness but does not invent a terminal
 lifecycle status, and a replacement stream fences the old epoch.
 
 Disconnect cleanup runs on a detached context bounded to five seconds. It can therefore clear the

@@ -84,6 +84,7 @@ func run() error {
 	var supervisorExited chan struct{}
 	var supervisorResultMu sync.Mutex
 	var supervisorResult error
+	lifecycleDisabled := make(chan struct{}, 1)
 	if controlEnabled {
 		caInfo, statErr := os.Stat(cfg.BootstrapCAFile)
 		if statErr != nil {
@@ -310,6 +311,41 @@ func run() error {
 		}
 	}
 
+	var managerShutdownOnce sync.Once
+	var managerLifecycleMu sync.Mutex
+	managerTerminal := false
+	managerBooted := false
+	bootManager := func(bootCtx context.Context) (string, error) {
+		managerLifecycleMu.Lock()
+		defer managerLifecycleMu.Unlock()
+		if managerTerminal || managerBooted {
+			return "", nil
+		}
+		adminCode, bootErr := manager.Boot(bootCtx)
+		if bootErr == nil {
+			managerBooted = true
+		}
+		return adminCode, bootErr
+	}
+	managerState := func() (terminal, booted bool) {
+		managerLifecycleMu.Lock()
+		defer managerLifecycleMu.Unlock()
+		return managerTerminal, managerBooted
+	}
+	shutdownManager := func() {
+		managerShutdownOnce.Do(func() {
+			managerLifecycleMu.Lock()
+			defer managerLifecycleMu.Unlock()
+			managerTerminal = true
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if shutdownErr := manager.Shutdown(shutdownCtx); shutdownErr != nil {
+				log.Warn("shutdown session manager", "err", shutdownErr)
+			}
+		})
+	}
+	defer shutdownManager()
+
 	bootAllowed := true
 	welcomePending := false
 	if controlSupervisor != nil {
@@ -344,8 +380,9 @@ func run() error {
 	}
 	var adminCode string
 	if bootAllowed {
-		adminCode, err = manager.Boot(ctx)
+		adminCode, err = bootManager(ctx)
 	} else if !welcomePending {
+		shutdownManager()
 		controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED)
 		controlSupervisor.ReportNow()
 	}
@@ -385,39 +422,27 @@ func run() error {
 			}
 		}()
 	}
-	var managerShutdownOnce sync.Once
-	var managerLifecycleMu sync.Mutex
-	managerTerminal := false
-	shutdownManager := func() {
-		managerShutdownOnce.Do(func() {
-			managerLifecycleMu.Lock()
-			defer managerLifecycleMu.Unlock()
-			managerTerminal = true
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			if shutdownErr := manager.Shutdown(shutdownCtx); shutdownErr != nil {
-				log.Warn("shutdown session manager", "err", shutdownErr)
-			}
-		})
-	}
-	defer func() {
-		shutdownManager()
-	}()
 	if welcomePending {
 		go func() {
 			status, waitErr := controlSupervisor.WaitForWelcome(supervisorCtx)
-			if waitErr != nil || status.DesiredLifecycle != gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN {
+			if waitErr != nil {
 				return
 			}
-			managerLifecycleMu.Lock()
-			defer managerLifecycleMu.Unlock()
-			if managerTerminal {
+			if status.DesiredLifecycle != gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN {
+				shutdownManager()
+				controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED)
+				controlSupervisor.ReportNow()
 				return
 			}
-			if _, bootErr := manager.Boot(supervisorCtx); bootErr != nil {
+			adminCode, bootErr := bootManager(supervisorCtx)
+			if bootErr != nil {
 				log.Error("deferred session manager boot failed", "err", bootErr)
 				controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DEGRADED)
 				return
+			}
+			if adminCode != "" {
+				log.Info("admin session pairing code", "code", adminCode, "number", cfg.WhatsAppAdminNumber)
+				fmt.Printf("\n=== WhatsApp admin pairing code: %s (number %s) ===\n\n", adminCode, cfg.WhatsAppAdminNumber)
 			}
 			controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_READY)
 			controlSupervisor.ReportNow()
@@ -466,28 +491,96 @@ func run() error {
 	defer stopWorkers()
 	if controlSupervisor != nil {
 		go func() {
-			status, waitErr := controlSupervisor.WaitForWelcome(supervisorCtx)
-			if waitErr != nil {
-				return
-			}
-			for status.DesiredLifecycle == gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN {
-				next, waitErr := controlSupervisor.WaitForLifecycleChange(supervisorCtx, status.ConnectionEpoch, status.DesiredLifecycle)
+			var afterSequence uint64
+			for {
+				directive, waitErr := controlSupervisor.WaitForDirective(supervisorCtx, afterSequence)
 				if waitErr != nil {
 					return
 				}
-				status = next
+				afterSequence = directive.Sequence
+				if directive.Action == gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN {
+					runtimeState := gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_READY
+					failure := gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_NONE
+					terminal, _ := managerState()
+					if terminal {
+						runtimeState = gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED
+						failure = gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_BUSY
+					} else {
+						adminCode, bootErr := bootManager(supervisorCtx)
+						if bootErr != nil {
+							log.Error("directive session manager boot failed", "err", bootErr)
+							runtimeState = gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DEGRADED
+							failure = gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_INTERNAL
+						} else if adminCode != "" {
+							log.Info("admin session pairing code", "code", adminCode, "number", cfg.WhatsAppAdminNumber)
+							fmt.Printf("\n=== WhatsApp admin pairing code: %s (number %s) ===\n\n", adminCode, cfg.WhatsAppAdminNumber)
+						}
+						controlRuntime.setState(runtimeState)
+						controlSupervisor.ReportNow()
+					}
+					reportCtx, reportCancel := context.WithTimeout(context.Background(), 5*time.Second)
+					if reportErr := controlSupervisor.ReportLifecycle(reportCtx, directive, runtimeState, failure); reportErr != nil {
+						log.Warn("report lifecycle directive outcome", "directive", directive.ID, "err", reportErr)
+					}
+					reportCancel()
+					continue
+				}
+
+				terminal, _ := managerState()
+				if terminal {
+					reportCtx, reportCancel := context.WithTimeout(context.Background(), 5*time.Second)
+					if reportErr := controlSupervisor.ReportLifecycle(reportCtx, directive, gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED, gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_NONE); reportErr != nil {
+						log.Warn("report lifecycle directive outcome", "directive", directive.ID, "err", reportErr)
+					}
+					reportCancel()
+					if directive.Action == gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DISABLE {
+						select {
+						case lifecycleDisabled <- struct{}{}:
+						default:
+						}
+						return
+					}
+					continue
+				}
+
+				drainCtx := context.Background()
+				var drainCancel context.CancelFunc
+				if directive.DrainDeadline.IsZero() {
+					drainCtx, drainCancel = context.WithTimeout(drainCtx, 10*time.Second)
+				} else {
+					drainCtx, drainCancel = context.WithDeadline(drainCtx, directive.DrainDeadline)
+				}
+				failure := gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_NONE
+				if drainErr := admissionGate.CloseAndWait(drainCtx); drainErr != nil {
+					log.Warn("wait for admitted gateway requests", "err", drainErr)
+					if errors.Is(drainErr, context.DeadlineExceeded) {
+						failure = gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_TIMEOUT
+					} else {
+						failure = gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_INTERNAL
+					}
+				}
+				drainCancel()
+				stopWorkers()
+				controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINING)
+				reportControlRuntime(log, controlSupervisor, gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINING, 5*time.Second)
+				shutdownManager()
+				controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED)
+				reportControlRuntime(log, controlSupervisor, gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED, 5*time.Second)
+				reportCtx, reportCancel := context.WithTimeout(context.Background(), 5*time.Second)
+				if reportErr := controlSupervisor.ReportLifecycle(reportCtx, directive, gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED, failure); reportErr != nil {
+					log.Warn("report lifecycle directive outcome", "directive", directive.ID, "err", reportErr)
+				}
+				reportCancel()
+				if directive.Action == gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DISABLE {
+					select {
+					case lifecycleDisabled <- struct{}{}:
+					default:
+					}
+				}
+				if directive.Action == gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DISABLE {
+					return
+				}
 			}
-			drainCtx, drainCancel := context.WithTimeout(context.Background(), 10*time.Second)
-			if drainErr := admissionGate.CloseAndWait(drainCtx); drainErr != nil {
-				log.Warn("wait for admitted gateway requests", "err", drainErr)
-			}
-			drainCancel()
-			stopWorkers()
-			controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINING)
-			reportControlRuntime(log, controlSupervisor, gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINING, 5*time.Second)
-			shutdownManager()
-			controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED)
-			reportControlRuntime(log, controlSupervisor, gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED, 5*time.Second)
 		}()
 	}
 	qClient := queue.NewClient(redisOpt)
@@ -574,6 +667,8 @@ func run() error {
 		result := supervisorResult
 		supervisorResultMu.Unlock()
 		return fmt.Errorf("gateway control supervisor stopped: %w", result)
+	case <-lifecycleDisabled:
+		log.Info("gateway disabled by control-plane directive")
 	case <-ctx.Done():
 		log.Info("shutdown signal received, draining connections")
 	}

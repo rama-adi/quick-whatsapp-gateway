@@ -25,7 +25,7 @@ WHERE id = ? AND deleted_at IS NULL;
 
 -- name: SetGatewayDesiredLifecycle :execrows
 UPDATE gateways
-SET desired_lifecycle = ?, updated_at = ?
+SET desired_lifecycle = ?, desired_revision = desired_revision + 1, updated_at = ?
 WHERE id = ? AND deleted_at IS NULL
   AND enrolled_at IS NOT NULL
   AND status NOT IN ('pending_enrollment', 'disabled');
@@ -141,7 +141,7 @@ SELECT EXISTS(
 ) AS is_current;
 
 -- name: GetAcceptedGatewayDesiredLifecycle :one
-SELECT desired_lifecycle
+SELECT desired_lifecycle, desired_revision
 FROM gateways
 WHERE id = ? AND connection_epoch = ? AND deleted_at IS NULL
   AND status NOT IN ('pending_enrollment', 'disabled')

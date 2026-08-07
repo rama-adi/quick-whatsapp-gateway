@@ -28,6 +28,7 @@ type GatewayConnection struct {
 type GatewayAcceptedConnection struct {
 	ConnectionEpoch  uint64
 	DesiredLifecycle string
+	DesiredRevision  uint64
 }
 
 type GatewayConnectionHello struct {

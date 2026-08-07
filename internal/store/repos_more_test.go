@@ -82,7 +82,7 @@ func TestGatewayRepo_HeartbeatAndSetStatus(t *testing.T) {
 		t.Fatalf("SetStatus: %v", err)
 	}
 
-	mock.ExpectExec("UPDATE gateways\\s+SET desired_lifecycle = \\?, updated_at = \\?").
+	mock.ExpectExec("UPDATE gateways\\s+SET desired_lifecycle = \\?, desired_revision = desired_revision \\+ 1, updated_at = \\?").
 		WithArgs("drain", int64(201), "gw_1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	if updated, err := repo.SetDesiredLifecycle(context.Background(), "gw_1", "drain", 201); err != nil || !updated {
@@ -99,7 +99,7 @@ func TestGatewayRepo_PickForPlacement(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewGatewayRepo(db)
 
-	rows := gatewayRows().AddRow("gw_b", nil, nil, "active", 1, nil, "https://b", nil, nil, nil, uint64(7), "control", "run", uint64(0), uint64(0), nil, nil, int64(9), int64(1), int64(2))
+	rows := gatewayRows().AddRow("gw_b", nil, nil, "active", 1, nil, "https://b", nil, nil, []byte(`[]`), uint64(7), "control", "run", uint64(0), uint64(0), nil, nil, int64(9), int64(1), int64(2))
 	mock.ExpectQuery("SELECT .* FROM gateways").
 		WithArgs(domain.GatewayActive).WillReturnRows(rows)
 	got, err := repo.PickForPlacement(context.Background())
@@ -129,8 +129,8 @@ func TestGatewayRepo_ListActive(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewGatewayRepo(db)
 	rows := gatewayRows().
-		AddRow("gw_a", nil, nil, "active", 0, nil, "https://a", nil, nil, nil, uint64(7), "control", "run", uint64(0), uint64(0), nil, nil, int64(1), int64(1), int64(1)).
-		AddRow("gw_b", nil, nil, "active", 2, 10, "https://b", nil, nil, nil, uint64(8), "control", "run", uint64(0), uint64(0), nil, nil, int64(1), int64(1), int64(1))
+		AddRow("gw_a", nil, nil, "active", 0, nil, "https://a", nil, nil, []byte(`[]`), uint64(7), "control", "run", uint64(0), uint64(0), nil, nil, int64(1), int64(1), int64(1)).
+		AddRow("gw_b", nil, nil, "active", 2, 10, "https://b", nil, nil, []byte(`[]`), uint64(8), "control", "run", uint64(0), uint64(0), nil, nil, int64(1), int64(1), int64(1))
 	mock.ExpectQuery("SELECT .* FROM gateways WHERE status = .").
 		WithArgs(domain.GatewayActive).WillReturnRows(rows)
 	got, err := repo.ListActive(context.Background())

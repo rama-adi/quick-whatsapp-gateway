@@ -5,6 +5,7 @@ package gateway
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/url"
 	"time"
@@ -57,19 +58,30 @@ type LifecycleReport struct {
 	Failure     gatewayv1.LifecycleFailure
 }
 
+// DesiredLifecycle is the authoritative desired state observed as part of a
+// successful fenced heartbeat. Revision identifies one desired-state command;
+// the handler emits at most one directive for each revision on a connection.
+type DesiredLifecycle struct {
+	Action   gatewayv1.LifecycleDirectiveAction
+	Revision uint64
+}
+
 type Connection struct {
 	ID                string
 	Epoch             uint64
 	HeartbeatInterval time.Duration
 	LeaseTimeout      time.Duration
 	DesiredLifecycle  gatewayv1.LifecycleDirectiveAction
+	DesiredRevision   uint64
 }
 
 // Store owns atomic connection acceptance (including epoch allocation and hello
 // metadata persistence) and fences every later mutation by gateway ID and epoch.
 type Store interface {
 	Accept(context.Context, string, Hello) (Connection, error)
-	Heartbeat(context.Context, string, uint64, Heartbeat) error
+	// Heartbeat durably records the report for the current epoch and returns
+	// the desired lifecycle/revision read from that same fenced connection.
+	Heartbeat(context.Context, string, uint64, Heartbeat) (DesiredLifecycle, error)
 	Lifecycle(context.Context, string, uint64, LifecycleReport) error
 	Disconnect(context.Context, string, uint64) error
 }
@@ -118,7 +130,7 @@ func (s *Server) Connect(stream gatewayv1.GatewayControlService_ConnectServer) (
 	if err != nil {
 		return storeStatus(err)
 	}
-	if connection.ID == "" || connection.Epoch == 0 || connection.HeartbeatInterval <= 0 || connection.LeaseTimeout <= 0 {
+	if connection.ID == "" || connection.Epoch == 0 || connection.HeartbeatInterval <= 0 || connection.LeaseTimeout <= 0 || !knownLifecycleAction(connection.DesiredLifecycle) {
 		return status.Error(codes.Internal, "invalid gateway connection allocation")
 	}
 	defer func() {
@@ -147,6 +159,9 @@ func (s *Server) Connect(stream gatewayv1.GatewayControlService_ConnectServer) (
 	defer leaseTimer.Stop()
 	outboundSequence := welcome.Sequence
 	lastAcknowledgedControlSequence := welcome.Sequence
+	lastIssuedDesiredRevision := connection.DesiredRevision
+	lastIssuedDesiredAction := connection.DesiredLifecycle
+	var pendingDirective *issuedDirective
 	for expected := uint64(2); ; expected++ {
 		frame, recvErr := receiveBefore(stream.Context(), received, leaseTimer.C, "gateway heartbeat lease expired")
 		if recvErr != nil {
@@ -170,11 +185,17 @@ func (s *Server) Connect(stream gatewayv1.GatewayControlService_ConnectServer) (
 				return status.Error(codes.FailedPrecondition, "gateway control acknowledgement mismatch")
 			}
 			lastAcknowledgedControlSequence = payload.Heartbeat.LastControlSequence
-			err = s.Store.Heartbeat(stream.Context(), gatewayID, connection.Epoch, heartbeatValue(payload.Heartbeat))
-			if err == nil {
+			desired, heartbeatErr := s.Store.Heartbeat(stream.Context(), gatewayID, connection.Epoch, heartbeatValue(payload.Heartbeat))
+			if heartbeatErr == nil {
+				if err = validateDesiredLifecycle(desired); err != nil {
+					return err
+				}
+				if desired.Revision < lastIssuedDesiredRevision || (desired.Revision == lastIssuedDesiredRevision && desired.Action != lastIssuedDesiredAction) {
+					return status.Error(codes.Internal, "invalid desired lifecycle revision")
+				}
 				resetTimer(leaseTimer, connection.LeaseTimeout)
 				outboundSequence++
-				err = stream.Send(&gatewayv1.ControlFrame{
+				if err = stream.Send(&gatewayv1.ControlFrame{
 					ProtocolVersion: ProtocolVersion,
 					Sequence:        outboundSequence,
 					Payload: &gatewayv1.ControlFrame_HeartbeatAck{HeartbeatAck: &gatewayv1.ControlHeartbeatAck{
@@ -182,13 +203,42 @@ func (s *Server) Connect(stream gatewayv1.GatewayControlService_ConnectServer) (
 						ConnectionEpoch:             connection.Epoch,
 						ServerTimeUnixMs:            s.clock().UnixMilli(),
 					}},
-				})
-				if err != nil {
+				}); err != nil {
 					return sendStatus(err)
 				}
+				if pendingDirective == nil && desired.Revision != lastIssuedDesiredRevision {
+					directive := issuedDirective{id: directiveID(connection.ID, desired.Revision), action: desired.Action}
+					outboundSequence++
+					if err = stream.Send(&gatewayv1.ControlFrame{
+						ProtocolVersion: ProtocolVersion,
+						Sequence:        outboundSequence,
+						Payload: &gatewayv1.ControlFrame_LifecycleDirective{LifecycleDirective: &gatewayv1.LifecycleDirective{
+							DirectiveId:     directive.id,
+							ConnectionEpoch: connection.Epoch,
+							Action:          directive.action,
+							Reason:          gatewayv1.LifecycleDirectiveReason_LIFECYCLE_DIRECTIVE_REASON_OPERATOR,
+						}},
+					}); err != nil {
+						return sendStatus(err)
+					}
+					pendingDirective = &directive
+					lastIssuedDesiredRevision = desired.Revision
+					lastIssuedDesiredAction = desired.Action
+				}
+			} else {
+				err = heartbeatErr
 			}
 		case *gatewayv1.GatewayFrame_LifecycleReport:
-			return status.Error(codes.FailedPrecondition, "no lifecycle directive is awaiting acknowledgement")
+			if pendingDirective == nil {
+				return status.Error(codes.FailedPrecondition, "no lifecycle directive is awaiting acknowledgement")
+			}
+			if err = validateLifecycleReport(payload.LifecycleReport, connection.Epoch, *pendingDirective); err != nil {
+				return err
+			}
+			err = s.Store.Lifecycle(stream.Context(), gatewayID, connection.Epoch, lifecycleValue(payload.LifecycleReport))
+			if err == nil {
+				pendingDirective = nil
+			}
 		default:
 			return status.Error(codes.FailedPrecondition, "hello is only valid as the first gateway frame")
 		}
@@ -294,6 +344,73 @@ func validateHeartbeat(heartbeat *gatewayv1.GatewayHeartbeat) error {
 		return status.Error(codes.InvalidArgument, "invalid gateway heartbeat")
 	}
 	return nil
+}
+
+type issuedDirective struct {
+	id     string
+	action gatewayv1.LifecycleDirectiveAction
+}
+
+func directiveID(connectionID string, revision uint64) string {
+	return fmt.Sprintf("%s:%d", connectionID, revision)
+}
+
+func validateDesiredLifecycle(desired DesiredLifecycle) error {
+	if !knownLifecycleAction(desired.Action) {
+		return status.Error(codes.Internal, "invalid desired lifecycle")
+	}
+	return nil
+}
+
+func validateLifecycleReport(report *gatewayv1.GatewayLifecycleReport, epoch uint64, directive issuedDirective) error {
+	if report == nil || report.DirectiveId == "" || !knownRuntimeState(report.State) || !knownLifecycleFailure(report.Failure) {
+		return status.Error(codes.InvalidArgument, "invalid gateway lifecycle report")
+	}
+	if report.ConnectionEpoch != epoch {
+		return status.Error(codes.FailedPrecondition, "gateway connection epoch mismatch")
+	}
+	if report.DirectiveId != directive.id {
+		return status.Error(codes.FailedPrecondition, "gateway lifecycle directive acknowledgement mismatch")
+	}
+	if report.Failure == gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_NONE && !lifecycleActionSatisfied(directive.action, report.State) {
+		return status.Error(codes.FailedPrecondition, "gateway lifecycle directive result mismatch")
+	}
+	return nil
+}
+
+func knownLifecycleAction(action gatewayv1.LifecycleDirectiveAction) bool {
+	switch action {
+	case gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN,
+		gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DRAIN,
+		gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DISABLE:
+		return true
+	default:
+		return false
+	}
+}
+
+func knownLifecycleFailure(failure gatewayv1.LifecycleFailure) bool {
+	switch failure {
+	case gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_NONE,
+		gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_BUSY,
+		gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_TIMEOUT,
+		gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_INTERNAL:
+		return true
+	default:
+		return false
+	}
+}
+
+func lifecycleActionSatisfied(action gatewayv1.LifecycleDirectiveAction, state gatewayv1.GatewayRuntimeState) bool {
+	switch action {
+	case gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN:
+		return state == gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_READY
+	case gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DRAIN,
+		gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DISABLE:
+		return state == gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED
+	default:
+		return false
+	}
 }
 
 func knownRuntimeState(state gatewayv1.GatewayRuntimeState) bool {

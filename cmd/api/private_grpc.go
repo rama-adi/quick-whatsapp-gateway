@@ -213,7 +213,7 @@ func (h privateGatewayHealth) Check(context.Context, *gatewayv1.GatewayHealthSer
 
 type gatewayControlRepo interface {
 	AcceptConnection(context.Context, domain.GatewayConnectionHello, int64) (domain.GatewayAcceptedConnection, error)
-	HeartbeatForEpoch(context.Context, domain.GatewayHeartbeat, int64) (bool, error)
+	HeartbeatForEpoch(context.Context, domain.GatewayHeartbeat, int64) (domain.GatewayAcceptedConnection, bool, error)
 	SetStatusForEpoch(context.Context, domain.GatewayLifecycleReport, int64) (bool, error)
 	DisconnectForEpoch(context.Context, domain.GatewayConnection, int64) (bool, error)
 }
@@ -257,20 +257,28 @@ func (s gatewayControlStore) Accept(ctx context.Context, gatewayID string, hello
 		ID: domain.NewULID(), Epoch: accepted.ConnectionEpoch, HeartbeatInterval: apigateway.DefaultHeartbeatInterval,
 		LeaseTimeout:     apigateway.DefaultLeaseTimeout,
 		DesiredLifecycle: desiredLifecycle,
+		DesiredRevision:  accepted.DesiredRevision,
 	}, nil
 }
 
-func (s gatewayControlStore) Heartbeat(ctx context.Context, gatewayID string, epoch uint64, heartbeat apigateway.Heartbeat) error {
+func (s gatewayControlStore) Heartbeat(ctx context.Context, gatewayID string, epoch uint64, heartbeat apigateway.Heartbeat) (apigateway.DesiredLifecycle, error) {
 	runtimeStatus, valid := runtimeGatewayStatus(heartbeat.RuntimeState)
 	if !valid {
-		return apigateway.ErrConflict
+		return apigateway.DesiredLifecycle{}, apigateway.ErrConflict
 	}
-	applied, err := s.repo.HeartbeatForEpoch(ctx, domain.GatewayHeartbeat{
+	desired, applied, err := s.repo.HeartbeatForEpoch(ctx, domain.GatewayHeartbeat{
 		GatewayConnection: domain.GatewayConnection{GatewayID: gatewayID, ConnectionEpoch: epoch},
 		SessionCount:      int(heartbeat.SessionCount),
 		Status:            runtimeStatus,
 	}, s.clock().UnixMilli())
-	return fencedStoreResult(applied, err)
+	if err = fencedStoreResult(applied, err); err != nil {
+		return apigateway.DesiredLifecycle{}, err
+	}
+	action, ok := desiredLifecycleForStoredValue(desired.DesiredLifecycle)
+	if !ok || desired.ConnectionEpoch != epoch {
+		return apigateway.DesiredLifecycle{}, apigateway.ErrConflict
+	}
+	return apigateway.DesiredLifecycle{Action: action, Revision: desired.DesiredRevision}, nil
 }
 
 func (s gatewayControlStore) Lifecycle(ctx context.Context, gatewayID string, epoch uint64, report apigateway.LifecycleReport) error {

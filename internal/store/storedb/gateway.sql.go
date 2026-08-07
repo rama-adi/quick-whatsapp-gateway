@@ -193,7 +193,7 @@ func (q *Queries) GatewayHeartbeatForEpoch(ctx context.Context, arg GatewayHeart
 }
 
 const getAcceptedGatewayDesiredLifecycle = `-- name: GetAcceptedGatewayDesiredLifecycle :one
-SELECT desired_lifecycle
+SELECT desired_lifecycle, desired_revision
 FROM gateways
 WHERE id = ? AND connection_epoch = ? AND deleted_at IS NULL
   AND status NOT IN ('pending_enrollment', 'disabled')
@@ -205,11 +205,16 @@ type GetAcceptedGatewayDesiredLifecycleParams struct {
 	ConnectionEpoch uint64 `db:"connection_epoch" json:"connection_epoch"`
 }
 
-func (q *Queries) GetAcceptedGatewayDesiredLifecycle(ctx context.Context, arg GetAcceptedGatewayDesiredLifecycleParams) (GatewaysDesiredLifecycle, error) {
+type GetAcceptedGatewayDesiredLifecycleRow struct {
+	DesiredLifecycle GatewaysDesiredLifecycle `db:"desired_lifecycle" json:"desired_lifecycle"`
+	DesiredRevision  uint64                   `db:"desired_revision" json:"desired_revision"`
+}
+
+func (q *Queries) GetAcceptedGatewayDesiredLifecycle(ctx context.Context, arg GetAcceptedGatewayDesiredLifecycleParams) (GetAcceptedGatewayDesiredLifecycleRow, error) {
 	row := q.db.QueryRowContext(ctx, getAcceptedGatewayDesiredLifecycle, arg.ID, arg.ConnectionEpoch)
-	var desired_lifecycle GatewaysDesiredLifecycle
-	err := row.Scan(&desired_lifecycle)
-	return desired_lifecycle, err
+	var i GetAcceptedGatewayDesiredLifecycleRow
+	err := row.Scan(&i.DesiredLifecycle, &i.DesiredRevision)
+	return i, err
 }
 
 const getGateway = `-- name: GetGateway :one
@@ -542,7 +547,7 @@ func (q *Queries) PickGatewayForPlacement(ctx context.Context, arg PickGatewayFo
 
 const setGatewayDesiredLifecycle = `-- name: SetGatewayDesiredLifecycle :execrows
 UPDATE gateways
-SET desired_lifecycle = ?, updated_at = ?
+SET desired_lifecycle = ?, desired_revision = desired_revision + 1, updated_at = ?
 WHERE id = ? AND deleted_at IS NULL
   AND enrolled_at IS NOT NULL
   AND status NOT IN ('pending_enrollment', 'disabled')

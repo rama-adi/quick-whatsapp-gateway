@@ -123,6 +123,24 @@ func heartbeatAck(controlSequence, gatewaySequence, epoch uint64) *gatewayv1.Con
 	}
 }
 
+func directive(sequence uint64, action gatewayv1.LifecycleDirectiveAction) *gatewayv1.ControlFrame {
+	value := int64(101_000)
+	directive := &gatewayv1.LifecycleDirective{
+		DirectiveId:     "directive-1",
+		ConnectionEpoch: 7,
+		Action:          action,
+		Reason:          gatewayv1.LifecycleDirectiveReason_LIFECYCLE_DIRECTIVE_REASON_OPERATOR,
+	}
+	if action == gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DRAIN {
+		directive.DrainDeadlineUnixMs = &value
+	}
+	return &gatewayv1.ControlFrame{
+		ProtocolVersion: ProtocolVersion,
+		Sequence:        sequence,
+		Payload:         &gatewayv1.ControlFrame_LifecycleDirective{LifecycleDirective: directive},
+	}
+}
+
 func testSupervisor(t *testing.T, clock *fakeClock, opener StreamOpener) *Supervisor {
 	t.Helper()
 	supervisor, err := New(Config{
@@ -221,6 +239,96 @@ func TestDrainWelcomeIsConnectedButUnreadyAndSendsNoLifecycleReport(t *testing.T
 	<-done
 }
 
+func TestDirectiveIsExposedAndReportEchoesItsExactIdentity(t *testing.T) {
+	clock := &fakeClock{now: time.Unix(100, 0)}
+	stream := newFakeStream()
+	stream.recv <- receiveResult{frame: welcome(gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN)}
+	stream.recv <- receiveResult{frame: directive(2, gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DRAIN)}
+	supervisor := testSupervisor(t, clock, &fakeOpener{streams: []*fakeStream{stream}})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- supervisor.runStream(ctx) }()
+	<-stream.sent // Hello.
+
+	got, err := supervisor.WaitForDirective(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "directive-1" || got.Sequence != 2 || got.ConnectionEpoch != 7 ||
+		got.Action != gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DRAIN ||
+		got.Reason != gatewayv1.LifecycleDirectiveReason_LIFECYCLE_DIRECTIVE_REASON_OPERATOR ||
+		got.DrainDeadline.UnixMilli() != 101_000 {
+		t.Fatalf("directive = %#v", got)
+	}
+	wrong := got
+	wrong.ID = "different-directive"
+	if err := supervisor.ReportLifecycle(context.Background(), wrong,
+		gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED,
+		gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_NONE); !errors.Is(err, ErrDirectiveSuperseded) {
+		t.Fatalf("mismatched report error = %v, want superseded directive", err)
+	}
+	reported := make(chan error, 1)
+	go func() {
+		reported <- supervisor.ReportLifecycle(context.Background(), got,
+			gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED,
+			gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_NONE)
+	}()
+	report := <-stream.sent
+	if report.Sequence != 2 || report.GetLifecycleReport() == nil ||
+		report.GetLifecycleReport().ConnectionEpoch != got.ConnectionEpoch ||
+		report.GetLifecycleReport().DirectiveId != got.ID {
+		t.Fatalf("lifecycle report = %#v", report)
+	}
+	if err := <-reported; err != nil {
+		t.Fatal(err)
+	}
+	if status := supervisor.Status(); status.Directive != nil {
+		t.Fatalf("reported directive remained active: %#v", status.Directive)
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDrainDirectiveMayOmitDeadline(t *testing.T) {
+	frame := directive(2, gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DRAIN)
+	frame.GetLifecycleDirective().DrainDeadlineUnixMs = nil
+	if err := validateControl(frame, 2, 7, 1, time.Unix(100, 0)); err != nil {
+		t.Fatalf("deadline-less drain directive rejected: %v", err)
+	}
+}
+
+func TestRejectsInvalidDirectiveFields(t *testing.T) {
+	clock := time.Unix(100, 0)
+	for name, mutate := range map[string]func(*gatewayv1.LifecycleDirective){
+		"empty id":    func(v *gatewayv1.LifecycleDirective) { v.DirectiveId = "" },
+		"wrong epoch": func(v *gatewayv1.LifecycleDirective) { v.ConnectionEpoch = 8 },
+		"unknown action": func(v *gatewayv1.LifecycleDirective) {
+			v.Action = gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_UNKNOWN
+		},
+		"unknown reason": func(v *gatewayv1.LifecycleDirective) {
+			v.Reason = gatewayv1.LifecycleDirectiveReason_LIFECYCLE_DIRECTIVE_REASON_UNKNOWN
+		},
+		"expired deadline": func(v *gatewayv1.LifecycleDirective) {
+			expired := int64(100_000)
+			v.DrainDeadlineUnixMs = &expired
+		},
+		"deadline on run": func(v *gatewayv1.LifecycleDirective) {
+			v.Action = gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			frame := directive(2, gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DRAIN)
+			mutate(frame.GetLifecycleDirective())
+			if err := validateControl(frame, 2, 7, 1, clock); !errors.Is(err, ErrProtocol) {
+				t.Fatalf("validateControl error = %v, want protocol violation", err)
+			}
+		})
+	}
+}
+
 func TestRejectsControlSequenceAndEpoch(t *testing.T) {
 	for name, mutate := range map[string]func(*gatewayv1.ControlFrame){
 		"sequence": func(frame *gatewayv1.ControlFrame) { frame.Sequence = 3 },
@@ -232,15 +340,7 @@ func TestRejectsControlSequenceAndEpoch(t *testing.T) {
 			clock := &fakeClock{now: time.Unix(100, 0)}
 			stream := newFakeStream()
 			stream.recv <- receiveResult{frame: welcome(gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN)}
-			directive := &gatewayv1.ControlFrame{
-				ProtocolVersion: ProtocolVersion,
-				Sequence:        2,
-				Payload: &gatewayv1.ControlFrame_LifecycleDirective{LifecycleDirective: &gatewayv1.LifecycleDirective{
-					DirectiveId:     "directive-1",
-					ConnectionEpoch: 7,
-					Action:          gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DRAIN,
-				}},
-			}
+			directive := directive(2, gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DRAIN)
 			mutate(directive)
 			stream.recv <- receiveResult{frame: directive}
 			supervisor := testSupervisor(t, clock, &fakeOpener{streams: []*fakeStream{stream}})

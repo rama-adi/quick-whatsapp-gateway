@@ -198,9 +198,9 @@ func (r *fakeGatewayControlRepo) AcceptConnection(_ context.Context, hello domai
 	r.hello = hello
 	return r.accepted, r.err
 }
-func (r *fakeGatewayControlRepo) HeartbeatForEpoch(_ context.Context, heartbeat domain.GatewayHeartbeat, _ int64) (bool, error) {
+func (r *fakeGatewayControlRepo) HeartbeatForEpoch(_ context.Context, heartbeat domain.GatewayHeartbeat, _ int64) (domain.GatewayAcceptedConnection, bool, error) {
 	r.heartbeat = heartbeat
-	return r.heartbeatOK, r.err
+	return r.accepted, r.heartbeatOK, r.err
 }
 func (r *fakeGatewayControlRepo) SetStatusForEpoch(_ context.Context, lifecycle domain.GatewayLifecycleReport, _ int64) (bool, error) {
 	r.lifecycle = lifecycle
@@ -221,7 +221,8 @@ func TestGatewayControlStoreAdaptsAndFencesPersistence(t *testing.T) {
 	if err != nil || connection.Epoch != 9 || connection.ID == "" || repo.hello.GatewayID != "gw_1" || repo.hello.BaseURL == nil || *repo.hello.BaseURL != "https://gateway.test" || repo.hello.SessionCount != 3 || repo.hello.Status != domain.GatewayActive {
 		t.Fatalf("accept = %+v hello=%+v err=%v", connection, repo.hello, err)
 	}
-	if err = controlStore.Heartbeat(context.Background(), "gw_1", 9, apigateway.Heartbeat{SessionCount: 4, RuntimeState: gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DEGRADED}); err != nil || repo.heartbeat.ConnectionEpoch != 9 || repo.heartbeat.Status != domain.GatewayDegraded {
+	desired, err := controlStore.Heartbeat(context.Background(), "gw_1", 9, apigateway.Heartbeat{SessionCount: 4, RuntimeState: gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DEGRADED})
+	if err != nil || desired.Action != gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN || repo.heartbeat.ConnectionEpoch != 9 || repo.heartbeat.Status != domain.GatewayDegraded {
 		t.Fatalf("heartbeat = %+v err=%v", repo.heartbeat, err)
 	}
 	if err = controlStore.Lifecycle(context.Background(), "gw_1", 9, apigateway.LifecycleReport{State: gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINING}); err != nil || repo.lifecycle.Status != domain.GatewayDraining {
@@ -231,7 +232,7 @@ func TestGatewayControlStoreAdaptsAndFencesPersistence(t *testing.T) {
 		t.Fatalf("disconnect = %+v err=%v", repo.disconnect, err)
 	}
 	repo.heartbeatOK = false
-	if err = controlStore.Heartbeat(context.Background(), "gw_1", 9, apigateway.Heartbeat{RuntimeState: gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_READY}); !errors.Is(err, apigateway.ErrStaleEpoch) {
+	if _, err = controlStore.Heartbeat(context.Background(), "gw_1", 9, apigateway.Heartbeat{RuntimeState: gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_READY}); !errors.Is(err, apigateway.ErrStaleEpoch) {
 		t.Fatalf("stale heartbeat error = %v", err)
 	}
 	if err = controlStore.Disconnect(context.Background(), "gw_1", 9); !errors.Is(err, apigateway.ErrStaleEpoch) {
@@ -300,7 +301,7 @@ func TestGatewayControlStorePreservesContextErrors(t *testing.T) {
 			if !errors.Is(acceptErr, contextErr) || !errors.Is(acceptErr, apigateway.ErrUnavailable) {
 				t.Fatalf("accept error = %v", acceptErr)
 			}
-			heartbeatErr := controlStore.Heartbeat(context.Background(), "gw_1", 1, apigateway.Heartbeat{RuntimeState: gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_READY})
+			_, heartbeatErr := controlStore.Heartbeat(context.Background(), "gw_1", 1, apigateway.Heartbeat{RuntimeState: gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_READY})
 			if !errors.Is(heartbeatErr, contextErr) || !errors.Is(heartbeatErr, apigateway.ErrUnavailable) {
 				t.Fatalf("heartbeat error = %v", heartbeatErr)
 			}

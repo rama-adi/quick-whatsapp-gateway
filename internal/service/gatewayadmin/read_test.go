@@ -57,7 +57,7 @@ func TestGetGatewayBuildsSafeDerivedView(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.AssignedSessionCount != 2 || got.Gateway.SessionCount != 99 {
+	if got.AssignedSessionCount != 2 || got.SessionCount != 99 {
 		t.Fatalf("reported/derived counts were not kept distinct: %+v", got)
 	}
 	if got.ActiveCertificate == nil || got.ActiveCertificate.ID != "active" {

@@ -21,7 +21,10 @@ import (
 
 const ProtocolVersion uint32 = 1
 
-var ErrProtocol = errors.New("control supervisor: protocol violation")
+var (
+	ErrProtocol            = errors.New("control supervisor: protocol violation")
+	ErrDirectiveSuperseded = errors.New("control supervisor: lifecycle directive superseded")
+)
 
 type RuntimeSnapshot struct {
 	State        gatewayv1.GatewayRuntimeState
@@ -72,17 +75,38 @@ type Status struct {
 	LastControlSequence uint64
 	AcknowledgedRuntime gatewayv1.GatewayRuntimeState
 	DesiredLifecycle    gatewayv1.LifecycleDirectiveAction
+	Directive           *LifecycleDirective
 	LastError           error
 }
 
+// LifecycleDirective is a validated API lifecycle instruction. Unlike the
+// desired lifecycle in Welcome, it has an identity that must be echoed in the
+// one lifecycle report for this connection epoch.
+type LifecycleDirective struct {
+	ID              string
+	ConnectionEpoch uint64
+	Sequence        uint64
+	Action          gatewayv1.LifecycleDirectiveAction
+	DrainDeadline   time.Time
+	Reason          gatewayv1.LifecycleDirectiveReason
+}
+
+type lifecycleReportRequest struct {
+	directive LifecycleDirective
+	state     gatewayv1.GatewayRuntimeState
+	failure   gatewayv1.LifecycleFailure
+	result    chan error
+}
+
 type Supervisor struct {
-	cfg     Config
-	opener  StreamOpener
-	mu      sync.RWMutex
-	status  Status
-	running atomic.Bool
-	report  chan struct{}
-	changed chan struct{}
+	cfg              Config
+	opener           StreamOpener
+	mu               sync.RWMutex
+	status           Status
+	running          atomic.Bool
+	report           chan struct{}
+	lifecycleReports chan lifecycleReportRequest
+	changed          chan struct{}
 }
 
 func New(cfg Config, opener StreamOpener) (*Supervisor, error) {
@@ -115,8 +139,9 @@ func New(cfg Config, opener StreamOpener) (*Supervisor, error) {
 	}
 	return &Supervisor{
 		cfg: cfg, opener: opener,
-		report:  make(chan struct{}, 1),
-		changed: make(chan struct{}),
+		report:           make(chan struct{}, 1),
+		lifecycleReports: make(chan lifecycleReportRequest),
+		changed:          make(chan struct{}),
 	}, nil
 }
 
@@ -124,7 +149,7 @@ func (s *Supervisor) WaitForWelcome(ctx context.Context) (Status, error) {
 	for {
 		s.mu.RLock()
 		if s.status.Connected {
-			status := s.status
+			status := copyStatus(s.status)
 			s.mu.RUnlock()
 			return status, nil
 		}
@@ -142,7 +167,7 @@ func (s *Supervisor) WaitForLifecycleChange(ctx context.Context, epoch uint64, d
 	for {
 		s.mu.RLock()
 		if s.status.Connected && (s.status.ConnectionEpoch != epoch || s.status.DesiredLifecycle != desired) {
-			status := s.status
+			status := copyStatus(s.status)
 			s.mu.RUnlock()
 			return status, nil
 		}
@@ -156,10 +181,52 @@ func (s *Supervisor) WaitForLifecycleChange(ctx context.Context, epoch uint64, d
 	}
 }
 
+// WaitForDirective waits for a lifecycle directive whose control sequence is
+// greater than afterSequence. Welcome desired lifecycle is deliberately not a
+// directive and is therefore never returned here.
+func (s *Supervisor) WaitForDirective(ctx context.Context, afterSequence uint64) (LifecycleDirective, error) {
+	for {
+		s.mu.RLock()
+		directive := s.status.Directive
+		if s.status.Connected && directive != nil && directive.Sequence > afterSequence {
+			value := *directive
+			s.mu.RUnlock()
+			return value, nil
+		}
+		changed := s.changed
+		s.mu.RUnlock()
+		select {
+		case <-ctx.Done():
+			return LifecycleDirective{}, ctx.Err()
+		case <-changed:
+		}
+	}
+}
+
+// ReportLifecycle sends one report for the exact directive supplied by
+// WaitForDirective. It never substitutes a newer directive after reconnect.
+func (s *Supervisor) ReportLifecycle(ctx context.Context, directive LifecycleDirective, state gatewayv1.GatewayRuntimeState, failure gatewayv1.LifecycleFailure) error {
+	if err := validateLifecycleReport(directive, state, failure); err != nil {
+		return err
+	}
+	request := lifecycleReportRequest{directive: directive, state: state, failure: failure, result: make(chan error, 1)}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case s.lifecycleReports <- request:
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case err := <-request.result:
+		return err
+	}
+}
+
 func (s *Supervisor) WaitForStatusChange(ctx context.Context, previous Status) (Status, error) {
 	for {
 		s.mu.RLock()
-		current := s.status
+		current := copyStatus(s.status)
 		if current.Ready != previous.Ready || current.Connected != previous.Connected ||
 			current.ConnectionEpoch != previous.ConnectionEpoch || current.DesiredLifecycle != previous.DesiredLifecycle {
 			s.mu.RUnlock()
@@ -262,7 +329,7 @@ func (s *Supervisor) WaitForRuntimeAck(ctx context.Context, state gatewayv1.Gate
 func (s *Supervisor) Status() Status {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.status
+	return copyStatus(s.status)
 }
 
 func (s *Supervisor) runStream(ctx context.Context) error {
@@ -370,19 +437,23 @@ func (s *Supervisor) runStream(ctx context.Context) error {
 				}
 				return fmt.Errorf("receive control frame: %w", result.err)
 			}
-			if err = validateControl(result.frame, lastControlSequence+1, welcome.ConnectionEpoch, lastGatewaySequence); err != nil {
+			if err = validateControl(result.frame, lastControlSequence+1, welcome.ConnectionEpoch, lastGatewaySequence, s.cfg.Clock.Now()); err != nil {
 				return err
 			}
 			lastControlSequence = result.frame.Sequence
-			acknowledgedCycles++
-			s.heartbeatAcknowledged(lastControlSequence, runtime.State, acknowledgedCycles >= 2)
-			lease = s.cfg.Clock.After(leaseTimeout)
-			if pendingReport {
-				heartbeat = s.cfg.Clock.After(0)
-				pendingReport = false
+			if directive := result.frame.GetLifecycleDirective(); directive != nil {
+				s.directiveReceived(lifecycleDirectiveValue(directive, result.frame.Sequence))
 			} else {
-				heartbeat = s.cfg.Clock.After(heartbeatInterval)
+				acknowledgedCycles++
+				s.heartbeatAcknowledged(lastControlSequence, runtime.State, acknowledgedCycles >= 2)
+				if pendingReport {
+					heartbeat = s.cfg.Clock.After(0)
+					pendingReport = false
+				} else {
+					heartbeat = s.cfg.Clock.After(heartbeatInterval)
+				}
 			}
+			lease = s.cfg.Clock.After(leaseTimeout)
 			go receive(stream, recv)
 		case <-heartbeat:
 			if err = sendHeartbeat(); err != nil {
@@ -396,6 +467,28 @@ func (s *Supervisor) runStream(ctx context.Context) error {
 			if err = sendHeartbeat(); err != nil {
 				return err
 			}
+		case request := <-s.lifecycleReports:
+			if !s.matchesActiveDirective(request.directive) {
+				request.result <- ErrDirectiveSuperseded
+				continue
+			}
+			report := &gatewayv1.GatewayFrame{
+				ProtocolVersion: ProtocolVersion,
+				Sequence:        nextGatewaySequence,
+				Payload: &gatewayv1.GatewayFrame_LifecycleReport{LifecycleReport: &gatewayv1.GatewayLifecycleReport{
+					ConnectionEpoch: request.directive.ConnectionEpoch,
+					DirectiveId:     request.directive.ID,
+					State:           request.state,
+					Failure:         request.failure,
+				}},
+			}
+			if sendErr := s.sendWithin(streamCtx, cancel, stream, report, leaseTimeout-heartbeatInterval); sendErr != nil {
+				request.result <- fmt.Errorf("send lifecycle report: %w", sendErr)
+				return fmt.Errorf("send lifecycle report: %w", sendErr)
+			}
+			nextGatewaySequence++
+			s.directiveReported(request.directive)
+			request.result <- nil
 		}
 	}
 }
@@ -456,17 +549,57 @@ func validateWelcome(frame *gatewayv1.ControlFrame) (*gatewayv1.ControlWelcome, 
 	return welcome, nil
 }
 
-func validateControl(frame *gatewayv1.ControlFrame, sequence, epoch, gatewaySequence uint64) error {
+func validateControl(frame *gatewayv1.ControlFrame, sequence, epoch, gatewaySequence uint64, now time.Time) error {
 	if frame == nil || frame.ProtocolVersion != ProtocolVersion || frame.Sequence != sequence {
 		return fmt.Errorf("%w: invalid control envelope", ErrProtocol)
 	}
-	if frame.GetLifecycleDirective() != nil {
-		return fmt.Errorf("%w: lifecycle directives are unsupported", ErrProtocol)
+	if directive := frame.GetLifecycleDirective(); directive != nil {
+		return validateDirective(directive, epoch, now)
 	}
 	ack := frame.GetHeartbeatAck()
 	if ack == nil || ack.ConnectionEpoch != epoch || ack.AcknowledgedGatewaySequence != gatewaySequence ||
 		ack.ServerTimeUnixMs <= 0 || gatewaySequence <= 1 {
 		return fmt.Errorf("%w: invalid heartbeat acknowledgement", ErrProtocol)
+	}
+	return nil
+}
+
+func validateDirective(directive *gatewayv1.LifecycleDirective, epoch uint64, now time.Time) error {
+	if directive == nil || directive.DirectiveId == "" || directive.ConnectionEpoch != epoch || !validLifecycleAction(directive.Action) || !validDirectiveReason(directive.Reason) {
+		return fmt.Errorf("%w: invalid lifecycle directive", ErrProtocol)
+	}
+	if directive.Action == gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DRAIN {
+		if directive.DrainDeadlineUnixMs != nil && directive.GetDrainDeadlineUnixMs() <= now.UnixMilli() {
+			return fmt.Errorf("%w: invalid drain deadline", ErrProtocol)
+		}
+	} else if directive.DrainDeadlineUnixMs != nil {
+		return fmt.Errorf("%w: unexpected drain deadline", ErrProtocol)
+	}
+	return nil
+}
+
+func validLifecycleAction(action gatewayv1.LifecycleDirectiveAction) bool {
+	return action == gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN || action == gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DRAIN || action == gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DISABLE
+}
+
+func validDirectiveReason(reason gatewayv1.LifecycleDirectiveReason) bool {
+	return reason == gatewayv1.LifecycleDirectiveReason_LIFECYCLE_DIRECTIVE_REASON_OPERATOR || reason == gatewayv1.LifecycleDirectiveReason_LIFECYCLE_DIRECTIVE_REASON_MAINTENANCE || reason == gatewayv1.LifecycleDirectiveReason_LIFECYCLE_DIRECTIVE_REASON_CAPACITY || reason == gatewayv1.LifecycleDirectiveReason_LIFECYCLE_DIRECTIVE_REASON_POLICY
+}
+
+func lifecycleDirectiveValue(directive *gatewayv1.LifecycleDirective, sequence uint64) LifecycleDirective {
+	value := LifecycleDirective{ID: directive.DirectiveId, ConnectionEpoch: directive.ConnectionEpoch, Sequence: sequence, Action: directive.Action, Reason: directive.Reason}
+	if directive.DrainDeadlineUnixMs != nil {
+		value.DrainDeadline = time.UnixMilli(*directive.DrainDeadlineUnixMs).UTC()
+	}
+	return value
+}
+
+func validateLifecycleReport(directive LifecycleDirective, state gatewayv1.GatewayRuntimeState, failure gatewayv1.LifecycleFailure) error {
+	if directive.ID == "" || directive.ConnectionEpoch == 0 || directive.Sequence == 0 || !validLifecycleAction(directive.Action) || !validDirectiveReason(directive.Reason) || !validRuntimeState(state) {
+		return fmt.Errorf("%w: invalid lifecycle report", ErrProtocol)
+	}
+	if failure != gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_NONE && failure != gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_BUSY && failure != gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_TIMEOUT && failure != gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_INTERNAL {
+		return fmt.Errorf("%w: invalid lifecycle failure", ErrProtocol)
 	}
 	return nil
 }
@@ -519,6 +652,32 @@ func (s *Supervisor) heartbeatAcknowledged(sequence uint64, runtime gatewayv1.Ga
 	s.signalChangedLocked()
 }
 
+func (s *Supervisor) directiveReceived(directive LifecycleDirective) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.status.LastControlSequence = directive.Sequence
+	s.status.DesiredLifecycle = directive.Action
+	s.status.Directive = &directive
+	s.status.Ready = false
+	s.signalChangedLocked()
+}
+
+func (s *Supervisor) matchesActiveDirective(directive LifecycleDirective) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	active := s.status.Directive
+	return s.status.Connected && active != nil && *active == directive
+}
+
+func (s *Supervisor) directiveReported(directive LifecycleDirective) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.status.Directive != nil && *s.status.Directive == directive {
+		s.status.Directive = nil
+		s.signalChangedLocked()
+	}
+}
+
 func (s *Supervisor) disconnected(err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -535,6 +694,14 @@ func (s *Supervisor) disconnected(err error) {
 func (s *Supervisor) signalChangedLocked() {
 	close(s.changed)
 	s.changed = make(chan struct{})
+}
+
+func copyStatus(status Status) Status {
+	if status.Directive != nil {
+		directive := *status.Directive
+		status.Directive = &directive
+	}
+	return status
 }
 
 func terminal(err error) bool {

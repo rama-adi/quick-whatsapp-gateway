@@ -23,7 +23,7 @@ Branch: `migration/grpc-control-plane`.
 > watcher after a later RUN, while terminal supervisor errors always terminate cleanly. Graceful
 > shutdown uses reconnect-safe Flush calls
 > for acknowledged DRAINING/DRAINED heartbeats before stream cancellation. Strict post-Welcome
-> lifecycle directives/reports, certificate renewal, admin
+> lifecycle directives/reports now execute through the gateway supervisor; certificate renewal, admin
 > API/UI, desired-state reconciliation, and engine/event cutover remain unfinished; Increment 2 is
 > therefore not complete.
 
@@ -905,8 +905,9 @@ post-call acknowledgement and follows reconnects across epochs. Admission closur
 control-mode Asynq starts only after durable RUN+READY and stops/joins before manager shutdown.
 The lifetime supervisor error terminates the process, the lifecycle watcher covers delayed Boot,
 runtime status writers remain observed-only, and administrative desired lifecycle has its own
-mutation. Disconnect cleanup is detached but bounded to five seconds. This is not the Increment 2 exit: strict
-post-Welcome directive execution and lifecycle reports, certificate
+mutation. Disconnect cleanup is detached but bounded to five seconds. Post-Welcome directives are
+strictly validated and receive one terminal report; RUN starts or affirms only pre-terminal engine
+work, DRAIN is terminal, and DISABLE exits after the drain. This is not the Increment 2 exit: certificate
 renewal/rollover, revocation-driven termination, and full lifecycle reconciliation remain separate
 work.
 

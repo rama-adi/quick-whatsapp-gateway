@@ -156,15 +156,15 @@ func (r *GatewayRepo) AcceptConnection(ctx context.Context, hello domain.Gateway
 				}
 				return domain.GatewayAcceptedConnection{}, fmt.Errorf("store: read accepted gateway connection: %w", err)
 			}
-			return domain.GatewayAcceptedConnection{ConnectionEpoch: epoch, DesiredLifecycle: string(desired)}, nil
+			return domain.GatewayAcceptedConnection{ConnectionEpoch: epoch, DesiredLifecycle: string(desired.DesiredLifecycle), DesiredRevision: desired.DesiredRevision}, nil
 		}
 	}
 	return domain.GatewayAcceptedConnection{}, fmt.Errorf("store: allocate gateway connection epoch: concurrent allocation contention")
 }
 
-func (r *GatewayRepo) HeartbeatForEpoch(ctx context.Context, h domain.GatewayHeartbeat, at int64) (bool, error) {
+func (r *GatewayRepo) HeartbeatForEpoch(ctx context.Context, h domain.GatewayHeartbeat, at int64) (domain.GatewayAcceptedConnection, bool, error) {
 	if h.ConnectionEpoch == 0 || h.SessionCount < 0 || !gatewayReportedStatus(h.Status) {
-		return false, fmt.Errorf("store: invalid fenced gateway heartbeat")
+		return domain.GatewayAcceptedConnection{}, false, fmt.Errorf("store: invalid fenced gateway heartbeat")
 	}
 	n, err := r.q.GatewayHeartbeatForEpoch(ctx, storedb.GatewayHeartbeatForEpochParams{
 		LastSeenAt: sql.NullInt64{Int64: at, Valid: true}, SessionCount: uint32(h.SessionCount),
@@ -172,9 +172,22 @@ func (r *GatewayRepo) HeartbeatForEpoch(ctx context.Context, h domain.GatewayHea
 		ConnectionEpoch: h.ConnectionEpoch,
 	})
 	if err != nil {
-		return false, fmt.Errorf("store: fenced gateway heartbeat: %w", err)
+		return domain.GatewayAcceptedConnection{}, false, fmt.Errorf("store: fenced gateway heartbeat: %w", err)
 	}
-	return r.fencedWriteApplied(ctx, n, h.GatewayConnection)
+	applied, err := r.fencedWriteApplied(ctx, n, h.GatewayConnection)
+	if err != nil || !applied {
+		return domain.GatewayAcceptedConnection{}, applied, err
+	}
+	desired, err := r.q.GetAcceptedGatewayDesiredLifecycle(ctx, storedb.GetAcceptedGatewayDesiredLifecycleParams{
+		ID: h.GatewayID, ConnectionEpoch: h.ConnectionEpoch,
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return domain.GatewayAcceptedConnection{}, false, nil
+		}
+		return domain.GatewayAcceptedConnection{}, false, fmt.Errorf("store: read fenced gateway desired lifecycle: %w", err)
+	}
+	return domain.GatewayAcceptedConnection{ConnectionEpoch: h.ConnectionEpoch, DesiredLifecycle: string(desired.DesiredLifecycle), DesiredRevision: desired.DesiredRevision}, true, nil
 }
 
 func (r *GatewayRepo) SetStatusForEpoch(ctx context.Context, report domain.GatewayLifecycleReport, at int64) (bool, error) {
@@ -237,13 +250,6 @@ func (r *GatewayRepo) fencedWriteApplied(ctx context.Context, changed int64, con
 		return false, fmt.Errorf("store: verify gateway connection epoch: %w", err)
 	}
 	return current, nil
-}
-
-func boolInt64(value bool) int64 {
-	if value {
-		return 1
-	}
-	return 0
 }
 
 func gatewayReportedStatus(status domain.GatewayStatus) bool {

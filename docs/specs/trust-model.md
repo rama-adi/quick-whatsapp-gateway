@@ -351,13 +351,15 @@ lifecycle, so a clean exit does not turn a desired RUN into a persistent drain. 
 supervisor durably flushes DRAINING and DRAINED runtime heartbeats around manager shutdown before
 its stream is cancelled, subject to bounded waits. Flush requires a post-call acknowledgement and
 reissues the report after an epoch change, preventing a reconnect from satisfying it with stale
-state. Lifecycle acknowledgements remain fail-closed:
-until the API tracks an issued directive, every lifecycle report is rejected with
-`FailedPrecondition` and is not persisted, while the gateway treats a post-Welcome lifecycle
-directive as unsupported. Welcome itself has no `directive_id`; its desired lifecycle is derived
-only from the authoritative post-accept database status, never from gateway-supplied Hello state.
-Strict directive-owned lifecycle reporting, renewal RPC/client scheduling and rollover, and
-revocation-triggered stream shutdown remain unfinished.
+state. Welcome itself has no `directive_id`; its desired lifecycle is derived only from the
+authoritative post-accept database status, never from gateway-supplied Hello state. Post-Welcome
+directives are strict: the supervisor validates their identity, epoch, action, reason, and optional
+DRAIN deadline; the runtime sends exactly one terminal report for that directive and cannot report
+it after a replacement connection or newer directive supersedes it. DRAIN terminally closes
+admission, drains workers before manager work, and reports DRAINED; DISABLE then terminates the
+process. A RUN directive can start or affirm engine work before a terminal drain; after that it
+receives a failure report and never restarts work. Renewal RPC/client scheduling and rollover, revocation-triggered stream shutdown, and
+full lifecycle reconciliation remain unfinished.
 
 For an installed identity, a transient pre-Welcome outage brings up diagnostics unready with engine
 admission closed and boots the manager only after a later RUN Welcome. The lifetime lifecycle

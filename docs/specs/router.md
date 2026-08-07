@@ -80,6 +80,11 @@ DRAINING/DRAINED reports do not mutate desired lifecycle, so they do not latch a
 restart; conversely, an operator-desired drain remains ineligible even if the last observed runtime
 status was active.
 
+After Welcome, the API may issue a sequence- and epoch-fenced lifecycle directive. The gateway
+reports one terminal result bound to that directive; DRAIN closes local admission permanently and
+DISABLE additionally terminates the gateway process. These observed reports still do not rewrite
+the authoritative desired lifecycle.
+
 The router preserves the validated/minted `X-Request-Id` on the upstream request,
 so its canonical request event correlates exactly with the gateway event. Local
 503s are classified at their origin (registry/placement resolution, missing or
