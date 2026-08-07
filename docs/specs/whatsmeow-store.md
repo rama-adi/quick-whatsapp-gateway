@@ -10,7 +10,7 @@ Status: implemented (R2); Increment 3 keystore-safety seams implemented.
 > control-stream wiring consume those seams separately; this package does not claim that health telemetry
 > is already sent on the control stream.
 
-### Initial journal and command-ledger policy (locked defaults; implementation follows)
+### Initial journal and command-ledger policy (locked defaults)
 
 - Target offline buffering objective: **72 hours**; this is a sizing objective, not a guaranteed RPO.
 - Journal cap: **1 GiB** by default; configuration above **25%** of the persistent-volume budget is
@@ -18,6 +18,12 @@ Status: implemented (R2); Increment 3 keystore-safety seams implemented.
   critical/unready at 90%. Core message/receipt events are never silently discarded.
 - Stream in-flight bound: at most **256 events or 1 MiB**, whichever is reached first.
 - Command-result ledger retention: **7 days**, never shorter than the API retry/idempotency window.
+- `internal/gateway/journal` now implements the journal foundation: a separate WAL-mode
+  `journal.db`, transactional stable event-ID deduplication, ordered unacknowledged replay,
+  monotonic acknowledgement watermark/removal, quick-check on reopen, and WAL checkpoint on close.
+  Its metrics expose unacknowledged entry/byte counts, oldest-entry time, acknowledgement watermark,
+  and `healthy`/`degraded`/`paused`/`critical` capacity state. At the cap, append fails explicitly;
+  it never silently discards a core event. API ingest and stream acknowledgement wiring remain later.
 - All values remain configurable. Increment 5 soak testing tunes them using observed p50/p95 event
   sizes and peak event rate; per-deployment volume caps and final retention remain configurable.
 
@@ -42,6 +48,7 @@ shipping as a small static image — no C compiler, no `mattn/go-sqlite3`.
 |---|---|---|
 | `internal/wa/store/sqlite` | `sqlitestore` | Thin wrapper over `sqlstore` + modernc SQLite |
 | `internal/wa/store/store.go` | `wastore` | `Keystore` interface the session manager depends on |
+| `internal/gateway/journal` | `journal` | Separate gateway-local durable normalized-event handoff log |
 
 `sqlstore` owns and auto-migrates its own schema inside the SQLite file (the `whatsmeow_*` tables)
 — there is **no** `wmstore_*` migration in `migrations/` anymore (those are golang-migrate, MySQL

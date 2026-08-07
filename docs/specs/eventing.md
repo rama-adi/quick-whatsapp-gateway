@@ -196,3 +196,12 @@ their own JID-classification tables. ~85% statement coverage; `go test` and `go 
 Status: see `internal/stream` and `internal/webhooks` specs. Both carry the same
 `domain.Event` envelope produced here; the fan-out stage (§9) appends to `event_log`,
 publishes to Redis pub/sub for stream subscribers, and enqueues webhook deliveries.
+
+### Increment 5 durable handoff foundation
+
+The gateway-local `internal/gateway/journal` package persists opaque normalized-event payloads in a
+separate SQLite `journal.db` before future gateway→API ingestion. Its stable `event_id` is unique,
+replay is ordered by committed sequence, and an API acknowledgement advances a durable watermark and
+removes every acknowledged entry atomically. Reopening verifies SQLite integrity; shutdown checkpoints
+WAL. This package is deliberately not the event publisher: until acknowledged API ingestion lands,
+existing Redis fan-out and API `event_log`/webhook behavior remain unchanged.
