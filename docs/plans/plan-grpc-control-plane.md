@@ -3,7 +3,8 @@
 Status: **active migration** — design of record; implementation is proceeding incrementally on this branch.
 Branch: `migration/grpc-control-plane`.
 
-> **Current checkpoint (Increment 2):** enrollment persistence and crypto policy, the persistent
+> **Current checkpoint (Increment 3):** Increment 2 and its web administration follow-up are
+> complete. Enrollment persistence and crypto policy, the persistent
 > local CA, the crash-safe enrollment service, the private TLS 1.3 enrollment listener, strict
 > per-RPC certificate authorization, and crash-safe gateway credential bootstrap over a reusable
 > mTLS connection are implemented. The versioned control-stream contract is also implemented.
@@ -21,11 +22,13 @@ Branch: `migration/grpc-control-plane`.
 > and terminally stops and joins Asynq workers before manager work. Admission close is irreversible.
 > Transient startup outages expose diagnostics unready and boot under the same lifetime lifecycle
 > watcher after a later RUN, while terminal supervisor errors always terminate cleanly. Graceful
-> shutdown uses reconnect-safe Flush calls
-> for acknowledged DRAINING/DRAINED heartbeats before stream cancellation. Strict post-Welcome
-> lifecycle directives/reports now execute through the gateway supervisor; certificate renewal, admin
-> API/UI, desired-state reconciliation, and engine/event cutover remain unfinished; Increment 2 is
-> therefore not complete.
+> shutdown uses reconnect-safe Flush calls for acknowledged DRAINING/DRAINED heartbeats before
+> stream cancellation. Strict post-Welcome lifecycle directives/reports execute through the gateway
+> supervisor. Automatic certificate renewal proves a replacement control stream before retiring the
+> incumbent connection. Audited API-local gateway administration and the `super_admin` web workflow
+> cover creation, one-time enrollment, observation, lifecycle control, re-enrollment, and safe
+> deletion without persisting plaintext enrollment tokens. Desired-state reconciliation and the
+> engine/event cutover remain unfinished; Increment 3 is active.
 
 This plan replaces the current router → gateway HTTP reverse-proxy architecture with an API
 control plane and private WhatsApp engine gateways connected through gRPC. It also introduces a
@@ -587,9 +590,9 @@ and Hello/heartbeat watchdogs. The gateway-side slice now wires a reconnecting s
 lease-gated readiness. In control-enabled mode it exclusively owns registry writes, while the
 control-disabled compatibility mode retains the five legacy mutations (joining registration,
 active registration, periodic heartbeat, shutdown draining, and shutdown drained). The supervisor
-also performs the bounded acknowledged DRAINING/DRAINED shutdown bridge. These slices do not
-complete Increment 2: strict post-Welcome lifecycle directives/reports, renewal, and administration
-remain open.
+also performs the bounded acknowledged DRAINING/DRAINED shutdown bridge. Strict post-Welcome
+lifecycle directives/reports, automatic renewal with overlapping-stream proof, and audited gateway
+administration through both API and web UI complete the increment.
 
 - Add gateway registry enrollment fields and migration.
 - Implement the shared gateway-administration application service and public API operations for

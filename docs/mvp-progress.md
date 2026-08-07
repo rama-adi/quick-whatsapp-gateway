@@ -1,7 +1,7 @@
 # MVP Progress Tracker
 
 Tracks implementation status against [`masterplan-mvp.md`](plans/masterplan-mvp.md).
-Last updated: 2026-07-31.
+Last updated: 2026-08-07.
 
 > **Pivot to v2 (split architecture).** The single-binary v1 MVP (Go + Authula + embedded
 > React Router SPA + MySQL keystore) was **code-complete (M0–M8)** and is preserved at git
@@ -47,8 +47,9 @@ until later increments replace them.
 | **Increment 2 control persistence** — DB fencing | ✅ Done | Atomic compare-and-swap epoch allocation stores Hello metadata; rejects non-connectable gateways; and fences heartbeat/lifecycle/metadata writes from stale streams. Accept/heartbeat preserve applied revision, lifecycle preserves session count, and `degraded` is a durable runtime status; reports cannot select administrative states. |
 | **Increment 2 control runtime** — durable liveness | ✅ Done | API Hello/heartbeat watchdogs and post-persistence HeartbeatAck are implemented. The wired gateway supervisor validates sequences/epochs, sends one heartbeat per durable ack, reconnects transient failures, and gates readiness on acknowledged READY/RUN state. Control-enabled mode exclusively owns registry liveness and skips the five legacy joining/active/heartbeat/draining/drained writes; control-disabled mode retains them. |
 | **Increment 2 lifecycle bridge** — transitional drain/routing | ✅ Done | Registry rows separate observed status, admin-owned desired RUN/DRAIN, and explicit control/legacy mode. Placement requires desired RUN; mode selects 15s/90s freshness. Irreversible engine admission and Asynq startup require acknowledged RUN+READY; drain waits admitted requests and joins workers before manager shutdown. The lifetime watcher covers delayed Boot and terminal supervisor errors exit cleanly. SIGTERM uses reconnect-safe Flush acknowledgements; disconnect cleanup is detached and capped at 5s. |
-| **Increment 2 remainder** — directives/renewal/admin | ⬜ Planned | Strict post-Welcome directive execution and lifecycle reports, certificate renewal/rollover, forced revocation disconnect, admin API/UI, and desired-state reconciliation remain. The shutdown heartbeats are not directive acknowledgements, and disconnect does not invent a terminal lifecycle status. Increment 2 is not complete. |
-| **Increments 3+** — desired state through cutover | ⬜ Planned | Add desired state, engine slices, reliable events/commands, public application gRPC, placement cutover, then remove gateway HTTP/MySQL/Redis. |
+| **Increment 2 remainder** — directives/renewal/admin | ✅ Done | Strict epoch-fenced lifecycle directives/reports drive terminal drain/disable behavior. Automatic renewal stages credentials and proves an overlapping replacement stream through Welcome plus durable heartbeat acknowledgement before retiring the incumbent. API-local audited administration and the `super_admin` web workflow cover create/enroll/observe/lifecycle/re-enroll/delete; plaintext enrollment tokens remain one-response-only. |
+| **Increment 3** — desired-state reconciliation | 🚧 Active | Add authoritative versioned assignments/config, assignment epochs and leases, local inventory reconciliation, and SQLite persistence/integrity safeguards so gateway lifecycle metadata no longer comes from MySQL. |
+| **Increments 4+** — engine slices through cutover | ⬜ Planned | Add private engine slices, reliable events/commands, public application gRPC, placement cutover, then remove gateway HTTP/MySQL/Redis. |
 
 ## v1 milestones (archived — code complete)
 
@@ -196,5 +197,6 @@ e2e smoke against a live WhatsApp number.
   addressing, fenced disconnect liveness, observed/desired lifecycle separation, explicit
   connection-mode freshness, full engine-route admission draining, deferred RUN boot, and
   reconnect-safe acknowledged shutdown heartbeats are implemented. Strict post-Welcome lifecycle
-  directives/reports, renewal, revocation-driven termination, and admin UI remain
-  follow-ups, so full Increment 2 is not claimed.
+  directives/reports, renewal with overlapping-stream proof, revocation-driven termination, audited
+  administration, and the one-time-token web workflow are implemented. Increment 2 is complete;
+  desired-state reconciliation is the active Increment 3 boundary.
