@@ -335,21 +335,29 @@ func deviceJIDs(devices []*store.Device) []string {
 	return out
 }
 
-// findAdminSession returns the persisted admin session for the configured number,
-// or nil if none exists yet. Admin sessions stay unpaired (wa_jid NULL) until a
-// device links, so they are matched by their owning org, the is_admin flag, and
-// the phone number rather than by JID.
+// findAdminSession returns the persisted admin session, or nil if none exists
+// yet. Prefer an exact configured-number match, but fall back to an unpaired
+// admin row because logout deliberately clears phone_number along with the
+// other pairing identity fields. A row attached to a different number is not
+// reused when configuration changes.
 func (m *Manager) findAdminSession(ctx context.Context) (*domain.WASession, error) {
 	sessions, err := m.repo.ListByOrg(ctx, m.cfg.AdminOrganizationID)
 	if err != nil {
 		return nil, err
 	}
+	var unpairedAdmin *domain.WASession
 	for _, s := range sessions {
-		if s != nil && s.IsAdminSession && s.PhoneNumber != nil && *s.PhoneNumber == m.cfg.AdminNumber {
+		if s == nil || !s.IsAdminSession {
+			continue
+		}
+		if s.PhoneNumber != nil && *s.PhoneNumber == m.cfg.AdminNumber {
 			return s, nil
 		}
+		if s.PhoneNumber == nil && unpairedAdmin == nil {
+			unpairedAdmin = s
+		}
 	}
-	return nil, nil
+	return unpairedAdmin, nil
 }
 
 // bootstrapAdmin creates and pairs the admin session if the admin number is set
@@ -365,10 +373,9 @@ func (m *Manager) bootstrapAdmin(ctx context.Context, devices []*store.Device) (
 		return "", nil
 	}
 
-	// Find or create the is_admin_session row. An unpaired admin session has a NULL
-	// wa_jid, so we can't look it up by JID; matching on org + admin flag + number
-	// keeps this idempotent — without it every restart-before-pairing would create
-	// another duplicate admin session row.
+	// Find or create the is_admin_session row. An unpaired admin session has NULL
+	// identity fields, so we can't look it up by JID; matching on org + admin flag
+	// keeps this idempotent across logout and restart.
 	sess, err := m.findAdminSession(ctx)
 	if err != nil {
 		return "", fmt.Errorf("lookup admin session: %w", err)
@@ -390,6 +397,14 @@ func (m *Manager) bootstrapAdmin(ctx context.Context, devices []*store.Device) (
 		}
 		if err := m.repo.Create(ctx, sess); err != nil {
 			return "", fmt.Errorf("create admin session: %w", err)
+		}
+	} else if sess.PhoneNumber == nil || *sess.PhoneNumber != m.cfg.AdminNumber {
+		// Pairing is about to target this configured number. Surface it while the
+		// code is pending; PairSuccess will confirm it from the resulting JID.
+		phone := m.cfg.AdminNumber
+		sess.PhoneNumber = &phone
+		if err := m.repo.Update(ctx, sess); err != nil {
+			return "", fmt.Errorf("prepare admin session pairing: %w", err)
 		}
 	}
 
@@ -684,21 +699,20 @@ func (m *Manager) Logout(ctx context.Context, id string) error {
 			m.log.Warn("logout call failed; clearing local device anyway", "session", id, "err", err)
 		}
 	}
-	if device != nil {
+	if device != nil && device.ID != nil {
 		if err := m.keystore.DeleteDevice(ctx, device); err != nil {
 			m.log.Warn("delete device failed", "session", id, "err", err)
 		}
 	}
 	m.teardown(ms)
-	m.setStatus(ctx, ms, domain.SessionLoggedOut)
-	return nil
+	return m.setLoggedOut(ctx, ms)
 }
 
 // teardown cancels the session goroutine, disconnects the client and clears the
 // per-session runtime state. It deliberately does NOT touch ms.status — the
-// status transition (and its emission) is owned solely by setStatus, which the
-// caller invokes afterwards. Keeping the two responsibilities separate ensures
-// teardown doesn't pre-set the status and suppress setStatus's change detection.
+// status transition (and its emission) is owned by setStatus/setLoggedOut, which
+// the caller invokes afterwards. Keeping the responsibilities separate ensures
+// teardown doesn't pre-set the status and suppress change detection.
 func (m *Manager) teardown(ms *ManagedSession) {
 	ms.mu.Lock()
 	ms.reconnect = false
@@ -933,12 +947,16 @@ func (m *Manager) applyEvent(ctx context.Context, ms *ManagedSession, evt any) {
 
 	if t.terminal {
 		// LoggedOut / StreamReplaced / ban / fatal connect-failure: stop reconnect.
-		// teardown clears runtime state; setStatus (below) records + emits the new
-		// status.
+		// teardown clears runtime state; the transition below records + emits the
+		// new status.
 		m.teardown(ms)
 	}
 
-	if t.changed {
+	if t.status == domain.SessionLoggedOut {
+		if err := m.setLoggedOut(ctx, ms); err != nil {
+			m.log.Warn("persist logged-out pairing reset failed", "session", ms.SessionID, "err", err)
+		}
+	} else if t.changed {
 		m.setStatus(ctx, ms, t.status)
 	}
 }
@@ -977,6 +995,10 @@ func (m *Manager) recordPairedJID(ctx context.Context, ms *ManagedSession, jid, 
 	}
 	j := jid.String()
 	sess.WAJID = &j
+	phone := jid.User
+	if phone != "" {
+		sess.PhoneNumber = &phone
+	}
 	if !lid.IsEmpty() {
 		l := lid.String()
 		sess.WALID = &l
@@ -985,6 +1007,30 @@ func (m *Manager) recordPairedJID(ctx context.Context, ms *ManagedSession, jid, 
 	if err := m.repo.Update(ctx, sess); err != nil {
 		m.log.Warn("pair success: update session failed", "session", ms.SessionID, "err", err)
 	}
+}
+
+// setLoggedOut is the single logout-state transition. It swaps the deleted
+// whatsmeow device for a fresh unpaired one and atomically clears the durable
+// identity fields with the logged_out status. The repository write is performed
+// even when the in-memory status was already logged_out so a repeated logout can
+// repair rows written by older versions that left wa_jid populated.
+func (m *Manager) setLoggedOut(ctx context.Context, ms *ManagedSession) error {
+	freshDevice := m.keystore.NewDevice()
+	ms.mu.Lock()
+	changed := ms.status != domain.SessionLoggedOut
+	ms.status = domain.SessionLoggedOut
+	ms.device = freshDevice
+	ms.lastQR = ""
+	ms.lastQRExpires = 0
+	ms.mu.Unlock()
+
+	err := m.repo.ClearPairing(ctx, ms.SessionID)
+	if changed && m.sink != nil {
+		m.sink.Publish(ctx, domain.NewEvent(domain.EventSessionStatus, ms.SessionID, ms.OrganizationID, map[string]any{
+			"status": string(domain.SessionLoggedOut),
+		}))
+	}
+	return err
 }
 
 // setStatus updates in-memory + persisted status and emits a session.status event

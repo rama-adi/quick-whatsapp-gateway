@@ -114,6 +114,18 @@ func (f *fakeRepo) UpdateStatus(_ context.Context, id string, status domain.Sess
 	}
 	return nil
 }
+func (f *fakeRepo) ClearPairing(_ context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.statuses = append(f.statuses, statusUpdate{id, domain.SessionLoggedOut})
+	if s, ok := f.byID[id]; ok {
+		s.Status = domain.SessionLoggedOut
+		s.WAJID = nil
+		s.WALID = nil
+		s.PhoneNumber = nil
+	}
+	return nil
+}
 
 type fakeSink struct {
 	mu     sync.Mutex
@@ -488,13 +500,20 @@ func TestSetStatus_EmitsOnChangeOnly(t *testing.T) {
 // the transition exactly once.
 func TestEventHandler_TerminalEventStopsReconnect(t *testing.T) {
 	m, repo, sink, inbound, fc := newTestManager(t, Config{})
-	repo.byID["sess_1"] = &domain.WASession{ID: "sess_1", OrganizationID: "ten_1", Status: domain.SessionWorking}
+	jid := types.NewJID("628111", types.DefaultUserServer)
+	lid := types.NewJID("777", types.HiddenUserServer)
+	jidString, lidString, phone := jid.String(), lid.String(), jid.User
+	repo.byID["sess_1"] = &domain.WASession{
+		ID: "sess_1", OrganizationID: "ten_1", Status: domain.SessionWorking,
+		WAJID: &jidString, WALID: &lidString, PhoneNumber: &phone,
+	}
 	ms := &ManagedSession{
 		SessionID:      "sess_1",
 		OrganizationID: "ten_1",
 		status:         domain.SessionWorking,
 		reconnect:      true,
 		client:         fc,
+		device:         &store.Device{ID: &jid},
 		cancel:         func() {},
 	}
 	m.mu.Lock()
@@ -517,8 +536,18 @@ func TestEventHandler_TerminalEventStopsReconnect(t *testing.T) {
 	if client != nil {
 		t.Fatal("client should be torn down after LoggedOut")
 	}
+	if ms.device == nil || ms.device.ID != nil {
+		t.Fatal("logged-out session should receive a fresh unpaired device")
+	}
 	if fc.disconnects == 0 {
 		t.Fatal("client should have been disconnected")
+	}
+	got, err := repo.Get(context.Background(), "sess_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.WAJID != nil || got.WALID != nil || got.PhoneNumber != nil {
+		t.Fatalf("pairing identity was not cleared: %+v", got)
 	}
 	if sink.typeCount(domain.EventSessionStatus) != 1 {
 		t.Fatalf("expected 1 session.status event, got %d", sink.typeCount(domain.EventSessionStatus))
@@ -623,6 +652,9 @@ func TestEventHandler_PairSuccessRecordsJID(t *testing.T) {
 	if got.WALID == nil || *got.WALID != lid.String() {
 		t.Fatalf("WALID = %v, want %s", got.WALID, lid.String())
 	}
+	if got.PhoneNumber == nil || *got.PhoneNumber != jid.User {
+		t.Fatalf("PhoneNumber = %v, want %s", got.PhoneNumber, jid.User)
+	}
 }
 
 // ----------------------------------------------------------------------------
@@ -703,10 +735,15 @@ func TestStop_TearsDownAndMarksStopped(t *testing.T) {
 // adopting stale keys.
 func TestLogout_DeletesDeviceAndMarksLoggedOut(t *testing.T) {
 	jid := types.NewJID("628111", types.DefaultUserServer)
+	lid := types.NewJID("777", types.HiddenUserServer)
+	jidString, lidString, phone := jid.String(), lid.String(), jid.User
 	dev := &store.Device{ID: &jid}
 	m, repo, _, _, fc := newTestManager(t, Config{})
 	ks := m.keystore.(*fakeKeystore)
-	repo.byID["sess_1"] = &domain.WASession{ID: "sess_1", OrganizationID: "ten_1", Status: domain.SessionWorking}
+	repo.byID["sess_1"] = &domain.WASession{
+		ID: "sess_1", OrganizationID: "ten_1", Status: domain.SessionWorking,
+		WAJID: &jidString, WALID: &lidString, PhoneNumber: &phone,
+	}
 	ms := &ManagedSession{
 		SessionID: "sess_1", OrganizationID: "ten_1", status: domain.SessionWorking,
 		reconnect: true, client: fc, device: dev, cancel: func() {},
@@ -726,6 +763,36 @@ func TestLogout_DeletesDeviceAndMarksLoggedOut(t *testing.T) {
 	}
 	if ms.Status() != domain.SessionLoggedOut {
 		t.Fatalf("status = %s, want logged_out", ms.Status())
+	}
+	got, err := repo.Get(context.Background(), "sess_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.WAJID != nil || got.WALID != nil || got.PhoneNumber != nil {
+		t.Fatalf("pairing identity was not cleared: %+v", got)
+	}
+	ms.mu.Lock()
+	freshDevice := ms.device
+	ms.mu.Unlock()
+	if freshDevice == nil || freshDevice == dev || freshDevice.ID != nil {
+		t.Fatal("logout should replace the deleted device with a fresh unpaired device")
+	}
+	// Repeating logout must still repair a legacy/stale row even though the
+	// in-memory lifecycle status is already logged_out.
+	got.WAJID, got.WALID, got.PhoneNumber = &jidString, &lidString, &phone
+	if err := m.Logout(context.Background(), "sess_1"); err != nil {
+		t.Fatalf("repeat logout: %v", err)
+	}
+	if got.WAJID != nil || got.WALID != nil || got.PhoneNumber != nil {
+		t.Fatalf("repeat logout did not repair stale pairing identity: %+v", got)
+	}
+	if err := m.Start(context.Background(), "sess_1"); err == nil {
+		t.Fatal("restart should reject the now-unpaired session")
+	}
+	if code, err := m.StartPairingCode(context.Background(), "sess_1", "628111"); err != nil {
+		t.Fatalf("pairing after logout: %v", err)
+	} else if code != "ABCD-1234" {
+		t.Fatalf("pairing code = %q, want ABCD-1234", code)
 	}
 }
 

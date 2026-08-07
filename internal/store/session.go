@@ -174,6 +174,21 @@ func (r *SessionRepo) UpdateStatus(ctx context.Context, id string, status domain
 	return rowsAffectedOrNotFound(n, "session")
 }
 
+// ClearPairing atomically marks a session logged out and removes the WhatsApp
+// identity that made it appear paired. Keeping these fields in one write avoids
+// a state where lifecycle endpoints see an unpaired keystore while pairing
+// endpoints still see a non-null wa_jid.
+func (r *SessionRepo) ClearPairing(ctx context.Context, id string, updatedAt int64) error {
+	n, err := r.q.ClearSessionPairing(ctx, storedb.ClearSessionPairingParams{
+		UpdatedAt: updatedAt,
+		ID:        id,
+	})
+	if err != nil {
+		return fmt.Errorf("store: clear session pairing: %w", err)
+	}
+	return rowsAffectedOrNotFound(n, "session")
+}
+
 // Delete removes a session by id.
 func (r *SessionRepo) Delete(ctx context.Context, id string) error {
 	n, err := r.q.DeleteSession(ctx, storedb.DeleteSessionParams{ID: id})

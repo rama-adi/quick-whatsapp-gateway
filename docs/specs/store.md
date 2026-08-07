@@ -94,6 +94,10 @@ CREATE TABLE wa_sessions (
 
 - **`organization_id`** replaces v1 `tenant_id` on every owned table; `webhooks`, `event_log`,
   `outbox` carry it directly.
+- **Session pairing is detached atomically on logout.** `ClearSessionPairing`
+  writes `status=logged_out` and nulls `wa_jid`, `wa_lid`, and `phone_number` in
+  one statement. Pairing endpoints use these nullable identity fields as their
+  durable precondition, so they cannot disagree with the cleared local keystore.
 - **`gateways` + `wa_sessions.gateway_id`** are the session-pinning seam
   ([`whatsmeow-store.md`](whatsmeow-store.md), masterplan §4.5); with the central router (Increment A)
   `gateways` is now the live **routing table** the router reads, and `wa_sessions.gateway_id` (already

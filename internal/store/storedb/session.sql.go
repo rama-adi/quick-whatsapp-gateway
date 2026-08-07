@@ -10,6 +10,25 @@ import (
 	"database/sql"
 )
 
+const clearSessionPairing = `-- name: ClearSessionPairing :execrows
+UPDATE wa_sessions
+SET status = 'logged_out', wa_jid = NULL, wa_lid = NULL, phone_number = NULL, updated_at = ?
+WHERE id = ?
+`
+
+type ClearSessionPairingParams struct {
+	UpdatedAt int64  `db:"updated_at" json:"updated_at"`
+	ID        string `db:"id" json:"id"`
+}
+
+func (q *Queries) ClearSessionPairing(ctx context.Context, arg ClearSessionPairingParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, clearSessionPairing, arg.UpdatedAt, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const countSessionsByGateway = `-- name: CountSessionsByGateway :one
 SELECT COUNT(*) FROM wa_sessions WHERE gateway_id = ?
 `

@@ -116,6 +116,24 @@ func TestSessionRepo_UpdateStatus_NotFound(t *testing.T) {
 	assertNotFound(t, err)
 }
 
+// TestSessionRepo_ClearPairing verifies logout persists status and removes every
+// field used to decide whether the session is paired in one database write.
+func TestSessionRepo_ClearPairing(t *testing.T) {
+	db, mock := newMock(t)
+	repo := NewSessionRepo(db)
+
+	mock.ExpectExec("UPDATE wa_sessions\\s+SET status = 'logged_out', wa_jid = NULL, wa_lid = NULL, phone_number = NULL, updated_at = \\?\\s+WHERE id = \\?").
+		WithArgs(int64(999), "sess_1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	if err := repo.ClearPairing(context.Background(), "sess_1", 999); err != nil {
+		t.Fatalf("ClearPairing: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // TestSessionRepo_ListByOrg verifies tenant isolation and numeric cursor pagination.
 // The first page binds normalized limits and emits the last surrogate id only when another page may exist.
 func TestSessionRepo_ListByOrg(t *testing.T) {

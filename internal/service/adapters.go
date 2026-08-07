@@ -105,6 +105,10 @@ func (a *ManagerSessionRepo) UpdateStatus(ctx context.Context, id string, status
 	return nil
 }
 
+func (a *ManagerSessionRepo) ClearPairing(ctx context.Context, id string) error {
+	return a.repo.ClearPairing(ctx, id, a.clock())
+}
+
 // ---------------------------------------------------------------------------
 // wa.EventSink: stream.Publisher.Publish returns an error; the manager's sink
 // is fire-and-forget (no return). This adapter logs publish failures.

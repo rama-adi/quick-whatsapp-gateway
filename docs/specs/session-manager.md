@@ -26,7 +26,11 @@ per attached number, each holding a live WebSocket. Responsibilities:
 - **Boot orphan-guard** (§4.6 boot reconciliation): before resuming a session, check
   its **owning organization** still exists and is enabled in MySQL; **skip + mark
   `STOPPED`** any session whose org was deleted/disabled while the gateway was down.
-- Lifecycle: create / start / stop / restart / logout.
+- Lifecycle: create / start / stop / restart / logout. Logout is a full pairing
+  reset: it removes the local whatsmeow device, installs a fresh unpaired device
+  in the managed session, and atomically persists `LOGGED_OUT` with `wa_jid`,
+  `wa_lid`, and `phone_number` cleared. Repeating logout performs the durable
+  clear again, so it is idempotent and repairs stale pre-fix rows.
 - Reconnect with exponential backoff + full jitter.
 - Status state machine `STARTING · SCAN_QR_CODE · WORKING · FAILED · STOPPED ·
   LOGGED_OUT`, emitting `session.status` on change.
@@ -34,7 +38,9 @@ per attached number, each holding a live WebSocket. Responsibilities:
   pairing-code (`PairPhone`, emit `auth.code`).
 - Terminal events (`LoggedOut` / `StreamReplaced` / `TemporaryBan` /
   `ClientOutdated` / fatal `ConnectFailure`) → mark `LOGGED_OUT`/`FAILED`, STOP
-  reconnect, emit status.
+  reconnect, emit status. `LoggedOut` uses the same full pairing reset as the
+  explicit logout action, so restart and QR/pairing-code preconditions read the
+  same state.
 - Admin-number bootstrap (§8): if `WHATSAPP_ADMIN_NUMBER` is set and no keystore
   device exists for it, create an `is_admin_session` row (owned by
   `GATEWAY_ADMIN_USER_ID`'s org, or left system-owned) and surface the pairing
@@ -110,7 +116,10 @@ Core types:
 - **Status ownership is single-writer.** `teardown` clears runtime state but does
   NOT touch status; `setStatus` is the sole owner of the status field, its
   persistence (`UpdateStatus`), and its `session.status` emission, and it
-  **dedups** (no event when the status is unchanged).
+  **dedups** (no event when the status is unchanged). Logout is the intentional
+  specialized path: `setLoggedOut` atomically clears the persisted pairing
+  identity with the status and always performs that write, while still deduping
+  the emitted event.
 - **Goroutine lifecycle.** Each running session gets a context derived via
   `context.WithoutCancel(parent)` + a `CancelFunc`. Stop/Logout/Shutdown cancel
   it; the reconnect loop and QR pump select on `ctx.Done()` and exit cleanly. The
@@ -145,9 +154,11 @@ Core types:
   benign (debug-logged, retried), not a warning.
 - Lifecycle: `CreateSession` persists + registers + applies rate defaults;
   `Start` rejects unpaired; `Stop` tears down + marks STOPPED; `Logout` calls
-  `client.Logout`, deletes the keystore device, marks LOGGED_OUT; not-found
-  errors; `Boot` adopts paired devices, pins `gateway_id`, and the orphan-guard
-  skips + STOPs a session whose org is gone.
+  `client.Logout`, deletes the keystore device, clears all persisted pairing
+  identity, installs a fresh device, marks LOGGED_OUT, and can immediately begin
+  a new pairing-code flow; external `LoggedOut` performs the same reset;
+  not-found errors; `Boot` adopts paired devices, pins `gateway_id`, and the
+  orphan-guard skips + STOPs a session whose org is gone.
 
 Verified: `CGO_ENABLED=0 go build ./internal/wa`, `go test ./internal/wa` (incl.
 `-race`), `go vet ./internal/wa` all pass.
