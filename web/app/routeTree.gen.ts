@@ -31,11 +31,13 @@ import { Route as AppAdminTenantsRouteImport } from './routes/_app/admin/tenants
 import { Route as AppAdminSessionsRouteImport } from './routes/_app/admin/sessions'
 import { Route as AppAdminPairingRouteImport } from './routes/_app/admin/pairing'
 import { Route as AppAdminMonitorRouteImport } from './routes/_app/admin/monitor'
+import { Route as AppAdminGatewaysRouteImport } from './routes/_app/admin/gateways'
 import { Route as AppUserSessionsIndexRouteImport } from './routes/_app/user/sessions.index'
 import { Route as AppUserOauthAppsIndexRouteImport } from './routes/_app/user/oauth-apps.index'
 import { Route as AppUserSessionsSessionIdRouteImport } from './routes/_app/user/sessions.$sessionId'
 import { Route as AppUserOauthAppsNewRouteImport } from './routes/_app/user/oauth-apps.new'
 import { Route as AppUserOauthAppsAppIdRouteImport } from './routes/_app/user/oauth-apps.$appId'
+import { Route as AppAdminGatewaysGatewayIdRouteImport } from './routes/_app/admin/gateways.$gatewayId'
 import { Route as AppUserSessionsSessionIdIndexRouteImport } from './routes/_app/user/sessions.$sessionId.index'
 import { Route as AppUserSessionsSessionIdContactsRouteImport } from './routes/_app/user.sessions.$sessionId.contacts'
 import { Route as AppUserSessionsSessionIdChatsRouteRouteImport } from './routes/_app/user/sessions/$sessionId/chats/route'
@@ -151,6 +153,11 @@ const AppAdminMonitorRoute = AppAdminMonitorRouteImport.update({
   path: '/monitor',
   getParentRoute: () => AppAdminRouteRoute,
 } as any)
+const AppAdminGatewaysRoute = AppAdminGatewaysRouteImport.update({
+  id: '/gateways',
+  path: '/gateways',
+  getParentRoute: () => AppAdminRouteRoute,
+} as any)
 const AppUserSessionsIndexRoute = AppUserSessionsIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -177,6 +184,12 @@ const AppUserOauthAppsAppIdRoute = AppUserOauthAppsAppIdRouteImport.update({
   path: '/$appId',
   getParentRoute: () => AppUserOauthAppsRoute,
 } as any)
+const AppAdminGatewaysGatewayIdRoute =
+  AppAdminGatewaysGatewayIdRouteImport.update({
+    id: '/$gatewayId',
+    path: '/$gatewayId',
+    getParentRoute: () => AppAdminGatewaysRoute,
+  } as any)
 const AppUserSessionsSessionIdIndexRoute =
   AppUserSessionsSessionIdIndexRouteImport.update({
     id: '/',
@@ -225,6 +238,7 @@ export interface FileRoutesByFullPath {
   '/api/search': typeof ApiSearchRoute
   '/docs/$': typeof DocsSplatRoute
   '/login/whatsapp': typeof LoginWhatsappRoute
+  '/admin/gateways': typeof AppAdminGatewaysRouteWithChildren
   '/admin/monitor': typeof AppAdminMonitorRoute
   '/admin/pairing': typeof AppAdminPairingRoute
   '/admin/sessions': typeof AppAdminSessionsRoute
@@ -235,6 +249,7 @@ export interface FileRoutesByFullPath {
   '/user/webhooks': typeof AppUserWebhooksRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/admin/': typeof AppAdminIndexRoute
+  '/admin/gateways/$gatewayId': typeof AppAdminGatewaysGatewayIdRoute
   '/user/oauth-apps/$appId': typeof AppUserOauthAppsAppIdRoute
   '/user/oauth-apps/new': typeof AppUserOauthAppsNewRoute
   '/user/sessions/$sessionId': typeof AppUserSessionsSessionIdRouteWithChildren
@@ -257,6 +272,7 @@ export interface FileRoutesByTo {
   '/api/search': typeof ApiSearchRoute
   '/docs/$': typeof DocsSplatRoute
   '/login/whatsapp': typeof LoginWhatsappRoute
+  '/admin/gateways': typeof AppAdminGatewaysRouteWithChildren
   '/admin/monitor': typeof AppAdminMonitorRoute
   '/admin/pairing': typeof AppAdminPairingRoute
   '/admin/sessions': typeof AppAdminSessionsRoute
@@ -265,6 +281,7 @@ export interface FileRoutesByTo {
   '/user/webhooks': typeof AppUserWebhooksRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/admin': typeof AppAdminIndexRoute
+  '/admin/gateways/$gatewayId': typeof AppAdminGatewaysGatewayIdRoute
   '/user/oauth-apps/$appId': typeof AppUserOauthAppsAppIdRoute
   '/user/oauth-apps/new': typeof AppUserOauthAppsNewRoute
   '/user/oauth-apps': typeof AppUserOauthAppsIndexRoute
@@ -289,6 +306,7 @@ export interface FileRoutesById {
   '/api/search': typeof ApiSearchRoute
   '/docs/$': typeof DocsSplatRoute
   '/login/whatsapp': typeof LoginWhatsappRoute
+  '/_app/admin/gateways': typeof AppAdminGatewaysRouteWithChildren
   '/_app/admin/monitor': typeof AppAdminMonitorRoute
   '/_app/admin/pairing': typeof AppAdminPairingRoute
   '/_app/admin/sessions': typeof AppAdminSessionsRoute
@@ -299,6 +317,7 @@ export interface FileRoutesById {
   '/_app/user/webhooks': typeof AppUserWebhooksRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/_app/admin/': typeof AppAdminIndexRoute
+  '/_app/admin/gateways/$gatewayId': typeof AppAdminGatewaysGatewayIdRoute
   '/_app/user/oauth-apps/$appId': typeof AppUserOauthAppsAppIdRoute
   '/_app/user/oauth-apps/new': typeof AppUserOauthAppsNewRoute
   '/_app/user/sessions/$sessionId': typeof AppUserSessionsSessionIdRouteWithChildren
@@ -324,6 +343,7 @@ export interface FileRouteTypes {
     | '/api/search'
     | '/docs/$'
     | '/login/whatsapp'
+    | '/admin/gateways'
     | '/admin/monitor'
     | '/admin/pairing'
     | '/admin/sessions'
@@ -334,6 +354,7 @@ export interface FileRouteTypes {
     | '/user/webhooks'
     | '/api/auth/$'
     | '/admin/'
+    | '/admin/gateways/$gatewayId'
     | '/user/oauth-apps/$appId'
     | '/user/oauth-apps/new'
     | '/user/sessions/$sessionId'
@@ -356,6 +377,7 @@ export interface FileRouteTypes {
     | '/api/search'
     | '/docs/$'
     | '/login/whatsapp'
+    | '/admin/gateways'
     | '/admin/monitor'
     | '/admin/pairing'
     | '/admin/sessions'
@@ -364,6 +386,7 @@ export interface FileRouteTypes {
     | '/user/webhooks'
     | '/api/auth/$'
     | '/admin'
+    | '/admin/gateways/$gatewayId'
     | '/user/oauth-apps/$appId'
     | '/user/oauth-apps/new'
     | '/user/oauth-apps'
@@ -387,6 +410,7 @@ export interface FileRouteTypes {
     | '/api/search'
     | '/docs/$'
     | '/login/whatsapp'
+    | '/_app/admin/gateways'
     | '/_app/admin/monitor'
     | '/_app/admin/pairing'
     | '/_app/admin/sessions'
@@ -397,6 +421,7 @@ export interface FileRouteTypes {
     | '/_app/user/webhooks'
     | '/api/auth/$'
     | '/_app/admin/'
+    | '/_app/admin/gateways/$gatewayId'
     | '/_app/user/oauth-apps/$appId'
     | '/_app/user/oauth-apps/new'
     | '/_app/user/sessions/$sessionId'
@@ -576,6 +601,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAdminMonitorRouteImport
       parentRoute: typeof AppAdminRouteRoute
     }
+    '/_app/admin/gateways': {
+      id: '/_app/admin/gateways'
+      path: '/gateways'
+      fullPath: '/admin/gateways'
+      preLoaderRoute: typeof AppAdminGatewaysRouteImport
+      parentRoute: typeof AppAdminRouteRoute
+    }
     '/_app/user/sessions/': {
       id: '/_app/user/sessions/'
       path: '/'
@@ -610,6 +642,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/user/oauth-apps/$appId'
       preLoaderRoute: typeof AppUserOauthAppsAppIdRouteImport
       parentRoute: typeof AppUserOauthAppsRoute
+    }
+    '/_app/admin/gateways/$gatewayId': {
+      id: '/_app/admin/gateways/$gatewayId'
+      path: '/$gatewayId'
+      fullPath: '/admin/gateways/$gatewayId'
+      preLoaderRoute: typeof AppAdminGatewaysGatewayIdRouteImport
+      parentRoute: typeof AppAdminGatewaysRoute
     }
     '/_app/user/sessions/$sessionId/': {
       id: '/_app/user/sessions/$sessionId/'
@@ -656,7 +695,19 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface AppAdminGatewaysRouteChildren {
+  AppAdminGatewaysGatewayIdRoute: typeof AppAdminGatewaysGatewayIdRoute
+}
+
+const AppAdminGatewaysRouteChildren: AppAdminGatewaysRouteChildren = {
+  AppAdminGatewaysGatewayIdRoute: AppAdminGatewaysGatewayIdRoute,
+}
+
+const AppAdminGatewaysRouteWithChildren =
+  AppAdminGatewaysRoute._addFileChildren(AppAdminGatewaysRouteChildren)
+
 interface AppAdminRouteRouteChildren {
+  AppAdminGatewaysRoute: typeof AppAdminGatewaysRouteWithChildren
   AppAdminMonitorRoute: typeof AppAdminMonitorRoute
   AppAdminPairingRoute: typeof AppAdminPairingRoute
   AppAdminSessionsRoute: typeof AppAdminSessionsRoute
@@ -665,6 +716,7 @@ interface AppAdminRouteRouteChildren {
 }
 
 const AppAdminRouteRouteChildren: AppAdminRouteRouteChildren = {
+  AppAdminGatewaysRoute: AppAdminGatewaysRouteWithChildren,
   AppAdminMonitorRoute: AppAdminMonitorRoute,
   AppAdminPairingRoute: AppAdminPairingRoute,
   AppAdminSessionsRoute: AppAdminSessionsRoute,

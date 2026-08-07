@@ -36,6 +36,7 @@ const isUserPanel = (s: AppSession) =>
 
 export const NAV: NavItem[] = [
   { to: "/admin/sessions", label: "All Sessions", icon: ServerCog, group: "Admin", show: isAdmin },
+  { to: "/admin/gateways", label: "Gateways", icon: ServerCog, group: "Admin", show: isAdmin },
   { to: "/admin/tenants", label: "Tenants", icon: Building2, group: "Admin", show: isAdmin },
   { to: "/admin/monitor", label: "Event Monitor", icon: Activity, group: "Admin", show: isAdmin },
   { to: "/admin/pairing", label: "Pairing", icon: QrCode, group: "Admin", show: isAdmin },
