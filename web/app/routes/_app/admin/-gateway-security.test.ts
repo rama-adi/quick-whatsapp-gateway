@@ -26,4 +26,9 @@ describe("gateway administration security boundaries", () => {
   it("inherits the super_admin route authorization gate", () => {
     expect(gate).toContain('requireRole(context.session, "super_admin")');
   });
+
+  it("does not create a token-bearing cache or persistent storage path while rendering reconciliation", () => {
+    expect(detailRoute).toContain("reconciliationResults");
+    expect(detailRoute).not.toMatch(/localStorage|sessionStorage|console\./);
+  });
 });
