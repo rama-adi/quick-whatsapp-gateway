@@ -1,11 +1,55 @@
-# AGENTS.md
+# MSW — the kernel
 
-Repo guide for agents and contributors working on this v2 WhatsApp gateway. Read this before
-making a change, so the code, the specs, the API contract, and the docs site stay in sync.
+## program — complete
 
-The system is two independently deployable services in one repo:
+```
+contract ← the requested outcome + the smallest criteria that prove it
 
-- **Gateway** (Go, `cmd/gateway` + `internal/`) — the whatsmeow engine. Verifies
+while ∃ claim c : deleting c leaves contract unmet ∨ unproven
+      do c ; prove c
+
+halt ; report
+```
+
+## definitions — no behavior lives here, only meaning
+
+**contract** — the requested outcome and the smallest set of acceptance criteria that would prove it, stated before any work. The sole source of necessity; a ceiling as much as a floor. If the request is ambiguous: attended → ask; unattended → bind the smallest reading consistent with stated intent and record the assumption.
+
+**claim** — anything petitioning to become work: a plan step, a change, a test, a reviewer's P1, a discovered edge case, your own instinct that one more pass would help. Everything enters as this type. Nothing enters as a verdict.
+
+**deleting c leaves contract unmet ∨ unproven** — the only test. A claim passes solely by breaking the contract — reproducibly, within the task's actual inputs and environment. Severity is derived from the contract, never inherited from whoever raised the claim. *Useful*, *thorough*, and *possible* are not aliases for *necessary*. A claim that fails receives one line in the report — never a fix, an investigation, or a deferred follow-up.
+
+**do ; prove** — the smallest reliable act that closes the gap, and evidence sized to the claim it settles. An unproven act keeps its claim alive; a proven one closes it — and re-proving a closed claim is itself an inadmissible claim.
+
+**halt** — the fixed point: contract proven, no remaining claim passes. Not reviewer silence; not exhausted imagination. Halting before the fixed point and looping past it are the same bug, mirrored.
+
+**report** — the outcome against the contract; the proof; rejected claims worth the user's attention, one line each. Nothing else.
+
+## fuses — outside the program, for when its evaluator fails
+
+```
+rounds = 3            → halt anyway ; report open items, do not chase them
+claim born in round n+1, visible in round n   → rejected
+```
+
+## No unauthoritative limits
+
+Never invent a limit. A cap, threshold, quota, budget, timeout, retry or round count, file or line count, acceptance-criterion count, agent count, or similar constraint is admissible only when its exact value is:
+
+- explicitly required by the requester;
+- imposed by an applicable technical or platform contract;
+- defined by authoritative project policy; or
+- derived from measured evidence necessary to meet or prove the task contract.
+
+State the authority or derivation whenever proposing or applying a limit. If no authority exists, omit the limit and use the MSW necessity test. Metrics may be reported as evidence, but they must not become gates, defaults, targets, or recommendations through agent intuition. Examples and representative proportions never become defaults. If a necessary limit is an unresolved owner choice, ask; do not manufacture a value.
+
+---
+
+# Repo guide
+
+This is a v2 WhatsApp gateway: two independently deployable services in one repo.
+
+- **Gateway** (Go, `cmd/` + `internal/` + `migrations/`) — the whatsmeow engine. Verifies
   caller identity minted by the frontend (better-auth JWTs via JWKS, better-auth api-keys),
   owns WA-domain MySQL tables, keeps the whatsmeow keystore in gateway-local SQLite.
 - **Frontend** (`web/`) — a TanStack Start app with better-auth for identity. Serverless-hostable;
@@ -13,6 +57,9 @@ The system is two independently deployable services in one repo:
 
 Design rationale lives in [`masterplan-mvp.md`](./masterplan-mvp.md). This file is the bookkeeping
 rulebook: where things live, what to update alongside a change, and the gates that must pass.
+These rules are the project policy the MSW contract binds to: an edit the rules require in the
+same change (spec, generated file, migration counterpart) is part of the contract, not optional
+extra work.
 
 ## Where things live
 
@@ -20,16 +67,15 @@ rulebook: where things live, what to update alongside a change, and the gates th
 |---|---|
 | `masterplan-mvp.md` | The v2 design spec — the overview every other doc drills into. |
 | `docs/specs/*.md` | One living spec per subsystem (detail). Start at `_V2-STATUS.md` (index of all specs + their state). |
-| `docs/openapi.yaml` | The **public API contract of record, served by the router** at `/api/v1/openapi.yaml`. **GENERATED, not hand-written** (code-first via huma, D11): the Go input/output structs (`internal/apitypes` + the per-resource `*_ops.go` registrars) are the source of truth; `make openapi` regenerates this file. Stays at repo root (shared system contract). |
+| `docs/openapi.yaml` | The public API contract of record, served by the router at `/api/v1/openapi.yaml`. **Generated** — see the bookkeeping table below for how. Stays at repo root (shared system contract). |
 | `docs/mvp-progress.md` | Milestone tracker (R0–R6) and the log of locked decisions. |
 | `web/content/docs/*` | The fumadocs site: hand-written user/dev guides (`guides/`) + generated API reference (`api/`). |
 | `web/` | Frontend — TanStack Start, better-auth, Drizzle, ported shadcn. |
-| `cmd/gateway/` | Gateway runtime entrypoint; never executes MySQL schema migrations. |
-| `cmd/api/` | API entrypoint — the front door + single trust boundary; applies WA schema migrations before opening listeners. |
-| `cmd/migrate/` | Dedicated WA schema migration command (`up\|down`) for operations and rollback. |
+| `cmd/server/` | Gateway entrypoint; also `server migrate up\|down`. |
+| `cmd/router/` | Router entrypoint — the front door + single trust boundary in front of the gateways. |
 | `internal/` | Shared packages: `router/` (REST broker: authn, session→gateway resolve + org isolation, reverse proxy, placement), `assertion/` (router→gateway request-bound Ed25519 internal assertion: minter/verifier/nonce-cache), `authz/` (JWKS+JWT+api-key verify — **now consumed by the router**), `controlbus/` (`ctrl:*` subscriber — **now consumed by the router**), `dbconn/` (shared MySQL connection helper), `http/`, `wa/` (manager, session, SQLite store), `store/` (MySQL repos, org-keyed), `webhooks/`, `stream/`, `queue/`. |
-| `migrations/` | API-owned golang-migrate files for WA app-data tables. |
-| `deploy/` | Gateway, API, frontend, dev, and self-host Dockerfiles; compose topologies; `.env.example`. |
+| `migrations/` | golang-migrate files for WA app-data tables (gateway-written MySQL). |
+| `deploy/` | Two Dockerfiles, compose files, `.env.example`. |
 
 ### The subsystem specs (`docs/specs/`)
 
@@ -54,20 +100,17 @@ rulebook: where things live, what to update alongside a change, and the gates th
 
 ## Bookkeeping rules
 
-The specs and the OpenAPI file are part of the code, not an afterthought. The masterplan makes this
-a hard convention (§20, "Documentation" and "Commits" bullets):
-
-> Change a subsystem's behavior, update its `docs/specs/*.md` in the **same change**. The
-> masterplan is the overview, the specs are the detail, `openapi.yaml` is the API contract of
-> record.
+The specs and the OpenAPI file are part of the code: change a subsystem's behavior, update its
+`docs/specs/*.md` in the **same change**. The masterplan is the overview, the specs are the
+detail, `openapi.yaml` is the API contract of record.
 
 Follow-on steps depend on what you touched. Run them in the same change as the behavior:
 
 | You changed… | Then also run / write |
 |---|---|
-| The public REST API (paths, request/response shapes) | Edit the **Go types**, not the yaml: the per-resource huma ops in `internal/http/handlers/*_ops.go` (operations + request/response structs with `doc:`/`enum:`/`example:` tags) and shared DTOs/events in `internal/apitypes`. Then `make openapi` (regenerates `docs/openapi.yaml` from the Go types — the contract of record the router serves), then `cd web && pnpm gen:api` (regen typed client `app/lib/api/schema.d.ts`) **and** `pnpm docs:openapi` (regen the fumadocs API reference pages). `make gen` runs all three. CI guards drift with `make openapi-check`. Webhook/realtime **event** shapes live in `internal/apitypes/events.go` (the generated OpenAPI `webhooks` section). |
+| The public REST API (paths, request/response shapes) | Edit the **Go types**, not the yaml: the per-resource huma ops in `internal/http/handlers/*_ops.go` (operations + request/response structs with `doc:`/`enum:`/`example:` tags) and shared DTOs/events in `internal/apitypes`. Then `make openapi` (regenerates `docs/openapi.yaml` from the Go types), then `cd web && pnpm gen:api` (regen typed client `app/lib/api/schema.d.ts`) **and** `pnpm docs:openapi` (regen the fumadocs API reference pages). `make gen` runs all three. CI guards drift with `make openapi-check`. Webhook/realtime **event** shapes live in `internal/apitypes/events.go` (the generated OpenAPI `webhooks` section). |
 | better-auth config (`web/app/lib/auth/server.ts`) | `cd web && pnpm auth:generate` (regen `app/lib/db/auth-schema.ts`), then `pnpm db:migrate` (drizzle-kit) to apply the auth tables. |
-| The WA app-data MySQL schema | Author a new `migrations/NNNN_*.{up,down}.sql` (golang-migrate), then `cd web && pnpm db:introspect` with `WA_INTROSPECTION_DATABASE_URL` for an exact per-table SELECT-only account. This refreshes `app/lib/db/wa-generated/{schema,relations}.ts`; `wa.ts` only re-exports it. |
+| The gateway MySQL schema | Author a new `migrations/NNNN_*.{up,down}.sql` (golang-migrate), then `cd web && pnpm db:introspect` to refresh the read-only WA Drizzle models (`app/lib/db/wa.ts`). Update `docs/specs/store.md`; if a REST response shape changed, the REST-API row above also applies. |
 
 ### Two migration toolchains — don't cross them
 
@@ -76,36 +119,26 @@ changing:
 
 | Tables | Owner | Tool | Command |
 |---|---|---|---|
-| WA app-data (gateways, sessions, contacts, …) | API/control plane | golang-migrate (embedded library) | `make migrate` → `go run ./cmd/migrate up` (`down` rolls back one); API also applies `up` before startup |
+| WA app-data (gateways, sessions, contacts, …) | Gateway | golang-migrate (embedded in the binary) | `make migrate` → `go run ./cmd/server migrate up` (`down` rolls back one) |
 | Auth (better-auth: user, session, apikey, organization, …) | Frontend | drizzle-kit | `cd web && pnpm db:migrate` |
 
-The API/control plane's golang-migrate is the **sole schema writer** of WA tables. The frontend only ever
-*introspects* them into read-only Drizzle models (`pnpm db:introspect`) — it never migrates them.
+The gateway's golang-migrate is the **sole writer** of WA tables; the frontend only ever
+introspects them into read-only Drizzle models (`pnpm db:introspect`). Reshape freely **within**
+the right toolchain — never across.
 
-### Pre-release: reshape the schema freely
+### Pre-release: no backward-compat burden
 
-The software has **not shipped** — there is no production data and no backward-compat burden.
-**A schema change that makes the design cleaner is encouraged, not avoided.** If a table's shape is
-awkward, fix the shape: rewrite the migration, add columns, drop/rename, or **drop a table and
-rebuild it** when a cleaner model exists. Prefer a correct, normalized design now over a workaround
-that we carry forever.
+The software has **not shipped** — there is no production data. When the contract touches the
+schema, do not preserve an awkward shape for compatibility's sake: rewrite the migration, add or
+drop/rename columns, or drop a table and rebuild it when a cleaner model exists. A wholesale
+reshape can be a single fresh migration (`0001_init` replaced the v1 migrations this way);
+truncating/rebuilding dev tables is fine. Don't accumulate compatibility shims or "v2.5"
+half-migrations — collapse them into the cleanest end state.
 
-Guidance, not friction:
-
-- Don't accumulate compatibility shims or "v2.5" half-migrations for a DB nobody depends on yet —
-  collapse them into the cleanest end state.
-- A wholesale reshape can still be a single fresh migration (we already did this: `0001_init`
-  replaced the v1 migrations against an empty DB). Truncating/rebuilding dev tables is fine.
-- Still obey the **bookkeeping rules above**: a schema change updates `docs/specs/*` (esp.
-  `store.md`), runs `pnpm db:introspect` to refresh the read-only WA Drizzle models, and updates
-  `docs/openapi.yaml` + regenerates if it changes a REST response shape.
-- The line that does **not** move: WA tables are migrated only by the API-owned golang-migrate
-  (the frontend introspects, never migrates), and auth tables only by drizzle-kit. Reshape freely
-  **within** the right toolchain — don't cross them.
-- Caveat: when in doubt whether a denormalization actually helps, prefer **read-time resolution
-  from a single source of truth** over copying derived data onto rows (e.g. message sender/mention
-  names are resolved from `whatsapp_identities` on read, not stored on `messages`, so a rename is
-  reflected without rewrites). "Cleaner" means more normalized and correct, not more copies.
+Caveat: when in doubt whether a denormalization actually helps, prefer **read-time resolution
+from a single source of truth** over copying derived data onto rows (e.g. message sender/mention
+names are resolved from `whatsapp_identities` on read, not stored on `messages`, so a rename is
+reflected without rewrites). "Cleaner" means more normalized and correct, not more copies.
 
 ### v1 is archived
 
@@ -141,7 +174,7 @@ changes.
 ## Commits
 
 - Conventional-Commits prefixes (`feat:`, `fix:`, `docs:`, `chore:`, …).
-- Small, green increments — both halves pass the gates above before you commit.
+- Small, green increments.
 - Commit from the repo root with `git add -A`; the tree should contain only that change's intended
   edits, including the spec/OpenAPI/doc updates the change required.
 
