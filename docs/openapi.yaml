@@ -996,6 +996,28 @@ components:
           examples:
             - gw_01J9ZX8K2QHV0M3T6R7P4N5W8C
           type: string
+        keystoreBytes:
+          examples:
+            - 10485760
+          format: int64
+          type: integer
+        keystoreCheckedAt:
+          examples:
+            - 1719662400000
+          format: int64
+          type: integer
+        keystoreIntegrity:
+          enum:
+            - healthy
+            - missing
+            - corrupt
+          examples:
+            - healthy
+          type: string
+        keystorePresent:
+          examples:
+            - true
+          type: boolean
         label:
           examples:
             - Singapore primary
@@ -1008,6 +1030,14 @@ components:
         notes:
           examples:
             - Runs the APAC production pool.
+          type: string
+        reconciliationStatus:
+          enum:
+            - pending
+            - healthy
+            - degraded
+          examples:
+            - healthy
           type: string
         sessionCount:
           examples:
@@ -1044,6 +1074,7 @@ components:
         - desiredLifecycle
         - desiredRevision
         - appliedRevision
+        - reconciliationStatus
         - createdAt
         - updatedAt
       type: object
@@ -1099,11 +1130,18 @@ components:
             - "null"
         gateway:
           $ref: "#/components/schemas/GatewayAdmin"
+        reconciliationResults:
+          items:
+            $ref: "#/components/schemas/GatewayReconciliationResult"
+          type:
+            - array
+            - "null"
       required:
         - gateway
         - assignedSessionCount
         - assignedSessions
         - certificates
+        - reconciliationResults
         - audit
       type: object
     GatewayAuditEntry:
@@ -1225,6 +1263,50 @@ components:
         - tokenId
         - token
         - expiresAt
+      type: object
+    GatewayReconciliationResult:
+      additionalProperties: false
+      properties:
+        assignmentEpoch:
+          examples:
+            - 4
+          format: int64
+          minimum: 0
+          type: integer
+        desiredRevision:
+          examples:
+            - 5
+          format: int64
+          minimum: 0
+          type: integer
+        deviceJid:
+          examples:
+            - 6281234567890@s.whatsapp.net
+          type: string
+        sessionId:
+          examples:
+            - ses_01J9ZX8K2QHV0M3T6R7P4N5W8C
+          type: string
+        status:
+          enum:
+            - applied
+            - keystore_missing
+            - keystore_corrupt
+            - unexpected_local_device
+          examples:
+            - applied
+          type: string
+        updatedAt:
+          examples:
+            - 1719662400000
+          format: int64
+          type: integer
+      required:
+        - deviceJid
+        - assignmentEpoch
+        - status
+        - desiredRevision
+        - updatedAt
       type: object
     Group:
       additionalProperties: false
@@ -3903,7 +3985,7 @@ paths:
       tags:
         - Gateway Administration
     get:
-      description: Get non-secret gateway metadata, assigned sessions, certificate summaries, and recent audit entries. Requires platform `super_admin`.
+      description: Get non-secret gateway metadata, desired-state reconciliation and keystore health, per-device outcomes, assigned sessions, certificate summaries, and recent audit entries. Requires platform `super_admin`.
       operationId: getAdminGateway
       parameters:
         - description: Gateway identifier.

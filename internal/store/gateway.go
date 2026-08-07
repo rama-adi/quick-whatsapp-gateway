@@ -28,35 +28,40 @@ func NewGatewayRepo(db storedb.DBTX) *GatewayRepo { return &GatewayRepo{q: store
 
 func gatewayFromRow(row storedb.GetGatewayRow) domain.Gateway {
 	return domain.Gateway{
-		ID:               row.ID,
-		Label:            stringPtrFromNull(row.Label),
-		Notes:            stringPtrFromNull(row.Notes),
-		Status:           domain.GatewayStatus(row.Status),
-		SessionCount:     int(row.SessionCount),
-		Capacity:         intPtrFromNull32(row.Capacity),
-		BaseURL:          stringPtrFromNull(row.BaseUrl),
-		GRPCEndpoint:     stringPtrFromNull(row.GrpcEndpoint),
-		SoftwareVersion:  stringPtrFromNull(row.SoftwareVersion),
-		Capabilities:     append(json.RawMessage(nil), row.Capabilities...),
-		ConnectionEpoch:  row.ConnectionEpoch,
-		ConnectionMode:   string(row.ConnectionMode),
-		DesiredLifecycle: string(row.DesiredLifecycle),
-		DesiredRevision:  row.DesiredRevision,
-		AppliedRevision:  row.AppliedRevision,
-		EnrolledAt:       int64PtrFromNull(row.EnrolledAt),
-		ConnectedAt:      int64PtrFromNull(row.ConnectedAt),
-		LastSeenAt:       int64PtrFromNull(row.LastSeenAt),
-		CreatedAt:        row.CreatedAt,
-		UpdatedAt:        row.UpdatedAt,
+		ID:                   row.ID,
+		Label:                stringPtrFromNull(row.Label),
+		Notes:                stringPtrFromNull(row.Notes),
+		Status:               domain.GatewayStatus(row.Status),
+		SessionCount:         int(row.SessionCount),
+		Capacity:             intPtrFromNull32(row.Capacity),
+		BaseURL:              stringPtrFromNull(row.BaseUrl),
+		GRPCEndpoint:         stringPtrFromNull(row.GrpcEndpoint),
+		SoftwareVersion:      stringPtrFromNull(row.SoftwareVersion),
+		Capabilities:         append(json.RawMessage(nil), row.Capabilities...),
+		ConnectionEpoch:      row.ConnectionEpoch,
+		ConnectionMode:       string(row.ConnectionMode),
+		DesiredLifecycle:     string(row.DesiredLifecycle),
+		DesiredRevision:      row.DesiredRevision,
+		AppliedRevision:      row.AppliedRevision,
+		ReconciliationStatus: string(row.ReconciliationStatus),
+		KeystorePresent:      boolPtrFromNull(row.KeystorePresent),
+		KeystoreBytes:        int64PtrFromNull(row.KeystoreBytes),
+		KeystoreIntegrity:    gatewayKeystoreIntegrityPtr(row.KeystoreIntegrity),
+		KeystoreCheckedAt:    int64PtrFromNull(row.KeystoreCheckedAt),
+		EnrolledAt:           int64PtrFromNull(row.EnrolledAt),
+		ConnectedAt:          int64PtrFromNull(row.ConnectedAt),
+		LastSeenAt:           int64PtrFromNull(row.LastSeenAt),
+		CreatedAt:            row.CreatedAt,
+		UpdatedAt:            row.UpdatedAt,
 	}
 }
 
 func gatewayFromListActiveRow(row storedb.ListActiveGatewaysRow) domain.Gateway {
-	return gatewayFromRow(storedb.GetGatewayRow(row))
+	return domain.Gateway{ID: row.ID, Label: stringPtrFromNull(row.Label), Notes: stringPtrFromNull(row.Notes), Status: domain.GatewayStatus(row.Status), SessionCount: int(row.SessionCount), Capacity: intPtrFromNull32(row.Capacity), BaseURL: stringPtrFromNull(row.BaseUrl), GRPCEndpoint: stringPtrFromNull(row.GrpcEndpoint), SoftwareVersion: stringPtrFromNull(row.SoftwareVersion), Capabilities: append(json.RawMessage(nil), row.Capabilities...), ConnectionEpoch: row.ConnectionEpoch, ConnectionMode: string(row.ConnectionMode), DesiredLifecycle: string(row.DesiredLifecycle), DesiredRevision: row.DesiredRevision, AppliedRevision: row.AppliedRevision, EnrolledAt: int64PtrFromNull(row.EnrolledAt), ConnectedAt: int64PtrFromNull(row.ConnectedAt), LastSeenAt: int64PtrFromNull(row.LastSeenAt), CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}
 }
 
 func gatewayFromPlacementRow(row storedb.PickGatewayForPlacementRow) domain.Gateway {
-	return gatewayFromRow(storedb.GetGatewayRow(row))
+	return domain.Gateway{ID: row.ID, Label: stringPtrFromNull(row.Label), Notes: stringPtrFromNull(row.Notes), Status: domain.GatewayStatus(row.Status), SessionCount: int(row.SessionCount), Capacity: intPtrFromNull32(row.Capacity), BaseURL: stringPtrFromNull(row.BaseUrl), GRPCEndpoint: stringPtrFromNull(row.GrpcEndpoint), SoftwareVersion: stringPtrFromNull(row.SoftwareVersion), Capabilities: append(json.RawMessage(nil), row.Capabilities...), ConnectionEpoch: row.ConnectionEpoch, ConnectionMode: string(row.ConnectionMode), DesiredLifecycle: string(row.DesiredLifecycle), DesiredRevision: row.DesiredRevision, AppliedRevision: row.AppliedRevision, EnrolledAt: int64PtrFromNull(row.EnrolledAt), ConnectedAt: int64PtrFromNull(row.ConnectedAt), LastSeenAt: int64PtrFromNull(row.LastSeenAt), CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}
 }
 
 func gatewayFromListRow(row storedb.ListGatewaysRow) domain.Gateway {
@@ -220,6 +225,57 @@ func (r *GatewayRepo) DisconnectForEpoch(ctx context.Context, connection domain.
 	return r.fencedWriteApplied(ctx, n, connection)
 }
 
+// DesiredStateForEpoch returns the complete authoritative assignment set only
+// while the connection epoch and requested desired revision are current.
+func (r *GatewayRepo) DesiredStateForEpoch(ctx context.Context, connection domain.GatewayConnection, revision uint64, leaseExpiresAt int64) ([]domain.GatewayDesiredSession, bool, error) {
+	currentDesired, err := r.q.GetAcceptedGatewayDesiredLifecycle(ctx, storedb.GetAcceptedGatewayDesiredLifecycleParams{ID: connection.GatewayID, ConnectionEpoch: connection.ConnectionEpoch})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("store: get gateway desired revision: %w", err)
+	}
+	if currentDesired.DesiredRevision != revision {
+		return nil, false, nil
+	}
+	rows, err := r.q.ListGatewayDesiredStateAssignments(ctx, storedb.ListGatewayDesiredStateAssignmentsParams{
+		GatewayID: connection.GatewayID, ConnectionEpoch: connection.ConnectionEpoch, DesiredRevision: revision,
+	})
+	if err != nil {
+		return nil, false, fmt.Errorf("store: list gateway desired state: %w", err)
+	}
+	finalDesired, err := r.q.GetAcceptedGatewayDesiredLifecycle(ctx, storedb.GetAcceptedGatewayDesiredLifecycleParams{ID: connection.GatewayID, ConnectionEpoch: connection.ConnectionEpoch})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("store: recheck gateway desired revision: %w", err)
+	}
+	if finalDesired.DesiredRevision != revision {
+		return nil, false, nil
+	}
+	out := make([]domain.GatewayDesiredSession, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, domain.GatewayDesiredSession{
+			SessionID: row.SessionID, OrganizationID: row.OrganizationID, DeviceJID: row.WaJid.String, AssignmentEpoch: row.AssignmentEpoch,
+			ConfigRevision: revision, AutoRead: row.AutoRead, PresenceTyping: row.PresenceTyping,
+			RatePerMin: uint32(row.RatePerMin), RatePerHour: uint32(row.RatePerHour), DesiredRun: row.Status == storedb.WaSessionsStatusWorking || row.Status == storedb.WaSessionsStatusStarting || row.Status == storedb.WaSessionsStatusScanQrCode, LeaseExpiresAt: leaseExpiresAt,
+		})
+	}
+	return out, true, nil
+}
+
+// AcknowledgeDesiredStateForEpoch persists an applied snapshot only if the
+// stream and snapshot revision remain current. The monotonic predicate refuses
+// acknowledgement regression on duplicate or delayed frames.
+func (r *GatewayRepo) AcknowledgeDesiredStateForEpoch(ctx context.Context, connection domain.GatewayConnection, revision uint64, at int64) (bool, error) {
+	n, err := r.q.AcknowledgeGatewayDesiredStateForEpoch(ctx, storedb.AcknowledgeGatewayDesiredStateForEpochParams{
+		AppliedRevision: revision, UpdatedAt: at, ID: connection.GatewayID, ConnectionEpoch: connection.ConnectionEpoch,
+		DesiredRevision: revision, AppliedRevision_2: revision,
+	})
+	return n == 1, err
+}
+
 func (r *GatewayRepo) UpdateConnectionMetadataForEpoch(ctx context.Context, connection domain.GatewayConnection, m domain.GatewayControlMetadata, at int64) (bool, error) {
 	if connection.ConnectionEpoch == 0 || connection.GatewayID != m.GatewayID {
 		return false, fmt.Errorf("store: gateway connection metadata id mismatch")
@@ -299,6 +355,24 @@ func (r *GatewayRepo) ListCertificateSummaries(ctx context.Context, gatewayID st
 			NotBefore:   row.NotBefore, NotAfter: row.NotAfter, CreatedAt: row.CreatedAt,
 			RevokedAt:        int64PtrFromNull(row.RevokedAt),
 			RevocationReason: stringPtrFromNull(row.RevocationReason),
+		})
+	}
+	return out, nil
+}
+
+// ListReconciliationResults returns the latest complete non-secret device
+// reconciliation projection. It intentionally does not join sessions, so an
+// unexpected local device cannot be presented as an invented session or org.
+func (r *GatewayRepo) ListReconciliationResults(ctx context.Context, gatewayID string) ([]domain.GatewayReconciliationResult, error) {
+	rows, err := r.q.ListGatewayReconciliationResults(ctx, storedb.ListGatewayReconciliationResultsParams{GatewayID: gatewayID})
+	if err != nil {
+		return nil, fmt.Errorf("store: list gateway reconciliation results: %w", err)
+	}
+	out := make([]domain.GatewayReconciliationResult, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, domain.GatewayReconciliationResult{
+			DeviceJID: row.DeviceJid.String, SessionID: stringPtrFromNull(row.SessionID), AssignmentEpoch: row.AssignmentEpoch,
+			Status: string(row.Status), DesiredRevision: row.DesiredRevision, UpdatedAt: row.UpdatedAt,
 		})
 	}
 	return out, nil

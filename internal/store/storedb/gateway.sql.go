@@ -11,6 +11,38 @@ import (
 	"encoding/json"
 )
 
+const acknowledgeGatewayDesiredStateForEpoch = `-- name: AcknowledgeGatewayDesiredStateForEpoch :execrows
+UPDATE gateways
+SET applied_revision = ?, updated_at = ?
+WHERE id = ? AND connection_epoch = ? AND desired_revision = ? AND deleted_at IS NULL
+  AND status NOT IN ('pending_enrollment', 'disabled')
+  AND applied_revision <= ?
+`
+
+type AcknowledgeGatewayDesiredStateForEpochParams struct {
+	AppliedRevision   uint64 `db:"applied_revision" json:"applied_revision"`
+	UpdatedAt         int64  `db:"updated_at" json:"updated_at"`
+	ID                string `db:"id" json:"id"`
+	ConnectionEpoch   uint64 `db:"connection_epoch" json:"connection_epoch"`
+	DesiredRevision   uint64 `db:"desired_revision" json:"desired_revision"`
+	AppliedRevision_2 uint64 `db:"applied_revision_2" json:"applied_revision_2"`
+}
+
+func (q *Queries) AcknowledgeGatewayDesiredStateForEpoch(ctx context.Context, arg AcknowledgeGatewayDesiredStateForEpochParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, acknowledgeGatewayDesiredStateForEpoch,
+		arg.AppliedRevision,
+		arg.UpdatedAt,
+		arg.ID,
+		arg.ConnectionEpoch,
+		arg.DesiredRevision,
+		arg.AppliedRevision_2,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const allocateGatewayConnectionEpoch = `-- name: AllocateGatewayConnectionEpoch :execrows
 UPDATE gateways
 SET connection_epoch = connection_epoch + 1,
@@ -221,7 +253,8 @@ const getGateway = `-- name: GetGateway :one
 SELECT id, label, notes, status, session_count, capacity, base_url, grpc_endpoint,
        software_version, capabilities, connection_epoch, connection_mode,
        desired_lifecycle, desired_revision, applied_revision, enrolled_at,
-       connected_at, last_seen_at, created_at, updated_at
+       connected_at, last_seen_at, created_at, updated_at, reconciliation_status,
+       keystore_present, keystore_bytes, keystore_integrity, keystore_checked_at
 FROM gateways
 WHERE id = ? AND deleted_at IS NULL
 `
@@ -231,26 +264,31 @@ type GetGatewayParams struct {
 }
 
 type GetGatewayRow struct {
-	ID               string                   `db:"id" json:"id"`
-	Label            sql.NullString           `db:"label" json:"label"`
-	Notes            sql.NullString           `db:"notes" json:"notes"`
-	Status           GatewaysStatus           `db:"status" json:"status"`
-	SessionCount     uint32                   `db:"session_count" json:"session_count"`
-	Capacity         sql.NullInt32            `db:"capacity" json:"capacity"`
-	BaseUrl          sql.NullString           `db:"base_url" json:"base_url"`
-	GrpcEndpoint     sql.NullString           `db:"grpc_endpoint" json:"grpc_endpoint"`
-	SoftwareVersion  sql.NullString           `db:"software_version" json:"software_version"`
-	Capabilities     json.RawMessage          `db:"capabilities" json:"capabilities"`
-	ConnectionEpoch  uint64                   `db:"connection_epoch" json:"connection_epoch"`
-	ConnectionMode   GatewaysConnectionMode   `db:"connection_mode" json:"connection_mode"`
-	DesiredLifecycle GatewaysDesiredLifecycle `db:"desired_lifecycle" json:"desired_lifecycle"`
-	DesiredRevision  uint64                   `db:"desired_revision" json:"desired_revision"`
-	AppliedRevision  uint64                   `db:"applied_revision" json:"applied_revision"`
-	EnrolledAt       sql.NullInt64            `db:"enrolled_at" json:"enrolled_at"`
-	ConnectedAt      sql.NullInt64            `db:"connected_at" json:"connected_at"`
-	LastSeenAt       sql.NullInt64            `db:"last_seen_at" json:"last_seen_at"`
-	CreatedAt        int64                    `db:"created_at" json:"created_at"`
-	UpdatedAt        int64                    `db:"updated_at" json:"updated_at"`
+	ID                   string                        `db:"id" json:"id"`
+	Label                sql.NullString                `db:"label" json:"label"`
+	Notes                sql.NullString                `db:"notes" json:"notes"`
+	Status               GatewaysStatus                `db:"status" json:"status"`
+	SessionCount         uint32                        `db:"session_count" json:"session_count"`
+	Capacity             sql.NullInt32                 `db:"capacity" json:"capacity"`
+	BaseUrl              sql.NullString                `db:"base_url" json:"base_url"`
+	GrpcEndpoint         sql.NullString                `db:"grpc_endpoint" json:"grpc_endpoint"`
+	SoftwareVersion      sql.NullString                `db:"software_version" json:"software_version"`
+	Capabilities         json.RawMessage               `db:"capabilities" json:"capabilities"`
+	ConnectionEpoch      uint64                        `db:"connection_epoch" json:"connection_epoch"`
+	ConnectionMode       GatewaysConnectionMode        `db:"connection_mode" json:"connection_mode"`
+	DesiredLifecycle     GatewaysDesiredLifecycle      `db:"desired_lifecycle" json:"desired_lifecycle"`
+	DesiredRevision      uint64                        `db:"desired_revision" json:"desired_revision"`
+	AppliedRevision      uint64                        `db:"applied_revision" json:"applied_revision"`
+	EnrolledAt           sql.NullInt64                 `db:"enrolled_at" json:"enrolled_at"`
+	ConnectedAt          sql.NullInt64                 `db:"connected_at" json:"connected_at"`
+	LastSeenAt           sql.NullInt64                 `db:"last_seen_at" json:"last_seen_at"`
+	CreatedAt            int64                         `db:"created_at" json:"created_at"`
+	UpdatedAt            int64                         `db:"updated_at" json:"updated_at"`
+	ReconciliationStatus GatewaysReconciliationStatus  `db:"reconciliation_status" json:"reconciliation_status"`
+	KeystorePresent      sql.NullBool                  `db:"keystore_present" json:"keystore_present"`
+	KeystoreBytes        sql.NullInt64                 `db:"keystore_bytes" json:"keystore_bytes"`
+	KeystoreIntegrity    NullGatewaysKeystoreIntegrity `db:"keystore_integrity" json:"keystore_integrity"`
+	KeystoreCheckedAt    sql.NullInt64                 `db:"keystore_checked_at" json:"keystore_checked_at"`
 }
 
 func (q *Queries) GetGateway(ctx context.Context, arg GetGatewayParams) (GetGatewayRow, error) {
@@ -277,6 +315,11 @@ func (q *Queries) GetGateway(ctx context.Context, arg GetGatewayParams) (GetGate
 		&i.LastSeenAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ReconciliationStatus,
+		&i.KeystorePresent,
+		&i.KeystoreBytes,
+		&i.KeystoreIntegrity,
+		&i.KeystoreCheckedAt,
 	)
 	return i, err
 }
@@ -403,35 +446,153 @@ func (q *Queries) ListActiveGateways(ctx context.Context, arg ListActiveGateways
 	return items, nil
 }
 
+const listGatewayDesiredStateAssignments = `-- name: ListGatewayDesiredStateAssignments :many
+SELECT a.session_id, s.organization_id, s.wa_jid, s.status, a.assignment_epoch,
+       s.auto_read, s.presence_typing, s.rate_per_min, s.rate_per_hour
+FROM gateway_session_assignments AS a
+JOIN wa_sessions AS s ON s.id = a.session_id
+JOIN gateways AS g ON g.id = a.gateway_id
+WHERE a.gateway_id = ? AND g.connection_epoch = ? AND g.desired_revision = ? AND g.deleted_at IS NULL
+  AND g.status NOT IN ('pending_enrollment', 'disabled')
+ORDER BY a.session_id ASC
+`
+
+type ListGatewayDesiredStateAssignmentsParams struct {
+	GatewayID       string `db:"gateway_id" json:"gateway_id"`
+	ConnectionEpoch uint64 `db:"connection_epoch" json:"connection_epoch"`
+	DesiredRevision uint64 `db:"desired_revision" json:"desired_revision"`
+}
+
+type ListGatewayDesiredStateAssignmentsRow struct {
+	SessionID       string           `db:"session_id" json:"session_id"`
+	OrganizationID  string           `db:"organization_id" json:"organization_id"`
+	WaJid           sql.NullString   `db:"wa_jid" json:"wa_jid"`
+	Status          WaSessionsStatus `db:"status" json:"status"`
+	AssignmentEpoch uint64           `db:"assignment_epoch" json:"assignment_epoch"`
+	AutoRead        bool             `db:"auto_read" json:"auto_read"`
+	PresenceTyping  bool             `db:"presence_typing" json:"presence_typing"`
+	RatePerMin      int32            `db:"rate_per_min" json:"rate_per_min"`
+	RatePerHour     int32            `db:"rate_per_hour" json:"rate_per_hour"`
+}
+
+func (q *Queries) ListGatewayDesiredStateAssignments(ctx context.Context, arg ListGatewayDesiredStateAssignmentsParams) ([]ListGatewayDesiredStateAssignmentsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listGatewayDesiredStateAssignments, arg.GatewayID, arg.ConnectionEpoch, arg.DesiredRevision)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListGatewayDesiredStateAssignmentsRow{}
+	for rows.Next() {
+		var i ListGatewayDesiredStateAssignmentsRow
+		if err := rows.Scan(
+			&i.SessionID,
+			&i.OrganizationID,
+			&i.WaJid,
+			&i.Status,
+			&i.AssignmentEpoch,
+			&i.AutoRead,
+			&i.PresenceTyping,
+			&i.RatePerMin,
+			&i.RatePerHour,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listGatewayReconciliationResults = `-- name: ListGatewayReconciliationResults :many
+SELECT device_jid, session_id, assignment_epoch, status, desired_revision, updated_at
+FROM gateway_reconciliation_results
+WHERE gateway_id = ?
+ORDER BY device_jid ASC
+`
+
+type ListGatewayReconciliationResultsParams struct {
+	GatewayID string `db:"gateway_id" json:"gateway_id"`
+}
+
+type ListGatewayReconciliationResultsRow struct {
+	DeviceJid       sql.NullString                     `db:"device_jid" json:"device_jid"`
+	SessionID       sql.NullString                     `db:"session_id" json:"session_id"`
+	AssignmentEpoch uint64                             `db:"assignment_epoch" json:"assignment_epoch"`
+	Status          GatewayReconciliationResultsStatus `db:"status" json:"status"`
+	DesiredRevision uint64                             `db:"desired_revision" json:"desired_revision"`
+	UpdatedAt       int64                              `db:"updated_at" json:"updated_at"`
+}
+
+func (q *Queries) ListGatewayReconciliationResults(ctx context.Context, arg ListGatewayReconciliationResultsParams) ([]ListGatewayReconciliationResultsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listGatewayReconciliationResults, arg.GatewayID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListGatewayReconciliationResultsRow{}
+	for rows.Next() {
+		var i ListGatewayReconciliationResultsRow
+		if err := rows.Scan(
+			&i.DeviceJid,
+			&i.SessionID,
+			&i.AssignmentEpoch,
+			&i.Status,
+			&i.DesiredRevision,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listGateways = `-- name: ListGateways :many
 SELECT id, label, notes, status, session_count, capacity, base_url, grpc_endpoint,
        software_version, capabilities, connection_epoch, connection_mode,
        desired_lifecycle, desired_revision, applied_revision, enrolled_at,
-       connected_at, last_seen_at, created_at, updated_at
+       connected_at, last_seen_at, created_at, updated_at, reconciliation_status,
+       keystore_present, keystore_bytes, keystore_integrity, keystore_checked_at
 FROM gateways WHERE deleted_at IS NULL ORDER BY created_at DESC, id DESC
 `
 
 type ListGatewaysRow struct {
-	ID               string                   `db:"id" json:"id"`
-	Label            sql.NullString           `db:"label" json:"label"`
-	Notes            sql.NullString           `db:"notes" json:"notes"`
-	Status           GatewaysStatus           `db:"status" json:"status"`
-	SessionCount     uint32                   `db:"session_count" json:"session_count"`
-	Capacity         sql.NullInt32            `db:"capacity" json:"capacity"`
-	BaseUrl          sql.NullString           `db:"base_url" json:"base_url"`
-	GrpcEndpoint     sql.NullString           `db:"grpc_endpoint" json:"grpc_endpoint"`
-	SoftwareVersion  sql.NullString           `db:"software_version" json:"software_version"`
-	Capabilities     json.RawMessage          `db:"capabilities" json:"capabilities"`
-	ConnectionEpoch  uint64                   `db:"connection_epoch" json:"connection_epoch"`
-	ConnectionMode   GatewaysConnectionMode   `db:"connection_mode" json:"connection_mode"`
-	DesiredLifecycle GatewaysDesiredLifecycle `db:"desired_lifecycle" json:"desired_lifecycle"`
-	DesiredRevision  uint64                   `db:"desired_revision" json:"desired_revision"`
-	AppliedRevision  uint64                   `db:"applied_revision" json:"applied_revision"`
-	EnrolledAt       sql.NullInt64            `db:"enrolled_at" json:"enrolled_at"`
-	ConnectedAt      sql.NullInt64            `db:"connected_at" json:"connected_at"`
-	LastSeenAt       sql.NullInt64            `db:"last_seen_at" json:"last_seen_at"`
-	CreatedAt        int64                    `db:"created_at" json:"created_at"`
-	UpdatedAt        int64                    `db:"updated_at" json:"updated_at"`
+	ID                   string                        `db:"id" json:"id"`
+	Label                sql.NullString                `db:"label" json:"label"`
+	Notes                sql.NullString                `db:"notes" json:"notes"`
+	Status               GatewaysStatus                `db:"status" json:"status"`
+	SessionCount         uint32                        `db:"session_count" json:"session_count"`
+	Capacity             sql.NullInt32                 `db:"capacity" json:"capacity"`
+	BaseUrl              sql.NullString                `db:"base_url" json:"base_url"`
+	GrpcEndpoint         sql.NullString                `db:"grpc_endpoint" json:"grpc_endpoint"`
+	SoftwareVersion      sql.NullString                `db:"software_version" json:"software_version"`
+	Capabilities         json.RawMessage               `db:"capabilities" json:"capabilities"`
+	ConnectionEpoch      uint64                        `db:"connection_epoch" json:"connection_epoch"`
+	ConnectionMode       GatewaysConnectionMode        `db:"connection_mode" json:"connection_mode"`
+	DesiredLifecycle     GatewaysDesiredLifecycle      `db:"desired_lifecycle" json:"desired_lifecycle"`
+	DesiredRevision      uint64                        `db:"desired_revision" json:"desired_revision"`
+	AppliedRevision      uint64                        `db:"applied_revision" json:"applied_revision"`
+	EnrolledAt           sql.NullInt64                 `db:"enrolled_at" json:"enrolled_at"`
+	ConnectedAt          sql.NullInt64                 `db:"connected_at" json:"connected_at"`
+	LastSeenAt           sql.NullInt64                 `db:"last_seen_at" json:"last_seen_at"`
+	CreatedAt            int64                         `db:"created_at" json:"created_at"`
+	UpdatedAt            int64                         `db:"updated_at" json:"updated_at"`
+	ReconciliationStatus GatewaysReconciliationStatus  `db:"reconciliation_status" json:"reconciliation_status"`
+	KeystorePresent      sql.NullBool                  `db:"keystore_present" json:"keystore_present"`
+	KeystoreBytes        sql.NullInt64                 `db:"keystore_bytes" json:"keystore_bytes"`
+	KeystoreIntegrity    NullGatewaysKeystoreIntegrity `db:"keystore_integrity" json:"keystore_integrity"`
+	KeystoreCheckedAt    sql.NullInt64                 `db:"keystore_checked_at" json:"keystore_checked_at"`
 }
 
 func (q *Queries) ListGateways(ctx context.Context) ([]ListGatewaysRow, error) {
@@ -464,6 +625,11 @@ func (q *Queries) ListGateways(ctx context.Context) ([]ListGatewaysRow, error) {
 			&i.LastSeenAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.ReconciliationStatus,
+			&i.KeystorePresent,
+			&i.KeystoreBytes,
+			&i.KeystoreIntegrity,
+			&i.KeystoreCheckedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -484,7 +650,11 @@ SELECT id, label, notes, status, session_count, capacity, base_url, grpc_endpoin
        desired_lifecycle, desired_revision, applied_revision, enrolled_at,
        connected_at, last_seen_at, created_at, updated_at
 FROM gateways
-WHERE status = ? AND (connection_mode = 'legacy' OR desired_lifecycle = 'run')
+WHERE status = ? AND (
+  connection_mode = 'legacy' OR
+  (connection_mode = 'control' AND desired_lifecycle = 'run'
+   AND reconciliation_status = 'healthy' AND applied_revision = desired_revision)
+)
   AND deleted_at IS NULL AND (capacity IS NULL OR session_count < capacity)
 ORDER BY session_count ASC, last_seen_at DESC, id ASC
 LIMIT 1

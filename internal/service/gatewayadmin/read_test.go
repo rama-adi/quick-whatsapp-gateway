@@ -9,16 +9,20 @@ import (
 )
 
 type gatewayStub struct {
-	list  []domain.Gateway
-	one   domain.Gateway
-	certs []domain.GatewayCertificateSummary
-	err   error
+	list           []domain.Gateway
+	one            domain.Gateway
+	certs          []domain.GatewayCertificateSummary
+	reconciliation []domain.GatewayReconciliationResult
+	err            error
 }
 
 func (s gatewayStub) List(context.Context) ([]domain.Gateway, error)      { return s.list, s.err }
 func (s gatewayStub) Get(context.Context, string) (domain.Gateway, error) { return s.one, s.err }
 func (s gatewayStub) ListCertificateSummaries(context.Context, string) ([]domain.GatewayCertificateSummary, error) {
 	return s.certs, s.err
+}
+func (s gatewayStub) ListReconciliationResults(context.Context, string) ([]domain.GatewayReconciliationResult, error) {
+	return s.reconciliation, s.err
 }
 
 type sessionStub struct {
@@ -45,6 +49,9 @@ func TestGetGatewayBuildsSafeDerivedView(t *testing.T) {
 	service := New(
 		gatewayStub{one: domain.Gateway{ID: "gw_1", SessionCount: 99}, certs: []domain.GatewayCertificateSummary{
 			{ID: "revoked", RevokedAt: &revoked}, {ID: "active", SerialNumber: "42"},
+		}, reconciliation: []domain.GatewayReconciliationResult{
+			{DeviceJID: "6281@s.whatsapp.net", SessionID: ptr("s1"), AssignmentEpoch: 3, Status: "applied", DesiredRevision: 7},
+			{DeviceJID: "unexpected@s.whatsapp.net", Status: "unexpected_local_device", DesiredRevision: 7},
 		}},
 		sessionStub{rows: []domain.WASession{{ID: "s1"}, {ID: "s2"}}},
 		auditStub{rows: []domain.AuditEvent{{
@@ -65,6 +72,9 @@ func TestGetGatewayBuildsSafeDerivedView(t *testing.T) {
 	}
 	if len(got.Audit) != 1 || got.Audit[0].ID != "a1" {
 		t.Fatalf("audit projection = %+v", got.Audit)
+	}
+	if len(got.ReconciliationResults) != 2 || got.ReconciliationResults[1].SessionID != nil || got.ReconciliationResults[1].AssignmentEpoch != 0 {
+		t.Fatalf("reconciliation projection = %+v", got.ReconciliationResults)
 	}
 }
 

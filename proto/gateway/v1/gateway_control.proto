@@ -21,6 +21,7 @@ message GatewayFrame {
     GatewayHello hello = 10;
     GatewayHeartbeat heartbeat = 11;
     GatewayLifecycleReport lifecycle_report = 12;
+    DesiredStateReport desired_state_report = 20;
   }
   reserved 13 to 19;
 }
@@ -35,6 +36,7 @@ message ControlFrame {
     ControlWelcome welcome = 10;
     LifecycleDirective lifecycle_directive = 11;
     ControlHeartbeatAck heartbeat_ack = 12;
+    DesiredStateSnapshot desired_state_snapshot = 20;
   }
   reserved 13 to 19;
 }
@@ -76,6 +78,54 @@ message GatewayLifecycleReport {
   GatewayRuntimeState state = 3;
   LifecycleFailure failure = 4;
   reserved 5 to 15;
+}
+
+// DesiredStateAck confirms that the gateway applied the complete authoritative
+// snapshot for this connection and revision. The API persists this only when
+// both the connection epoch and desired-state revision are still current.
+message DesiredStateReport {
+  uint64 connection_epoch = 1;
+  uint64 processed_revision = 2;
+  KeystoreHealth keystore_health = 3;
+  repeated LocalDeviceInventory local_devices = 4;
+  repeated ReconciliationResult results = 5;
+  reserved 6 to 15;
+}
+
+message KeystoreHealth { KeystoreHealthState state = 1; optional int64 byte_size = 2; optional int64 last_checked_at_unix_ms = 3; reserved 4 to 15; }
+message LocalDeviceInventory { string device_jid = 1; reserved 2 to 15; }
+message ReconciliationResult { optional string session_id = 1; uint64 assignment_epoch = 2; string device_jid = 3; ReconciliationResultStatus status = 4; reserved 5 to 15; }
+
+// DesiredStateSnapshot is a complete, authoritative replacement for the
+// gateway's assigned-session set. A fresh snapshot renews every assignment
+// lease; gateways must stop a session when its lease expires.
+message DesiredStateSnapshot {
+  uint64 revision = 1;
+  repeated SessionAssignment assignments = 2;
+  reserved 3 to 15;
+}
+
+// SessionAssignment carries organization-scoped identity and a durable
+// assignment fence. assignment_epoch is never zero and increases whenever an
+// assignment changes owner. The lease is an absolute API-clock deadline.
+message SessionAssignment {
+  string session_id = 1;
+  string organization_id = 2;
+  uint64 assignment_epoch = 3;
+  int64 lease_expires_at_unix_ms = 4;
+  SessionConfig config = 5;
+  optional string device_jid = 6;
+  SessionDesiredAction desired_action = 7;
+  reserved 8 to 15;
+}
+
+message SessionConfig {
+  uint64 revision = 1;
+  bool auto_read = 2;
+  bool presence_typing = 3;
+  uint32 rate_per_min = 4;
+  uint32 rate_per_hour = 5;
+  reserved 6 to 15;
 }
 
 message ControlWelcome {
@@ -140,3 +190,7 @@ enum LifecycleDirectiveReason {
   LIFECYCLE_DIRECTIVE_REASON_POLICY = 4;
   reserved 5 to 15;
 }
+
+enum KeystoreHealthState { KEYSTORE_HEALTH_STATE_UNKNOWN = 0; KEYSTORE_HEALTH_STATE_HEALTHY = 1; KEYSTORE_HEALTH_STATE_MISSING = 2; KEYSTORE_HEALTH_STATE_CORRUPT = 3; reserved 4 to 15; }
+enum ReconciliationResultStatus { RECONCILIATION_RESULT_STATUS_UNKNOWN = 0; RECONCILIATION_RESULT_STATUS_APPLIED = 1; RECONCILIATION_RESULT_STATUS_KEYSTORE_MISSING = 2; RECONCILIATION_RESULT_STATUS_KEYSTORE_CORRUPT = 3; RECONCILIATION_RESULT_STATUS_UNEXPECTED_LOCAL_DEVICE = 4; reserved 5 to 15; }
+enum SessionDesiredAction { SESSION_DESIRED_ACTION_UNKNOWN = 0; SESSION_DESIRED_ACTION_RUN = 1; SESSION_DESIRED_ACTION_STOP = 2; reserved 3 to 15; }

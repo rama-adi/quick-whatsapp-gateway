@@ -52,6 +52,17 @@ type GatewayLifecycleReport struct {
 	Status GatewayStatus
 }
 
+// GatewayDesiredSession is one organization-scoped, fenced assignment in the
+// API's complete desired-state snapshot.
+type GatewayDesiredSession struct {
+	SessionID, OrganizationID, DeviceJID string
+	AssignmentEpoch, ConfigRevision      uint64
+	AutoRead, PresenceTyping             bool
+	DesiredRun                           bool
+	RatePerMin, RatePerHour              uint32
+	LeaseExpiresAt                       int64
+}
+
 // PKIAuthority carries encrypted private-key material only.
 type PKIAuthority struct {
 	ID, Kind, Status, CertificatePEM, EncryptionKeyID            string

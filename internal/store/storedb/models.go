@@ -386,6 +386,70 @@ func AllGatewayEnrollmentTokensStatusValues() []GatewayEnrollmentTokensStatus {
 	}
 }
 
+type GatewayReconciliationResultsStatus string
+
+const (
+	GatewayReconciliationResultsStatusApplied               GatewayReconciliationResultsStatus = "applied"
+	GatewayReconciliationResultsStatusKeystoreMissing       GatewayReconciliationResultsStatus = "keystore_missing"
+	GatewayReconciliationResultsStatusKeystoreCorrupt       GatewayReconciliationResultsStatus = "keystore_corrupt"
+	GatewayReconciliationResultsStatusUnexpectedLocalDevice GatewayReconciliationResultsStatus = "unexpected_local_device"
+)
+
+func (e *GatewayReconciliationResultsStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = GatewayReconciliationResultsStatus(s)
+	case string:
+		*e = GatewayReconciliationResultsStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for GatewayReconciliationResultsStatus: %T", src)
+	}
+	return nil
+}
+
+type NullGatewayReconciliationResultsStatus struct {
+	GatewayReconciliationResultsStatus GatewayReconciliationResultsStatus `json:"gateway_reconciliation_results_status"`
+	Valid                              bool                               `json:"valid"` // Valid is true if GatewayReconciliationResultsStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullGatewayReconciliationResultsStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.GatewayReconciliationResultsStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.GatewayReconciliationResultsStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullGatewayReconciliationResultsStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.GatewayReconciliationResultsStatus), nil
+}
+
+func (e GatewayReconciliationResultsStatus) Valid() bool {
+	switch e {
+	case GatewayReconciliationResultsStatusApplied,
+		GatewayReconciliationResultsStatusKeystoreMissing,
+		GatewayReconciliationResultsStatusKeystoreCorrupt,
+		GatewayReconciliationResultsStatusUnexpectedLocalDevice:
+		return true
+	}
+	return false
+}
+
+func AllGatewayReconciliationResultsStatusValues() []GatewayReconciliationResultsStatus {
+	return []GatewayReconciliationResultsStatus{
+		GatewayReconciliationResultsStatusApplied,
+		GatewayReconciliationResultsStatusKeystoreMissing,
+		GatewayReconciliationResultsStatusKeystoreCorrupt,
+		GatewayReconciliationResultsStatusUnexpectedLocalDevice,
+	}
+}
+
 type GatewaysConnectionMode string
 
 const (
@@ -557,6 +621,128 @@ func AllGatewaysDesiredLifecycleValues() []GatewaysDesiredLifecycle {
 	return []GatewaysDesiredLifecycle{
 		GatewaysDesiredLifecycleRun,
 		GatewaysDesiredLifecycleDrain,
+	}
+}
+
+type GatewaysKeystoreIntegrity string
+
+const (
+	GatewaysKeystoreIntegrityHealthy GatewaysKeystoreIntegrity = "healthy"
+	GatewaysKeystoreIntegrityMissing GatewaysKeystoreIntegrity = "missing"
+	GatewaysKeystoreIntegrityCorrupt GatewaysKeystoreIntegrity = "corrupt"
+)
+
+func (e *GatewaysKeystoreIntegrity) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = GatewaysKeystoreIntegrity(s)
+	case string:
+		*e = GatewaysKeystoreIntegrity(s)
+	default:
+		return fmt.Errorf("unsupported scan type for GatewaysKeystoreIntegrity: %T", src)
+	}
+	return nil
+}
+
+type NullGatewaysKeystoreIntegrity struct {
+	GatewaysKeystoreIntegrity GatewaysKeystoreIntegrity `json:"gateways_keystore_integrity"`
+	Valid                     bool                      `json:"valid"` // Valid is true if GatewaysKeystoreIntegrity is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullGatewaysKeystoreIntegrity) Scan(value interface{}) error {
+	if value == nil {
+		ns.GatewaysKeystoreIntegrity, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.GatewaysKeystoreIntegrity.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullGatewaysKeystoreIntegrity) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.GatewaysKeystoreIntegrity), nil
+}
+
+func (e GatewaysKeystoreIntegrity) Valid() bool {
+	switch e {
+	case GatewaysKeystoreIntegrityHealthy,
+		GatewaysKeystoreIntegrityMissing,
+		GatewaysKeystoreIntegrityCorrupt:
+		return true
+	}
+	return false
+}
+
+func AllGatewaysKeystoreIntegrityValues() []GatewaysKeystoreIntegrity {
+	return []GatewaysKeystoreIntegrity{
+		GatewaysKeystoreIntegrityHealthy,
+		GatewaysKeystoreIntegrityMissing,
+		GatewaysKeystoreIntegrityCorrupt,
+	}
+}
+
+type GatewaysReconciliationStatus string
+
+const (
+	GatewaysReconciliationStatusPending  GatewaysReconciliationStatus = "pending"
+	GatewaysReconciliationStatusHealthy  GatewaysReconciliationStatus = "healthy"
+	GatewaysReconciliationStatusDegraded GatewaysReconciliationStatus = "degraded"
+)
+
+func (e *GatewaysReconciliationStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = GatewaysReconciliationStatus(s)
+	case string:
+		*e = GatewaysReconciliationStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for GatewaysReconciliationStatus: %T", src)
+	}
+	return nil
+}
+
+type NullGatewaysReconciliationStatus struct {
+	GatewaysReconciliationStatus GatewaysReconciliationStatus `json:"gateways_reconciliation_status"`
+	Valid                        bool                         `json:"valid"` // Valid is true if GatewaysReconciliationStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullGatewaysReconciliationStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.GatewaysReconciliationStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.GatewaysReconciliationStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullGatewaysReconciliationStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.GatewaysReconciliationStatus), nil
+}
+
+func (e GatewaysReconciliationStatus) Valid() bool {
+	switch e {
+	case GatewaysReconciliationStatusPending,
+		GatewaysReconciliationStatusHealthy,
+		GatewaysReconciliationStatusDegraded:
+		return true
+	}
+	return false
+}
+
+func AllGatewaysReconciliationStatusValues() []GatewaysReconciliationStatus {
+	return []GatewaysReconciliationStatus{
+		GatewaysReconciliationStatusPending,
+		GatewaysReconciliationStatusHealthy,
+		GatewaysReconciliationStatusDegraded,
 	}
 }
 
@@ -1268,29 +1454,34 @@ type EventLog struct {
 }
 
 type Gateway struct {
-	ID               string                   `db:"id" json:"id"`
-	Label            sql.NullString           `db:"label" json:"label"`
-	Notes            sql.NullString           `db:"notes" json:"notes"`
-	Status           GatewaysStatus           `db:"status" json:"status"`
-	DesiredLifecycle GatewaysDesiredLifecycle `db:"desired_lifecycle" json:"desired_lifecycle"`
-	ConnectionMode   GatewaysConnectionMode   `db:"connection_mode" json:"connection_mode"`
-	CreatorKind      GatewaysCreatorKind      `db:"creator_kind" json:"creator_kind"`
-	CreatedByUserID  sql.NullString           `db:"created_by_user_id" json:"created_by_user_id"`
-	BaseUrl          sql.NullString           `db:"base_url" json:"base_url"`
-	GrpcEndpoint     sql.NullString           `db:"grpc_endpoint" json:"grpc_endpoint"`
-	SessionCount     uint32                   `db:"session_count" json:"session_count"`
-	Capacity         sql.NullInt32            `db:"capacity" json:"capacity"`
-	DesiredRevision  uint64                   `db:"desired_revision" json:"desired_revision"`
-	AppliedRevision  uint64                   `db:"applied_revision" json:"applied_revision"`
-	SoftwareVersion  sql.NullString           `db:"software_version" json:"software_version"`
-	Capabilities     json.RawMessage          `db:"capabilities" json:"capabilities"`
-	ConnectionEpoch  uint64                   `db:"connection_epoch" json:"connection_epoch"`
-	EnrolledAt       sql.NullInt64            `db:"enrolled_at" json:"enrolled_at"`
-	ConnectedAt      sql.NullInt64            `db:"connected_at" json:"connected_at"`
-	LastSeenAt       sql.NullInt64            `db:"last_seen_at" json:"last_seen_at"`
-	DeletedAt        sql.NullInt64            `db:"deleted_at" json:"deleted_at"`
-	CreatedAt        int64                    `db:"created_at" json:"created_at"`
-	UpdatedAt        int64                    `db:"updated_at" json:"updated_at"`
+	ID                   string                        `db:"id" json:"id"`
+	Label                sql.NullString                `db:"label" json:"label"`
+	Notes                sql.NullString                `db:"notes" json:"notes"`
+	Status               GatewaysStatus                `db:"status" json:"status"`
+	DesiredLifecycle     GatewaysDesiredLifecycle      `db:"desired_lifecycle" json:"desired_lifecycle"`
+	ConnectionMode       GatewaysConnectionMode        `db:"connection_mode" json:"connection_mode"`
+	CreatorKind          GatewaysCreatorKind           `db:"creator_kind" json:"creator_kind"`
+	CreatedByUserID      sql.NullString                `db:"created_by_user_id" json:"created_by_user_id"`
+	BaseUrl              sql.NullString                `db:"base_url" json:"base_url"`
+	GrpcEndpoint         sql.NullString                `db:"grpc_endpoint" json:"grpc_endpoint"`
+	SessionCount         uint32                        `db:"session_count" json:"session_count"`
+	Capacity             sql.NullInt32                 `db:"capacity" json:"capacity"`
+	DesiredRevision      uint64                        `db:"desired_revision" json:"desired_revision"`
+	AppliedRevision      uint64                        `db:"applied_revision" json:"applied_revision"`
+	SoftwareVersion      sql.NullString                `db:"software_version" json:"software_version"`
+	Capabilities         json.RawMessage               `db:"capabilities" json:"capabilities"`
+	ConnectionEpoch      uint64                        `db:"connection_epoch" json:"connection_epoch"`
+	EnrolledAt           sql.NullInt64                 `db:"enrolled_at" json:"enrolled_at"`
+	ConnectedAt          sql.NullInt64                 `db:"connected_at" json:"connected_at"`
+	LastSeenAt           sql.NullInt64                 `db:"last_seen_at" json:"last_seen_at"`
+	DeletedAt            sql.NullInt64                 `db:"deleted_at" json:"deleted_at"`
+	CreatedAt            int64                         `db:"created_at" json:"created_at"`
+	UpdatedAt            int64                         `db:"updated_at" json:"updated_at"`
+	ReconciliationStatus GatewaysReconciliationStatus  `db:"reconciliation_status" json:"reconciliation_status"`
+	KeystorePresent      sql.NullBool                  `db:"keystore_present" json:"keystore_present"`
+	KeystoreBytes        sql.NullInt64                 `db:"keystore_bytes" json:"keystore_bytes"`
+	KeystoreIntegrity    NullGatewaysKeystoreIntegrity `db:"keystore_integrity" json:"keystore_integrity"`
+	KeystoreCheckedAt    sql.NullInt64                 `db:"keystore_checked_at" json:"keystore_checked_at"`
 }
 
 type GatewayCertificate struct {
@@ -1329,6 +1520,25 @@ type GatewayEnrollmentToken struct {
 	CreatedByUserID string                        `db:"created_by_user_id" json:"created_by_user_id"`
 	CreatedAt       int64                         `db:"created_at" json:"created_at"`
 	UpdatedAt       int64                         `db:"updated_at" json:"updated_at"`
+}
+
+type GatewayReconciliationResult struct {
+	ID              uint64                             `db:"id" json:"id"`
+	GatewayID       string                             `db:"gateway_id" json:"gateway_id"`
+	DeviceJid       sql.NullString                     `db:"device_jid" json:"device_jid"`
+	SessionID       sql.NullString                     `db:"session_id" json:"session_id"`
+	AssignmentEpoch uint64                             `db:"assignment_epoch" json:"assignment_epoch"`
+	Status          GatewayReconciliationResultsStatus `db:"status" json:"status"`
+	DesiredRevision uint64                             `db:"desired_revision" json:"desired_revision"`
+	UpdatedAt       int64                              `db:"updated_at" json:"updated_at"`
+}
+
+type GatewaySessionAssignment struct {
+	SessionID       string `db:"session_id" json:"session_id"`
+	GatewayID       string `db:"gateway_id" json:"gateway_id"`
+	AssignmentEpoch uint64 `db:"assignment_epoch" json:"assignment_epoch"`
+	CreatedAt       int64  `db:"created_at" json:"created_at"`
+	UpdatedAt       int64  `db:"updated_at" json:"updated_at"`
 }
 
 type Message struct {

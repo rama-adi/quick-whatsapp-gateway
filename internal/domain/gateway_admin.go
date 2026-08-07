@@ -26,9 +26,10 @@ type GatewayAuditEntry struct {
 // gateway's self-reported SessionCount.
 type GatewayAdminDetail struct {
 	Gateway
-	AssignedSessionCount int
-	AssignedSessions     []WASession
-	ActiveCertificate    *GatewayCertificateSummary
-	Certificates         []GatewayCertificateSummary
-	Audit                []GatewayAuditEntry
+	AssignedSessionCount  int
+	AssignedSessions      []WASession
+	ActiveCertificate     *GatewayCertificateSummary
+	Certificates          []GatewayCertificateSummary
+	ReconciliationResults []GatewayReconciliationResult
+	Audit                 []GatewayAuditEntry
 }

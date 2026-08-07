@@ -19,6 +19,8 @@ type fakeStore struct {
 	acceptErr             error
 	writeErr              error
 	desired               DesiredLifecycle
+	desiredState          DesiredState
+	desiredStateAcks      []uint64
 	acceptedID            string
 	heartbeats            []uint64
 	lifecycles            []uint64
@@ -34,6 +36,18 @@ func (s *fakeStore) Accept(_ context.Context, id string, _ Hello) (Connection, e
 func (s *fakeStore) Heartbeat(_ context.Context, _ string, epoch uint64, _ Heartbeat) (DesiredLifecycle, error) {
 	s.heartbeats = append(s.heartbeats, epoch)
 	return s.desired, s.writeErr
+}
+func (s *fakeStore) DesiredState(_ context.Context, _ string, _ uint64, revision uint64, leaseExpiresAt time.Time) (DesiredState, error) {
+	state := s.desiredState
+	state.Revision = revision
+	for i := range state.Assignments {
+		state.Assignments[i].LeaseExpiresAt = leaseExpiresAt
+	}
+	return state, s.writeErr
+}
+func (s *fakeStore) PersistDesiredStateReport(_ context.Context, _ string, _ uint64, report ReconciliationReport) error {
+	s.desiredStateAcks = append(s.desiredStateAcks, report.Revision)
+	return s.writeErr
 }
 func (s *fakeStore) Lifecycle(_ context.Context, _ string, epoch uint64, report LifecycleReport) error {
 	s.lifecycles = append(s.lifecycles, epoch)
@@ -95,7 +109,7 @@ func testServer(store *fakeStore) *Server {
 }
 
 func connectedStore() *fakeStore {
-	return &fakeStore{connection: Connection{ID: "conn-1", Epoch: 7, HeartbeatInterval: 5 * time.Second, LeaseTimeout: 15 * time.Second, DesiredLifecycle: gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN}, desired: DesiredLifecycle{Action: gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN}}
+	return &fakeStore{connection: Connection{ID: "conn-1", Epoch: 7, HeartbeatInterval: 5 * time.Second, LeaseTimeout: 15 * time.Second, DesiredLifecycle: gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN, DesiredRevision: 1}, desired: DesiredLifecycle{Action: gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN, Revision: 1}}
 }
 
 func TestConnectUsesTLSIdentityAndSendsSequencedWelcome(t *testing.T) {
@@ -107,11 +121,11 @@ func TestConnectUsesTLSIdentityAndSendsSequencedWelcome(t *testing.T) {
 	if store.acceptedID != "gw_cert" || len(store.heartbeats) != 1 || store.heartbeats[0] != 7 {
 		t.Fatalf("store calls = id %q heartbeats %v", store.acceptedID, store.heartbeats)
 	}
-	if len(stream.sent) != 2 || stream.sent[0].Sequence != 1 || stream.sent[0].ProtocolVersion != ProtocolVersion || stream.sent[0].GetWelcome().ConnectionEpoch != 7 {
+	if len(stream.sent) != 4 || stream.sent[0].Sequence != 1 || stream.sent[0].ProtocolVersion != ProtocolVersion || stream.sent[0].GetWelcome().ConnectionEpoch != 7 || stream.sent[1].GetDesiredStateSnapshot() == nil {
 		t.Fatalf("control frames = %+v", stream.sent)
 	}
-	ack := stream.sent[1]
-	if ack.Sequence != 2 || ack.GetHeartbeatAck().AcknowledgedGatewaySequence != 2 || ack.GetHeartbeatAck().ConnectionEpoch != 7 || ack.GetHeartbeatAck().ServerTimeUnixMs != 1234 {
+	ack := stream.sent[2]
+	if ack.Sequence != 3 || ack.GetHeartbeatAck().AcknowledgedGatewaySequence != 2 || ack.GetHeartbeatAck().ConnectionEpoch != 7 || ack.GetHeartbeatAck().ServerTimeUnixMs != 1234 || stream.sent[3].GetDesiredStateSnapshot() == nil {
 		t.Fatalf("heartbeat ack = %+v", ack)
 	}
 	if len(store.disconnect) != 1 || store.disconnect[0] != 7 {
@@ -155,13 +169,13 @@ func TestConnectAllowsControlAckLagButRejectsFutureAndRegression(t *testing.T) {
 		if err := testServer(store).Connect(stream); err != nil {
 			t.Fatal(err)
 		}
-		if len(stream.sent) != 4 || stream.sent[3].Sequence != 4 {
+		if len(stream.sent) != 8 || stream.sent[7].Sequence != 8 {
 			t.Fatalf("control frames = %+v", stream.sent)
 		}
 	})
 	t.Run("future", func(t *testing.T) {
 		err := testServer(connectedStore()).Connect(&fakeStream{ctx: context.Background(), frames: []*gatewayv1.GatewayFrame{
-			hello(1), heartbeat(2, 7, 1), heartbeat(3, 7, 3),
+			hello(1), heartbeat(2, 7, 1), heartbeat(3, 7, 5),
 		}})
 		if status.Code(err) != codes.FailedPrecondition {
 			t.Fatalf("code = %v, err = %v", status.Code(err), err)
@@ -287,24 +301,54 @@ func lifecycleReport(sequence, epoch uint64, directiveID string, state gatewayv1
 
 func TestConnectEmitsAndDurablyAcknowledgesLifecycleDirective(t *testing.T) {
 	store := connectedStore()
-	store.desired = DesiredLifecycle{Action: gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DRAIN, Revision: 1}
+	store.desired = DesiredLifecycle{Action: gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DRAIN, Revision: 2}
 	stream := &fakeStream{ctx: context.Background(), frames: []*gatewayv1.GatewayFrame{
 		hello(1), heartbeat(2, 7, 1),
-		lifecycleReport(3, 7, "conn-1:1", gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED, gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_NONE),
+		lifecycleReport(3, 7, "conn-1:2", gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED, gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_NONE),
 		heartbeat(4, 7, 3),
 	}}
 	if err := testServer(store).Connect(stream); err != nil {
 		t.Fatal(err)
 	}
-	if len(stream.sent) != 4 || stream.sent[1].GetHeartbeatAck() == nil {
+	if len(stream.sent) != 7 || stream.sent[2].GetHeartbeatAck() == nil {
 		t.Fatalf("control frames = %+v", stream.sent)
 	}
-	directive := stream.sent[2].GetLifecycleDirective()
-	if stream.sent[2].Sequence != 3 || directive == nil || directive.DirectiveId != "conn-1:1" || directive.ConnectionEpoch != 7 || directive.Action != gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DRAIN || directive.Reason != gatewayv1.LifecycleDirectiveReason_LIFECYCLE_DIRECTIVE_REASON_OPERATOR {
+	directive := stream.sent[3].GetLifecycleDirective()
+	if stream.sent[3].Sequence != 4 || directive == nil || directive.DirectiveId != "conn-1:2" || directive.ConnectionEpoch != 7 || directive.Action != gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DRAIN || directive.Reason != gatewayv1.LifecycleDirectiveReason_LIFECYCLE_DIRECTIVE_REASON_OPERATOR {
 		t.Fatalf("directive = %+v", directive)
 	}
-	if len(store.lifecycleReports) != 1 || store.lifecycleReports[0].DirectiveID != directive.DirectiveId || stream.sent[3].GetHeartbeatAck().AcknowledgedGatewaySequence != 4 {
-		t.Fatalf("lifecycle reports = %+v, ack = %+v", store.lifecycleReports, stream.sent[3])
+	if len(store.lifecycleReports) != 1 || store.lifecycleReports[0].DirectiveID != directive.DirectiveId || stream.sent[5].GetHeartbeatAck().AcknowledgedGatewaySequence != 4 {
+		t.Fatalf("lifecycle reports = %+v, ack = %+v", store.lifecycleReports, stream.sent[5])
+	}
+}
+
+func TestConnectSendsAuthoritativeDesiredStateAndFencesAcknowledgement(t *testing.T) {
+	store := connectedStore()
+	store.connection.DesiredRevision = 9
+	store.desiredState = DesiredState{Assignments: []DesiredSession{{
+		SessionID: "session_1", OrganizationID: "org_1", DeviceJID: "15551234567@s.whatsapp.net", AssignmentEpoch: 4,
+		DesiredAction:  gatewayv1.SessionDesiredAction_SESSION_DESIRED_ACTION_RUN,
+		ConfigRevision: 9, AutoRead: true, RatePerMin: 20, RatePerHour: 200,
+	}}}
+	ack := &gatewayv1.GatewayFrame{ProtocolVersion: ProtocolVersion, Sequence: 2, Payload: &gatewayv1.GatewayFrame_DesiredStateReport{DesiredStateReport: &gatewayv1.DesiredStateReport{ConnectionEpoch: 7, ProcessedRevision: 9, KeystoreHealth: &gatewayv1.KeystoreHealth{State: gatewayv1.KeystoreHealthState_KEYSTORE_HEALTH_STATE_HEALTHY}}}}
+	stream := &fakeStream{ctx: context.Background(), frames: []*gatewayv1.GatewayFrame{hello(1), ack}}
+	if err := testServer(store).Connect(stream); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := stream.sent[1].GetDesiredStateSnapshot()
+	if snapshot == nil || snapshot.Revision != 9 || len(snapshot.Assignments) != 1 || snapshot.Assignments[0].OrganizationId != "org_1" || snapshot.Assignments[0].AssignmentEpoch != 4 || snapshot.Assignments[0].LeaseExpiresAtUnixMs <= 1234 || snapshot.Assignments[0].GetConfig().Revision != 9 {
+		t.Fatalf("snapshot = %+v", snapshot)
+	}
+	if len(store.desiredStateAcks) != 1 || store.desiredStateAcks[0] != 9 {
+		t.Fatalf("desired state acknowledgements = %v", store.desiredStateAcks)
+	}
+}
+
+func TestConnectRejectsDesiredStateAckForAnotherEpoch(t *testing.T) {
+	ack := &gatewayv1.GatewayFrame{ProtocolVersion: ProtocolVersion, Sequence: 2, Payload: &gatewayv1.GatewayFrame_DesiredStateReport{DesiredStateReport: &gatewayv1.DesiredStateReport{ConnectionEpoch: 8, KeystoreHealth: &gatewayv1.KeystoreHealth{State: gatewayv1.KeystoreHealthState_KEYSTORE_HEALTH_STATE_HEALTHY}}}}
+	err := testServer(connectedStore()).Connect(&fakeStream{ctx: context.Background(), frames: []*gatewayv1.GatewayFrame{hello(1), ack}})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("code = %v, err = %v", status.Code(err), err)
 	}
 }
 
@@ -322,7 +366,7 @@ func TestConnectRejectsInvalidLifecycleDirectiveAcknowledgements(t *testing.T) {
 	for name, mutate := range invalid {
 		t.Run(name, func(t *testing.T) {
 			store := connectedStore()
-			store.desired = DesiredLifecycle{Action: gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DRAIN, Revision: 1}
+			store.desired = DesiredLifecycle{Action: gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DRAIN, Revision: 2}
 			report := lifecycleReport(3, 7, "conn-1:1", gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED, gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_NONE)
 			mutate(report.GetLifecycleReport())
 			err := testServer(store).Connect(&fakeStream{ctx: context.Background(), frames: []*gatewayv1.GatewayFrame{hello(1), heartbeat(2, 7, 1), report}})
@@ -338,7 +382,7 @@ func TestConnectRejectsInvalidLifecycleDirectiveAcknowledgements(t *testing.T) {
 
 func TestConnectDoesNotSendLifecycleDirectiveBeforeHeartbeatPersistence(t *testing.T) {
 	store := connectedStore()
-	store.desired = DesiredLifecycle{Action: gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DRAIN, Revision: 1}
+	store.desired = DesiredLifecycle{Action: gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DRAIN, Revision: 2}
 	stream := &fakeStream{ctx: context.Background(), frames: []*gatewayv1.GatewayFrame{hello(1), heartbeat(2, 7, 1)}}
 	stream.send = func(frame *gatewayv1.ControlFrame) error {
 		if frame.GetLifecycleDirective() != nil && len(store.heartbeats) != 1 {

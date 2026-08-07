@@ -83,11 +83,23 @@ CREATE TABLE gateways (            -- registry + lifecycle; the router reads it 
   session_count INT UNSIGNED NOT NULL DEFAULT 0, capacity INT UNSIGNED NULL,
   desired_revision BIGINT UNSIGNED NOT NULL DEFAULT 0,
   applied_revision BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  reconciliation_status ENUM('pending','healthy','degraded') NOT NULL DEFAULT 'pending',
+  keystore_present TINYINT(1) NULL, keystore_bytes BIGINT NULL,
+  keystore_integrity ENUM('healthy','missing','corrupt') NULL,
+  keystore_checked_at BIGINT NULL,
   software_version VARCHAR(128) NULL, capabilities JSON NULL,
   connection_epoch BIGINT UNSIGNED NOT NULL DEFAULT 0,
   enrolled_at BIGINT NULL, connected_at BIGINT NULL, last_seen_at BIGINT NULL,
   created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
   KEY idx_gateways_status_seen (status, last_seen_at)
+);
+
+CREATE TABLE gateway_reconciliation_results ( -- latest complete per-device report
+  gateway_id VARCHAR(64) NOT NULL, device_jid VARCHAR(255) NOT NULL,
+  session_id VARCHAR(64) NULL, assignment_epoch BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  status ENUM('applied','keystore_missing','keystore_corrupt','unexpected_local_device') NOT NULL,
+  desired_revision BIGINT UNSIGNED NOT NULL, updated_at BIGINT NOT NULL,
+  PRIMARY KEY (gateway_id, device_jid)
 );
 
 CREATE TABLE wa_sessions (
@@ -100,6 +112,16 @@ CREATE TABLE wa_sessions (
   KEY idx_sessions_gateway (gateway_id),
   UNIQUE KEY uq_sessions_jid (wa_jid)
 );
+
+CREATE TABLE gateway_session_assignments (
+  session_id VARCHAR(64) PRIMARY KEY,
+  gateway_id VARCHAR(64) NOT NULL,
+  assignment_epoch BIGINT UNSIGNED NOT NULL CHECK (assignment_epoch > 0),
+  created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
+  FOREIGN KEY (session_id) REFERENCES wa_sessions(id) ON DELETE CASCADE,
+  FOREIGN KEY (gateway_id) REFERENCES gateways(id) ON DELETE RESTRICT,
+  KEY idx_gateway_session_assignments_gateway (gateway_id, session_id)
+);
 -- webhooks/webhook_deliveries/whatsapp_*/chats/messages/polls/poll_votes/outbox/event_log follow §7
 -- polls (0005): UNIQUE (session_id, poll_message_id); options JSON; selectable_count.
 -- poll recap metadata (0006): optional end_time, hide_votes, and recap_emitted_at.
@@ -107,6 +129,18 @@ CREATE TABLE wa_sessions (
 --   hashes) resolve to text, and the durable guard for one poll.recap event after
 --   a timed poll closes.
 ```
+
+`gateway_session_assignments` is the API's desired-state ownership and split-brain fence for the
+private control stream. `wa_sessions.gateway_id` remains during the incremental HTTP migration;
+the assignment table is authoritative for streamed assignments. A migration seeds every existing
+pinned session at epoch 1. Assignment owner changes must increment `assignment_epoch` and the
+gateway's `desired_revision`; configuration changes likewise advance that gateway revision.
+The API calculates lease expiry when it emits each snapshot rather than persisting heartbeat churn.
+An applied revision is persisted only with matching `gateways.connection_epoch` and
+`desired_revision`, so stale streams and stale acknowledgements cannot regress it.
+`desired_revision` is the snapshot-wide configuration revision in this first slice: a config change
+advances its owning gateway revision and resends all assigned configs; a per-session revision is
+therefore intentionally not persisted yet.
 
 - **`organization_id`** replaces v1 `tenant_id` on every owned table; `webhooks`, `event_log`,
   `outbox` carry it directly.

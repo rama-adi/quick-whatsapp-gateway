@@ -227,3 +227,14 @@ lifecycle status, and a replacement stream fences the old epoch.
 Disconnect cleanup runs on a detached context bounded to five seconds. It can therefore clear the
 current epoch's liveness after the stream context is cancelled without delaying server teardown
 indefinitely.
+
+## Desired-state snapshot foundation
+
+`ControlFrame.desired_state_snapshot` (field 20) is an additive, complete authoritative session
+assignment set. It follows Welcome and each successfully persisted heartbeat so its absolute lease
+expiries are renewed. Every assignment includes its organization ID, nonzero `assignment_epoch`,
+and revisioned auto-read, typing, and rate settings. `GatewayFrame.desired_state_report` (field
+20) acknowledges a processed snapshot revision with the connection epoch, safe keystore health,
+the complete local device inventory, and reconciliation outcomes. The API accepts and persists its
+processed revision only when both fences and the gateway's current desired revision match. Lifecycle
+directives and their reports remain independent of desired-state acknowledgement semantics.

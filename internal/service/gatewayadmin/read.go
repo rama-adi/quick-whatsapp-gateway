@@ -19,6 +19,7 @@ type GatewayReader interface {
 	List(context.Context) ([]domain.Gateway, error)
 	Get(context.Context, string) (domain.Gateway, error)
 	ListCertificateSummaries(context.Context, string) ([]domain.GatewayCertificateSummary, error)
+	ListReconciliationResults(context.Context, string) ([]domain.GatewayReconciliationResult, error)
 }
 
 type SessionReader interface {
@@ -66,6 +67,10 @@ func (s *Service) GetGateway(ctx context.Context, gatewayID string) (domain.Gate
 	if err != nil {
 		return domain.GatewayAdminDetail{}, fmt.Errorf("gateway admin: list certificate summaries: %w", err)
 	}
+	reconciliation, err := s.gateways.ListReconciliationResults(ctx, gatewayID)
+	if err != nil {
+		return domain.GatewayAdminDetail{}, fmt.Errorf("gateway admin: list reconciliation results: %w", err)
+	}
 	audit, err := s.audit.ListByResource(ctx, "gateway", gatewayID, math.MaxInt64, auditPageSize)
 	if err != nil {
 		return domain.GatewayAdminDetail{}, fmt.Errorf("gateway admin: list audit: %w", err)
@@ -73,7 +78,8 @@ func (s *Service) GetGateway(ctx context.Context, gatewayID string) (domain.Gate
 	detail := domain.GatewayAdminDetail{
 		Gateway: gateway, AssignedSessionCount: len(sessions),
 		AssignedSessions: sessions, Certificates: certificates,
-		Audit: make([]domain.GatewayAuditEntry, 0, len(audit)),
+		ReconciliationResults: reconciliation,
+		Audit:                 make([]domain.GatewayAuditEntry, 0, len(audit)),
 	}
 	for i := range certificates {
 		if certificates[i].RevokedAt == nil {

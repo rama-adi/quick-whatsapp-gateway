@@ -17,26 +17,44 @@ import "encoding/json"
 // loaded it is (SessionCount/Capacity) so the router can place new sessions on the
 // least-loaded reachable gateway and 503 requests bound for an unreachable one.
 type Gateway struct {
-	ID               string          `json:"id" doc:"The gateway's id (equals the gateway's configured GATEWAY_ID). Stable for the life of the gateway instance." example:"gw-sg-1"`
-	Label            *string         `json:"label,omitempty" doc:"Human-friendly name for the gateway, for dashboards. Optional; null when unset." example:"Singapore primary"`
-	Notes            *string         `json:"-"`
-	Status           GatewayStatus   `json:"status" enum:"joining,active,draining,drained,degraded,unreachable" doc:"Gateway lifecycle state, used by the central router to decide placement and proxying. Lifecycle: **joining** (registered, not yet taking traffic) → **active** (healthy and accepting new session placements + proxied traffic) → **draining** (finishing existing work, no new placements) → **drained** (idle, safe to retire). **degraded** means connected but unhealthy and ineligible for placement. **unreachable** is derived by the router from a stale heartbeat (not written by the gateway itself). Only **active** gateways receive new sessions and proxied requests; requests bound for a non-active or stale gateway are answered 503." example:"active"`
-	SessionCount     int             `json:"sessionCount" doc:"Number of sessions currently pinned to this gateway. Used by the router to place new sessions on the least-loaded reachable gateway." example:"12"`
-	Capacity         *int            `json:"capacity,omitempty" doc:"Soft placement cap: the max sessions the router will place here. Optional; null means unbounded." example:"100"`
-	BaseURL          *string         `json:"baseUrl,omitempty" doc:"The gateway's public base URL, where the router and clients reach it. Optional; null until the gateway advertises one." example:"https://gw-sg-1.example.com"`
-	GRPCEndpoint     *string         `json:"-"`
-	SoftwareVersion  *string         `json:"-"`
-	Capabilities     json.RawMessage `json:"-"`
-	ConnectionEpoch  uint64          `json:"-"`
-	ConnectionMode   string          `json:"-"`
-	DesiredLifecycle string          `json:"-"`
-	DesiredRevision  uint64          `json:"-"`
-	AppliedRevision  uint64          `json:"-"`
-	EnrolledAt       *int64          `json:"-"`
-	ConnectedAt      *int64          `json:"-"`
-	LastSeenAt       *int64          `json:"lastSeenAt,omitempty" doc:"When the gateway last sent a heartbeat, in epoch milliseconds (UTC). Optional; null if it has never reported. A stale value is what makes the router treat the gateway as unreachable." example:"1719662400000"`
-	CreatedAt        int64           `json:"createdAt" doc:"When the gateway row was first registered, in epoch milliseconds (UTC)." example:"1719662400000"`
-	UpdatedAt        int64           `json:"updatedAt" doc:"When the gateway row was last updated, in epoch milliseconds (UTC)." example:"1719662400000"`
+	ID                   string          `json:"id" doc:"The gateway's id (equals the gateway's configured GATEWAY_ID). Stable for the life of the gateway instance." example:"gw-sg-1"`
+	Label                *string         `json:"label,omitempty" doc:"Human-friendly name for the gateway, for dashboards. Optional; null when unset." example:"Singapore primary"`
+	Notes                *string         `json:"-"`
+	Status               GatewayStatus   `json:"status" enum:"joining,active,draining,drained,degraded,unreachable" doc:"Gateway lifecycle state, used by the central router to decide placement and proxying. Lifecycle: **joining** (registered, not yet taking traffic) → **active** (healthy and accepting new session placements + proxied traffic) → **draining** (finishing existing work, no new placements) → **drained** (idle, safe to retire). **degraded** means connected but unhealthy and ineligible for placement. **unreachable** is derived by the router from a stale heartbeat (not written by the gateway itself). Only **active** gateways receive new sessions and proxied requests; requests bound for a non-active or stale gateway are answered 503." example:"active"`
+	SessionCount         int             `json:"sessionCount" doc:"Number of sessions currently pinned to this gateway. Used by the router to place new sessions on the least-loaded reachable gateway." example:"12"`
+	Capacity             *int            `json:"capacity,omitempty" doc:"Soft placement cap: the max sessions the router will place here. Optional; null means unbounded." example:"100"`
+	BaseURL              *string         `json:"baseUrl,omitempty" doc:"The gateway's public base URL, where the router and clients reach it. Optional; null until the gateway advertises one." example:"https://gw-sg-1.example.com"`
+	GRPCEndpoint         *string         `json:"-"`
+	SoftwareVersion      *string         `json:"-"`
+	Capabilities         json.RawMessage `json:"-"`
+	ConnectionEpoch      uint64          `json:"-"`
+	ConnectionMode       string          `json:"-"`
+	DesiredLifecycle     string          `json:"-"`
+	DesiredRevision      uint64          `json:"-"`
+	AppliedRevision      uint64          `json:"-"`
+	ReconciliationStatus string          `json:"-"`
+	KeystorePresent      *bool           `json:"-"`
+	KeystoreBytes        *int64          `json:"-"`
+	KeystoreIntegrity    *string         `json:"-"`
+	KeystoreCheckedAt    *int64          `json:"-"`
+	EnrolledAt           *int64          `json:"-"`
+	ConnectedAt          *int64          `json:"-"`
+	LastSeenAt           *int64          `json:"lastSeenAt,omitempty" doc:"When the gateway last sent a heartbeat, in epoch milliseconds (UTC). Optional; null if it has never reported. A stale value is what makes the router treat the gateway as unreachable." example:"1719662400000"`
+	CreatedAt            int64           `json:"createdAt" doc:"When the gateway row was first registered, in epoch milliseconds (UTC)." example:"1719662400000"`
+	UpdatedAt            int64           `json:"updatedAt" doc:"When the gateway row was last updated, in epoch milliseconds (UTC)." example:"1719662400000"`
+}
+
+// GatewayReconciliationResult is one non-secret outcome from the gateway's
+// latest complete desired-state reconciliation report. An unexpected local
+// device deliberately has no SessionID or AssignmentEpoch: it is not mapped
+// to an API-owned session or organization.
+type GatewayReconciliationResult struct {
+	DeviceJID       string
+	SessionID       *string
+	AssignmentEpoch uint64
+	Status          string
+	DesiredRevision uint64
+	UpdatedAt       int64
 }
 
 // WASession mirrors the wa_sessions table (an attached WhatsApp number).

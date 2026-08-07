@@ -81,7 +81,7 @@ func RegisterGatewayAdminOps(api huma.API, h *Handlers) {
 	huma.Register(api, huma.Operation{
 		OperationID: "getAdminGateway", Method: "GET", Path: "/api/v1/admin/gateways/{gatewayId}",
 		Summary: "Get gateway administration detail (super_admin)", Tags: []string{"Gateway Administration"},
-		Description: "Get non-secret gateway metadata, assigned sessions, certificate summaries, and recent audit entries. Requires platform `super_admin`.", Middlewares: superAdmin,
+		Description: "Get non-secret gateway metadata, desired-state reconciliation and keystore health, per-device outcomes, assigned sessions, certificate summaries, and recent audit entries. Requires platform `super_admin`.", Middlewares: superAdmin,
 	}, func(ctx context.Context, in *gatewayAdminIDInput) (*gatewayAdminOutput, error) {
 		detail, err := h.GatewayAdmin.GetGateway(ctx, in.GatewayID)
 		if err != nil {

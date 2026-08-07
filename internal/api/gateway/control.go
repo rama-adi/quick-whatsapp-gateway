@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"strings"
 	"time"
 
 	gatewayv1 "github.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1"
@@ -66,6 +67,34 @@ type DesiredLifecycle struct {
 	Revision uint64
 }
 
+type DesiredSession struct {
+	SessionID, OrganizationID, DeviceJID string
+	DesiredAction                        gatewayv1.SessionDesiredAction
+	AssignmentEpoch, ConfigRevision      uint64
+	AutoRead, PresenceTyping             bool
+	RatePerMin, RatePerHour              uint32
+	LeaseExpiresAt                       time.Time
+}
+
+// DesiredState is a complete, revisioned replacement for a gateway's local
+// assignment set. Every supplied assignment lease must be in the future.
+type DesiredState struct {
+	Revision    uint64
+	Assignments []DesiredSession
+}
+type ReconciliationReport struct {
+	Revision                 uint64
+	KeystoreState            string
+	KeystoreBytes, CheckedAt *int64
+	LocalDevices             []string
+	Results                  []ReconciliationResult
+}
+type ReconciliationResult struct {
+	SessionID         *string
+	AssignmentEpoch   uint64
+	DeviceJID, Status string
+}
+
 type Connection struct {
 	ID                string
 	Epoch             uint64
@@ -82,6 +111,8 @@ type Store interface {
 	// Heartbeat durably records the report for the current epoch and returns
 	// the desired lifecycle/revision read from that same fenced connection.
 	Heartbeat(context.Context, string, uint64, Heartbeat) (DesiredLifecycle, error)
+	DesiredState(context.Context, string, uint64, uint64, time.Time) (DesiredState, error)
+	PersistDesiredStateReport(context.Context, string, uint64, ReconciliationReport) error
 	Lifecycle(context.Context, string, uint64, LifecycleReport) error
 	Disconnect(context.Context, string, uint64) error
 }
@@ -154,10 +185,13 @@ func (s *Server) Connect(stream gatewayv1.GatewayControlService_ConnectServer) (
 	if err = stream.Send(welcome); err != nil {
 		return sendStatus(err)
 	}
+	outboundSequence := welcome.Sequence
+	if outboundSequence, err = s.sendDesiredState(stream, gatewayID, connection, outboundSequence); err != nil {
+		return err
+	}
 
 	leaseTimer := time.NewTimer(connection.LeaseTimeout)
 	defer leaseTimer.Stop()
-	outboundSequence := welcome.Sequence
 	lastAcknowledgedControlSequence := welcome.Sequence
 	lastIssuedDesiredRevision := connection.DesiredRevision
 	lastIssuedDesiredAction := connection.DesiredLifecycle
@@ -225,9 +259,17 @@ func (s *Server) Connect(stream gatewayv1.GatewayControlService_ConnectServer) (
 					lastIssuedDesiredRevision = desired.Revision
 					lastIssuedDesiredAction = desired.Action
 				}
+				if outboundSequence, err = s.sendDesiredState(stream, gatewayID, Connection{Epoch: connection.Epoch, LeaseTimeout: connection.LeaseTimeout, DesiredRevision: desired.Revision}, outboundSequence); err != nil {
+					return err
+				}
 			} else {
 				err = heartbeatErr
 			}
+		case *gatewayv1.GatewayFrame_DesiredStateReport:
+			if err = validateDesiredStateReport(payload.DesiredStateReport, connection.Epoch); err != nil {
+				return err
+			}
+			err = s.Store.PersistDesiredStateReport(stream.Context(), gatewayID, connection.Epoch, reconciliationReport(payload.DesiredStateReport))
 		case *gatewayv1.GatewayFrame_LifecycleReport:
 			if pendingDirective == nil {
 				return status.Error(codes.FailedPrecondition, "no lifecycle directive is awaiting acknowledgement")
@@ -246,6 +288,72 @@ func (s *Server) Connect(stream gatewayv1.GatewayControlService_ConnectServer) (
 			return storeStatus(err)
 		}
 	}
+}
+
+func (s *Server) sendDesiredState(stream gatewayv1.GatewayControlService_ConnectServer, gatewayID string, connection Connection, sequence uint64) (uint64, error) {
+	leaseExpiresAt := s.clock().Add(connection.LeaseTimeout)
+	desired, err := s.Store.DesiredState(stream.Context(), gatewayID, connection.Epoch, connection.DesiredRevision, leaseExpiresAt)
+	if err != nil {
+		return sequence, storeStatus(err)
+	}
+	if desired.Revision != connection.DesiredRevision || !validDesiredState(desired, leaseExpiresAt) {
+		return sequence, status.Error(codes.Internal, "invalid gateway desired state")
+	}
+	assignments := make([]*gatewayv1.SessionAssignment, 0, len(desired.Assignments))
+	for _, assignment := range desired.Assignments {
+		assignments = append(assignments, &gatewayv1.SessionAssignment{
+			SessionId: assignment.SessionID, OrganizationId: assignment.OrganizationID, AssignmentEpoch: assignment.AssignmentEpoch, DesiredAction: assignment.DesiredAction,
+			LeaseExpiresAtUnixMs: assignment.LeaseExpiresAt.UnixMilli(),
+			Config:               &gatewayv1.SessionConfig{Revision: assignment.ConfigRevision, AutoRead: assignment.AutoRead, PresenceTyping: assignment.PresenceTyping, RatePerMin: assignment.RatePerMin, RatePerHour: assignment.RatePerHour},
+		})
+		if assignment.DeviceJID != "" {
+			assignments[len(assignments)-1].DeviceJid = &assignment.DeviceJID
+		}
+	}
+	sequence++
+	if err := stream.Send(&gatewayv1.ControlFrame{ProtocolVersion: ProtocolVersion, Sequence: sequence, Payload: &gatewayv1.ControlFrame_DesiredStateSnapshot{DesiredStateSnapshot: &gatewayv1.DesiredStateSnapshot{Revision: desired.Revision, Assignments: assignments}}}); err != nil {
+		return sequence, sendStatus(err)
+	}
+	return sequence, nil
+}
+
+func validDesiredState(desired DesiredState, minimumLease time.Time) bool {
+	if desired.Revision == 0 {
+		return false
+	}
+	for _, assignment := range desired.Assignments {
+		if assignment.SessionID == "" || assignment.OrganizationID == "" || assignment.AssignmentEpoch == 0 || assignment.DesiredAction == gatewayv1.SessionDesiredAction_SESSION_DESIRED_ACTION_UNKNOWN || assignment.ConfigRevision != desired.Revision || !assignment.LeaseExpiresAt.After(minimumLease.Add(-time.Millisecond)) {
+			return false
+		}
+	}
+	return true
+}
+
+func validateDesiredStateReport(report *gatewayv1.DesiredStateReport, epoch uint64) error {
+	if report == nil || report.ConnectionEpoch == 0 || report.ConnectionEpoch != epoch || report.KeystoreHealth == nil || report.KeystoreHealth.State == gatewayv1.KeystoreHealthState_KEYSTORE_HEALTH_STATE_UNKNOWN {
+		return status.Error(codes.FailedPrecondition, "invalid desired state report")
+	}
+	return nil
+}
+
+func reconciliationReport(report *gatewayv1.DesiredStateReport) ReconciliationReport {
+	out := ReconciliationReport{Revision: report.ProcessedRevision, KeystoreState: strings.TrimPrefix(strings.ToLower(report.KeystoreHealth.State.String()), "keystore_health_state_")}
+	if report.KeystoreHealth.ByteSize != nil {
+		v := *report.KeystoreHealth.ByteSize
+		out.KeystoreBytes = &v
+	}
+	if report.KeystoreHealth.LastCheckedAtUnixMs != nil {
+		v := *report.KeystoreHealth.LastCheckedAtUnixMs
+		out.CheckedAt = &v
+	}
+	for _, device := range report.LocalDevices {
+		out.LocalDevices = append(out.LocalDevices, device.DeviceJid)
+	}
+	for _, r := range report.Results {
+		status := strings.TrimPrefix(strings.ToLower(r.Status.String()), "reconciliation_result_status_")
+		out.Results = append(out.Results, ReconciliationResult{SessionID: r.SessionId, AssignmentEpoch: r.AssignmentEpoch, DeviceJID: r.DeviceJid, Status: status})
+	}
+	return out
 }
 
 type receiveResult struct {

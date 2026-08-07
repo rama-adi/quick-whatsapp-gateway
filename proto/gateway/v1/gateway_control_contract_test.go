@@ -29,8 +29,8 @@ func TestControlFrameWireNumbersAndOneofs(t *testing.T) {
 		fields  map[protoreflect.Name]protoreflect.FieldNumber
 		oneof   []protoreflect.Name
 	}{
-		{gatewayv1.File_v1_gateway_control_proto.Messages().ByName("GatewayFrame"), map[protoreflect.Name]protoreflect.FieldNumber{"protocol_version": 1, "sequence": 2, "hello": 10, "heartbeat": 11, "lifecycle_report": 12}, []protoreflect.Name{"hello", "heartbeat", "lifecycle_report"}},
-		{gatewayv1.File_v1_gateway_control_proto.Messages().ByName("ControlFrame"), map[protoreflect.Name]protoreflect.FieldNumber{"protocol_version": 1, "sequence": 2, "welcome": 10, "lifecycle_directive": 11, "heartbeat_ack": 12}, []protoreflect.Name{"welcome", "lifecycle_directive", "heartbeat_ack"}},
+		{gatewayv1.File_v1_gateway_control_proto.Messages().ByName("GatewayFrame"), map[protoreflect.Name]protoreflect.FieldNumber{"protocol_version": 1, "sequence": 2, "hello": 10, "heartbeat": 11, "lifecycle_report": 12, "desired_state_report": 20}, []protoreflect.Name{"hello", "heartbeat", "lifecycle_report", "desired_state_report"}},
+		{gatewayv1.File_v1_gateway_control_proto.Messages().ByName("ControlFrame"), map[protoreflect.Name]protoreflect.FieldNumber{"protocol_version": 1, "sequence": 2, "welcome": 10, "lifecycle_directive": 11, "heartbeat_ack": 12, "desired_state_snapshot": 20}, []protoreflect.Name{"welcome", "lifecycle_directive", "heartbeat_ack", "desired_state_snapshot"}},
 	}
 	for _, tt := range tests {
 		if tt.message == nil || tt.message.Fields().ByName("gateway_id") != nil || tt.message.Oneofs().Len() != 1 || tt.message.Oneofs().Get(0).Name() != "payload" {
@@ -58,6 +58,13 @@ func TestControlMessagesHaveStableFieldsAndNoGatewayID(t *testing.T) {
 		"ControlWelcome":         {"connection_id": 1, "connection_epoch": 2, "heartbeat_interval_ms": 3, "lease_timeout_ms": 4, "desired_lifecycle": 5, "server_time_unix_ms": 6},
 		"ControlHeartbeatAck":    {"acknowledged_gateway_sequence": 1, "connection_epoch": 2, "server_time_unix_ms": 3},
 		"LifecycleDirective":     {"directive_id": 1, "connection_epoch": 2, "action": 3, "drain_deadline_unix_ms": 4, "reason": 5},
+		"DesiredStateReport":     {"connection_epoch": 1, "processed_revision": 2, "keystore_health": 3, "local_devices": 4, "results": 5},
+		"KeystoreHealth":         {"state": 1, "byte_size": 2, "last_checked_at_unix_ms": 3},
+		"LocalDeviceInventory":   {"device_jid": 1},
+		"ReconciliationResult":   {"session_id": 1, "assignment_epoch": 2, "device_jid": 3, "status": 4},
+		"DesiredStateSnapshot":   {"revision": 1, "assignments": 2},
+		"SessionAssignment":      {"session_id": 1, "organization_id": 2, "assignment_epoch": 3, "lease_expires_at_unix_ms": 4, "config": 5, "device_jid": 6},
+		"SessionConfig":          {"revision": 1, "auto_read": 2, "presence_typing": 3, "rate_per_min": 4, "rate_per_hour": 5},
 	}
 	messages := gatewayv1.File_v1_gateway_control_proto.Messages()
 	for messageName, fields := range want {

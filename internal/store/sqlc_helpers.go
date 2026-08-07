@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/store/storedb"
 )
 
 func nullString(s *string) sql.NullString {
@@ -87,6 +89,14 @@ func boolPtrFromNull(b sql.NullBool) *bool {
 		return nil
 	}
 	return &b.Bool
+}
+
+func gatewayKeystoreIntegrityPtr(v storedb.NullGatewaysKeystoreIntegrity) *string {
+	if !v.Valid {
+		return nil
+	}
+	value := string(v.GatewaysKeystoreIntegrity)
+	return &value
 }
 
 func jsonOrNil(b []byte) json.RawMessage {

@@ -122,6 +122,48 @@ func TestGatewayAdminOpsCreateReturnsTokenOnceAndActor(t *testing.T) {
 	}
 }
 
+func TestGatewayAdminOpsDetailExposesSafeReconciliationProjection(t *testing.T) {
+	present := true
+	bytes := int64(1024)
+	checkedAt := int64(123)
+	sessionID := "ses_1"
+	integrity := "healthy"
+	svc := &fakeGatewayAdminSvc{detail: domain.GatewayAdminDetail{Gateway: domain.Gateway{
+		ID: "gw_1", DesiredRevision: 5, AppliedRevision: 5, ReconciliationStatus: "degraded",
+		KeystorePresent: &present, KeystoreBytes: &bytes, KeystoreIntegrity: &integrity, KeystoreCheckedAt: &checkedAt,
+	}, ReconciliationResults: []domain.GatewayReconciliationResult{
+		{DeviceJID: "6281@s.whatsapp.net", SessionID: &sessionID, AssignmentEpoch: 2, Status: "applied", DesiredRevision: 5, UpdatedAt: 124},
+		{DeviceJID: "unknown@s.whatsapp.net", Status: "unexpected_local_device", DesiredRevision: 5, UpdatedAt: 124},
+	}}}
+	h := gatewayAdminHandler(svc, &authz.Principal{Kind: authz.KindUser, UserID: "admin_1", PlatformRole: authz.PlatformRoleSuperAdmin})
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/admin/gateways/gw_1", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", w.Code, w.Body.String())
+	}
+	var got struct {
+		Gateway struct {
+			DesiredRevision      uint64 `json:"desiredRevision"`
+			AppliedRevision      uint64 `json:"appliedRevision"`
+			ReconciliationStatus string `json:"reconciliationStatus"`
+			KeystorePresent      *bool  `json:"keystorePresent"`
+		} `json:"gateway"`
+		Results []struct {
+			SessionID       *string `json:"sessionId"`
+			AssignmentEpoch uint64  `json:"assignmentEpoch"`
+		} `json:"reconciliationResults"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Gateway.DesiredRevision != 5 || got.Gateway.AppliedRevision != 5 || got.Gateway.ReconciliationStatus != "degraded" || got.Gateway.KeystorePresent == nil || !*got.Gateway.KeystorePresent {
+		t.Fatalf("gateway reconciliation response = %+v", got.Gateway)
+	}
+	if len(got.Results) != 2 || got.Results[0].SessionID == nil || got.Results[1].SessionID != nil || got.Results[1].AssignmentEpoch != 0 {
+		t.Fatalf("reconciliation results = %+v", got.Results)
+	}
+}
+
 func TestGatewayAdminOpsMapsStateConflictAndAcknowledgesSafeDelete(t *testing.T) {
 	svc := &fakeGatewayAdminSvc{err: &gatewayadmin.StateConflictError{Cause: errors.New("unsafe")}}
 	h := gatewayAdminHandler(svc, &authz.Principal{Kind: authz.KindUser, UserID: "admin_1", PlatformRole: authz.PlatformRoleSuperAdmin})

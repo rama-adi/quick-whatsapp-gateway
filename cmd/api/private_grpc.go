@@ -20,6 +20,7 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/pki"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/pki/apiidentity"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/service"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -258,11 +259,14 @@ type gatewayControlRepo interface {
 	HeartbeatForEpoch(context.Context, domain.GatewayHeartbeat, int64) (domain.GatewayAcceptedConnection, bool, error)
 	SetStatusForEpoch(context.Context, domain.GatewayLifecycleReport, int64) (bool, error)
 	DisconnectForEpoch(context.Context, domain.GatewayConnection, int64) (bool, error)
+	DesiredStateForEpoch(context.Context, domain.GatewayConnection, uint64, int64) ([]domain.GatewayDesiredSession, bool, error)
+	AcknowledgeDesiredStateForEpoch(context.Context, domain.GatewayConnection, uint64, int64) (bool, error)
 }
 
 type gatewayControlStore struct {
-	repo gatewayControlRepo
-	now  func() time.Time
+	repo           gatewayControlRepo
+	reconciliation *store.GatewayReconciliationRepo
+	now            func() time.Time
 }
 
 func (s gatewayControlStore) Accept(ctx context.Context, gatewayID string, hello apigateway.Hello) (apigateway.Connection, error) {
@@ -321,6 +325,46 @@ func (s gatewayControlStore) Heartbeat(ctx context.Context, gatewayID string, ep
 		return apigateway.DesiredLifecycle{}, apigateway.ErrConflict
 	}
 	return apigateway.DesiredLifecycle{Action: action, Revision: desired.DesiredRevision}, nil
+}
+
+func (s gatewayControlStore) DesiredState(ctx context.Context, gatewayID string, epoch, revision uint64, leaseExpiresAt time.Time) (apigateway.DesiredState, error) {
+	assignments, current, err := s.repo.DesiredStateForEpoch(ctx, domain.GatewayConnection{GatewayID: gatewayID, ConnectionEpoch: epoch}, revision, leaseExpiresAt.UnixMilli())
+	if err = fencedStoreResult(current, err); err != nil {
+		return apigateway.DesiredState{}, err
+	}
+	out := apigateway.DesiredState{Revision: revision, Assignments: make([]apigateway.DesiredSession, 0, len(assignments))}
+	for _, assignment := range assignments {
+		out.Assignments = append(out.Assignments, apigateway.DesiredSession{
+			SessionID: assignment.SessionID, OrganizationID: assignment.OrganizationID, DeviceJID: assignment.DeviceJID, AssignmentEpoch: assignment.AssignmentEpoch,
+			DesiredAction:  sessionDesiredAction(assignment.DesiredRun),
+			ConfigRevision: assignment.ConfigRevision, AutoRead: assignment.AutoRead, PresenceTyping: assignment.PresenceTyping,
+			RatePerMin: assignment.RatePerMin, RatePerHour: assignment.RatePerHour,
+			LeaseExpiresAt: time.UnixMilli(assignment.LeaseExpiresAt).UTC(),
+		})
+	}
+	return out, nil
+}
+
+func sessionDesiredAction(run bool) gatewayv1.SessionDesiredAction {
+	if run {
+		return gatewayv1.SessionDesiredAction_SESSION_DESIRED_ACTION_RUN
+	}
+	return gatewayv1.SessionDesiredAction_SESSION_DESIRED_ACTION_STOP
+}
+
+func (s gatewayControlStore) PersistDesiredStateReport(ctx context.Context, gatewayID string, epoch uint64, report apigateway.ReconciliationReport) error {
+	if s.reconciliation == nil {
+		return apigateway.ErrUnavailable
+	}
+	results := make([]store.GatewayReconciliationResult, 0, len(report.Results))
+	for _, r := range report.Results {
+		results = append(results, store.GatewayReconciliationResult{SessionID: r.SessionID, AssignmentEpoch: r.AssignmentEpoch, DeviceJID: r.DeviceJID, Status: r.Status})
+	}
+	err := s.reconciliation.Persist(ctx, store.GatewayReconciliationReport{GatewayID: gatewayID, Epoch: epoch, Revision: report.Revision, KeystoreState: report.KeystoreState, KeystoreBytes: report.KeystoreBytes, CheckedAt: report.CheckedAt, LocalDevices: report.LocalDevices, Results: results}, s.clock().UnixMilli())
+	if err != nil {
+		return fmt.Errorf("%w: %w", apigateway.ErrUnavailable, err)
+	}
+	return nil
 }
 
 func (s gatewayControlStore) Lifecycle(ctx context.Context, gatewayID string, epoch uint64, report apigateway.LifecycleReport) error {

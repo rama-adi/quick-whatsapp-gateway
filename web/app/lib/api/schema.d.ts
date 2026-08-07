@@ -37,7 +37,7 @@ export interface paths {
         };
         /**
          * Get gateway administration detail (super_admin)
-         * @description Get non-secret gateway metadata, assigned sessions, certificate summaries, and recent audit entries. Requires platform `super_admin`.
+         * @description Get non-secret gateway metadata, desired-state reconciliation and keystore health, per-device outcomes, assigned sessions, certificate summaries, and recent audit entries. Requires platform `super_admin`.
          */
         get: operations["getAdminGateway"];
         put?: never;
@@ -2459,6 +2459,23 @@ export interface components {
             grpcEndpoint?: string;
             /** @example gw_01J9ZX8K2QHV0M3T6R7P4N5W8C */
             id: string;
+            /**
+             * Format: int64
+             * @example 10485760
+             */
+            keystoreBytes?: number;
+            /**
+             * Format: int64
+             * @example 1719662400000
+             */
+            keystoreCheckedAt?: number;
+            /**
+             * @example healthy
+             * @enum {string}
+             */
+            keystoreIntegrity?: "healthy" | "missing" | "corrupt";
+            /** @example true */
+            keystorePresent?: boolean;
             /** @example Singapore primary */
             label?: string;
             /**
@@ -2468,6 +2485,11 @@ export interface components {
             lastSeenAt?: number;
             /** @example Runs the APAC production pool. */
             notes?: string;
+            /**
+             * @example healthy
+             * @enum {string}
+             */
+            reconciliationStatus: "pending" | "healthy" | "degraded";
             /**
              * Format: int64
              * @example 12
@@ -2515,6 +2537,7 @@ export interface components {
             audit: components["schemas"]["GatewayAuditEntry"][] | null;
             certificates: components["schemas"]["GatewayCertificateSummary"][] | null;
             gateway: components["schemas"]["GatewayAdmin"];
+            reconciliationResults: components["schemas"]["GatewayReconciliationResult"][] | null;
         };
         GatewayAuditEntry: {
             /** @example gateway.drained */
@@ -2584,6 +2607,32 @@ export interface components {
             token: string;
             /** @example ent_01J9ZX8K2QHV0M3T6R7P4N5W8C */
             tokenId: string;
+        };
+        GatewayReconciliationResult: {
+            /**
+             * Format: int64
+             * @example 4
+             */
+            assignmentEpoch: number;
+            /**
+             * Format: int64
+             * @example 5
+             */
+            desiredRevision: number;
+            /** @example 6281234567890@s.whatsapp.net */
+            deviceJid: string;
+            /** @example ses_01J9ZX8K2QHV0M3T6R7P4N5W8C */
+            sessionId?: string;
+            /**
+             * @example applied
+             * @enum {string}
+             */
+            status: "applied" | "keystore_missing" | "keystore_corrupt" | "unexpected_local_device";
+            /**
+             * Format: int64
+             * @example 1719662400000
+             */
+            updatedAt: number;
         };
         Group: {
             /**

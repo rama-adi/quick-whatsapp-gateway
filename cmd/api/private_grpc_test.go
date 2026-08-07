@@ -222,6 +222,7 @@ type fakeGatewayControlRepo struct {
 	heartbeat   domain.GatewayHeartbeat
 	lifecycle   domain.GatewayLifecycleReport
 	disconnect  domain.GatewayConnection
+	desired     []domain.GatewayDesiredSession
 }
 
 func (r *fakeGatewayControlRepo) AcceptConnection(_ context.Context, hello domain.GatewayConnectionHello, _ int64) (domain.GatewayAcceptedConnection, error) {
@@ -238,6 +239,15 @@ func (r *fakeGatewayControlRepo) SetStatusForEpoch(_ context.Context, lifecycle 
 }
 func (r *fakeGatewayControlRepo) DisconnectForEpoch(_ context.Context, connection domain.GatewayConnection, _ int64) (bool, error) {
 	r.disconnect = connection
+	return r.heartbeatOK, r.err
+}
+func (r *fakeGatewayControlRepo) DesiredStateForEpoch(_ context.Context, _ domain.GatewayConnection, _ uint64, leaseExpiresAt int64) ([]domain.GatewayDesiredSession, bool, error) {
+	for i := range r.desired {
+		r.desired[i].LeaseExpiresAt = leaseExpiresAt
+	}
+	return r.desired, r.heartbeatOK, r.err
+}
+func (r *fakeGatewayControlRepo) AcknowledgeDesiredStateForEpoch(_ context.Context, _ domain.GatewayConnection, _ uint64, _ int64) (bool, error) {
 	return r.heartbeatOK, r.err
 }
 

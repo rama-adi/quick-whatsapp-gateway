@@ -76,6 +76,12 @@ re-enrollment, and soft deletion.
 Creation, token replacement, and re-enrollment return the plaintext single-use
 enrollment bearer once. Read models, audit entries, and every other response
 exclude bearer, token hash, CSR, PEM, private-key, and trust-bundle material.
+The detail read model additionally exposes the API-persisted desired/applied
+revision, reconciliation status, safe keystore health (presence, byte count,
+integrity state, and check time), and the latest per-device reconciliation
+outcomes. An `unexpected_local_device` outcome intentionally carries neither a
+session ID nor an inferred organization: it is observed local inventory, not an
+API-owned assignment.
 Lifecycle state conflicts—including unsafe/missing gateway mutations—map to the
 stable `conflict` envelope. Deletion additionally requires
 `consequencesAcknowledged=true`; durable checks require a drained or disabled

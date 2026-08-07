@@ -1,0 +1,9 @@
+DROP TABLE gateway_reconciliation_results;
+ALTER TABLE gateways
+  DROP INDEX idx_gateways_reconciliation,
+  DROP COLUMN reconciliation_status,
+  DROP COLUMN keystore_present,
+  DROP COLUMN keystore_bytes,
+  DROP COLUMN keystore_integrity,
+  DROP COLUMN keystore_checked_at;
+DROP TABLE gateway_session_assignments;

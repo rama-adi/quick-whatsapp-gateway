@@ -233,7 +233,7 @@ func run() error {
 			return readiness(db, nil)()
 		}
 		control := &apigateway.Server{
-			Store: gatewayControlStore{repo: st.Gateways},
+			Store: gatewayControlStore{repo: st.Gateways, reconciliation: store.NewGatewayReconciliationRepo(db)},
 			ResolveGatewayID: func(ctx context.Context) (string, bool) {
 				identity, ok := gatewayIdentityFromContext(ctx)
 				return identity.GatewayID, ok

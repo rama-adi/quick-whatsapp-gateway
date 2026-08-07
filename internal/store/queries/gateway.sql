@@ -9,7 +9,8 @@ ON DUPLICATE KEY UPDATE label=VALUES(label), status=VALUES(status),
 SELECT id, label, notes, status, session_count, capacity, base_url, grpc_endpoint,
        software_version, capabilities, connection_epoch, connection_mode,
        desired_lifecycle, desired_revision, applied_revision, enrolled_at,
-       connected_at, last_seen_at, created_at, updated_at
+       connected_at, last_seen_at, created_at, updated_at, reconciliation_status,
+       keystore_present, keystore_bytes, keystore_integrity, keystore_checked_at
 FROM gateways
 WHERE id = ? AND deleted_at IS NULL;
 
@@ -45,7 +46,11 @@ SELECT id, label, notes, status, session_count, capacity, base_url, grpc_endpoin
        desired_lifecycle, desired_revision, applied_revision, enrolled_at,
        connected_at, last_seen_at, created_at, updated_at
 FROM gateways
-WHERE status = ? AND (connection_mode = 'legacy' OR desired_lifecycle = 'run')
+WHERE status = ? AND (
+  connection_mode = 'legacy' OR
+  (connection_mode = 'control' AND desired_lifecycle = 'run'
+   AND reconciliation_status = 'healthy' AND applied_revision = desired_revision)
+)
   AND deleted_at IS NULL AND (capacity IS NULL OR session_count < capacity)
 ORDER BY session_count ASC, last_seen_at DESC, id ASC
 LIMIT 1;
@@ -59,8 +64,15 @@ VALUES (?, ?, ?, ?, 'user', ?, ?, ?, 0, ?, ?);
 SELECT id, label, notes, status, session_count, capacity, base_url, grpc_endpoint,
        software_version, capabilities, connection_epoch, connection_mode,
        desired_lifecycle, desired_revision, applied_revision, enrolled_at,
-       connected_at, last_seen_at, created_at, updated_at
+       connected_at, last_seen_at, created_at, updated_at, reconciliation_status,
+       keystore_present, keystore_bytes, keystore_integrity, keystore_checked_at
 FROM gateways WHERE deleted_at IS NULL ORDER BY created_at DESC, id DESC;
+
+-- name: ListGatewayReconciliationResults :many
+SELECT device_jid, session_id, assignment_epoch, status, desired_revision, updated_at
+FROM gateway_reconciliation_results
+WHERE gateway_id = ?
+ORDER BY device_jid ASC;
 
 -- name: UpdateGatewayMetadata :execrows
 UPDATE gateways SET label=?, notes=?, capacity=?, desired_revision=?, updated_at=? WHERE id=? AND deleted_at IS NULL;
@@ -146,3 +158,20 @@ FROM gateways
 WHERE id = ? AND connection_epoch = ? AND deleted_at IS NULL
   AND status NOT IN ('pending_enrollment', 'disabled')
 LIMIT 1;
+
+-- name: ListGatewayDesiredStateAssignments :many
+SELECT a.session_id, s.organization_id, s.wa_jid, s.status, a.assignment_epoch,
+       s.auto_read, s.presence_typing, s.rate_per_min, s.rate_per_hour
+FROM gateway_session_assignments AS a
+JOIN wa_sessions AS s ON s.id = a.session_id
+JOIN gateways AS g ON g.id = a.gateway_id
+WHERE a.gateway_id = ? AND g.connection_epoch = ? AND g.desired_revision = ? AND g.deleted_at IS NULL
+  AND g.status NOT IN ('pending_enrollment', 'disabled')
+ORDER BY a.session_id ASC;
+
+-- name: AcknowledgeGatewayDesiredStateForEpoch :execrows
+UPDATE gateways
+SET applied_revision = ?, updated_at = ?
+WHERE id = ? AND connection_epoch = ? AND desired_revision = ? AND deleted_at IS NULL
+  AND status NOT IN ('pending_enrollment', 'disabled')
+  AND applied_revision <= ?;

@@ -10,26 +10,31 @@ import (
 // platform operators. It intentionally omits enrollment-token hashes, PEM/CSR
 // material, and other credential data.
 type GatewayAdmin struct {
-	ID               string          `json:"id" example:"gw_01J9ZX8K2QHV0M3T6R7P4N5W8C"`
-	Label            *string         `json:"label,omitempty" example:"Singapore primary"`
-	Notes            *string         `json:"notes,omitempty" example:"Runs the APAC production pool."`
-	Status           string          `json:"status" enum:"pending_enrollment,joining,active,draining,drained,degraded,disabled" example:"active"`
-	SessionCount     int             `json:"sessionCount" example:"12"`
-	Capacity         *int            `json:"capacity,omitempty" example:"100"`
-	BaseURL          *string         `json:"baseUrl,omitempty" example:"https://gw-sg-1.example.com"`
-	GRPCEndpoint     *string         `json:"grpcEndpoint,omitempty" example:"gw-sg-1.internal:8443"`
-	SoftwareVersion  *string         `json:"softwareVersion,omitempty" example:"2.0.0"`
-	Capabilities     json.RawMessage `json:"capabilities,omitempty" additionalProperties:"true"`
-	ConnectionEpoch  uint64          `json:"connectionEpoch" example:"4"`
-	ConnectionMode   string          `json:"connectionMode" enum:"legacy,control" example:"control"`
-	DesiredLifecycle string          `json:"desiredLifecycle" enum:"run,drain" example:"run"`
-	DesiredRevision  uint64          `json:"desiredRevision" example:"5"`
-	AppliedRevision  uint64          `json:"appliedRevision" example:"5"`
-	EnrolledAt       *int64          `json:"enrolledAt,omitempty" example:"1719662400000"`
-	ConnectedAt      *int64          `json:"connectedAt,omitempty" example:"1719662400000"`
-	LastSeenAt       *int64          `json:"lastSeenAt,omitempty" example:"1719662400000"`
-	CreatedAt        int64           `json:"createdAt" example:"1719662400000"`
-	UpdatedAt        int64           `json:"updatedAt" example:"1719662400000"`
+	ID                   string          `json:"id" example:"gw_01J9ZX8K2QHV0M3T6R7P4N5W8C"`
+	Label                *string         `json:"label,omitempty" example:"Singapore primary"`
+	Notes                *string         `json:"notes,omitempty" example:"Runs the APAC production pool."`
+	Status               string          `json:"status" enum:"pending_enrollment,joining,active,draining,drained,degraded,disabled" example:"active"`
+	SessionCount         int             `json:"sessionCount" example:"12"`
+	Capacity             *int            `json:"capacity,omitempty" example:"100"`
+	BaseURL              *string         `json:"baseUrl,omitempty" example:"https://gw-sg-1.example.com"`
+	GRPCEndpoint         *string         `json:"grpcEndpoint,omitempty" example:"gw-sg-1.internal:8443"`
+	SoftwareVersion      *string         `json:"softwareVersion,omitempty" example:"2.0.0"`
+	Capabilities         json.RawMessage `json:"capabilities,omitempty" additionalProperties:"true"`
+	ConnectionEpoch      uint64          `json:"connectionEpoch" example:"4"`
+	ConnectionMode       string          `json:"connectionMode" enum:"legacy,control" example:"control"`
+	DesiredLifecycle     string          `json:"desiredLifecycle" enum:"run,drain" example:"run"`
+	DesiredRevision      uint64          `json:"desiredRevision" example:"5"`
+	AppliedRevision      uint64          `json:"appliedRevision" example:"5"`
+	ReconciliationStatus string          `json:"reconciliationStatus" enum:"pending,healthy,degraded" example:"healthy"`
+	KeystorePresent      *bool           `json:"keystorePresent,omitempty" example:"true"`
+	KeystoreBytes        *int64          `json:"keystoreBytes,omitempty" example:"10485760"`
+	KeystoreIntegrity    *string         `json:"keystoreIntegrity,omitempty" enum:"healthy,missing,corrupt" example:"healthy"`
+	KeystoreCheckedAt    *int64          `json:"keystoreCheckedAt,omitempty" example:"1719662400000"`
+	EnrolledAt           *int64          `json:"enrolledAt,omitempty" example:"1719662400000"`
+	ConnectedAt          *int64          `json:"connectedAt,omitempty" example:"1719662400000"`
+	LastSeenAt           *int64          `json:"lastSeenAt,omitempty" example:"1719662400000"`
+	CreatedAt            int64           `json:"createdAt" example:"1719662400000"`
+	UpdatedAt            int64           `json:"updatedAt" example:"1719662400000"`
 }
 
 type GatewayCertificateSummary struct {
@@ -56,12 +61,25 @@ type GatewayAuditEntry struct {
 }
 
 type GatewayAdminDetail struct {
-	Gateway              GatewayAdmin                `json:"gateway"`
-	AssignedSessionCount int                         `json:"assignedSessionCount" example:"2"`
-	AssignedSessions     []domain.WASession          `json:"assignedSessions"`
-	ActiveCertificate    *GatewayCertificateSummary  `json:"activeCertificate,omitempty"`
-	Certificates         []GatewayCertificateSummary `json:"certificates"`
-	Audit                []GatewayAuditEntry         `json:"audit"`
+	Gateway               GatewayAdmin                  `json:"gateway"`
+	AssignedSessionCount  int                           `json:"assignedSessionCount" example:"2"`
+	AssignedSessions      []domain.WASession            `json:"assignedSessions"`
+	ActiveCertificate     *GatewayCertificateSummary    `json:"activeCertificate,omitempty"`
+	Certificates          []GatewayCertificateSummary   `json:"certificates"`
+	ReconciliationResults []GatewayReconciliationResult `json:"reconciliationResults"`
+	Audit                 []GatewayAuditEntry           `json:"audit"`
+}
+
+// GatewayReconciliationResult is a non-secret per-device outcome from the
+// current desired-state report. Unexpected local devices deliberately have no
+// session ID or assignment epoch.
+type GatewayReconciliationResult struct {
+	DeviceJID       string  `json:"deviceJid" example:"6281234567890@s.whatsapp.net"`
+	SessionID       *string `json:"sessionId,omitempty" example:"ses_01J9ZX8K2QHV0M3T6R7P4N5W8C"`
+	AssignmentEpoch uint64  `json:"assignmentEpoch" example:"4"`
+	Status          string  `json:"status" enum:"applied,keystore_missing,keystore_corrupt,unexpected_local_device" example:"applied"`
+	DesiredRevision uint64  `json:"desiredRevision" example:"5"`
+	UpdatedAt       int64   `json:"updatedAt" example:"1719662400000"`
 }
 
 // GatewayEnrollmentResult is returned only when an operator creates a gateway,
@@ -81,6 +99,8 @@ func GatewayAdminFromDomain(g domain.Gateway) GatewayAdmin {
 		Capabilities: append(json.RawMessage(nil), g.Capabilities...), ConnectionEpoch: g.ConnectionEpoch,
 		ConnectionMode: g.ConnectionMode, DesiredLifecycle: g.DesiredLifecycle, DesiredRevision: g.DesiredRevision,
 		AppliedRevision: g.AppliedRevision, EnrolledAt: g.EnrolledAt, ConnectedAt: g.ConnectedAt, LastSeenAt: g.LastSeenAt,
+		ReconciliationStatus: g.ReconciliationStatus, KeystorePresent: g.KeystorePresent, KeystoreBytes: g.KeystoreBytes,
+		KeystoreIntegrity: g.KeystoreIntegrity, KeystoreCheckedAt: g.KeystoreCheckedAt,
 		CreatedAt: g.CreatedAt, UpdatedAt: g.UpdatedAt,
 	}
 }
@@ -89,7 +109,7 @@ func GatewayAdminDetailFromDomain(d domain.GatewayAdminDetail) GatewayAdminDetai
 	out := GatewayAdminDetail{
 		Gateway: GatewayAdminFromDomain(d.Gateway), AssignedSessionCount: d.AssignedSessionCount,
 		AssignedSessions: d.AssignedSessions, Certificates: make([]GatewayCertificateSummary, 0, len(d.Certificates)),
-		Audit: make([]GatewayAuditEntry, 0, len(d.Audit)),
+		Audit: make([]GatewayAuditEntry, 0, len(d.Audit)), ReconciliationResults: make([]GatewayReconciliationResult, 0, len(d.ReconciliationResults)),
 	}
 	if out.AssignedSessions == nil {
 		out.AssignedSessions = []domain.WASession{}
@@ -104,6 +124,9 @@ func GatewayAdminDetailFromDomain(d domain.GatewayAdminDetail) GatewayAdminDetai
 	}
 	for _, a := range d.Audit {
 		out.Audit = append(out.Audit, GatewayAuditEntry{ID: a.ID, ActorType: a.ActorType, ActorID: a.ActorID, Action: a.Action, Outcome: a.Outcome, RequestID: a.RequestID, Metadata: a.Metadata, CreatedAt: a.CreatedAt})
+	}
+	for _, r := range d.ReconciliationResults {
+		out.ReconciliationResults = append(out.ReconciliationResults, GatewayReconciliationResult{DeviceJID: r.DeviceJID, SessionID: r.SessionID, AssignmentEpoch: r.AssignmentEpoch, Status: r.Status, DesiredRevision: r.DesiredRevision, UpdatedAt: r.UpdatedAt})
 	}
 	return out
 }

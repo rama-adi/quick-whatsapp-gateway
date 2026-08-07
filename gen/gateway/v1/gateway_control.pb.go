@@ -293,6 +293,162 @@ func (LifecycleDirectiveReason) EnumDescriptor() ([]byte, []int) {
 	return file_v1_gateway_control_proto_rawDescGZIP(), []int{4}
 }
 
+type KeystoreHealthState int32
+
+const (
+	KeystoreHealthState_KEYSTORE_HEALTH_STATE_UNKNOWN KeystoreHealthState = 0
+	KeystoreHealthState_KEYSTORE_HEALTH_STATE_HEALTHY KeystoreHealthState = 1
+	KeystoreHealthState_KEYSTORE_HEALTH_STATE_MISSING KeystoreHealthState = 2
+	KeystoreHealthState_KEYSTORE_HEALTH_STATE_CORRUPT KeystoreHealthState = 3
+)
+
+// Enum value maps for KeystoreHealthState.
+var (
+	KeystoreHealthState_name = map[int32]string{
+		0: "KEYSTORE_HEALTH_STATE_UNKNOWN",
+		1: "KEYSTORE_HEALTH_STATE_HEALTHY",
+		2: "KEYSTORE_HEALTH_STATE_MISSING",
+		3: "KEYSTORE_HEALTH_STATE_CORRUPT",
+	}
+	KeystoreHealthState_value = map[string]int32{
+		"KEYSTORE_HEALTH_STATE_UNKNOWN": 0,
+		"KEYSTORE_HEALTH_STATE_HEALTHY": 1,
+		"KEYSTORE_HEALTH_STATE_MISSING": 2,
+		"KEYSTORE_HEALTH_STATE_CORRUPT": 3,
+	}
+)
+
+func (x KeystoreHealthState) Enum() *KeystoreHealthState {
+	p := new(KeystoreHealthState)
+	*p = x
+	return p
+}
+
+func (x KeystoreHealthState) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (KeystoreHealthState) Descriptor() protoreflect.EnumDescriptor {
+	return file_v1_gateway_control_proto_enumTypes[5].Descriptor()
+}
+
+func (KeystoreHealthState) Type() protoreflect.EnumType {
+	return &file_v1_gateway_control_proto_enumTypes[5]
+}
+
+func (x KeystoreHealthState) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use KeystoreHealthState.Descriptor instead.
+func (KeystoreHealthState) EnumDescriptor() ([]byte, []int) {
+	return file_v1_gateway_control_proto_rawDescGZIP(), []int{5}
+}
+
+type ReconciliationResultStatus int32
+
+const (
+	ReconciliationResultStatus_RECONCILIATION_RESULT_STATUS_UNKNOWN                 ReconciliationResultStatus = 0
+	ReconciliationResultStatus_RECONCILIATION_RESULT_STATUS_APPLIED                 ReconciliationResultStatus = 1
+	ReconciliationResultStatus_RECONCILIATION_RESULT_STATUS_KEYSTORE_MISSING        ReconciliationResultStatus = 2
+	ReconciliationResultStatus_RECONCILIATION_RESULT_STATUS_KEYSTORE_CORRUPT        ReconciliationResultStatus = 3
+	ReconciliationResultStatus_RECONCILIATION_RESULT_STATUS_UNEXPECTED_LOCAL_DEVICE ReconciliationResultStatus = 4
+)
+
+// Enum value maps for ReconciliationResultStatus.
+var (
+	ReconciliationResultStatus_name = map[int32]string{
+		0: "RECONCILIATION_RESULT_STATUS_UNKNOWN",
+		1: "RECONCILIATION_RESULT_STATUS_APPLIED",
+		2: "RECONCILIATION_RESULT_STATUS_KEYSTORE_MISSING",
+		3: "RECONCILIATION_RESULT_STATUS_KEYSTORE_CORRUPT",
+		4: "RECONCILIATION_RESULT_STATUS_UNEXPECTED_LOCAL_DEVICE",
+	}
+	ReconciliationResultStatus_value = map[string]int32{
+		"RECONCILIATION_RESULT_STATUS_UNKNOWN":                 0,
+		"RECONCILIATION_RESULT_STATUS_APPLIED":                 1,
+		"RECONCILIATION_RESULT_STATUS_KEYSTORE_MISSING":        2,
+		"RECONCILIATION_RESULT_STATUS_KEYSTORE_CORRUPT":        3,
+		"RECONCILIATION_RESULT_STATUS_UNEXPECTED_LOCAL_DEVICE": 4,
+	}
+)
+
+func (x ReconciliationResultStatus) Enum() *ReconciliationResultStatus {
+	p := new(ReconciliationResultStatus)
+	*p = x
+	return p
+}
+
+func (x ReconciliationResultStatus) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ReconciliationResultStatus) Descriptor() protoreflect.EnumDescriptor {
+	return file_v1_gateway_control_proto_enumTypes[6].Descriptor()
+}
+
+func (ReconciliationResultStatus) Type() protoreflect.EnumType {
+	return &file_v1_gateway_control_proto_enumTypes[6]
+}
+
+func (x ReconciliationResultStatus) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ReconciliationResultStatus.Descriptor instead.
+func (ReconciliationResultStatus) EnumDescriptor() ([]byte, []int) {
+	return file_v1_gateway_control_proto_rawDescGZIP(), []int{6}
+}
+
+type SessionDesiredAction int32
+
+const (
+	SessionDesiredAction_SESSION_DESIRED_ACTION_UNKNOWN SessionDesiredAction = 0
+	SessionDesiredAction_SESSION_DESIRED_ACTION_RUN     SessionDesiredAction = 1
+	SessionDesiredAction_SESSION_DESIRED_ACTION_STOP    SessionDesiredAction = 2
+)
+
+// Enum value maps for SessionDesiredAction.
+var (
+	SessionDesiredAction_name = map[int32]string{
+		0: "SESSION_DESIRED_ACTION_UNKNOWN",
+		1: "SESSION_DESIRED_ACTION_RUN",
+		2: "SESSION_DESIRED_ACTION_STOP",
+	}
+	SessionDesiredAction_value = map[string]int32{
+		"SESSION_DESIRED_ACTION_UNKNOWN": 0,
+		"SESSION_DESIRED_ACTION_RUN":     1,
+		"SESSION_DESIRED_ACTION_STOP":    2,
+	}
+)
+
+func (x SessionDesiredAction) Enum() *SessionDesiredAction {
+	p := new(SessionDesiredAction)
+	*p = x
+	return p
+}
+
+func (x SessionDesiredAction) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SessionDesiredAction) Descriptor() protoreflect.EnumDescriptor {
+	return file_v1_gateway_control_proto_enumTypes[7].Descriptor()
+}
+
+func (SessionDesiredAction) Type() protoreflect.EnumType {
+	return &file_v1_gateway_control_proto_enumTypes[7]
+}
+
+func (x SessionDesiredAction) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SessionDesiredAction.Descriptor instead.
+func (SessionDesiredAction) EnumDescriptor() ([]byte, []int) {
+	return file_v1_gateway_control_proto_rawDescGZIP(), []int{7}
+}
+
 // GatewayFrame is sent by the gateway. Every frame is versioned and sequenced.
 type GatewayFrame struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
@@ -303,6 +459,7 @@ type GatewayFrame struct {
 	//	*GatewayFrame_Hello
 	//	*GatewayFrame_Heartbeat
 	//	*GatewayFrame_LifecycleReport
+	//	*GatewayFrame_DesiredStateReport
 	Payload       isGatewayFrame_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -386,6 +543,15 @@ func (x *GatewayFrame) GetLifecycleReport() *GatewayLifecycleReport {
 	return nil
 }
 
+func (x *GatewayFrame) GetDesiredStateReport() *DesiredStateReport {
+	if x != nil {
+		if x, ok := x.Payload.(*GatewayFrame_DesiredStateReport); ok {
+			return x.DesiredStateReport
+		}
+	}
+	return nil
+}
+
 type isGatewayFrame_Payload interface {
 	isGatewayFrame_Payload()
 }
@@ -402,11 +568,17 @@ type GatewayFrame_LifecycleReport struct {
 	LifecycleReport *GatewayLifecycleReport `protobuf:"bytes,12,opt,name=lifecycle_report,json=lifecycleReport,proto3,oneof"`
 }
 
+type GatewayFrame_DesiredStateReport struct {
+	DesiredStateReport *DesiredStateReport `protobuf:"bytes,20,opt,name=desired_state_report,json=desiredStateReport,proto3,oneof"`
+}
+
 func (*GatewayFrame_Hello) isGatewayFrame_Payload() {}
 
 func (*GatewayFrame_Heartbeat) isGatewayFrame_Payload() {}
 
 func (*GatewayFrame_LifecycleReport) isGatewayFrame_Payload() {}
+
+func (*GatewayFrame_DesiredStateReport) isGatewayFrame_Payload() {}
 
 // ControlFrame is sent by the API. Every frame is versioned and sequenced.
 type ControlFrame struct {
@@ -418,6 +590,7 @@ type ControlFrame struct {
 	//	*ControlFrame_Welcome
 	//	*ControlFrame_LifecycleDirective
 	//	*ControlFrame_HeartbeatAck
+	//	*ControlFrame_DesiredStateSnapshot
 	Payload       isControlFrame_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -501,6 +674,15 @@ func (x *ControlFrame) GetHeartbeatAck() *ControlHeartbeatAck {
 	return nil
 }
 
+func (x *ControlFrame) GetDesiredStateSnapshot() *DesiredStateSnapshot {
+	if x != nil {
+		if x, ok := x.Payload.(*ControlFrame_DesiredStateSnapshot); ok {
+			return x.DesiredStateSnapshot
+		}
+	}
+	return nil
+}
+
 type isControlFrame_Payload interface {
 	isControlFrame_Payload()
 }
@@ -517,11 +699,17 @@ type ControlFrame_HeartbeatAck struct {
 	HeartbeatAck *ControlHeartbeatAck `protobuf:"bytes,12,opt,name=heartbeat_ack,json=heartbeatAck,proto3,oneof"`
 }
 
+type ControlFrame_DesiredStateSnapshot struct {
+	DesiredStateSnapshot *DesiredStateSnapshot `protobuf:"bytes,20,opt,name=desired_state_snapshot,json=desiredStateSnapshot,proto3,oneof"`
+}
+
 func (*ControlFrame_Welcome) isControlFrame_Payload() {}
 
 func (*ControlFrame_LifecycleDirective) isControlFrame_Payload() {}
 
 func (*ControlFrame_HeartbeatAck) isControlFrame_Payload() {}
+
+func (*ControlFrame_DesiredStateSnapshot) isControlFrame_Payload() {}
 
 type GatewayHello struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
@@ -830,6 +1018,483 @@ func (x *GatewayLifecycleReport) GetFailure() LifecycleFailure {
 	return LifecycleFailure_LIFECYCLE_FAILURE_UNKNOWN
 }
 
+// DesiredStateAck confirms that the gateway applied the complete authoritative
+// snapshot for this connection and revision. The API persists this only when
+// both the connection epoch and desired-state revision are still current.
+type DesiredStateReport struct {
+	state             protoimpl.MessageState  `protogen:"open.v1"`
+	ConnectionEpoch   uint64                  `protobuf:"varint,1,opt,name=connection_epoch,json=connectionEpoch,proto3" json:"connection_epoch,omitempty"`
+	ProcessedRevision uint64                  `protobuf:"varint,2,opt,name=processed_revision,json=processedRevision,proto3" json:"processed_revision,omitempty"`
+	KeystoreHealth    *KeystoreHealth         `protobuf:"bytes,3,opt,name=keystore_health,json=keystoreHealth,proto3" json:"keystore_health,omitempty"`
+	LocalDevices      []*LocalDeviceInventory `protobuf:"bytes,4,rep,name=local_devices,json=localDevices,proto3" json:"local_devices,omitempty"`
+	Results           []*ReconciliationResult `protobuf:"bytes,5,rep,name=results,proto3" json:"results,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *DesiredStateReport) Reset() {
+	*x = DesiredStateReport{}
+	mi := &file_v1_gateway_control_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DesiredStateReport) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DesiredStateReport) ProtoMessage() {}
+
+func (x *DesiredStateReport) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_control_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DesiredStateReport.ProtoReflect.Descriptor instead.
+func (*DesiredStateReport) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_control_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *DesiredStateReport) GetConnectionEpoch() uint64 {
+	if x != nil {
+		return x.ConnectionEpoch
+	}
+	return 0
+}
+
+func (x *DesiredStateReport) GetProcessedRevision() uint64 {
+	if x != nil {
+		return x.ProcessedRevision
+	}
+	return 0
+}
+
+func (x *DesiredStateReport) GetKeystoreHealth() *KeystoreHealth {
+	if x != nil {
+		return x.KeystoreHealth
+	}
+	return nil
+}
+
+func (x *DesiredStateReport) GetLocalDevices() []*LocalDeviceInventory {
+	if x != nil {
+		return x.LocalDevices
+	}
+	return nil
+}
+
+func (x *DesiredStateReport) GetResults() []*ReconciliationResult {
+	if x != nil {
+		return x.Results
+	}
+	return nil
+}
+
+type KeystoreHealth struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	State               KeystoreHealthState    `protobuf:"varint,1,opt,name=state,proto3,enum=gateway.v1.KeystoreHealthState" json:"state,omitempty"`
+	ByteSize            *int64                 `protobuf:"varint,2,opt,name=byte_size,json=byteSize,proto3,oneof" json:"byte_size,omitempty"`
+	LastCheckedAtUnixMs *int64                 `protobuf:"varint,3,opt,name=last_checked_at_unix_ms,json=lastCheckedAtUnixMs,proto3,oneof" json:"last_checked_at_unix_ms,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *KeystoreHealth) Reset() {
+	*x = KeystoreHealth{}
+	mi := &file_v1_gateway_control_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *KeystoreHealth) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*KeystoreHealth) ProtoMessage() {}
+
+func (x *KeystoreHealth) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_control_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use KeystoreHealth.ProtoReflect.Descriptor instead.
+func (*KeystoreHealth) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_control_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *KeystoreHealth) GetState() KeystoreHealthState {
+	if x != nil {
+		return x.State
+	}
+	return KeystoreHealthState_KEYSTORE_HEALTH_STATE_UNKNOWN
+}
+
+func (x *KeystoreHealth) GetByteSize() int64 {
+	if x != nil && x.ByteSize != nil {
+		return *x.ByteSize
+	}
+	return 0
+}
+
+func (x *KeystoreHealth) GetLastCheckedAtUnixMs() int64 {
+	if x != nil && x.LastCheckedAtUnixMs != nil {
+		return *x.LastCheckedAtUnixMs
+	}
+	return 0
+}
+
+type LocalDeviceInventory struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	DeviceJid     string                 `protobuf:"bytes,1,opt,name=device_jid,json=deviceJid,proto3" json:"device_jid,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LocalDeviceInventory) Reset() {
+	*x = LocalDeviceInventory{}
+	mi := &file_v1_gateway_control_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LocalDeviceInventory) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LocalDeviceInventory) ProtoMessage() {}
+
+func (x *LocalDeviceInventory) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_control_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LocalDeviceInventory.ProtoReflect.Descriptor instead.
+func (*LocalDeviceInventory) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_control_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *LocalDeviceInventory) GetDeviceJid() string {
+	if x != nil {
+		return x.DeviceJid
+	}
+	return ""
+}
+
+type ReconciliationResult struct {
+	state           protoimpl.MessageState     `protogen:"open.v1"`
+	SessionId       *string                    `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3,oneof" json:"session_id,omitempty"`
+	AssignmentEpoch uint64                     `protobuf:"varint,2,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
+	DeviceJid       string                     `protobuf:"bytes,3,opt,name=device_jid,json=deviceJid,proto3" json:"device_jid,omitempty"`
+	Status          ReconciliationResultStatus `protobuf:"varint,4,opt,name=status,proto3,enum=gateway.v1.ReconciliationResultStatus" json:"status,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ReconciliationResult) Reset() {
+	*x = ReconciliationResult{}
+	mi := &file_v1_gateway_control_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReconciliationResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReconciliationResult) ProtoMessage() {}
+
+func (x *ReconciliationResult) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_control_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReconciliationResult.ProtoReflect.Descriptor instead.
+func (*ReconciliationResult) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_control_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *ReconciliationResult) GetSessionId() string {
+	if x != nil && x.SessionId != nil {
+		return *x.SessionId
+	}
+	return ""
+}
+
+func (x *ReconciliationResult) GetAssignmentEpoch() uint64 {
+	if x != nil {
+		return x.AssignmentEpoch
+	}
+	return 0
+}
+
+func (x *ReconciliationResult) GetDeviceJid() string {
+	if x != nil {
+		return x.DeviceJid
+	}
+	return ""
+}
+
+func (x *ReconciliationResult) GetStatus() ReconciliationResultStatus {
+	if x != nil {
+		return x.Status
+	}
+	return ReconciliationResultStatus_RECONCILIATION_RESULT_STATUS_UNKNOWN
+}
+
+// DesiredStateSnapshot is a complete, authoritative replacement for the
+// gateway's assigned-session set. A fresh snapshot renews every assignment
+// lease; gateways must stop a session when its lease expires.
+type DesiredStateSnapshot struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Revision      uint64                 `protobuf:"varint,1,opt,name=revision,proto3" json:"revision,omitempty"`
+	Assignments   []*SessionAssignment   `protobuf:"bytes,2,rep,name=assignments,proto3" json:"assignments,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DesiredStateSnapshot) Reset() {
+	*x = DesiredStateSnapshot{}
+	mi := &file_v1_gateway_control_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DesiredStateSnapshot) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DesiredStateSnapshot) ProtoMessage() {}
+
+func (x *DesiredStateSnapshot) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_control_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DesiredStateSnapshot.ProtoReflect.Descriptor instead.
+func (*DesiredStateSnapshot) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_control_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *DesiredStateSnapshot) GetRevision() uint64 {
+	if x != nil {
+		return x.Revision
+	}
+	return 0
+}
+
+func (x *DesiredStateSnapshot) GetAssignments() []*SessionAssignment {
+	if x != nil {
+		return x.Assignments
+	}
+	return nil
+}
+
+// SessionAssignment carries organization-scoped identity and a durable
+// assignment fence. assignment_epoch is never zero and increases whenever an
+// assignment changes owner. The lease is an absolute API-clock deadline.
+type SessionAssignment struct {
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	SessionId            string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	OrganizationId       string                 `protobuf:"bytes,2,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
+	AssignmentEpoch      uint64                 `protobuf:"varint,3,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
+	LeaseExpiresAtUnixMs int64                  `protobuf:"varint,4,opt,name=lease_expires_at_unix_ms,json=leaseExpiresAtUnixMs,proto3" json:"lease_expires_at_unix_ms,omitempty"`
+	Config               *SessionConfig         `protobuf:"bytes,5,opt,name=config,proto3" json:"config,omitempty"`
+	DeviceJid            *string                `protobuf:"bytes,6,opt,name=device_jid,json=deviceJid,proto3,oneof" json:"device_jid,omitempty"`
+	DesiredAction        SessionDesiredAction   `protobuf:"varint,7,opt,name=desired_action,json=desiredAction,proto3,enum=gateway.v1.SessionDesiredAction" json:"desired_action,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *SessionAssignment) Reset() {
+	*x = SessionAssignment{}
+	mi := &file_v1_gateway_control_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SessionAssignment) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SessionAssignment) ProtoMessage() {}
+
+func (x *SessionAssignment) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_control_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SessionAssignment.ProtoReflect.Descriptor instead.
+func (*SessionAssignment) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_control_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *SessionAssignment) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *SessionAssignment) GetOrganizationId() string {
+	if x != nil {
+		return x.OrganizationId
+	}
+	return ""
+}
+
+func (x *SessionAssignment) GetAssignmentEpoch() uint64 {
+	if x != nil {
+		return x.AssignmentEpoch
+	}
+	return 0
+}
+
+func (x *SessionAssignment) GetLeaseExpiresAtUnixMs() int64 {
+	if x != nil {
+		return x.LeaseExpiresAtUnixMs
+	}
+	return 0
+}
+
+func (x *SessionAssignment) GetConfig() *SessionConfig {
+	if x != nil {
+		return x.Config
+	}
+	return nil
+}
+
+func (x *SessionAssignment) GetDeviceJid() string {
+	if x != nil && x.DeviceJid != nil {
+		return *x.DeviceJid
+	}
+	return ""
+}
+
+func (x *SessionAssignment) GetDesiredAction() SessionDesiredAction {
+	if x != nil {
+		return x.DesiredAction
+	}
+	return SessionDesiredAction_SESSION_DESIRED_ACTION_UNKNOWN
+}
+
+type SessionConfig struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Revision       uint64                 `protobuf:"varint,1,opt,name=revision,proto3" json:"revision,omitempty"`
+	AutoRead       bool                   `protobuf:"varint,2,opt,name=auto_read,json=autoRead,proto3" json:"auto_read,omitempty"`
+	PresenceTyping bool                   `protobuf:"varint,3,opt,name=presence_typing,json=presenceTyping,proto3" json:"presence_typing,omitempty"`
+	RatePerMin     uint32                 `protobuf:"varint,4,opt,name=rate_per_min,json=ratePerMin,proto3" json:"rate_per_min,omitempty"`
+	RatePerHour    uint32                 `protobuf:"varint,5,opt,name=rate_per_hour,json=ratePerHour,proto3" json:"rate_per_hour,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *SessionConfig) Reset() {
+	*x = SessionConfig{}
+	mi := &file_v1_gateway_control_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SessionConfig) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SessionConfig) ProtoMessage() {}
+
+func (x *SessionConfig) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_control_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SessionConfig.ProtoReflect.Descriptor instead.
+func (*SessionConfig) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_control_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *SessionConfig) GetRevision() uint64 {
+	if x != nil {
+		return x.Revision
+	}
+	return 0
+}
+
+func (x *SessionConfig) GetAutoRead() bool {
+	if x != nil {
+		return x.AutoRead
+	}
+	return false
+}
+
+func (x *SessionConfig) GetPresenceTyping() bool {
+	if x != nil {
+		return x.PresenceTyping
+	}
+	return false
+}
+
+func (x *SessionConfig) GetRatePerMin() uint32 {
+	if x != nil {
+		return x.RatePerMin
+	}
+	return 0
+}
+
+func (x *SessionConfig) GetRatePerHour() uint32 {
+	if x != nil {
+		return x.RatePerHour
+	}
+	return 0
+}
+
 type ControlWelcome struct {
 	state               protoimpl.MessageState   `protogen:"open.v1"`
 	ConnectionId        string                   `protobuf:"bytes,1,opt,name=connection_id,json=connectionId,proto3" json:"connection_id,omitempty"`
@@ -844,7 +1509,7 @@ type ControlWelcome struct {
 
 func (x *ControlWelcome) Reset() {
 	*x = ControlWelcome{}
-	mi := &file_v1_gateway_control_proto_msgTypes[6]
+	mi := &file_v1_gateway_control_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -856,7 +1521,7 @@ func (x *ControlWelcome) String() string {
 func (*ControlWelcome) ProtoMessage() {}
 
 func (x *ControlWelcome) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_control_proto_msgTypes[6]
+	mi := &file_v1_gateway_control_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -869,7 +1534,7 @@ func (x *ControlWelcome) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ControlWelcome.ProtoReflect.Descriptor instead.
 func (*ControlWelcome) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_control_proto_rawDescGZIP(), []int{6}
+	return file_v1_gateway_control_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ControlWelcome) GetConnectionId() string {
@@ -927,7 +1592,7 @@ type LifecycleDirective struct {
 
 func (x *LifecycleDirective) Reset() {
 	*x = LifecycleDirective{}
-	mi := &file_v1_gateway_control_proto_msgTypes[7]
+	mi := &file_v1_gateway_control_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -939,7 +1604,7 @@ func (x *LifecycleDirective) String() string {
 func (*LifecycleDirective) ProtoMessage() {}
 
 func (x *LifecycleDirective) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_control_proto_msgTypes[7]
+	mi := &file_v1_gateway_control_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -952,7 +1617,7 @@ func (x *LifecycleDirective) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LifecycleDirective.ProtoReflect.Descriptor instead.
 func (*LifecycleDirective) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_control_proto_rawDescGZIP(), []int{7}
+	return file_v1_gateway_control_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *LifecycleDirective) GetDirectiveId() string {
@@ -995,23 +1660,25 @@ var File_v1_gateway_control_proto protoreflect.FileDescriptor
 const file_v1_gateway_control_proto_rawDesc = "" +
 	"\n" +
 	"\x18v1/gateway_control.proto\x12\n" +
-	"gateway.v1\"\xad\x02\n" +
+	"gateway.v1\"\x81\x03\n" +
 	"\fGatewayFrame\x12)\n" +
 	"\x10protocol_version\x18\x01 \x01(\rR\x0fprotocolVersion\x12\x1a\n" +
 	"\bsequence\x18\x02 \x01(\x04R\bsequence\x120\n" +
 	"\x05hello\x18\n" +
 	" \x01(\v2\x18.gateway.v1.GatewayHelloH\x00R\x05hello\x12<\n" +
 	"\theartbeat\x18\v \x01(\v2\x1c.gateway.v1.GatewayHeartbeatH\x00R\theartbeat\x12O\n" +
-	"\x10lifecycle_report\x18\f \x01(\v2\".gateway.v1.GatewayLifecycleReportH\x00R\x0flifecycleReportB\t\n" +
+	"\x10lifecycle_report\x18\f \x01(\v2\".gateway.v1.GatewayLifecycleReportH\x00R\x0flifecycleReport\x12R\n" +
+	"\x14desired_state_report\x18\x14 \x01(\v2\x1e.gateway.v1.DesiredStateReportH\x00R\x12desiredStateReportB\t\n" +
 	"\apayloadJ\x04\b\x03\x10\n" +
-	"J\x04\b\r\x10\x14\"\xbf\x02\n" +
+	"J\x04\b\r\x10\x14\"\x99\x03\n" +
 	"\fControlFrame\x12)\n" +
 	"\x10protocol_version\x18\x01 \x01(\rR\x0fprotocolVersion\x12\x1a\n" +
 	"\bsequence\x18\x02 \x01(\x04R\bsequence\x126\n" +
 	"\awelcome\x18\n" +
 	" \x01(\v2\x1a.gateway.v1.ControlWelcomeH\x00R\awelcome\x12Q\n" +
 	"\x13lifecycle_directive\x18\v \x01(\v2\x1e.gateway.v1.LifecycleDirectiveH\x00R\x12lifecycleDirective\x12F\n" +
-	"\rheartbeat_ack\x18\f \x01(\v2\x1f.gateway.v1.ControlHeartbeatAckH\x00R\fheartbeatAckB\t\n" +
+	"\rheartbeat_ack\x18\f \x01(\v2\x1f.gateway.v1.ControlHeartbeatAckH\x00R\fheartbeatAck\x12X\n" +
+	"\x16desired_state_snapshot\x18\x14 \x01(\v2 .gateway.v1.DesiredStateSnapshotH\x00R\x14desiredStateSnapshotB\t\n" +
 	"\apayloadJ\x04\b\x03\x10\n" +
 	"J\x04\b\r\x10\x14\"\xb2\x03\n" +
 	"\fGatewayHello\x12\x1f\n" +
@@ -1040,7 +1707,52 @@ const file_v1_gateway_control_proto_rawDesc = "" +
 	"\x10connection_epoch\x18\x01 \x01(\x04R\x0fconnectionEpoch\x12!\n" +
 	"\fdirective_id\x18\x02 \x01(\tR\vdirectiveId\x125\n" +
 	"\x05state\x18\x03 \x01(\x0e2\x1f.gateway.v1.GatewayRuntimeStateR\x05state\x126\n" +
-	"\afailure\x18\x04 \x01(\x0e2\x1c.gateway.v1.LifecycleFailureR\afailureJ\x04\b\x05\x10\x10\"\xc6\x02\n" +
+	"\afailure\x18\x04 \x01(\x0e2\x1c.gateway.v1.LifecycleFailureR\afailureJ\x04\b\x05\x10\x10\"\xbc\x02\n" +
+	"\x12DesiredStateReport\x12)\n" +
+	"\x10connection_epoch\x18\x01 \x01(\x04R\x0fconnectionEpoch\x12-\n" +
+	"\x12processed_revision\x18\x02 \x01(\x04R\x11processedRevision\x12C\n" +
+	"\x0fkeystore_health\x18\x03 \x01(\v2\x1a.gateway.v1.KeystoreHealthR\x0ekeystoreHealth\x12E\n" +
+	"\rlocal_devices\x18\x04 \x03(\v2 .gateway.v1.LocalDeviceInventoryR\flocalDevices\x12:\n" +
+	"\aresults\x18\x05 \x03(\v2 .gateway.v1.ReconciliationResultR\aresultsJ\x04\b\x06\x10\x10\"\xd4\x01\n" +
+	"\x0eKeystoreHealth\x125\n" +
+	"\x05state\x18\x01 \x01(\x0e2\x1f.gateway.v1.KeystoreHealthStateR\x05state\x12 \n" +
+	"\tbyte_size\x18\x02 \x01(\x03H\x00R\bbyteSize\x88\x01\x01\x129\n" +
+	"\x17last_checked_at_unix_ms\x18\x03 \x01(\x03H\x01R\x13lastCheckedAtUnixMs\x88\x01\x01B\f\n" +
+	"\n" +
+	"_byte_sizeB\x1a\n" +
+	"\x18_last_checked_at_unix_msJ\x04\b\x04\x10\x10\";\n" +
+	"\x14LocalDeviceInventory\x12\x1d\n" +
+	"\n" +
+	"device_jid\x18\x01 \x01(\tR\tdeviceJidJ\x04\b\x02\x10\x10\"\xd9\x01\n" +
+	"\x14ReconciliationResult\x12\"\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tH\x00R\tsessionId\x88\x01\x01\x12)\n" +
+	"\x10assignment_epoch\x18\x02 \x01(\x04R\x0fassignmentEpoch\x12\x1d\n" +
+	"\n" +
+	"device_jid\x18\x03 \x01(\tR\tdeviceJid\x12>\n" +
+	"\x06status\x18\x04 \x01(\x0e2&.gateway.v1.ReconciliationResultStatusR\x06statusB\r\n" +
+	"\v_session_idJ\x04\b\x05\x10\x10\"y\n" +
+	"\x14DesiredStateSnapshot\x12\x1a\n" +
+	"\brevision\x18\x01 \x01(\x04R\brevision\x12?\n" +
+	"\vassignments\x18\x02 \x03(\v2\x1d.gateway.v1.SessionAssignmentR\vassignmentsJ\x04\b\x03\x10\x10\"\xf3\x02\n" +
+	"\x11SessionAssignment\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\x12'\n" +
+	"\x0forganization_id\x18\x02 \x01(\tR\x0eorganizationId\x12)\n" +
+	"\x10assignment_epoch\x18\x03 \x01(\x04R\x0fassignmentEpoch\x126\n" +
+	"\x18lease_expires_at_unix_ms\x18\x04 \x01(\x03R\x14leaseExpiresAtUnixMs\x121\n" +
+	"\x06config\x18\x05 \x01(\v2\x19.gateway.v1.SessionConfigR\x06config\x12\"\n" +
+	"\n" +
+	"device_jid\x18\x06 \x01(\tH\x00R\tdeviceJid\x88\x01\x01\x12G\n" +
+	"\x0edesired_action\x18\a \x01(\x0e2 .gateway.v1.SessionDesiredActionR\rdesiredActionB\r\n" +
+	"\v_device_jidJ\x04\b\b\x10\x10\"\xbd\x01\n" +
+	"\rSessionConfig\x12\x1a\n" +
+	"\brevision\x18\x01 \x01(\x04R\brevision\x12\x1b\n" +
+	"\tauto_read\x18\x02 \x01(\bR\bautoRead\x12'\n" +
+	"\x0fpresence_typing\x18\x03 \x01(\bR\x0epresenceTyping\x12 \n" +
+	"\frate_per_min\x18\x04 \x01(\rR\n" +
+	"ratePerMin\x12\"\n" +
+	"\rrate_per_hour\x18\x05 \x01(\rR\vratePerHourJ\x04\b\x06\x10\x10\"\xc6\x02\n" +
 	"\x0eControlWelcome\x12#\n" +
 	"\rconnection_id\x18\x01 \x01(\tR\fconnectionId\x12)\n" +
 	"\x10connection_epoch\x18\x02 \x01(\x04R\x0fconnectionEpoch\x122\n" +
@@ -1083,7 +1795,22 @@ const file_v1_gateway_control_proto_rawDesc = "" +
 	"#LIFECYCLE_DIRECTIVE_REASON_OPERATOR\x10\x01\x12*\n" +
 	"&LIFECYCLE_DIRECTIVE_REASON_MAINTENANCE\x10\x02\x12'\n" +
 	"#LIFECYCLE_DIRECTIVE_REASON_CAPACITY\x10\x03\x12%\n" +
-	"!LIFECYCLE_DIRECTIVE_REASON_POLICY\x10\x04\"\x04\b\x05\x10\x0f2Z\n" +
+	"!LIFECYCLE_DIRECTIVE_REASON_POLICY\x10\x04\"\x04\b\x05\x10\x0f*\xa7\x01\n" +
+	"\x13KeystoreHealthState\x12!\n" +
+	"\x1dKEYSTORE_HEALTH_STATE_UNKNOWN\x10\x00\x12!\n" +
+	"\x1dKEYSTORE_HEALTH_STATE_HEALTHY\x10\x01\x12!\n" +
+	"\x1dKEYSTORE_HEALTH_STATE_MISSING\x10\x02\x12!\n" +
+	"\x1dKEYSTORE_HEALTH_STATE_CORRUPT\x10\x03\"\x04\b\x04\x10\x0f*\x96\x02\n" +
+	"\x1aReconciliationResultStatus\x12(\n" +
+	"$RECONCILIATION_RESULT_STATUS_UNKNOWN\x10\x00\x12(\n" +
+	"$RECONCILIATION_RESULT_STATUS_APPLIED\x10\x01\x121\n" +
+	"-RECONCILIATION_RESULT_STATUS_KEYSTORE_MISSING\x10\x02\x121\n" +
+	"-RECONCILIATION_RESULT_STATUS_KEYSTORE_CORRUPT\x10\x03\x128\n" +
+	"4RECONCILIATION_RESULT_STATUS_UNEXPECTED_LOCAL_DEVICE\x10\x04\"\x04\b\x05\x10\x0f*\x81\x01\n" +
+	"\x14SessionDesiredAction\x12\"\n" +
+	"\x1eSESSION_DESIRED_ACTION_UNKNOWN\x10\x00\x12\x1e\n" +
+	"\x1aSESSION_DESIRED_ACTION_RUN\x10\x01\x12\x1f\n" +
+	"\x1bSESSION_DESIRED_ACTION_STOP\x10\x02\"\x04\b\x03\x10\x0f2Z\n" +
 	"\x15GatewayControlService\x12A\n" +
 	"\aConnect\x12\x18.gateway.v1.GatewayFrame\x1a\x18.gateway.v1.ControlFrame(\x010\x01BDZBgithub.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1;gatewayv1b\x06proto3"
 
@@ -1099,45 +1826,65 @@ func file_v1_gateway_control_proto_rawDescGZIP() []byte {
 	return file_v1_gateway_control_proto_rawDescData
 }
 
-var file_v1_gateway_control_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_v1_gateway_control_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_v1_gateway_control_proto_enumTypes = make([]protoimpl.EnumInfo, 8)
+var file_v1_gateway_control_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_v1_gateway_control_proto_goTypes = []any{
-	(GatewayCapability)(0),         // 0: gateway.v1.GatewayCapability
-	(GatewayRuntimeState)(0),       // 1: gateway.v1.GatewayRuntimeState
-	(LifecycleFailure)(0),          // 2: gateway.v1.LifecycleFailure
-	(LifecycleDirectiveAction)(0),  // 3: gateway.v1.LifecycleDirectiveAction
-	(LifecycleDirectiveReason)(0),  // 4: gateway.v1.LifecycleDirectiveReason
-	(*GatewayFrame)(nil),           // 5: gateway.v1.GatewayFrame
-	(*ControlFrame)(nil),           // 6: gateway.v1.ControlFrame
-	(*GatewayHello)(nil),           // 7: gateway.v1.GatewayHello
-	(*GatewayHeartbeat)(nil),       // 8: gateway.v1.GatewayHeartbeat
-	(*ControlHeartbeatAck)(nil),    // 9: gateway.v1.ControlHeartbeatAck
-	(*GatewayLifecycleReport)(nil), // 10: gateway.v1.GatewayLifecycleReport
-	(*ControlWelcome)(nil),         // 11: gateway.v1.ControlWelcome
-	(*LifecycleDirective)(nil),     // 12: gateway.v1.LifecycleDirective
+	(GatewayCapability)(0),          // 0: gateway.v1.GatewayCapability
+	(GatewayRuntimeState)(0),        // 1: gateway.v1.GatewayRuntimeState
+	(LifecycleFailure)(0),           // 2: gateway.v1.LifecycleFailure
+	(LifecycleDirectiveAction)(0),   // 3: gateway.v1.LifecycleDirectiveAction
+	(LifecycleDirectiveReason)(0),   // 4: gateway.v1.LifecycleDirectiveReason
+	(KeystoreHealthState)(0),        // 5: gateway.v1.KeystoreHealthState
+	(ReconciliationResultStatus)(0), // 6: gateway.v1.ReconciliationResultStatus
+	(SessionDesiredAction)(0),       // 7: gateway.v1.SessionDesiredAction
+	(*GatewayFrame)(nil),            // 8: gateway.v1.GatewayFrame
+	(*ControlFrame)(nil),            // 9: gateway.v1.ControlFrame
+	(*GatewayHello)(nil),            // 10: gateway.v1.GatewayHello
+	(*GatewayHeartbeat)(nil),        // 11: gateway.v1.GatewayHeartbeat
+	(*ControlHeartbeatAck)(nil),     // 12: gateway.v1.ControlHeartbeatAck
+	(*GatewayLifecycleReport)(nil),  // 13: gateway.v1.GatewayLifecycleReport
+	(*DesiredStateReport)(nil),      // 14: gateway.v1.DesiredStateReport
+	(*KeystoreHealth)(nil),          // 15: gateway.v1.KeystoreHealth
+	(*LocalDeviceInventory)(nil),    // 16: gateway.v1.LocalDeviceInventory
+	(*ReconciliationResult)(nil),    // 17: gateway.v1.ReconciliationResult
+	(*DesiredStateSnapshot)(nil),    // 18: gateway.v1.DesiredStateSnapshot
+	(*SessionAssignment)(nil),       // 19: gateway.v1.SessionAssignment
+	(*SessionConfig)(nil),           // 20: gateway.v1.SessionConfig
+	(*ControlWelcome)(nil),          // 21: gateway.v1.ControlWelcome
+	(*LifecycleDirective)(nil),      // 22: gateway.v1.LifecycleDirective
 }
 var file_v1_gateway_control_proto_depIdxs = []int32{
-	7,  // 0: gateway.v1.GatewayFrame.hello:type_name -> gateway.v1.GatewayHello
-	8,  // 1: gateway.v1.GatewayFrame.heartbeat:type_name -> gateway.v1.GatewayHeartbeat
-	10, // 2: gateway.v1.GatewayFrame.lifecycle_report:type_name -> gateway.v1.GatewayLifecycleReport
-	11, // 3: gateway.v1.ControlFrame.welcome:type_name -> gateway.v1.ControlWelcome
-	12, // 4: gateway.v1.ControlFrame.lifecycle_directive:type_name -> gateway.v1.LifecycleDirective
-	9,  // 5: gateway.v1.ControlFrame.heartbeat_ack:type_name -> gateway.v1.ControlHeartbeatAck
-	0,  // 6: gateway.v1.GatewayHello.capabilities:type_name -> gateway.v1.GatewayCapability
-	1,  // 7: gateway.v1.GatewayHello.runtime_state:type_name -> gateway.v1.GatewayRuntimeState
-	1,  // 8: gateway.v1.GatewayHeartbeat.runtime_state:type_name -> gateway.v1.GatewayRuntimeState
-	1,  // 9: gateway.v1.GatewayLifecycleReport.state:type_name -> gateway.v1.GatewayRuntimeState
-	2,  // 10: gateway.v1.GatewayLifecycleReport.failure:type_name -> gateway.v1.LifecycleFailure
-	3,  // 11: gateway.v1.ControlWelcome.desired_lifecycle:type_name -> gateway.v1.LifecycleDirectiveAction
-	3,  // 12: gateway.v1.LifecycleDirective.action:type_name -> gateway.v1.LifecycleDirectiveAction
-	4,  // 13: gateway.v1.LifecycleDirective.reason:type_name -> gateway.v1.LifecycleDirectiveReason
-	5,  // 14: gateway.v1.GatewayControlService.Connect:input_type -> gateway.v1.GatewayFrame
-	6,  // 15: gateway.v1.GatewayControlService.Connect:output_type -> gateway.v1.ControlFrame
-	15, // [15:16] is the sub-list for method output_type
-	14, // [14:15] is the sub-list for method input_type
-	14, // [14:14] is the sub-list for extension type_name
-	14, // [14:14] is the sub-list for extension extendee
-	0,  // [0:14] is the sub-list for field type_name
+	10, // 0: gateway.v1.GatewayFrame.hello:type_name -> gateway.v1.GatewayHello
+	11, // 1: gateway.v1.GatewayFrame.heartbeat:type_name -> gateway.v1.GatewayHeartbeat
+	13, // 2: gateway.v1.GatewayFrame.lifecycle_report:type_name -> gateway.v1.GatewayLifecycleReport
+	14, // 3: gateway.v1.GatewayFrame.desired_state_report:type_name -> gateway.v1.DesiredStateReport
+	21, // 4: gateway.v1.ControlFrame.welcome:type_name -> gateway.v1.ControlWelcome
+	22, // 5: gateway.v1.ControlFrame.lifecycle_directive:type_name -> gateway.v1.LifecycleDirective
+	12, // 6: gateway.v1.ControlFrame.heartbeat_ack:type_name -> gateway.v1.ControlHeartbeatAck
+	18, // 7: gateway.v1.ControlFrame.desired_state_snapshot:type_name -> gateway.v1.DesiredStateSnapshot
+	0,  // 8: gateway.v1.GatewayHello.capabilities:type_name -> gateway.v1.GatewayCapability
+	1,  // 9: gateway.v1.GatewayHello.runtime_state:type_name -> gateway.v1.GatewayRuntimeState
+	1,  // 10: gateway.v1.GatewayHeartbeat.runtime_state:type_name -> gateway.v1.GatewayRuntimeState
+	1,  // 11: gateway.v1.GatewayLifecycleReport.state:type_name -> gateway.v1.GatewayRuntimeState
+	2,  // 12: gateway.v1.GatewayLifecycleReport.failure:type_name -> gateway.v1.LifecycleFailure
+	15, // 13: gateway.v1.DesiredStateReport.keystore_health:type_name -> gateway.v1.KeystoreHealth
+	16, // 14: gateway.v1.DesiredStateReport.local_devices:type_name -> gateway.v1.LocalDeviceInventory
+	17, // 15: gateway.v1.DesiredStateReport.results:type_name -> gateway.v1.ReconciliationResult
+	5,  // 16: gateway.v1.KeystoreHealth.state:type_name -> gateway.v1.KeystoreHealthState
+	6,  // 17: gateway.v1.ReconciliationResult.status:type_name -> gateway.v1.ReconciliationResultStatus
+	19, // 18: gateway.v1.DesiredStateSnapshot.assignments:type_name -> gateway.v1.SessionAssignment
+	20, // 19: gateway.v1.SessionAssignment.config:type_name -> gateway.v1.SessionConfig
+	7,  // 20: gateway.v1.SessionAssignment.desired_action:type_name -> gateway.v1.SessionDesiredAction
+	3,  // 21: gateway.v1.ControlWelcome.desired_lifecycle:type_name -> gateway.v1.LifecycleDirectiveAction
+	3,  // 22: gateway.v1.LifecycleDirective.action:type_name -> gateway.v1.LifecycleDirectiveAction
+	4,  // 23: gateway.v1.LifecycleDirective.reason:type_name -> gateway.v1.LifecycleDirectiveReason
+	8,  // 24: gateway.v1.GatewayControlService.Connect:input_type -> gateway.v1.GatewayFrame
+	9,  // 25: gateway.v1.GatewayControlService.Connect:output_type -> gateway.v1.ControlFrame
+	25, // [25:26] is the sub-list for method output_type
+	24, // [24:25] is the sub-list for method input_type
+	24, // [24:24] is the sub-list for extension type_name
+	24, // [24:24] is the sub-list for extension extendee
+	0,  // [0:24] is the sub-list for field type_name
 }
 
 func init() { file_v1_gateway_control_proto_init() }
@@ -1149,21 +1896,26 @@ func file_v1_gateway_control_proto_init() {
 		(*GatewayFrame_Hello)(nil),
 		(*GatewayFrame_Heartbeat)(nil),
 		(*GatewayFrame_LifecycleReport)(nil),
+		(*GatewayFrame_DesiredStateReport)(nil),
 	}
 	file_v1_gateway_control_proto_msgTypes[1].OneofWrappers = []any{
 		(*ControlFrame_Welcome)(nil),
 		(*ControlFrame_LifecycleDirective)(nil),
 		(*ControlFrame_HeartbeatAck)(nil),
+		(*ControlFrame_DesiredStateSnapshot)(nil),
 	}
 	file_v1_gateway_control_proto_msgTypes[2].OneofWrappers = []any{}
 	file_v1_gateway_control_proto_msgTypes[7].OneofWrappers = []any{}
+	file_v1_gateway_control_proto_msgTypes[9].OneofWrappers = []any{}
+	file_v1_gateway_control_proto_msgTypes[11].OneofWrappers = []any{}
+	file_v1_gateway_control_proto_msgTypes[14].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_v1_gateway_control_proto_rawDesc), len(file_v1_gateway_control_proto_rawDesc)),
-			NumEnums:      5,
-			NumMessages:   8,
+			NumEnums:      8,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

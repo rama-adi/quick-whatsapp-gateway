@@ -18,7 +18,7 @@ func TestGatewayAdminDrainRejectsInvalidStateWithoutMutation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	mock.ExpectBegin()
 	mock.ExpectQuery("SELECT status,enrolled_at FROM gateways").WithArgs("gw_1").WillReturnRows(sqlmock.NewRows([]string{"status", "enrolled_at"}).AddRow("drained", 1))
 	mock.ExpectRollback()
@@ -36,7 +36,7 @@ func TestGatewayAdminReenrollRevokesBeforeIssuingAndAuditsAtomically(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	token := domain.EnrollmentToken{ID: "tok_1", GatewayID: "gw_1", TokenHash: make([]byte, 32), TokenPrefix: "enroll_", MaxAttempts: 5, ExpiresAt: 200, CreatedByUserID: "user_1", CreatedAt: 100, UpdatedAt: 100}
 	audits := []GatewayAdminAudit{gatewayAdminAudit(), gatewayAdminAudit()}
 	audits[1].Event.ID, audits[1].Event.Action = "aud_2", "enrollment.issued"
