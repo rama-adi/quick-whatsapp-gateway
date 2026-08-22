@@ -518,3 +518,12 @@ func renewAPIIdentity(ctx context.Context, manager *apiidentity.Manager, renewBe
 		}
 	}
 }
+
+// sessionDesiredController implements service.SessionDesiredController over
+// the assignment repo: flipping desired run state advances the owning
+// gateway's revision so its reconciler starts or stops the session.
+type sessionDesiredController struct{ assignments *store.GatewayAssignmentRepo }
+
+func (c sessionDesiredController) SetSessionDesired(ctx context.Context, sessionID string, run bool) error {
+	return c.assignments.SetSessionDesired(ctx, sessionID, run, time.Now().UnixMilli())
+}

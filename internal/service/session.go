@@ -19,6 +19,25 @@ type SessionService struct {
 	liveFacade    GatewayLiveFacade
 	log           *slog.Logger
 	oauthCascader sessionOAuthCascader
+	// desiredController is the API-local lifecycle boundary (Increment 7):
+	// start/stop/restart flip the session's desired run state and advance the
+	// assignment revision; the assigned gateway reconciles. When nil, Start/
+	// Stop/Restart fall back to direct manager calls (legacy path).
+	desiredController SessionDesiredController
+}
+
+// SessionDesiredController flips a session's authoritative run state without
+// touching a gateway directly.
+type SessionDesiredController interface {
+	SetSessionDesired(ctx context.Context, sessionID string, run bool) error
+}
+
+// SetSessionDesiredController routes Start/Stop/Restart through desired-state
+// reconciliation instead of direct gateway calls.
+func (s *SessionService) SetSessionDesiredController(controller SessionDesiredController) {
+	if controller != nil {
+		s.desiredController = controller
+	}
 }
 
 type sessionOAuthCascader interface {
@@ -55,6 +74,9 @@ type CreateInput struct {
 // Create provisions a new session for the organization. The manager mints the row
 // (id + defaults), then we optionally start QR pairing when Start is requested.
 func (s *SessionService) Create(ctx context.Context, organizationID string, in CreateInput) (domain.WASession, error) {
+	if s.manager == nil {
+		return domain.WASession{}, errLiveUnavailable()
+	}
 	autoRead := true
 	if in.AutoRead != nil {
 		autoRead = *in.AutoRead
@@ -98,6 +120,9 @@ func (s *SessionService) Start(ctx context.Context, organizationID, id string) e
 	if _, err := s.Get(ctx, organizationID, id); err != nil {
 		return err
 	}
+	if s.desiredController != nil {
+		return s.desiredController.SetSessionDesired(ctx, id, true)
+	}
 	return s.manager.Start(ctx, id)
 }
 
@@ -105,6 +130,9 @@ func (s *SessionService) Start(ctx context.Context, organizationID, id string) e
 func (s *SessionService) Stop(ctx context.Context, organizationID, id string) error {
 	if _, err := s.Get(ctx, organizationID, id); err != nil {
 		return err
+	}
+	if s.desiredController != nil {
+		return s.desiredController.SetSessionDesired(ctx, id, false)
 	}
 	return s.manager.Stop(ctx, id)
 }
@@ -114,6 +142,14 @@ func (s *SessionService) Restart(ctx context.Context, organizationID, id string)
 	if _, err := s.Get(ctx, organizationID, id); err != nil {
 		return err
 	}
+	if s.desiredController != nil {
+		// One stop→start cycle through desired state; the reconciler converges
+		// on the final run state.
+		if err := s.desiredController.SetSessionDesired(ctx, id, false); err != nil {
+			return err
+		}
+		return s.desiredController.SetSessionDesired(ctx, id, true)
+	}
 	return s.manager.Restart(ctx, id)
 }
 
@@ -122,6 +158,9 @@ func (s *SessionService) Restart(ctx context.Context, organizationID, id string)
 func (s *SessionService) Logout(ctx context.Context, organizationID, id string) error {
 	if _, err := s.Get(ctx, organizationID, id); err != nil {
 		return err
+	}
+	if s.manager == nil {
+		return errLiveUnavailable()
 	}
 	if err := s.manager.Logout(ctx, id); err != nil {
 		return err
@@ -133,6 +172,9 @@ func (s *SessionService) Logout(ctx context.Context, organizationID, id string) 
 func (s *SessionService) Delete(ctx context.Context, organizationID, id string) error {
 	if _, err := s.Get(ctx, organizationID, id); err != nil {
 		return err
+	}
+	if s.manager == nil {
+		return errLiveUnavailable()
 	}
 	if err := s.cascadeOAuth(ctx, organizationID, id); err != nil {
 		return err
@@ -206,6 +248,9 @@ func (s *SessionService) QR(ctx context.Context, organizationID, id string) (QR,
 	if sess.WAJID != nil {
 		return QR{}, domain.ErrConflict("session is already paired")
 	}
+	if s.manager == nil {
+		return QR{}, errLiveUnavailable()
+	}
 	ms := s.manager.Get(id)
 	if ms == nil {
 		return QR{}, domain.ErrNotFound("session not found")
@@ -236,6 +281,9 @@ func (s *SessionService) PairingCode(ctx context.Context, organizationID, id, ph
 	}
 	if sess.WAJID != nil {
 		return "", domain.ErrConflict("session is already paired")
+	}
+	if s.manager == nil {
+		return "", errLiveUnavailable()
 	}
 	return s.manager.StartPairingCode(ctx, id, phone)
 }

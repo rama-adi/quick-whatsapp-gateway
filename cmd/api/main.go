@@ -317,6 +317,7 @@ func run() error {
 		}
 		services.Messages.SetGatewaySendFacade(outboundScheduler)
 		services.Messages.SetGatewayOpFacade(outboundScheduler)
+		services.Sessions.SetSessionDesiredController(sessionDesiredController{assignments: store.NewGatewayAssignmentRepo(db)})
 		tlsConfig := privateGatewayTLSConfig(identity, clientRoots)
 		enrollment, enrollmentErr := service.NewEnrollmentService(db, signer, service.DefaultEnrollmentConfig())
 		if enrollmentErr != nil {

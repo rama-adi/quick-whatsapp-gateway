@@ -250,6 +250,7 @@ func (s *Server) Handler() http.Handler {
 			authed.Use(authz.Authenticate(s.tokens, s.keys))
 			hapi := humax.NewAPI(authed)
 			handlersapi.RegisterMessageOps(hapi, s.messageHandlers)
+			handlersapi.RegisterSessionOps(hapi, s.messageHandlers)
 		})
 	}
 	if s.resourceHandlers != nil {

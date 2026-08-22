@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/store/storedb"
 )
 
 // GatewayAssignmentRepo is the sole mutation path for control-stream desired
@@ -86,6 +87,36 @@ func (r *GatewayAssignmentRepo) UpdateConfig(ctx context.Context, sessionID stri
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE gateways SET desired_revision=desired_revision+1, updated_at=? WHERE id=? AND deleted_at IS NULL`, at, gatewayID); err != nil {
 		return fmt.Errorf("store: advance config revision: %w", err)
+	}
+	return tx.Commit()
+}
+
+// SetSessionDesired flips one session's desired run state and advances the
+// owning gateway's desired revision in one transaction, so the next desired
+// state push starts or stops the session on the assigned gateway. It is the
+// API-local replacement for direct gateway Start/Stop RPCs (gRPC Increment 7).
+func (r *GatewayAssignmentRepo) SetSessionDesired(ctx context.Context, sessionID string, run bool, at int64) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("store: begin session desired update: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var gatewayID string
+	if err := tx.QueryRowContext(ctx, `SELECT gateway_id FROM gateway_session_assignments WHERE session_id=? FOR UPDATE`, sessionID).Scan(&gatewayID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return domain.ErrNotFound("session assignment not found")
+		}
+		return fmt.Errorf("store: lock session assignment: %w", err)
+	}
+	status := storedb.WaSessionsStatusStopped
+	if run {
+		status = storedb.WaSessionsStatusStarting
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE wa_sessions SET status=?, updated_at=? WHERE id=?`, status, at, sessionID); err != nil {
+		return fmt.Errorf("store: update session desired state: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE gateways SET desired_revision=desired_revision+1, updated_at=? WHERE id=? AND deleted_at IS NULL`, at, gatewayID); err != nil {
+		return fmt.Errorf("store: advance desired revision: %w", err)
 	}
 	return tx.Commit()
 }
