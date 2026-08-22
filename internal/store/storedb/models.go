@@ -1522,6 +1522,17 @@ type GatewayEnrollmentToken struct {
 	UpdatedAt       int64                         `db:"updated_at" json:"updated_at"`
 }
 
+type GatewayIngestedEvent struct {
+	GatewayEventID  string `db:"gateway_event_id" json:"gateway_event_id"`
+	GatewayID       string `db:"gateway_id" json:"gateway_id"`
+	ConnectionEpoch uint64 `db:"connection_epoch" json:"connection_epoch"`
+	SessionID       string `db:"session_id" json:"session_id"`
+	AssignmentEpoch uint64 `db:"assignment_epoch" json:"assignment_epoch"`
+	OrganizationID  string `db:"organization_id" json:"organization_id"`
+	EventLogID      string `db:"event_log_id" json:"event_log_id"`
+	CommittedAt     int64  `db:"committed_at" json:"committed_at"`
+}
+
 type GatewayReconciliationResult struct {
 	ID              uint64                             `db:"id" json:"id"`
 	GatewayID       string                             `db:"gateway_id" json:"gateway_id"`

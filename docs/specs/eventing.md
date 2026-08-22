@@ -194,14 +194,29 @@ their own JID-classification tables. ~85% statement coverage; `go test` and `go 
 ## Transport (NDJSON stream + webhooks) — owned by another subsystem
 
 Status: see `internal/stream` and `internal/webhooks` specs. Both carry the same
-`domain.Event` envelope produced here; the fan-out stage (§9) appends to `event_log`,
-publishes to Redis pub/sub for stream subscribers, and enqueues webhook deliveries.
+`domain.Event` envelope produced here. Gateway-local fan-out remains transitional:
+it appends to `event_log`, publishes to Redis pub/sub for stream subscribers, and
+enqueues webhook deliveries.
+
+API-owned ingestion hands an envelope to
+`application.CommittedEventConsumer` only **after** its event-log transaction
+commits. `application.CommittedEventWorkStore` is the durable work boundary: its
+store implementation claims only committed, incomplete envelopes and records
+completion only after every consumer accepts the event. `service.CommittedEventWorker`
+uses that port, and its stateless `CommittedEventDispatcher` runs registered
+projections, retains the existing Redis publication, and enqueues webhooks in that
+order. Failed attempts remain incomplete for the store's retry/lease path; durable
+consumers must still use `event.id` as their idempotency key because a crash can
+occur after a consumer accepts an event and before completion is recorded.
 
 ### Increment 5 durable handoff foundation
 
-The gateway-local `internal/gateway/journal` package persists opaque normalized-event payloads in a
-separate SQLite `journal.db` before future gateway→API ingestion. Its stable `event_id` is unique,
-replay is ordered by committed sequence, and an API acknowledgement advances a durable watermark and
-removes every acknowledged entry atomically. Reopening verifies SQLite integrity; shutdown checkpoints
-WAL. This package is deliberately not the event publisher: until acknowledged API ingestion lands,
-existing Redis fan-out and API `event_log`/webhook behavior remain unchanged.
+Private-control gateways require an absolute `GATEWAY_JOURNAL_PATH` for a separate SQLite journal.
+The journal accepts the normalized `domain.Event` JSON only while the current desired-state assignment
+owns its organization/session, preserving that assignment epoch with the entry. It replays entries in
+committed sequence order as protobuf `Struct` payloads over the control stream; exactly one batch is
+in flight and the API acknowledgement must equal that batch's last journal sequence before deletion.
+Reconnects replay the oldest unacknowledged batch. A critical journal capacity state makes the gateway
+unready, while a failed append backpressures the producing pipeline. In control mode the gateway does
+not append `event_log`, publish Redis events, or enqueue webhooks: API ingestion owns the single
+event-log transaction and post-commit fan-out. Legacy mode retains its existing fan-out unchanged.

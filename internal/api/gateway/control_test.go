@@ -49,6 +49,9 @@ func (s *fakeStore) PersistDesiredStateReport(_ context.Context, _ string, _ uin
 	s.desiredStateAcks = append(s.desiredStateAcks, report.Revision)
 	return s.writeErr
 }
+func (s *fakeStore) IngestEvents(_ context.Context, _ string, _ uint64, _ []GatewayEvent) error {
+	return s.writeErr
+}
 func (s *fakeStore) Lifecycle(_ context.Context, _ string, epoch uint64, report LifecycleReport) error {
 	s.lifecycles = append(s.lifecycles, epoch)
 	s.lifecycleReports = append(s.lifecycleReports, report)
@@ -349,6 +352,34 @@ func TestConnectRejectsDesiredStateAckForAnotherEpoch(t *testing.T) {
 	err := testServer(connectedStore()).Connect(&fakeStream{ctx: context.Background(), frames: []*gatewayv1.GatewayFrame{hello(1), ack}})
 	if status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("code = %v, err = %v", status.Code(err), err)
+	}
+}
+
+func TestEventBatchValidation(t *testing.T) {
+	valid := func() *gatewayv1.GatewayEventBatch {
+		return &gatewayv1.GatewayEventBatch{Events: []*gatewayv1.GatewayEvent{{JournalSequence: 1, EventId: "e1", GatewayId: "gw_cert", ConnectionEpoch: 7, AssignmentEpoch: 2, SessionId: "s1", OrganizationId: "o1", EventType: "message", OccurredAtUnixMs: 1}}}
+	}
+	if events, err := eventBatch(valid(), "gw_cert", 7); err != nil || len(events) != 1 {
+		t.Fatalf("valid=%v %v", events, err)
+	}
+	for name, mutate := range map[string]func(*gatewayv1.GatewayEventBatch){
+		"zero sequence": func(b *gatewayv1.GatewayEventBatch) { b.Events[0].JournalSequence = 0 },
+		"wrong gateway": func(b *gatewayv1.GatewayEventBatch) { b.Events[0].GatewayId = "other" },
+		"stale epoch":   func(b *gatewayv1.GatewayEventBatch) { b.Events[0].ConnectionEpoch = 8 },
+		"oversize":      func(b *gatewayv1.GatewayEventBatch) { b.Events[0].Payload = make([]byte, MaxGatewayEventBatchBytes+1) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			b := valid()
+			mutate(b)
+			if _, err := eventBatch(b, "gw_cert", 7); status.Code(err) == codes.OK {
+				t.Fatal("accepted")
+			}
+		})
+	}
+	b := valid()
+	b.Events = append(b.Events, &gatewayv1.GatewayEvent{JournalSequence: 1, EventId: "e2", GatewayId: "gw_cert", ConnectionEpoch: 7, AssignmentEpoch: 2, SessionId: "s1", OrganizationId: "o1", EventType: "message", OccurredAtUnixMs: 1})
+	if _, err := eventBatch(b, "gw_cert", 7); status.Code(err) == codes.OK {
+		t.Fatal("nonmonotonic accepted")
 	}
 }
 

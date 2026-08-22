@@ -239,7 +239,7 @@ func (j *Journal) ReadUnacked(ctx context.Context, maxEntries int, maxBytes int6
 		if err := rows.Scan(&seq, &entry.EventID, &entry.Payload, &createdMS); err != nil {
 			return nil, classifySQLiteError(err)
 		}
-		if used+int64(len(entry.Payload)) > maxBytes {
+		if len(out) > 0 && used+int64(len(entry.Payload)) > maxBytes {
 			break
 		}
 		entry.Seq, entry.CreatedAt = uint64(seq), time.UnixMilli(createdMS).UTC()

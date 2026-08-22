@@ -25,7 +25,7 @@ func TestControlReadinessFailsBeforeInfrastructureChecks(t *testing.T) {
 		Connected:        true,
 		Ready:            false,
 		DesiredLifecycle: gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DRAIN,
-	}})
+	}}, nil)
 	if err := probe(); err == nil {
 		t.Fatal("DRAIN control state reported ready")
 	}

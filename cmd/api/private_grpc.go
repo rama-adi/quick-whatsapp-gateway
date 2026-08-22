@@ -266,6 +266,7 @@ type gatewayControlRepo interface {
 type gatewayControlStore struct {
 	repo           gatewayControlRepo
 	reconciliation *store.GatewayReconciliationRepo
+	eventIngest    *store.GatewayEventIngestRepo
 	now            func() time.Time
 }
 
@@ -362,6 +363,20 @@ func (s gatewayControlStore) PersistDesiredStateReport(ctx context.Context, gate
 	}
 	err := s.reconciliation.Persist(ctx, store.GatewayReconciliationReport{GatewayID: gatewayID, Epoch: epoch, Revision: report.Revision, KeystoreState: report.KeystoreState, KeystoreBytes: report.KeystoreBytes, CheckedAt: report.CheckedAt, LocalDevices: report.LocalDevices, Results: results}, s.clock().UnixMilli())
 	if err != nil {
+		return fmt.Errorf("%w: %w", apigateway.ErrUnavailable, err)
+	}
+	return nil
+}
+
+func (s gatewayControlStore) IngestEvents(ctx context.Context, gatewayID string, epoch uint64, events []apigateway.GatewayEvent) error {
+	if s.eventIngest == nil {
+		return apigateway.ErrUnavailable
+	}
+	batch := make([]store.GatewayEvent, 0, len(events))
+	for _, event := range events {
+		batch = append(batch, store.GatewayEvent{EventID: event.EventID, GatewayID: gatewayID, SessionID: event.SessionID, OrganizationID: event.OrganizationID, Type: event.Type, ConnectionEpoch: epoch, AssignmentEpoch: event.AssignmentEpoch, Payload: event.Payload, OccurredAt: event.OccurredAt.UnixMilli()})
+	}
+	if err := s.eventIngest.IngestBatch(ctx, batch, s.clock().UnixMilli()); err != nil {
 		return fmt.Errorf("%w: %w", apigateway.ErrUnavailable, err)
 	}
 	return nil

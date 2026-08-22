@@ -17,9 +17,11 @@ serves clients.
 
 ## Scope
 
-1. **Publisher** — the `EventSink` the inbound pipeline writes `domain.Event`s to. It
-   marshals each event to its canonical JSON envelope and `PUBLISH`es it to a
-   per-`(organization, session)` Redis channel. This still runs **in the gateway**.
+1. **Publisher** — the event consumer that marshals a committed `domain.Event` to
+   its canonical JSON envelope and `PUBLISH`es it to a per-`(organization, session)`
+   Redis channel. The gateway's `EventSink` remains wired directly during the
+   transition; API post-commit fan-out can invoke the same publisher after durable
+   ingestion without changing the stream protocol.
 2. **Pump** — the transport-agnostic `subscribe → connected → replay → tail` loop. It
    subscribes per resolved `Scope`, emits a `connected` frame, replays `event_log`
    entries on `?since=` (org/session scopes only — firehose is live-tail), tails live
@@ -139,8 +141,14 @@ realtime tests in `internal/router`.)
 
 ## What the composition root wires
 
-- **Gateway:** register `*Publisher` as the system's `EventSink` so inbound fan-out
-  reaches Redis. The gateway wires nothing else from this package.
+- **Gateway (transitional):** register `*Publisher` as the system's `EventSink` so
+  inbound fan-out reaches Redis. It remains in place until durable API ingestion
+  becomes the active producer.
+- **API ingestion:** pass the same `*Publisher` to
+  `service.CommittedEventDispatcher`, which is run by the durable
+  `CommittedEventWorker` only after the event-log commit. The completed-event
+  store and the event id govern replay; the publisher remains compatible with
+  duplicate-safe client consumption.
 - **Router:** a `RedisClient` (the shared work `*redis.Client`, `REDIS_URL`), an
   `EventLogReader` backed by the `event_log` MySQL repo (`store`) for `since` replay, a
   `*Pump`, a WebSocket `Sink`, and the live `ConnRegistry` into the control-bus

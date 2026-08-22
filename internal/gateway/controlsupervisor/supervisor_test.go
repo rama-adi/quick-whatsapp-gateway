@@ -3,6 +3,7 @@ package controlsupervisor
 import (
 	"context"
 	"errors"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -18,6 +19,16 @@ type staticDesiredState struct{}
 
 func (staticDesiredState) ApplyDesiredState(_ context.Context, epoch uint64, snapshot *gatewayv1.DesiredStateSnapshot) (*gatewayv1.DesiredStateReport, error) {
 	return &gatewayv1.DesiredStateReport{ConnectionEpoch: epoch, ProcessedRevision: snapshot.Revision, KeystoreHealth: &gatewayv1.KeystoreHealth{State: gatewayv1.KeystoreHealthState_KEYSTORE_HEALTH_STATE_HEALTHY}}, nil
+}
+
+type staticEventJournal struct{ acked uint64 }
+
+func (j *staticEventJournal) NextEventBatch(context.Context, uint64) (*gatewayv1.GatewayEventBatch, error) {
+	return &gatewayv1.GatewayEventBatch{Events: []*gatewayv1.GatewayEvent{{JournalSequence: 9}}}, nil
+}
+func (j *staticEventJournal) AckEvents(_ context.Context, sequence uint64) error {
+	j.acked = sequence
+	return nil
 }
 
 type fakeClock struct {
@@ -166,6 +177,35 @@ func testSupervisor(t *testing.T, clock *fakeClock, opener StreamOpener) *Superv
 		t.Fatal(err)
 	}
 	return supervisor
+}
+
+func TestEventAckMustExactlyMatchInFlightBatch(t *testing.T) {
+	clock := &fakeClock{now: time.Unix(100, 0)}
+	stream := newFakeStream()
+	stream.recv <- receiveResult{frame: welcome(gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN)}
+	supervisor := testSupervisor(t, clock, &fakeOpener{streams: []*fakeStream{stream}})
+	journal := &staticEventJournal{}
+	supervisor.cfg.EventJournal = journal
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- supervisor.runStream(ctx) }()
+	<-stream.sent // hello
+	for !clock.fire(0) {
+		runtime.Gosched()
+	}
+	<-stream.sent // heartbeat
+	batch := <-stream.sent
+	if batch.GetEventBatch() == nil {
+		t.Fatal("event batch was not sent")
+	}
+	stream.recv <- receiveResult{frame: &gatewayv1.ControlFrame{ProtocolVersion: ProtocolVersion, Sequence: 2, Payload: &gatewayv1.ControlFrame_EventAck{EventAck: &gatewayv1.GatewayEventAck{AcknowledgedJournalSequence: 8}}}}
+	if err := <-done; !errors.Is(err, ErrProtocol) {
+		t.Fatalf("error = %v, want protocol error", err)
+	}
+	if journal.acked != 0 {
+		t.Fatalf("unexpected acknowledgement %d", journal.acked)
+	}
 }
 
 func TestHelloAndHeartbeatSequenceEpochAndRuntime(t *testing.T) {

@@ -34,6 +34,7 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/gateway/controlclient"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/gateway/controlsupervisor"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/gateway/desiredstate"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/gateway/journal"
 	gwhttp "github.com/ramaadi/quick-whatsapp-gateway/internal/http"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/http/handlers"
 	httpmiddleware "github.com/ramaadi/quick-whatsapp-gateway/internal/http/middleware"
@@ -82,6 +83,8 @@ func run() error {
 	var controlSupervisor *controlsupervisor.Supervisor
 	var controlRuntime *gatewayControlRuntime
 	var controlIdentity *gatewayidentity.Manager
+	var eventJournal *journal.Journal
+	var desiredReconciler *desiredstate.Reconciler
 	var supervisorCtx context.Context
 	var supervisorExited chan struct{}
 	var supervisorResultMu sync.Mutex
@@ -125,12 +128,22 @@ func run() error {
 			_ = control.Close()
 			return fmt.Errorf("create gateway process instance id: %w", instanceErr)
 		}
+		eventJournal, err = journal.Open(ctx, cfg.JournalPath, journal.DefaultConfig())
+		if err != nil {
+			return fmt.Errorf("open gateway event journal: %w", err)
+		}
+		defer func() {
+			if closeErr := eventJournal.Close(); closeErr != nil {
+				log.Warn("close gateway event journal", "err", closeErr)
+			}
+		}()
 		controlRuntime = newGatewayControlRuntime(log)
 		controlSupervisor, err = controlsupervisor.New(controlsupervisor.Config{
 			InstanceID:      instanceID,
 			SoftwareVersion: softwareVersion,
 			HTTPBaseURL:     cfg.PublicURL,
 			GRPCEndpoint:    cfg.EngineGRPCAdvertise,
+			EventJournal:    journal.ControlAdapter{Journal: eventJournal, GatewayID: cfg.GatewayID},
 			StartedAt:       time.Now(),
 			Runtime:         controlRuntime,
 		}, opener)
@@ -266,7 +279,27 @@ func run() error {
 
 	// --- Session manager (per-session whatsmeow clients) ---
 	managerRepo := service.NewManagerSessionRepo(st.Sessions, nil)
-	managerSink := service.NewEventSinkAdapter(publisher, log)
+	managerSink := wa.EventSink(service.NewEventSinkAdapter(publisher, log))
+	inboundSink := inbound.EventSink(publisher)
+	inboundWebhookSink := inbound.WebhookEnqueuer(service.NewInboundWebhookEnqueuerAdapter(enqueuer))
+	inboundRepos := inbound.Repos(service.NewInboundRepos(st, pollRecaps))
+	if controlEnabled {
+		controlSink := controlEventSink{
+			adapter: journal.ControlAdapter{Journal: eventJournal, GatewayID: cfg.GatewayID},
+			assignment: func(organizationID, sessionID string) (uint64, bool) {
+				if desiredReconciler == nil {
+					return 0, false
+				}
+				epoch, ok := desiredReconciler.CurrentEpoch(sessionID)
+				return epoch, ok && desiredReconciler.OwnsSession(organizationID, sessionID, epoch)
+			},
+			log: log,
+		}
+		managerSink = managedControlEventSink{controlSink}
+		inboundSink = controlSink
+		inboundWebhookSink = controlWebhookSink{}
+		inboundRepos = controlInboundRepos{Repos: inboundRepos}
+	}
 	manager := wa.NewManager(keystore, managerRepo, managerSink, nil, nil, log, wa.Config{
 		AdminNumber:         cfg.WhatsAppAdminNumber,
 		AdminOrganizationID: cfg.WhatsAppAdminOrgID,
@@ -297,9 +330,9 @@ func run() error {
 	inboundPipeline := inbound.NewPipeline(
 		service.NewInboundNormalizer(manager.LiveOps(), st.Polls),
 		inbound.NewNoopCommandRegistry(),
-		service.NewInboundRepos(st, pollRecaps),
-		publisher,
-		service.NewInboundWebhookEnqueuerAdapter(enqueuer),
+		inboundRepos,
+		inboundSink,
+		inboundWebhookSink,
 		manager.LiveOps(),
 		inbound.SystemClock{},
 		inbound.WithLogger(log),
@@ -329,7 +362,6 @@ func run() error {
 	// `organization` table; orphaned sessions are marked STOPPED and not resumed.
 	orgReader := store.NewOrganizationReader(db)
 	manager.SetOrgExists(orgReader.Exists)
-	var desiredReconciler *desiredstate.Reconciler
 	if controlEnabled {
 		reconciler := desiredstate.New(manager, nil)
 		desiredReconciler = reconciler
@@ -707,7 +739,7 @@ func run() error {
 		Handlers:  h,
 		Auth:      assertion.Middleware(assertionVerifier),
 		Limiter:   nil, // HTTP-edge rate limiting optional; outbound limits sends.
-		Readiness: readiness(db, rdb, controlSupervisor),
+		Readiness: readiness(db, rdb, controlSupervisor, eventJournal),
 		Admission: admissionGate,
 		DBStats:   db.Stats,
 		SessionState: func(sessionID string) (httpmiddleware.SessionState, bool) {
@@ -885,10 +917,23 @@ type controlStatusSource interface {
 	Status() controlsupervisor.Status
 }
 
-func readiness(db *sql.DB, rdb *redis.Client, control controlStatusSource) func() error {
+type journalStatusSource interface {
+	Metrics(context.Context) (journal.Metrics, error)
+}
+
+func readiness(db *sql.DB, rdb *redis.Client, control controlStatusSource, eventJournal journalStatusSource) func() error {
 	return func() error {
 		if control != nil && !control.Status().Ready {
 			return errors.New("control stream unavailable")
+		}
+		if eventJournal != nil {
+			metrics, err := eventJournal.Metrics(context.Background())
+			if err != nil {
+				return fmt.Errorf("gateway journal: %w", err)
+			}
+			if metrics.State == journal.CapacityCritical {
+				return errors.New("gateway journal capacity critical")
+			}
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()

@@ -42,6 +42,13 @@ type DesiredStateApplier interface {
 	ApplyDesiredState(context.Context, uint64, *gatewayv1.DesiredStateSnapshot) (*gatewayv1.DesiredStateReport, error)
 }
 
+// EventJournal supplies durable batches and advances only the API's committed
+// acknowledgement cursor. It is intentionally transport-agnostic.
+type EventJournal interface {
+	NextEventBatch(context.Context, uint64) (*gatewayv1.GatewayEventBatch, error)
+	AckEvents(context.Context, uint64) error
+}
+
 type Clock interface {
 	Now() time.Time
 	After(time.Duration) <-chan time.Time
@@ -68,6 +75,7 @@ type Config struct {
 	StartedAt        time.Time
 	Runtime          RuntimeSource
 	DesiredState     DesiredStateApplier
+	EventJournal     EventJournal
 	Clock            Clock
 	Backoff          Backoff
 	MinHeartbeat     time.Duration
@@ -538,9 +546,34 @@ func (s *Supervisor) runStream(ctx context.Context) error {
 	lastGatewaySequence := uint64(1)
 	lastControlSequence := welcomeFrame.Sequence
 	heartbeat := s.cfg.Clock.After(heartbeatInterval)
+	if s.cfg.EventJournal != nil {
+		heartbeat = s.cfg.Clock.After(0)
+	}
 	lease := s.cfg.Clock.After(leaseTimeout)
 	acknowledgedCycles := uint32(0)
 	pendingReport := false
+	eventInFlight := false
+	var expectedEventAck uint64
+	sendEventBatch := func() error {
+		if s.cfg.EventJournal == nil || eventInFlight {
+			return nil
+		}
+		batch, batchErr := s.cfg.EventJournal.NextEventBatch(streamCtx, welcome.ConnectionEpoch)
+		if batchErr != nil {
+			return fmt.Errorf("read journal batch: %w", batchErr)
+		}
+		if len(batch.Events) == 0 {
+			return nil
+		}
+		frame := &gatewayv1.GatewayFrame{ProtocolVersion: ProtocolVersion, Sequence: nextGatewaySequence, Payload: &gatewayv1.GatewayFrame_EventBatch{EventBatch: batch}}
+		if sendErr := s.sendWithin(streamCtx, cancel, stream, frame, leaseTimeout-heartbeatInterval); sendErr != nil {
+			return fmt.Errorf("send journal batch: %w", sendErr)
+		}
+		nextGatewaySequence++
+		eventInFlight = true
+		expectedEventAck = batch.Events[len(batch.Events)-1].JournalSequence
+		return nil
+	}
 	sendHeartbeat := func() error {
 		runtime = s.cfg.Runtime.Snapshot()
 		if !validRuntimeState(runtime.State) {
@@ -563,6 +596,9 @@ func (s *Supervisor) runStream(ctx context.Context) error {
 		}
 		lastGatewaySequence = nextGatewaySequence
 		nextGatewaySequence++
+		if err := sendEventBatch(); err != nil {
+			return err
+		}
 		heartbeat = nil
 		return nil
 	}
@@ -583,7 +619,22 @@ func (s *Supervisor) runStream(ctx context.Context) error {
 				return err
 			}
 			lastControlSequence = result.frame.Sequence
-			if directive := result.frame.GetLifecycleDirective(); directive != nil {
+			if eventAck := result.frame.GetEventAck(); eventAck != nil {
+				if s.cfg.EventJournal == nil {
+					return fmt.Errorf("%w: unexpected event acknowledgement", ErrProtocol)
+				}
+				if !eventInFlight || eventAck.AcknowledgedJournalSequence != expectedEventAck {
+					return fmt.Errorf("%w: event acknowledgement does not match in-flight batch", ErrProtocol)
+				}
+				if err := s.cfg.EventJournal.AckEvents(streamCtx, eventAck.AcknowledgedJournalSequence); err != nil {
+					return fmt.Errorf("ack journal events: %w", err)
+				}
+				eventInFlight = false
+				expectedEventAck = 0
+				if err := sendEventBatch(); err != nil {
+					return err
+				}
+			} else if directive := result.frame.GetLifecycleDirective(); directive != nil {
 				s.directiveReceived(lifecycleDirectiveValue(directive, result.frame.Sequence))
 			} else if snapshot := result.frame.GetDesiredStateSnapshot(); snapshot != nil {
 				if s.cfg.DesiredState == nil {
@@ -721,6 +772,12 @@ func validateControl(frame *gatewayv1.ControlFrame, sequence, epoch, gatewaySequ
 	}
 	if snapshot := frame.GetDesiredStateSnapshot(); snapshot != nil {
 		return validateDesiredState(snapshot)
+	}
+	if ack := frame.GetEventAck(); ack != nil {
+		if ack.AcknowledgedJournalSequence == 0 {
+			return fmt.Errorf("%w: invalid event acknowledgement", ErrProtocol)
+		}
+		return nil
 	}
 	ack := frame.GetHeartbeatAck()
 	if ack == nil || ack.ConnectionEpoch != epoch || ack.AcknowledgedGatewaySequence != gatewaySequence ||

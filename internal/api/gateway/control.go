@@ -14,21 +14,24 @@ import (
 	gatewayv1 "github.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 const ProtocolVersion uint32 = 1
 
 const (
-	DefaultHelloTimeout      = 10 * time.Second
-	DefaultHeartbeatInterval = 5 * time.Second
-	DefaultLeaseTimeout      = 15 * time.Second
-	DefaultDisconnectTimeout = 5 * time.Second
-	MaxInstanceIDBytes       = 128
-	MaxSoftwareVersionBytes  = 128
-	MaxGRPCEndpointBytes     = 512
-	MaxHTTPBaseURLBytes      = 512
-	MaxGatewayCapabilities   = 16
-	maxUnixMillis            = int64(253402300799999)
+	DefaultHelloTimeout       = 10 * time.Second
+	DefaultHeartbeatInterval  = 5 * time.Second
+	DefaultLeaseTimeout       = 15 * time.Second
+	DefaultDisconnectTimeout  = 5 * time.Second
+	MaxInstanceIDBytes        = 128
+	MaxSoftwareVersionBytes   = 128
+	MaxGRPCEndpointBytes      = 512
+	MaxHTTPBaseURLBytes       = 512
+	MaxGatewayCapabilities    = 16
+	MaxGatewayEventBatch      = 256
+	MaxGatewayEventBatchBytes = 1 << 20
+	maxUnixMillis             = int64(253402300799999)
 )
 
 var (
@@ -94,6 +97,12 @@ type ReconciliationResult struct {
 	AssignmentEpoch   uint64
 	DeviceJID, Status string
 }
+type GatewayEvent struct {
+	JournalSequence, ConnectionEpoch, AssignmentEpoch uint64
+	EventID, SessionID, OrganizationID, Type          string
+	OccurredAt                                        time.Time
+	Payload                                           []byte
+}
 
 type Connection struct {
 	ID                string
@@ -113,6 +122,7 @@ type Store interface {
 	Heartbeat(context.Context, string, uint64, Heartbeat) (DesiredLifecycle, error)
 	DesiredState(context.Context, string, uint64, uint64, time.Time) (DesiredState, error)
 	PersistDesiredStateReport(context.Context, string, uint64, ReconciliationReport) error
+	IngestEvents(context.Context, string, uint64, []GatewayEvent) error
 	Lifecycle(context.Context, string, uint64, LifecycleReport) error
 	Disconnect(context.Context, string, uint64) error
 }
@@ -270,6 +280,15 @@ func (s *Server) Connect(stream gatewayv1.GatewayControlService_ConnectServer) (
 				return err
 			}
 			err = s.Store.PersistDesiredStateReport(stream.Context(), gatewayID, connection.Epoch, reconciliationReport(payload.DesiredStateReport))
+		case *gatewayv1.GatewayFrame_EventBatch:
+			events, validationErr := eventBatch(payload.EventBatch, gatewayID, connection.Epoch)
+			if validationErr != nil {
+				return validationErr
+			}
+			if err = s.Store.IngestEvents(stream.Context(), gatewayID, connection.Epoch, events); err == nil {
+				outboundSequence++
+				err = stream.Send(&gatewayv1.ControlFrame{ProtocolVersion: ProtocolVersion, Sequence: outboundSequence, Payload: &gatewayv1.ControlFrame_EventAck{EventAck: &gatewayv1.GatewayEventAck{AcknowledgedJournalSequence: events[len(events)-1].JournalSequence}}})
+			}
 		case *gatewayv1.GatewayFrame_LifecycleReport:
 			if pendingDirective == nil {
 				return status.Error(codes.FailedPrecondition, "no lifecycle directive is awaiting acknowledgement")
@@ -288,6 +307,25 @@ func (s *Server) Connect(stream gatewayv1.GatewayControlService_ConnectServer) (
 			return storeStatus(err)
 		}
 	}
+}
+
+func eventBatch(batch *gatewayv1.GatewayEventBatch, gatewayID string, epoch uint64) ([]GatewayEvent, error) {
+	if batch == nil || len(batch.Events) == 0 || len(batch.Events) > MaxGatewayEventBatch {
+		return nil, status.Error(codes.InvalidArgument, "invalid gateway event batch")
+	}
+	out := make([]GatewayEvent, 0, len(batch.Events))
+	var last uint64
+	if proto.Size(batch) > MaxGatewayEventBatchBytes {
+		return nil, status.Error(codes.InvalidArgument, "gateway event batch too large")
+	}
+	for _, v := range batch.Events {
+		if v == nil || v.GatewayId != gatewayID || v.JournalSequence == 0 || v.JournalSequence <= last || v.ConnectionEpoch != epoch || v.AssignmentEpoch == 0 || v.EventId == "" || v.SessionId == "" || v.OrganizationId == "" || v.EventType == "" || v.OccurredAtUnixMs <= 0 {
+			return nil, status.Error(codes.FailedPrecondition, "invalid gateway event")
+		}
+		last = v.JournalSequence
+		out = append(out, GatewayEvent{JournalSequence: v.JournalSequence, ConnectionEpoch: v.ConnectionEpoch, AssignmentEpoch: v.AssignmentEpoch, EventID: v.EventId, SessionID: v.SessionId, OrganizationID: v.OrganizationId, Type: v.EventType, OccurredAt: time.UnixMilli(v.OccurredAtUnixMs).UTC(), Payload: append([]byte(nil), v.Payload...)})
+	}
+	return out, nil
 }
 
 func (s *Server) sendDesiredState(stream gatewayv1.GatewayControlService_ConnectServer, gatewayID string, connection Connection, sequence uint64) (uint64, error) {

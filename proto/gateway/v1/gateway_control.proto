@@ -22,6 +22,7 @@ message GatewayFrame {
     GatewayHeartbeat heartbeat = 11;
     GatewayLifecycleReport lifecycle_report = 12;
     DesiredStateReport desired_state_report = 20;
+    GatewayEventBatch event_batch = 21;
   }
   reserved 13 to 19;
 }
@@ -37,9 +38,29 @@ message ControlFrame {
     LifecycleDirective lifecycle_directive = 11;
     ControlHeartbeatAck heartbeat_ack = 12;
     DesiredStateSnapshot desired_state_snapshot = 20;
+    GatewayEventAck event_ack = 21;
   }
   reserved 13 to 19;
 }
+
+// GatewayEventBatch replays durable journal entries in strictly increasing
+// journal sequence order. Payload is an opaque serialized event envelope.
+message GatewayEventBatch { repeated GatewayEvent events = 1; reserved 2 to 15; }
+message GatewayEvent {
+  uint64 journal_sequence = 1;
+  string event_id = 2;
+  string gateway_id = 3;
+  uint64 connection_epoch = 4;
+  uint64 assignment_epoch = 5;
+  string session_id = 6;
+  string organization_id = 7;
+  string event_type = 8;
+  int64 occurred_at_unix_ms = 9;
+  bytes payload = 10;
+  reserved 11 to 15;
+}
+// The API acknowledges only the highest journal sequence committed durably.
+message GatewayEventAck { uint64 acknowledged_journal_sequence = 1; reserved 2 to 15; }
 
 message GatewayHello {
   string instance_id = 1;

@@ -13,9 +13,12 @@ gateway remains the single writer.
 
 ## Scope
 
-- **Enqueue** (`Enqueuer`): the `WebhookEnqueuer` the inbound fan-out stage (§9)
-  calls per event. Persists one pending `webhook_deliveries` row per matching,
+- **Enqueue** (`Enqueuer`): the webhook consumer called by event fan-out per
+  committed event. It persists one pending `webhook_deliveries` row per matching,
   non-deduped webhook (matched by `organization`/session/type). No HTTP happens here.
+  Gateway-local fan-out calls it directly during the transition; API durable
+  ingestion reaches it through `service.CommittedEventWorker` and
+  `service.CommittedEventDispatcher` after commit.
 - **Dispatch** (`Dispatcher`): claims due deliveries and sends them. Exposes
   `DeliverDue(ctx, limit)` (one claim+send pass) and `Deliver(ctx, delivery)`
   (a single delivery) so both are testable; the loop cadence is driven
@@ -65,6 +68,9 @@ Pure helpers: `EventMatches(events, type)`, `SignHMAC(secret, body)`,
   Before creating a delivery, `ExistsTerminal(webhook_id, event_id)`
   is checked; if a delivery is already `delivered` or `dead`, the event is
   skipped (no re-enqueue, no re-send).
+  This is also the durable idempotency boundary for replayed committed events: an
+  API process can fail after enqueueing and before acknowledging the source without
+  creating a second delivery row.
 - **Retry backoff.** `RetryPolicy{policy:"exponential", delaySeconds, attempts}`.
   `attempts` here is 1-based and is the number of the attempt that just ran. The
   delay before the next attempt is `delaySeconds * 2^(attempt-1)` →
