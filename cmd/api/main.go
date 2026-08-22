@@ -30,6 +30,7 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/authz"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/config"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/controlbus"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/crypto"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/dbconn"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/dbmigrate"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
@@ -116,12 +117,19 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("build oidc signer: %w", err)
 	}
+	aes, err := crypto.NewAESGCM(cfg.AppEncryptionKey)
+	if err != nil {
+		return fmt.Errorf("build app cipher: %w", err)
+	}
 	services := service.New(service.Deps{
 		Store:                      st,
+		Crypto:                     aes,
 		OAuthClientSecretPepper:    cfg.OAuthClientSecretPepper,
 		OIDCIssuer:                 cfg.OIDCIssuer,
 		WhatsAppAdminCommandPrefix: cfg.WhatsAppAdminCmdPrefix,
 		ControlPublisher:           service.NewRedisControlPublisher(rdb),
+		DefaultRetryDelay:          cfg.WebhookRetryDelay,
+		DefaultRetryAttempts:       cfg.WebhookRetryAttempts,
 		Log:                        log,
 	})
 	apiHandlers := handlers.New(services, log)
@@ -342,27 +350,28 @@ func run() error {
 		go renewAPIIdentity(ctx, identity, cfg.GatewayTLSRenewBefore, log)
 	}
 	srv, err := router.NewServer(router.Config{
-		Sessions:        st.Sessions,
-		Gateways:        st.Gateways,
-		Minter:          minter,
-		Tokens:          tokenVerifier,
-		Keys:            keyVerifier,
-		CORSOrigins:     cfg.FrontendOrigins,
-		Readiness:       readinessGate.check,
-		DBStats:         db.Stats,
-		OpenAPIPath:     "docs/openapi.yaml",
-		MessageHandlers: apiHandlers,
-		Redis:           rdb,
-		Pump:            pump,
-		Registry:        registry,
-		RedisPrefix:     cfg.RedisPrefix,
-		PublicURL:       cfg.PublicURL,
-		OIDCIssuer:      cfg.OIDCIssuer,
-		OIDPSigner:      oidpSigner,
-		OIDPProvider:    oidpProvider,
-		OAuthHandlers:   apiHandlers,
-		AdminHandlers:   apiHandlers,
-		Log:             log,
+		Sessions:         st.Sessions,
+		Gateways:         st.Gateways,
+		Minter:           minter,
+		Tokens:           tokenVerifier,
+		Keys:             keyVerifier,
+		CORSOrigins:      cfg.FrontendOrigins,
+		Readiness:        readinessGate.check,
+		DBStats:          db.Stats,
+		OpenAPIPath:      "docs/openapi.yaml",
+		MessageHandlers:  apiHandlers,
+		ResourceHandlers: apiHandlers,
+		Redis:            rdb,
+		Pump:             pump,
+		Registry:         registry,
+		RedisPrefix:      cfg.RedisPrefix,
+		PublicURL:        cfg.PublicURL,
+		OIDCIssuer:       cfg.OIDCIssuer,
+		OIDPSigner:       oidpSigner,
+		OIDPProvider:     oidpProvider,
+		OAuthHandlers:    apiHandlers,
+		AdminHandlers:    apiHandlers,
+		Log:              log,
 	})
 	if err != nil {
 		return fmt.Errorf("build router: %w", err)

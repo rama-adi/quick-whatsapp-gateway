@@ -54,6 +54,9 @@ type APIConfig struct {
 	OIDCIssuer              string // OIDC_ISSUER: defaults to API_PUBLIC_URL (including legacy fallback)
 	OIDCKeyEncKey           string // OIDC_KEY_ENC_KEY: base64/raw 32-byte AES-GCM key
 	OAuthClientSecretPepper string // OAUTH_CLIENT_SECRET_PEPPER: pepper for SHA-256(client_secret+pepper)
+	AppEncryptionKey        string // APP_ENCRYPTION_KEY: AES-GCM key for webhook HMAC secrets (API-owned since Increment 7)
+	WebhookRetryDelay       int    // WEBHOOK_RETRIES_DELAY (seconds): seeds new webhooks' retry policy
+	WebhookRetryAttempts    int    // WEBHOOK_RETRIES_ATTEMPTS: seeds new webhooks' retry policy
 	WhatsAppAdminCmdPrefix  string // WHATSAPP_ADMIN_CMD_PREFIX: reserved command namespace prefix
 	WebLoginURL             string // WEB_LOGIN_URL: public consent page URL
 	OIDCRequestTTLSeconds   int    // OIDC_REQUEST_TTL_SECONDS
@@ -87,6 +90,9 @@ func LoadAPI() (*APIConfig, error) {
 		OIDCIssuer:                 getString("OIDC_ISSUER", ""),
 		OIDCKeyEncKey:              getString("OIDC_KEY_ENC_KEY", ""),
 		OAuthClientSecretPepper:    getString("OAUTH_CLIENT_SECRET_PEPPER", ""),
+		AppEncryptionKey:           getString("APP_ENCRYPTION_KEY", ""),
+		WebhookRetryDelay:          getInt("WEBHOOK_RETRIES_DELAY", 2),
+		WebhookRetryAttempts:       getInt("WEBHOOK_RETRIES_ATTEMPTS", 5),
 		WhatsAppAdminCmdPrefix:     getString("WHATSAPP_ADMIN_CMD_PREFIX", "am"),
 		WebLoginURL:                getString("WEB_LOGIN_URL", ""),
 		OIDCRequestTTLSeconds:      getInt("OIDC_REQUEST_TTL_SECONDS", 600),
@@ -215,6 +221,9 @@ func (c *APIConfig) Validate() error {
 	}
 	if c.OAuthClientSecretPepper == "" {
 		return fmt.Errorf("config: OAUTH_CLIENT_SECRET_PEPPER is required for OAuth client secret hashing")
+	}
+	if c.AppEncryptionKey == "" {
+		return fmt.Errorf("config: APP_ENCRYPTION_KEY is required for webhook secret encryption")
 	}
 	if c.RedisURL == "" {
 		return fmt.Errorf("config: REDIS_URL is required for OAuth pending requests")

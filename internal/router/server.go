@@ -73,6 +73,11 @@ type Config struct {
 	// MessageHandlers serves the API-owned send operation (gRPC Increment 6)
 	// locally instead of proxying it to a gateway; nil keeps full proxying.
 	MessageHandlers *handlersapi.Handlers
+	// ResourceHandlers serves the projection/stub resource operations locally
+	// (gRPC Increment 7 wave A): webhooks, chats, contacts, groups, channels,
+	// status, backup, and admin. Live sub-operations inside those groups return
+	// the same 501 envelope until their engine RPCs land. Nil keeps proxying.
+	ResourceHandlers *handlersapi.Handlers
 
 	StaleAfter time.Duration     // optional; <=0 => defaultStaleAfter
 	Transport  http.RoundTripper // optional; nil => http.DefaultTransport
@@ -87,32 +92,33 @@ type Config struct {
 // the same key material used by the Minter. Mutable dependencies such as Redis,
 // repositories, registries, and transports own their own synchronization.
 type Server struct {
-	sessions        SessionResolver
-	gateways        GatewayResolver
-	minter          *assertion.Minter
-	tokens          authz.TokenVerifier
-	keys            authz.KeyVerifier
-	corsOrigins     []string
-	readiness       func() error
-	openAPIPath     string
-	jwksJSON        []byte
-	redis           realtimeRedis
-	pump            *stream.Pump
-	registry        *stream.ConnRegistry
-	redisPrefix     string
-	publicURL       string
-	oidcIssuer      string
-	oidpSigner      *oidp.Signer
-	oidpProvider    *oidp.Provider
-	oauthHandlers   *handlersapi.Handlers
-	adminHandlers   *handlersapi.Handlers
-	messageHandlers *handlersapi.Handlers
-	wsOrigins       []string
-	staleAfter      time.Duration
-	transport       http.RoundTripper
-	now             func() time.Time
-	dbStats         func() sql.DBStats
-	log             *slog.Logger
+	sessions         SessionResolver
+	gateways         GatewayResolver
+	minter           *assertion.Minter
+	tokens           authz.TokenVerifier
+	keys             authz.KeyVerifier
+	corsOrigins      []string
+	readiness        func() error
+	openAPIPath      string
+	jwksJSON         []byte
+	redis            realtimeRedis
+	pump             *stream.Pump
+	registry         *stream.ConnRegistry
+	redisPrefix      string
+	publicURL        string
+	oidcIssuer       string
+	oidpSigner       *oidp.Signer
+	oidpProvider     *oidp.Provider
+	oauthHandlers    *handlersapi.Handlers
+	adminHandlers    *handlersapi.Handlers
+	messageHandlers  *handlersapi.Handlers
+	resourceHandlers *handlersapi.Handlers
+	wsOrigins        []string
+	staleAfter       time.Duration
+	transport        http.RoundTripper
+	now              func() time.Time
+	dbStats          func() sql.DBStats
+	log              *slog.Logger
 }
 
 // NewServer validates mandatory routing and signing dependencies, precomputes the
@@ -135,32 +141,33 @@ func NewServer(cfg Config) (*Server, error) {
 		return nil, err
 	}
 	s := &Server{
-		sessions:        cfg.Sessions,
-		gateways:        cfg.Gateways,
-		minter:          cfg.Minter,
-		tokens:          cfg.Tokens,
-		keys:            cfg.Keys,
-		corsOrigins:     cfg.CORSOrigins,
-		readiness:       cfg.Readiness,
-		openAPIPath:     cfg.OpenAPIPath,
-		jwksJSON:        jwksJSON,
-		redis:           cfg.Redis,
-		pump:            cfg.Pump,
-		registry:        cfg.Registry,
-		redisPrefix:     cfg.RedisPrefix,
-		publicURL:       cfg.PublicURL,
-		oidcIssuer:      strings.TrimRight(cfg.OIDCIssuer, "/"),
-		oidpSigner:      cfg.OIDPSigner,
-		oidpProvider:    cfg.OIDPProvider,
-		oauthHandlers:   cfg.OAuthHandlers,
-		adminHandlers:   cfg.AdminHandlers,
-		messageHandlers: cfg.MessageHandlers,
-		wsOrigins:       cfg.CORSOrigins,
-		staleAfter:      cfg.StaleAfter,
-		transport:       cfg.Transport,
-		now:             cfg.Now,
-		dbStats:         cfg.DBStats,
-		log:             cfg.Log,
+		sessions:         cfg.Sessions,
+		gateways:         cfg.Gateways,
+		minter:           cfg.Minter,
+		tokens:           cfg.Tokens,
+		keys:             cfg.Keys,
+		corsOrigins:      cfg.CORSOrigins,
+		readiness:        cfg.Readiness,
+		openAPIPath:      cfg.OpenAPIPath,
+		jwksJSON:         jwksJSON,
+		redis:            cfg.Redis,
+		pump:             cfg.Pump,
+		registry:         cfg.Registry,
+		redisPrefix:      cfg.RedisPrefix,
+		publicURL:        cfg.PublicURL,
+		oidcIssuer:       strings.TrimRight(cfg.OIDCIssuer, "/"),
+		oidpSigner:       cfg.OIDPSigner,
+		oidpProvider:     cfg.OIDPProvider,
+		oauthHandlers:    cfg.OAuthHandlers,
+		adminHandlers:    cfg.AdminHandlers,
+		messageHandlers:  cfg.MessageHandlers,
+		resourceHandlers: cfg.ResourceHandlers,
+		wsOrigins:        cfg.CORSOrigins,
+		staleAfter:       cfg.StaleAfter,
+		transport:        cfg.Transport,
+		now:              cfg.Now,
+		dbStats:          cfg.DBStats,
+		log:              cfg.Log,
 	}
 	if s.staleAfter <= 0 {
 		s.staleAfter = defaultStaleAfter
@@ -243,6 +250,20 @@ func (s *Server) Handler() http.Handler {
 			authed.Use(authz.Authenticate(s.tokens, s.keys))
 			hapi := humax.NewAPI(authed)
 			handlersapi.RegisterSendMessageOp(hapi, s.messageHandlers)
+		})
+	}
+	if s.resourceHandlers != nil {
+		r.Group(func(authed chi.Router) {
+			authed.Use(authz.Authenticate(s.tokens, s.keys))
+			hapi := humax.NewAPI(authed)
+			handlersapi.RegisterWebhookOps(hapi, s.resourceHandlers)
+			handlersapi.RegisterChatOps(hapi, s.resourceHandlers)
+			handlersapi.RegisterContactOps(hapi, s.resourceHandlers)
+			handlersapi.RegisterGroupOps(hapi, s.resourceHandlers)
+			handlersapi.RegisterChannelOps(hapi, s.resourceHandlers)
+			handlersapi.RegisterStatusOps(hapi, s.resourceHandlers)
+			handlersapi.RegisterBackupOps(hapi, s.resourceHandlers)
+			handlersapi.RegisterAdminOps(hapi, s.resourceHandlers)
 		})
 	}
 	if s.oidpSigner != nil {

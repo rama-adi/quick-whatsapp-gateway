@@ -57,6 +57,7 @@ func TestLoadAPI_DefaultsAndValidate(t *testing.T) {
 	cfg.OIDCIssuer = cfg.PublicURL
 	cfg.OIDCKeyEncKey = base64.StdEncoding.EncodeToString([]byte("12345678901234567890123456789012"))
 	cfg.OAuthClientSecretPepper = "test-pepper"
+	cfg.AppEncryptionKey = base64.StdEncoding.EncodeToString([]byte("12345678901234567890123456789012"))
 	cfg.RedisURL = "redis://localhost:6379"
 	cfg.WebLoginURL = "https://web.example.com/login/whatsapp"
 	if err := cfg.Validate(); err != nil {
