@@ -13,7 +13,7 @@ import (
 func clearEnv(t *testing.T) {
 	t.Helper()
 	keys := []string{
-		"GATEWAY_HTTP_ADDR", "HTTP_ADDR", "GATEWAY_ID",
+		"GATEWAY_HTTP_ADDR", "GATEWAY_ID",
 		"GATEWAY_CONTROL_PLANE_ADDR", "GATEWAY_CREDENTIAL_DIR", "GATEWAY_BOOTSTRAP_CA_FILE", "GATEWAY_ENROLLMENT_TOKEN", "GATEWAY_CERTIFICATE_RENEW_BEFORE",
 		"GATEWAY_ENGINE_GRPC_ADDR", "GATEWAY_ENGINE_GRPC_ADVERTISE_ADDR", "GATEWAY_JOURNAL_PATH",
 		"WHATSMEOW_STORE_DSN",
@@ -62,7 +62,8 @@ func TestLoadGateway_Defaults(t *testing.T) {
 }
 
 // TestGatewayControlPlaneConfigIsMandatoryAndPathsAreStrict pins the Increment
-// 9 cutover: there is no control-disabled mode. A minimal config without the
+// 9 cutover: the control plane is mandatory (no non-control mode exists). A
+// minimal config without the
 // control-plane triple is rejected; every configured path is validated strictly.
 func TestGatewayControlPlaneConfigIsMandatoryAndPathsAreStrict(t *testing.T) {
 	base := GatewayConfig{HTTPAddr: ":8080", WhatsmeowStoreDSN: "file:test.db", GatewayID: "gw-1", LogLevel: "info"}
@@ -166,19 +167,17 @@ func TestGatewayControlPlaneEnvTypoFailsValidation(t *testing.T) {
 
 func TestLoadGateway_EndpointEnvPrecedence(t *testing.T) {
 	tests := []struct {
-		name               string
-		primaryAddr, alias string
-		wantAddr           string
+		name      string
+		primary   string
+		wantAddr  string
 	}{
-		{"primary wins", ":7001", ":7002", ":7001"},
-		{"deprecated aliases", "", ":7002", ":7002"},
-		{"defaults", "", "", ":8080"},
+		{"set", ":7001", ":7001"},
+		{"defaults", "", ":8080"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			clearEnv(t)
-			t.Setenv("GATEWAY_HTTP_ADDR", tt.primaryAddr)
-			t.Setenv("HTTP_ADDR", tt.alias)
+			t.Setenv("GATEWAY_HTTP_ADDR", tt.primary)
 			cfg, err := LoadGateway()
 			if err != nil {
 				t.Fatal(err)

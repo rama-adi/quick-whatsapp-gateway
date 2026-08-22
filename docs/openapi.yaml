@@ -3666,7 +3666,7 @@ components:
             - 01J9ZX8K2QHV0M3T6R7P4N5W8C
           type: string
         isAdminSession:
-          description: True if this is the gateway's configured admin session (the WHATSAPP_ADMIN_NUMBER). The admin session has extra privileges such as triggering live-data backfills.
+          description: True if this is the platform's admin session. The admin session has extra privileges such as triggering live-data backfills.
           examples:
             - false
           type: boolean

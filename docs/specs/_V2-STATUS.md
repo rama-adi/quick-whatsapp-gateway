@@ -15,7 +15,7 @@ R-milestone that re-implements its subsystem.
 
 | Spec | v2 disposition | Owning milestone | Notes |
 |---|---|---|---|
-| `grpc-contracts.md` | ✅ Increments 1–9 | gRPC control plane | Public v1 gRPC (health/sessions/messages/streaming events) with shared authn/org/error semantics is live; private engine surface complete; every public operation serves API-locally. **Increment 9:** the gateway binary runs on SQLite keystore + journal + whatsmeow + mTLS gRPC + probes only — MySQL, Redis, and the gateway HTTP API are removed. Hardening (Increment 10) remains. |
+| `grpc-contracts.md` | ✅ Increments 1–10 | gRPC control plane | Public v1 gRPC (health/sessions/messages/streaming events) with shared authn/org/error semantics is live; private engine surface complete; every public operation serves API-locally. **Increment 9:** the gateway binary runs on SQLite keystore + journal + whatsmeow + mTLS gRPC + probes only — MySQL, Redis, and the gateway HTTP API are removed. **Increment 10 (final):** migration complete; chaos semantics pinned by tests. |
 | `http-foundation.md` | ✅ API-owned Huma + public gRPC | central-router / gRPC Inc 8–9 | Single front door: auth/CORS/control-bus, Huma REST + OpenAPI, ticketed WebSocket, plus the public.v1 gRPC adapters in `internal/apigrpc`. The gateway chi router and admission gate are deleted; only probe endpoints remain on the gateway. |
 | `router.md` | ✅ Increment 9 | central-router → gRPC control plane | Single front door/trust boundary: router-owned auth/CORS/control bus, REST + OpenAPI, and ticketed WebSocket over shared Redis. The reverse proxy and the Ed25519 internal assertion are removed; live work executes over private mTLS engine RPCs. |
 | `trust-model.md` | ✅ v2 (replaced `auth-tenancy.md`) | R1/R2 + gRPC control plane | Two caller identities (JWKS-JWT, api-key); org ownership; control bus + cache + revocation. Authn + control-bus run on the API; gateways authenticate by per-gateway mTLS identity with strict per-RPC authorization. |
@@ -38,3 +38,9 @@ R-milestone that re-implements its subsystem.
 
 > All subsystem specs are now v2. The masterplan is the overview; these specs are the detail;
 > `../openapi.yaml` is the API contract of record.
+>
+> **gRPC control-plane migration: COMPLETE (all ten increments landed, Increment 10 ✅).**
+> Chaos semantics (lost send response → ledger replay; lost ingest ack → deduplicated
+> replay) are pinned by unit tests; temporary compatibility names/config are removed. The
+> gRPC-control-plane plan is the historical design record; these specs describe the
+> surviving architecture only.

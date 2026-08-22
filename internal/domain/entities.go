@@ -71,7 +71,7 @@ type WASession struct {
 	WAJID           *string       `json:"waJid,omitempty" doc:"The session's own WhatsApp JID, set once the number is paired. Optional; null before pairing." example:"6281234567890@s.whatsapp.net"`
 	WALID           *string       `json:"waLid,omitempty" doc:"The session's linked-device id (LID) — WhatsApp's privacy-preserving per-device address. Optional; null before pairing." example:"205227043110953@lid"`
 	PhoneNumber     *string       `json:"phoneNumber,omitempty" doc:"The paired phone number in plain digits (E.164 without +). Optional; null before pairing." example:"6281234567890"`
-	IsAdminSession  bool          `json:"isAdminSession" doc:"True if this is the gateway's configured admin session (the WHATSAPP_ADMIN_NUMBER). The admin session has extra privileges such as triggering live-data backfills." example:"false"`
+	IsAdminSession  bool          `json:"isAdminSession" doc:"True if this is the platform's admin session. The admin session has extra privileges such as triggering live-data backfills." example:"false"`
 	AutoRead        bool          `json:"autoRead" doc:"Whether incoming messages are automatically marked read (blue ticks) before the session acts on them." example:"false"`
 	PresenceTyping  bool          `json:"presenceTyping" doc:"Whether a \"typing…\" presence indicator is sent to the recipient while a message is being sent." example:"true"`
 	RatePerMin      int           `json:"ratePerMin" doc:"Outbound send rate limit for this session, in messages per minute. Sends exceeding the limit are throttled." example:"20"`

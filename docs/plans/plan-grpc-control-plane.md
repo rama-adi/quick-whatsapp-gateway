@@ -1,40 +1,27 @@
 # Plan: gRPC Control Plane and Database-Independent Gateways
 
-Status: **active migration** — design of record; implementation is proceeding incrementally on this branch.
+Status: **COMPLETE (all increments landed)** — this document is the historical design
+record for the migration; living architecture detail lives in `docs/specs/`.
 Branch: `migration/grpc-control-plane`.
 
-> **Current checkpoint (Increment 4):** Increments 2, 2a, and 3 are
-> complete. Enrollment persistence and crypto policy, the persistent
-> local CA, the crash-safe enrollment service, the private TLS 1.3 enrollment listener, strict
-> per-RPC certificate authorization, and crash-safe gateway credential bootstrap over a reusable
-> mTLS connection are implemented. The versioned control-stream contract is also implemented.
-> API-side private-stream registration, database-backed connection epochs, protocol validation, and
-> epoch-fenced Hello/heartbeat writes are implemented. The API acknowledges a heartbeat only after
-> its fenced persistence succeeds, enforces both a Hello deadline and the advertised heartbeat
-> lease, and the wired gateway supervisor reconnects with backoff, validates acknowledgements, and
-> gates readiness on an acknowledged READY/RUN heartbeat.
-> In control-enabled mode that stream is the exclusive registry writer: the five legacy boot,
-> heartbeat, and shutdown mutations are gated off. Control-disabled deployments retain the legacy
-> path. Authenticated Hello persistence carries the transitional HTTP base URL; fenced disconnect
-> clears liveness; explicit control/legacy connection mode selects the 15/90-second freshness
-> window. Observed runtime status is separate from desired RUN/DRAIN, and placement requires desired
-> RUN. Engine admission stays closed until acknowledged RUN+READY; DRAIN drains admitted requests
-> and terminally stops and joins Asynq workers before manager work. Admission close is irreversible.
-> Transient startup outages expose diagnostics unready and boot under the same lifetime lifecycle
-> watcher after a later RUN, while terminal supervisor errors always terminate cleanly. Graceful
-> shutdown uses reconnect-safe Flush calls for acknowledged DRAINING/DRAINED heartbeats before
-> stream cancellation. Strict post-Welcome lifecycle directives/reports execute through the gateway
-> supervisor. Automatic certificate renewal proves a replacement control stream before retiring the
-> incumbent connection. Audited API-local gateway administration and the `super_admin` web workflow
-> cover creation, one-time enrollment, observation, lifecycle control, re-enrollment, and safe
-> deletion without persisting plaintext enrollment tokens. The API now streams atomic revisioned
-> assignments, configuration, assignment epochs, and renewable leases. Gateways reconcile only
-> matching local devices, stop removed/expired assignments, report missing/corrupt/unexpected state,
-> and boot without MySQL lifecycle reads. Control-mode placement requires a healthy, current
-> reconciliation. Persistent-volume validation, SQLite integrity checks, fail-closed missing-store
-> handling, WAL checkpoint shutdown, operator recovery guidance, and admin observability are wired.
-> Private engine RPC migration is the active Increment 4 boundary; event/command and final dependency
-> cutovers remain unfinished.
+> **Current checkpoint (final):** All ten increments are complete. The API is the only
+> public front door — Huma REST/OpenAPI, the public `public.v1` gRPC surface, and the
+> ticketed WebSocket terminate there, sharing one authn/org-isolation/error path.
+> Gateways are private WhatsApp engines on gateway-local SQLite (keystore + event
+> journal + command ledger) with whatsmeow and mTLS private gRPC only: no MySQL, no
+> Redis, no public HTTP. Enrollment uses per-gateway SPIFFE identities from a persisted
+> local CA with overlapping-stream renewal; the control stream carries epoch-fenced
+> Hello/heartbeats, lifecycle directives, revisioned desired-state assignments with
+> renewable leases, journal-telemetry heartbeats, and acknowledged event ingest whose
+> fan-out (realtime, webhooks, projections) runs API-side after commit. Outbound sends
+> and message ops are durable command rows dispatched over the private engine under a
+> stable command id, deduplicated by the gateway's write-before-respond result ledger,
+> so retries replay instead of re-sending. Chaos tests pin the two core loss scenarios:
+> a send that succeeds at WhatsApp but loses its response replays the original result
+> without a second dispatch, and an ingest acknowledgement lost after commit is
+> recovered by journal replay as a deduplicated no-op re-acknowledged at the same
+> watermark. Deployment follow-ups (dashboards/alerts, production CA provider choice)
+> are tracked in `docs/mvp-progress.md`.
 
 This plan replaces the current router → gateway HTTP reverse-proxy architecture with an API
 control plane and private WhatsApp engine gateways connected through gRPC. It also introduces a
@@ -710,6 +697,16 @@ Exit: gateway starts with only local SQLite, WhatsApp connectivity, and API/mTLS
 - Delete temporary compatibility names/config and mark the old router plan superseded.
 
 Exit: the target architecture is the only supported deployment path.
+
+> **Completion note:** all ten increments landed on `migration/grpc-control-plane`.
+> Increment 10's soak/chaos behaviors are pinned by unit tests (scheduler
+> duplicate-claim replay and ambiguous-timeout convergence in
+> `internal/service/outbound_scheduler_test.go`, ingest replay after lost ack in
+> `internal/api/gateway/control_test.go`, lease-expiry reconnect + journal replay in
+> `internal/gateway/controlsupervisor/supervisor_test.go`, journal capacity states in
+> `internal/gateway/journal/journal_test.go`). Dashboards/alerts are deferred as a
+> deployment follow-up. Temporary compatibility names/config were swept; the old router
+> plan is marked superseded.
 
 ---
 

@@ -53,9 +53,8 @@ transport errors. The gateway side executes them through
   upsert after create, backfill identity/group writes). A projection write
   failure never fails the live operation itself.
 
-The legacy manager-backed path remains for control-disabled deployments; when
-neither seam is configured, services keep returning the `not_implemented`
-envelope.
+Live operations execute through the engine facade; when neither seam is configured, services keep
+returning the `not_implemented` envelope.
 
 The production adapter is `wa.LiveOps` (`internal/wa/liveops.go`), a
 manager-backed value returned by `Manager.LiveOps()`. It resolves the per-session

@@ -8,7 +8,7 @@ only live delivery: how events are fanned out over Redis pub/sub and pumped to a
 client connection.
 
 The **client transport is the central router's WebSocket** (`GET /api/v1/realtime`,
-ticket-redeemed — see [`router.md`](./router.md)). The gateway's legacy NDJSON
+ticket-redeemed — see [`router.md`](./router.md)). The former gateway NDJSON
 `GET /api/v1/events` transport has been **removed**: a serverless frontend cannot hold
 a long-lived streaming connection to N gateways, and a browser WebSocket cannot carry
 an `Authorization` header, so realtime is terminated once on the router. The gateway's
@@ -141,10 +141,7 @@ realtime tests in `internal/router`.)
 
 ## What the composition root wires
 
-- **Gateway (transitional):** register `*Publisher` as the system's `EventSink` so
-  inbound fan-out reaches Redis. It remains in place until durable API ingestion
-  becomes the active producer.
-- **API ingestion:** pass the same `*Publisher` to
+- **API ingestion:** pass the `*Publisher` to
   `service.CommittedEventDispatcher`, which is run by the durable
   `CommittedEventWorker` only after the event-log commit. The completed-event
   store and the event id govern replay; the publisher remains compatible with

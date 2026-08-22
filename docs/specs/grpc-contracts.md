@@ -218,9 +218,9 @@ future compatible additions.
 
 The persistence layer atomically allocates a monotonically increasing `connection_epoch` from MySQL
 and stores validated Hello metadata for each accepted connection. Hello may carry an optional
-authenticated `http_base_url`, distinct from the future private `grpc_endpoint`; the API validates
-it as a canonical absolute HTTP(S) URL and persists it in the same fenced accept write so the
-transitional HTTP router can address a freshly enrolled gateway without an unfenced self-Upsert.
+authenticated `http_base_url`, distinct from the private `grpc_endpoint`; the API validates it as a
+canonical absolute HTTP(S) URL and persists it in the same fenced accept write so an API-advertised
+gateway base URL stays current without an unfenced self-Upsert.
 Missing, deleted, disabled,
 pending-enrollment, and unenrolled gateways cannot allocate an epoch. Heartbeat,
 connection-metadata, and the reserved lifecycle persistence primitive require the current epoch;
@@ -243,7 +243,7 @@ runtime `status`. The desired value is RUN or DRAIN; a DRAINING/DRAINED heartbea
 status only and cannot latch an operator desire to drain across the next process start.
 
 Hello requires instance ID and software version lengths of 1–128 bytes, optional gRPC and
-transitional HTTP endpoints of at most 512 bytes, a positive representable Unix-millisecond start
+HTTP base-URL endpoints of at most 512 bytes, a positive representable Unix-millisecond start
 time, a known runtime state, and at most 16 unique known capabilities. Heartbeat requires a nonzero
 connection epoch, a positive representable Unix-millisecond timestamp, and a known runtime state;
 the accepted epoch and Welcome sequence must also match. Stale-epoch writes fail the stream rather
@@ -284,15 +284,15 @@ directive reports. `Flush` is generation- and epoch-aware: success requires an a
 newer than the call, and a reconnect causes the requested runtime snapshot to be reported on the
 replacement epoch rather than accepting an old acknowledgement.
 
-Control-enabled mode exclusively owns registry liveness through the stream. It gates off exactly
-five legacy direct-MySQL mutations: joining registration, active registration, periodic heartbeat,
-shutdown draining, and shutdown drained. Control-disabled mode retains that legacy path.
+The control stream exclusively owns registry liveness through the stream. The former
+gateway-local direct-MySQL mutations — joining registration, active registration, periodic
+heartbeat, shutdown draining, and shutdown drained — are deleted.
 
 The API's epoch-fenced disconnect write clears liveness only when the ending stream still owns the
-current epoch; a stale stream therefore cannot make its replacement unreachable. The explicit
-`connection_mode` written by registration/accept selects freshness: `control` rows use 15 seconds,
-matching the advertised lease, while `legacy` rows retain 90 seconds for the 30-second heartbeat
-cadence. A later legacy registration switches the row back to legacy freshness.
+current epoch; a stale stream therefore cannot make its replacement unreachable. The registry's
+`connection_mode` is written `control` by accept; the historical `legacy` value survives only on
+pre-migration rows. Liveness freshness follows the advertised 15-second lease matching the
+heartbeat cadence.
 
 This is still not full gateway runtime parity. A post-Welcome RUN starts or affirms engine work
 only before terminal drain; a later RUN receives a bounded failure report instead of restarting it.

@@ -5,9 +5,8 @@
 > history, and admin bootstrap are all API-owned. Control-plane desired-state
 > assignments are the only thing that starts a session locally, and every
 > lifecycle event (status changes, pairing) flows to the API through the event
-> journal for post-commit projection. The legacy MySQL-reading `Boot`, the boot
-> orphan-guard, admin-number self-bootstrap, `CreateSession`, and the
-> control-disabled mode are removed.
+> journal for post-commit projection. The former MySQL-reading `Boot`, the boot
+> orphan-guard, admin-number self-bootstrap, and `CreateSession` are removed.
 
 Status: implemented. Package `internal/wa`, files `manager.go`, `session.go`.
 

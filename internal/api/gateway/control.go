@@ -290,7 +290,12 @@ func (s *Server) Connect(stream gatewayv1.GatewayControlService_ConnectServer) (
 			}
 			if err = s.Store.IngestEvents(stream.Context(), gatewayID, connection.Epoch, events); err == nil {
 				outboundSequence++
-				err = stream.Send(&gatewayv1.ControlFrame{ProtocolVersion: ProtocolVersion, Sequence: outboundSequence, Payload: &gatewayv1.ControlFrame_EventAck{EventAck: &gatewayv1.GatewayEventAck{AcknowledgedJournalSequence: events[len(events)-1].JournalSequence}}})
+				if err = stream.Send(&gatewayv1.ControlFrame{ProtocolVersion: ProtocolVersion, Sequence: outboundSequence, Payload: &gatewayv1.ControlFrame_EventAck{EventAck: &gatewayv1.GatewayEventAck{AcknowledgedJournalSequence: events[len(events)-1].JournalSequence}}}); err != nil {
+					// A lost acknowledgement is a transport failure, not a
+					// persistence failure: map it like every other send so the
+					// gateway's journal replay is classified as retryable.
+					return sendStatus(err)
+				}
 			}
 		case *gatewayv1.GatewayFrame_LifecycleReport:
 			if pendingDirective == nil {

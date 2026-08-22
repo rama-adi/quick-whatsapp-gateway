@@ -1,5 +1,12 @@
 # Plan: Central Router + Gateway Accounting (Layer 1)
 
+> **SUPERSEDED (2026-08).** This plan is a historical design record only. The
+> central-router architecture it describes was superseded by the gRPC control-plane
+> migration: [`plan-grpc-control-plane.md`](./plan-grpc-control-plane.md) is now the
+> completed design of record, and [`masterplan-mvp.md`](./masterplan-mvp.md) is the
+> living overview. The reverse proxy, gateway self-registration, and Ed25519
+> assertion described here have all been removed; do not implement from this document.
+
 Status: **proposed** — design of record for the centralization work. No code yet.
 Branch: `feat/central-router`.
 

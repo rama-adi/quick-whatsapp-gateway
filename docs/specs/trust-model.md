@@ -334,12 +334,11 @@ the current-epoch write succeeds.
 
 The gateway reconnect supervisor is wired over the bootstrap client's reusable mTLS connection. It
 validates Welcome and every durable heartbeat acknowledgement, reconnects transient failures with
-backoff, and gates readiness and all transitional engine-route admission on an acknowledged READY/RUN
-heartbeat. An installed local identity can start while the API is unavailable; connection recovery
-belongs to the supervisor rather than a synchronous startup health proof. In control-enabled mode
-the stream exclusively owns registry liveness and the gateway skips its five legacy direct writes:
-joining registration, active registration, periodic heartbeat, shutdown draining, and shutdown
-drained. Control-disabled mode retains those writes.
+backoff, and gates readiness and all engine-route admission on an acknowledged READY/RUN heartbeat.
+An installed local identity can start while the API is unavailable; connection recovery belongs to
+the supervisor rather than a synchronous startup health proof. The stream exclusively owns registry
+liveness: gateway-local registry writes (joining/active registration, periodic heartbeats, shutdown
+draining/drained) are deleted.
 
 Gateway certificate rollover is enabled only with an explicit
 `GATEWAY_CERTIFICATE_RENEW_BEFORE` duration. The gateway derives every renewal
@@ -355,13 +354,13 @@ degraded and drives normal admission-closing shutdown rather than operating
 with an expired identity.
 
 The registry separates observed `status` from authoritative `desired_lifecycle` (`run`/`drain`) and
-records explicit `connection_mode` (`legacy`/`control`). Hello's optional authenticated
-`http_base_url` is persisted during epoch allocation and keeps the
-transitional HTTP proxy addressable without restoring an unfenced gateway Upsert. Disconnect
+records a `connection_mode` that is always `control` for new rows (the column retains the
+historical `legacy` value only on pre-migration rows). Hello's optional authenticated
+`http_base_url` is persisted during epoch allocation and keeps an API-advertised gateway base URL
+current without an unfenced gateway Upsert. Disconnect
 clears liveness only for the current epoch, so an ending stale stream cannot clear a replacement
-stream; it does not synthesize a terminal lifecycle state. Control accept sets mode `control`;
-legacy Upsert sets it back to `legacy`. Those modes select a 15-second stream freshness window or a
-90-second legacy window respectively.
+stream; it does not synthesize a terminal lifecycle state. Control accept sets mode `control`; no
+writer sets it back to `legacy`. Liveness freshness follows the advertised 15-second stream lease.
 
 DRAIN/DISABLE Welcome closes all engine-route admission terminally for that process. Initial DRAIN
 prevents manager Boot; post-Boot DRAIN drains already-admitted requests before shutting down manager

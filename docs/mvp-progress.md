@@ -33,9 +33,9 @@ Plan: [`plans/plan-router-impl.md`](plans/plan-router-impl.md). Spec: [`specs/ro
 
 ## gRPC control-plane migration (`migration/grpc-control-plane`)
 
-Plan: [`plans/plan-grpc-control-plane.md`](plans/plan-grpc-control-plane.md). The target is locked,
-but the current router/proxy, gateway MySQL/Redis dependencies, and Ed25519 assertion remain live
-until later increments replace them.
+Plan: [`plans/plan-grpc-control-plane.md`](plans/plan-grpc-control-plane.md). **Complete —
+all ten increments landed.** The plan document is now the historical design record; the
+living architecture is described in `docs/specs/`.
 
 | Increment | Status | Notes |
 |---|---|---|
@@ -54,7 +54,8 @@ until later increments replace them.
 | **Increment 6** — outbound message commands | ✅ Complete | The API's OutboundScheduler owns durable command rows (row id = stable command_id), product rate limits, and retry/backoff; the gateway executes SendMessage at most once per command id via its journal-local result ledger (write-before-respond), so retried ambiguous attempts replay instead of re-sending. Sends are served API-locally over the private engine; the gateway send worker is retired. |
 | **Increment 7** — remaining live resource operations | ✅ Complete | Every public operation serves API-locally: projections mount directly, live contact/group/chat-presence/backfill operations execute through private engine RPCs with API-owned projections, message ops are ledger-deduped commands, and session lifecycle runs through desired state plus Prepare/Pairing/Logout/Forget RPCs. Backup import is API-owned with its existing upload/quota/stale-lock limits. |
 | **Increment 8** — public gRPC surface | ✅ Complete | `public.v1` sessions/messages/chats/events adapters serve beside REST with the shared two-acceptor authn, org scoping, and error semantics. |
-| **Increment 9** — gateway dependency removal | ✅ Complete | The gateway binary runs on **SQLite keystore + event journal + whatsmeow + mTLS gRPC + probes only**: MySQL (repos, readiness, DB metrics, legacy registry writes) and Redis (queue server/workers/scheduler, stream publisher, OIDP pending store/interceptor subscriber, rate limiter) are removed. Control plane is mandatory (`GATEWAY_CONTROL_PLANE_ADDR` required; control-disabled mode deleted). WhatsApp-data projections run API-side over committed events; the manager holds no session repository; the webhook dispatch loop moved to the API; the gateway chi router/admission gate are deleted. Deploy configs carry only gateway-local settings. Increment 10 hardening remains. |
+| **Increment 9** — gateway dependency removal | ✅ Complete | The gateway binary runs on **SQLite keystore + event journal + whatsmeow + mTLS gRPC + probes only**: MySQL (repos, readiness, DB metrics, legacy registry writes) and Redis (queue server/workers/scheduler, stream publisher, OIDP pending store/interceptor subscriber, rate limiter) are removed. Control plane is mandatory (`GATEWAY_CONTROL_PLANE_ADDR` required; control-disabled mode deleted). WhatsApp-data projections run API-side over committed events; the manager holds no session repository; the webhook dispatch loop moved to the API; the gateway chi router/admission gate are deleted. Deploy configs carry only gateway-local settings. |
+| **Increment 10** — hardening and operational cutover | ✅ Complete | Chaos semantics pinned by unit tests: a duplicate claim of a sent outbox row (lost RPC response / stale-lease recovery) replays the ledger result with exactly one WhatsApp send, an ambiguous timeout converges to `sent` exactly once under the same command id, ingest replay after a lost acknowledgement commits as a dedup no-op re-acknowledged at the same watermark, lease expiry reconnects with backoff and replays unacked journal batches, and journal capacity-state transitions are covered. Temporary compatibility names/config swept; the old router plan marked superseded. Dashboards/alerts deferred as deployment follow-ups (see Open risks). **The migration is complete — all ten increments landed.** |
 
 ## v1 milestones (archived — code complete)
 
@@ -186,14 +187,18 @@ e2e smoke against a live WhatsApp number.
 
 ## Open risks / follow-ups
 
-- **better-auth api-key hash replicability** — RESOLVED for the pinned version: better-auth
-  1.6.22's default hash is `base64url(SHA-256(rawKey))` unpadded, replicated in
-  `internal/authz` and locked by the R5 contract test. A major-version bump must re-run that
-  test; the `/api/auth/api-key/verify` remote fallback stays available. (Masterplan §4.2, §19.)
-- **`docs/specs/*` rewrite** — COMPLETE at R5: every spec is v2, [`specs/_V2-STATUS.md`](specs/_V2-STATUS.md)
-  is all-green.
-- **R6 collaboration UI** — members/invitations UI is the remaining fast-follow; org plumbing
-  already shipped.
+- **Dashboards/alerts for the control plane (deployment work, deferred from Increment 10).**
+  The plan's observability targets still need operator-facing dashboards and alerts: control-stream
+  lag/reconnects, journal bytes + oldest unacked event, command ambiguity counts, certificate
+  expiry, desired-vs-applied reconciliation revision, and gateway clock skew. Metrics are exported;
+  the dashboard/alert rules are deployment configuration, not code.
+- **Production CA provider choice.** Development uses the persisted local root/intermediate signer
+  behind the `CertificateSigner` seam; Vault PKI is the reference implementation. Each production
+  deployment must pick (and fund) a provider before enrolling real gateways.
+- **Journal sizing/tuning after a real soak.** Initial limits target a 72h outage objective (1 GiB
+  cap, ≤25% of volume budget, 70/80/90% degraded/paused/critical thresholds, ≤256 events or 1 MiB in
+  flight, 7-day command-ledger retention). Retune from observed p50/p95 event bytes and peak event
+  rates on production-like traffic.
 - **OIDP login-interceptor re-homing (Increment 9 remainder).** The gateway's Redis-backed OIDP
   pieces (`oidp.PendingStore`, `LoginInterceptor`, `AppChangeSubscriber`) were deleted with its
   Redis dependency; the API already owns the OIDP provider, pending codes, and control subscriber.
@@ -201,6 +206,12 @@ e2e smoke against a live WhatsApp number.
   on a gateway-connected session) needs an API-side re-home — likely as an engine-side raw-message
   hook or a committed-event consumer — before that feature works end-to-end again. Tracked in
   [`specs/_V2-STATUS.md`](specs/_V2-STATUS.md) (`oauth.md`).
+- **better-auth api-key hash replicability** — RESOLVED for the pinned version: better-auth
+  1.6.22's default hash is `base64url(SHA-256(rawKey))` unpadded, replicated in
+  `internal/authz` and locked by the R5 contract test. A major-version bump must re-run that
+  test; the `/api/auth/api-key/verify` remote fallback stays available. (Masterplan §4.2, §19.)
+- **R6 collaboration UI** — members/invitations UI is the remaining fast-follow; org plumbing
+  already shipped.
 - Private gRPC enrollment transport and gateway credential bootstrap are implemented and opt-in,
   including pinned SPIFFE/root verification, pending CSR/key reuse, replay-aware retries, strict
   certificate authorization, and a reusable mTLS connection.

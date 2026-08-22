@@ -23,11 +23,6 @@ import (
 
 // Config holds the manager's tunables, populated from ENV by the composition root.
 type Config struct {
-	// AdminNumber is WHATSAPP_ADMIN_NUMBER (digits only, no '+'). Empty disables
-	// admin-number bootstrap (§6).
-	AdminNumber string
-	// AdminOrganizationID is the organization the bootstrapped admin session belongs to.
-	AdminOrganizationID string
 	// GatewayID is this gateway's id (GATEWAY_ID). Sessions this gateway adopts on
 	// boot are pinned to it (§4.5). Empty leaves the row's gateway_id untouched.
 	GatewayID string
@@ -259,15 +254,6 @@ func (m *Manager) StartAssignedBoot(ctx context.Context) (string, error) {
 func shouldResume(status domain.SessionStatus) {
 	_ = status
 }
-
-// ----------------------------------------------------------------------------
-// Admin-number bootstrap (§6) — removed with the gateway's MySQL access.
-//
-// The API owns session rows and the admin session lifecycle: it creates the
-// admin session, places it on this gateway through desired-state assignments,
-// and drives pairing through the private engine RPCs. The gateway no longer
-// creates rows or decides pairing on boot.
-// ----------------------------------------------------------------------------
 
 // ----------------------------------------------------------------------------
 // Public lifecycle: Start / Stop / Restart / Logout

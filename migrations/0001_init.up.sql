@@ -180,7 +180,7 @@ CREATE TABLE wa_sessions (
   wa_jid            VARCHAR(255) NULL,
   wa_lid            VARCHAR(255) NULL,
   phone_number      VARCHAR(64) NULL,
-  is_admin_session  TINYINT(1) NOT NULL DEFAULT 0,  -- the WHATSAPP_ADMIN_NUMBER session
+  is_admin_session  TINYINT(1) NOT NULL DEFAULT 0,  -- the platform's admin session
   auto_read         TINYINT(1) NOT NULL DEFAULT 1,
   presence_typing   TINYINT(1) NOT NULL DEFAULT 0,
   rate_per_min      INT NOT NULL DEFAULT 20,

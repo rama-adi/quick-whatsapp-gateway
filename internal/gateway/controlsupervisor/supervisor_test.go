@@ -504,6 +504,67 @@ func TestRunBacksOffReconnectsAndCancelsCleanly(t *testing.T) {
 	}
 }
 
+// TestLeaseExpiryReconnectsWithBackoffAndReplaysUnackedEvents pins the soak
+// behavior behind acknowledgement loss: a silent API (lease expires with no
+// inbound frame) tears the stream down unready and, on the replacement stream,
+// the journal replays its still-unacknowledged batch. Bounded: one expiry, a
+// handful of backoff fires, no sleeps.
+func TestLeaseExpiryReconnectsWithBackoffAndReplaysUnackedEvents(t *testing.T) {
+	clock := &fakeClock{now: time.Unix(100, 0)}
+	first := newFakeStream()
+	second := newFakeStream()
+	first.recv <- receiveResult{frame: welcome(gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN)}
+	second.recv <- receiveResult{frame: welcome(gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN)}
+	opener := &fakeOpener{streams: []*fakeStream{first, second}}
+	supervisor := testSupervisor(t, clock, opener)
+	journal := &staticEventJournal{}
+	supervisor.cfg.EventJournal = journal
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- supervisor.Run(ctx) }()
+
+	<-first.sent // hello; the heartbeat timer fires at 0 so the journal batch goes out too
+	waitFor(t, func() bool { return clock.fire(0) })
+	<-first.sent // heartbeat
+	batch := <-first.sent
+	if batch.GetEventBatch() == nil || batch.GetEventBatch().Events[0].JournalSequence != 9 {
+		t.Fatalf("first-stream journal batch = %#v", batch)
+	}
+
+	// The API never answers: the advertised 5-second lease expires.
+	if !clock.fire(5*time.Second) {
+		t.Fatal("lease timer not registered")
+	}
+	waitStatus(t, supervisor, func(status Status) bool { return !status.Connected && !status.Ready })
+
+	// Backoff re-arms every attempt; fire it (spinning so the supervisor can
+	// consume each timer) until the replacement stream opens, then read its
+	// hello and the immediate replay of the still-unacked batch.
+	for range 10 {
+		waitFor(t, func() bool { return clock.fire(time.Second) })
+		select {
+		case f := <-second.sent:
+			if f.GetHello() == nil {
+				t.Fatalf("replacement first frame not hello: %#v", f)
+			}
+			waitFor(t, func() bool { return clock.fire(0) })
+			<-second.sent // heartbeat
+			replayed := <-second.sent
+			if replayed.GetEventBatch() == nil || replayed.GetEventBatch().Events[0].JournalSequence != 9 {
+				t.Fatalf("reconnect did not replay the unacked batch: %#v", replayed)
+			}
+			if journal.acked != 0 {
+				t.Fatalf("acknowledged watermark advanced without an ack: %d", journal.acked)
+			}
+			cancel()
+			return
+		default:
+		}
+	}
+	t.Fatal("supervisor never reopened the control stream after lease expiry")
+}
+
 func TestStartingRuntimeNeverBecomesReady(t *testing.T) {
 	clock := &fakeClock{now: time.Unix(100, 0)}
 	stream := newFakeStream()

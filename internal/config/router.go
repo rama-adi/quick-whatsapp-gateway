@@ -11,10 +11,6 @@ import (
 	"github.com/joho/godotenv"
 )
 
-// DefaultRouterIssuer is retained for the gateway's legacy assertion-issuer
-// config key default. The API no longer mints assertions.
-const DefaultRouterIssuer = "router"
-
 // APIConfig is the API/control plane runtime configuration. The API remains the
 // system's single trust boundary: it authenticates callers against cached
 // better-auth JWKS + the shared `apikey` table and serves every public
@@ -22,7 +18,7 @@ const DefaultRouterIssuer = "router"
 // (control bus + realtime), and the better-auth JWKS inputs.
 type APIConfig struct {
 	// HTTP / server
-	HTTPAddr                   string        // API_HTTP_ADDR; deprecated fallback ROUTER_HTTP_ADDR (default :8090)
+	HTTPAddr                   string        // API_HTTP_ADDR (default :8090)
 	PublicGRPCAddr             string        // API_PUBLIC_GRPC_ADDR: plaintext local/trusted ingress hop (default :8081)
 	GatewayGRPCAddr            string        // API_GATEWAY_GRPC_ADDR: private mTLS listener; empty disables it
 	GatewayTLSIdentityDir      string        // API_GATEWAY_TLS_IDENTITY_DIR
@@ -30,7 +26,7 @@ type APIConfig struct {
 	GatewayEngineUnaryDeadline time.Duration // API_GATEWAY_ENGINE_UNARY_DEADLINE; required when private engine is enabled
 	GatewayEngineSendDeadline  time.Duration // API_GATEWAY_ENGINE_SEND_DEADLINE; required when private engine is enabled
 	GatewayPKI                 *PKIConfig    // loaded only when the private listener is enabled
-	PublicURL                  string        // API_PUBLIC_URL; deprecated fallback ROUTER_PUBLIC_URL
+	PublicURL                  string        // API_PUBLIC_URL
 
 	// Trust boundary — authn inputs (same better-auth JWKS the gateway used to use).
 	BetterAuthURL     string   // BETTER_AUTH_URL: JWT iss/aud to enforce
@@ -44,7 +40,7 @@ type APIConfig struct {
 	RedisPrefix    string // REDIS_PREFIX: isolates stacks (default "gw")
 
 	// OIDC provider.
-	OIDCIssuer              string // OIDC_ISSUER: defaults to API_PUBLIC_URL (including legacy fallback)
+	OIDCIssuer              string // OIDC_ISSUER: defaults to API_PUBLIC_URL
 	OIDCKeyEncKey           string // OIDC_KEY_ENC_KEY: base64/raw 32-byte AES-GCM key
 	OAuthClientSecretPepper string // OAUTH_CLIENT_SECRET_PEPPER: pepper for SHA-256(client_secret+pepper)
 	AppEncryptionKey        string // APP_ENCRYPTION_KEY: AES-GCM key for webhook HMAC secrets (API-owned since Increment 7)
@@ -65,12 +61,12 @@ func LoadAPI() (*APIConfig, error) {
 	_ = godotenv.Load("deploy/.env", ".env")
 
 	cfg := &APIConfig{
-		HTTPAddr:                   getStringFallback("API_HTTP_ADDR", "ROUTER_HTTP_ADDR", ":8090"),
+		HTTPAddr:                   getString("API_HTTP_ADDR", ":8090"),
 		PublicGRPCAddr:             getString("API_PUBLIC_GRPC_ADDR", ":8081"),
 		GatewayGRPCAddr:            getString("API_GATEWAY_GRPC_ADDR", ""),
 		GatewayTLSIdentityDir:      getString("API_GATEWAY_TLS_IDENTITY_DIR", ""),
 		GatewayEngineUnaryDeadline: 0,
-		PublicURL:                  getStringFallback("API_PUBLIC_URL", "ROUTER_PUBLIC_URL", ""),
+		PublicURL:                  getString("API_PUBLIC_URL", ""),
 		BetterAuthURL:              getString("BETTER_AUTH_URL", ""),
 		BetterAuthJWKSURL:          getString("BETTER_AUTH_JWKS_URL", ""),
 		FrontendOrigins:            getCSV("FRONTEND_ORIGINS"),

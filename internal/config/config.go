@@ -21,7 +21,7 @@ import (
 // its stores are the gateway-local SQLite keystore and the event journal.
 type GatewayConfig struct {
 	// HTTP / server (operational probes only: healthz/readyz/metrics)
-	HTTPAddr string // GATEWAY_HTTP_ADDR; deprecated fallback HTTP_ADDR
+	HTTPAddr string // GATEWAY_HTTP_ADDR (operational probes: healthz/readyz/metrics)
 
 	// Gateway identity
 	GatewayID              string        // GATEWAY_ID; canonical PKI identity name
@@ -69,7 +69,7 @@ func LoadGateway() (*GatewayConfig, error) {
 	_ = godotenv.Load("deploy/.env", ".env")
 
 	cfg := &GatewayConfig{
-		HTTPAddr:               getStringFallback("GATEWAY_HTTP_ADDR", "HTTP_ADDR", ":8080"),
+		HTTPAddr:               getString("GATEWAY_HTTP_ADDR", ":8080"),
 		GatewayID:              getString("GATEWAY_ID", "gw-1"),
 		ControlPlaneAddr:       getString("GATEWAY_CONTROL_PLANE_ADDR", ""),
 		CredentialDir:          getString("GATEWAY_CREDENTIAL_DIR", ""),
@@ -154,13 +154,6 @@ func getString(key, def string) string {
 		return v
 	}
 	return def
-}
-
-func getStringFallback(primary, fallback, def string) string {
-	if v := getString(primary, ""); v != "" {
-		return v
-	}
-	return getString(fallback, def)
 }
 
 func getInt(key string, def int) int {

@@ -86,7 +86,7 @@ Ephemeral/ViewOnce/DeviceSent/Edited). Detection order (control messages first):
    which holds the whatsmeow client and the stored poll options, see below).
 5. `GetPollCreationMessage()` **or** `GetPollCreationMessageV2()`/`V3()` → poll
    (name/options/selectableCount/endTime/hideVotes). Current WhatsApp clients send the V3
-   field; checking only the legacy field was why modern polls were misclassified as a
+   field; checking only the original (pre-V2) field was why modern polls were misclassified as a
    content-less "system" message and dropped. (V4+ wrap the poll in a `FutureProofMessage`
    and are not handled.)
 6. `GetLocationMessage()` → location (lat/long/name/address).

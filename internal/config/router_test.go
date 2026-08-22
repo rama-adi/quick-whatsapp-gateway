@@ -12,7 +12,6 @@ import (
 func TestLoadAPI_DefaultsAndValidate(t *testing.T) {
 	keys := []string{
 		"API_HTTP_ADDR", "API_PUBLIC_GRPC_ADDR", "API_PUBLIC_URL",
-		"ROUTER_HTTP_ADDR", "ROUTER_PUBLIC_URL",
 		"BETTER_AUTH_URL", "BETTER_AUTH_JWKS_URL",
 		"FRONTEND_ORIGINS", "MYSQL_DSN", "REDIS_URL", "PUBSUB_REDIS_URL",
 		"REDIS_PREFIX", "OIDC_ISSUER", "OIDC_KEY_ENC_KEY", "OAUTH_CLIENT_SECRET_PEPPER",
@@ -110,15 +109,14 @@ func TestAPIConfigListenAddressRejectsHostnames(t *testing.T) {
 
 func TestLoadAPI_RenamedEnvPrecedence(t *testing.T) {
 	keys := []string{
-		"API_HTTP_ADDR", "ROUTER_HTTP_ADDR", "API_PUBLIC_URL", "ROUTER_PUBLIC_URL",
+		"API_HTTP_ADDR", "API_PUBLIC_URL",
 	}
 	tests := []struct {
 		name              string
-		primary, alias    string
+		addr, url         string
 		wantAddr, wantURL string
 	}{
-		{"primary wins", "primary", "alias", "primary-addr", "primary-url"},
-		{"deprecated aliases", "", "alias", "alias-addr", "alias-url"},
+		{"set", "primary", "url", "primary-addr", "primary-url"},
 		{"defaults", "", "", ":8090", ""},
 	}
 	for _, tt := range tests {
@@ -126,20 +124,16 @@ func TestLoadAPI_RenamedEnvPrecedence(t *testing.T) {
 			for _, key := range keys {
 				t.Setenv(key, "")
 			}
-			if tt.primary != "" {
+			if tt.addr != "" {
 				t.Setenv("API_HTTP_ADDR", "primary-addr")
 				t.Setenv("API_PUBLIC_URL", "primary-url")
-			}
-			if tt.alias != "" {
-				t.Setenv("ROUTER_HTTP_ADDR", "alias-addr")
-				t.Setenv("ROUTER_PUBLIC_URL", "alias-url")
 			}
 			cfg, err := LoadAPI()
 			if err != nil {
 				t.Fatal(err)
 			}
 			if cfg.HTTPAddr != tt.wantAddr || cfg.PublicURL != tt.wantURL {
-				t.Fatalf("renamed env = (%q, %q), want (%q, %q)", cfg.HTTPAddr, cfg.PublicURL, tt.wantAddr, tt.wantURL)
+				t.Fatalf("env = (%q, %q), want (%q, %q)", cfg.HTTPAddr, cfg.PublicURL, tt.wantAddr, tt.wantURL)
 			}
 		})
 	}

@@ -78,7 +78,7 @@ CREATE TABLE gateways (            -- registry + lifecycle; the router reads it 
   label VARCHAR(255) NULL, notes TEXT NULL,
   status ENUM('pending_enrollment','joining','active','draining','drained','degraded','disabled'),
   desired_lifecycle ENUM('run','drain'),
-  connection_mode ENUM('legacy','control'),
+  connection_mode ENUM('legacy','control'), -- 'legacy' only on pre-migration rows; new rows are 'control'
   creator_kind ENUM('system','user'), created_by_user_id VARCHAR(64) NULL,
   base_url TEXT NULL, grpc_endpoint VARCHAR(512) NULL,
   session_count INT UNSIGNED NOT NULL DEFAULT 0, capacity INT UNSIGNED NULL,
@@ -237,22 +237,22 @@ to close the TOCTOU window, inserts the tokenless `issuance_kind='renewal'` row 
 atomically, and recovers a uniqueness race by returning the exact persisted gateway+CSR issuance.
 
 Enrollment is wired to the opt-in private TLS listener and crash-safe gateway bootstrap. It is not
-yet exposed through an operator administration API or UI. Control-disabled boot self-registration
-uses the explicit `creator_kind='system'` default. Future admin creation requires
+yet exposed through an operator administration API or UI. Enrollment rows created by the system
+use the explicit `creator_kind='system'` default. Admin-created rows require
 `creator_kind='user'` and a real creator id; the database check forbids ambiguous or fabricated
 user attribution.
 
 The control-stream persistence slice adds database-backed `gateways.connection_epoch`.
 `AcceptConnection` atomically compare-and-swap increments the epoch and persists validated Hello
-metadata in the same write. That metadata includes the optional authenticated transitional
+metadata in the same write. That metadata includes the optional authenticated
 `http_base_url`; when supplied it updates `gateways.base_url`, and when absent the existing value is
-preserved. This keeps fresh control-enabled gateways routable without reintroducing the legacy
+preserved. This keeps an enrolled gateway's advertised base URL current without reintroducing an
 unfenced Upsert. It rejects missing, deleted, disabled, pending-enrollment, and unenrolled
 gateways. Observed `status` and authoritative `desired_lifecycle` are separate. Accept reads
 `desired_lifecycle` for Welcome; Hello cannot choose it. Stream Hello/heartbeat updates observed
 status only, so reporting DRAINING/DRAINED during shutdown does not persist a desired drain.
-`connection_mode` is also explicit: control accept writes `control`, while legacy self-registration
-writes `legacy`. Stream-originated heartbeat, lifecycle, and connection-metadata writes include the gateway
+`connection_mode` is explicit: control accept writes `control`; no writer sets it back to `legacy`
+(the value survives only on pre-migration rows). Stream-originated heartbeat, lifecycle, and connection-metadata writes include the gateway
 id and current epoch in their update predicate. Accept and heartbeat writes never change
 `applied_revision`; heartbeats update liveness, session count, and runtime-derived status only.
 Lifecycle reports update only reported lifecycle state—never `session_count`—and cannot select
@@ -278,10 +278,10 @@ control stream is the **exclusive gateway-registry writer**. What remains:
 - `Heartbeat`, `SetStatus`, and self-registration exist only as fenced
   control-stream writes (epoch-predicated), never as gateway-local loops.
 
-Router reachability uses `connection_mode`: control rows have a 15-second freshness window matching
-their advertised lease; `legacy` remains a stored value only for pre-migration rows — the gateway
-can no longer self-register, so no new legacy rows are written. A fenced disconnect makes a
-current control row immediately unusable by clearing its liveness timestamps. Placement requires
+Reachability uses the registry row's liveness: control rows have a 15-second freshness window
+matching their advertised lease (`connection_mode` is always `control` for new rows; the historical
+`legacy` value survives only on pre-migration rows). A fenced disconnect makes a
+current row immediately unusable by clearing its liveness timestamps. Placement requires
 observed liveness/freshness, desired `run`, and capacity; a shutdown report cannot accidentally make a desired drain sticky, and an
 operator-desired drain cannot receive new placement merely because observed status is active.
 The disconnect write is attempted on a detached context bounded to five seconds after stream exit;

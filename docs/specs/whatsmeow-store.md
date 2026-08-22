@@ -126,7 +126,7 @@ across gateways is forward-compatible, not built — masterplan §4.5). Schema i
 On boot, before resuming each device from the keystore, the Session Manager
 (`internal/wa/manager.go`) checks the session's owning organization still exists and is enabled in
 MySQL, and **skips + marks `STOPPED`** any whose org was deleted/disabled while the gateway was
-down. The admin number (`WHATSAPP_ADMIN_NUMBER`) is (re-)provisioned against the SQLite keystore
+down. The admin number is (re-)provisioned against the SQLite keystore
 on boot if no valid device exists for it. Detail: [`trust-model.md`](trust-model.md) § boot
 reconciliation.
 

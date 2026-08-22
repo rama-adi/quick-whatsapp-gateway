@@ -90,7 +90,7 @@ liveness is stale or implausibly far in the future, the API returns **`503 gatew
 with a clear message rather than a silent hang (the `gateway_unavailable` domain error code → HTTP 503).
 Rows registered through the control stream use a 15-second freshness window matching the
 advertised heartbeat lease; `connection_mode=legacy` remains only as stored history for
-pre-migration rows — no new legacy rows can be written. A current-epoch stream disconnect clears
+pre-migration rows — the control stream is the only registration writer. A current-epoch stream disconnect clears
 its liveness immediately; the epoch predicate prevents an old stream from making its replacement
 unreachable.
 

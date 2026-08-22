@@ -4332,7 +4332,7 @@ export interface components {
              */
             id: string;
             /**
-             * @description True if this is the gateway's configured admin session (the WHATSAPP_ADMIN_NUMBER). The admin session has extra privileges such as triggering live-data backfills.
+             * @description True if this is the platform's admin session. The admin session has extra privileges such as triggering live-data backfills.
              * @example false
              */
             isAdminSession: boolean;

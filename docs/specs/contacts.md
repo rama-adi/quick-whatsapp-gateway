@@ -69,14 +69,12 @@ session has no connected client the adapter returns `not_implemented` (the same
 behavior as the outbound send path's session-routing client for a session without
 a live connection — see outbound-pipeline.md "Session routing").
 
-**gRPC control plane (Increment 7):** in control-enabled deployments these calls
-execute API-locally through private engine RPCs instead. The composition root
-sets a `GatewayContactFacade` (`SetGatewayContactFacade`, implemented by
+**gRPC control plane:** these calls execute API-locally through private engine RPCs. The
+composition root sets a `GatewayContactFacade` (`SetGatewayContactFacade`, implemented by
 `apigateway.LiveOpsFacade` over the mTLS engine client); the service prefers it
-over the legacy directory. On the wire: `LookupContact`,
+over the in-process directory. On the wire: `LookupContact`,
 `GetContactPicture`, and `GetContactAbout` are reads (no command id, no ledger);
 `SetBlocked` is a durable command with send-style ledger replay (records
 `CommandSent` only — the blocklist mutation carries no WhatsApp message id). The
 gateway executes all four through `wa.ApplicationGatewayAdapter` behind its
-assignment fence; the legacy manager-backed path remains for control-disabled
-deployments.
+assignment fence.

@@ -204,11 +204,10 @@ atomic op.
 - **Async worker ownership is leased and at-least-once**: a database CAS admits
   one scheduler for `queued|failed → sending`; a fresh `sending` row is left to its
   owner, while a claim older than the lease (exceeding the engine send deadline) is
-  recoverable after a scheduler crash. Unlike the legacy in-gateway worker, the
-  gateway result ledger closes the acknowledgement gap the note below describes:
+  recoverable after a scheduler crash. The gateway result ledger closes the
+  acknowledgement gap the note below describes:
   a recovered ambiguous claim re-issues its `command_id` and replays the stored
-  outcome instead of re-sending. (Legacy control-disabled deployments retain the
-  historical duplicate risk until Increment 9 removes the legacy path.) Dispatch
+  outcome instead of re-sending. Dispatch
   is bounded by the engine send deadline so a healthy owner finishes before its
   lease expires.
 - **Worker ownership is a database CAS**: before dispatching a queued task, a worker calls
