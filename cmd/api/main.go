@@ -141,13 +141,14 @@ func run() error {
 	if rdb != nil {
 		publisher = stream.NewPublisher(rdb, log)
 	}
+	webhookEnqueuer := webhooks.NewEnqueuer(
+		service.NewWebhookRepoAdapter(st.Webhooks),
+		service.NewWebhookDeliveryRepoAdapter(st.WebhookDeliveries),
+		nil, log,
+	)
 	committedWorker, err := service.NewCommittedEventWorker(
 		committedEventWorkStore{repo: st.GatewayEvents},
-		service.NewCommittedEventDispatcher(nil, publisher, webhooks.NewEnqueuer(
-			service.NewWebhookRepoAdapter(st.Webhooks),
-			service.NewWebhookDeliveryRepoAdapter(st.WebhookDeliveries),
-			nil, log,
-		)),
+		service.NewCommittedEventDispatcher(nil, publisher, webhookEnqueuer),
 		service.CommittedEventWorkerConfig{
 			Owner: processOwner(),
 			Lease: committedEventLease,
@@ -165,6 +166,17 @@ func run() error {
 			log.Warn("committed event worker stopped", "err", err)
 		}
 	}()
+
+	// --- Poll recap scheduling is API-owned (Increment 5): the durable MySQL
+	// sweep is the source of truth, and recap events append/publish/enqueue
+	// beside this process's other fan-out instead of on a gateway. The Redis
+	// sorted set is only a low-latency wake-up index. ---
+	pollRecaps := service.NewPollRecapWorker(st, publisher, webhookEnqueuer, rdb, service.PollRecapConfig{
+		RedisPrefix: cfg.RedisPrefix,
+		Log:         log,
+	})
+	pollRecapStop := pollRecaps.Start(ctx)
+	defer pollRecapStop()
 
 	// --- Realtime (Increment B): the router is the single client-facing realtime
 	// endpoint. It subscribes to the shared Redis evt:* fan-out (the gateways keep

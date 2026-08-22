@@ -266,23 +266,19 @@ func run() error {
 	outboxAdapter := service.NewOutboxRepoAdapter(st.Outbox, nil)
 
 	// --- Webhooks (enqueuer + dispatcher) ---
+	// Poll-recap emission is API-owned since Increment 5: the durable sweep and
+	// fan-out run beside the committed-event worker, not here.
 	whRepo := service.NewWebhookRepoAdapter(st.Webhooks)
 	whDeliveries := service.NewWebhookDeliveryRepoAdapter(st.WebhookDeliveries)
 	enqueuer := webhooks.NewEnqueuer(whRepo, whDeliveries, nil, log)
 	dispatcher := webhooks.NewDispatcher(whRepo, whDeliveries, st.EventLog, &http.Client{Timeout: 30 * time.Second}, aes, nil, log)
-	pollRecaps := service.NewPollRecapWorker(st, publisher, enqueuer, rdb, service.PollRecapConfig{
-		RedisPrefix: cfg.RedisPrefix,
-		Log:         log,
-	})
-	pollRecapStop := pollRecaps.Start(ctx)
-	defer pollRecapStop()
 
 	// --- Session manager (per-session whatsmeow clients) ---
 	managerRepo := service.NewManagerSessionRepo(st.Sessions, nil)
 	managerSink := wa.EventSink(service.NewEventSinkAdapter(publisher, log))
 	inboundSink := inbound.EventSink(publisher)
 	inboundWebhookSink := inbound.WebhookEnqueuer(service.NewInboundWebhookEnqueuerAdapter(enqueuer))
-	inboundRepos := inbound.Repos(service.NewInboundRepos(st, pollRecaps))
+	inboundRepos := inbound.Repos(service.NewInboundRepos(st, nil))
 	if controlEnabled {
 		controlSink := controlEventSink{
 			adapter: journal.ControlAdapter{Journal: eventJournal, GatewayID: cfg.GatewayID},
@@ -309,7 +305,7 @@ func run() error {
 		DefaultRatePerHour:  cfg.DefaultRatePerHour,
 		DefaultAutoRead:     cfg.DefaultAutoRead,
 	})
-	msgRecorder := service.NewMessageRecorderAdapter(st.Messages, st.Chats, st.Polls, pollRecaps, nil)
+	msgRecorder := service.NewMessageRecorderAdapter(st.Messages, st.Chats, st.Polls, nil, nil)
 	sender := outbound.NewSender(service.NewRoutingWAClient(manager), outboxAdapter, limiter, outbound.SystemClock(),
 		outbound.WithMessageRecorder(msgRecorder),
 		outbound.WithQuoteResolver(st.Messages))
