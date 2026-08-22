@@ -4,6 +4,10 @@ Status: implemented (R1; central-router Increment A).
 
 > **Target migration, not current runtime (gRPC control-plane Increment 0).** Public Huma handlers,
 > validation, errors, OpenAPI generation, and public gRPC adapters will terminate in the API process
+>
+> Public gRPC is live: `internal/apigrpc` serves `public.v1` sessions/messages/events beside REST
+> on `API_PUBLIC_GRPC_ADDR` with the same two-acceptor authn, org scoping, and error semantics.
+> See docs/specs/grpc-contracts.md for the wire contract.
 > and invoke shared application services. The private gateway will expose only its mTLS gRPC
 > engine/control contract plus operational probes; it will not host public HTTP, Huma, OpenAPI, or
 > end-user auth middleware. REST remains Huma code-first, and public/private protobuf contracts are

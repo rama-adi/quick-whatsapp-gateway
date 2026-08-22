@@ -14,6 +14,7 @@ import (
 
 	gatewayv1 "github.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1"
 	publicv1 "github.com/ramaadi/quick-whatsapp-gateway/gen/public/v1"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/apigrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -152,7 +153,7 @@ func TestAPIServerRunnerServesBothListenersAndShutsDown(t *testing.T) {
 		}
 		return nil
 	}}
-	grpcServer := newPublicGRPCServer(gate.check)
+	grpcServer := newPublicGRPCServer(gate.check, apigrpc.Deps{})
 	bound := make(chan [2]net.Listener, 1)
 	runner := &apiServerRunner{
 		httpAddr: "127.0.0.1:0", grpcAddr: "127.0.0.1:0",
@@ -234,7 +235,7 @@ func TestAPIServerRunnerBindFailureClosesPriorListener(t *testing.T) {
 }
 
 func TestPublicGRPCServerRegistersNoGatewayService(t *testing.T) {
-	server := newPublicGRPCServer(func() error { return nil })
+	server := newPublicGRPCServer(func() error { return nil }, apigrpc.Deps{})
 	services := server.GetServiceInfo()
 	if _, ok := services[publicv1.PublicHealthService_ServiceDesc.ServiceName]; !ok {
 		t.Fatal("public health service is not registered")
@@ -245,8 +246,19 @@ func TestPublicGRPCServerRegistersNoGatewayService(t *testing.T) {
 	if _, ok := services[gatewayv1.GatewayEnrollmentService_ServiceDesc.ServiceName]; ok {
 		t.Fatal("private enrollment service registered on public server")
 	}
-	if len(services) != 1 {
-		t.Fatalf("public services = %v, want only public health", services)
+	// Increment 8: the public surface serves sessions, messages, and events
+	// alongside health. The private gateway.v1 domain must never appear.
+	for _, name := range []string{
+		publicv1.PublicSessionsService_ServiceDesc.ServiceName,
+		publicv1.PublicMessagesService_ServiceDesc.ServiceName,
+		publicv1.PublicEventsService_ServiceDesc.ServiceName,
+	} {
+		if _, ok := services[name]; !ok {
+			t.Fatalf("public service %s is not registered", name)
+		}
+	}
+	if len(services) != 4 {
+		t.Fatalf("public services = %v, want exactly the four public.v1 services", services)
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	publicv1 "github.com/ramaadi/quick-whatsapp-gateway/gen/public/v1"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/apigrpc"
 	"google.golang.org/grpc"
 )
 
@@ -186,8 +187,13 @@ func (r *apiServerRunner) run(ctx context.Context) error {
 	return errors.Join(serveErr, shutdownErr)
 }
 
-func newPublicGRPCServer(readiness func() error) *grpc.Server {
-	server := grpc.NewServer()
+// newPublicGRPCServer builds the public gRPC listener's server: the public.v1
+// application surface (sessions/messages/events) over the same service graph
+// the REST handlers use, plus the unauthenticated health service. gRPC
+// reflection is deliberately NOT enabled — the public API is served from the
+// committed public/v1 contracts only (docs/specs/grpc-contracts.md).
+func newPublicGRPCServer(readiness func() error, deps apigrpc.Deps) *grpc.Server {
+	server := apigrpc.RegisterServer(deps)
 	publicv1.RegisterPublicHealthServiceServer(server, publicHealthService{readiness: readiness})
 	return server
 }

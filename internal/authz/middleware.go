@@ -1,6 +1,7 @@
 package authz
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -21,36 +22,56 @@ import (
 //
 // On success the Principal (and its organization id) are placed on the request
 // context (SetPrincipal). The middleware never leaks why verification failed.
+// ResolveCredential is the transport-independent core of the two-acceptor
+// policy: given the presented credentials it returns the verified Principal.
+// Authenticate (HTTP) and the public gRPC interceptors both call it so the two
+// transports can never drift on acceptor order or principal validity (§4.3):
+//
+//  1. A Bearer credential that PARSES AS A JWT is verified via JWKS → a human
+//     Principal {UserID, OrganizationID(active), OrgRole, PlatformRole}.
+//  2. Otherwise the bearer / x-api-key credential is treated as an api-key and
+//     verified against the shared `apikey` table → an org-scoped api-key
+//     Principal {OrganizationID, KeyPermissions} (no UserID).
+//  3. Neither → nil Principal. The caller renders its own 401/Unauthenticated.
+//
+// Never leak why verification failed; a nil result is all the caller sees.
+func ResolveCredential(ctx context.Context, tokens TokenVerifier, keys KeyVerifier, bearer string, hasBearer bool, apiKey string) *Principal {
+	// Acceptor 1: a bearer that looks like a JWT → JWKS verify.
+	if hasBearer && looksLikeJWT(bearer) {
+		if tokens != nil {
+			if p, err := tokens.VerifyToken(ctx, bearer); err == nil && validPrincipal(p, KindUser) {
+				return p
+			}
+		}
+		// Never reinterpret a failed JWT itself as an API key. A separately
+		// supplied X-Api-Key may still use the second acceptor.
+	}
+
+	// Acceptor 2: an explicit X-Api-Key takes precedence over an opaque
+	// bearer when both are present.
+	raw := apiKey
+	if raw == "" && hasBearer && !looksLikeJWT(bearer) {
+		raw = bearer
+	}
+	if raw != "" && keys != nil {
+		if p, err := keys.VerifyKey(ctx, raw); err == nil && validPrincipal(p, KindAPIKey) {
+			return p
+		}
+	}
+	return nil
+}
+
+// Authenticate wraps ResolveCredential for HTTP: on success the Principal (and
+// its organization id) are placed on the request context (SetPrincipal);
+// otherwise the §11 unauthorized envelope is written.
 func Authenticate(tokens TokenVerifier, keys KeyVerifier) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			bearer, hasBearer := bearerToken(r)
-
-			// Acceptor 1: a bearer that looks like a JWT → JWKS verify.
-			if hasBearer && looksLikeJWT(bearer) {
-				if tokens != nil {
-					if p, err := tokens.VerifyToken(r.Context(), bearer); err == nil && validPrincipal(p, KindUser) {
-						next.ServeHTTP(w, r.WithContext(SetPrincipal(r.Context(), p)))
-						return
-					}
-				}
-				// Never reinterpret a failed JWT itself as an API key. A separately
-				// supplied X-Api-Key may still use the second acceptor.
+			if p := ResolveCredential(r.Context(), tokens, keys, bearer, hasBearer, r.Header.Get("X-Api-Key")); p != nil {
+				next.ServeHTTP(w, r.WithContext(SetPrincipal(r.Context(), p)))
+				return
 			}
-
-			// Acceptor 2: an explicit X-Api-Key takes precedence over an opaque
-			// bearer when both are present.
-			raw := r.Header.Get("X-Api-Key")
-			if raw == "" && hasBearer && !looksLikeJWT(bearer) {
-				raw = bearer
-			}
-			if raw != "" && keys != nil {
-				if p, err := keys.VerifyKey(r.Context(), raw); err == nil && validPrincipal(p, KindAPIKey) {
-					next.ServeHTTP(w, r.WithContext(SetPrincipal(r.Context(), p)))
-					return
-				}
-			}
-
 			httpx.WriteError(w, domain.ErrUnauthorized("missing or invalid credentials"))
 		})
 	}

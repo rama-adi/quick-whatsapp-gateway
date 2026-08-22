@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package public.v1;
+
+option go_package = "github.com/ramaadi/quick-whatsapp-gateway/gen/public/v1;publicv1";
+
+// PublicEventsService streams committed events for the caller's organization —
+// the gRPC equivalent of the WebSocket realtime surface. Every streamed
+// envelope is read from the durable, commit-gated event log; events are only
+// served after their ingest transaction commits. The stream stays open until
+// the client cancels or a server error occurs.
+service PublicEventsService {
+  rpc StreamEvents(StreamEventsRequest) returns (stream StreamEventsResponse);
+}
+
+message StreamEventsRequest {
+  // session_id optionally narrows the stream to one of the organization's
+  // sessions; empty means all of the organization's sessions.
+  string session_id = 1;
+  // event_types is an allow-list of event type names (e.g. "message",
+  // "session.status"); "*" (or every element "*") means all types.
+  repeated string event_types = 2;
+  // since_cursor resumes after a previously delivered envelope id ("evt_…").
+  // Empty starts from the oldest retained event for the scope.
+  string since_cursor = 3;
+}
+
+message StreamEventsResponse {
+  string schema = 1;
+  string id = 2;
+  string event = 3;
+  string session_id = 4;
+  string organization_id = 5;
+  int64 timestamp_unix_ms = 6;
+  // payload_json is the event body as canonical JSON; its shape depends on the
+  // event type and matches the webhook/realtime payload contract byte-for-byte.
+  bytes payload_json = 7;
+}

@@ -25,6 +25,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	apigateway "github.com/ramaadi/quick-whatsapp-gateway/internal/api/gateway"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/apigrpc"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/application"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/assertion"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/authz"
@@ -398,7 +399,14 @@ func run() error {
 		return fmt.Errorf("build router: %w", err)
 	}
 
-	grpcServer := newPublicGRPCServer(readinessGate.check)
+	grpcServer := newPublicGRPCServer(readinessGate.check, apigrpc.Deps{
+		Tokens:   tokenVerifier,
+		Keys:     keyVerifier,
+		Sessions: services.Sessions,
+		Messages: services.Messages,
+		Chats:    services.Chats,
+		Events:   st.EventLog,
+	})
 	runner := &apiServerRunner{
 		httpAddr:          cfg.HTTPAddr,
 		grpcAddr:          cfg.PublicGRPCAddr,

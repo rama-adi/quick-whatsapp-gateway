@@ -1,7 +1,8 @@
 # gRPC contract tooling and compatibility
 
-Status: **Public health and opt-in private enrollment/health listeners active**. The public API
-gRPC listener serves only `public.v1.PublicHealthService`; private gateway services
+Status: **Public v1 surface active; private control plane complete**. The public API
+gRPC listener serves `public.v1` health, sessions, messages, and server-streaming events;
+private gateway services
 are never registered there and server reflection remains disabled. When `API_GATEWAY_GRPC_ADDR` is
 set, a separate TLS 1.3 listener serves `gateway.v1.GatewayEnrollmentService` and
 `gateway.v1.GatewayHealthService`.
@@ -78,13 +79,37 @@ green gates.
 - Generated files are outputs only. Change `.proto` sources and run `make proto`.
 - REST/OpenAPI remains Huma code-first; these contracts do not become a second REST source of truth.
 
-The API binds `API_PUBLIC_GRPC_ADDR` (default `:8081`) and registers only
-`public.v1.PublicHealthService`. Its status uses the same readiness predicate as HTTP `/readyz`:
-`SERVING` only while the API admits traffic and MySQL plus configured Redis are ready, otherwise
-`NOT_SERVING`; the RPC itself still completes normally. All public listeners are bound before
-either begins serving, and HTTP plus gRPC drain together on cancellation or a serve failure.
+The API binds `API_PUBLIC_GRPC_ADDR` (default `:8081`) and registers the `public.v1` services:
+`PublicHealthService` plus, since Increment 8, `PublicSessionsService`, `PublicMessagesService`,
+and `PublicEventsService` (server-streaming). Health's status uses the same readiness predicate as
+HTTP `/readyz`: `SERVING` only while the API admits traffic and MySQL plus configured Redis are
+ready, otherwise `NOT_SERVING`; the RPC itself still completes normally. All public listeners are
+bound before either begins serving, and HTTP plus gRPC drain together on cancellation or a serve
+failure.
 
-This initial listener is plaintext by design for local development or an explicitly configured
+### Public v1 semantics
+
+- **Authentication** uses the same two-acceptor verifiers as REST: `authorization: Bearer <jwt>`
+  metadata or the api-key header resolve through `authz.TokenVerifier`/`authz.KeyVerifier`.
+  Missing or invalid credentials are `Unauthenticated`. Health Check is exempt, mirroring the
+  unauthenticated HTTP liveness routes. gRPC reflection is deliberately not enabled.
+- **Authorization** derives from the authenticated principal: organization scoping comes from the
+  principal, never request fields, and capability gates mirror the REST routes (`send` for message
+  writes, `read` for history/events).
+- **Error mapping** mirrors huma's problem responses: validation→`InvalidArgument`,
+  not_found→`NotFound`, conflict→`FailedPrecondition`, forbidden→`PermissionDenied`,
+  rate_limited→`ResourceExhausted` (with retry-after detail), not_implemented→`Unimplemented`,
+  unavailable→`Unavailable`.
+- **Handlers delegate to the same application services** as REST — there is one business path per
+  capability; the adapters translate transport only.
+- **Events streaming** tails the committed `event_log` (Increment 5 made every row commit-gated)
+  by monotonic cursor with a bounded poll interval, resuming from an opaque event-id cursor the
+  way the WebSocket `?since=` replay does. Delivery is at-least-once from the durable log;
+  latency is bounded by the poll interval rather than pub/sub push.
+- **Compatibility**: `public/v1` is its own Buf module with FILE breaking checks; SDKs may be
+  generated only from it, never `gateway/v1`.
+
+This listener remains plaintext by design for local development or an explicitly configured
 trusted path behind a TLS-terminating ingress. It is not a claim that direct production plaintext
 gRPC is safe. Production deployments must terminate TLS at the ingress (with a trusted private hop)
 or configure application TLS. The public server never registers `gateway.v1` services.

@@ -1,0 +1,116 @@
+syntax = "proto3";
+
+package public.v1;
+
+import "v1/resources.proto";
+
+option go_package = "github.com/ramaadi/quick-whatsapp-gateway/gen/public/v1;publicv1";
+
+// PublicSessionsService is the gRPC equivalent of the REST /sessions surface.
+// The acting organization always comes from the authenticated principal, never
+// from a request field. Capability gates mirror the REST routes: create/list/
+// get/delete/actions/pairing require `manage`.
+service PublicSessionsService {
+  rpc CreateSession(CreateSessionRequest) returns (CreateSessionResponse);
+  rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
+  rpc GetSession(GetSessionRequest) returns (GetSessionResponse);
+  rpc DeleteSession(DeleteSessionRequest) returns (DeleteSessionResponse);
+  rpc StartSession(StartSessionRequest) returns (StartSessionResponse);
+  rpc StopSession(StopSessionRequest) returns (StopSessionResponse);
+  rpc RestartSession(RestartSessionRequest) returns (RestartSessionResponse);
+  rpc LogoutSession(LogoutSessionRequest) returns (LogoutSessionResponse);
+  rpc GetSessionQrCode(GetSessionQrCodeRequest) returns (GetSessionQrCodeResponse);
+  rpc CreatePairingCode(CreatePairingCodeRequest) returns (CreatePairingCodeResponse);
+  rpc GetMe(GetMeRequest) returns (GetMeResponse);
+}
+
+message CreateSessionRequest {
+  optional string label = 1;
+  bool start = 2;
+  optional bool auto_read = 3;
+  optional bool presence_typing = 4;
+}
+
+message CreateSessionResponse {
+  Session session = 1;
+}
+
+message ListSessionsRequest {}
+
+message ListSessionsResponse {
+  repeated Session sessions = 1;
+  string next_cursor = 2;
+}
+
+message GetSessionRequest {
+  string session_id = 1;
+}
+
+message GetSessionResponse {
+  Session session = 1;
+}
+
+message DeleteSessionRequest {
+  string session_id = 1;
+}
+
+message DeleteSessionResponse {}
+
+// Start/stop/restart/logout each return the refreshed session row, matching the
+// REST lifecycle actions.
+message StartSessionRequest {
+  string session_id = 1;
+}
+
+message StartSessionResponse {
+  Session session = 1;
+}
+
+message StopSessionRequest {
+  string session_id = 1;
+}
+
+message StopSessionResponse {
+  Session session = 1;
+}
+
+message RestartSessionRequest {
+  string session_id = 1;
+}
+
+message RestartSessionResponse {
+  Session session = 1;
+}
+
+message LogoutSessionRequest {
+  string session_id = 1;
+}
+
+message LogoutSessionResponse {
+  Session session = 1;
+}
+
+message GetSessionQrCodeRequest {
+  string session_id = 1;
+}
+
+message GetSessionQrCodeResponse {
+  QrCode qr_code = 1;
+}
+
+message CreatePairingCodeRequest {
+  string session_id = 1;
+  string phone = 2;
+}
+
+message CreatePairingCodeResponse {
+  string code = 1;
+}
+
+message GetMeRequest {
+  string session_id = 1;
+}
+
+message GetMeResponse {
+  Me me = 1;
+}

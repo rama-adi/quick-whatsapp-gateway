@@ -1,0 +1,151 @@
+syntax = "proto3";
+
+package public.v1;
+
+import "v1/resources.proto";
+
+option go_package = "github.com/ramaadi/quick-whatsapp-gateway/gen/public/v1;publicv1";
+
+// PublicMessagesService is the gRPC equivalent of the REST message surface:
+// the unified typed send plus the message sub-resource operations and the
+// chat-scoped history read. The acting organization always comes from the
+// authenticated principal. Sends and message operations require `send`;
+// history reads require `read`.
+service PublicMessagesService {
+  rpc SendMessage(SendMessageRequest) returns (SendMessageResponse);
+  rpc EditMessage(EditMessageRequest) returns (EditMessageResponse);
+  rpc RevokeMessage(RevokeMessageRequest) returns (RevokeMessageResponse);
+  rpc AddReaction(AddReactionRequest) returns (AddReactionResponse);
+  rpc RemoveReaction(RemoveReactionRequest) returns (RemoveReactionResponse);
+  rpc ForwardMessage(ForwardMessageRequest) returns (ForwardMessageResponse);
+  rpc VotePoll(VotePollRequest) returns (VotePollResponse);
+  rpc ListMessages(ListMessagesRequest) returns (ListMessagesResponse);
+}
+
+// SendMessageBody mirrors the REST SendRequest body: one flat message
+// discriminated by `type` ("text", "poll", "location", "contact", media types,
+// "album"). Field names match the JSON contract.
+message SendMessageBody {
+  string type = 1;
+  string to = 2;
+  // text
+  string text = 3;
+  string reply_to = 4;
+  repeated string mentions = 5;
+  // poll
+  string name = 6;
+  repeated string options = 7;
+  int32 selectable_count = 8;
+  int64 poll_end_time_unix_ms = 9;
+  bool poll_hide_votes = 10;
+  // location
+  double latitude = 11;
+  double longitude = 12;
+  // contact
+  ContactCard contact = 13;
+  // media (image/video/audio/document/sticker)
+  MediaPayload media = 14;
+  // album
+  repeated AlbumMediaPayload medias = 15;
+  string caption = 16;
+}
+
+message SendMessageRequest {
+  string session_id = 1;
+  SendMessageBody body = 2;
+  // async=true queues the send and returns an accepted (mode="async") result
+  // with outbox_id, mirroring the REST ?async=true query parameter.
+  bool async = 3;
+  // idempotency_key mirrors the REST Idempotency-Key header.
+  string idempotency_key = 4;
+}
+
+message SendMessageResponse {
+  SendResult result = 1;
+}
+
+message EditMessageRequest {
+  string session_id = 1;
+  string message_id = 2;
+  string chat = 3;
+  string text = 4;
+}
+
+message EditMessageResponse {
+  SendResult result = 1;
+}
+
+message RevokeMessageRequest {
+  string session_id = 1;
+  string message_id = 2;
+  string chat = 3;
+  // sender is the original sender JID; empty targets the session's own message.
+  string sender = 4;
+}
+
+message RevokeMessageResponse {
+  SendResult result = 1;
+}
+
+message AddReactionRequest {
+  string session_id = 1;
+  string message_id = 2;
+  string chat = 3;
+  string sender = 4;
+  // emoji is required for add.
+  string emoji = 5;
+}
+
+message AddReactionResponse {
+  SendResult result = 1;
+}
+
+message RemoveReactionRequest {
+  string session_id = 1;
+  string message_id = 2;
+  string chat = 3;
+  string sender = 4;
+}
+
+message RemoveReactionResponse {
+  SendResult result = 1;
+}
+
+message ForwardMessageRequest {
+  string session_id = 1;
+  string message_id = 2;
+  string chat = 3;
+  string sender = 4;
+  // to is the destination chat JID.
+  string to = 5;
+}
+
+message ForwardMessageResponse {
+  SendResult result = 1;
+}
+
+message VotePollRequest {
+  string session_id = 1;
+  string message_id = 2;
+  string chat = 3;
+  string sender = 4;
+  // options is the complete list of selected options; empty clears the vote.
+  repeated string options = 5;
+}
+
+message VotePollResponse {
+  SendResult result = 1;
+}
+
+message ListMessagesRequest {
+  string session_id = 1;
+  // chat_jid scopes the page to one chat.
+  string chat_jid = 2;
+  int32 limit = 3;
+  string cursor = 4;
+}
+
+message ListMessagesResponse {
+  repeated StoredMessage messages = 1;
+  string next_cursor = 2;
+}

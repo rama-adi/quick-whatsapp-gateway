@@ -1,0 +1,176 @@
+syntax = "proto3";
+
+package public.v1;
+
+option go_package = "github.com/ramaadi/quick-whatsapp-gateway/gen/public/v1;publicv1";
+
+// Shared resource types for the public.v1 surface. Field names mirror the REST
+// JSON contracts (camelCase); the session status enum mirrors the stored
+// domain.SessionStatus values.
+
+// SessionStatus mirrors wa_sessions.status (domain.SessionStatus snake_case).
+enum SessionStatus {
+  SESSION_STATUS_UNSPECIFIED = 0;
+  SESSION_STATUS_STARTING = 1;
+  SESSION_STATUS_SCAN_QR_CODE = 2;
+  SESSION_STATUS_WORKING = 3;
+  SESSION_STATUS_FAILED = 4;
+  SESSION_STATUS_STOPPED = 5;
+  SESSION_STATUS_LOGGED_OUT = 6;
+}
+
+// MessageDirection mirrors messages.direction.
+enum MessageDirection {
+  MESSAGE_DIRECTION_UNSPECIFIED = 0;
+  MESSAGE_DIRECTION_IN = 1;
+  MESSAGE_DIRECTION_OUT = 2;
+}
+
+// MessageStatus mirrors messages.status (outgoing delivery state).
+enum MessageStatus {
+  MESSAGE_STATUS_UNSPECIFIED = 0;
+  MESSAGE_STATUS_PENDING = 1;
+  MESSAGE_STATUS_SENT = 2;
+  MESSAGE_STATUS_DELIVERED = 3;
+  MESSAGE_STATUS_READ = 4;
+  MESSAGE_STATUS_PLAYED = 5;
+  MESSAGE_STATUS_FAILED = 6;
+}
+
+// ChatType mirrors chats.type.
+enum ChatType {
+  CHAT_TYPE_UNSPECIFIED = 0;
+  CHAT_TYPE_DM = 1;
+  CHAT_TYPE_GROUP = 2;
+  CHAT_TYPE_NEWSLETTER = 3;
+  CHAT_TYPE_BROADCAST = 4;
+  CHAT_TYPE_STATUS = 5;
+}
+
+// Session is one attached WhatsApp number (wa_sessions row).
+message Session {
+  string id = 1;
+  string organization_id = 2;
+  optional string created_by_user_id = 3;
+  string gateway_id = 4;
+  optional string label = 5;
+  SessionStatus status = 6;
+  optional string wa_jid = 7;
+  optional string wa_lid = 8;
+  optional string phone_number = 9;
+  bool is_admin_session = 10;
+  bool auto_read = 11;
+  bool presence_typing = 12;
+  int32 rate_per_min = 13;
+  int32 rate_per_hour = 14;
+  optional int64 last_connected_at_unix_ms = 15;
+  int64 created_at_unix_ms = 16;
+  int64 updated_at_unix_ms = 17;
+}
+
+// Me is the attached WhatsApp identity of a paired session
+// (GET /sessions/{id}/me equivalent).
+message Me {
+  string session_id = 1;
+  SessionStatus status = 2;
+  optional string wa_jid = 3;
+  optional string wa_lid = 4;
+  optional string phone_number = 5;
+  bool connected = 6;
+}
+
+// QR is a pairing QR snapshot (GET /sessions/{id}/qr equivalent).
+message QrCode {
+  string code = 1;
+  optional int64 expires_at_unix_ms = 2;
+}
+
+// SendResult is the outcome of an outbound send or message operation. mode is
+// "sync" or "async"; sync fills the WhatsApp fields, async fills outbox_id.
+message SendResult {
+  string mode = 1;
+  optional string wa_message_id = 2;
+  MessageStatus status = 3;
+  optional int64 timestamp_unix_ms = 4;
+  optional string outbox_id = 5;
+  bool replayed = 6;
+}
+
+// MediaPayload carries inline base64 media or an HTTP(S) URL for media sends.
+message MediaPayload {
+  optional string data = 1;
+  optional string url = 2;
+  optional string mimetype = 3;
+  optional string caption = 4;
+  optional string filename = 5;
+}
+
+// AlbumMediaPayload is one image/video item of an album send.
+message AlbumMediaPayload {
+  // type: "image" or "video"; defaults to image when unset.
+  optional string type = 1;
+  optional string data = 2;
+  optional string url = 3;
+  optional string mimetype = 4;
+}
+
+// ContactCard is a shared contact card (type:"contact" send).
+message ContactCard {
+  optional string name = 1;
+  optional string phone = 2;
+  optional string vcard = 3;
+}
+
+// Chat mirrors the chats table as exposed by the chat viewer endpoints.
+message Chat {
+  uint64 id = 1;
+  string session_id = 2;
+  string jid = 3;
+  repeated string aliases = 4;
+  ChatType type = 5;
+  optional string name = 6;
+  optional int64 last_message_at_unix_ms = 7;
+  int32 unread_count = 8;
+  bool archived = 9;
+  bool pinned = 10;
+  optional int64 muted_until_unix_ms = 11;
+}
+
+// MediaMeta is metadata-only media information on a stored message.
+message MediaMeta {
+  string mimetype = 1;
+  int64 size = 2;
+  string filename = 3;
+}
+
+// StoredMessage is one row of the message history (ListMessages).
+message StoredMessage {
+  string id = 1;
+  string session_id = 2;
+  string wa_message_id = 3;
+  string chat_jid = 4;
+  optional string sender_lid = 5;
+  optional string sender_jid = 6;
+  optional string sender_name = 7;
+  bool from_me = 8;
+  MessageDirection direction = 9;
+  string type = 10;
+  optional string body = 11;
+  optional string quoted_message_id = 12;
+  repeated string mentions = 13;
+  map<string, string> mention_names = 14;
+  bool has_media = 15;
+  optional MediaMeta media = 16;
+  optional MessageStatus status = 17;
+  optional int32 ack_level = 18;
+  optional string error = 19;
+  bool edited = 20;
+  bool deleted = 21;
+  int64 timestamp_unix_ms = 22;
+  int64 created_at_unix_ms = 23;
+}
+
+// Page is the cursor-paginated list envelope ({"data":[...],"nextCursor"}).
+message Page {
+  string next_cursor = 1;
+}
