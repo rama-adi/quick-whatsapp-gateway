@@ -17,6 +17,16 @@ type MessageService struct {
 	sessions *store.SessionRepo
 	sender   *outbound.Sender
 	log      *slog.Logger
+	// gatewaySend is the control-plane send boundary (Increment 6). When set it
+	// replaces the legacy in-process sender entirely: the legacy path remains
+	// only for control-disabled deployments.
+	gatewaySend GatewayMessageSender
+}
+
+// GatewayMessageSender is the API-owned outbound send boundary backed by the
+// durable command scheduler and the private engine.
+type GatewayMessageSender interface {
+	Send(ctx context.Context, organizationID, sessionID string, req domain.SendRequest, opts outbound.SendOptions) (outbound.SendResult, error)
 }
 
 // NewMessageService constructs a MessageService.
@@ -25,6 +35,13 @@ func NewMessageService(sessions *store.SessionRepo, sender *outbound.Sender, log
 		log = slog.Default()
 	}
 	return &MessageService{sessions: sessions, sender: sender, log: log}
+}
+
+// SetGatewaySendFacade routes every send through the API-owned scheduler.
+func (s *MessageService) SetGatewaySendFacade(facade GatewayMessageSender) {
+	if facade != nil {
+		s.gatewaySend = facade
+	}
 }
 
 // session resolves a session and enforces organization ownership.
@@ -41,6 +58,9 @@ func (s *MessageService) session(ctx context.Context, organizationID, id string)
 
 // Send dispatches a unified typed send for a session.
 func (s *MessageService) Send(ctx context.Context, organizationID, sessionID string, req domain.SendRequest, opts outbound.SendOptions) (outbound.SendResult, error) {
+	if s.gatewaySend != nil {
+		return s.gatewaySend.Send(ctx, organizationID, sessionID, req, opts)
+	}
 	sess, err := s.session(ctx, organizationID, sessionID)
 	if err != nil {
 		return outbound.SendResult{}, err

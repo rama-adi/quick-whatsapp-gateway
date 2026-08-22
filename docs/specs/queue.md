@@ -19,7 +19,7 @@ separate cron service to deploy.
 
 | Job | Type name | Queue | Masterplan |
 |---|---|---|---|
-| Async outbound send | `outbox:send` | `outbox` | §10 (async outbox) |
+| Async outbound send | `outbox:send` (retired: no enqueue sites since gRPC Increment 6; the API's `OutboundScheduler` drains `outbox` directly over the private engine) | `outbox` | §10 (async outbox) |
 | Webhook delivery + retry | `webhook:deliver` | `webhooks` | §11 (webhook retries) |
 | Retention prune | `retention:prune` | `retention` | §7 (daily prune) |
 

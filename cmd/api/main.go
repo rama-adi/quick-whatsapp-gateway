@@ -42,6 +42,7 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/service/gatewayadmin"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/stream"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa/outbound"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/webhooks"
 )
 
@@ -276,6 +277,37 @@ func run() error {
 		}
 		services.Sessions.SetGatewayLiveFacade(engineClient)
 		services.Presence.SetGatewayLiveFacade(engineClient)
+
+		// --- API-owned outbound scheduling (Increment 6): durable command rows,
+		// product rate limits, and retry/backoff decisions run here; the gateway
+		// executes each command at most once per command id. The lease must
+		// exceed the engine send deadline so an in-flight dispatch is never
+		// reclaimed mid-flight. ---
+		outboundScheduler, schedulerErr := service.NewOutboundScheduler(
+			st.Sessions, st.Outbox, engineClient, outbound.NewRedisRateLimiter(rdb),
+			service.OutboundSchedulerConfig{
+				Lease:       cfg.GatewayEngineSendDeadline + time.Minute,
+				Batch:       32,
+				Poll:        2 * time.Second,
+				MaxAttempts: 10,
+				BackoffBase: 5 * time.Second,
+				BackoffCap:  10 * time.Minute,
+				Now:         time.Now,
+			}, log)
+		if schedulerErr != nil {
+			return fmt.Errorf("build outbound scheduler: %w", schedulerErr)
+		}
+		schedulerCtx, schedulerStop := context.WithCancel(ctx)
+		defer schedulerStop()
+		go func() {
+			if err := outboundScheduler.Run(schedulerCtx); err != nil && !errors.Is(err, context.Canceled) {
+				log.Warn("outbound scheduler stopped", "err", err)
+			}
+		}()
+		if services.Messages == nil {
+			return fmt.Errorf("message service is not constructed")
+		}
+		services.Messages.SetGatewaySendFacade(outboundScheduler)
 		tlsConfig := privateGatewayTLSConfig(identity, clientRoots)
 		enrollment, enrollmentErr := service.NewEnrollmentService(db, signer, service.DefaultEnrollmentConfig())
 		if enrollmentErr != nil {

@@ -13,7 +13,8 @@ import (
 func outboxColRow() []string {
 	return []string{
 		"id", "organization_id", "session_id", "idempotency_key", "payload", "status",
-		"attempts", "wa_message_id", "error", "created_at", "updated_at",
+		"attempts", "next_attempt_at", "wa_message_id", "error", "terminal_at",
+		"created_at", "updated_at",
 	}
 }
 
@@ -30,7 +31,7 @@ func TestOutboxRepo_Insert(t *testing.T) {
 	}
 	mock.ExpectExec("INSERT INTO outbox").
 		WithArgs(o.ID, o.OrganizationID, o.SessionID, o.IdempotencyKey, []byte(o.Payload),
-			o.Status, o.Attempts, o.WAMessageID, o.Error, o.CreatedAt, o.UpdatedAt).
+			o.Status, o.Attempts, int64(0), o.WAMessageID, o.Error, (*int64)(nil), o.CreatedAt, o.UpdatedAt).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	if err := repo.Insert(context.Background(), o); err != nil {
@@ -49,7 +50,7 @@ func TestOutboxRepo_GetByIdempotency(t *testing.T) {
 
 	rows := sqlmock.NewRows(outboxColRow()).
 		AddRow("out_1", "ten_1", "sess_1", "idem-1", []byte(`{"type":"text"}`),
-			"sent", 1, "wamid_1", nil, int64(100), int64(200))
+			"sent", 1, int64(0), "wamid_1", nil, int64(200), int64(100), int64(200))
 	mock.ExpectQuery("SELECT .* FROM outbox WHERE organization_id = . AND idempotency_key = .").
 		WithArgs("ten_1", "idem-1").WillReturnRows(rows)
 
@@ -90,7 +91,7 @@ func TestOutboxRepo_UpdateStatus(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewOutboxRepo(db)
 	mock.ExpectExec("UPDATE outbox\\s+SET status = \\?, wa_message_id = \\?, error = \\?, updated_at = \\?,\\s+payload = JSON_REMOVE.*WHERE id = \\?").
-		WithArgs(domain.OutboxSent, strptr("wamid_9"), (*string)(nil), int64(300), "out_1").
+		WithArgs(domain.OutboxSent, strptr("wamid_9"), (*string)(nil), int64(300), int64(300), "out_1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	if err := repo.UpdateStatus(context.Background(), "out_1", domain.OutboxSent, strptr("wamid_9"), nil, 300); err != nil {
 		t.Fatalf("UpdateStatus: %v", err)
@@ -106,6 +107,10 @@ func TestOutboxRepo_UpdateStatus_FailedKeepsPayload(t *testing.T) {
 	// A failed row keeps its payload (no JSON_REMOVE) so the async worker can retry.
 	db, mock := newMock(t)
 	repo := NewOutboxRepo(db)
+	mock.ExpectExec("UPDATE outbox\\s+SET status = \\?, wa_message_id = \\?, error = \\?,\\s+terminal_at = \\?, updated_at = \\?\\s+WHERE id = \\? AND status = \\?").
+		WithArgs(domain.OutboxFailed, (*string)(nil), strptr("boom"), int64(300), int64(300), "out_1", domain.OutboxSending).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	// A non-sending row falls back to the unconditional update.
 	mock.ExpectExec("UPDATE outbox\\s+SET status = \\?, wa_message_id = \\?, error = \\?, updated_at = \\?\\s+WHERE id = \\?").
 		WithArgs(domain.OutboxFailed, (*string)(nil), strptr("boom"), int64(300), "out_1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -124,8 +129,8 @@ func TestOutboxRepo_ClaimQueued(t *testing.T) {
 	repo := NewOutboxRepo(db)
 
 	rows := sqlmock.NewRows(outboxColRow()).
-		AddRow("out_1", "ten_1", "sess_1", nil, []byte(`{}`), "queued", 0, nil, nil, int64(1), int64(1)).
-		AddRow("out_2", "ten_1", "sess_1", nil, []byte(`{}`), "queued", 2, nil, nil, int64(2), int64(2))
+		AddRow("out_1", "ten_1", "sess_1", nil, []byte(`{}`), "queued", 0, int64(0), nil, nil, nil, int64(1), int64(1)).
+		AddRow("out_2", "ten_1", "sess_1", nil, []byte(`{}`), "queued", 2, int64(0), nil, nil, nil, int64(2), int64(2))
 	mock.ExpectBegin()
 	mock.ExpectQuery("SELECT .* FROM outbox.*WHERE status = .*ORDER BY created_at ASC, id ASC.*FOR UPDATE SKIP LOCKED").
 		WithArgs(domain.OutboxQueued, "", "", 5).WillReturnRows(rows)
@@ -201,7 +206,7 @@ func TestOutboxRepo_ClaimQueuedRollsBackOnCASFailure(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewOutboxRepo(db)
 	rows := sqlmock.NewRows(outboxColRow()).
-		AddRow("out_1", "ten_1", "sess_1", nil, []byte(`{}`), "queued", 0, nil, nil, int64(1), int64(1))
+		AddRow("out_1", "ten_1", "sess_1", nil, []byte(`{}`), "queued", 0, int64(0), nil, nil, nil, int64(1), int64(1))
 
 	mock.ExpectBegin()
 	mock.ExpectQuery("SELECT .*FOR UPDATE SKIP LOCKED").
@@ -233,6 +238,44 @@ func TestOutboxRepo_ClaimQueuedForSessionAppliesFilterBeforeLocking(t *testing.T
 	rows, err := repo.ClaimQueuedForSession(context.Background(), "sess_1", 10, 777)
 	if err != nil || len(rows) != 0 {
 		t.Fatalf("ClaimQueuedForSession() = (%v, %v), want empty success", rows, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestOutboxRepo_ClaimDue verifies retryable selection: due queued/failed rows
+// and stale sending leases lease in scheduled order with the same CAS.
+func TestOutboxRepo_ClaimDue(t *testing.T) {
+	db, mock := newMock(t)
+	repo := NewOutboxRepo(db)
+
+	rows := sqlmock.NewRows(outboxColRow()).
+		AddRow("out_1", "ten_1", "sess_1", nil, []byte(`{}`), "queued", 1, int64(500), nil, nil, nil, int64(1), int64(1)).
+		AddRow("out_2", "ten_1", "sess_1", nil, []byte(`{}`), "sending", 2, int64(0), nil, strptr("ambiguous"), nil, int64(2), int64(2))
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT .* FROM outbox.*FOR UPDATE SKIP LOCKED").
+		WithArgs(domain.OutboxQueued, domain.OutboxFailed, int64(1000), domain.OutboxSending, int64(500), 8).
+		WillReturnRows(rows)
+	mock.ExpectExec("UPDATE outbox.*status IN.*updated_at <=").
+		WithArgs(domain.OutboxSending, int64(1000), "out_1", domain.OutboxQueued, domain.OutboxFailed, domain.OutboxSending, int64(500)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE outbox.*status IN.*updated_at <=").
+		WithArgs(domain.OutboxSending, int64(1000), "out_2", domain.OutboxQueued, domain.OutboxFailed, domain.OutboxSending, int64(500)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	got, err := repo.ClaimDue(context.Background(), 8, 1000, 500, 1000)
+	if err != nil {
+		t.Fatalf("ClaimDue: %v", err)
+	}
+	if len(got) != 2 || got[0].ID != "out_1" || got[1].ID != "out_2" {
+		t.Fatalf("claimed = %+v", got)
+	}
+	for _, entry := range got {
+		if entry.Status != domain.OutboxSending || entry.UpdatedAt != 1000 {
+			t.Fatalf("lease not stamped: %+v", entry)
+		}
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

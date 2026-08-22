@@ -179,21 +179,38 @@ atomic op.
 
 ## Decisions
 
+- **API-owned scheduling (gRPC Increment 6)**: the API's `service.OutboundScheduler` owns
+  durable command rows, product rate limits, retry/backoff, and dispatch through the private
+  engine. Each `outbox` row id **is** the stable `command_id`; the gateway's result ledger
+  (`journal.db` `command_results`, seven-day retention) records definite outcomes before
+  responding, so a retried or reconciled send re-issues the same identity and cannot duplicate a
+  WhatsApp delivery within the idempotency window. The gateway executes at most once per
+  command id: replay returns the stored terminal result; concurrent duplicates join the first
+  execution.
+- **Ambiguity policy**: only deterministic pre-dispatch rejections (domain validation errors,
+  including a replayed prior ledger failure) are terminal `failed`. Unavailable gateways, stale
+  assignment epochs (conflict), and lost deadlines reschedule to `queued` with exponential
+  backoff (`next_attempt_at`); after the configured attempt budget the row fails honestly
+  ("no definite outcome after N attempts"). The stale-`sending` lease must exceed the engine
+  send deadline so an in-flight dispatch is never reclaimed mid-flight.
 - **Sync over-limit = error, async = defer** (open-decision #3): sync returns
   `domain.ErrRateLimited` with `details.retryAfterSeconds`; async persists a
   `queued` row regardless of budget.
 - **Idempotency is durable via the outbox**: sync sends with a key persist a
   `sending` row, then flip to `sent`/`failed` with the `wa_message_id` recorded,
   so a later replay reconstructs the original `SendResult`. A duplicate-insert
-  race falls back to replaying the stored row.
+  race falls back to replaying the stored row. Every sync send now persists a
+  command row (keyless included) so ambiguity is always reconcilable.
 - **Async worker ownership is leased and at-least-once**: a database CAS admits
-  one worker for `queued|failed → sending`; a fresh `sending` row is left to its
-  owner, while a claim older than five minutes is recoverable after a worker
-  crash. Dispatch is bounded to four minutes so a healthy owner finishes before
-  its lease expires. A crash after WhatsApp accepts the send but before the
-  `sent` update can still produce a duplicate when the stale claim is recovered—
-  WhatsApp offers no idempotency key that can close that final acknowledgement
-  gap. The lease deliberately chooses liveness over leaving the row stuck.
+  one scheduler for `queued|failed → sending`; a fresh `sending` row is left to its
+  owner, while a claim older than the lease (exceeding the engine send deadline) is
+  recoverable after a scheduler crash. Unlike the legacy in-gateway worker, the
+  gateway result ledger closes the acknowledgement gap the note below describes:
+  a recovered ambiguous claim re-issues its `command_id` and replays the stored
+  outcome instead of re-sending. (Legacy control-disabled deployments retain the
+  historical duplicate risk until Increment 9 removes the legacy path.) Dispatch
+  is bounded by the engine send deadline so a healthy owner finishes before its
+  lease expires.
 - **Worker ownership is a database CAS**: before dispatching a queued task, a worker calls
   `ClaimByID`, which atomically changes `queued` (first attempt), `failed` (Asynq retry), or a
   lease-expired `sending` row to `sending`, increments attempts, and reports whether it won.

@@ -579,7 +579,9 @@ func run() error {
 		return fmt.Errorf("parse redis url for queue: %w", err)
 	}
 	qHandlers := queue.Handlers{
-		Outbox:    service.NewOutboxWorker(st.Outbox, sender, log),
+		// Outbound sends are API-owned since Increment 6: the API's durable
+		// command scheduler drains the shared outbox directly over the private
+		// engine. The gateway keeps no send worker.
 		Retention: service.NewRetentionWorker(st, log),
 		// Per-task webhook delivery lands in the next stage; the dispatcher's
 		// DeliverDue ticker (below) drives delivery today.

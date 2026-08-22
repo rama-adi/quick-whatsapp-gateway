@@ -98,7 +98,7 @@ func NewSender(wa WAClient, outbox OutboxRepo, limits RateLimiter, clock Clock, 
 // For sync sends with an idempotency key, the result is recorded in the outbox
 // (status sent/failed) so a later replay returns it.
 func (s *Sender) Send(ctx context.Context, sess domain.WASession, req domain.SendRequest, opts SendOptions) (SendResult, error) {
-	if err := validate(req); err != nil {
+	if err := Validate(req); err != nil {
 		return SendResult{}, err
 	}
 
@@ -542,7 +542,7 @@ func decodeBase64(s string) ([]byte, error) {
 // limiting or idempotency (those are the synchronous front-door's job); it is a
 // thin, reusable router around the WAClient.
 func (s *Sender) Dispatch(ctx context.Context, req domain.SendRequest) (waMessageID string, ts int64, err error) {
-	if err := validate(req); err != nil {
+	if err := Validate(req); err != nil {
 		return "", 0, err
 	}
 	return s.dispatch(ctx, req)

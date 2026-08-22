@@ -466,6 +466,11 @@ read queries can compile without making the gateway a writer or migration owner 
   never claim another session's row and discard it after the transition.
   Duplicate queue tasks and worker replicas therefore cannot simultaneously own one outbox row;
   a sent/fresh-sending/missing row is a normal non-claim rather than an error.
+- **Retry scheduling lives on the row (migration 0014).** `next_attempt_at` schedules ambiguous
+  attempts with backoff (`ClaimDue` selects queued/failed rows that are due plus stale
+  `sending` leases, oldest-due first), and `terminal_at` records when a row reached sent/failed.
+  The API's `OutboundScheduler` owns these decisions since gRPC Increment 6; each row id is the
+  stable engine `command_id` the gateway's result ledger deduplicates on.
 - **No retained media bytes.** An outbound media send carries either inline base64 in
   `outbox.payload.media.data` or a URL in `outbox.payload.media.url`. `OutboxRepo.UpdateStatus`
   strips `$.media.data` (via `JSON_REMOVE`) when the row is marked `sent`, so inline bytes live

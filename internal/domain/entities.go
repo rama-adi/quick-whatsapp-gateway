@@ -505,8 +505,10 @@ type OutboxEntry struct {
 	Payload        json.RawMessage `json:"payload" doc:"The original send request payload (a SendRequest), stored verbatim as JSON."`
 	Status         OutboxStatus    `json:"status" enum:"queued,sending,sent,failed" doc:"State of the queued send. **queued** = accepted, awaiting a worker; **sending** = a worker is delivering it to WhatsApp; **sent** = handed off successfully (see waMessageId); **failed** = all attempts failed (see error). Progression: queued → sending → sent, or queued → sending → failed." example:"sent"`
 	Attempts       int             `json:"attempts" doc:"How many delivery attempts have been made." example:"1"`
+	NextAttemptAt  int64           `json:"nextAttemptAt,omitempty" doc:"Earliest epoch-ms (UTC) the next retry may run; zero means immediately due. Ambiguous attempts are rescheduled here with backoff instead of reporting a definite failure." example:"1719662405000"`
 	WAMessageID    *string         `json:"waMessageId,omitempty" doc:"The WhatsApp message id assigned once the send succeeded. Optional; null until status is sent." example:"3EB0C431C26A1916E07A"`
 	Error          *string         `json:"error,omitempty" doc:"Failure reason when status is failed. Optional; null otherwise." example:"rate limited"`
+	TerminalAt     *int64          `json:"terminalAt,omitempty" doc:"When the entry reached sent or failed, in epoch milliseconds (UTC). Optional until terminal." example:"1719662401000"`
 	CreatedAt      int64           `json:"createdAt" doc:"When the entry was enqueued, in epoch milliseconds (UTC)." example:"1719662400000"`
 	UpdatedAt      int64           `json:"updatedAt" doc:"When the entry was last updated, in epoch milliseconds (UTC)." example:"1719662400000"`
 }

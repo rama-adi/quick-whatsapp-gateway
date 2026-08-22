@@ -1663,6 +1663,8 @@ type Outbox struct {
 	Error          sql.NullString  `db:"error" json:"error"`
 	CreatedAt      int64           `db:"created_at" json:"created_at"`
 	UpdatedAt      int64           `db:"updated_at" json:"updated_at"`
+	NextAttemptAt  int64           `db:"next_attempt_at" json:"next_attempt_at"`
+	TerminalAt     sql.NullInt64   `db:"terminal_at" json:"terminal_at"`
 }
 
 type PkiAuthority struct {
