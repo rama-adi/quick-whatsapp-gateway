@@ -15,7 +15,7 @@ R-milestone that re-implements its subsystem.
 
 | Spec | v2 disposition | Owning milestone | Notes |
 |---|---|---|---|
-| `grpc-contracts.md` | 🚧 Increment 7 active | gRPC control plane | Enrollment, lifecycle, renewal, administration, revision/epoch/lease-fenced desired-state reconciliation, unary engine slices (incl. the session-lifecycle wave), journaled event ingestion with post-commit fan-out, API-owned outbound send commands with a gateway result ledger, and API-local contact/group/chat-presence/backfill live operations with API-owned projections are implemented. Public gRPC and final dependency removal remain. |
+| `grpc-contracts.md` | 🚧 Increment 8 active | gRPC control plane | Enrollment, lifecycle, renewal, administration, desired-state reconciliation, reliable events/commands, and the complete private engine surface are implemented; every public operation serves API-locally. Public gRPC and gateway dependency removal remain. |
 | `router.md` | ✅ Increments A+B + Huma | central-router | Single front door/trust boundary: router-owned auth/CORS/control bus, REST broker, Ed25519 assertion, generated Huma OpenAPI, and ticketed WebSocket over shared Redis. Gateway NDJSON is removed. |
 | `trust-model.md` | ✅ v2 (replaced `auth-tenancy.md`) | R1/R2 + central-router | Two caller identities (JWKS-JWT, api-key); org ownership; control bus + cache + revocation; boot orphan-guard (§4). **Central-router (Increment A):** authn + control-bus subscriber moved to the router; the gateway now trusts the router's Ed25519 assertion. |
 | `api-keys.md` | ✅ v2 + central-router | R1/central-router | No custom Go keys; the router verifies against shared `apikey` and owns the positive cache; gateways receive only the internal assertion. |
