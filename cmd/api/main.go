@@ -270,7 +270,7 @@ func run() error {
 		if !clientRoots.AppendCertsFromPEM(bundle) {
 			return fmt.Errorf("load gateway trust bundle: invalid PEM")
 		}
-		engineClient, identityErr = apigateway.NewEngineClient(st.Gateways, apigateway.NewEngineMTLSDial(identity.GetCertificate, clientRoots), cfg.GatewayEngineUnaryDeadline)
+		engineClient, identityErr = apigateway.NewEngineClient(st.Gateways, apigateway.NewEngineMTLSDial(identity.GetCertificate, clientRoots), cfg.GatewayEngineUnaryDeadline, cfg.GatewayEngineSendDeadline)
 		if identityErr != nil {
 			return fmt.Errorf("build gateway engine client: %w", identityErr)
 		}

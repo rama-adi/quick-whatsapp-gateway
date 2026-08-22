@@ -10,6 +10,7 @@ service GatewayEngineService {
   rpc GetSessionState(GetSessionStateRequest) returns (GetSessionStateResponse);
   rpc SetAccountPresence(SetAccountPresenceRequest) returns (SetAccountPresenceResponse);
   rpc MarkRead(MarkReadRequest) returns (MarkReadResponse);
+  rpc SendMessage(SendMessageRequest) returns (SendMessageResponse);
 }
 
 message SessionTarget {
@@ -58,4 +59,25 @@ message MarkReadResponse {
   SessionTarget target = 2;
   uint64 assignment_epoch = 3;
   reserved 4 to 15;
+}
+
+// SendMessageRequest carries one durable send command. payload_json is the
+// canonical SendRequest body; media stays inline (base64) and is resolved by
+// the gateway under its existing bounded limits. The API may repeat a
+// command_id verbatim: the gateway returns the stored terminal result instead
+// of executing again.
+message SendMessageRequest {
+  SessionTarget target = 1;
+  uint64 assignment_epoch = 2;
+  string command_id = 3;
+  bytes payload_json = 4;
+  reserved 5 to 15;
+}
+message SendMessageResponse {
+  string command_id = 1;
+  SessionTarget target = 2;
+  uint64 assignment_epoch = 3;
+  string wa_message_id = 4;
+  int64 sent_at_unix_ms = 5;
+  reserved 6 to 15;
 }

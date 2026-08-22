@@ -588,6 +588,155 @@ func (x *MarkReadResponse) GetAssignmentEpoch() uint64 {
 	return 0
 }
 
+// SendMessageRequest carries one durable send command. payload_json is the
+// canonical SendRequest body; media stays inline (base64) and is resolved by
+// the gateway under its existing bounded limits. The API may repeat a
+// command_id verbatim: the gateway returns the stored terminal result instead
+// of executing again.
+type SendMessageRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Target          *SessionTarget         `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
+	AssignmentEpoch uint64                 `protobuf:"varint,2,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
+	CommandId       string                 `protobuf:"bytes,3,opt,name=command_id,json=commandId,proto3" json:"command_id,omitempty"`
+	PayloadJson     []byte                 `protobuf:"bytes,4,opt,name=payload_json,json=payloadJson,proto3" json:"payload_json,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *SendMessageRequest) Reset() {
+	*x = SendMessageRequest{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SendMessageRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SendMessageRequest) ProtoMessage() {}
+
+func (x *SendMessageRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SendMessageRequest.ProtoReflect.Descriptor instead.
+func (*SendMessageRequest) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *SendMessageRequest) GetTarget() *SessionTarget {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *SendMessageRequest) GetAssignmentEpoch() uint64 {
+	if x != nil {
+		return x.AssignmentEpoch
+	}
+	return 0
+}
+
+func (x *SendMessageRequest) GetCommandId() string {
+	if x != nil {
+		return x.CommandId
+	}
+	return ""
+}
+
+func (x *SendMessageRequest) GetPayloadJson() []byte {
+	if x != nil {
+		return x.PayloadJson
+	}
+	return nil
+}
+
+type SendMessageResponse struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	CommandId       string                 `protobuf:"bytes,1,opt,name=command_id,json=commandId,proto3" json:"command_id,omitempty"`
+	Target          *SessionTarget         `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
+	AssignmentEpoch uint64                 `protobuf:"varint,3,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
+	WaMessageId     string                 `protobuf:"bytes,4,opt,name=wa_message_id,json=waMessageId,proto3" json:"wa_message_id,omitempty"`
+	SentAtUnixMs    int64                  `protobuf:"varint,5,opt,name=sent_at_unix_ms,json=sentAtUnixMs,proto3" json:"sent_at_unix_ms,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *SendMessageResponse) Reset() {
+	*x = SendMessageResponse{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SendMessageResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SendMessageResponse) ProtoMessage() {}
+
+func (x *SendMessageResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SendMessageResponse.ProtoReflect.Descriptor instead.
+func (*SendMessageResponse) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *SendMessageResponse) GetCommandId() string {
+	if x != nil {
+		return x.CommandId
+	}
+	return ""
+}
+
+func (x *SendMessageResponse) GetTarget() *SessionTarget {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *SendMessageResponse) GetAssignmentEpoch() uint64 {
+	if x != nil {
+		return x.AssignmentEpoch
+	}
+	return 0
+}
+
+func (x *SendMessageResponse) GetWaMessageId() string {
+	if x != nil {
+		return x.WaMessageId
+	}
+	return ""
+}
+
+func (x *SendMessageResponse) GetSentAtUnixMs() int64 {
+	if x != nil {
+		return x.SentAtUnixMs
+	}
+	return 0
+}
+
 var File_v1_gateway_engine_proto protoreflect.FileDescriptor
 
 const file_v1_gateway_engine_proto_rawDesc = "" +
@@ -634,7 +783,20 @@ const file_v1_gateway_engine_proto_rawDesc = "" +
 	"\n" +
 	"command_id\x18\x01 \x01(\tR\tcommandId\x121\n" +
 	"\x06target\x18\x02 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
-	"\x10assignment_epoch\x18\x03 \x01(\x04R\x0fassignmentEpochJ\x04\b\x04\x10\x10*\xf6\x01\n" +
+	"\x10assignment_epoch\x18\x03 \x01(\x04R\x0fassignmentEpochJ\x04\b\x04\x10\x10\"\xba\x01\n" +
+	"\x12SendMessageRequest\x121\n" +
+	"\x06target\x18\x01 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
+	"\x10assignment_epoch\x18\x02 \x01(\x04R\x0fassignmentEpoch\x12\x1d\n" +
+	"\n" +
+	"command_id\x18\x03 \x01(\tR\tcommandId\x12!\n" +
+	"\fpayload_json\x18\x04 \x01(\fR\vpayloadJsonJ\x04\b\x05\x10\x10\"\xe3\x01\n" +
+	"\x13SendMessageResponse\x12\x1d\n" +
+	"\n" +
+	"command_id\x18\x01 \x01(\tR\tcommandId\x121\n" +
+	"\x06target\x18\x02 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
+	"\x10assignment_epoch\x18\x03 \x01(\x04R\x0fassignmentEpoch\x12\"\n" +
+	"\rwa_message_id\x18\x04 \x01(\tR\vwaMessageId\x12%\n" +
+	"\x0fsent_at_unix_ms\x18\x05 \x01(\x03R\fsentAtUnixMsJ\x04\b\x06\x10\x10*\xf6\x01\n" +
 	"\x14GatewaySessionStatus\x12&\n" +
 	"\"GATEWAY_SESSION_STATUS_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1eGATEWAY_SESSION_STATUS_STOPPED\x10\x01\x12#\n" +
@@ -645,11 +807,12 @@ const file_v1_gateway_engine_proto_rawDesc = "" +
 	"\x0fAccountPresence\x12 \n" +
 	"\x1cACCOUNT_PRESENCE_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17ACCOUNT_PRESENCE_ONLINE\x10\x01\x12\x1c\n" +
-	"\x18ACCOUNT_PRESENCE_OFFLINE\x10\x022\x9e\x02\n" +
+	"\x18ACCOUNT_PRESENCE_OFFLINE\x10\x022\xee\x02\n" +
 	"\x14GatewayEngineService\x12Z\n" +
 	"\x0fGetSessionState\x12\".gateway.v1.GetSessionStateRequest\x1a#.gateway.v1.GetSessionStateResponse\x12c\n" +
 	"\x12SetAccountPresence\x12%.gateway.v1.SetAccountPresenceRequest\x1a&.gateway.v1.SetAccountPresenceResponse\x12E\n" +
-	"\bMarkRead\x12\x1b.gateway.v1.MarkReadRequest\x1a\x1c.gateway.v1.MarkReadResponseBDZBgithub.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1;gatewayv1b\x06proto3"
+	"\bMarkRead\x12\x1b.gateway.v1.MarkReadRequest\x1a\x1c.gateway.v1.MarkReadResponse\x12N\n" +
+	"\vSendMessage\x12\x1e.gateway.v1.SendMessageRequest\x1a\x1f.gateway.v1.SendMessageResponseBDZBgithub.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1;gatewayv1b\x06proto3"
 
 var (
 	file_v1_gateway_engine_proto_rawDescOnce sync.Once
@@ -664,7 +827,7 @@ func file_v1_gateway_engine_proto_rawDescGZIP() []byte {
 }
 
 var file_v1_gateway_engine_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_v1_gateway_engine_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_v1_gateway_engine_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_v1_gateway_engine_proto_goTypes = []any{
 	(GatewaySessionStatus)(0),          // 0: gateway.v1.GatewaySessionStatus
 	(AccountPresence)(0),               // 1: gateway.v1.AccountPresence
@@ -675,6 +838,8 @@ var file_v1_gateway_engine_proto_goTypes = []any{
 	(*MarkReadRequest)(nil),            // 6: gateway.v1.MarkReadRequest
 	(*SetAccountPresenceResponse)(nil), // 7: gateway.v1.SetAccountPresenceResponse
 	(*MarkReadResponse)(nil),           // 8: gateway.v1.MarkReadResponse
+	(*SendMessageRequest)(nil),         // 9: gateway.v1.SendMessageRequest
+	(*SendMessageResponse)(nil),        // 10: gateway.v1.SendMessageResponse
 }
 var file_v1_gateway_engine_proto_depIdxs = []int32{
 	2,  // 0: gateway.v1.GetSessionStateRequest.target:type_name -> gateway.v1.SessionTarget
@@ -685,17 +850,21 @@ var file_v1_gateway_engine_proto_depIdxs = []int32{
 	2,  // 5: gateway.v1.MarkReadRequest.target:type_name -> gateway.v1.SessionTarget
 	2,  // 6: gateway.v1.SetAccountPresenceResponse.target:type_name -> gateway.v1.SessionTarget
 	2,  // 7: gateway.v1.MarkReadResponse.target:type_name -> gateway.v1.SessionTarget
-	3,  // 8: gateway.v1.GatewayEngineService.GetSessionState:input_type -> gateway.v1.GetSessionStateRequest
-	5,  // 9: gateway.v1.GatewayEngineService.SetAccountPresence:input_type -> gateway.v1.SetAccountPresenceRequest
-	6,  // 10: gateway.v1.GatewayEngineService.MarkRead:input_type -> gateway.v1.MarkReadRequest
-	4,  // 11: gateway.v1.GatewayEngineService.GetSessionState:output_type -> gateway.v1.GetSessionStateResponse
-	7,  // 12: gateway.v1.GatewayEngineService.SetAccountPresence:output_type -> gateway.v1.SetAccountPresenceResponse
-	8,  // 13: gateway.v1.GatewayEngineService.MarkRead:output_type -> gateway.v1.MarkReadResponse
-	11, // [11:14] is the sub-list for method output_type
-	8,  // [8:11] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	2,  // 8: gateway.v1.SendMessageRequest.target:type_name -> gateway.v1.SessionTarget
+	2,  // 9: gateway.v1.SendMessageResponse.target:type_name -> gateway.v1.SessionTarget
+	3,  // 10: gateway.v1.GatewayEngineService.GetSessionState:input_type -> gateway.v1.GetSessionStateRequest
+	5,  // 11: gateway.v1.GatewayEngineService.SetAccountPresence:input_type -> gateway.v1.SetAccountPresenceRequest
+	6,  // 12: gateway.v1.GatewayEngineService.MarkRead:input_type -> gateway.v1.MarkReadRequest
+	9,  // 13: gateway.v1.GatewayEngineService.SendMessage:input_type -> gateway.v1.SendMessageRequest
+	4,  // 14: gateway.v1.GatewayEngineService.GetSessionState:output_type -> gateway.v1.GetSessionStateResponse
+	7,  // 15: gateway.v1.GatewayEngineService.SetAccountPresence:output_type -> gateway.v1.SetAccountPresenceResponse
+	8,  // 16: gateway.v1.GatewayEngineService.MarkRead:output_type -> gateway.v1.MarkReadResponse
+	10, // 17: gateway.v1.GatewayEngineService.SendMessage:output_type -> gateway.v1.SendMessageResponse
+	14, // [14:18] is the sub-list for method output_type
+	10, // [10:14] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_v1_gateway_engine_proto_init() }
@@ -709,7 +878,7 @@ func file_v1_gateway_engine_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_v1_gateway_engine_proto_rawDesc), len(file_v1_gateway_engine_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   7,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

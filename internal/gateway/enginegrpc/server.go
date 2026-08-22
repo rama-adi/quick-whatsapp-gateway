@@ -3,6 +3,7 @@ package enginegrpc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -71,6 +72,31 @@ func (s *Server) MarkRead(ctx context.Context, req *gatewayv1.MarkReadRequest) (
 		return nil, grpcError(err)
 	}
 	return readResponse(result), nil
+}
+
+func (s *Server) SendMessage(ctx context.Context, req *gatewayv1.SendMessageRequest) (*gatewayv1.SendMessageResponse, error) {
+	target, err := s.target(req.GetTarget())
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	if req.GetAssignmentEpoch() == 0 || req.GetCommandId() == "" || len(req.GetPayloadJson()) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "invalid send-message request")
+	}
+	var payload domain.SendRequest
+	if err := json.Unmarshal(req.GetPayloadJson(), &payload); err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid send payload")
+	}
+	result, err := s.Engine.SendMessage(ctx, application.SendCommand{
+		CommandID: req.GetCommandId(), OrganizationID: target.OrganizationId, SessionID: target.SessionId,
+		GatewayID: target.GatewayId, AssignmentEpoch: req.GetAssignmentEpoch(), Payload: payload,
+	})
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	return &gatewayv1.SendMessageResponse{
+		CommandId: result.CommandID, Target: targetResponse(result.MutationResult), AssignmentEpoch: result.AssignmentEpoch,
+		WaMessageId: result.WAMessageID, SentAtUnixMs: result.SentAt.UnixMilli(),
+	}, nil
 }
 
 func (s *Server) target(target *gatewayv1.SessionTarget) (*gatewayv1.SessionTarget, error) {

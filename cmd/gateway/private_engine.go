@@ -6,6 +6,7 @@ import (
 	"net"
 
 	gatewayv1 "github.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1"
+	apigateway "github.com/ramaadi/quick-whatsapp-gateway/internal/api/gateway"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/gateway/enginegrpc"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/pki"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/pki/gatewayidentity"
@@ -43,7 +44,9 @@ func startPrivateEngine(addr, gatewayID string, identity *gatewayidentity.Manage
 	if err != nil {
 		return nil, err
 	}
-	server := grpc.NewServer(grpc.Creds(credentials.NewTLS(tlsConfig)))
+	server := grpc.NewServer(grpc.Creds(credentials.NewTLS(tlsConfig)),
+		grpc.MaxRecvMsgSize(apigateway.MaxEngineMessageBytes),
+		grpc.MaxSendMsgSize(apigateway.MaxEngineMessageBytes))
 	gatewayv1.RegisterGatewayEngineServiceServer(server, &enginegrpc.Server{GatewayID: gatewayID, Engine: engine})
 	go func() { _ = server.Serve(listener) }()
 	return func() { server.GracefulStop(); _ = listener.Close() }, nil

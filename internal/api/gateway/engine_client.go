@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -23,6 +24,11 @@ type EngineTargetResolver interface {
 	ResolveSessionEngineTarget(context.Context, string, string) (domain.SessionEngineTarget, error)
 }
 type EngineDial func(context.Context, string, string) (*grpc.ClientConn, error)
+
+// MaxEngineMessageBytes bounds one engine RPC message. The album aggregate cap
+// (64 MiB) plus envelope/JSON headroom decides the value; both dial and server
+// must agree so inline media payloads are never silently truncated.
+const MaxEngineMessageBytes = 68 << 20
 
 // NewEngineMTLSDial constructs a gateway-bound TLS 1.3 dialer. The callback is
 // supplied by apiidentity.Manager so rotations affect new pooled connections.
@@ -47,19 +53,20 @@ func NewEngineMTLSDial(certificate func(*tls.ClientHelloInfo) (*tls.Certificate,
 				return errors.New("gateway SPIFFE identity mismatch")
 			}
 			return nil
-		}})))
+		}})), grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(MaxEngineMessageBytes), grpc.MaxCallSendMsgSize(MaxEngineMessageBytes)))
 	}
 }
 
 // EngineClient implements the API-facing resolved live facade. Calls reuse one
 // grpc-go ClientConn per advertised endpoint; grpc-go owns reconnects.
 type EngineClient struct {
-	resolver EngineTargetResolver
-	dial     EngineDial
-	mu       sync.Mutex
-	conns    map[string]*grpc.ClientConn
-	deadline time.Duration
-	health   map[string]EngineHealth
+	resolver     EngineTargetResolver
+	dial         EngineDial
+	mu           sync.Mutex
+	conns        map[string]*grpc.ClientConn
+	deadline     time.Duration
+	sendDeadline time.Duration
+	health       map[string]EngineHealth
 }
 type EngineHealth struct {
 	GatewayID, Endpoint      string
@@ -67,11 +74,14 @@ type EngineHealth struct {
 	LastError                string
 }
 
-func NewEngineClient(resolver EngineTargetResolver, dial EngineDial, deadline time.Duration) (*EngineClient, error) {
+func NewEngineClient(resolver EngineTargetResolver, dial EngineDial, deadline, sendDeadline time.Duration) (*EngineClient, error) {
 	if deadline <= 0 {
 		return nil, errors.New("gateway engine unary deadline is required")
 	}
-	return &EngineClient{resolver: resolver, dial: dial, conns: map[string]*grpc.ClientConn{}, deadline: deadline, health: map[string]EngineHealth{}}, nil
+	if sendDeadline <= 0 {
+		return nil, errors.New("gateway engine send deadline is required")
+	}
+	return &EngineClient{resolver: resolver, dial: dial, conns: map[string]*grpc.ClientConn{}, deadline: deadline, sendDeadline: sendDeadline, health: map[string]EngineHealth{}}, nil
 }
 func (c *EngineClient) Health() []EngineHealth {
 	c.mu.Lock()
@@ -173,6 +183,48 @@ func (c *EngineClient) SetAccountPresence(ctx context.Context, org, session stri
 	_, err = gatewayv1.NewGatewayEngineServiceClient(conn).SetAccountPresence(ctx, &gatewayv1.SetAccountPresenceRequest{Target: &gatewayv1.SessionTarget{OrganizationId: target.OrganizationID, SessionId: target.SessionID, GatewayId: target.GatewayID}, AssignmentEpoch: target.AssignmentEpoch, CommandId: domain.NewULID(), State: state})
 	c.record(target.GatewayID, target.GRPCEndpoint, err)
 	return mapEngineError(err)
+}
+
+// SendMessage dispatches one durable send command. The caller owns the stable
+// CommandID (from the durable command row); this method never mints one, so a
+// retried ambiguous send re-issues the same id and the gateway's ledger
+// returns the original terminal result.
+func (c *EngineClient) SendMessage(ctx context.Context, command application.SendCommand) (application.SendMessageResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.sendDeadline)
+	defer cancel()
+	if command.CommandID == "" {
+		return application.SendMessageResult{}, domain.ErrValidation("send command id is required")
+	}
+	target, err := c.resolver.ResolveSessionEngineTarget(ctx, command.OrganizationID, command.SessionID)
+	if err != nil {
+		return application.SendMessageResult{}, err
+	}
+	conn, err := c.conn(ctx, target.GatewayID, target.GRPCEndpoint)
+	if err != nil {
+		return application.SendMessageResult{}, err
+	}
+	payload, err := json.Marshal(command.Payload)
+	if err != nil {
+		return application.SendMessageResult{}, fmt.Errorf("encode send payload: %w", err)
+	}
+	response, err := gatewayv1.NewGatewayEngineServiceClient(conn).SendMessage(ctx, &gatewayv1.SendMessageRequest{
+		Target:          &gatewayv1.SessionTarget{OrganizationId: target.OrganizationID, SessionId: target.SessionID, GatewayId: target.GatewayID},
+		AssignmentEpoch: target.AssignmentEpoch,
+		CommandId:       command.CommandID,
+		PayloadJson:     payload,
+	})
+	c.record(target.GatewayID, target.GRPCEndpoint, err)
+	if err != nil {
+		return application.SendMessageResult{}, mapEngineError(err)
+	}
+	return application.SendMessageResult{
+		MutationResult: application.MutationResult{
+			CommandID: response.CommandId, OrganizationID: target.OrganizationID,
+			SessionID: target.SessionID, GatewayID: target.GatewayID, AssignmentEpoch: target.AssignmentEpoch,
+		},
+		WAMessageID: response.WaMessageId,
+		SentAt:      time.UnixMilli(response.SentAtUnixMs).UTC(),
+	}, nil
 }
 func mapEngineError(err error) error {
 	if err == nil {

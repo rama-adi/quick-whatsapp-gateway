@@ -13,10 +13,10 @@ import (
 )
 
 func TestEngineClientRequiresExplicitDeadline(t *testing.T) {
-	if _, err := NewEngineClient(nil, nil, 0); err == nil {
+	if _, err := NewEngineClient(nil, nil, 0, time.Second); err == nil {
 		t.Fatal("zero deadline accepted")
 	}
-	if _, err := NewEngineClient(nil, nil, time.Second); err != nil {
+	if _, err := NewEngineClient(nil, nil, time.Second, time.Minute); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -26,7 +26,7 @@ func TestEngineClientPoolKeysGatewayAndEndpoint(t *testing.T) {
 	client, err := NewEngineClient(nil, func(context.Context, string, string) (*grpc.ClientConn, error) {
 		calls++
 		return &grpc.ClientConn{}, nil
-	}, time.Second)
+	}, time.Second, time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}

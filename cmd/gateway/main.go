@@ -31,6 +31,7 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/crypto"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/dbconn"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/application"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/gateway/controlclient"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/gateway/controlsupervisor"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/gateway/desiredstate"
@@ -398,7 +399,7 @@ func run() error {
 		supervisorStarted = true
 	}
 	if controlEnabled {
-		engine := wa.NewApplicationGatewayAdapter(cfg.GatewayID, manager, desiredReconciler)
+		engine := wa.NewApplicationGatewayAdapter(cfg.GatewayID, manager, desiredReconciler, sender, journalCommandLedger{journal: eventJournal})
 		stopEngine, engineErr := startPrivateEngine(cfg.EngineGRPCAddr, cfg.GatewayID, controlIdentity, engine)
 		if engineErr != nil {
 			return fmt.Errorf("start private gateway engine: %w", engineErr)
@@ -949,6 +950,28 @@ func positiveInt64ToUint64(n int64) uint64 {
 		return 0
 	}
 	return uint64(n)
+}
+
+// journalCommandLedger adapts the gateway event journal's command-result table
+// to the engine adapter's transport-independent ledger port.
+type journalCommandLedger struct{ journal *journal.Journal }
+
+func (a journalCommandLedger) LookupCommand(ctx context.Context, commandID string) (*application.CommandResultRecord, error) {
+	result, err := a.journal.LookupCommand(ctx, commandID)
+	if err != nil || result == nil {
+		return nil, err
+	}
+	return &application.CommandResultRecord{
+		CommandID: result.CommandID, SessionID: result.SessionID, Status: result.Status,
+		WAMessageID: result.WAMessageID, Error: result.Error, UpdatedAt: result.UpdatedAt,
+	}, nil
+}
+
+func (a journalCommandLedger) SaveCommandResult(ctx context.Context, record application.CommandResultRecord) error {
+	return a.journal.SaveCommandResult(ctx, journal.CommandResult{
+		CommandID: record.CommandID, SessionID: record.SessionID, Status: record.Status,
+		WAMessageID: record.WAMessageID, Error: record.Error, UpdatedAt: record.UpdatedAt,
+	})
 }
 
 type controlStatusSource interface {

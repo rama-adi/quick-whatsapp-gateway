@@ -30,6 +30,7 @@ type APIConfig struct {
 	GatewayTLSIdentityDir      string        // API_GATEWAY_TLS_IDENTITY_DIR
 	GatewayTLSRenewBefore      time.Duration // API_GATEWAY_TLS_RENEW_BEFORE
 	GatewayEngineUnaryDeadline time.Duration // API_GATEWAY_ENGINE_UNARY_DEADLINE; required when private engine is enabled
+	GatewayEngineSendDeadline  time.Duration // API_GATEWAY_ENGINE_SEND_DEADLINE; required when private engine is enabled
 	GatewayPKI                 *PKIConfig    // loaded only when the private listener is enabled
 	PublicURL                  string        // API_PUBLIC_URL; deprecated fallback ROUTER_PUBLIC_URL
 
@@ -110,6 +111,14 @@ func LoadAPI() (*APIConfig, error) {
 			return nil, fmt.Errorf("config: invalid API_GATEWAY_ENGINE_UNARY_DEADLINE")
 		}
 		cfg.GatewayEngineUnaryDeadline = duration
+
+		// Sends may upload up to 64 MiB of media to WhatsApp before responding;
+		// their deadline is separate from (and larger than) unary reads. The
+		// default mirrors the outbound worker's 4-minute dispatch budget.
+		cfg.GatewayEngineSendDeadline = getDuration("API_GATEWAY_ENGINE_SEND_DEADLINE", 4*time.Minute)
+		if cfg.GatewayEngineSendDeadline <= 0 {
+			return nil, fmt.Errorf("config: invalid API_GATEWAY_ENGINE_SEND_DEADLINE")
+		}
 		pkiConfig, err := LoadPKI()
 		if err != nil {
 			return nil, err

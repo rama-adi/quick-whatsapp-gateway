@@ -273,3 +273,197 @@ func TestApplicationGatewayAdapterSessionNotFoundError(t *testing.T) {
 	_, err := a.GetSessionState(context.Background(), application.SessionStateQuery{OrganizationID: "o", SessionID: "missing", GatewayID: "gateway-1"})
 	assertAPIError(t, err, domain.CodeNotFound, "session not found")
 }
+
+type fakeDispatcher struct {
+	calls       int
+	waMessageID string
+	ts          int64
+	err         error
+	lastSession string
+}
+
+func (f *fakeDispatcher) Dispatch(_ context.Context, req domain.SendRequest) (string, int64, error) {
+	f.calls++
+	f.lastSession = req.To
+	return f.waMessageID, f.ts, f.err
+}
+
+type fakeLedger struct {
+	stored map[string]application.CommandResultRecord
+	saved  []application.CommandResultRecord
+	err    error
+}
+
+func (f *fakeLedger) LookupCommand(_ context.Context, commandID string) (*application.CommandResultRecord, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	if record, ok := f.stored[commandID]; ok {
+		return &record, nil
+	}
+	return nil, nil
+}
+
+func (f *fakeLedger) SaveCommandResult(_ context.Context, record application.CommandResultRecord) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.saved = append(f.saved, record)
+	if f.stored == nil {
+		f.stored = map[string]application.CommandResultRecord{}
+	}
+	if _, exists := f.stored[record.CommandID]; !exists {
+		f.stored[record.CommandID] = record
+	}
+	return nil
+}
+
+func sendTestAdapter(dispatch sendDispatcher, ledger commandLedger, allows bool) (*ApplicationGatewayAdapter, *fakeEngineLiveOps) {
+	live := &fakeEngineLiveOps{}
+	adapter := testApplicationAdapter(live)
+	adapter.dispatch = dispatch
+	adapter.ledger = ledger
+	adapter.fence = fakeAssignmentFence{owns: true, allows: allows}
+	adapter.inFlight = map[string]*inFlightSend{}
+	return adapter, live
+}
+
+func textSendCommand(commandID string) application.SendCommand {
+	return application.SendCommand{
+		CommandID: commandID, OrganizationID: "org_1", SessionID: "ses_1",
+		GatewayID: "gateway-1", AssignmentEpoch: 4,
+		Payload: domain.SendRequest{Type: domain.SendTypeText, To: "628123@s.whatsapp.net", Text: "hi"},
+	}
+}
+
+// TestSendMessageExecutesAndRecordsBeforeResponding pins the write-ahead
+// ledger contract: a successful send is durably recorded with its WhatsApp id.
+func TestSendMessageExecutesAndRecordsBeforeResponding(t *testing.T) {
+	dispatch := &fakeDispatcher{waMessageID: "WA_1", ts: 5000}
+	ledger := &fakeLedger{}
+	adapter, _ := sendTestAdapter(dispatch, ledger, true)
+
+	result, err := adapter.SendMessage(context.Background(), textSendCommand("cmd_1"))
+	if err != nil {
+		t.Fatalf("SendMessage: %v", err)
+	}
+	if result.WAMessageID != "WA_1" || !result.SentAt.Equal(time.UnixMilli(5000).UTC()) || result.AssignmentEpoch != 4 {
+		t.Fatalf("result = %#v", result)
+	}
+	if len(ledger.saved) != 1 || ledger.saved[0].Status != application.CommandSent || ledger.saved[0].WAMessageID != "WA_1" {
+		t.Fatalf("saved = %#v", ledger.saved)
+	}
+	if dispatch.calls != 1 {
+		t.Fatalf("dispatch calls = %d", dispatch.calls)
+	}
+}
+
+// TestSendMessageReplaysStoredResultWithoutRedispatch pins the Increment 6 exit
+// criterion: a repeated command_id after a lost response returns the original
+// result and never sends twice.
+func TestSendMessageReplaysStoredResultWithoutRedispatch(t *testing.T) {
+	dispatch := &fakeDispatcher{waMessageID: "WA_1"}
+	ledger := &fakeLedger{stored: map[string]application.CommandResultRecord{
+		"cmd_1": {CommandID: "cmd_1", SessionID: "ses_1", Status: application.CommandSent, WAMessageID: "WA_ORIGINAL", UpdatedAt: time.UnixMilli(42).UTC()},
+	}}
+	adapter, _ := sendTestAdapter(dispatch, ledger, false)
+
+	result, err := adapter.SendMessage(context.Background(), textSendCommand("cmd_1"))
+	if err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+	if result.WAMessageID != "WA_ORIGINAL" || !result.SentAt.Equal(time.UnixMilli(42).UTC()) {
+		t.Fatalf("replayed result = %#v", result)
+	}
+	if dispatch.calls != 0 {
+		t.Fatalf("replay re-dispatched %d times", dispatch.calls)
+	}
+}
+
+// TestSendMessageValidationFailureIsTerminalButTransientFailureIsNot pins the
+// outcome classification: deterministic rejections are recorded so retries fail
+// identically, while transient errors leave the command retryable.
+func TestSendMessageValidationFailureIsTerminalButTransientFailureIsNot(t *testing.T) {
+	validation := &fakeDispatcher{err: domain.ErrValidation("bad payload")}
+	validationLedger := &fakeLedger{}
+	adapter, _ := sendTestAdapter(validation, validationLedger, true)
+	if _, err := adapter.SendMessage(context.Background(), textSendCommand("cmd_bad")); err == nil {
+		t.Fatal("want validation error")
+	}
+	if len(validationLedger.saved) != 1 || validationLedger.saved[0].Status != application.CommandFailed {
+		t.Fatalf("validation not recorded: %#v", validationLedger.saved)
+	}
+
+	transient := &fakeDispatcher{err: errors.New("whatsapp disconnected")}
+	transientLedger := &fakeLedger{}
+	adapter, _ = sendTestAdapter(transient, transientLedger, true)
+	if _, err := adapter.SendMessage(context.Background(), textSendCommand("cmd_transient")); err == nil {
+		t.Fatal("want transient error")
+	}
+	if len(transientLedger.saved) != 0 {
+		t.Fatalf("transient failure was recorded as terminal: %#v", transientLedger.saved)
+	}
+}
+
+// TestSendMessageFailsClosedWithoutLedger ensures a miscomposed gateway cannot
+// silently execute non-idempotent sends.
+func TestSendMessageFailsClosedWithoutLedger(t *testing.T) {
+	dispatch := &fakeDispatcher{waMessageID: "WA_1"}
+	adapter, _ := sendTestAdapter(dispatch, nil, true)
+	if _, err := adapter.SendMessage(context.Background(), textSendCommand("cmd_1")); err == nil {
+		t.Fatal("expected error without ledger")
+	}
+	if dispatch.calls != 0 {
+		t.Fatal("dispatch ran without a ledger")
+	}
+}
+
+// TestSendMessageConcurrentDuplicateJoinsFirstExecution verifies the in-process
+// singleflight: two identical concurrent commands produce one dispatch and two
+// identical results (the follower waits for the leader's ledger write).
+func TestSendMessageConcurrentDuplicateJoinsFirstExecution(t *testing.T) {
+	release := make(chan struct{})
+	dispatch := &fakeDispatcher{waMessageID: "WA_RACE"}
+	ledger := &fakeLedger{}
+	adapter, _ := sendTestAdapter(&blockedDispatcher{inner: dispatch, gate: release}, ledger, true)
+
+	type call struct {
+		result application.SendMessageResult
+		err    error
+	}
+	results := make(chan call, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			result, err := adapter.SendMessage(context.Background(), textSendCommand("cmd_race"))
+			results <- call{result, err}
+		}()
+	}
+	time.Sleep(50 * time.Millisecond)
+	close(release)
+	first := <-results
+	second := <-results
+	if first.err != nil || second.err != nil {
+		t.Fatalf("errors: %v %v", first.err, second.err)
+	}
+	if first.result.WAMessageID != "WA_RACE" || second.result.WAMessageID != "WA_RACE" {
+		t.Fatalf("results diverged: %#v %#v", first.result, second.result)
+	}
+	if dispatch.calls != 1 {
+		t.Fatalf("concurrent duplicates dispatched %d times", dispatch.calls)
+	}
+	if len(ledger.saved) != 1 {
+		t.Fatalf("ledger writes = %d", len(ledger.saved))
+	}
+}
+
+// blockedDispatcher holds every Dispatch call until the test releases it,
+// exercising the duplicate command's wait path.
+type blockedDispatcher struct {
+	inner *fakeDispatcher
+	gate  chan struct{}
+}
+
+func (b *blockedDispatcher) Dispatch(ctx context.Context, req domain.SendRequest) (string, int64, error) {
+	<-b.gate
+	return b.inner.Dispatch(ctx, req)
+}

@@ -150,7 +150,16 @@ created_at INTEGER NOT NULL
 CREATE TABLE IF NOT EXISTS journal_meta (
 id INTEGER PRIMARY KEY CHECK (id=1),
 acked_through INTEGER NOT NULL
-); INSERT OR IGNORE INTO journal_meta (id, acked_through) VALUES (1, 0);`); err != nil {
+); INSERT OR IGNORE INTO journal_meta (id, acked_through) VALUES (1, 0);
+CREATE TABLE IF NOT EXISTS command_results (
+command_id TEXT PRIMARY KEY,
+session_id TEXT NOT NULL,
+status TEXT NOT NULL,
+wa_message_id TEXT NOT NULL DEFAULT '',
+error TEXT NOT NULL DEFAULT '',
+updated_at INTEGER NOT NULL,
+expires_at INTEGER NOT NULL
+);`); err != nil {
 		_ = db.Close()
 		return nil, classifySQLiteError(fmt.Errorf("initialize gateway journal: %w", err))
 	}
@@ -291,7 +300,13 @@ func (j *Journal) Ack(ctx context.Context, through uint64) error {
 	return nil
 }
 
-func (j *Journal) Metrics(ctx context.Context) (Metrics, error) { return metricsDB(ctx, j.db, j.cfg) }
+func (j *Journal) Metrics(ctx context.Context) (Metrics, error) {
+	// Heartbeat cadence is the natural sweep point for expired command results.
+	// A failed prune only delays space reuse until the next cycle, so it never
+	// masks live pressure metrics or flips readiness.
+	_ = j.PruneCommands(ctx, time.Now())
+	return metricsDB(ctx, j.db, j.cfg)
+}
 
 func metricsDB(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
