@@ -195,18 +195,24 @@ const gatewayHeartbeatForEpoch = `-- name: GatewayHeartbeatForEpoch :execrows
 UPDATE gateways
 SET last_seen_at = ?, session_count = ?,
     status = ?,
+    journal_state = COALESCE(?, journal_state),
+    journal_entries = COALESCE(?, journal_entries),
+    journal_bytes = COALESCE(?, journal_bytes),
     updated_at = ?
 WHERE id = ? AND connection_epoch = ? AND deleted_at IS NULL
   AND status NOT IN ('pending_enrollment', 'disabled')
 `
 
 type GatewayHeartbeatForEpochParams struct {
-	LastSeenAt      sql.NullInt64  `db:"last_seen_at" json:"last_seen_at"`
-	SessionCount    uint32         `db:"session_count" json:"session_count"`
-	ReportedStatus  GatewaysStatus `db:"reported_status" json:"reported_status"`
-	UpdatedAt       int64          `db:"updated_at" json:"updated_at"`
-	ID              string         `db:"id" json:"id"`
-	ConnectionEpoch uint64         `db:"connection_epoch" json:"connection_epoch"`
+	LastSeenAt      sql.NullInt64            `db:"last_seen_at" json:"last_seen_at"`
+	SessionCount    uint32                   `db:"session_count" json:"session_count"`
+	ReportedStatus  GatewaysStatus           `db:"reported_status" json:"reported_status"`
+	JournalState    NullGatewaysJournalState `db:"journal_state" json:"journal_state"`
+	JournalEntries  sql.NullInt64            `db:"journal_entries" json:"journal_entries"`
+	JournalBytes    sql.NullInt64            `db:"journal_bytes" json:"journal_bytes"`
+	UpdatedAt       int64                    `db:"updated_at" json:"updated_at"`
+	ID              string                   `db:"id" json:"id"`
+	ConnectionEpoch uint64                   `db:"connection_epoch" json:"connection_epoch"`
 }
 
 func (q *Queries) GatewayHeartbeatForEpoch(ctx context.Context, arg GatewayHeartbeatForEpochParams) (int64, error) {
@@ -214,6 +220,9 @@ func (q *Queries) GatewayHeartbeatForEpoch(ctx context.Context, arg GatewayHeart
 		arg.LastSeenAt,
 		arg.SessionCount,
 		arg.ReportedStatus,
+		arg.JournalState,
+		arg.JournalEntries,
+		arg.JournalBytes,
 		arg.UpdatedAt,
 		arg.ID,
 		arg.ConnectionEpoch,
@@ -254,7 +263,8 @@ SELECT id, label, notes, status, session_count, capacity, base_url, grpc_endpoin
        software_version, capabilities, connection_epoch, connection_mode,
        desired_lifecycle, desired_revision, applied_revision, enrolled_at,
        connected_at, last_seen_at, created_at, updated_at, reconciliation_status,
-       keystore_present, keystore_bytes, keystore_integrity, keystore_checked_at
+       keystore_present, keystore_bytes, keystore_integrity, keystore_checked_at,
+       journal_state, journal_entries, journal_bytes
 FROM gateways
 WHERE id = ? AND deleted_at IS NULL
 `
@@ -289,6 +299,9 @@ type GetGatewayRow struct {
 	KeystoreBytes        sql.NullInt64                 `db:"keystore_bytes" json:"keystore_bytes"`
 	KeystoreIntegrity    NullGatewaysKeystoreIntegrity `db:"keystore_integrity" json:"keystore_integrity"`
 	KeystoreCheckedAt    sql.NullInt64                 `db:"keystore_checked_at" json:"keystore_checked_at"`
+	JournalState         NullGatewaysJournalState      `db:"journal_state" json:"journal_state"`
+	JournalEntries       sql.NullInt64                 `db:"journal_entries" json:"journal_entries"`
+	JournalBytes         sql.NullInt64                 `db:"journal_bytes" json:"journal_bytes"`
 }
 
 func (q *Queries) GetGateway(ctx context.Context, arg GetGatewayParams) (GetGatewayRow, error) {
@@ -320,6 +333,9 @@ func (q *Queries) GetGateway(ctx context.Context, arg GetGatewayParams) (GetGate
 		&i.KeystoreBytes,
 		&i.KeystoreIntegrity,
 		&i.KeystoreCheckedAt,
+		&i.JournalState,
+		&i.JournalEntries,
+		&i.JournalBytes,
 	)
 	return i, err
 }
@@ -563,7 +579,8 @@ SELECT id, label, notes, status, session_count, capacity, base_url, grpc_endpoin
        software_version, capabilities, connection_epoch, connection_mode,
        desired_lifecycle, desired_revision, applied_revision, enrolled_at,
        connected_at, last_seen_at, created_at, updated_at, reconciliation_status,
-       keystore_present, keystore_bytes, keystore_integrity, keystore_checked_at
+       keystore_present, keystore_bytes, keystore_integrity, keystore_checked_at,
+       journal_state, journal_entries, journal_bytes
 FROM gateways WHERE deleted_at IS NULL ORDER BY created_at DESC, id DESC
 `
 
@@ -593,6 +610,9 @@ type ListGatewaysRow struct {
 	KeystoreBytes        sql.NullInt64                 `db:"keystore_bytes" json:"keystore_bytes"`
 	KeystoreIntegrity    NullGatewaysKeystoreIntegrity `db:"keystore_integrity" json:"keystore_integrity"`
 	KeystoreCheckedAt    sql.NullInt64                 `db:"keystore_checked_at" json:"keystore_checked_at"`
+	JournalState         NullGatewaysJournalState      `db:"journal_state" json:"journal_state"`
+	JournalEntries       sql.NullInt64                 `db:"journal_entries" json:"journal_entries"`
+	JournalBytes         sql.NullInt64                 `db:"journal_bytes" json:"journal_bytes"`
 }
 
 func (q *Queries) ListGateways(ctx context.Context) ([]ListGatewaysRow, error) {
@@ -630,6 +650,9 @@ func (q *Queries) ListGateways(ctx context.Context) ([]ListGatewaysRow, error) {
 			&i.KeystoreBytes,
 			&i.KeystoreIntegrity,
 			&i.KeystoreCheckedAt,
+			&i.JournalState,
+			&i.JournalEntries,
+			&i.JournalBytes,
 		); err != nil {
 			return nil, err
 		}

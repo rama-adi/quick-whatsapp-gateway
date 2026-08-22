@@ -20,7 +20,7 @@ func gatewayRows() *sqlmock.Rows {
 }
 
 func gatewayAdminRows() *sqlmock.Rows {
-	return sqlmock.NewRows([]string{"id", "label", "notes", "status", "session_count", "capacity", "base_url", "grpc_endpoint", "software_version", "capabilities", "connection_epoch", "connection_mode", "desired_lifecycle", "desired_revision", "applied_revision", "enrolled_at", "connected_at", "last_seen_at", "created_at", "updated_at", "reconciliation_status", "keystore_present", "keystore_bytes", "keystore_integrity", "keystore_checked_at"})
+	return sqlmock.NewRows([]string{"id", "label", "notes", "status", "session_count", "capacity", "base_url", "grpc_endpoint", "software_version", "capabilities", "connection_epoch", "connection_mode", "desired_lifecycle", "desired_revision", "applied_revision", "enrolled_at", "connected_at", "last_seen_at", "created_at", "updated_at", "reconciliation_status", "keystore_present", "keystore_bytes", "keystore_integrity", "keystore_checked_at", "journal_state", "journal_entries", "journal_bytes"})
 }
 
 // TestGatewayRepo_UpsertAndGet verifies registry upsert and nullable field mapping.
@@ -40,7 +40,7 @@ func TestGatewayRepo_UpsertAndGet(t *testing.T) {
 		t.Fatalf("Upsert: %v", err)
 	}
 
-	rows := gatewayAdminRows().AddRow("gw_1", "primary", "notes", "active", 3, nil, "https://gw", "gw:8443", "v2", []byte(`{"renewal":true}`), uint64(7), "control", "run", uint64(9), uint64(8), int64(3), int64(4), nil, int64(1), int64(2), "healthy", true, int64(12), "healthy", int64(5))
+	rows := gatewayAdminRows().AddRow("gw_1", "primary", "notes", "active", 3, nil, "https://gw", "gw:8443", "v2", []byte(`{"renewal":true}`), uint64(7), "control", "run", uint64(9), uint64(8), int64(3), int64(4), nil, int64(1), int64(2), "healthy", true, int64(12), "healthy", int64(5), nil, nil, nil)
 	mock.ExpectQuery("SELECT .* FROM gateways WHERE id = .").
 		WithArgs("gw_1").WillReturnRows(rows)
 	got, err := repo.Get(context.Background(), "gw_1")

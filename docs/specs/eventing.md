@@ -217,6 +217,14 @@ owns its organization/session, preserving that assignment epoch with the entry. 
 committed sequence order as protobuf `Struct` payloads over the control stream; exactly one batch is
 in flight and the API acknowledgement must equal that batch's last journal sequence before deletion.
 Reconnects replay the oldest unacknowledged batch. A critical journal capacity state makes the gateway
-unready, while a failed append backpressures the producing pipeline. In control mode the gateway does
+unready, while a failed append backpressures the producing pipeline. Every heartbeat carries optional
+journal-pressure telemetry (`journal_state`/`journal_entries`/`journal_bytes`, §7): an unreadable
+journal omits the report instead of fabricating one, and the API persists the last reported pressure
+on the registry row for admin observability. Paused/critical states are advisory to optional sync
+work; no gateway sync work is pausable yet, so the seam is reserved, not exercised. In control mode
+the gateway does
 not append `event_log`, publish Redis events, or enqueue webhooks: API ingestion owns the single
 event-log transaction and post-commit fan-out. Legacy mode retains its existing fan-out unchanged.
+Poll-recap emission is API-owned in every mode: the durable MySQL sweep and its event append,
+realtime publish, and webhook enqueue run beside the committed-event worker on the API; the Redis
+sorted set is only a low-latency wake-up index and gateways no longer write it.

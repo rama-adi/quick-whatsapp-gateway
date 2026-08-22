@@ -624,6 +624,70 @@ func AllGatewaysDesiredLifecycleValues() []GatewaysDesiredLifecycle {
 	}
 }
 
+type GatewaysJournalState string
+
+const (
+	GatewaysJournalStateHealthy  GatewaysJournalState = "healthy"
+	GatewaysJournalStateDegraded GatewaysJournalState = "degraded"
+	GatewaysJournalStatePaused   GatewaysJournalState = "paused"
+	GatewaysJournalStateCritical GatewaysJournalState = "critical"
+)
+
+func (e *GatewaysJournalState) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = GatewaysJournalState(s)
+	case string:
+		*e = GatewaysJournalState(s)
+	default:
+		return fmt.Errorf("unsupported scan type for GatewaysJournalState: %T", src)
+	}
+	return nil
+}
+
+type NullGatewaysJournalState struct {
+	GatewaysJournalState GatewaysJournalState `json:"gateways_journal_state"`
+	Valid                bool                 `json:"valid"` // Valid is true if GatewaysJournalState is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullGatewaysJournalState) Scan(value interface{}) error {
+	if value == nil {
+		ns.GatewaysJournalState, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.GatewaysJournalState.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullGatewaysJournalState) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.GatewaysJournalState), nil
+}
+
+func (e GatewaysJournalState) Valid() bool {
+	switch e {
+	case GatewaysJournalStateHealthy,
+		GatewaysJournalStateDegraded,
+		GatewaysJournalStatePaused,
+		GatewaysJournalStateCritical:
+		return true
+	}
+	return false
+}
+
+func AllGatewaysJournalStateValues() []GatewaysJournalState {
+	return []GatewaysJournalState{
+		GatewaysJournalStateHealthy,
+		GatewaysJournalStateDegraded,
+		GatewaysJournalStatePaused,
+		GatewaysJournalStateCritical,
+	}
+}
+
 type GatewaysKeystoreIntegrity string
 
 const (
@@ -1482,6 +1546,9 @@ type Gateway struct {
 	KeystoreBytes        sql.NullInt64                 `db:"keystore_bytes" json:"keystore_bytes"`
 	KeystoreIntegrity    NullGatewaysKeystoreIntegrity `db:"keystore_integrity" json:"keystore_integrity"`
 	KeystoreCheckedAt    sql.NullInt64                 `db:"keystore_checked_at" json:"keystore_checked_at"`
+	JournalState         NullGatewaysJournalState      `db:"journal_state" json:"journal_state"`
+	JournalEntries       sql.NullInt64                 `db:"journal_entries" json:"journal_entries"`
+	JournalBytes         sql.NullInt64                 `db:"journal_bytes" json:"journal_bytes"`
 }
 
 type GatewayCertificate struct {
@@ -1523,14 +1590,14 @@ type GatewayEnrollmentToken struct {
 }
 
 type GatewayIngestedEvent struct {
-	GatewayEventID  string       `db:"gateway_event_id" json:"gateway_event_id"`
-	GatewayID       string       `db:"gateway_id" json:"gateway_id"`
-	ConnectionEpoch uint64       `db:"connection_epoch" json:"connection_epoch"`
-	SessionID       string       `db:"session_id" json:"session_id"`
-	AssignmentEpoch uint64       `db:"assignment_epoch" json:"assignment_epoch"`
-	OrganizationID  string       `db:"organization_id" json:"organization_id"`
-	EventLogID      string       `db:"event_log_id" json:"event_log_id"`
-	CommittedAt     int64        `db:"committed_at" json:"committed_at"`
+	GatewayEventID  string         `db:"gateway_event_id" json:"gateway_event_id"`
+	GatewayID       string         `db:"gateway_id" json:"gateway_id"`
+	ConnectionEpoch uint64         `db:"connection_epoch" json:"connection_epoch"`
+	SessionID       string         `db:"session_id" json:"session_id"`
+	AssignmentEpoch uint64         `db:"assignment_epoch" json:"assignment_epoch"`
+	OrganizationID  string         `db:"organization_id" json:"organization_id"`
+	EventLogID      string         `db:"event_log_id" json:"event_log_id"`
+	CommittedAt     int64          `db:"committed_at" json:"committed_at"`
 	ClaimedBy       sql.NullString `db:"claimed_by" json:"claimed_by"`
 	LeaseUntil      sql.NullInt64  `db:"lease_until" json:"lease_until"`
 	CompletedAt     sql.NullInt64  `db:"completed_at" json:"completed_at"`

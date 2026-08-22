@@ -996,6 +996,30 @@ components:
           examples:
             - gw_01J9ZX8K2QHV0M3T6R7P4N5W8C
           type: string
+        journalBytes:
+          description: Pending event-journal bytes awaiting API acknowledgement, from the same observation as journalState.
+          examples:
+            - 1048576
+          format: int64
+          minimum: 0
+          type: integer
+        journalEntries:
+          description: Pending event-journal entries awaiting API acknowledgement, from the same observation as journalState.
+          examples:
+            - 42
+          format: int64
+          minimum: 0
+          type: integer
+        journalState:
+          description: Observed gateway event-journal pressure from the last control-mode heartbeat. degraded/paused/critical report durable-handoff disk pressure; null means the gateway has not reported telemetry.
+          enum:
+            - healthy
+            - degraded
+            - paused
+            - critical
+          examples:
+            - healthy
+          type: string
         keystoreBytes:
           examples:
             - 10485760

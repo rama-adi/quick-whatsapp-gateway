@@ -54,6 +54,9 @@ type Heartbeat struct {
 	SentAt              time.Time
 	SessionCount        uint32
 	RuntimeState        gatewayv1.GatewayRuntimeState
+	JournalState        gatewayv1.GatewayJournalState
+	JournalEntries      uint64
+	JournalBytes        uint64
 }
 
 type LifecycleReport struct {
@@ -489,7 +492,26 @@ func validateHeartbeat(heartbeat *gatewayv1.GatewayHeartbeat) error {
 	if heartbeat == nil || heartbeat.ConnectionEpoch == 0 || heartbeat.SentAtUnixMs <= 0 || heartbeat.SentAtUnixMs > maxUnixMillis || !knownRuntimeState(heartbeat.RuntimeState) {
 		return status.Error(codes.InvalidArgument, "invalid gateway heartbeat")
 	}
+	if !knownJournalState(heartbeat.JournalState) {
+		return status.Error(codes.InvalidArgument, "invalid gateway journal state")
+	}
+	if heartbeat.JournalState == gatewayv1.GatewayJournalState_GATEWAY_JOURNAL_STATE_UNKNOWN && (heartbeat.JournalEntries != 0 || heartbeat.JournalBytes != 0) {
+		return status.Error(codes.InvalidArgument, "gateway journal telemetry requires a journal state")
+	}
 	return nil
+}
+
+func knownJournalState(state gatewayv1.GatewayJournalState) bool {
+	switch state {
+	case gatewayv1.GatewayJournalState_GATEWAY_JOURNAL_STATE_UNKNOWN,
+		gatewayv1.GatewayJournalState_GATEWAY_JOURNAL_STATE_HEALTHY,
+		gatewayv1.GatewayJournalState_GATEWAY_JOURNAL_STATE_DEGRADED,
+		gatewayv1.GatewayJournalState_GATEWAY_JOURNAL_STATE_PAUSED,
+		gatewayv1.GatewayJournalState_GATEWAY_JOURNAL_STATE_CRITICAL:
+		return true
+	default:
+		return false
+	}
 }
 
 type issuedDirective struct {
@@ -623,7 +645,8 @@ func validateHTTPBaseURL(raw string) error {
 }
 
 func heartbeatValue(v *gatewayv1.GatewayHeartbeat) Heartbeat {
-	return Heartbeat{LastControlSequence: v.LastControlSequence, SentAt: time.UnixMilli(v.SentAtUnixMs).UTC(), SessionCount: v.SessionCount, RuntimeState: v.RuntimeState}
+	return Heartbeat{LastControlSequence: v.LastControlSequence, SentAt: time.UnixMilli(v.SentAtUnixMs).UTC(), SessionCount: v.SessionCount, RuntimeState: v.RuntimeState,
+		JournalState: v.JournalState, JournalEntries: v.JournalEntries, JournalBytes: v.JournalBytes}
 }
 
 func lifecycleValue(v *gatewayv1.GatewayLifecycleReport) LifecycleReport {

@@ -80,7 +80,13 @@ message GatewayHeartbeat {
   int64 sent_at_unix_ms = 3;
   uint32 session_count = 4;
   GatewayRuntimeState runtime_state = 5;
-  reserved 6 to 15;
+  // Event-journal backpressure telemetry (§7): a degraded/paused/critical state
+  // reports durable-handoff disk pressure. journal_state is UNKNOWN when the
+  // gateway runs without a journal or could not read it this cycle.
+  GatewayJournalState journal_state = 6;
+  uint64 journal_entries = 7;
+  uint64 journal_bytes = 8;
+  reserved 9 to 15;
 }
 
 // ControlHeartbeatAck confirms that the API durably applied one gateway
@@ -213,5 +219,6 @@ enum LifecycleDirectiveReason {
 }
 
 enum KeystoreHealthState { KEYSTORE_HEALTH_STATE_UNKNOWN = 0; KEYSTORE_HEALTH_STATE_HEALTHY = 1; KEYSTORE_HEALTH_STATE_MISSING = 2; KEYSTORE_HEALTH_STATE_CORRUPT = 3; reserved 4 to 15; }
+enum GatewayJournalState { GATEWAY_JOURNAL_STATE_UNKNOWN = 0; GATEWAY_JOURNAL_STATE_HEALTHY = 1; GATEWAY_JOURNAL_STATE_DEGRADED = 2; GATEWAY_JOURNAL_STATE_PAUSED = 3; GATEWAY_JOURNAL_STATE_CRITICAL = 4; reserved 5 to 15; }
 enum ReconciliationResultStatus { RECONCILIATION_RESULT_STATUS_UNKNOWN = 0; RECONCILIATION_RESULT_STATUS_APPLIED = 1; RECONCILIATION_RESULT_STATUS_KEYSTORE_MISSING = 2; RECONCILIATION_RESULT_STATUS_KEYSTORE_CORRUPT = 3; RECONCILIATION_RESULT_STATUS_UNEXPECTED_LOCAL_DEVICE = 4; reserved 5 to 15; }
 enum SessionDesiredAction { SESSION_DESIRED_ACTION_UNKNOWN = 0; SESSION_DESIRED_ACTION_RUN = 1; SESSION_DESIRED_ACTION_STOP = 2; reserved 3 to 15; }

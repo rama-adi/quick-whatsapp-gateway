@@ -30,6 +30,9 @@ type GatewayAdmin struct {
 	KeystoreBytes        *int64          `json:"keystoreBytes,omitempty" example:"10485760"`
 	KeystoreIntegrity    *string         `json:"keystoreIntegrity,omitempty" enum:"healthy,missing,corrupt" example:"healthy"`
 	KeystoreCheckedAt    *int64          `json:"keystoreCheckedAt,omitempty" example:"1719662400000"`
+	JournalState         *string         `json:"journalState,omitempty" enum:"healthy,degraded,paused,critical" doc:"Observed gateway event-journal pressure from the last control-mode heartbeat. degraded/paused/critical report durable-handoff disk pressure; null means the gateway has not reported telemetry." example:"healthy"`
+	JournalEntries       *uint64         `json:"journalEntries,omitempty" doc:"Pending event-journal entries awaiting API acknowledgement, from the same observation as journalState." example:"42"`
+	JournalBytes         *uint64         `json:"journalBytes,omitempty" doc:"Pending event-journal bytes awaiting API acknowledgement, from the same observation as journalState." example:"1048576"`
 	EnrolledAt           *int64          `json:"enrolledAt,omitempty" example:"1719662400000"`
 	ConnectedAt          *int64          `json:"connectedAt,omitempty" example:"1719662400000"`
 	LastSeenAt           *int64          `json:"lastSeenAt,omitempty" example:"1719662400000"`
@@ -101,6 +104,7 @@ func GatewayAdminFromDomain(g domain.Gateway) GatewayAdmin {
 		AppliedRevision: g.AppliedRevision, EnrolledAt: g.EnrolledAt, ConnectedAt: g.ConnectedAt, LastSeenAt: g.LastSeenAt,
 		ReconciliationStatus: g.ReconciliationStatus, KeystorePresent: g.KeystorePresent, KeystoreBytes: g.KeystoreBytes,
 		KeystoreIntegrity: g.KeystoreIntegrity, KeystoreCheckedAt: g.KeystoreCheckedAt,
+		JournalState: g.JournalState, JournalEntries: g.JournalEntries, JournalBytes: g.JournalBytes,
 		CreatedAt: g.CreatedAt, UpdatedAt: g.UpdatedAt,
 	}
 }

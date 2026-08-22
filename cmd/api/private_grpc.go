@@ -308,8 +308,7 @@ func (s gatewayControlStore) Accept(ctx context.Context, gatewayID string, hello
 	}, nil
 }
 
-func (s gatewayControlStore) Heartbeat(ctx context.Context, gatewayID string, epoch uint64, heartbeat apigateway.Heartbeat) (apigateway.DesiredLifecycle, error) {
-	runtimeStatus, valid := runtimeGatewayStatus(heartbeat.RuntimeState)
+func (s gatewayControlStore) Heartbeat(ctx context.Context, gatewayID string, epoch uint64, heartbeat apigateway.Heartbeat) (apigateway.DesiredLifecycle, error) {	runtimeStatus, valid := runtimeGatewayStatus(heartbeat.RuntimeState)
 	if !valid {
 		return apigateway.DesiredLifecycle{}, apigateway.ErrConflict
 	}
@@ -317,6 +316,9 @@ func (s gatewayControlStore) Heartbeat(ctx context.Context, gatewayID string, ep
 		GatewayConnection: domain.GatewayConnection{GatewayID: gatewayID, ConnectionEpoch: epoch},
 		SessionCount:      int(heartbeat.SessionCount),
 		Status:            runtimeStatus,
+		JournalState:      journalStateString(heartbeat.JournalState),
+		JournalEntries:    journalCount(heartbeat.JournalState, heartbeat.JournalEntries),
+		JournalBytes:      journalCount(heartbeat.JournalState, heartbeat.JournalBytes),
 	}, s.clock().UnixMilli())
 	if err = fencedStoreResult(applied, err); err != nil {
 		return apigateway.DesiredLifecycle{}, err
@@ -327,6 +329,34 @@ func (s gatewayControlStore) Heartbeat(ctx context.Context, gatewayID string, ep
 	}
 	return apigateway.DesiredLifecycle{Action: action, Revision: desired.DesiredRevision}, nil
 }
+
+// journalStateString maps the wire journal state onto the stored enum; UNKNOWN
+// means "no report this cycle" and persists nothing.
+func journalStateString(state gatewayv1.GatewayJournalState) *string {
+	switch state {
+	case gatewayv1.GatewayJournalState_GATEWAY_JOURNAL_STATE_HEALTHY:
+		return strPtr("healthy")
+	case gatewayv1.GatewayJournalState_GATEWAY_JOURNAL_STATE_DEGRADED:
+		return strPtr("degraded")
+	case gatewayv1.GatewayJournalState_GATEWAY_JOURNAL_STATE_PAUSED:
+		return strPtr("paused")
+	case gatewayv1.GatewayJournalState_GATEWAY_JOURNAL_STATE_CRITICAL:
+		return strPtr("critical")
+	default:
+		return nil
+	}
+}
+
+// journalCount carries a telemetry count only alongside a reported state.
+func journalCount(state gatewayv1.GatewayJournalState, value uint64) *uint64 {
+	if state == gatewayv1.GatewayJournalState_GATEWAY_JOURNAL_STATE_UNKNOWN {
+		return nil
+	}
+	v := value
+	return &v
+}
+
+func strPtr(s string) *string { return &s }
 
 func (s gatewayControlStore) DesiredState(ctx context.Context, gatewayID string, epoch, revision uint64, leaseExpiresAt time.Time) (apigateway.DesiredState, error) {
 	assignments, current, err := s.repo.DesiredStateForEpoch(ctx, domain.GatewayConnection{GatewayID: gatewayID, ConnectionEpoch: epoch}, revision, leaseExpiresAt.UnixMilli())

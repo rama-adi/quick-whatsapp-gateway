@@ -48,6 +48,9 @@ func gatewayFromRow(row storedb.GetGatewayRow) domain.Gateway {
 		KeystoreBytes:        int64PtrFromNull(row.KeystoreBytes),
 		KeystoreIntegrity:    gatewayKeystoreIntegrityPtr(row.KeystoreIntegrity),
 		KeystoreCheckedAt:    int64PtrFromNull(row.KeystoreCheckedAt),
+		JournalState:         journalStatePtr(row.JournalState.GatewaysJournalState, row.JournalState.Valid),
+		JournalEntries:       uint64PtrFromNull(row.JournalEntries),
+		JournalBytes:         uint64PtrFromNull(row.JournalBytes),
 		EnrolledAt:           int64PtrFromNull(row.EnrolledAt),
 		ConnectedAt:          int64PtrFromNull(row.ConnectedAt),
 		LastSeenAt:           int64PtrFromNull(row.LastSeenAt),
@@ -171,10 +174,15 @@ func (r *GatewayRepo) HeartbeatForEpoch(ctx context.Context, h domain.GatewayHea
 	if h.ConnectionEpoch == 0 || h.SessionCount < 0 || !gatewayReportedStatus(h.Status) {
 		return domain.GatewayAcceptedConnection{}, false, fmt.Errorf("store: invalid fenced gateway heartbeat")
 	}
+	journalState, journalEntries, journalBytes, err := gatewayJournalTelemetryParams(h)
+	if err != nil {
+		return domain.GatewayAcceptedConnection{}, false, fmt.Errorf("store: invalid fenced gateway heartbeat: %w", err)
+	}
 	n, err := r.q.GatewayHeartbeatForEpoch(ctx, storedb.GatewayHeartbeatForEpochParams{
 		LastSeenAt: sql.NullInt64{Int64: at, Valid: true}, SessionCount: uint32(h.SessionCount),
 		ReportedStatus: storedb.GatewaysStatus(h.Status), UpdatedAt: at, ID: h.GatewayID,
 		ConnectionEpoch: h.ConnectionEpoch,
+		JournalState:    journalState, JournalEntries: journalEntries, JournalBytes: journalBytes,
 	})
 	if err != nil {
 		return domain.GatewayAcceptedConnection{}, false, fmt.Errorf("store: fenced gateway heartbeat: %w", err)
@@ -193,6 +201,37 @@ func (r *GatewayRepo) HeartbeatForEpoch(ctx context.Context, h domain.GatewayHea
 		return domain.GatewayAcceptedConnection{}, false, fmt.Errorf("store: read fenced gateway desired lifecycle: %w", err)
 	}
 	return domain.GatewayAcceptedConnection{ConnectionEpoch: h.ConnectionEpoch, DesiredLifecycle: string(desired.DesiredLifecycle), DesiredRevision: desired.DesiredRevision}, true, nil
+}
+
+// gatewayJournalTelemetryParams validates optional journal telemetry: a state
+// must be a known enum value, and entry/byte counts require a state so the
+// stored columns never describe an unreported journal.
+func gatewayJournalTelemetryParams(h domain.GatewayHeartbeat) (storedb.NullGatewaysJournalState, sql.NullInt64, sql.NullInt64, error) {
+	if h.JournalState == nil {
+		if h.JournalEntries != nil || h.JournalBytes != nil {
+			return storedb.NullGatewaysJournalState{}, sql.NullInt64{}, sql.NullInt64{}, fmt.Errorf("journal telemetry counts without state")
+		}
+		return storedb.NullGatewaysJournalState{}, sql.NullInt64{}, sql.NullInt64{}, nil
+	}
+	var state storedb.GatewaysJournalState
+	switch *h.JournalState {
+	case "healthy":
+		state = storedb.GatewaysJournalStateHealthy
+	case "degraded":
+		state = storedb.GatewaysJournalStateDegraded
+	case "paused":
+		state = storedb.GatewaysJournalStatePaused
+	case "critical":
+		state = storedb.GatewaysJournalStateCritical
+	default:
+		return storedb.NullGatewaysJournalState{}, sql.NullInt64{}, sql.NullInt64{}, fmt.Errorf("unknown journal state %q", *h.JournalState)
+	}
+	if h.JournalEntries == nil || h.JournalBytes == nil || *h.JournalBytes < 0 {
+		return storedb.NullGatewaysJournalState{}, sql.NullInt64{}, sql.NullInt64{}, fmt.Errorf("journal telemetry requires entry and byte counts")
+	}
+	return storedb.NullGatewaysJournalState{GatewaysJournalState: state, Valid: true},
+		sql.NullInt64{Int64: int64(*h.JournalEntries), Valid: true},
+		sql.NullInt64{Int64: int64(*h.JournalBytes), Valid: true}, nil
 }
 
 func (r *GatewayRepo) SetStatusForEpoch(ctx context.Context, report domain.GatewayLifecycleReport, at int64) (bool, error) {

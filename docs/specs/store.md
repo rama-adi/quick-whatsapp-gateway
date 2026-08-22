@@ -87,6 +87,8 @@ CREATE TABLE gateways (            -- registry + lifecycle; the router reads it 
   keystore_present TINYINT(1) NULL, keystore_bytes BIGINT NULL,
   keystore_integrity ENUM('healthy','missing','corrupt') NULL,
   keystore_checked_at BIGINT NULL,
+  journal_state ENUM('healthy','degraded','paused','critical') NULL,
+  journal_entries BIGINT UNSIGNED NULL, journal_bytes BIGINT UNSIGNED NULL,
   software_version VARCHAR(128) NULL, capabilities JSON NULL,
   connection_epoch BIGINT UNSIGNED NOT NULL DEFAULT 0,
   enrolled_at BIGINT NULL, connected_at BIGINT NULL, last_seen_at BIGINT NULL,

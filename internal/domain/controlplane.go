@@ -41,10 +41,16 @@ type GatewayConnectionHello struct {
 	Status          GatewayStatus
 }
 
+// GatewayHeartbeat is one fenced control-stream heartbeat. Journal telemetry is
+// optional: nil means "no report this cycle", which preserves the previously
+// reported values instead of overwriting them.
 type GatewayHeartbeat struct {
 	GatewayConnection
-	SessionCount int
-	Status       GatewayStatus
+	SessionCount   int
+	Status         GatewayStatus
+	JournalState   *string
+	JournalEntries *uint64
+	JournalBytes   *uint64
 }
 
 type GatewayLifecycleReport struct {

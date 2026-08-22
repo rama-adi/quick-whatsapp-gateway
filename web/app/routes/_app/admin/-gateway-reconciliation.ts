@@ -20,6 +20,13 @@ export function keystoreBytes(gateway: Gateway): string {
   return gateway.keystoreBytes === undefined ? "Not reported" : formatBytes(gateway.keystoreBytes);
 }
 
+export function journalPressure(gateway: Gateway): string {
+  if (gateway.journalState === undefined) return "Not reported";
+  const entries = gateway.journalEntries ?? 0;
+  const bytes = gateway.journalBytes ?? 0;
+  return `${gateway.journalState} · ${entries} pending · ${formatBytes(bytes)}`;
+}
+
 export function reconciliationSubject(result: Result): string {
   // An unexpected device has no trustworthy session/org assignment. Do not
   // infer either from local state or a malformed response field.

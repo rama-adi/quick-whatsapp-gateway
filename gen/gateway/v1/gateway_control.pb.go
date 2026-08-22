@@ -345,6 +345,61 @@ func (KeystoreHealthState) EnumDescriptor() ([]byte, []int) {
 	return file_v1_gateway_control_proto_rawDescGZIP(), []int{5}
 }
 
+type GatewayJournalState int32
+
+const (
+	GatewayJournalState_GATEWAY_JOURNAL_STATE_UNKNOWN  GatewayJournalState = 0
+	GatewayJournalState_GATEWAY_JOURNAL_STATE_HEALTHY  GatewayJournalState = 1
+	GatewayJournalState_GATEWAY_JOURNAL_STATE_DEGRADED GatewayJournalState = 2
+	GatewayJournalState_GATEWAY_JOURNAL_STATE_PAUSED   GatewayJournalState = 3
+	GatewayJournalState_GATEWAY_JOURNAL_STATE_CRITICAL GatewayJournalState = 4
+)
+
+// Enum value maps for GatewayJournalState.
+var (
+	GatewayJournalState_name = map[int32]string{
+		0: "GATEWAY_JOURNAL_STATE_UNKNOWN",
+		1: "GATEWAY_JOURNAL_STATE_HEALTHY",
+		2: "GATEWAY_JOURNAL_STATE_DEGRADED",
+		3: "GATEWAY_JOURNAL_STATE_PAUSED",
+		4: "GATEWAY_JOURNAL_STATE_CRITICAL",
+	}
+	GatewayJournalState_value = map[string]int32{
+		"GATEWAY_JOURNAL_STATE_UNKNOWN":  0,
+		"GATEWAY_JOURNAL_STATE_HEALTHY":  1,
+		"GATEWAY_JOURNAL_STATE_DEGRADED": 2,
+		"GATEWAY_JOURNAL_STATE_PAUSED":   3,
+		"GATEWAY_JOURNAL_STATE_CRITICAL": 4,
+	}
+)
+
+func (x GatewayJournalState) Enum() *GatewayJournalState {
+	p := new(GatewayJournalState)
+	*p = x
+	return p
+}
+
+func (x GatewayJournalState) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (GatewayJournalState) Descriptor() protoreflect.EnumDescriptor {
+	return file_v1_gateway_control_proto_enumTypes[6].Descriptor()
+}
+
+func (GatewayJournalState) Type() protoreflect.EnumType {
+	return &file_v1_gateway_control_proto_enumTypes[6]
+}
+
+func (x GatewayJournalState) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use GatewayJournalState.Descriptor instead.
+func (GatewayJournalState) EnumDescriptor() ([]byte, []int) {
+	return file_v1_gateway_control_proto_rawDescGZIP(), []int{6}
+}
+
 type ReconciliationResultStatus int32
 
 const (
@@ -384,11 +439,11 @@ func (x ReconciliationResultStatus) String() string {
 }
 
 func (ReconciliationResultStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_v1_gateway_control_proto_enumTypes[6].Descriptor()
+	return file_v1_gateway_control_proto_enumTypes[7].Descriptor()
 }
 
 func (ReconciliationResultStatus) Type() protoreflect.EnumType {
-	return &file_v1_gateway_control_proto_enumTypes[6]
+	return &file_v1_gateway_control_proto_enumTypes[7]
 }
 
 func (x ReconciliationResultStatus) Number() protoreflect.EnumNumber {
@@ -397,7 +452,7 @@ func (x ReconciliationResultStatus) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ReconciliationResultStatus.Descriptor instead.
 func (ReconciliationResultStatus) EnumDescriptor() ([]byte, []int) {
-	return file_v1_gateway_control_proto_rawDescGZIP(), []int{6}
+	return file_v1_gateway_control_proto_rawDescGZIP(), []int{7}
 }
 
 type SessionDesiredAction int32
@@ -433,11 +488,11 @@ func (x SessionDesiredAction) String() string {
 }
 
 func (SessionDesiredAction) Descriptor() protoreflect.EnumDescriptor {
-	return file_v1_gateway_control_proto_enumTypes[7].Descriptor()
+	return file_v1_gateway_control_proto_enumTypes[8].Descriptor()
 }
 
 func (SessionDesiredAction) Type() protoreflect.EnumType {
-	return &file_v1_gateway_control_proto_enumTypes[7]
+	return &file_v1_gateway_control_proto_enumTypes[8]
 }
 
 func (x SessionDesiredAction) Number() protoreflect.EnumNumber {
@@ -446,7 +501,7 @@ func (x SessionDesiredAction) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use SessionDesiredAction.Descriptor instead.
 func (SessionDesiredAction) EnumDescriptor() ([]byte, []int) {
-	return file_v1_gateway_control_proto_rawDescGZIP(), []int{7}
+	return file_v1_gateway_control_proto_rawDescGZIP(), []int{8}
 }
 
 // GatewayFrame is sent by the gateway. Every frame is versioned and sequenced.
@@ -1057,8 +1112,14 @@ type GatewayHeartbeat struct {
 	SentAtUnixMs        int64                  `protobuf:"varint,3,opt,name=sent_at_unix_ms,json=sentAtUnixMs,proto3" json:"sent_at_unix_ms,omitempty"`
 	SessionCount        uint32                 `protobuf:"varint,4,opt,name=session_count,json=sessionCount,proto3" json:"session_count,omitempty"`
 	RuntimeState        GatewayRuntimeState    `protobuf:"varint,5,opt,name=runtime_state,json=runtimeState,proto3,enum=gateway.v1.GatewayRuntimeState" json:"runtime_state,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// Event-journal backpressure telemetry (§7): a degraded/paused/critical state
+	// reports durable-handoff disk pressure. journal_state is UNKNOWN when the
+	// gateway runs without a journal or could not read it this cycle.
+	JournalState   GatewayJournalState `protobuf:"varint,6,opt,name=journal_state,json=journalState,proto3,enum=gateway.v1.GatewayJournalState" json:"journal_state,omitempty"`
+	JournalEntries uint64              `protobuf:"varint,7,opt,name=journal_entries,json=journalEntries,proto3" json:"journal_entries,omitempty"`
+	JournalBytes   uint64              `protobuf:"varint,8,opt,name=journal_bytes,json=journalBytes,proto3" json:"journal_bytes,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *GatewayHeartbeat) Reset() {
@@ -1124,6 +1185,27 @@ func (x *GatewayHeartbeat) GetRuntimeState() GatewayRuntimeState {
 		return x.RuntimeState
 	}
 	return GatewayRuntimeState_GATEWAY_RUNTIME_STATE_UNKNOWN
+}
+
+func (x *GatewayHeartbeat) GetJournalState() GatewayJournalState {
+	if x != nil {
+		return x.JournalState
+	}
+	return GatewayJournalState_GATEWAY_JOURNAL_STATE_UNKNOWN
+}
+
+func (x *GatewayHeartbeat) GetJournalEntries() uint64 {
+	if x != nil {
+		return x.JournalEntries
+	}
+	return 0
+}
+
+func (x *GatewayHeartbeat) GetJournalBytes() uint64 {
+	if x != nil {
+		return x.JournalBytes
+	}
+	return 0
 }
 
 // ControlHeartbeatAck confirms that the API durably applied one gateway
@@ -1953,13 +2035,16 @@ const file_v1_gateway_control_proto_rawDesc = "" +
 	"\rruntime_state\x18\a \x01(\x0e2\x1f.gateway.v1.GatewayRuntimeStateR\fruntimeState\x12'\n" +
 	"\rhttp_base_url\x18\b \x01(\tH\x01R\vhttpBaseUrl\x88\x01\x01B\x10\n" +
 	"\x0e_grpc_endpointB\x10\n" +
-	"\x0e_http_base_urlJ\x04\b\t\x10\x10\"\x89\x02\n" +
+	"\x0e_http_base_urlJ\x04\b\t\x10\x10\"\x9d\x03\n" +
 	"\x10GatewayHeartbeat\x12)\n" +
 	"\x10connection_epoch\x18\x01 \x01(\x04R\x0fconnectionEpoch\x122\n" +
 	"\x15last_control_sequence\x18\x02 \x01(\x04R\x13lastControlSequence\x12%\n" +
 	"\x0fsent_at_unix_ms\x18\x03 \x01(\x03R\fsentAtUnixMs\x12#\n" +
 	"\rsession_count\x18\x04 \x01(\rR\fsessionCount\x12D\n" +
-	"\rruntime_state\x18\x05 \x01(\x0e2\x1f.gateway.v1.GatewayRuntimeStateR\fruntimeStateJ\x04\b\x06\x10\x10\"\xb9\x01\n" +
+	"\rruntime_state\x18\x05 \x01(\x0e2\x1f.gateway.v1.GatewayRuntimeStateR\fruntimeState\x12D\n" +
+	"\rjournal_state\x18\x06 \x01(\x0e2\x1f.gateway.v1.GatewayJournalStateR\fjournalState\x12'\n" +
+	"\x0fjournal_entries\x18\a \x01(\x04R\x0ejournalEntries\x12#\n" +
+	"\rjournal_bytes\x18\b \x01(\x04R\fjournalBytesJ\x04\b\t\x10\x10\"\xb9\x01\n" +
 	"\x13ControlHeartbeatAck\x12B\n" +
 	"\x1dacknowledged_gateway_sequence\x18\x01 \x01(\x04R\x1backnowledgedGatewaySequence\x12)\n" +
 	"\x10connection_epoch\x18\x02 \x01(\x04R\x0fconnectionEpoch\x12-\n" +
@@ -2061,7 +2146,13 @@ const file_v1_gateway_control_proto_rawDesc = "" +
 	"\x1dKEYSTORE_HEALTH_STATE_UNKNOWN\x10\x00\x12!\n" +
 	"\x1dKEYSTORE_HEALTH_STATE_HEALTHY\x10\x01\x12!\n" +
 	"\x1dKEYSTORE_HEALTH_STATE_MISSING\x10\x02\x12!\n" +
-	"\x1dKEYSTORE_HEALTH_STATE_CORRUPT\x10\x03\"\x04\b\x04\x10\x0f*\x96\x02\n" +
+	"\x1dKEYSTORE_HEALTH_STATE_CORRUPT\x10\x03\"\x04\b\x04\x10\x0f*\xcb\x01\n" +
+	"\x13GatewayJournalState\x12!\n" +
+	"\x1dGATEWAY_JOURNAL_STATE_UNKNOWN\x10\x00\x12!\n" +
+	"\x1dGATEWAY_JOURNAL_STATE_HEALTHY\x10\x01\x12\"\n" +
+	"\x1eGATEWAY_JOURNAL_STATE_DEGRADED\x10\x02\x12 \n" +
+	"\x1cGATEWAY_JOURNAL_STATE_PAUSED\x10\x03\x12\"\n" +
+	"\x1eGATEWAY_JOURNAL_STATE_CRITICAL\x10\x04\"\x04\b\x05\x10\x0f*\x96\x02\n" +
 	"\x1aReconciliationResultStatus\x12(\n" +
 	"$RECONCILIATION_RESULT_STATUS_UNKNOWN\x10\x00\x12(\n" +
 	"$RECONCILIATION_RESULT_STATUS_APPLIED\x10\x01\x121\n" +
@@ -2087,7 +2178,7 @@ func file_v1_gateway_control_proto_rawDescGZIP() []byte {
 	return file_v1_gateway_control_proto_rawDescData
 }
 
-var file_v1_gateway_control_proto_enumTypes = make([]protoimpl.EnumInfo, 8)
+var file_v1_gateway_control_proto_enumTypes = make([]protoimpl.EnumInfo, 9)
 var file_v1_gateway_control_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
 var file_v1_gateway_control_proto_goTypes = []any{
 	(GatewayCapability)(0),          // 0: gateway.v1.GatewayCapability
@@ -2096,62 +2187,64 @@ var file_v1_gateway_control_proto_goTypes = []any{
 	(LifecycleDirectiveAction)(0),   // 3: gateway.v1.LifecycleDirectiveAction
 	(LifecycleDirectiveReason)(0),   // 4: gateway.v1.LifecycleDirectiveReason
 	(KeystoreHealthState)(0),        // 5: gateway.v1.KeystoreHealthState
-	(ReconciliationResultStatus)(0), // 6: gateway.v1.ReconciliationResultStatus
-	(SessionDesiredAction)(0),       // 7: gateway.v1.SessionDesiredAction
-	(*GatewayFrame)(nil),            // 8: gateway.v1.GatewayFrame
-	(*ControlFrame)(nil),            // 9: gateway.v1.ControlFrame
-	(*GatewayEventBatch)(nil),       // 10: gateway.v1.GatewayEventBatch
-	(*GatewayEvent)(nil),            // 11: gateway.v1.GatewayEvent
-	(*GatewayEventAck)(nil),         // 12: gateway.v1.GatewayEventAck
-	(*GatewayHello)(nil),            // 13: gateway.v1.GatewayHello
-	(*GatewayHeartbeat)(nil),        // 14: gateway.v1.GatewayHeartbeat
-	(*ControlHeartbeatAck)(nil),     // 15: gateway.v1.ControlHeartbeatAck
-	(*GatewayLifecycleReport)(nil),  // 16: gateway.v1.GatewayLifecycleReport
-	(*DesiredStateReport)(nil),      // 17: gateway.v1.DesiredStateReport
-	(*KeystoreHealth)(nil),          // 18: gateway.v1.KeystoreHealth
-	(*LocalDeviceInventory)(nil),    // 19: gateway.v1.LocalDeviceInventory
-	(*ReconciliationResult)(nil),    // 20: gateway.v1.ReconciliationResult
-	(*DesiredStateSnapshot)(nil),    // 21: gateway.v1.DesiredStateSnapshot
-	(*SessionAssignment)(nil),       // 22: gateway.v1.SessionAssignment
-	(*SessionConfig)(nil),           // 23: gateway.v1.SessionConfig
-	(*ControlWelcome)(nil),          // 24: gateway.v1.ControlWelcome
-	(*LifecycleDirective)(nil),      // 25: gateway.v1.LifecycleDirective
+	(GatewayJournalState)(0),        // 6: gateway.v1.GatewayJournalState
+	(ReconciliationResultStatus)(0), // 7: gateway.v1.ReconciliationResultStatus
+	(SessionDesiredAction)(0),       // 8: gateway.v1.SessionDesiredAction
+	(*GatewayFrame)(nil),            // 9: gateway.v1.GatewayFrame
+	(*ControlFrame)(nil),            // 10: gateway.v1.ControlFrame
+	(*GatewayEventBatch)(nil),       // 11: gateway.v1.GatewayEventBatch
+	(*GatewayEvent)(nil),            // 12: gateway.v1.GatewayEvent
+	(*GatewayEventAck)(nil),         // 13: gateway.v1.GatewayEventAck
+	(*GatewayHello)(nil),            // 14: gateway.v1.GatewayHello
+	(*GatewayHeartbeat)(nil),        // 15: gateway.v1.GatewayHeartbeat
+	(*ControlHeartbeatAck)(nil),     // 16: gateway.v1.ControlHeartbeatAck
+	(*GatewayLifecycleReport)(nil),  // 17: gateway.v1.GatewayLifecycleReport
+	(*DesiredStateReport)(nil),      // 18: gateway.v1.DesiredStateReport
+	(*KeystoreHealth)(nil),          // 19: gateway.v1.KeystoreHealth
+	(*LocalDeviceInventory)(nil),    // 20: gateway.v1.LocalDeviceInventory
+	(*ReconciliationResult)(nil),    // 21: gateway.v1.ReconciliationResult
+	(*DesiredStateSnapshot)(nil),    // 22: gateway.v1.DesiredStateSnapshot
+	(*SessionAssignment)(nil),       // 23: gateway.v1.SessionAssignment
+	(*SessionConfig)(nil),           // 24: gateway.v1.SessionConfig
+	(*ControlWelcome)(nil),          // 25: gateway.v1.ControlWelcome
+	(*LifecycleDirective)(nil),      // 26: gateway.v1.LifecycleDirective
 }
 var file_v1_gateway_control_proto_depIdxs = []int32{
-	13, // 0: gateway.v1.GatewayFrame.hello:type_name -> gateway.v1.GatewayHello
-	14, // 1: gateway.v1.GatewayFrame.heartbeat:type_name -> gateway.v1.GatewayHeartbeat
-	16, // 2: gateway.v1.GatewayFrame.lifecycle_report:type_name -> gateway.v1.GatewayLifecycleReport
-	17, // 3: gateway.v1.GatewayFrame.desired_state_report:type_name -> gateway.v1.DesiredStateReport
-	10, // 4: gateway.v1.GatewayFrame.event_batch:type_name -> gateway.v1.GatewayEventBatch
-	24, // 5: gateway.v1.ControlFrame.welcome:type_name -> gateway.v1.ControlWelcome
-	25, // 6: gateway.v1.ControlFrame.lifecycle_directive:type_name -> gateway.v1.LifecycleDirective
-	15, // 7: gateway.v1.ControlFrame.heartbeat_ack:type_name -> gateway.v1.ControlHeartbeatAck
-	21, // 8: gateway.v1.ControlFrame.desired_state_snapshot:type_name -> gateway.v1.DesiredStateSnapshot
-	12, // 9: gateway.v1.ControlFrame.event_ack:type_name -> gateway.v1.GatewayEventAck
-	11, // 10: gateway.v1.GatewayEventBatch.events:type_name -> gateway.v1.GatewayEvent
+	14, // 0: gateway.v1.GatewayFrame.hello:type_name -> gateway.v1.GatewayHello
+	15, // 1: gateway.v1.GatewayFrame.heartbeat:type_name -> gateway.v1.GatewayHeartbeat
+	17, // 2: gateway.v1.GatewayFrame.lifecycle_report:type_name -> gateway.v1.GatewayLifecycleReport
+	18, // 3: gateway.v1.GatewayFrame.desired_state_report:type_name -> gateway.v1.DesiredStateReport
+	11, // 4: gateway.v1.GatewayFrame.event_batch:type_name -> gateway.v1.GatewayEventBatch
+	25, // 5: gateway.v1.ControlFrame.welcome:type_name -> gateway.v1.ControlWelcome
+	26, // 6: gateway.v1.ControlFrame.lifecycle_directive:type_name -> gateway.v1.LifecycleDirective
+	16, // 7: gateway.v1.ControlFrame.heartbeat_ack:type_name -> gateway.v1.ControlHeartbeatAck
+	22, // 8: gateway.v1.ControlFrame.desired_state_snapshot:type_name -> gateway.v1.DesiredStateSnapshot
+	13, // 9: gateway.v1.ControlFrame.event_ack:type_name -> gateway.v1.GatewayEventAck
+	12, // 10: gateway.v1.GatewayEventBatch.events:type_name -> gateway.v1.GatewayEvent
 	0,  // 11: gateway.v1.GatewayHello.capabilities:type_name -> gateway.v1.GatewayCapability
 	1,  // 12: gateway.v1.GatewayHello.runtime_state:type_name -> gateway.v1.GatewayRuntimeState
 	1,  // 13: gateway.v1.GatewayHeartbeat.runtime_state:type_name -> gateway.v1.GatewayRuntimeState
-	1,  // 14: gateway.v1.GatewayLifecycleReport.state:type_name -> gateway.v1.GatewayRuntimeState
-	2,  // 15: gateway.v1.GatewayLifecycleReport.failure:type_name -> gateway.v1.LifecycleFailure
-	18, // 16: gateway.v1.DesiredStateReport.keystore_health:type_name -> gateway.v1.KeystoreHealth
-	19, // 17: gateway.v1.DesiredStateReport.local_devices:type_name -> gateway.v1.LocalDeviceInventory
-	20, // 18: gateway.v1.DesiredStateReport.results:type_name -> gateway.v1.ReconciliationResult
-	5,  // 19: gateway.v1.KeystoreHealth.state:type_name -> gateway.v1.KeystoreHealthState
-	6,  // 20: gateway.v1.ReconciliationResult.status:type_name -> gateway.v1.ReconciliationResultStatus
-	22, // 21: gateway.v1.DesiredStateSnapshot.assignments:type_name -> gateway.v1.SessionAssignment
-	23, // 22: gateway.v1.SessionAssignment.config:type_name -> gateway.v1.SessionConfig
-	7,  // 23: gateway.v1.SessionAssignment.desired_action:type_name -> gateway.v1.SessionDesiredAction
-	3,  // 24: gateway.v1.ControlWelcome.desired_lifecycle:type_name -> gateway.v1.LifecycleDirectiveAction
-	3,  // 25: gateway.v1.LifecycleDirective.action:type_name -> gateway.v1.LifecycleDirectiveAction
-	4,  // 26: gateway.v1.LifecycleDirective.reason:type_name -> gateway.v1.LifecycleDirectiveReason
-	8,  // 27: gateway.v1.GatewayControlService.Connect:input_type -> gateway.v1.GatewayFrame
-	9,  // 28: gateway.v1.GatewayControlService.Connect:output_type -> gateway.v1.ControlFrame
-	28, // [28:29] is the sub-list for method output_type
-	27, // [27:28] is the sub-list for method input_type
-	27, // [27:27] is the sub-list for extension type_name
-	27, // [27:27] is the sub-list for extension extendee
-	0,  // [0:27] is the sub-list for field type_name
+	6,  // 14: gateway.v1.GatewayHeartbeat.journal_state:type_name -> gateway.v1.GatewayJournalState
+	1,  // 15: gateway.v1.GatewayLifecycleReport.state:type_name -> gateway.v1.GatewayRuntimeState
+	2,  // 16: gateway.v1.GatewayLifecycleReport.failure:type_name -> gateway.v1.LifecycleFailure
+	19, // 17: gateway.v1.DesiredStateReport.keystore_health:type_name -> gateway.v1.KeystoreHealth
+	20, // 18: gateway.v1.DesiredStateReport.local_devices:type_name -> gateway.v1.LocalDeviceInventory
+	21, // 19: gateway.v1.DesiredStateReport.results:type_name -> gateway.v1.ReconciliationResult
+	5,  // 20: gateway.v1.KeystoreHealth.state:type_name -> gateway.v1.KeystoreHealthState
+	7,  // 21: gateway.v1.ReconciliationResult.status:type_name -> gateway.v1.ReconciliationResultStatus
+	23, // 22: gateway.v1.DesiredStateSnapshot.assignments:type_name -> gateway.v1.SessionAssignment
+	24, // 23: gateway.v1.SessionAssignment.config:type_name -> gateway.v1.SessionConfig
+	8,  // 24: gateway.v1.SessionAssignment.desired_action:type_name -> gateway.v1.SessionDesiredAction
+	3,  // 25: gateway.v1.ControlWelcome.desired_lifecycle:type_name -> gateway.v1.LifecycleDirectiveAction
+	3,  // 26: gateway.v1.LifecycleDirective.action:type_name -> gateway.v1.LifecycleDirectiveAction
+	4,  // 27: gateway.v1.LifecycleDirective.reason:type_name -> gateway.v1.LifecycleDirectiveReason
+	9,  // 28: gateway.v1.GatewayControlService.Connect:input_type -> gateway.v1.GatewayFrame
+	10, // 29: gateway.v1.GatewayControlService.Connect:output_type -> gateway.v1.ControlFrame
+	29, // [29:30] is the sub-list for method output_type
+	28, // [28:29] is the sub-list for method input_type
+	28, // [28:28] is the sub-list for extension type_name
+	28, // [28:28] is the sub-list for extension extendee
+	0,  // [0:28] is the sub-list for field type_name
 }
 
 func init() { file_v1_gateway_control_proto_init() }
@@ -2183,7 +2276,7 @@ func file_v1_gateway_control_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_v1_gateway_control_proto_rawDesc), len(file_v1_gateway_control_proto_rawDesc)),
-			NumEnums:      8,
+			NumEnums:      9,
 			NumMessages:   18,
 			NumExtensions: 0,
 			NumServices:   1,

@@ -37,6 +37,9 @@ type Gateway struct {
 	KeystoreBytes        *int64          `json:"-"`
 	KeystoreIntegrity    *string         `json:"-"`
 	KeystoreCheckedAt    *int64          `json:"-"`
+	JournalState         *string         `json:"-"`
+	JournalEntries       *uint64         `json:"-"`
+	JournalBytes         *uint64         `json:"-"`
 	EnrolledAt           *int64          `json:"-"`
 	ConnectedAt          *int64          `json:"-"`
 	LastSeenAt           *int64          `json:"lastSeenAt,omitempty" doc:"When the gateway last sent a heartbeat, in epoch milliseconds (UTC). Optional; null if it has never reported. A stale value is what makes the router treat the gateway as unreachable." example:"1719662400000"`

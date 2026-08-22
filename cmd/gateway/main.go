@@ -144,6 +144,17 @@ func run() error {
 			HTTPBaseURL:     cfg.PublicURL,
 			GRPCEndpoint:    cfg.EngineGRPCAdvertise,
 			EventJournal:    journal.ControlAdapter{Journal: eventJournal, GatewayID: cfg.GatewayID},
+			JournalMetrics: func(ctx context.Context) (controlsupervisor.JournalPressure, error) {
+				metrics, err := eventJournal.Metrics(ctx)
+				if err != nil {
+					return controlsupervisor.JournalPressure{}, err
+				}
+				return controlsupervisor.JournalPressure{
+					State:   journalStateFor(metrics.State),
+					Entries: positiveIntToUint64(metrics.Entries),
+					Bytes:   positiveInt64ToUint64(metrics.Bytes),
+				}, nil
+			},
 			StartedAt:       time.Now(),
 			Runtime:         controlRuntime,
 		}, opener)
@@ -909,6 +920,37 @@ func startDispatchLoop(ctx context.Context, d *webhooks.Dispatcher, log *slog.Lo
 }
 
 // readiness returns a /readyz probe that pings the DB and Redis.
+// journalStateFor maps the local journal capacity state onto the control-stream
+// telemetry enum; unknown states report UNKNOWN rather than a fabricated one.
+func journalStateFor(state journal.CapacityState) gatewayv1.GatewayJournalState {
+	switch state {
+	case journal.CapacityHealthy:
+		return gatewayv1.GatewayJournalState_GATEWAY_JOURNAL_STATE_HEALTHY
+	case journal.CapacityDegraded:
+		return gatewayv1.GatewayJournalState_GATEWAY_JOURNAL_STATE_DEGRADED
+	case journal.CapacityPaused:
+		return gatewayv1.GatewayJournalState_GATEWAY_JOURNAL_STATE_PAUSED
+	case journal.CapacityCritical:
+		return gatewayv1.GatewayJournalState_GATEWAY_JOURNAL_STATE_CRITICAL
+	default:
+		return gatewayv1.GatewayJournalState_GATEWAY_JOURNAL_STATE_UNKNOWN
+	}
+}
+
+func positiveIntToUint64(n int) uint64 {
+	if n <= 0 {
+		return 0
+	}
+	return uint64(n)
+}
+
+func positiveInt64ToUint64(n int64) uint64 {
+	if n <= 0 {
+		return 0
+	}
+	return uint64(n)
+}
+
 type controlStatusSource interface {
 	Status() controlsupervisor.Status
 }

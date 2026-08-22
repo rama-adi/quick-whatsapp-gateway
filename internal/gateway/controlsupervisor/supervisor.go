@@ -49,6 +49,17 @@ type EventJournal interface {
 	AckEvents(context.Context, uint64) error
 }
 
+// JournalPressure is one observation of local event-journal backpressure for
+// heartbeat telemetry. It mirrors the journal's capacity states without making
+// the supervisor import the journal package.
+type JournalPressure struct {
+	State   gatewayv1.GatewayJournalState
+	Entries uint64
+	Bytes   uint64
+}
+
+type JournalMetricsSource func(context.Context) (JournalPressure, error)
+
 type Clock interface {
 	Now() time.Time
 	After(time.Duration) <-chan time.Time
@@ -76,6 +87,7 @@ type Config struct {
 	Runtime          RuntimeSource
 	DesiredState     DesiredStateApplier
 	EventJournal     EventJournal
+	JournalMetrics   JournalMetricsSource
 	Clock            Clock
 	Backoff          Backoff
 	MinHeartbeat     time.Duration
@@ -585,6 +597,15 @@ func (s *Supervisor) runStream(ctx context.Context) error {
 			SentAtUnixMs:        s.cfg.Clock.Now().UnixMilli(),
 			SessionCount:        runtime.SessionCount,
 			RuntimeState:        runtime.State,
+		}
+		if s.cfg.JournalMetrics != nil {
+			// Unreadable telemetry is omitted, never fabricated; the API treats
+			// UNKNOWN as "no report this cycle".
+			if pressure, err := s.cfg.JournalMetrics(streamCtx); err == nil {
+				heartbeatFrame.JournalState = pressure.State
+				heartbeatFrame.JournalEntries = pressure.Entries
+				heartbeatFrame.JournalBytes = pressure.Bytes
+			}
 		}
 		heartbeatEnvelope := &gatewayv1.GatewayFrame{
 			ProtocolVersion: ProtocolVersion,

@@ -10,7 +10,8 @@ SELECT id, label, notes, status, session_count, capacity, base_url, grpc_endpoin
        software_version, capabilities, connection_epoch, connection_mode,
        desired_lifecycle, desired_revision, applied_revision, enrolled_at,
        connected_at, last_seen_at, created_at, updated_at, reconciliation_status,
-       keystore_present, keystore_bytes, keystore_integrity, keystore_checked_at
+       keystore_present, keystore_bytes, keystore_integrity, keystore_checked_at,
+       journal_state, journal_entries, journal_bytes
 FROM gateways
 WHERE id = ? AND deleted_at IS NULL;
 
@@ -65,7 +66,8 @@ SELECT id, label, notes, status, session_count, capacity, base_url, grpc_endpoin
        software_version, capabilities, connection_epoch, connection_mode,
        desired_lifecycle, desired_revision, applied_revision, enrolled_at,
        connected_at, last_seen_at, created_at, updated_at, reconciliation_status,
-       keystore_present, keystore_bytes, keystore_integrity, keystore_checked_at
+       keystore_present, keystore_bytes, keystore_integrity, keystore_checked_at,
+       journal_state, journal_entries, journal_bytes
 FROM gateways WHERE deleted_at IS NULL ORDER BY created_at DESC, id DESC;
 
 -- name: ListGatewayReconciliationResults :many
@@ -121,6 +123,9 @@ WHERE id = ?
 UPDATE gateways
 SET last_seen_at = ?, session_count = ?,
     status = sqlc.arg(reported_status),
+    journal_state = COALESCE(sqlc.arg(journal_state), journal_state),
+    journal_entries = COALESCE(sqlc.arg(journal_entries), journal_entries),
+    journal_bytes = COALESCE(sqlc.arg(journal_bytes), journal_bytes),
     updated_at = ?
 WHERE id = ? AND connection_epoch = ? AND deleted_at IS NULL
   AND status NOT IN ('pending_enrollment', 'disabled');

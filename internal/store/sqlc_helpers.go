@@ -40,6 +40,31 @@ func int64PtrFromNull(n sql.NullInt64) *int64 {
 	return &n.Int64
 }
 
+// uint64PtrFromNull converts a nullable BIGINT UNSIGNED column; negative values
+// cannot occur in MySQL, so any out-of-range read is clamped to nil.
+func uint64PtrFromNull(n sql.NullInt64) *uint64 {
+	if !n.Valid || n.Int64 < 0 {
+		return nil
+	}
+	v := uint64(n.Int64)
+	return &v
+}
+
+// journalStatePtr validates an observed journal_state enum into its domain
+// string form; unknown values are reported as absent rather than passed through.
+func journalStatePtr(s storedb.GatewaysJournalState, valid bool) *string {
+	if !valid {
+		return nil
+	}
+	switch s {
+	case storedb.GatewaysJournalStateHealthy, storedb.GatewaysJournalStateDegraded, storedb.GatewaysJournalStatePaused, storedb.GatewaysJournalStateCritical:
+		v := string(s)
+		return &v
+	default:
+		return nil
+	}
+}
+
 func nullInt32(n *int) sql.NullInt32 {
 	if n == nil {
 		return sql.NullInt32{}

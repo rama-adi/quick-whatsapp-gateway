@@ -9,6 +9,8 @@ sql:
       - "migrations/0006_poll_recaps.up.sql"
       - "migrations/0010_gateway_session_assignments.up.sql"
       - "migrations/0011_gateway_event_ingest.up.sql"
+      - "migrations/0012_committed_event_fanout.up.sql"
+      - "migrations/0013_gateway_journal_telemetry.up.sql"
       - "internal/store/sqlc_schema/auth.sql"
     queries: "internal/store/queries"
     gen:

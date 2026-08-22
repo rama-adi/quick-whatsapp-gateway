@@ -111,7 +111,9 @@ func TestGatewayRepoFencedWritesReturnFalseForStaleEpoch(t *testing.T) {
 	connection := domain.GatewayConnection{GatewayID: "gw_1", ConnectionEpoch: 9}
 
 	mock.ExpectExec("UPDATE gateways.*last_seen_at = \\?, session_count = \\?,\\s+status = \\?").
-		WithArgs(int64(200), 3, domain.GatewayDegraded, int64(200), "gw_1", uint64(9)).
+		WithArgs(int64(200), 3, domain.GatewayDegraded,
+			nil, nil, nil, // no journal telemetry this cycle
+			int64(200), "gw_1", uint64(9)).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery("SELECT EXISTS").
 		WithArgs("gw_1", uint64(9)).
@@ -121,6 +123,33 @@ func TestGatewayRepoFencedWritesReturnFalseForStaleEpoch(t *testing.T) {
 	}, 200)
 	if err != nil || applied {
 		t.Fatalf("stale heartbeat: applied=%v err=%v", applied, err)
+	}
+
+	// Telemetry flows through the same fenced write when reported.
+	state := "degraded"
+	var entries uint64 = 42
+	var bytes uint64 = 1048576
+	mock.ExpectExec("UPDATE gateways.*last_seen_at = \\?, session_count = \\?,\\s+status = \\?").
+		WithArgs(int64(203), 3, domain.GatewayDegraded, state, int64(entries), int64(bytes),
+			int64(203), "gw_1", uint64(9)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("SELECT desired_lifecycle, desired_revision").
+		WithArgs("gw_1", uint64(9)).
+		WillReturnRows(sqlmock.NewRows([]string{"desired_lifecycle", "desired_revision"}).AddRow("run", uint64(5)))
+	_, applied, err = repo.HeartbeatForEpoch(context.Background(), domain.GatewayHeartbeat{
+		GatewayConnection: connection, SessionCount: 3, Status: domain.GatewayDegraded,
+		JournalState: &state, JournalEntries: &entries, JournalBytes: &bytes,
+	}, 203)
+	if err != nil || !applied {
+		t.Fatalf("telemetry heartbeat: applied=%v err=%v", applied, err)
+	}
+
+	// Counts without a state are rejected outright.
+	if _, _, bad := repo.HeartbeatForEpoch(context.Background(), domain.GatewayHeartbeat{
+		GatewayConnection: connection, SessionCount: 3, Status: domain.GatewayDegraded,
+		JournalEntries: &entries,
+	}, 204); bad == nil {
+		t.Fatal("want error for journal counts without state")
 	}
 
 	mock.ExpectExec("UPDATE gateways.*status = \\?").
@@ -196,7 +225,9 @@ func TestGatewayRepoRuntimeReportDoesNotWriteDesiredLifecycle(t *testing.T) {
 	connection := domain.GatewayConnection{GatewayID: "gw_1", ConnectionEpoch: 9}
 
 	mock.ExpectExec("UPDATE gateways.*last_seen_at = \\?, session_count = \\?,\\s+status = \\?").
-		WithArgs(int64(201), 3, domain.GatewayActive, int64(201), "gw_1", uint64(9)).
+		WithArgs(int64(201), 3, domain.GatewayActive,
+			nil, nil, nil, // no journal telemetry this cycle
+			int64(201), "gw_1", uint64(9)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery("SELECT desired_lifecycle, desired_revision").
 		WithArgs("gw_1", uint64(9)).

@@ -2461,6 +2461,24 @@ export interface components {
             id: string;
             /**
              * Format: int64
+             * @description Pending event-journal bytes awaiting API acknowledgement, from the same observation as journalState.
+             * @example 1048576
+             */
+            journalBytes?: number;
+            /**
+             * Format: int64
+             * @description Pending event-journal entries awaiting API acknowledgement, from the same observation as journalState.
+             * @example 42
+             */
+            journalEntries?: number;
+            /**
+             * @description Observed gateway event-journal pressure from the last control-mode heartbeat. degraded/paused/critical report durable-handoff disk pressure; null means the gateway has not reported telemetry.
+             * @example healthy
+             * @enum {string}
+             */
+            journalState?: "healthy" | "degraded" | "paused" | "critical";
+            /**
+             * Format: int64
              * @example 10485760
              */
             keystoreBytes?: number;
