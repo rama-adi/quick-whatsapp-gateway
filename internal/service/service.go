@@ -76,7 +76,7 @@ func New(d Deps) *Services {
 		live = d.Manager.LiveOps()
 	}
 	services := &Services{
-		Sessions:  NewSessionService(d.Store.Sessions, d.Manager, d.Log),
+		Sessions:  NewSessionService(d.Store.Sessions, d.Store.Gateways, d.Manager, d.Log),
 		Messages:  NewMessageService(d.Store.Sessions, d.Sender, d.Log),
 		Webhooks:  NewWebhookService(d.Store.Webhooks, d.Crypto, d.DefaultRetryDelay, d.DefaultRetryAttempts, d.Log),
 		Chats:     NewChatService(d.Store, liveOrNilPresence(live), d.Log),

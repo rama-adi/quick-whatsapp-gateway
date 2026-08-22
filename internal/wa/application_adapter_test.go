@@ -575,6 +575,218 @@ func (b *blockedDispatcher) Dispatch(ctx context.Context, req domain.SendRequest
 
 // ---- Increment 7 live resource slices ----
 
+type fakeController struct {
+	devicesEnsured  [][2]string // {id, organizationID}
+	qrStarted       []string
+	pairingRequests [][2]string // {id, phone}
+	logouts         []string
+	forgotten       []string
+	latestQR        map[string]application.PairingSnapshot
+	err             error
+}
+
+func (f *fakeController) EnsureDevice(id, organizationID string) {
+	f.devicesEnsured = append(f.devicesEnsured, [2]string{id, organizationID})
+}
+
+func (f *fakeController) StartQR(_ context.Context, id string) error {
+	f.qrStarted = append(f.qrStarted, id)
+	// Mirror the real manager: once QR pairing starts, a code becomes available.
+	if f.latestQR == nil {
+		f.latestQR = map[string]application.PairingSnapshot{}
+	}
+	if f.latestQR[id].Code == "" {
+		f.latestQR[id] = application.PairingSnapshot{Code: "QR_FRESH", ExpiresAt: 777}
+	}
+	return f.err
+}
+
+func (f *fakeController) StartPairingCode(_ context.Context, id, phone string) (string, error) {
+	f.pairingRequests = append(f.pairingRequests, [2]string{id, phone})
+	return "PAIR-CODE", f.err
+}
+
+func (f *fakeController) Logout(_ context.Context, id string) error {
+	f.logouts = append(f.logouts, id)
+	return f.err
+}
+
+func (f *fakeController) Forget(id string) {
+	f.forgotten = append(f.forgotten, id)
+}
+
+func (f *fakeController) LatestQR(id string) (string, int64) {
+	snap := f.latestQR[id]
+	return snap.Code, snap.ExpiresAt
+}
+
+func lifecycleTestAdapter(controller *fakeController, ledger commandLedger, allows bool) *ApplicationGatewayAdapter {
+	adapter := testApplicationAdapter(&fakeEngineLiveOps{})
+	adapter.controller = controller
+	adapter.ledger = ledger
+	adapter.fence = fakeAssignmentFence{owns: true, allows: allows}
+	adapter.inFlight = map[string]*inFlightSend{}
+	return adapter
+}
+
+// TestPrepareSessionRegistersDeviceIdempotently pins the pairing-substrate
+// contract: a first prepare registers the device + managed-session entry, and
+// a repeated prepare is a success that never re-creates it. No ledger is
+// involved and no epoch fence applies beyond target validation.
+func TestPrepareSessionRegistersDeviceIdempotently(t *testing.T) {
+	controller := &fakeController{}
+	adapter := lifecycleTestAdapter(controller, nil, false)
+	query := application.SessionStateQuery{OrganizationID: "org_1", SessionID: "ses_1", GatewayID: "gateway-1", AssignmentEpoch: 2}
+
+	result, err := adapter.PrepareSession(context.Background(), query)
+	if err != nil {
+		t.Fatalf("PrepareSession: %v", err)
+	}
+	if len(controller.devicesEnsured) != 1 || controller.devicesEnsured[0] != [2]string{"ses_1", "org_1"} {
+		t.Fatalf("first ensure = %v", controller.devicesEnsured)
+	}
+	if _, err := adapter.PrepareSession(context.Background(), query); err != nil {
+		t.Fatalf("repeat PrepareSession: %v", err)
+	}
+	if len(controller.devicesEnsured) != 2 {
+		t.Fatalf("re-prepare re-ran EnsureDevice %d times (the manager itself is the idempotence)", len(controller.devicesEnsured))
+	}
+	if result.AssignmentEpoch != 2 || result.SessionID != "ses_1" || result.GatewayID != "gateway-1" {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+// TestBeginPairingReturnsSnapshotThenKicksPairing pins the QR read shape: an
+// existing code is returned without touching the runtime; with no code ready,
+// StartQR runs and the post-kick snapshot is returned.
+func TestBeginPairingReturnsSnapshotThenKicksPairing(t *testing.T) {
+	controller := &fakeController{latestQR: map[string]application.PairingSnapshot{
+		"ses_1": {Code: "QR_LIVE", ExpiresAt: 555},
+	}}
+	adapter := lifecycleTestAdapter(controller, nil, true)
+	query := application.SessionStateQuery{OrganizationID: "org_1", SessionID: "ses_1", GatewayID: "gateway-1", AssignmentEpoch: 3}
+
+	snapshot, err := adapter.BeginPairing(context.Background(), query)
+	if err != nil || snapshot.Code != "QR_LIVE" || snapshot.ExpiresAt != 555 {
+		t.Fatalf("snapshot = %#v, %v", snapshot, err)
+	}
+	if len(controller.qrStarted) != 0 {
+		t.Fatal("existing code triggered a redundant StartQR")
+	}
+
+	// With no code ready, StartQR runs and the post-kick snapshot is returned
+	// (the fake populates a fresh code inside StartQR, mirroring the manager's
+	// async first-code arrival).
+	controller.latestQR = map[string]application.PairingSnapshot{}
+	snapshot, err = adapter.BeginPairing(context.Background(), query)
+	if err != nil || snapshot.Code != "QR_FRESH" || snapshot.ExpiresAt != 777 {
+		t.Fatalf("post-kick snapshot = %#v, %v", snapshot, err)
+	}
+	if len(controller.qrStarted) != 1 || controller.qrStarted[0] != "ses_1" {
+		t.Fatalf("StartQR calls = %v", controller.qrStarted)
+	}
+}
+
+// TestPairPhoneCarriesPhoneBehindFence pins the phone-pairing read path.
+func TestPairPhoneCarriesPhoneBehindFence(t *testing.T) {
+	controller := &fakeController{}
+	adapter := lifecycleTestAdapter(controller, nil, true)
+	query := application.SessionStateQuery{OrganizationID: "org_1", SessionID: "ses_1", GatewayID: "gateway-1", AssignmentEpoch: 3}
+
+	code, err := adapter.PairPhone(context.Background(), query, "+628123")
+	if err != nil || code != "PAIR-CODE" {
+		t.Fatalf("PairPhone = %q, %v", code, err)
+	}
+	if len(controller.pairingRequests) != 1 || controller.pairingRequests[0][1] != "+628123" {
+		t.Fatalf("requests = %v", controller.pairingRequests)
+	}
+
+	if _, err := adapter.PairPhone(context.Background(), query, ""); !isValidation(err) {
+		t.Fatal("empty phone accepted")
+	}
+	stale := lifecycleTestAdapter(controller, nil, false)
+	stale.fence = fakeAssignmentFence{owns: false, allows: false}
+	if _, err := stale.PairPhone(context.Background(), query, "+628123"); !isConflict(err) {
+		t.Fatal("stale fence accepted")
+	}
+}
+
+func isValidation(err error) bool {
+	var apiErr *domain.APIError
+	return errors.As(err, &apiErr) && apiErr.Code == domain.CodeValidationError
+}
+
+func isConflict(err error) bool {
+	var apiErr *domain.APIError
+	return errors.As(err, &apiErr) && apiErr.Code == domain.CodeConflict
+}
+
+// TestLogoutSessionRecordsSentWithoutWAMessageID pins that logout is
+// ledger-backed like sends but records CommandSent only.
+func TestLogoutSessionRecordsSentWithoutWAMessageID(t *testing.T) {
+	controller := &fakeController{}
+	ledger := &fakeLedger{}
+	adapter := lifecycleTestAdapter(controller, ledger, true)
+
+	command := blockCommand("out_1") // same routing shape as other mutations
+	result, err := adapter.LogoutSession(context.Background(), command)
+	if err != nil {
+		t.Fatalf("LogoutSession: %v", err)
+	}
+	if result.CommandID != "out_1" || result.AssignmentEpoch != 4 {
+		t.Fatalf("result = %#v", result)
+	}
+	if len(ledger.saved) != 1 || ledger.saved[0].Status != application.CommandSent || ledger.saved[0].WAMessageID != "" {
+		t.Fatalf("saved = %#v", ledger.saved)
+	}
+	if len(controller.logouts) != 1 || controller.logouts[0] != "ses_1" {
+		t.Fatalf("logouts = %v", controller.logouts)
+	}
+}
+
+// TestLogoutSessionReplaysStoredResultWithoutRelinking mirrors the SetBlocked
+// replay test: a repeated command id never re-executes, and a stale fence does
+// not block a recorded outcome.
+func TestLogoutSessionReplaysStoredResultWithoutRelinking(t *testing.T) {
+	controller := &fakeController{}
+	ledger := &fakeLedger{stored: map[string]application.CommandResultRecord{
+		"out_1": {CommandID: "out_1", SessionID: "ses_1", Status: application.CommandSent, UpdatedAt: time.UnixMilli(42).UTC()},
+	}}
+	adapter := lifecycleTestAdapter(controller, ledger, false)
+
+	result, err := adapter.LogoutSession(context.Background(), blockCommand("out_1"))
+	if err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+	if result.CommandID != "out_1" {
+		t.Fatalf("replayed = %#v", result)
+	}
+	if len(controller.logouts) != 0 {
+		t.Fatalf("replay re-executed %d times", len(controller.logouts))
+	}
+}
+
+// TestForgetSessionDropsRuntimeWithoutFenceOrLedger pins forget's contract:
+// only the target validates (no epoch — the row may be deleted API-side), and
+// the in-memory drop always runs. Idempotent by construction.
+func TestForgetSessionDropsRuntimeWithoutFenceOrLedger(t *testing.T) {
+	controller := &fakeController{}
+	adapter := lifecycleTestAdapter(controller, nil, false) // fence would deny any epoch check
+
+	if err := adapter.ForgetSession(context.Background(), "org_1", "ses_1"); err != nil {
+		t.Fatalf("ForgetSession: %v", err)
+	}
+	if err := adapter.ForgetSession(context.Background(), "org_1", "ses_1"); err != nil {
+		t.Fatalf("repeat ForgetSession: %v", err)
+	}
+	if len(controller.forgotten) != 2 || controller.forgotten[0] != "ses_1" {
+		t.Fatalf("forgotten = %v", controller.forgotten)
+	}
+	if _, err := adapter.PrepareSession(context.Background(), application.SessionStateQuery{}); err == nil {
+		t.Fatal("empty target accepted")
+	}
+}
+
 func blockCommand(commandID string) application.ContactJIDCommand {
 	return application.ContactJIDCommand{
 		CommandID: commandID, OrganizationID: "org_1", SessionID: "ses_1",

@@ -27,6 +27,14 @@ type fakeEngine struct {
 	chatPresence   []application.ChatPresenceCommand
 	subscribed     []string
 	backfillCalled bool
+
+	prepared    []application.SessionStateQuery
+	beginPair   application.SessionStateQuery
+	pairSnap    application.PairingSnapshot
+	pairPhones  []string
+	pairingCode string
+	logouts     []application.ContactJIDCommand
+	forgotten   []string
 }
 
 func (f *fakeEngine) GetSessionState(context.Context, application.SessionStateQuery) (application.SessionState, error) {
@@ -111,6 +119,31 @@ func (f *fakeEngine) BackfillSession(context.Context, application.SessionStateQu
 		Contacts: []domain.BackfillContact{{LID: "2052@lid", PhoneNumber: "628123"}},
 		Groups:   []domain.BackfillGroup{{GroupJID: "120363@g.us", Members: []domain.BackfillMember{{LID: "2052@lid", Role: domain.RoleAdmin}}}},
 	}, nil
+}
+
+func (f *fakeEngine) PrepareSession(_ context.Context, query application.SessionStateQuery) (application.PrepareSessionResult, error) {
+	f.prepared = append(f.prepared, query)
+	return application.PrepareSessionResult{MutationResult: application.MutationResult{OrganizationID: query.OrganizationID, SessionID: query.SessionID, GatewayID: query.GatewayID, AssignmentEpoch: query.AssignmentEpoch}}, nil
+}
+
+func (f *fakeEngine) BeginPairing(_ context.Context, query application.SessionStateQuery) (application.PairingSnapshot, error) {
+	f.beginPair = query
+	return f.pairSnap, nil
+}
+
+func (f *fakeEngine) PairPhone(_ context.Context, _ application.SessionStateQuery, phone string) (string, error) {
+	f.pairPhones = append(f.pairPhones, phone)
+	return f.pairingCode, nil
+}
+
+func (f *fakeEngine) LogoutSession(_ context.Context, command application.ContactJIDCommand) (application.MutationOnlyResult, error) {
+	f.logouts = append(f.logouts, command)
+	return application.MutationOnlyResult{MutationResult: application.MutationResult{CommandID: command.CommandID, OrganizationID: command.OrganizationID, SessionID: command.SessionID, GatewayID: command.GatewayID, AssignmentEpoch: command.AssignmentEpoch}}, nil
+}
+
+func (f *fakeEngine) ForgetSession(_ context.Context, _, sessionID string) error {
+	f.forgotten = append(f.forgotten, sessionID)
+	return nil
 }
 
 func TestSetPresenceRejectsForeignGatewayAndMapsFenceError(t *testing.T) {
@@ -349,5 +382,67 @@ func TestBackfillSessionReturnsSnapshot(t *testing.T) {
 	_, err = server.BackfillSession(context.Background(), &gatewayv1.BackfillSessionRequest{Target: target("gw")})
 	if status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("zero epoch code = %s", status.Code(err))
+	}
+}
+
+func TestSessionLifecycleRPCsValidateAndCarryTargets(t *testing.T) {
+	engine := &fakeEngine{pairSnap: application.PairingSnapshot{Code: "QR_X", ExpiresAt: 42}, pairingCode: "ABCD-1234"}
+	server := &Server{GatewayID: "gw", Engine: engine}
+
+	prepared, err := server.PrepareSession(context.Background(), &gatewayv1.PrepareSessionRequest{Target: target("gw"), AssignmentEpoch: 6})
+	if err != nil || prepared.AssignmentEpoch != 6 || len(engine.prepared) != 1 {
+		t.Fatalf("PrepareSession = %#v, %v", prepared, err)
+	}
+	pairing, err := server.BeginPairing(context.Background(), &gatewayv1.BeginPairingRequest{Target: target("gw"), AssignmentEpoch: 6})
+	if err != nil || pairing.GetQrCode() != "QR_X" || pairing.GetQrExpiresAtUnixMs() != 42 {
+		t.Fatalf("BeginPairing = %#v, %v", pairing, err)
+	}
+	code, err := server.PairPhone(context.Background(), &gatewayv1.PairPhoneRequest{Target: target("gw"), AssignmentEpoch: 6, Phone: "+628123"})
+	if err != nil || code.GetPairingCode() != "ABCD-1234" || engine.pairPhones[0] != "+628123" {
+		t.Fatalf("PairPhone = %#v, %v", code, err)
+	}
+	logout, err := server.LogoutSession(context.Background(), &gatewayv1.LogoutSessionRequest{Target: target("gw"), AssignmentEpoch: 6, CommandId: "out_1"})
+	if err != nil || logout.CommandId != "out_1" || logout.AssignmentEpoch != 6 {
+		t.Fatalf("LogoutSession = %#v, %v", logout, err)
+	}
+	forget, err := server.ForgetSession(context.Background(), &gatewayv1.ForgetSessionRequest{Target: target("gw")})
+	if err != nil || len(engine.forgotten) != 1 || engine.forgotten[0] != "s" {
+		t.Fatalf("ForgetSession = %#v forgotten = %v, %v", forget, engine.forgotten, err)
+	}
+	if _, err := server.ForgetSession(context.Background(), &gatewayv1.ForgetSessionRequest{}); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("missing forget target code = %s", status.Code(err))
+	}
+
+	engine.pairSnap = application.PairingSnapshot{}
+	bare, err := server.BeginPairing(context.Background(), &gatewayv1.BeginPairingRequest{Target: target("gw"), AssignmentEpoch: 6})
+	if err != nil || bare.QrCode != nil || bare.QrExpiresAtUnixMs != nil {
+		t.Fatalf("bare BeginPairing = %#v, %v (no-code must omit both fields)", bare, err)
+	}
+
+	for name, call := range map[string]func() error{
+		"prepare zero epoch": func() error {
+			_, err := server.PrepareSession(context.Background(), &gatewayv1.PrepareSessionRequest{Target: target("gw")})
+			return err
+		},
+		"foreign gateway prepare": func() error {
+			_, err := server.PrepareSession(context.Background(), &gatewayv1.PrepareSessionRequest{Target: target("other"), AssignmentEpoch: 6})
+			return err
+		},
+		"begin-pairing zero epoch": func() error {
+			_, err := server.BeginPairing(context.Background(), &gatewayv1.BeginPairingRequest{Target: target("gw")})
+			return err
+		},
+		"pair-phone missing phone": func() error {
+			_, err := server.PairPhone(context.Background(), &gatewayv1.PairPhoneRequest{Target: target("gw"), AssignmentEpoch: 6})
+			return err
+		},
+		"logout missing command id": func() error {
+			_, err := server.LogoutSession(context.Background(), &gatewayv1.LogoutSessionRequest{Target: target("gw"), AssignmentEpoch: 6})
+			return err
+		},
+	} {
+		if status.Code(call()) != codes.InvalidArgument {
+			t.Fatalf("%s: code = %s, want InvalidArgument", name, status.Code(call()))
+		}
 	}
 }

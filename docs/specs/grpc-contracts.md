@@ -131,6 +131,11 @@ fenced by target gateway, organization, and assignment epoch:
 | `GetChatPresence` | read | subscribes to presence updates; snapshot is `unknown` until an event arrives |
 | `SetChatPresence` | un-ledgered write | repeating a typing state is idempotent by construction |
 | `BackfillSession` | slow read | callers apply the send deadline; response is the full contact/group/member snapshot within `MaxEngineMessageBytes` |
+| `PrepareSession` | un-ledgered write | creates the keystore device + managed-session entry for an API-created row; idempotent (an existing entry returns success) |
+| `BeginPairing` | read | starts-or-resumes QR pairing; both response fields are unset when no code is ready yet (caller polls or subscribes to `auth.qr`) |
+| `PairPhone` | read-classified | phone-number pairing code; each call yields a fresh one-time secret, nothing to replay |
+| `LogoutSession` | ledgered mutation | destructive WhatsApp unlink with send-style replay; records `CommandSent` only |
+| `ForgetSession` | un-ledgered write | in-memory runtime drop during delete; target-validated only (the assignment may already be gone) |
 
 Ledgered mutations reuse the send pipeline's exact shape: replay precedes the fence, only definite
 outcomes are recorded (deterministic rejections as terminal failures), concurrent duplicates join
@@ -138,6 +143,21 @@ the first execution, and create-group stores the new group JID so replays return
 behind an ownership/epoch check only and never touch the result ledger. Raw results cross the
 boundary unprojected: the API services persist their own shared-MySQL projections (group upserts,
 backfill identity writes), keeping projection ownership API-side.
+
+### Session lifecycle through the engine
+
+The session-lifecycle wave completes this surface. The API owns rows, placement,
+and assignments: its create flow picks a placement, inserts the `wa_sessions`
+row, inserts the assignment at epoch 1, then calls `PrepareSession` on the
+assigned engine so the keystore device exists before any pairing or desired-state
+reconciliation touches the session. Device creation being explicit preserves the
+fail-closed `keystore_missing` reconciliation policy — a session whose device was
+never prepared reports missing rather than silently self-healing. Delete runs the
+reverse path: OAuth cascade, `ForgetSession`, row delete, then unassignment (which
+advances the gateway revision so the next desired-state snapshot stops carrying
+the session). Logout is ledger-backed because it mutates WhatsApp account state;
+pairing calls are not, because re-reading a QR snapshot is safe by construction
+and each pairing code is a fresh secret.
 
 The enrollment method alone permits a connection with no client certificate. A presented client
 certificate must still verify. Every other unary or streaming method—including health and unknown

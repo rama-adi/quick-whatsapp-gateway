@@ -345,6 +345,56 @@ type BackfillReader interface {
 	BackfillSession(ctx context.Context, query SessionStateQuery) (domain.BackfillSnapshot, error)
 }
 
+// PrepareSessionResult echoes the routing metadata of a successful prepare.
+// The gateway-local keystore device + managed-session entry it materializes are
+// deliberately invisible to the API: only their absence (an error) is.
+type PrepareSessionResult struct {
+	MutationResult
+}
+
+// SessionPreparer is the pairing-substrate boundary: it creates the gateway-
+// local keystore device and managed-session entry for an API-created session
+// row. Idempotent by construction — preparing an already-known session is a
+// success — so no command_id or ledger is involved.
+type SessionPreparer interface {
+	PrepareSession(context.Context, SessionStateQuery) (PrepareSessionResult, error)
+}
+
+// PairingSnapshot is one QR-pairing read outcome. Code empty means no code is
+// ready yet; the caller then polls again or subscribes to auth.qr events.
+type PairingSnapshot struct {
+	Code      string
+	ExpiresAt int64 // epoch-ms; 0 = unknown
+}
+
+// PairingBeginner starts QR pairing and returns the current snapshot code. A
+// repeated call re-reads the live code instead of restarting anything, so it is
+// not ledger-backed.
+type PairingBeginner interface {
+	BeginPairing(ctx context.Context, query SessionStateQuery) (PairingSnapshot, error)
+}
+
+// PhonePairer requests a phone-number pairing code. Each call yields a fresh
+// one-time secret, so there is nothing durable to replay; not ledger-backed.
+type PhonePairer interface {
+	PairPhone(ctx context.Context, query SessionStateQuery, phone string) (string, error)
+}
+
+// SessionLogout is the destructive logout mutation boundary with full ledger
+// deduplication: a repeated CommandID returns the stored terminal outcome
+// without unlinking the device twice.
+type SessionLogout interface {
+	LogoutSession(context.Context, ContactJIDCommand) (MutationOnlyResult, error)
+}
+
+// SessionForgetter drops a session's in-memory runtime during the API-owned
+// delete flow. The row may already be deleted API-side, so no assignment epoch
+// applies — only the target is validated. Idempotent: forgetting an unknown
+// session succeeds.
+type SessionForgetter interface {
+	ForgetSession(ctx context.Context, organizationID, sessionID string) error
+}
+
 // GatewayEngine is only the composition of the implemented slices. New
 // capabilities should begin as focused consumer-owned ports, not accumulate
 // here speculatively.
@@ -360,4 +410,9 @@ type GatewayEngine interface {
 	InviteLinkReader
 	ChatPresenceBoundary
 	BackfillReader
+	SessionPreparer
+	PairingBeginner
+	PhonePairer
+	SessionLogout
+	SessionForgetter
 }

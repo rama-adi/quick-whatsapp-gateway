@@ -25,6 +25,11 @@ service GatewayEngineService {
   rpc GetChatPresence(GetChatPresenceRequest) returns (GetChatPresenceResponse);
   rpc SetChatPresence(SetChatPresenceRequest) returns (SetChatPresenceResponse);
   rpc BackfillSession(BackfillSessionRequest) returns (BackfillSessionResponse);
+  rpc PrepareSession(PrepareSessionRequest) returns (PrepareSessionResponse);
+  rpc BeginPairing(BeginPairingRequest) returns (BeginPairingResponse);
+  rpc PairPhone(PairPhoneRequest) returns (PairPhoneResponse);
+  rpc LogoutSession(LogoutSessionRequest) returns (LogoutSessionResponse);
+  rpc ForgetSession(ForgetSessionRequest) returns (ForgetSessionResponse);
 }
 
 message SessionTarget {
@@ -315,3 +320,66 @@ message BackfillMember {
   reserved 7 to 15;
 }
 message BackfillSessionResponse { BackfillSnapshot snapshot = 1; reserved 2 to 15; }
+
+// PrepareSessionRequest materializes the gateway-local pairing substrate for an
+// API-created session row: a fresh keystore device plus the managed-session
+// entry. It carries no command_id: repeating it is idempotent by construction —
+// an existing managed session is returned as success, never re-created.
+message PrepareSessionRequest { SessionTarget target = 1; uint64 assignment_epoch = 2; reserved 3 to 15; }
+message PrepareSessionResponse {
+  SessionTarget target = 1;
+  uint64 assignment_epoch = 2;
+  reserved 3 to 15;
+}
+
+// BeginPairing starts (or resumes) QR pairing and returns the current snapshot
+// code when one is already available. Neither response field is set when no
+// code is ready yet; the caller then polls or subscribes to the auth.qr event
+// stream. Not a command: re-reading the current code is safe by construction.
+message BeginPairingRequest { SessionTarget target = 1; uint64 assignment_epoch = 2; reserved 3 to 15; }
+message BeginPairingResponse {
+  SessionTarget target = 1;
+  uint64 assignment_epoch = 2;
+  optional string qr_code = 3;
+  optional int64 qr_expires_at_unix_ms = 4;
+  reserved 5 to 15;
+}
+
+// PairPhoneRequest requests a phone-number pairing code. Not a command: the
+// code is a fresh one-time secret per call, so there is nothing to replay.
+message PairPhoneRequest {
+  SessionTarget target = 1;
+  uint64 assignment_epoch = 2;
+  string phone = 3;
+  reserved 4 to 15;
+}
+message PairPhoneResponse {
+  SessionTarget target = 1;
+  uint64 assignment_epoch = 2;
+  string pairing_code = 3;
+  reserved 4 to 15;
+}
+
+// LogoutSessionRequest unlinks the device from WhatsApp as a durable command.
+// The same command_id ledger semantics as SendMessage apply: a repeated id
+// returns the stored terminal result instead of logging out again.
+message LogoutSessionRequest {
+  SessionTarget target = 1;
+  uint64 assignment_epoch = 2;
+  string command_id = 3;
+  reserved 4 to 15;
+}
+message LogoutSessionResponse {
+  string command_id = 1;
+  SessionTarget target = 2;
+  uint64 assignment_epoch = 3;
+  reserved 4 to 15;
+}
+
+// ForgetSessionRequest drops the session's in-memory runtime (client,
+// reconnect loop, managed-session entry) during the API-owned delete flow. The
+// session row may already be deleted API-side, so no assignment epoch is
+// required; the target must still name this gateway. Idempotent: forgetting an
+// unknown session is a success.
+message ForgetSessionRequest { SessionTarget target = 1; reserved 2 to 15; }
+message ForgetSessionResponse { SessionTarget target = 1; reserved 2 to 15; }

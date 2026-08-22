@@ -296,6 +296,15 @@ func run() error {
 		services.Chats.SetGatewayChatFacade(liveFacade)
 		services.Admin.SetGatewayBackfillFacade(liveFacade)
 
+		// --- API-owned session lifecycle (Increment 7): the API picks the
+		// placement, owns the row + assignment, and drives the five live engine
+		// calls (prepare/QR/pairing-code/logout/forget) through the private
+		// engine. The OAuth cascade stays with the service; the facade covers
+		// only the live parts. ---
+		assignments := store.NewGatewayAssignmentRepo(db)
+		services.Sessions.SetGatewayAssignmentRepo(assignments)
+		services.Sessions.SetGatewaySessionFacade(apigateway.NewSessionLifecycleFacade(engineClient))
+
 		// --- API-owned outbound scheduling (Increment 6): durable command rows,
 		// product rate limits, and retry/backoff decisions run here; the gateway
 		// executes each command at most once per command id. The lease must

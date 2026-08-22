@@ -37,6 +37,11 @@ const (
 	GatewayEngineService_GetChatPresence_FullMethodName         = "/gateway.v1.GatewayEngineService/GetChatPresence"
 	GatewayEngineService_SetChatPresence_FullMethodName         = "/gateway.v1.GatewayEngineService/SetChatPresence"
 	GatewayEngineService_BackfillSession_FullMethodName         = "/gateway.v1.GatewayEngineService/BackfillSession"
+	GatewayEngineService_PrepareSession_FullMethodName          = "/gateway.v1.GatewayEngineService/PrepareSession"
+	GatewayEngineService_BeginPairing_FullMethodName            = "/gateway.v1.GatewayEngineService/BeginPairing"
+	GatewayEngineService_PairPhone_FullMethodName               = "/gateway.v1.GatewayEngineService/PairPhone"
+	GatewayEngineService_LogoutSession_FullMethodName           = "/gateway.v1.GatewayEngineService/LogoutSession"
+	GatewayEngineService_ForgetSession_FullMethodName           = "/gateway.v1.GatewayEngineService/ForgetSession"
 )
 
 // GatewayEngineServiceClient is the client API for GatewayEngineService service.
@@ -64,6 +69,11 @@ type GatewayEngineServiceClient interface {
 	GetChatPresence(ctx context.Context, in *GetChatPresenceRequest, opts ...grpc.CallOption) (*GetChatPresenceResponse, error)
 	SetChatPresence(ctx context.Context, in *SetChatPresenceRequest, opts ...grpc.CallOption) (*SetChatPresenceResponse, error)
 	BackfillSession(ctx context.Context, in *BackfillSessionRequest, opts ...grpc.CallOption) (*BackfillSessionResponse, error)
+	PrepareSession(ctx context.Context, in *PrepareSessionRequest, opts ...grpc.CallOption) (*PrepareSessionResponse, error)
+	BeginPairing(ctx context.Context, in *BeginPairingRequest, opts ...grpc.CallOption) (*BeginPairingResponse, error)
+	PairPhone(ctx context.Context, in *PairPhoneRequest, opts ...grpc.CallOption) (*PairPhoneResponse, error)
+	LogoutSession(ctx context.Context, in *LogoutSessionRequest, opts ...grpc.CallOption) (*LogoutSessionResponse, error)
+	ForgetSession(ctx context.Context, in *ForgetSessionRequest, opts ...grpc.CallOption) (*ForgetSessionResponse, error)
 }
 
 type gatewayEngineServiceClient struct {
@@ -254,6 +264,56 @@ func (c *gatewayEngineServiceClient) BackfillSession(ctx context.Context, in *Ba
 	return out, nil
 }
 
+func (c *gatewayEngineServiceClient) PrepareSession(ctx context.Context, in *PrepareSessionRequest, opts ...grpc.CallOption) (*PrepareSessionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PrepareSessionResponse)
+	err := c.cc.Invoke(ctx, GatewayEngineService_PrepareSession_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *gatewayEngineServiceClient) BeginPairing(ctx context.Context, in *BeginPairingRequest, opts ...grpc.CallOption) (*BeginPairingResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BeginPairingResponse)
+	err := c.cc.Invoke(ctx, GatewayEngineService_BeginPairing_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *gatewayEngineServiceClient) PairPhone(ctx context.Context, in *PairPhoneRequest, opts ...grpc.CallOption) (*PairPhoneResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PairPhoneResponse)
+	err := c.cc.Invoke(ctx, GatewayEngineService_PairPhone_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *gatewayEngineServiceClient) LogoutSession(ctx context.Context, in *LogoutSessionRequest, opts ...grpc.CallOption) (*LogoutSessionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LogoutSessionResponse)
+	err := c.cc.Invoke(ctx, GatewayEngineService_LogoutSession_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *gatewayEngineServiceClient) ForgetSession(ctx context.Context, in *ForgetSessionRequest, opts ...grpc.CallOption) (*ForgetSessionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ForgetSessionResponse)
+	err := c.cc.Invoke(ctx, GatewayEngineService_ForgetSession_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // GatewayEngineServiceServer is the server API for GatewayEngineService service.
 // All implementations must embed UnimplementedGatewayEngineServiceServer
 // for forward compatibility.
@@ -279,6 +339,11 @@ type GatewayEngineServiceServer interface {
 	GetChatPresence(context.Context, *GetChatPresenceRequest) (*GetChatPresenceResponse, error)
 	SetChatPresence(context.Context, *SetChatPresenceRequest) (*SetChatPresenceResponse, error)
 	BackfillSession(context.Context, *BackfillSessionRequest) (*BackfillSessionResponse, error)
+	PrepareSession(context.Context, *PrepareSessionRequest) (*PrepareSessionResponse, error)
+	BeginPairing(context.Context, *BeginPairingRequest) (*BeginPairingResponse, error)
+	PairPhone(context.Context, *PairPhoneRequest) (*PairPhoneResponse, error)
+	LogoutSession(context.Context, *LogoutSessionRequest) (*LogoutSessionResponse, error)
+	ForgetSession(context.Context, *ForgetSessionRequest) (*ForgetSessionResponse, error)
 	mustEmbedUnimplementedGatewayEngineServiceServer()
 }
 
@@ -342,6 +407,21 @@ func (UnimplementedGatewayEngineServiceServer) SetChatPresence(context.Context, 
 }
 func (UnimplementedGatewayEngineServiceServer) BackfillSession(context.Context, *BackfillSessionRequest) (*BackfillSessionResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method BackfillSession not implemented")
+}
+func (UnimplementedGatewayEngineServiceServer) PrepareSession(context.Context, *PrepareSessionRequest) (*PrepareSessionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PrepareSession not implemented")
+}
+func (UnimplementedGatewayEngineServiceServer) BeginPairing(context.Context, *BeginPairingRequest) (*BeginPairingResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method BeginPairing not implemented")
+}
+func (UnimplementedGatewayEngineServiceServer) PairPhone(context.Context, *PairPhoneRequest) (*PairPhoneResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PairPhone not implemented")
+}
+func (UnimplementedGatewayEngineServiceServer) LogoutSession(context.Context, *LogoutSessionRequest) (*LogoutSessionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method LogoutSession not implemented")
+}
+func (UnimplementedGatewayEngineServiceServer) ForgetSession(context.Context, *ForgetSessionRequest) (*ForgetSessionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ForgetSession not implemented")
 }
 func (UnimplementedGatewayEngineServiceServer) mustEmbedUnimplementedGatewayEngineServiceServer() {}
 func (UnimplementedGatewayEngineServiceServer) testEmbeddedByValue()                              {}
@@ -688,6 +768,96 @@ func _GatewayEngineService_BackfillSession_Handler(srv interface{}, ctx context.
 	return interceptor(ctx, in, info, handler)
 }
 
+func _GatewayEngineService_PrepareSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PrepareSessionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayEngineServiceServer).PrepareSession(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GatewayEngineService_PrepareSession_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayEngineServiceServer).PrepareSession(ctx, req.(*PrepareSessionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _GatewayEngineService_BeginPairing_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BeginPairingRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayEngineServiceServer).BeginPairing(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GatewayEngineService_BeginPairing_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayEngineServiceServer).BeginPairing(ctx, req.(*BeginPairingRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _GatewayEngineService_PairPhone_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PairPhoneRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayEngineServiceServer).PairPhone(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GatewayEngineService_PairPhone_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayEngineServiceServer).PairPhone(ctx, req.(*PairPhoneRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _GatewayEngineService_LogoutSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LogoutSessionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayEngineServiceServer).LogoutSession(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GatewayEngineService_LogoutSession_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayEngineServiceServer).LogoutSession(ctx, req.(*LogoutSessionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _GatewayEngineService_ForgetSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ForgetSessionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayEngineServiceServer).ForgetSession(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GatewayEngineService_ForgetSession_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayEngineServiceServer).ForgetSession(ctx, req.(*ForgetSessionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // GatewayEngineService_ServiceDesc is the grpc.ServiceDesc for GatewayEngineService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -766,6 +936,26 @@ var GatewayEngineService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "BackfillSession",
 			Handler:    _GatewayEngineService_BackfillSession_Handler,
+		},
+		{
+			MethodName: "PrepareSession",
+			Handler:    _GatewayEngineService_PrepareSession_Handler,
+		},
+		{
+			MethodName: "BeginPairing",
+			Handler:    _GatewayEngineService_BeginPairing_Handler,
+		},
+		{
+			MethodName: "PairPhone",
+			Handler:    _GatewayEngineService_PairPhone_Handler,
+		},
+		{
+			MethodName: "LogoutSession",
+			Handler:    _GatewayEngineService_LogoutSession_Handler,
+		},
+		{
+			MethodName: "ForgetSession",
+			Handler:    _GatewayEngineService_ForgetSession_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

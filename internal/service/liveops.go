@@ -110,6 +110,19 @@ type GatewayBackfillFacade interface {
 	BackfillSessionData(ctx context.Context, organizationID, sessionID string) (domain.BackfillSnapshot, error)
 }
 
+// GatewaySessionFacade is the API-facing session-lifecycle port (Increment 7):
+// the five live engine calls behind create/QR/pairing/logout/delete. Row,
+// placement, and assignment ownership stays with the SessionService; an empty
+// PairingSnapshot means no QR code is ready yet (the caller polls or subscribes
+// to auth.qr events).
+type GatewaySessionFacade interface {
+	Prepare(ctx context.Context, organizationID, sessionID string) error
+	QR(ctx context.Context, organizationID, sessionID string) (application.PairingSnapshot, error)
+	PairingCode(ctx context.Context, organizationID, sessionID, phone string) (string, error)
+	Logout(ctx context.Context, organizationID, sessionID string) error
+	Forget(ctx context.Context, organizationID, sessionID string) error
+}
+
 // ChannelOps is the live channel/newsletter surface (§11 Channels).
 type ChannelOps interface {
 	Create(ctx context.Context, sessionID, name, description string) (jid string, err error)

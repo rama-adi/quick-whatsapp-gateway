@@ -3106,6 +3106,576 @@ func (x *BackfillSessionResponse) GetSnapshot() *BackfillSnapshot {
 	return nil
 }
 
+// PrepareSessionRequest materializes the gateway-local pairing substrate for an
+// API-created session row: a fresh keystore device plus the managed-session
+// entry. It carries no command_id: repeating it is idempotent by construction —
+// an existing managed session is returned as success, never re-created.
+type PrepareSessionRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Target          *SessionTarget         `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
+	AssignmentEpoch uint64                 `protobuf:"varint,2,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *PrepareSessionRequest) Reset() {
+	*x = PrepareSessionRequest{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[44]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PrepareSessionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PrepareSessionRequest) ProtoMessage() {}
+
+func (x *PrepareSessionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[44]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PrepareSessionRequest.ProtoReflect.Descriptor instead.
+func (*PrepareSessionRequest) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{44}
+}
+
+func (x *PrepareSessionRequest) GetTarget() *SessionTarget {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *PrepareSessionRequest) GetAssignmentEpoch() uint64 {
+	if x != nil {
+		return x.AssignmentEpoch
+	}
+	return 0
+}
+
+type PrepareSessionResponse struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Target          *SessionTarget         `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
+	AssignmentEpoch uint64                 `protobuf:"varint,2,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *PrepareSessionResponse) Reset() {
+	*x = PrepareSessionResponse{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[45]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PrepareSessionResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PrepareSessionResponse) ProtoMessage() {}
+
+func (x *PrepareSessionResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[45]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PrepareSessionResponse.ProtoReflect.Descriptor instead.
+func (*PrepareSessionResponse) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{45}
+}
+
+func (x *PrepareSessionResponse) GetTarget() *SessionTarget {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *PrepareSessionResponse) GetAssignmentEpoch() uint64 {
+	if x != nil {
+		return x.AssignmentEpoch
+	}
+	return 0
+}
+
+// BeginPairing starts (or resumes) QR pairing and returns the current snapshot
+// code when one is already available. Neither response field is set when no
+// code is ready yet; the caller then polls or subscribes to the auth.qr event
+// stream. Not a command: re-reading the current code is safe by construction.
+type BeginPairingRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Target          *SessionTarget         `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
+	AssignmentEpoch uint64                 `protobuf:"varint,2,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *BeginPairingRequest) Reset() {
+	*x = BeginPairingRequest{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[46]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BeginPairingRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BeginPairingRequest) ProtoMessage() {}
+
+func (x *BeginPairingRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[46]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BeginPairingRequest.ProtoReflect.Descriptor instead.
+func (*BeginPairingRequest) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{46}
+}
+
+func (x *BeginPairingRequest) GetTarget() *SessionTarget {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *BeginPairingRequest) GetAssignmentEpoch() uint64 {
+	if x != nil {
+		return x.AssignmentEpoch
+	}
+	return 0
+}
+
+type BeginPairingResponse struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Target            *SessionTarget         `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
+	AssignmentEpoch   uint64                 `protobuf:"varint,2,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
+	QrCode            *string                `protobuf:"bytes,3,opt,name=qr_code,json=qrCode,proto3,oneof" json:"qr_code,omitempty"`
+	QrExpiresAtUnixMs *int64                 `protobuf:"varint,4,opt,name=qr_expires_at_unix_ms,json=qrExpiresAtUnixMs,proto3,oneof" json:"qr_expires_at_unix_ms,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *BeginPairingResponse) Reset() {
+	*x = BeginPairingResponse{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[47]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BeginPairingResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BeginPairingResponse) ProtoMessage() {}
+
+func (x *BeginPairingResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[47]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BeginPairingResponse.ProtoReflect.Descriptor instead.
+func (*BeginPairingResponse) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{47}
+}
+
+func (x *BeginPairingResponse) GetTarget() *SessionTarget {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *BeginPairingResponse) GetAssignmentEpoch() uint64 {
+	if x != nil {
+		return x.AssignmentEpoch
+	}
+	return 0
+}
+
+func (x *BeginPairingResponse) GetQrCode() string {
+	if x != nil && x.QrCode != nil {
+		return *x.QrCode
+	}
+	return ""
+}
+
+func (x *BeginPairingResponse) GetQrExpiresAtUnixMs() int64 {
+	if x != nil && x.QrExpiresAtUnixMs != nil {
+		return *x.QrExpiresAtUnixMs
+	}
+	return 0
+}
+
+// PairPhoneRequest requests a phone-number pairing code. Not a command: the
+// code is a fresh one-time secret per call, so there is nothing to replay.
+type PairPhoneRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Target          *SessionTarget         `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
+	AssignmentEpoch uint64                 `protobuf:"varint,2,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
+	Phone           string                 `protobuf:"bytes,3,opt,name=phone,proto3" json:"phone,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *PairPhoneRequest) Reset() {
+	*x = PairPhoneRequest{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[48]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PairPhoneRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PairPhoneRequest) ProtoMessage() {}
+
+func (x *PairPhoneRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[48]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PairPhoneRequest.ProtoReflect.Descriptor instead.
+func (*PairPhoneRequest) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{48}
+}
+
+func (x *PairPhoneRequest) GetTarget() *SessionTarget {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *PairPhoneRequest) GetAssignmentEpoch() uint64 {
+	if x != nil {
+		return x.AssignmentEpoch
+	}
+	return 0
+}
+
+func (x *PairPhoneRequest) GetPhone() string {
+	if x != nil {
+		return x.Phone
+	}
+	return ""
+}
+
+type PairPhoneResponse struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Target          *SessionTarget         `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
+	AssignmentEpoch uint64                 `protobuf:"varint,2,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
+	PairingCode     string                 `protobuf:"bytes,3,opt,name=pairing_code,json=pairingCode,proto3" json:"pairing_code,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *PairPhoneResponse) Reset() {
+	*x = PairPhoneResponse{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[49]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PairPhoneResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PairPhoneResponse) ProtoMessage() {}
+
+func (x *PairPhoneResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[49]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PairPhoneResponse.ProtoReflect.Descriptor instead.
+func (*PairPhoneResponse) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{49}
+}
+
+func (x *PairPhoneResponse) GetTarget() *SessionTarget {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *PairPhoneResponse) GetAssignmentEpoch() uint64 {
+	if x != nil {
+		return x.AssignmentEpoch
+	}
+	return 0
+}
+
+func (x *PairPhoneResponse) GetPairingCode() string {
+	if x != nil {
+		return x.PairingCode
+	}
+	return ""
+}
+
+// LogoutSessionRequest unlinks the device from WhatsApp as a durable command.
+// The same command_id ledger semantics as SendMessage apply: a repeated id
+// returns the stored terminal result instead of logging out again.
+type LogoutSessionRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Target          *SessionTarget         `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
+	AssignmentEpoch uint64                 `protobuf:"varint,2,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
+	CommandId       string                 `protobuf:"bytes,3,opt,name=command_id,json=commandId,proto3" json:"command_id,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *LogoutSessionRequest) Reset() {
+	*x = LogoutSessionRequest{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[50]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LogoutSessionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LogoutSessionRequest) ProtoMessage() {}
+
+func (x *LogoutSessionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[50]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LogoutSessionRequest.ProtoReflect.Descriptor instead.
+func (*LogoutSessionRequest) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{50}
+}
+
+func (x *LogoutSessionRequest) GetTarget() *SessionTarget {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *LogoutSessionRequest) GetAssignmentEpoch() uint64 {
+	if x != nil {
+		return x.AssignmentEpoch
+	}
+	return 0
+}
+
+func (x *LogoutSessionRequest) GetCommandId() string {
+	if x != nil {
+		return x.CommandId
+	}
+	return ""
+}
+
+type LogoutSessionResponse struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	CommandId       string                 `protobuf:"bytes,1,opt,name=command_id,json=commandId,proto3" json:"command_id,omitempty"`
+	Target          *SessionTarget         `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
+	AssignmentEpoch uint64                 `protobuf:"varint,3,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *LogoutSessionResponse) Reset() {
+	*x = LogoutSessionResponse{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[51]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LogoutSessionResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LogoutSessionResponse) ProtoMessage() {}
+
+func (x *LogoutSessionResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[51]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LogoutSessionResponse.ProtoReflect.Descriptor instead.
+func (*LogoutSessionResponse) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{51}
+}
+
+func (x *LogoutSessionResponse) GetCommandId() string {
+	if x != nil {
+		return x.CommandId
+	}
+	return ""
+}
+
+func (x *LogoutSessionResponse) GetTarget() *SessionTarget {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *LogoutSessionResponse) GetAssignmentEpoch() uint64 {
+	if x != nil {
+		return x.AssignmentEpoch
+	}
+	return 0
+}
+
+// ForgetSessionRequest drops the session's in-memory runtime (client,
+// reconnect loop, managed-session entry) during the API-owned delete flow. The
+// session row may already be deleted API-side, so no assignment epoch is
+// required; the target must still name this gateway. Idempotent: forgetting an
+// unknown session is a success.
+type ForgetSessionRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Target        *SessionTarget         `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ForgetSessionRequest) Reset() {
+	*x = ForgetSessionRequest{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[52]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ForgetSessionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ForgetSessionRequest) ProtoMessage() {}
+
+func (x *ForgetSessionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[52]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ForgetSessionRequest.ProtoReflect.Descriptor instead.
+func (*ForgetSessionRequest) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{52}
+}
+
+func (x *ForgetSessionRequest) GetTarget() *SessionTarget {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+type ForgetSessionResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Target        *SessionTarget         `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ForgetSessionResponse) Reset() {
+	*x = ForgetSessionResponse{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[53]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ForgetSessionResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ForgetSessionResponse) ProtoMessage() {}
+
+func (x *ForgetSessionResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[53]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ForgetSessionResponse.ProtoReflect.Descriptor instead.
+func (*ForgetSessionResponse) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{53}
+}
+
+func (x *ForgetSessionResponse) GetTarget() *SessionTarget {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
 var File_v1_gateway_engine_proto protoreflect.FileDescriptor
 
 const file_v1_gateway_engine_proto_rawDesc = "" +
@@ -3352,7 +3922,46 @@ const file_v1_gateway_engine_proto_rawDesc = "" +
 	"\x04name\x18\x05 \x01(\tR\x04name\x12\x12\n" +
 	"\x04role\x18\x06 \x01(\tR\x04roleJ\x04\b\a\x10\x10\"Y\n" +
 	"\x17BackfillSessionResponse\x128\n" +
-	"\bsnapshot\x18\x01 \x01(\v2\x1c.gateway.v1.BackfillSnapshotR\bsnapshotJ\x04\b\x02\x10\x10*\xf6\x01\n" +
+	"\bsnapshot\x18\x01 \x01(\v2\x1c.gateway.v1.BackfillSnapshotR\bsnapshotJ\x04\b\x02\x10\x10\"{\n" +
+	"\x15PrepareSessionRequest\x121\n" +
+	"\x06target\x18\x01 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
+	"\x10assignment_epoch\x18\x02 \x01(\x04R\x0fassignmentEpochJ\x04\b\x03\x10\x10\"|\n" +
+	"\x16PrepareSessionResponse\x121\n" +
+	"\x06target\x18\x01 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
+	"\x10assignment_epoch\x18\x02 \x01(\x04R\x0fassignmentEpochJ\x04\b\x03\x10\x10\"y\n" +
+	"\x13BeginPairingRequest\x121\n" +
+	"\x06target\x18\x01 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
+	"\x10assignment_epoch\x18\x02 \x01(\x04R\x0fassignmentEpochJ\x04\b\x03\x10\x10\"\xf5\x01\n" +
+	"\x14BeginPairingResponse\x121\n" +
+	"\x06target\x18\x01 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
+	"\x10assignment_epoch\x18\x02 \x01(\x04R\x0fassignmentEpoch\x12\x1c\n" +
+	"\aqr_code\x18\x03 \x01(\tH\x00R\x06qrCode\x88\x01\x01\x125\n" +
+	"\x15qr_expires_at_unix_ms\x18\x04 \x01(\x03H\x01R\x11qrExpiresAtUnixMs\x88\x01\x01B\n" +
+	"\n" +
+	"\b_qr_codeB\x18\n" +
+	"\x16_qr_expires_at_unix_msJ\x04\b\x05\x10\x10\"\x8c\x01\n" +
+	"\x10PairPhoneRequest\x121\n" +
+	"\x06target\x18\x01 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
+	"\x10assignment_epoch\x18\x02 \x01(\x04R\x0fassignmentEpoch\x12\x14\n" +
+	"\x05phone\x18\x03 \x01(\tR\x05phoneJ\x04\b\x04\x10\x10\"\x9a\x01\n" +
+	"\x11PairPhoneResponse\x121\n" +
+	"\x06target\x18\x01 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
+	"\x10assignment_epoch\x18\x02 \x01(\x04R\x0fassignmentEpoch\x12!\n" +
+	"\fpairing_code\x18\x03 \x01(\tR\vpairingCodeJ\x04\b\x04\x10\x10\"\x99\x01\n" +
+	"\x14LogoutSessionRequest\x121\n" +
+	"\x06target\x18\x01 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
+	"\x10assignment_epoch\x18\x02 \x01(\x04R\x0fassignmentEpoch\x12\x1d\n" +
+	"\n" +
+	"command_id\x18\x03 \x01(\tR\tcommandIdJ\x04\b\x04\x10\x10\"\x9a\x01\n" +
+	"\x15LogoutSessionResponse\x12\x1d\n" +
+	"\n" +
+	"command_id\x18\x01 \x01(\tR\tcommandId\x121\n" +
+	"\x06target\x18\x02 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
+	"\x10assignment_epoch\x18\x03 \x01(\x04R\x0fassignmentEpochJ\x04\b\x04\x10\x10\"O\n" +
+	"\x14ForgetSessionRequest\x121\n" +
+	"\x06target\x18\x01 \x01(\v2\x19.gateway.v1.SessionTargetR\x06targetJ\x04\b\x02\x10\x10\"P\n" +
+	"\x15ForgetSessionResponse\x121\n" +
+	"\x06target\x18\x01 \x01(\v2\x19.gateway.v1.SessionTargetR\x06targetJ\x04\b\x02\x10\x10*\xf6\x01\n" +
 	"\x14GatewaySessionStatus\x12&\n" +
 	"\"GATEWAY_SESSION_STATUS_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1eGATEWAY_SESSION_STATUS_STOPPED\x10\x01\x12#\n" +
@@ -3369,7 +3978,7 @@ const file_v1_gateway_engine_proto_rawDesc = "" +
 	"\x1cGROUP_PARTICIPANT_CHANGE_ADD\x10\x01\x12#\n" +
 	"\x1fGROUP_PARTICIPANT_CHANGE_REMOVE\x10\x02\x12$\n" +
 	" GROUP_PARTICIPANT_CHANGE_PROMOTE\x10\x03\x12#\n" +
-	"\x1fGROUP_PARTICIPANT_CHANGE_DEMOTE\x10\x042\xd5\f\n" +
+	"\x1fGROUP_PARTICIPANT_CHANGE_DEMOTE\x10\x042\xf7\x0f\n" +
 	"\x14GatewayEngineService\x12Z\n" +
 	"\x0fGetSessionState\x12\".gateway.v1.GetSessionStateRequest\x1a#.gateway.v1.GetSessionStateResponse\x12c\n" +
 	"\x12SetAccountPresence\x12%.gateway.v1.SetAccountPresenceRequest\x1a&.gateway.v1.SetAccountPresenceResponse\x12E\n" +
@@ -3390,7 +3999,12 @@ const file_v1_gateway_engine_proto_rawDesc = "" +
 	"LeaveGroup\x12\x1d.gateway.v1.LeaveGroupRequest\x1a\x1e.gateway.v1.LeaveGroupResponse\x12Z\n" +
 	"\x0fGetChatPresence\x12\".gateway.v1.GetChatPresenceRequest\x1a#.gateway.v1.GetChatPresenceResponse\x12Z\n" +
 	"\x0fSetChatPresence\x12\".gateway.v1.SetChatPresenceRequest\x1a#.gateway.v1.SetChatPresenceResponse\x12Z\n" +
-	"\x0fBackfillSession\x12\".gateway.v1.BackfillSessionRequest\x1a#.gateway.v1.BackfillSessionResponseBDZBgithub.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1;gatewayv1b\x06proto3"
+	"\x0fBackfillSession\x12\".gateway.v1.BackfillSessionRequest\x1a#.gateway.v1.BackfillSessionResponse\x12W\n" +
+	"\x0ePrepareSession\x12!.gateway.v1.PrepareSessionRequest\x1a\".gateway.v1.PrepareSessionResponse\x12Q\n" +
+	"\fBeginPairing\x12\x1f.gateway.v1.BeginPairingRequest\x1a .gateway.v1.BeginPairingResponse\x12H\n" +
+	"\tPairPhone\x12\x1c.gateway.v1.PairPhoneRequest\x1a\x1d.gateway.v1.PairPhoneResponse\x12T\n" +
+	"\rLogoutSession\x12 .gateway.v1.LogoutSessionRequest\x1a!.gateway.v1.LogoutSessionResponse\x12T\n" +
+	"\rForgetSession\x12 .gateway.v1.ForgetSessionRequest\x1a!.gateway.v1.ForgetSessionResponseBDZBgithub.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1;gatewayv1b\x06proto3"
 
 var (
 	file_v1_gateway_engine_proto_rawDescOnce sync.Once
@@ -3405,7 +4019,7 @@ func file_v1_gateway_engine_proto_rawDescGZIP() []byte {
 }
 
 var file_v1_gateway_engine_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_v1_gateway_engine_proto_msgTypes = make([]protoimpl.MessageInfo, 44)
+var file_v1_gateway_engine_proto_msgTypes = make([]protoimpl.MessageInfo, 54)
 var file_v1_gateway_engine_proto_goTypes = []any{
 	(GatewaySessionStatus)(0),               // 0: gateway.v1.GatewaySessionStatus
 	(AccountPresence)(0),                    // 1: gateway.v1.AccountPresence
@@ -3454,6 +4068,16 @@ var file_v1_gateway_engine_proto_goTypes = []any{
 	(*BackfillGroup)(nil),                   // 44: gateway.v1.BackfillGroup
 	(*BackfillMember)(nil),                  // 45: gateway.v1.BackfillMember
 	(*BackfillSessionResponse)(nil),         // 46: gateway.v1.BackfillSessionResponse
+	(*PrepareSessionRequest)(nil),           // 47: gateway.v1.PrepareSessionRequest
+	(*PrepareSessionResponse)(nil),          // 48: gateway.v1.PrepareSessionResponse
+	(*BeginPairingRequest)(nil),             // 49: gateway.v1.BeginPairingRequest
+	(*BeginPairingResponse)(nil),            // 50: gateway.v1.BeginPairingResponse
+	(*PairPhoneRequest)(nil),                // 51: gateway.v1.PairPhoneRequest
+	(*PairPhoneResponse)(nil),               // 52: gateway.v1.PairPhoneResponse
+	(*LogoutSessionRequest)(nil),            // 53: gateway.v1.LogoutSessionRequest
+	(*LogoutSessionResponse)(nil),           // 54: gateway.v1.LogoutSessionResponse
+	(*ForgetSessionRequest)(nil),            // 55: gateway.v1.ForgetSessionRequest
+	(*ForgetSessionResponse)(nil),           // 56: gateway.v1.ForgetSessionResponse
 }
 var file_v1_gateway_engine_proto_depIdxs = []int32{
 	3,  // 0: gateway.v1.GetSessionStateRequest.target:type_name -> gateway.v1.SessionTarget
@@ -3494,47 +4118,67 @@ var file_v1_gateway_engine_proto_depIdxs = []int32{
 	44, // 35: gateway.v1.BackfillSnapshot.groups:type_name -> gateway.v1.BackfillGroup
 	45, // 36: gateway.v1.BackfillGroup.members:type_name -> gateway.v1.BackfillMember
 	42, // 37: gateway.v1.BackfillSessionResponse.snapshot:type_name -> gateway.v1.BackfillSnapshot
-	4,  // 38: gateway.v1.GatewayEngineService.GetSessionState:input_type -> gateway.v1.GetSessionStateRequest
-	6,  // 39: gateway.v1.GatewayEngineService.SetAccountPresence:input_type -> gateway.v1.SetAccountPresenceRequest
-	7,  // 40: gateway.v1.GatewayEngineService.MarkRead:input_type -> gateway.v1.MarkReadRequest
-	10, // 41: gateway.v1.GatewayEngineService.SendMessage:input_type -> gateway.v1.SendMessageRequest
-	12, // 42: gateway.v1.GatewayEngineService.MessageOp:input_type -> gateway.v1.MessageOpRequest
-	14, // 43: gateway.v1.GatewayEngineService.LookupContact:input_type -> gateway.v1.LookupContactRequest
-	17, // 44: gateway.v1.GatewayEngineService.GetContactPicture:input_type -> gateway.v1.GetContactPictureRequest
-	19, // 45: gateway.v1.GatewayEngineService.GetContactAbout:input_type -> gateway.v1.GetContactAboutRequest
-	21, // 46: gateway.v1.GatewayEngineService.SetBlocked:input_type -> gateway.v1.SetBlockedRequest
-	23, // 47: gateway.v1.GatewayEngineService.CreateGroup:input_type -> gateway.v1.CreateGroupRequest
-	26, // 48: gateway.v1.GatewayEngineService.UpdateGroupSettings:input_type -> gateway.v1.UpdateGroupSettingsRequest
-	28, // 49: gateway.v1.GatewayEngineService.UpdateGroupParticipants:input_type -> gateway.v1.UpdateGroupParticipantsRequest
-	30, // 50: gateway.v1.GatewayEngineService.GetGroupInviteLink:input_type -> gateway.v1.GetGroupInviteLinkRequest
-	32, // 51: gateway.v1.GatewayEngineService.JoinGroup:input_type -> gateway.v1.JoinGroupRequest
-	34, // 52: gateway.v1.GatewayEngineService.LeaveGroup:input_type -> gateway.v1.LeaveGroupRequest
-	36, // 53: gateway.v1.GatewayEngineService.GetChatPresence:input_type -> gateway.v1.GetChatPresenceRequest
-	39, // 54: gateway.v1.GatewayEngineService.SetChatPresence:input_type -> gateway.v1.SetChatPresenceRequest
-	41, // 55: gateway.v1.GatewayEngineService.BackfillSession:input_type -> gateway.v1.BackfillSessionRequest
-	5,  // 56: gateway.v1.GatewayEngineService.GetSessionState:output_type -> gateway.v1.GetSessionStateResponse
-	8,  // 57: gateway.v1.GatewayEngineService.SetAccountPresence:output_type -> gateway.v1.SetAccountPresenceResponse
-	9,  // 58: gateway.v1.GatewayEngineService.MarkRead:output_type -> gateway.v1.MarkReadResponse
-	11, // 59: gateway.v1.GatewayEngineService.SendMessage:output_type -> gateway.v1.SendMessageResponse
-	13, // 60: gateway.v1.GatewayEngineService.MessageOp:output_type -> gateway.v1.MessageOpResponse
-	15, // 61: gateway.v1.GatewayEngineService.LookupContact:output_type -> gateway.v1.LookupContactResponse
-	18, // 62: gateway.v1.GatewayEngineService.GetContactPicture:output_type -> gateway.v1.GetContactPictureResponse
-	20, // 63: gateway.v1.GatewayEngineService.GetContactAbout:output_type -> gateway.v1.GetContactAboutResponse
-	22, // 64: gateway.v1.GatewayEngineService.SetBlocked:output_type -> gateway.v1.SetBlockedResponse
-	25, // 65: gateway.v1.GatewayEngineService.CreateGroup:output_type -> gateway.v1.CreateGroupResponse
-	27, // 66: gateway.v1.GatewayEngineService.UpdateGroupSettings:output_type -> gateway.v1.UpdateGroupSettingsResponse
-	29, // 67: gateway.v1.GatewayEngineService.UpdateGroupParticipants:output_type -> gateway.v1.UpdateGroupParticipantsResponse
-	31, // 68: gateway.v1.GatewayEngineService.GetGroupInviteLink:output_type -> gateway.v1.GetGroupInviteLinkResponse
-	33, // 69: gateway.v1.GatewayEngineService.JoinGroup:output_type -> gateway.v1.JoinGroupResponse
-	35, // 70: gateway.v1.GatewayEngineService.LeaveGroup:output_type -> gateway.v1.LeaveGroupResponse
-	38, // 71: gateway.v1.GatewayEngineService.GetChatPresence:output_type -> gateway.v1.GetChatPresenceResponse
-	40, // 72: gateway.v1.GatewayEngineService.SetChatPresence:output_type -> gateway.v1.SetChatPresenceResponse
-	46, // 73: gateway.v1.GatewayEngineService.BackfillSession:output_type -> gateway.v1.BackfillSessionResponse
-	56, // [56:74] is the sub-list for method output_type
-	38, // [38:56] is the sub-list for method input_type
-	38, // [38:38] is the sub-list for extension type_name
-	38, // [38:38] is the sub-list for extension extendee
-	0,  // [0:38] is the sub-list for field type_name
+	3,  // 38: gateway.v1.PrepareSessionRequest.target:type_name -> gateway.v1.SessionTarget
+	3,  // 39: gateway.v1.PrepareSessionResponse.target:type_name -> gateway.v1.SessionTarget
+	3,  // 40: gateway.v1.BeginPairingRequest.target:type_name -> gateway.v1.SessionTarget
+	3,  // 41: gateway.v1.BeginPairingResponse.target:type_name -> gateway.v1.SessionTarget
+	3,  // 42: gateway.v1.PairPhoneRequest.target:type_name -> gateway.v1.SessionTarget
+	3,  // 43: gateway.v1.PairPhoneResponse.target:type_name -> gateway.v1.SessionTarget
+	3,  // 44: gateway.v1.LogoutSessionRequest.target:type_name -> gateway.v1.SessionTarget
+	3,  // 45: gateway.v1.LogoutSessionResponse.target:type_name -> gateway.v1.SessionTarget
+	3,  // 46: gateway.v1.ForgetSessionRequest.target:type_name -> gateway.v1.SessionTarget
+	3,  // 47: gateway.v1.ForgetSessionResponse.target:type_name -> gateway.v1.SessionTarget
+	4,  // 48: gateway.v1.GatewayEngineService.GetSessionState:input_type -> gateway.v1.GetSessionStateRequest
+	6,  // 49: gateway.v1.GatewayEngineService.SetAccountPresence:input_type -> gateway.v1.SetAccountPresenceRequest
+	7,  // 50: gateway.v1.GatewayEngineService.MarkRead:input_type -> gateway.v1.MarkReadRequest
+	10, // 51: gateway.v1.GatewayEngineService.SendMessage:input_type -> gateway.v1.SendMessageRequest
+	12, // 52: gateway.v1.GatewayEngineService.MessageOp:input_type -> gateway.v1.MessageOpRequest
+	14, // 53: gateway.v1.GatewayEngineService.LookupContact:input_type -> gateway.v1.LookupContactRequest
+	17, // 54: gateway.v1.GatewayEngineService.GetContactPicture:input_type -> gateway.v1.GetContactPictureRequest
+	19, // 55: gateway.v1.GatewayEngineService.GetContactAbout:input_type -> gateway.v1.GetContactAboutRequest
+	21, // 56: gateway.v1.GatewayEngineService.SetBlocked:input_type -> gateway.v1.SetBlockedRequest
+	23, // 57: gateway.v1.GatewayEngineService.CreateGroup:input_type -> gateway.v1.CreateGroupRequest
+	26, // 58: gateway.v1.GatewayEngineService.UpdateGroupSettings:input_type -> gateway.v1.UpdateGroupSettingsRequest
+	28, // 59: gateway.v1.GatewayEngineService.UpdateGroupParticipants:input_type -> gateway.v1.UpdateGroupParticipantsRequest
+	30, // 60: gateway.v1.GatewayEngineService.GetGroupInviteLink:input_type -> gateway.v1.GetGroupInviteLinkRequest
+	32, // 61: gateway.v1.GatewayEngineService.JoinGroup:input_type -> gateway.v1.JoinGroupRequest
+	34, // 62: gateway.v1.GatewayEngineService.LeaveGroup:input_type -> gateway.v1.LeaveGroupRequest
+	36, // 63: gateway.v1.GatewayEngineService.GetChatPresence:input_type -> gateway.v1.GetChatPresenceRequest
+	39, // 64: gateway.v1.GatewayEngineService.SetChatPresence:input_type -> gateway.v1.SetChatPresenceRequest
+	41, // 65: gateway.v1.GatewayEngineService.BackfillSession:input_type -> gateway.v1.BackfillSessionRequest
+	47, // 66: gateway.v1.GatewayEngineService.PrepareSession:input_type -> gateway.v1.PrepareSessionRequest
+	49, // 67: gateway.v1.GatewayEngineService.BeginPairing:input_type -> gateway.v1.BeginPairingRequest
+	51, // 68: gateway.v1.GatewayEngineService.PairPhone:input_type -> gateway.v1.PairPhoneRequest
+	53, // 69: gateway.v1.GatewayEngineService.LogoutSession:input_type -> gateway.v1.LogoutSessionRequest
+	55, // 70: gateway.v1.GatewayEngineService.ForgetSession:input_type -> gateway.v1.ForgetSessionRequest
+	5,  // 71: gateway.v1.GatewayEngineService.GetSessionState:output_type -> gateway.v1.GetSessionStateResponse
+	8,  // 72: gateway.v1.GatewayEngineService.SetAccountPresence:output_type -> gateway.v1.SetAccountPresenceResponse
+	9,  // 73: gateway.v1.GatewayEngineService.MarkRead:output_type -> gateway.v1.MarkReadResponse
+	11, // 74: gateway.v1.GatewayEngineService.SendMessage:output_type -> gateway.v1.SendMessageResponse
+	13, // 75: gateway.v1.GatewayEngineService.MessageOp:output_type -> gateway.v1.MessageOpResponse
+	15, // 76: gateway.v1.GatewayEngineService.LookupContact:output_type -> gateway.v1.LookupContactResponse
+	18, // 77: gateway.v1.GatewayEngineService.GetContactPicture:output_type -> gateway.v1.GetContactPictureResponse
+	20, // 78: gateway.v1.GatewayEngineService.GetContactAbout:output_type -> gateway.v1.GetContactAboutResponse
+	22, // 79: gateway.v1.GatewayEngineService.SetBlocked:output_type -> gateway.v1.SetBlockedResponse
+	25, // 80: gateway.v1.GatewayEngineService.CreateGroup:output_type -> gateway.v1.CreateGroupResponse
+	27, // 81: gateway.v1.GatewayEngineService.UpdateGroupSettings:output_type -> gateway.v1.UpdateGroupSettingsResponse
+	29, // 82: gateway.v1.GatewayEngineService.UpdateGroupParticipants:output_type -> gateway.v1.UpdateGroupParticipantsResponse
+	31, // 83: gateway.v1.GatewayEngineService.GetGroupInviteLink:output_type -> gateway.v1.GetGroupInviteLinkResponse
+	33, // 84: gateway.v1.GatewayEngineService.JoinGroup:output_type -> gateway.v1.JoinGroupResponse
+	35, // 85: gateway.v1.GatewayEngineService.LeaveGroup:output_type -> gateway.v1.LeaveGroupResponse
+	38, // 86: gateway.v1.GatewayEngineService.GetChatPresence:output_type -> gateway.v1.GetChatPresenceResponse
+	40, // 87: gateway.v1.GatewayEngineService.SetChatPresence:output_type -> gateway.v1.SetChatPresenceResponse
+	46, // 88: gateway.v1.GatewayEngineService.BackfillSession:output_type -> gateway.v1.BackfillSessionResponse
+	48, // 89: gateway.v1.GatewayEngineService.PrepareSession:output_type -> gateway.v1.PrepareSessionResponse
+	50, // 90: gateway.v1.GatewayEngineService.BeginPairing:output_type -> gateway.v1.BeginPairingResponse
+	52, // 91: gateway.v1.GatewayEngineService.PairPhone:output_type -> gateway.v1.PairPhoneResponse
+	54, // 92: gateway.v1.GatewayEngineService.LogoutSession:output_type -> gateway.v1.LogoutSessionResponse
+	56, // 93: gateway.v1.GatewayEngineService.ForgetSession:output_type -> gateway.v1.ForgetSessionResponse
+	71, // [71:94] is the sub-list for method output_type
+	48, // [48:71] is the sub-list for method input_type
+	48, // [48:48] is the sub-list for extension type_name
+	48, // [48:48] is the sub-list for extension extendee
+	0,  // [0:48] is the sub-list for field type_name
 }
 
 func init() { file_v1_gateway_engine_proto_init() }
@@ -3543,13 +4187,14 @@ func file_v1_gateway_engine_proto_init() {
 		return
 	}
 	file_v1_gateway_engine_proto_msgTypes[23].OneofWrappers = []any{}
+	file_v1_gateway_engine_proto_msgTypes[47].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_v1_gateway_engine_proto_rawDesc), len(file_v1_gateway_engine_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   44,
+			NumMessages:   54,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

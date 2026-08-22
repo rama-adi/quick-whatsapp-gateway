@@ -1,12 +1,16 @@
 # Session Manager
 
-> **Increment 3 gateway reconciliation active.** The API pushes
-> authoritative desired-state assignments and per-session configuration over the control stream.
-> Assignments carry monotonically increasing epochs and renewable leases; gateways stop expired
-> assignments and the API rejects stale commands/events, preventing split brain. Session placement
-> initially requires an API-addressable gateway engine endpoint. Current MySQL boot reads,
-> self-written registry heartbeat, pin adoption, and orphan-guard behavior below remain active until
-> desired-state reconciliation replaces them.
+> **Increment 7 session lifecycle executes through private engine RPCs.** In
+> control-enabled deployments the API owns rows, placement, and assignments and
+> calls five engine RPCs for the live parts (see "gRPC control plane" below).
+> The API pushes authoritative desired-state assignments and per-session
+> configuration over the control stream. Assignments carry monotonically
+> increasing epochs and renewable leases; gateways stop expired assignments and
+> the API rejects stale commands/events, preventing split brain. Session
+> placement initially requires an API-addressable gateway engine endpoint.
+> Current MySQL boot reads, self-written registry heartbeat, pin adoption, and
+> orphan-guard behavior below remain active until desired-state reconciliation
+> replaces them.
 
 Status: implemented. Package `internal/wa`, files `manager.go`, `session.go`.
 
@@ -23,6 +27,39 @@ per attached number, each holding a live WebSocket. Responsibilities:
   is **authoritative for routing** — the router resolves a session → its owning
   gateway from `wa_sessions.gateway_id`, so adoption must reliably record it.
   Session responses surface `gatewayId` (resources.md).
+
+## gRPC control plane: API-owned lifecycle
+
+In control-enabled deployments (`GatewaySessionFacade` set by the API composition
+root) the session lifecycle splits cleanly across the trust boundary:
+
+- **The API owns durable state**: it picks the placement
+  (`GatewayRepo.PickForPlacement`), inserts the `wa_sessions` row
+  (`status=stopped`, rates left unset), inserts the assignment at epoch 1
+  (`GatewayAssignmentRepo.Assign`, which advances the owning gateway's desired
+  revision; an existing assignment is kept so retries never re-epoch a live
+  session), and deletes both on teardown (`repo.Delete`, then
+  `Unassign`, which advances the revision so the gateway stops reconciling).
+- **The gateway executes only live parts**, through private engine RPCs served
+  by `wa.ApplicationGatewayAdapter` (see [`grpc-contracts.md`](grpc-contracts.md)):
+  - `PrepareSession` — creates the local keystore device + managed-session entry
+    for an API-created row (`Manager.EnsureDevice`; never `CreateSession`, which
+    would insert a MySQL row). Idempotent; not ledger-backed.
+  - `BeginPairing` / `PairPhone` — QR snapshot-with-kick and phone-number
+    pairing behind the ownership fence; not ledger-backed.
+  - `LogoutSession` — destructive unlink as a durable command with full send-style
+    ledger replay (records `CommandSent` only).
+  - `ForgetSession` — in-memory runtime drop during delete; idempotent, no epoch
+    requirement (the row may already be deleted API-side).
+- **Keystore device creation is an explicit PrepareSession step.** The device is
+  minted only when the API asks the assigned engine to prepare; reconciliation
+  keeps its fail-closed `keystore_missing` policy for sessions whose expected
+  device was never prepared or has vanished.
+- The service branches at the top of Create/Logout/Delete/QR/PairingCode,
+  preferring the facade and keeping the legacy in-process manager fallbacks for
+  control-disabled deployments. Delete order with the facade: OAuth cascade →
+  engine forget → repo delete → unassign. Logout order: engine logout → OAuth
+  cascade (unchanged relative order).
 - **Registry lifecycle (Layer 1, Increment A compatibility).** With private control disabled, the
   gateway maintains its own row in the `gateways` registry through a lifecycle: on boot it
   registers `status=joining`
@@ -137,7 +174,9 @@ Core types:
   wrong pin now means the router cannot reach the session (stranded → `503
   gateway_unavailable`), so the pin write matters for correctness, not just
   forward-compat. (Local-keystore binding is unchanged; live re-homing is Layer 2,
-  deferred — see [`whatsmeow-store.md`](whatsmeow-store.md).)
+  deferred — see [`whatsmeow-store.md`](whatsmeow-store.md).) In control-enabled
+  deployments the API writes the same pin at create time from its placement pick,
+  so both ownership records agree before the engine ever sees the session.
 - **Boot orphan-guard runs before resume.** `bootResumeDecision` consults the
   injected `orgExists` predicate; a session whose org is gone/disabled is **not**
   connected and is marked `STOPPED` (closing the window for `ctrl:*` org-deletion

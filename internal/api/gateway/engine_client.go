@@ -569,10 +569,124 @@ func (c *EngineClient) BackfillSession(ctx context.Context, org, session string)
 	return out, nil
 }
 
+// PrepareSession materializes the gateway-local pairing substrate for an
+// API-created session row. Quick idempotent call: unary deadline.
+func (c *EngineClient) PrepareSession(ctx context.Context, org, session string) error {
+	ctx, cancel := context.WithTimeout(ctx, c.deadline)
+	defer cancel()
+	target, err := c.resolver.ResolveSessionEngineTarget(ctx, org, session)
+	if err != nil {
+		return err
+	}
+	conn, err := c.conn(ctx, target.GatewayID, target.GRPCEndpoint)
+	if err != nil {
+		return err
+	}
+	_, err = gatewayv1.NewGatewayEngineServiceClient(conn).PrepareSession(ctx, &gatewayv1.PrepareSessionRequest{
+		Target:          &gatewayv1.SessionTarget{OrganizationId: target.OrganizationID, SessionId: target.SessionID, GatewayId: target.GatewayID},
+		AssignmentEpoch: target.AssignmentEpoch,
+	})
+	c.record(target.GatewayID, target.GRPCEndpoint, err)
+	return mapEngineError(err)
+}
+
+// BeginPairing starts QR pairing and returns the current snapshot code. The
+// first code usually arrives asynchronously over the auth.qr event stream, so
+// an empty snapshot is a normal outcome rather than an error.
+func (c *EngineClient) BeginPairing(ctx context.Context, org, session string) (application.PairingSnapshot, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.deadline)
+	defer cancel()
+	target, err := c.resolver.ResolveSessionEngineTarget(ctx, org, session)
+	if err != nil {
+		return application.PairingSnapshot{}, err
+	}
+	conn, err := c.conn(ctx, target.GatewayID, target.GRPCEndpoint)
+	if err != nil {
+		return application.PairingSnapshot{}, err
+	}
+	response, err := gatewayv1.NewGatewayEngineServiceClient(conn).BeginPairing(ctx, &gatewayv1.BeginPairingRequest{
+		Target:          &gatewayv1.SessionTarget{OrganizationId: target.OrganizationID, SessionId: target.SessionID, GatewayId: target.GatewayID},
+		AssignmentEpoch: target.AssignmentEpoch,
+	})
+	c.record(target.GatewayID, target.GRPCEndpoint, err)
+	if err != nil {
+		return application.PairingSnapshot{}, mapEngineError(err)
+	}
+	return application.PairingSnapshot{Code: response.GetQrCode(), ExpiresAt: response.GetQrExpiresAtUnixMs()}, nil
+}
+
+// PairPhone requests a phone-number pairing code through the assigned engine.
+// The gateway connects and negotiates the code with WhatsApp before answering,
+// so the send deadline applies like the other slow operations.
+func (c *EngineClient) PairPhone(ctx context.Context, org, session, phone string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.sendDeadline)
+	defer cancel()
+	target, err := c.resolver.ResolveSessionEngineTarget(ctx, org, session)
+	if err != nil {
+		return "", err
+	}
+	conn, err := c.conn(ctx, target.GatewayID, target.GRPCEndpoint)
+	if err != nil {
+		return "", err
+	}
+	response, err := gatewayv1.NewGatewayEngineServiceClient(conn).PairPhone(ctx, &gatewayv1.PairPhoneRequest{
+		Target:          &gatewayv1.SessionTarget{OrganizationId: target.OrganizationID, SessionId: target.SessionID, GatewayId: target.GatewayID},
+		AssignmentEpoch: target.AssignmentEpoch,
+		Phone:           phone,
+	})
+	c.record(target.GatewayID, target.GRPCEndpoint, err)
+	if err != nil {
+		return "", mapEngineError(err)
+	}
+	return response.GetPairingCode(), nil
+}
+
+// LogoutSession unlinks the device as a durable command; the engine mints its
+// own stable command id from the request's ULID and the ledger replays it on
+// retry. Destructive but quick: unary deadline.
+func (c *EngineClient) LogoutSession(ctx context.Context, org, session string) error {
+	ctx, cancel := context.WithTimeout(ctx, c.deadline)
+	defer cancel()
+	target, err := c.resolver.ResolveSessionEngineTarget(ctx, org, session)
+	if err != nil {
+		return err
+	}
+	conn, err := c.conn(ctx, target.GatewayID, target.GRPCEndpoint)
+	if err != nil {
+		return err
+	}
+	_, err = gatewayv1.NewGatewayEngineServiceClient(conn).LogoutSession(ctx, &gatewayv1.LogoutSessionRequest{
+		Target:          &gatewayv1.SessionTarget{OrganizationId: target.OrganizationID, SessionId: target.SessionID, GatewayId: target.GatewayID},
+		AssignmentEpoch: target.AssignmentEpoch,
+		CommandId:       domain.NewULID(),
+	})
+	c.record(target.GatewayID, target.GRPCEndpoint, err)
+	return mapEngineError(err)
+}
+
+// ForgetSession drops the session's in-memory runtime on its assigned engine.
+// Idempotent by contract: forgetting an unknown session succeeds.
+func (c *EngineClient) ForgetSession(ctx context.Context, org, session string) error {
+	ctx, cancel := context.WithTimeout(ctx, c.deadline)
+	defer cancel()
+	target, err := c.resolver.ResolveSessionEngineTarget(ctx, org, session)
+	if err != nil {
+		return err
+	}
+	conn, err := c.conn(ctx, target.GatewayID, target.GRPCEndpoint)
+	if err != nil {
+		return err
+	}
+	_, err = gatewayv1.NewGatewayEngineServiceClient(conn).ForgetSession(ctx, &gatewayv1.ForgetSessionRequest{
+		Target: &gatewayv1.SessionTarget{OrganizationId: target.OrganizationID, SessionId: target.SessionID, GatewayId: target.GatewayID},
+	})
+	c.record(target.GatewayID, target.GRPCEndpoint, err)
+	return mapEngineError(err)
+}
+
 // readQuery resolves a read target and pooled connection under the unary
 // deadline; callers close the returned cancel.
-func (c *EngineClient) readQuery(ctx context.Context, org, session string) (domain.SessionEngineTarget, *grpc.ClientConn, context.CancelFunc, error) {
-	ctx, cancel := context.WithTimeout(ctx, c.deadline)
+func (c *EngineClient) readQuery(ctx context.Context, org, session string) (domain.SessionEngineTarget, *grpc.ClientConn, context.CancelFunc, error) {	ctx, cancel := context.WithTimeout(ctx, c.deadline)
 	target, err := c.resolver.ResolveSessionEngineTarget(ctx, org, session)
 	if err != nil {
 		cancel()

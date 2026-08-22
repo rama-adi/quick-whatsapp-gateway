@@ -544,6 +544,25 @@ func (m *Manager) Get(id string) *ManagedSession {
 	return m.sessions[id]
 }
 
+// EnsureDevice registers a ManagedSession with a fresh keystore device for an
+// API-created session row, without inserting anything into wa_sessions — the
+// API owns rows now. It mirrors CreateSession's map-entry construction and is
+// the gateway-side body of PrepareSession. Idempotent: an already-known
+// session is left untouched (its existing device, if any, stays).
+func (m *Manager) EnsureDevice(id, organizationID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, exists := m.sessions[id]; exists {
+		return
+	}
+	m.sessions[id] = &ManagedSession{
+		SessionID:      id,
+		OrganizationID: organizationID,
+		device:         m.keystore.NewDevice(),
+		status:         domain.SessionStopped,
+	}
+}
+
 // ConnectionState returns a point-in-time, non-identifying runtime snapshot for
 // request-failure telemetry. Status and socket/login state are reported
 // separately because a persisted "working" status can briefly outlive a lost
@@ -599,6 +618,17 @@ func (m *Manager) Forget(id string) {
 	m.mu.Lock()
 	delete(m.sessions, id)
 	m.mu.Unlock()
+}
+
+// LatestQR returns the most recently streamed QR code for a session and its
+// expiry (epoch-ms); code is "" when the session is unknown or no QR is
+// currently available. It lets callers avoid a Get+nil dance on the runtime.
+func (m *Manager) LatestQR(id string) (code string, expiresAt int64) {
+	ms := m.Get(id)
+	if ms == nil {
+		return "", 0
+	}
+	return ms.LatestQR()
 }
 
 // Start connects an already-paired session and begins the reconnect loop. For

@@ -67,6 +67,7 @@ type ApplicationGatewayAdapter struct {
 	gatewayID     string
 	sessions      sessionStateSource
 	live          engineLiveOps
+	controller    sessionController
 	now           func() time.Time
 	maxFutureSkew time.Duration
 	fence         assignmentFence
@@ -124,6 +125,7 @@ func NewApplicationGatewayAdapter(gatewayID string, manager *Manager, fence assi
 		gatewayID:     gatewayID,
 		sessions:      manager,
 		live:          manager.LiveOps(),
+		controller:    manager,
 		now:           time.Now,
 		maxFutureSkew: DefaultReadReceiptFutureSkew,
 		fence:         fence,
@@ -818,6 +820,131 @@ func (a *ApplicationGatewayAdapter) BackfillSession(ctx context.Context, query a
 		return domain.BackfillSnapshot{}, err
 	}
 	return a.live.BackfillSessionData(ctx, query.SessionID)
+}
+
+// ---- Session lifecycle slices (Increment 7) ----
+//
+// The API owns session rows, placement, and assignments; the gateway executes
+// only the live parts. PrepareSession and ForgetSession validate the target
+// alone: prepare is idempotent by construction and forget must still work when
+// the row (and its assignment) is already deleted API-side. BeginPairing and
+// PairPhone run behind the ownership fence but stay outside the ledger — a
+// repeated QR read re-reads the live code, and each pairing code is a fresh
+// one-time secret with nothing durable to replay. LogoutSession is destructive
+// on WhatsApp's side, so it reuses the send pipeline's replay-then-fence-then-
+// singleflight shape.
+
+// sessionController is the manager surface the lifecycle slices drive.
+type sessionController interface {
+	EnsureDevice(id, organizationID string)
+	StartQR(ctx context.Context, id string) error
+	StartPairingCode(ctx context.Context, id, phone string) (string, error)
+	Logout(ctx context.Context, id string) error
+	Forget(id string)
+	LatestQR(id string) (code string, expiresAt int64)
+}
+
+// PrepareSession materializes the keystore device + managed-session entry for
+// an API-created session row. Idempotent; not ledger-backed.
+func (a *ApplicationGatewayAdapter) PrepareSession(_ context.Context, query application.SessionStateQuery) (application.PrepareSessionResult, error) {
+	if err := a.validateTarget(query.OrganizationID, query.SessionID, query.GatewayID); err != nil {
+		return application.PrepareSessionResult{}, err
+	}
+	a.controller.EnsureDevice(query.SessionID, query.OrganizationID)
+	return application.PrepareSessionResult{MutationResult: mutationResult("", query.OrganizationID, query.SessionID, query.GatewayID, query.AssignmentEpoch)}, nil
+}
+
+// BeginPairing starts (or resumes) QR pairing and returns the current snapshot
+// code when one exists. Read-classified: no command_id, no ledger.
+func (a *ApplicationGatewayAdapter) BeginPairing(ctx context.Context, query application.SessionStateQuery) (application.PairingSnapshot, error) {
+	if err := a.fenceQuery(query); err != nil {
+		return application.PairingSnapshot{}, err
+	}
+	if code, exp := a.controller.LatestQR(query.SessionID); code != "" {
+		return application.PairingSnapshot{Code: code, ExpiresAt: exp}, nil
+	}
+	if err := a.controller.StartQR(ctx, query.SessionID); err != nil {
+		return application.PairingSnapshot{}, err
+	}
+	code, exp := a.controller.LatestQR(query.SessionID)
+	return application.PairingSnapshot{Code: code, ExpiresAt: exp}, nil
+}
+
+// PairPhone requests a phone-number pairing code. Not ledger-backed: every
+// call yields a fresh one-time secret.
+func (a *ApplicationGatewayAdapter) PairPhone(ctx context.Context, query application.SessionStateQuery, phone string) (string, error) {
+	if err := a.fenceQuery(query); err != nil {
+		return "", err
+	}
+	if phone == "" {
+		return "", domain.ErrValidation("phone is required")
+	}
+	return a.controller.StartPairingCode(ctx, query.SessionID, phone)
+}
+
+// LogoutSession executes one durable logout command behind the assignment
+// fence with full ledger semantics. Only CommandSent is recorded — logout has
+// no WhatsApp message id — and stored failures replay as validation errors.
+func (a *ApplicationGatewayAdapter) LogoutSession(ctx context.Context, command application.ContactJIDCommand) (application.MutationOnlyResult, error) {
+	if err := a.validateMutation(command.CommandID, command.OrganizationID, command.SessionID, command.GatewayID); err != nil {
+		return application.MutationOnlyResult{}, err
+	}
+	if command.AssignmentEpoch == 0 {
+		return application.MutationOnlyResult{}, domain.ErrValidation("assignment_epoch must be at least 1")
+	}
+	record, err := a.lookupCommand(ctx, command.CommandID)
+	if err != nil {
+		return application.MutationOnlyResult{}, err
+	}
+	if record != nil {
+		return replayedBlockingMutation(record)
+	}
+	if a.fence != nil && !a.fence.AllowsMutation(command.OrganizationID, command.SessionID, command.AssignmentEpoch) {
+		return application.MutationOnlyResult{}, domain.ErrConflict("session assignment epoch is stale or lease expired")
+	}
+	flight, follower := a.joinInFlight(command.CommandID)
+	if follower {
+		select {
+		case <-flight.done:
+			return application.MutationOnlyResult{MutationResult: flight.result.MutationResult}, flight.err
+		case <-ctx.Done():
+			return application.MutationOnlyResult{}, ctx.Err()
+		}
+	}
+	var (
+		result application.MutationOnlyResult
+		err2   error
+	)
+	defer func() {
+		flight.result = application.SendMessageResult{MutationResult: result.MutationResult}
+		flight.err = err2
+		close(flight.done)
+		a.leaveInFlight(command.CommandID)
+	}()
+
+	err2 = a.controller.Logout(ctx, command.SessionID)
+	if err2 != nil {
+		return application.MutationOnlyResult{}, err2
+	}
+	result = application.MutationOnlyResult{MutationResult: mutationResult(command.CommandID, command.OrganizationID, command.SessionID, command.GatewayID, command.AssignmentEpoch)}
+	if saveErr := a.saveCommand(ctx, application.CommandResultRecord{
+		CommandID: command.CommandID, SessionID: command.SessionID,
+		Status: application.CommandSent, UpdatedAt: a.now().UTC(),
+	}); saveErr != nil {
+		return application.MutationOnlyResult{}, saveErr
+	}
+	return result, nil
+}
+
+// ForgetSession drops a session's in-memory runtime during the delete flow.
+// Idempotent; no epoch requirement because the row may already be deleted
+// API-side — only the target is validated.
+func (a *ApplicationGatewayAdapter) ForgetSession(_ context.Context, organizationID, sessionID string) error {
+	if err := a.validateTarget(organizationID, sessionID, a.gatewayID); err != nil {
+		return err
+	}
+	a.controller.Forget(sessionID)
+	return nil
 }
 
 func sessionQueryFrom(organizationID, sessionID, gatewayID string, assignmentEpoch uint64) application.SessionStateQuery {

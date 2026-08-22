@@ -347,6 +347,81 @@ func (s *Server) BackfillSession(ctx context.Context, req *gatewayv1.BackfillSes
 	return &gatewayv1.BackfillSessionResponse{Snapshot: backfillSnapshotProto(snapshot)}, nil
 }
 
+func (s *Server) PrepareSession(ctx context.Context, req *gatewayv1.PrepareSessionRequest) (*gatewayv1.PrepareSessionResponse, error) {
+	target, err := s.target(req.GetTarget())
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	if req.GetAssignmentEpoch() == 0 {
+		return nil, status.Error(codes.InvalidArgument, "invalid prepare-session request")
+	}
+	result, err := s.Engine.PrepareSession(ctx, application.SessionStateQuery{OrganizationID: target.OrganizationId, SessionID: target.SessionId, GatewayID: target.GatewayId, AssignmentEpoch: req.GetAssignmentEpoch()})
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	return &gatewayv1.PrepareSessionResponse{Target: target, AssignmentEpoch: result.AssignmentEpoch}, nil
+}
+
+func (s *Server) BeginPairing(ctx context.Context, req *gatewayv1.BeginPairingRequest) (*gatewayv1.BeginPairingResponse, error) {
+	query, err := s.queryTarget(req.GetTarget(), req.GetAssignmentEpoch())
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	snapshot, err := s.Engine.BeginPairing(ctx, query)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	response := &gatewayv1.BeginPairingResponse{Target: targetProto(query), AssignmentEpoch: query.AssignmentEpoch}
+	if snapshot.Code != "" {
+		response.QrCode, response.QrExpiresAtUnixMs = &snapshot.Code, &snapshot.ExpiresAt
+	}
+	return response, nil
+}
+
+func (s *Server) PairPhone(ctx context.Context, req *gatewayv1.PairPhoneRequest) (*gatewayv1.PairPhoneResponse, error) {
+	query, err := s.queryTarget(req.GetTarget(), req.GetAssignmentEpoch())
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	if req.GetPhone() == "" {
+		return nil, status.Error(codes.InvalidArgument, "invalid pair-phone request")
+	}
+	code, err := s.Engine.PairPhone(ctx, query, req.GetPhone())
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	return &gatewayv1.PairPhoneResponse{Target: targetProto(query), AssignmentEpoch: query.AssignmentEpoch, PairingCode: code}, nil
+}
+
+func (s *Server) LogoutSession(ctx context.Context, req *gatewayv1.LogoutSessionRequest) (*gatewayv1.LogoutSessionResponse, error) {
+	target, err := s.target(req.GetTarget())
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	if req.GetAssignmentEpoch() == 0 || req.GetCommandId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "invalid logout-session request")
+	}
+	result, err := s.Engine.LogoutSession(ctx, application.ContactJIDCommand{
+		CommandID: req.GetCommandId(), OrganizationID: target.OrganizationId, SessionID: target.SessionId,
+		GatewayID: target.GatewayId, AssignmentEpoch: req.GetAssignmentEpoch(),
+	})
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	return &gatewayv1.LogoutSessionResponse{CommandId: result.CommandID, Target: targetResponse(result.MutationResult), AssignmentEpoch: result.AssignmentEpoch}, nil
+}
+
+func (s *Server) ForgetSession(ctx context.Context, req *gatewayv1.ForgetSessionRequest) (*gatewayv1.ForgetSessionResponse, error) {
+	target, err := s.target(req.GetTarget())
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	if err := s.Engine.ForgetSession(ctx, target.OrganizationId, target.SessionId); err != nil {
+		return nil, grpcError(err)
+	}
+	return &gatewayv1.ForgetSessionResponse{Target: target}, nil
+}
+
 func (s *Server) target(target *gatewayv1.SessionTarget) (*gatewayv1.SessionTarget, error) {
 	if s.Engine == nil || s.GatewayID == "" || target == nil || target.GetOrganizationId() == "" || target.GetSessionId() == "" || target.GetGatewayId() != s.GatewayID {
 		return nil, domain.ErrValidation("invalid gateway target")
@@ -362,6 +437,10 @@ func readResponse(value application.MutationResult) *gatewayv1.MarkReadResponse 
 }
 func targetResponse(value application.MutationResult) *gatewayv1.SessionTarget {
 	return &gatewayv1.SessionTarget{OrganizationId: value.OrganizationID, SessionId: value.SessionID, GatewayId: value.GatewayID}
+}
+
+func targetProto(query application.SessionStateQuery) *gatewayv1.SessionTarget {
+	return &gatewayv1.SessionTarget{OrganizationId: query.OrganizationID, SessionId: query.SessionID, GatewayId: query.GatewayID}
 }
 
 // queryTarget validates a read request's routing metadata without requiring a
