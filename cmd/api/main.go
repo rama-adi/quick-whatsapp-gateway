@@ -316,6 +316,7 @@ func run() error {
 			return fmt.Errorf("message service is not constructed")
 		}
 		services.Messages.SetGatewaySendFacade(outboundScheduler)
+		services.Messages.SetGatewayOpFacade(outboundScheduler)
 		tlsConfig := privateGatewayTLSConfig(identity, clientRoots)
 		enrollment, enrollmentErr := service.NewEnrollmentService(db, signer, service.DefaultEnrollmentConfig())
 		if enrollmentErr != nil {

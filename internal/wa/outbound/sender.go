@@ -568,12 +568,21 @@ func (s *Sender) SendOp(ctx context.Context, sess domain.WASession, req OpReques
 			WithDetails(map[string]any{"retryAfterSeconds": int(retryAfter.Seconds())})
 	}
 
-	if err := s.pace(ctx); err != nil {
+	return s.DispatchOp(ctx, req)
+}
+
+// DispatchOp routes one validated message sub-resource operation to whatsmeow
+// without rate limiting or pacing. It is the exported entry point for the
+// control-plane engine adapter, where product limits are the API's concern —
+// the mirror of Dispatch for sub-resource operations.
+func (s *Sender) DispatchOp(ctx context.Context, req OpRequest) (SendResult, error) {
+	if err := validateOp(req); err != nil {
 		return SendResult{}, err
 	}
 
 	var waID string
 	var ts int64
+	var err error
 	switch req.Op {
 	case OpReaction:
 		waID, ts, err = s.wa.React(ctx, req.Chat, req.Sender, req.MsgID, req.Emoji)
@@ -590,7 +599,7 @@ func (s *Sender) SendOp(ctx context.Context, sess domain.WASession, req OpReques
 	}
 	if err != nil {
 		s.log.ErrorContext(ctx, "outbound message op failed",
-			"session", sess.ID, "op", req.Op, "err", err)
+			"session", SessionIDFromContext(ctx), "op", req.Op, "err", err)
 		return SendResult{}, err
 	}
 	return SendResult{

@@ -14,6 +14,7 @@ import (
 type fakeEngine struct {
 	presence application.SetPresenceCommand
 	sent     []application.SendCommand
+	ops      []application.MessageOpCommand
 }
 
 func (f *fakeEngine) GetSessionState(context.Context, application.SessionStateQuery) (application.SessionState, error) {
@@ -25,6 +26,11 @@ func (f *fakeEngine) SetAccountPresence(_ context.Context, value application.Set
 }
 func (f *fakeEngine) MarkRead(context.Context, application.MarkReadCommand) (application.MutationResult, error) {
 	return application.MutationResult{}, nil
+}
+
+func (f *fakeEngine) ExecuteOp(_ context.Context, command application.MessageOpCommand) (application.MessageOpResult, error) {
+	f.ops = append(f.ops, command)
+	return application.MessageOpResult{MutationResult: application.MutationResult{CommandID: command.CommandID, OrganizationID: command.OrganizationID, SessionID: command.SessionID, GatewayID: command.GatewayID, AssignmentEpoch: command.AssignmentEpoch}, WAMessageID: "WA_OP_1"}, nil
 }
 
 func (f *fakeEngine) SendMessage(_ context.Context, command application.SendCommand) (application.SendMessageResult, error) {

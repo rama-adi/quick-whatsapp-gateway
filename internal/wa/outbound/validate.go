@@ -171,6 +171,13 @@ type OpRequest struct {
 	To string
 }
 
+// ValidateOp checks an OpRequest's required fields per operation. It is
+// exported for API-side scheduling, which must reject invalid op commands
+// before they become durable rows.
+func ValidateOp(req OpRequest) error {
+	return validateOp(req)
+}
+
 // validateOp checks an OpRequest's required fields per operation.
 func validateOp(req OpRequest) error {
 	if req.MsgID == "" {

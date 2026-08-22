@@ -23,6 +23,7 @@ const (
 	GatewayEngineService_SetAccountPresence_FullMethodName = "/gateway.v1.GatewayEngineService/SetAccountPresence"
 	GatewayEngineService_MarkRead_FullMethodName           = "/gateway.v1.GatewayEngineService/MarkRead"
 	GatewayEngineService_SendMessage_FullMethodName        = "/gateway.v1.GatewayEngineService/SendMessage"
+	GatewayEngineService_MessageOp_FullMethodName          = "/gateway.v1.GatewayEngineService/MessageOp"
 )
 
 // GatewayEngineServiceClient is the client API for GatewayEngineService service.
@@ -36,6 +37,7 @@ type GatewayEngineServiceClient interface {
 	SetAccountPresence(ctx context.Context, in *SetAccountPresenceRequest, opts ...grpc.CallOption) (*SetAccountPresenceResponse, error)
 	MarkRead(ctx context.Context, in *MarkReadRequest, opts ...grpc.CallOption) (*MarkReadResponse, error)
 	SendMessage(ctx context.Context, in *SendMessageRequest, opts ...grpc.CallOption) (*SendMessageResponse, error)
+	MessageOp(ctx context.Context, in *MessageOpRequest, opts ...grpc.CallOption) (*MessageOpResponse, error)
 }
 
 type gatewayEngineServiceClient struct {
@@ -86,6 +88,16 @@ func (c *gatewayEngineServiceClient) SendMessage(ctx context.Context, in *SendMe
 	return out, nil
 }
 
+func (c *gatewayEngineServiceClient) MessageOp(ctx context.Context, in *MessageOpRequest, opts ...grpc.CallOption) (*MessageOpResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MessageOpResponse)
+	err := c.cc.Invoke(ctx, GatewayEngineService_MessageOp_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // GatewayEngineServiceServer is the server API for GatewayEngineService service.
 // All implementations must embed UnimplementedGatewayEngineServiceServer
 // for forward compatibility.
@@ -97,6 +109,7 @@ type GatewayEngineServiceServer interface {
 	SetAccountPresence(context.Context, *SetAccountPresenceRequest) (*SetAccountPresenceResponse, error)
 	MarkRead(context.Context, *MarkReadRequest) (*MarkReadResponse, error)
 	SendMessage(context.Context, *SendMessageRequest) (*SendMessageResponse, error)
+	MessageOp(context.Context, *MessageOpRequest) (*MessageOpResponse, error)
 	mustEmbedUnimplementedGatewayEngineServiceServer()
 }
 
@@ -118,6 +131,9 @@ func (UnimplementedGatewayEngineServiceServer) MarkRead(context.Context, *MarkRe
 }
 func (UnimplementedGatewayEngineServiceServer) SendMessage(context.Context, *SendMessageRequest) (*SendMessageResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SendMessage not implemented")
+}
+func (UnimplementedGatewayEngineServiceServer) MessageOp(context.Context, *MessageOpRequest) (*MessageOpResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method MessageOp not implemented")
 }
 func (UnimplementedGatewayEngineServiceServer) mustEmbedUnimplementedGatewayEngineServiceServer() {}
 func (UnimplementedGatewayEngineServiceServer) testEmbeddedByValue()                              {}
@@ -212,6 +228,24 @@ func _GatewayEngineService_SendMessage_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _GatewayEngineService_MessageOp_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MessageOpRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayEngineServiceServer).MessageOp(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GatewayEngineService_MessageOp_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayEngineServiceServer).MessageOp(ctx, req.(*MessageOpRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // GatewayEngineService_ServiceDesc is the grpc.ServiceDesc for GatewayEngineService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -234,6 +268,10 @@ var GatewayEngineService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SendMessage",
 			Handler:    _GatewayEngineService_SendMessage_Handler,
+		},
+		{
+			MethodName: "MessageOp",
+			Handler:    _GatewayEngineService_MessageOp_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

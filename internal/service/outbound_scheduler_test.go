@@ -108,6 +108,15 @@ type fakeEngineSender struct {
 	results []application.SendMessageResult
 	errs    []error
 	calls   []application.SendCommand
+	opCalls []application.MessageOpCommand
+}
+
+func (f *fakeEngineSender) ExecuteOp(_ context.Context, command application.MessageOpCommand) (application.MessageOpResult, error) {
+	f.opCalls = append(f.opCalls, command)
+	if len(f.errs) > len(f.calls) {
+		return application.MessageOpResult{}, f.errs[len(f.calls)]
+	}
+	return application.MessageOpResult{MutationResult: application.MutationResult{CommandID: command.CommandID}, WAMessageID: "WA_OP"}, nil
 }
 
 func (f *fakeEngineSender) SendMessage(_ context.Context, command application.SendCommand) (application.SendMessageResult, error) {
@@ -148,7 +157,7 @@ func schedulerTestConfig() OutboundSchedulerConfig {
 	}
 }
 
-func newScheduler(sessions outboundSessionSource, store outboundCommandStore, engine application.MessageSender, limiter outbound.RateLimiter) *OutboundScheduler {
+func newScheduler(sessions outboundSessionSource, store outboundCommandStore, engine outboundEngine, limiter outbound.RateLimiter) *OutboundScheduler {
 	scheduler, err := NewOutboundScheduler(sessions, store, engine, limiter, schedulerTestConfig(), nil)
 	if err != nil {
 		panic(err)

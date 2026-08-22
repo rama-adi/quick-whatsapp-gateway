@@ -249,7 +249,7 @@ func (s *Server) Handler() http.Handler {
 		r.Group(func(authed chi.Router) {
 			authed.Use(authz.Authenticate(s.tokens, s.keys))
 			hapi := humax.NewAPI(authed)
-			handlersapi.RegisterSendMessageOp(hapi, s.messageHandlers)
+			handlersapi.RegisterMessageOps(hapi, s.messageHandlers)
 		})
 	}
 	if s.resourceHandlers != nil {

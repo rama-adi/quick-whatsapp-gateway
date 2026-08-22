@@ -21,6 +21,8 @@ type MessageService struct {
 	// replaces the legacy in-process sender entirely: the legacy path remains
 	// only for control-disabled deployments.
 	gatewaySend GatewayMessageSender
+	// gatewayOps is the control-plane message-operation boundary (Increment 7).
+	gatewayOps GatewayMessageOpSender
 }
 
 // GatewayMessageSender is the API-owned outbound send boundary backed by the
@@ -41,6 +43,19 @@ func NewMessageService(sessions *store.SessionRepo, sender *outbound.Sender, log
 func (s *MessageService) SetGatewaySendFacade(facade GatewayMessageSender) {
 	if facade != nil {
 		s.gatewaySend = facade
+	}
+}
+
+// GatewayMessageOpSender is the API-owned message-operation boundary.
+type GatewayMessageOpSender interface {
+	ExecuteOp(ctx context.Context, organizationID, sessionID string, req outbound.OpRequest) (outbound.SendResult, error)
+}
+
+// SetGatewayOpFacade routes message sub-resource operations through the
+// API-owned scheduler's durable command pipeline.
+func (s *MessageService) SetGatewayOpFacade(facade GatewayMessageOpSender) {
+	if facade != nil {
+		s.gatewayOps = facade
 	}
 }
 
@@ -70,6 +85,9 @@ func (s *MessageService) Send(ctx context.Context, organizationID, sessionID str
 
 // op is the shared path for the message-operation sub-resources.
 func (s *MessageService) op(ctx context.Context, organizationID, sessionID string, req outbound.OpRequest) (outbound.SendResult, error) {
+	if s.gatewayOps != nil {
+		return s.gatewayOps.ExecuteOp(ctx, organizationID, sessionID, req)
+	}
 	sess, err := s.session(ctx, organizationID, sessionID)
 	if err != nil {
 		return outbound.SendResult{}, err

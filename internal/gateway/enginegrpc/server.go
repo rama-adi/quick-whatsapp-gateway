@@ -99,6 +99,29 @@ func (s *Server) SendMessage(ctx context.Context, req *gatewayv1.SendMessageRequ
 	}, nil
 }
 
+func (s *Server) MessageOp(ctx context.Context, req *gatewayv1.MessageOpRequest) (*gatewayv1.MessageOpResponse, error) {
+	target, err := s.target(req.GetTarget())
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	if req.GetAssignmentEpoch() == 0 || req.GetCommandId() == "" || req.GetOp() == "" || req.GetMessageId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "invalid message-op request")
+	}
+	result, err := s.Engine.ExecuteOp(ctx, application.MessageOpCommand{
+		CommandID: req.GetCommandId(), OrganizationID: target.OrganizationId, SessionID: target.SessionId,
+		GatewayID: target.GatewayId, AssignmentEpoch: req.GetAssignmentEpoch(),
+		Op: application.MessageOp(req.GetOp()), ChatJID: req.GetChatJid(), SenderJID: req.GetSenderJid(),
+		MessageID: req.GetMessageId(), Emoji: req.GetEmoji(), NewText: req.GetNewText(),
+		Options: req.GetOptions(), ToJID: req.GetToJid(),
+	})
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	return &gatewayv1.MessageOpResponse{
+		CommandId: result.CommandID, Target: targetResponse(result.MutationResult), AssignmentEpoch: result.AssignmentEpoch,
+	}, nil
+}
+
 func (s *Server) target(target *gatewayv1.SessionTarget) (*gatewayv1.SessionTarget, error) {
 	if s.Engine == nil || s.GatewayID == "" || target == nil || target.GetOrganizationId() == "" || target.GetSessionId() == "" || target.GetGatewayId() != s.GatewayID {
 		return nil, domain.ErrValidation("invalid gateway target")

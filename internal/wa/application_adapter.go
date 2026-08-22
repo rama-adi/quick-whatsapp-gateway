@@ -35,6 +35,12 @@ type sendDispatcher interface {
 	Dispatch(ctx context.Context, req domain.SendRequest) (waMessageID string, ts int64, err error)
 }
 
+// opDispatcher routes one validated message sub-resource operation to
+// whatsmeow, rate-limit-free like sendDispatcher.
+type opDispatcher interface {
+	DispatchOp(ctx context.Context, req outbound.OpRequest) (outbound.SendResult, error)
+}
+
 // commandLedger is the gateway-local durable record of definite command
 // outcomes. Lookup returns nil when no terminal result exists.
 type commandLedger interface {
@@ -52,6 +58,7 @@ type ApplicationGatewayAdapter struct {
 	maxFutureSkew time.Duration
 	fence         assignmentFence
 	dispatch      sendDispatcher
+	opDispatch    opDispatcher
 	ledger        commandLedger
 
 	// inFlight serializes concurrent identical commands within this process so
@@ -62,8 +69,15 @@ type ApplicationGatewayAdapter struct {
 }
 
 type inFlightSend struct {
+	done          chan struct{}
+	result        application.SendMessageResult
+	opWAMessageID string
+	err           error
+}
+
+type inFlightOp struct {
 	done   chan struct{}
-	result application.SendMessageResult
+	result application.MutationResult
 	err    error
 }
 
@@ -74,7 +88,10 @@ const DefaultReadReceiptFutureSkew = 30 * time.Second
 // NewApplicationGatewayAdapter constructs the local adapter used by the private
 // gRPC server. The supplied fence is checked immediately before live operations.
 // Dispatcher and ledger are required for SendMessage and optional otherwise.
-func NewApplicationGatewayAdapter(gatewayID string, manager *Manager, fence assignmentFence, dispatch sendDispatcher, ledger commandLedger) *ApplicationGatewayAdapter {
+func NewApplicationGatewayAdapter(gatewayID string, manager *Manager, fence assignmentFence, dispatcher interface {
+	sendDispatcher
+	opDispatcher
+}, ledger commandLedger) *ApplicationGatewayAdapter {
 	return &ApplicationGatewayAdapter{
 		gatewayID:     gatewayID,
 		sessions:      manager,
@@ -82,7 +99,8 @@ func NewApplicationGatewayAdapter(gatewayID string, manager *Manager, fence assi
 		now:           time.Now,
 		maxFutureSkew: DefaultReadReceiptFutureSkew,
 		fence:         fence,
-		dispatch:      dispatch,
+		dispatch:      dispatcher,
+		opDispatch:    dispatcher,
 		ledger:        ledger,
 		inFlight:      map[string]*inFlightSend{},
 	}
@@ -130,7 +148,8 @@ func (a *ApplicationGatewayAdapter) SetAccountPresence(ctx context.Context, comm
 	return mutationResult(command.CommandID, command.OrganizationID, command.SessionID, command.GatewayID, command.AssignmentEpoch), nil
 }
 
-func (a *ApplicationGatewayAdapter) MarkRead(ctx context.Context, command application.MarkReadCommand) (application.MutationResult, error) {	if err := a.validateMutation(command.CommandID, command.OrganizationID, command.SessionID, command.GatewayID); err != nil {
+func (a *ApplicationGatewayAdapter) MarkRead(ctx context.Context, command application.MarkReadCommand) (application.MutationResult, error) {
+	if err := a.validateMutation(command.CommandID, command.OrganizationID, command.SessionID, command.GatewayID); err != nil {
 		return application.MutationResult{}, err
 	}
 	if command.AssignmentEpoch == 0 {
@@ -356,5 +375,107 @@ func mutationResult(commandID, organizationID, sessionID, gatewayID string, assi
 		SessionID:       sessionID,
 		GatewayID:       gatewayID,
 		AssignmentEpoch: assignmentEpoch,
+	}
+}
+
+// ExecuteOp runs one message sub-resource command behind the assignment fence
+// with the same ledger semantics as SendMessage.
+func (a *ApplicationGatewayAdapter) ExecuteOp(ctx context.Context, command application.MessageOpCommand) (application.MessageOpResult, error) {
+	if err := a.validateMutation(command.CommandID, command.OrganizationID, command.SessionID, command.GatewayID); err != nil {
+		return application.MessageOpResult{}, err
+	}
+	if command.AssignmentEpoch == 0 {
+		return application.MessageOpResult{}, domain.ErrValidation("assignment_epoch must be at least 1")
+	}
+
+	record, err := a.lookupCommand(ctx, command.CommandID)
+	if err != nil {
+		return application.MessageOpResult{}, err
+	}
+	if record != nil {
+		return replayedMutation(command, record)
+	}
+	if a.fence != nil && !a.fence.AllowsMutation(command.OrganizationID, command.SessionID, command.AssignmentEpoch) {
+		return application.MessageOpResult{}, domain.ErrConflict("session assignment epoch is stale or lease expired")
+	}
+
+	return a.executeOp(ctx, command)
+}
+
+// executeOp shares the send singleflight: a concurrent duplicate of either
+// command kind waits for the leader and reads its published outcome.
+func (a *ApplicationGatewayAdapter) executeOp(ctx context.Context, command application.MessageOpCommand) (opResult application.MessageOpResult, err error) {
+	flight, follower := a.joinInFlight(command.CommandID)
+	if follower {
+		select {
+		case <-flight.done:
+			return application.MessageOpResult{MutationResult: flight.result.MutationResult, WAMessageID: flight.opWAMessageID}, flight.err
+		case <-ctx.Done():
+			return application.MessageOpResult{}, ctx.Err()
+		}
+	}
+	defer func() {
+		flight.result = application.SendMessageResult{MutationResult: opResult.MutationResult}
+		flight.opWAMessageID = opResult.WAMessageID
+		flight.err = err
+		close(flight.done)
+		a.leaveInFlight(command.CommandID)
+	}()
+
+	waResult, opErr := a.opDispatch.DispatchOp(outbound.WithSessionID(ctx, command.SessionID), outbound.OpRequest{
+		Op:      outbound.MessageOp(command.Op),
+		Chat:    command.ChatJID,
+		Sender:  command.SenderJID,
+		MsgID:   command.MessageID,
+		Emoji:   command.Emoji,
+		NewText: command.NewText,
+		Options: command.Options,
+		To:      command.ToJID,
+	})
+	if opErr != nil {
+		var apiErr *domain.APIError
+		if errors.As(opErr, &apiErr) && apiErr.Code == domain.CodeValidationError {
+			saveErr := a.saveCommand(ctx, application.CommandResultRecord{
+				CommandID: command.CommandID, SessionID: command.SessionID,
+				Status: application.CommandFailed, Error: opErr.Error(), UpdatedAt: a.now().UTC(),
+			})
+			if saveErr != nil {
+				return application.MessageOpResult{}, saveErr
+			}
+		}
+		return application.MessageOpResult{}, opErr
+	}
+
+	sentAt := a.now()
+	if waResult.Timestamp > 0 {
+		sentAt = time.UnixMilli(waResult.Timestamp).UTC()
+	}
+	out := application.MessageOpResult{
+		MutationResult: mutationResult(command.CommandID, command.OrganizationID, command.SessionID, command.GatewayID, command.AssignmentEpoch),
+		WAMessageID:    waResult.WAMessageID,
+	}
+	if saveErr := a.saveCommand(ctx, application.CommandResultRecord{
+		CommandID: command.CommandID, SessionID: command.SessionID,
+		Status: application.CommandSent, WAMessageID: waResult.WAMessageID, UpdatedAt: sentAt,
+	}); saveErr != nil {
+		return application.MessageOpResult{}, saveErr
+	}
+	return out, nil
+}
+
+// replayedMutation reconstructs a stored outcome for message-op commands. A
+// stored failure replays as validation; a stored success returns routing
+// metadata only (ops carry no additional response payload).
+func replayedMutation(command application.MessageOpCommand, record *application.CommandResultRecord) (application.MessageOpResult, error) {
+	switch record.Status {
+	case application.CommandSent:
+		return application.MessageOpResult{
+			MutationResult: mutationResult(record.CommandID, command.OrganizationID, command.SessionID, command.GatewayID, command.AssignmentEpoch),
+			WAMessageID:    record.WAMessageID,
+		}, nil
+	case application.CommandFailed:
+		return application.MessageOpResult{}, domain.ErrValidation("op previously failed: " + record.Error)
+	default:
+		return application.MessageOpResult{}, fmt.Errorf("unknown stored command status %q", record.Status)
 	}
 }

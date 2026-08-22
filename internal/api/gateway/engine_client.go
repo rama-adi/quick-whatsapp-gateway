@@ -226,6 +226,47 @@ func (c *EngineClient) SendMessage(ctx context.Context, command application.Send
 		SentAt:      time.UnixMilli(response.SentAtUnixMs).UTC(),
 	}, nil
 }
+// ExecuteOp dispatches one message sub-resource command. The caller owns the
+// stable CommandID from the durable command row.
+func (c *EngineClient) ExecuteOp(ctx context.Context, command application.MessageOpCommand) (application.MessageOpResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.sendDeadline)
+	defer cancel()
+	if command.CommandID == "" {
+		return application.MessageOpResult{}, domain.ErrValidation("op command id is required")
+	}
+	target, err := c.resolver.ResolveSessionEngineTarget(ctx, command.OrganizationID, command.SessionID)
+	if err != nil {
+		return application.MessageOpResult{}, err
+	}
+	conn, err := c.conn(ctx, target.GatewayID, target.GRPCEndpoint)
+	if err != nil {
+		return application.MessageOpResult{}, err
+	}
+	response, err := gatewayv1.NewGatewayEngineServiceClient(conn).MessageOp(ctx, &gatewayv1.MessageOpRequest{
+		Target:          &gatewayv1.SessionTarget{OrganizationId: target.OrganizationID, SessionId: target.SessionID, GatewayId: target.GatewayID},
+		AssignmentEpoch: target.AssignmentEpoch,
+		CommandId:       command.CommandID,
+		Op:              string(command.Op),
+		ChatJid:         command.ChatJID,
+		SenderJid:       command.SenderJID,
+		MessageId:       command.MessageID,
+		Emoji:           command.Emoji,
+		NewText:         command.NewText,
+		Options:         command.Options,
+		ToJid:           command.ToJID,
+	})
+	c.record(target.GatewayID, target.GRPCEndpoint, err)
+	if err != nil {
+		return application.MessageOpResult{}, mapEngineError(err)
+	}
+	return application.MessageOpResult{
+		MutationResult: application.MutationResult{
+			CommandID: response.CommandId, OrganizationID: target.OrganizationID,
+			SessionID: target.SessionID, GatewayID: target.GatewayID, AssignmentEpoch: target.AssignmentEpoch,
+		},
+	}, nil
+}
+
 func mapEngineError(err error) error {
 	if err == nil {
 		return nil

@@ -74,6 +74,37 @@ type SendCommand struct {
 	Payload         domain.SendRequest
 }
 
+// MessageOp identifies a message sub-resource operation carried by
+// MessageOpCommand. Values mirror the outbound pipeline's op discriminators.
+type MessageOp string
+
+const (
+	OpReaction MessageOp = "reaction"
+	OpEdit     MessageOp = "edit"
+	OpRevoke   MessageOp = "revoke"
+	OpVote     MessageOp = "vote"
+	OpForward  MessageOp = "forward"
+)
+
+// MessageOpCommand requests one message sub-resource operation as a durable
+// command. CommandID ledger semantics match SendCommand: a repeated id returns
+// the stored terminal result instead of re-executing.
+type MessageOpCommand struct {
+	CommandID       string
+	OrganizationID  string
+	SessionID       string
+	GatewayID       string
+	AssignmentEpoch uint64
+	Op              MessageOp
+	ChatJID         string
+	SenderJID       string
+	MessageID       string
+	Emoji           string
+	NewText         string
+	Options         []string
+	ToJID           string
+}
+
 // Definite command-result statuses. Only these are recorded for replay;
 // transient and post-dispatch unknowns stay absent so an API retry re-issues
 // the command instead of trusting a fabricated failure.
@@ -138,6 +169,19 @@ type MessageSender interface {
 	SendMessage(context.Context, SendCommand) (SendMessageResult, error)
 }
 
+// MessageOpResult is one terminal op outcome; WAMessageID carries the
+// operation's acknowledgement id when whatsmeow assigned one.
+type MessageOpResult struct {
+	MutationResult
+	WAMessageID string
+}
+
+// OpExecutor is the reliable message-operation command boundary with the same
+// ledger deduplication contract as MessageSender.
+type OpExecutor interface {
+	ExecuteOp(context.Context, MessageOpCommand) (MessageOpResult, error)
+}
+
 // GatewayEngine is only the composition of the implemented slices. New
 // capabilities should begin as focused consumer-owned ports, not accumulate
 // here speculatively.
@@ -146,4 +190,5 @@ type GatewayEngine interface {
 	PresenceSetter
 	ReadMarker
 	MessageSender
+	OpExecutor
 }

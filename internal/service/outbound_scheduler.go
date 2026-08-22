@@ -37,10 +37,17 @@ type outboundCommandStore interface {
 // domain validation errors) are terminal failures. Unreachable gateways, stale
 // assignments, and lost deadlines return to 'queued' with backoff; a later
 // attempt replays the gateway's stored terminal result if one exists.
+// outboundEngine is the private-engine command boundary the scheduler
+// dispatches through (EngineClient satisfies it).
+type outboundEngine interface {
+	application.MessageSender
+	application.OpExecutor
+}
+
 type OutboundScheduler struct {
 	sessions outboundSessionSource
 	outbox   outboundCommandStore
-	engine   application.MessageSender
+	engine   outboundEngine
 	limiter  outbound.RateLimiter
 	log      *slog.Logger
 	cfg      OutboundSchedulerConfig
@@ -78,7 +85,7 @@ func (c *OutboundSchedulerConfig) normalize() error {
 }
 
 // NewOutboundScheduler validates its configuration and returns the scheduler.
-func NewOutboundScheduler(sessions outboundSessionSource, outbox outboundCommandStore, engine application.MessageSender, limiter outbound.RateLimiter, cfg OutboundSchedulerConfig, log *slog.Logger) (*OutboundScheduler, error) {
+func NewOutboundScheduler(sessions outboundSessionSource, outbox outboundCommandStore, engine outboundEngine, limiter outbound.RateLimiter, cfg OutboundSchedulerConfig, log *slog.Logger) (*OutboundScheduler, error) {
 	if sessions == nil || outbox == nil || engine == nil {
 		return nil, errors.New("outbound scheduler dependencies are required")
 	}
@@ -257,6 +264,19 @@ func (s *OutboundScheduler) processDue(ctx context.Context) {
 // its next attempt. checkLimit gates whether this attempt consumes a rate-limit
 // token (worker attempts do; a sync front-door attempt already consumed one).
 func (s *OutboundScheduler) dispatchClaimed(ctx context.Context, entry domain.OutboxEntry, req domain.SendRequest, checkLimit bool) (outbound.SendResult, error) {
+	// Op commands encode their discriminator in the payload's "type" field,
+	// which is disjoint from every SendRequest type.
+	if isOpType(req.Type) {
+		var payload opPayload
+		if err := json.Unmarshal(entry.Payload, &payload); err != nil {
+			note := "malformed stored op payload"
+			if uerr := s.outbox.UpdateStatus(ctx, entry.ID, domain.OutboxFailed, nil, &note, s.now().UnixMilli()); uerr != nil {
+				return outbound.SendResult{}, uerr
+			}
+			return outbound.SendResult{}, fmt.Errorf("%s", note)
+		}
+		return s.dispatchOp(ctx, entry, payload)
+	}
 	now := s.now()
 
 	if checkLimit {
@@ -368,4 +388,104 @@ func optionalString(value string) *string {
 		return nil
 	}
 	return &value
+}
+
+// opPayload is the durable-row encoding for message sub-resource commands. Its
+// "type" values (reaction/edit/revoke/vote/forward) are disjoint from every
+// SendRequest type, so dispatchClaimed can branch on the decoded type alone.
+type opPayload struct {
+	Type    outbound.MessageOp `json:"type"`
+	Chat    string             `json:"chat,omitempty"`
+	Sender  string             `json:"sender,omitempty"`
+	MsgID   string             `json:"msgId,omitempty"`
+	Emoji   string             `json:"emoji,omitempty"`
+	NewText string             `json:"newText,omitempty"`
+	Options []string           `json:"options,omitempty"`
+	To      string             `json:"to,omitempty"`
+}
+
+func opRequestToPayload(req outbound.OpRequest) opPayload {
+	return opPayload{Type: req.Op, Chat: req.Chat, Sender: req.Sender, MsgID: req.MsgID,
+		Emoji: req.Emoji, NewText: req.NewText, Options: req.Options, To: req.To}
+}
+
+func (p opPayload) toOpRequest() outbound.OpRequest {
+	return outbound.OpRequest{Op: p.Type, Chat: p.Chat, Sender: p.Sender, MsgID: p.MsgID,
+		Emoji: p.Emoji, NewText: p.NewText, Options: p.Options, To: p.To}
+}
+
+// isOpType reports whether a decoded SendRequest.Type names an op command.
+func isOpType(t string) bool {
+	switch outbound.MessageOp(t) {
+	case outbound.OpReaction, outbound.OpEdit, outbound.OpRevoke, outbound.OpVote, outbound.OpForward:
+		return true
+	default:
+		return false
+	}
+}
+
+// ExecuteOp runs one message sub-resource operation through the same durable
+// command pipeline as sends: rate limit, row insert, engine dispatch with the
+// row id as command id, terminal update or backoff reschedule.
+func (s *OutboundScheduler) ExecuteOp(ctx context.Context, organizationID, sessionID string, req outbound.OpRequest) (outbound.SendResult, error) {
+	if err := outbound.ValidateOp(req); err != nil {
+		return outbound.SendResult{}, err
+	}
+	sess, err := s.session(ctx, organizationID, sessionID)
+	if err != nil {
+		return outbound.SendResult{}, err
+	}
+	ok, retryAfter, err := s.limiter.Allow(ctx, sess.ID, sess.RatePerMin, sess.RatePerHour)
+	if err != nil {
+		return outbound.SendResult{}, fmt.Errorf("rate check: %w", err)
+	}
+	if !ok {
+		return outbound.SendResult{}, domain.ErrRateLimited("send rate limit exceeded").
+			WithDetails(map[string]any{"retryAfterSeconds": int(retryAfter.Seconds())})
+	}
+	now := s.now()
+	entry := s.newCommand(sess, "", domain.OutboxSending, now)
+	entry.Attempts = 1
+	payload, err := json.Marshal(opRequestToPayload(req))
+	if err != nil {
+		return outbound.SendResult{}, fmt.Errorf("encode op payload: %w", err)
+	}
+	entry.Payload = payload
+	if err := s.outbox.Insert(ctx, entry); err != nil {
+		return outbound.SendResult{}, err
+	}
+	return s.dispatchClaimed(ctx, entry, domain.SendRequest{}, false)
+}
+
+// dispatchOp drives one claimed op command to a terminal state.
+func (s *OutboundScheduler) dispatchOp(ctx context.Context, entry domain.OutboxEntry, payload opPayload) (outbound.SendResult, error) {
+	now := s.now()
+	result, err := s.engine.ExecuteOp(ctx, application.MessageOpCommand{
+		CommandID: entry.ID, OrganizationID: entry.OrganizationID, SessionID: entry.SessionID,
+		Op: application.MessageOp(payload.Type), ChatJID: payload.Chat, SenderJID: payload.Sender,
+		MessageID: payload.MsgID, Emoji: payload.Emoji, NewText: payload.NewText,
+		Options: payload.Options, ToJID: payload.To,
+	})
+	timestamp := now.UnixMilli()
+	if err != nil {
+		var apiErr *domain.APIError
+		if errors.As(err, &apiErr) && apiErr.Code == domain.CodeValidationError {
+			message := err.Error()
+			if uerr := s.outbox.UpdateStatus(ctx, entry.ID, domain.OutboxFailed, nil, &message, timestamp); uerr != nil {
+				return outbound.SendResult{}, uerr
+			}
+			return outbound.SendResult{}, err
+		}
+		return outbound.SendResult{}, s.ambiguous(ctx, entry, err.Error())
+	}
+	waID := result.WAMessageID
+	if uerr := s.outbox.UpdateStatus(ctx, entry.ID, domain.OutboxSent, &waID, nil, timestamp); uerr != nil {
+		return outbound.SendResult{}, uerr
+	}
+	return outbound.SendResult{
+		Mode:        outbound.ModeSync,
+		WAMessageID: waID,
+		Status:      domain.MessageSent,
+		Timestamp:   timestamp,
+	}, nil
 }
