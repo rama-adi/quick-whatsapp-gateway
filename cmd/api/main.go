@@ -25,6 +25,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	apigateway "github.com/ramaadi/quick-whatsapp-gateway/internal/api/gateway"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/application"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/assertion"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/authz"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/config"
@@ -41,6 +42,7 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/service/gatewayadmin"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/stream"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/webhooks"
 )
 
 func main() {
@@ -122,6 +124,47 @@ func run() error {
 		Log:                        log,
 	})
 	apiHandlers := handlers.New(services, log)
+
+	// --- Committed-event fan-out (Increment 5). Control-mode gateway events are
+	// durable once the ingest transaction commits; this worker then claims each
+	// committed envelope, fans it out to realtime and webhooks in that order,
+	// and records completion only after every consumer accepts. A crash between
+	// consumer acceptance and completion replays the event; consumers dedupe by
+	// event id. The lease comfortably exceeds one dispatch attempt, so an expired
+	// lease merely makes a crashed worker's claims retryable. ---
+	const (
+		committedEventLease        = 2 * time.Minute
+		committedEventBatch        = 100
+		committedEventPollInterval = 2 * time.Second
+	)
+	var publisher *stream.Publisher
+	if rdb != nil {
+		publisher = stream.NewPublisher(rdb, log)
+	}
+	committedWorker, err := service.NewCommittedEventWorker(
+		committedEventWorkStore{repo: st.GatewayEvents},
+		service.NewCommittedEventDispatcher(nil, publisher, webhooks.NewEnqueuer(
+			service.NewWebhookRepoAdapter(st.Webhooks),
+			service.NewWebhookDeliveryRepoAdapter(st.WebhookDeliveries),
+			nil, log,
+		)),
+		service.CommittedEventWorkerConfig{
+			Owner: processOwner(),
+			Lease: committedEventLease,
+			Batch: committedEventBatch,
+			Poll:  committedEventPollInterval,
+			Now:   time.Now,
+		})
+	if err != nil {
+		return fmt.Errorf("build committed event worker: %w", err)
+	}
+	workerCtx, workerStop := context.WithCancel(ctx)
+	defer workerStop()
+	go func() {
+		if err := committedWorker.Run(workerCtx); err != nil && !errors.Is(err, context.Canceled) {
+			log.Warn("committed event worker stopped", "err", err)
+		}
+	}()
 
 	// --- Realtime (Increment B): the router is the single client-facing realtime
 	// endpoint. It subscribes to the shared Redis evt:* fan-out (the gateways keep
@@ -391,6 +434,31 @@ func (a *eventLogReader) ListSince(ctx context.Context, organization, session, a
 		}
 	}
 	return a.repo.ListSince(ctx, organization, session, afterID, limit)
+}
+
+// committedEventWorkStore adapts the gateway-event ingest repo to the service
+// worker's durable work port. It stays in the composition root so
+// internal/store keeps no application-layer imports.
+type committedEventWorkStore struct{ repo *store.GatewayEventIngestRepo }
+
+func (a committedEventWorkStore) ClaimCommittedEvents(ctx context.Context, claim application.CommittedEventClaim) ([]domain.Event, error) {
+	return a.repo.ClaimCommittedEvents(ctx, store.CommittedEventWork{
+		Owner: claim.Owner, LeaseUntil: claim.LeaseUntil, MaxItems: claim.MaxItems,
+	})
+}
+
+func (a committedEventWorkStore) CompleteCommittedEvent(ctx context.Context, owner, eventID string) error {
+	return a.repo.CompleteCommittedEvent(ctx, owner, eventID, time.Now())
+}
+
+// processOwner identifies this replica in committed-event claims. A hostname is
+// stable across restarts on one machine and disjoint across replicas.
+func processOwner() string {
+	host, err := os.Hostname()
+	if err != nil || strings.TrimSpace(host) == "" {
+		return "api"
+	}
+	return host
 }
 
 func readiness(db interface{ PingContext(context.Context) error }, rdb *redis.Client) func() error {
