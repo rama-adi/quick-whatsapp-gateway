@@ -223,6 +223,10 @@ type AdminService struct {
 	store    *store.Store
 	backfill BackfillSource
 	log      *slog.Logger
+	// gatewayFacade is the control-plane backfill boundary (Increment 7). When
+	// set it is preferred over the legacy in-process source; projections stay
+	// API-owned either way.
+	gatewayFacade GatewayBackfillFacade
 
 	mu   sync.Mutex
 	jobs map[string]*domain.BackfillJob
@@ -236,6 +240,14 @@ func NewAdminService(s *store.Store, backfill BackfillSource, log *slog.Logger) 
 	return &AdminService{store: s, backfill: backfill, log: log, jobs: make(map[string]*domain.BackfillJob)}
 }
 
+// SetGatewayBackfillFacade routes the live snapshot pull through the API-owned,
+// resolved engine facade. The projection writes remain this service's own.
+func (s *AdminService) SetGatewayBackfillFacade(facade GatewayBackfillFacade) {
+	if facade != nil {
+		s.gatewayFacade = facade
+	}
+}
+
 // ListAllSessions returns every session across all organizations (super_admin).
 func (s *AdminService) ListAllSessions(ctx context.Context) ([]domain.WASession, error) {
 	return s.store.Sessions.ListAll(ctx)
@@ -247,7 +259,7 @@ func (s *AdminService) StartBackfill(ctx context.Context, sessionID string) (dom
 	if err != nil {
 		return domain.BackfillJob{}, err
 	}
-	if s.backfill == nil {
+	if s.gatewayFacade == nil && s.backfill == nil {
 		return domain.BackfillJob{}, errLiveUnavailable()
 	}
 
@@ -285,7 +297,15 @@ func (s *AdminService) BackfillStatus(_ context.Context, sessionID string) (doma
 }
 
 func (s *AdminService) runBackfill(ctx context.Context, jobID, sessionID string) {
-	snapshot, err := s.backfill.BackfillSessionData(ctx, sessionID)
+	var (
+		snapshot domain.BackfillSnapshot
+		err      error
+	)
+	if s.gatewayFacade != nil {
+		snapshot, err = s.gatewayFacade.BackfillSessionData(ctx, s.orgIDFor(sessionID), sessionID)
+	} else {
+		snapshot, err = s.backfill.BackfillSessionData(ctx, sessionID)
+	}
 	contacts, groups, members := 0, 0, 0
 	if err == nil {
 		contacts, groups, members, err = s.persistBackfill(ctx, sessionID, snapshot)
@@ -308,6 +328,17 @@ func (s *AdminService) runBackfill(ctx context.Context, jobID, sessionID string)
 		return
 	}
 	job.Status = "succeeded"
+}
+
+// orgIDFor resolves a session's organization for facade calls; the job was
+// started from an owned session row, so the lookup is expected to succeed. An
+// error yields "" and the facade's own resolution reports not_found.
+func (s *AdminService) orgIDFor(sessionID string) string {
+	sess, err := s.store.Sessions.Get(context.Background(), sessionID)
+	if err != nil {
+		return ""
+	}
+	return sess.OrganizationID
 }
 
 func (s *AdminService) persistBackfill(ctx context.Context, sessionID string, snapshot domain.BackfillSnapshot) (int, int, int, error) {

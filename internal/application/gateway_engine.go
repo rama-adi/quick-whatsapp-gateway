@@ -113,7 +113,107 @@ const (
 	CommandFailed = "failed"
 )
 
-// CommandResultRecord is one definite terminal outcome of a stable engine
+// ContactLookup is one phone's on-WhatsApp answer. JID is the resolved WhatsApp
+// JID (empty when the number is not registered).
+type ContactLookup struct {
+	Query string
+	JID   string
+	IsIn  bool
+}
+
+// LookupContactCommand queries the live session for on-WhatsApp answers. A
+// read: it carries no command_id and never touches the result ledger.
+type LookupContactCommand struct {
+	OrganizationID  string
+	SessionID       string
+	GatewayID       string
+	AssignmentEpoch uint64
+	Phones          []string
+}
+
+// ContactJIDCommand addresses one contact JID for a live read or mutation.
+// Reads carry no CommandID; mutations do.
+type ContactJIDCommand struct {
+	CommandID       string
+	OrganizationID  string
+	SessionID       string
+	GatewayID       string
+	AssignmentEpoch uint64
+	JID             string
+	Blocked         bool
+}
+
+// GroupMutationCommand requests one group mutation as a durable command.
+// CommandID ledger semantics match SendCommand; Kind selects the operation.
+type GroupMutationCommand struct {
+	CommandID       string
+	OrganizationID  string
+	SessionID       string
+	GatewayID       string
+	AssignmentEpoch uint64
+	Kind            GroupMutationKind
+	GroupJID        string
+	Name            string
+	Participants    []string
+	Action          GroupParticipantChange
+	Settings        GroupSettingsUpdate
+}
+
+// GroupMutationKind enumerates the durable group operations.
+type GroupMutationKind string
+
+const (
+	GroupOpCreate             GroupMutationKind = "create"
+	GroupOpUpdateSettings     GroupMutationKind = "update_settings"
+	GroupOpUpdateParticipants GroupMutationKind = "update_participants"
+	GroupOpLeave              GroupMutationKind = "leave"
+)
+
+// GroupParticipantChange mirrors the LiveOps participant actions.
+type GroupParticipantChange string
+
+const (
+	GroupChangeAdd     GroupParticipantChange = "add"
+	GroupChangeRemove  GroupParticipantChange = "remove"
+	GroupChangePromote GroupParticipantChange = "promote"
+	GroupChangeDemote  GroupParticipantChange = "demote"
+)
+
+// GroupSettingsUpdate carries optional group settings; nil fields are left
+// unchanged, matching domain.GroupSettings semantics on the wire boundary.
+type GroupSettingsUpdate struct {
+	Subject     *string
+	Description *string
+	Announce    *bool
+	Locked      *bool
+}
+
+// toDomainGroupSettings converts the wire settings update into the domain type.
+func ToDomainGroupSettings(s GroupSettingsUpdate) domain.GroupSettings {
+	return domain.GroupSettings{Subject: s.Subject, Description: s.Description, Announce: s.Announce, Locked: s.Locked}
+}
+
+// GroupInfoResult is the live view of a group returned by create flows. The
+// API persists its own projections from these raw values.
+type GroupInfoResult struct {
+	GroupJID     string
+	Subject      string
+	Description  string
+	OwnerJID     string
+	Participants int32
+	IsAnnounce   bool
+	IsLocked     bool
+}
+
+// ChatPresenceCommand sets per-chat typing state for a session.
+type ChatPresenceCommand struct {
+	OrganizationID  string
+	SessionID       string
+	GatewayID       string
+	AssignmentEpoch uint64
+	ChatJID         string
+	State           string // composing | paused | recording
+} // CommandResultRecord is one definite terminal outcome of a stable engine
 // command, stored by the executing gateway for idempotent replay.
 type CommandResultRecord struct {
 	CommandID   string
@@ -182,6 +282,69 @@ type OpExecutor interface {
 	ExecuteOp(context.Context, MessageOpCommand) (MessageOpResult, error)
 }
 
+// MutationOnlyResult is a terminal mutation outcome carrying routing metadata
+// only (no WhatsApp message id).
+type MutationOnlyResult struct {
+	MutationResult
+}
+
+// ContactReader is the live contact-lookup boundary. Reads never write the
+// command ledger.
+type ContactReader interface {
+	LookupContact(context.Context, LookupContactCommand) ([]ContactLookup, error)
+	GetContactPicture(ctx context.Context, query SessionStateQuery, jid string) (domain.ProfilePicture, error)
+	GetContactAbout(ctx context.Context, query SessionStateQuery, jid string) (string, error)
+}
+
+// BlocklistSetter is the block/unblock mutation boundary with full ledger
+// deduplication.
+type BlocklistSetter interface {
+	SetBlocked(context.Context, ContactJIDCommand) (MutationOnlyResult, error)
+}
+
+// GroupInfoCarrier is implemented by mutation results that carry raw live
+// group metadata for API-side projection.
+type GroupInfoCarrier interface {
+	Group() GroupInfoResult
+}
+
+// GroupCreateResult is one terminal group-mutation outcome; CreatedGroup
+// carries the new group's live metadata for create commands (zero otherwise).
+type GroupCreateResult struct {
+	MutationOnlyResult
+	CreatedGroup GroupInfoResult
+}
+
+// Group returns the created group's live metadata.
+func (r GroupCreateResult) Group() GroupInfoResult { return r.CreatedGroup }
+
+// GroupMutator is the durable group-mutation boundary with full ledger
+// deduplication.
+type GroupMutator interface {
+	MutateGroup(context.Context, GroupMutationCommand) (GroupCreateResult, error)
+}
+
+// InviteLinkReader reads (and optionally resets) a group's invite link. The
+// reset variant mutates WhatsApp state but stays outside the ledger, mirroring
+// the LiveOps surface it serves.
+type InviteLinkReader interface {
+	GetGroupInviteLink(ctx context.Context, query SessionStateQuery, groupJID string, reset bool) (string, error)
+	JoinGroup(ctx context.Context, query SessionStateQuery, invite string) (string, error)
+}
+
+// ChatPresenceBoundary is the per-chat presence boundary: subscribe-and-snapshot
+// reads and typing-state writes.
+type ChatPresenceBoundary interface {
+	GetChatPresence(ctx context.Context, query SessionStateQuery, chatJID string) (domain.PresenceStatus, error)
+	SetChatPresence(context.Context, ChatPresenceCommand) error
+}
+
+// BackfillReader pulls the session's direct-API data snapshot. It is slow; the
+// transport applies its send deadline.
+type BackfillReader interface {
+	BackfillSession(ctx context.Context, query SessionStateQuery) (domain.BackfillSnapshot, error)
+}
+
 // GatewayEngine is only the composition of the implemented slices. New
 // capabilities should begin as focused consumer-owned ports, not accumulate
 // here speculatively.
@@ -191,4 +354,10 @@ type GatewayEngine interface {
 	ReadMarker
 	MessageSender
 	OpExecutor
+	ContactReader
+	BlocklistSetter
+	GroupMutator
+	InviteLinkReader
+	ChatPresenceBoundary
+	BackfillReader
 }

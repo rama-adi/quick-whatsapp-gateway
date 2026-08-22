@@ -12,11 +12,25 @@ import (
 
 // ChatService backs the chat viewer + read-state endpoints (§11 Chats). Read
 // paths are served from the store; the per-chat typing presence (PUT
-// /chats/{cid}/presence) is delegated to the live PresenceController.
+// /chats/{cid}/presence) is delegated to the live PresenceController. When a
+// GatewayChatFacade is set (API composition), presence calls execute through
+// the private engine RPCs instead of an in-process manager.
 type ChatService struct {
 	store    *store.Store
 	presence PresenceController
 	log      *slog.Logger
+	// gatewayFacade is the control-plane chat-presence boundary (Increment 7).
+	// When set it is preferred over the legacy in-process controller.
+	gatewayFacade GatewayChatFacade
+}
+
+// SetGatewayChatFacade routes chat presence through the API-owned, resolved
+// engine facade. Gateway-local composition keeps its manager-backed controller
+// until API composition supplies this seam.
+func (s *ChatService) SetGatewayChatFacade(facade GatewayChatFacade) {
+	if facade != nil {
+		s.gatewayFacade = facade
+	}
 }
 
 // NewChatService constructs a ChatService. presence may be nil (the presence
@@ -80,6 +94,9 @@ func (s *ChatService) GetPresence(ctx context.Context, organizationID, sessionID
 	}
 	if chatJID == "" {
 		return domain.PresenceStatus{}, domain.ErrValidation("chat jid is required")
+	}
+	if s.gatewayFacade != nil {
+		return s.gatewayFacade.GetChatPresence(ctx, organizationID, sessionID, chatJID)
 	}
 	if s.presence == nil {
 		return domain.PresenceStatus{}, errLiveUnavailable()
@@ -224,6 +241,9 @@ func (s *ChatService) SetPresence(ctx context.Context, organizationID, sessionID
 	case "composing", "paused", "recording":
 	default:
 		return domain.ErrValidation("state must be one of composing, paused, recording")
+	}
+	if s.gatewayFacade != nil {
+		return s.gatewayFacade.SetChatPresence(ctx, organizationID, sessionID, chatJID, state)
 	}
 	if s.presence == nil {
 		return errLiveUnavailable()

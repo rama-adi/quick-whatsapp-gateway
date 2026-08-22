@@ -12,6 +12,19 @@ service GatewayEngineService {
   rpc MarkRead(MarkReadRequest) returns (MarkReadResponse);
   rpc SendMessage(SendMessageRequest) returns (SendMessageResponse);
   rpc MessageOp(MessageOpRequest) returns (MessageOpResponse);
+  rpc LookupContact(LookupContactRequest) returns (LookupContactResponse);
+  rpc GetContactPicture(GetContactPictureRequest) returns (GetContactPictureResponse);
+  rpc GetContactAbout(GetContactAboutRequest) returns (GetContactAboutResponse);
+  rpc SetBlocked(SetBlockedRequest) returns (SetBlockedResponse);
+  rpc CreateGroup(CreateGroupRequest) returns (CreateGroupResponse);
+  rpc UpdateGroupSettings(UpdateGroupSettingsRequest) returns (UpdateGroupSettingsResponse);
+  rpc UpdateGroupParticipants(UpdateGroupParticipantsRequest) returns (UpdateGroupParticipantsResponse);
+  rpc GetGroupInviteLink(GetGroupInviteLinkRequest) returns (GetGroupInviteLinkResponse);
+  rpc JoinGroup(JoinGroupRequest) returns (JoinGroupResponse);
+  rpc LeaveGroup(LeaveGroupRequest) returns (LeaveGroupResponse);
+  rpc GetChatPresence(GetChatPresenceRequest) returns (GetChatPresenceResponse);
+  rpc SetChatPresence(SetChatPresenceRequest) returns (SetChatPresenceResponse);
+  rpc BackfillSession(BackfillSessionRequest) returns (BackfillSessionResponse);
 }
 
 message SessionTarget {
@@ -106,3 +119,199 @@ message MessageOpResponse {
   uint64 assignment_epoch = 3;
   reserved 4 to 15;
 }
+
+// LookupContactRequest checks whether phone numbers are on WhatsApp. A read:
+// no command_id and no ledger entry.
+message LookupContactRequest {
+  SessionTarget target = 1;
+  uint64 assignment_epoch = 2;
+  repeated string phones = 3;
+  reserved 4 to 15;
+}
+message LookupContactResponse {
+  repeated ContactLookup results = 1;
+  reserved 2 to 15;
+}
+message ContactLookup {
+  string query = 1;
+  string jid = 2;
+  bool is_on_whatsapp = 3;
+  reserved 4 to 15;
+}
+
+message GetContactPictureRequest { SessionTarget target = 1; uint64 assignment_epoch = 2; string jid = 3; reserved 4 to 15; }
+message GetContactPictureResponse { string url = 1; string id = 2; reserved 3 to 15; }
+
+message GetContactAboutRequest { SessionTarget target = 1; uint64 assignment_epoch = 2; string jid = 3; reserved 4 to 15; }
+message GetContactAboutResponse { string about = 1; reserved 2 to 15; }
+
+// SetBlockedRequest blocks or unblocks a contact as a durable command. The same
+// command_id ledger semantics as SendMessage apply (CommandSent only: the
+// blocklist mutation carries no WhatsApp message id).
+message SetBlockedRequest {
+  SessionTarget target = 1;
+  uint64 assignment_epoch = 2;
+  string command_id = 3;
+  string jid = 4;
+  bool blocked = 5;
+  reserved 6 to 15;
+}
+message SetBlockedResponse {
+  string command_id = 1;
+  SessionTarget target = 2;
+  uint64 assignment_epoch = 3;
+  reserved 4 to 15;
+}
+
+// CreateGroupRequest creates a group as a durable command. The response carries
+// the live group metadata the API persists into its own projections.
+message CreateGroupRequest {
+  SessionTarget target = 1;
+  uint64 assignment_epoch = 2;
+  string command_id = 3;
+  string name = 4;
+  repeated string participants = 5;
+  reserved 6 to 15;
+}
+message GroupInfo {
+  string group_jid = 1;
+  string subject = 2;
+  string description = 3;
+  string owner_jid = 4;
+  int32 participants = 5;
+  bool is_announce = 6;
+  bool is_locked = 7;
+  reserved 8 to 15;
+}
+message CreateGroupResponse {
+  string command_id = 1;
+  SessionTarget target = 2;
+  uint64 assignment_epoch = 3;
+  GroupInfo group = 4;
+  reserved 5 to 15;
+}
+
+// UpdateGroupSettingsRequest applies subject/description/announce/locked as a
+// durable command. Nil-valued settings are simply omitted from the request.
+message UpdateGroupSettingsRequest {
+  SessionTarget target = 1;
+  uint64 assignment_epoch = 2;
+  string command_id = 3;
+  string group_jid = 4;
+  optional string subject = 5;
+  optional string description = 6;
+  optional bool announce = 7;
+  optional bool locked = 8;
+  reserved 9 to 15;
+}
+message UpdateGroupSettingsResponse {
+  string command_id = 1;
+  SessionTarget target = 2;
+  uint64 assignment_epoch = 3;
+  reserved 4 to 15;
+}
+
+enum GroupParticipantChange { GROUP_PARTICIPANT_CHANGE_UNSPECIFIED = 0; GROUP_PARTICIPANT_CHANGE_ADD = 1; GROUP_PARTICIPANT_CHANGE_REMOVE = 2; GROUP_PARTICIPANT_CHANGE_PROMOTE = 3; GROUP_PARTICIPANT_CHANGE_DEMOTE = 4; }
+message UpdateGroupParticipantsRequest {
+  SessionTarget target = 1;
+  uint64 assignment_epoch = 2;
+  string command_id = 3;
+  string group_jid = 4;
+  repeated string participants = 5;
+  GroupParticipantChange action = 6;
+  reserved 7 to 15;
+}
+message UpdateGroupParticipantsResponse {
+  string command_id = 1;
+  SessionTarget target = 2;
+  uint64 assignment_epoch = 3;
+  reserved 4 to 15;
+}
+
+// GetGroupInviteLinkRequest returns (reset=false) or revokes-and-regenerates
+// (reset=true) a group's invite link. The reset variant mutates WhatsApp state
+// but stays a read on this contract: it carries no command_id, matching the
+// LiveOps surface it mirrors.
+message GetGroupInviteLinkRequest { SessionTarget target = 1; uint64 assignment_epoch = 2; string group_jid = 3; bool reset = 4; reserved 5 to 15; }
+message GetGroupInviteLinkResponse { string link = 1; reserved 2 to 15; }
+
+message JoinGroupRequest { SessionTarget target = 1; uint64 assignment_epoch = 2; string invite = 3; reserved 4 to 15; }
+message JoinGroupResponse { string group_jid = 1; reserved 2 to 15; }
+
+message LeaveGroupRequest {
+  SessionTarget target = 1;
+  uint64 assignment_epoch = 2;
+  string command_id = 3;
+  string group_jid = 4;
+  reserved 5 to 15;
+}
+message LeaveGroupResponse {
+  string command_id = 1;
+  SessionTarget target = 2;
+  uint64 assignment_epoch = 3;
+  reserved 4 to 15;
+}
+
+// GetChatPresenceRequest subscribes to a contact's presence updates. The
+// subscription itself is the operation; the snapshot is unknown until a later
+// presence event arrives through the normal inbound pipeline.
+message GetChatPresenceRequest { SessionTarget target = 1; uint64 assignment_epoch = 2; string chat_jid = 3; reserved 4 to 15; }
+message ChatPresenceStatus {
+  string chat_jid = 1;
+  string from = 2;
+  string state = 3;
+  string media = 4;
+  bool unavailable = 5;
+  int64 last_seen_unix_ms = 6;
+  reserved 7 to 15;
+}
+message GetChatPresenceResponse { ChatPresenceStatus presence = 1; reserved 2 to 15; }
+
+message SetChatPresenceRequest {
+  SessionTarget target = 1;
+  uint64 assignment_epoch = 2;
+  string chat_jid = 3;
+  string state = 4;
+  reserved 5 to 15;
+}
+message SetChatPresenceResponse { reserved 1 to 15; }
+
+// BackfillSessionRequest pulls the session's direct-API data (contacts plus
+// joined groups with members). It is a slow read: callers apply the send
+// deadline, not the unary deadline.
+message BackfillSessionRequest { SessionTarget target = 1; uint64 assignment_epoch = 2; reserved 3 to 15; }
+message BackfillSnapshot {
+  repeated BackfillContact contacts = 1;
+  repeated BackfillGroup groups = 2;
+  reserved 3 to 15;
+}
+message BackfillContact {
+  string lid = 1;
+  string phone_jid = 2;
+  string phone_number = 3;
+  string name = 4;
+  string business_name = 5;
+  reserved 6 to 15;
+}
+message BackfillGroup {
+  string group_jid = 1;
+  string subject = 2;
+  string description = 3;
+  string owner_jid = 4;
+  int32 participants = 5;
+  bool is_announce = 6;
+  bool is_locked = 7;
+  int64 created_at_wa_unix_ms = 8;
+  repeated BackfillMember members = 9;
+  reserved 10 to 15;
+}
+message BackfillMember {
+  string lid = 1;
+  string jid = 2;
+  string phone_number = 3;
+  string tag = 4;
+  string name = 5;
+  string role = 6;
+  reserved 7 to 15;
+}
+message BackfillSessionResponse { BackfillSnapshot snapshot = 1; reserved 2 to 15; }

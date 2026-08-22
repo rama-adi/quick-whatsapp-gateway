@@ -15,7 +15,7 @@ R-milestone that re-implements its subsystem.
 
 | Spec | v2 disposition | Owning milestone | Notes |
 |---|---|---|---|
-| `grpc-contracts.md` | 🚧 Increment 7 active | gRPC control plane | Enrollment, lifecycle, renewal, administration, revision/epoch/lease-fenced desired-state reconciliation, unary engine slices, journaled event ingestion with post-commit fan-out, and API-owned outbound send commands with a gateway result ledger are implemented. Remaining live-resource migration, public gRPC, and dependency removal remain. |
+| `grpc-contracts.md` | 🚧 Increment 7 active | gRPC control plane | Enrollment, lifecycle, renewal, administration, revision/epoch/lease-fenced desired-state reconciliation, unary engine slices, journaled event ingestion with post-commit fan-out, API-owned outbound send commands with a gateway result ledger, and API-local contact/group/chat-presence/backfill live operations with API-owned projections are implemented. Public gRPC and final dependency removal remain. |
 | `router.md` | ✅ Increments A+B + Huma | central-router | Single front door/trust boundary: router-owned auth/CORS/control bus, REST broker, Ed25519 assertion, generated Huma OpenAPI, and ticketed WebSocket over shared Redis. Gateway NDJSON is removed. |
 | `trust-model.md` | ✅ v2 (replaced `auth-tenancy.md`) | R1/R2 + central-router | Two caller identities (JWKS-JWT, api-key); org ownership; control bus + cache + revocation; boot orphan-guard (§4). **Central-router (Increment A):** authn + control-bus subscriber moved to the router; the gateway now trusts the router's Ed25519 assertion. |
 | `api-keys.md` | ✅ v2 + central-router | R1/central-router | No custom Go keys; the router verifies against shared `apikey` and owns the positive cache; gateways receive only the internal assertion. |
@@ -29,8 +29,8 @@ R-milestone that re-implements its subsystem.
 | `queue.md` | ✅ v2 | R1 + central-router | Redis **work** vs **control-bus** roles + key/channel prefixes (§4.6). **Central-router (Increment A):** the `ctrl:*` subscriber is the **router** now, not the gateways; one-Redis still the default. |
 | `inbound-pipeline.md` | ✅ v2 | R1 | Tagging `tenant`→`org`; pipeline logic stable (§9). |
 | `outbound-pipeline.md` | ✅ v2 | R1 | Idempotency keyed by `organization_id` (§7, §10). |
-| `resources.md` | ✅ v2 | R1 | Resources org-owned; session responses expose `gatewayId` (§13). |
-| `contacts.md` | ✅ v2 | R3 | Logic stable; ownership via org; frontend reads (§6.2). |
+| `resources.md` | ✅ v2 + gRPC Inc 7 | R1/gRPC Inc 7 | Resources org-owned; session responses expose `gatewayId` (§13). Live group/contact/chat-presence/backfill operations execute API-locally through private engine RPCs with API-owned projections in control-enabled deployments. |
+| `contacts.md` | ✅ v2 + gRPC Inc 7 | R3/gRPC Inc 7 | Logic stable; ownership via org; frontend reads (§6.2). Live sub-resources execute through private engine RPCs in control-enabled deployments (API-owned projections). |
 | `frontend.md` | ✅ v2 + central-router | R3/R4/central-router | TanStack Start + better-auth; browsers call the router for actions and ticketed WebSocket realtime. Direct browser→gateway transport is superseded. |
 | `backfill-import.md` | ✅ implemented | R5 | User-uploaded WhatsApp backup (crypt15) decrypt + SQLite import → chats/messages/identities/groups; once/24h per session (super_admin unlimited). |
 | `oauth.md` | 🚧 in progress | R-OIDC | NEW — "Sign in with WhatsApp": OAuth 2.1 / OIDC provider on the router (`internal/oidp`); DM / group-mention verification via a stage-2 inbound interceptor; two-code pending-auth model in Redis; consent page + app CRUD in web/. Milestones in [`../../oauth2-progress.md`](../../oauth2-progress.md). |

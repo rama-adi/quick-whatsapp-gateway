@@ -10,11 +10,16 @@ import (
 
 // GroupService backs the group-management endpoints (§11 Groups). Reads
 // (list/get/members) are served from the store; mutations and invite links go
-// through the live GroupOps surface.
+// through the live GroupOps surface. When a GatewayGroupFacade is set (API
+// composition), live calls execute through the private engine RPCs as durable
+// commands, and this service persists its own projections from the raw results.
 type GroupService struct {
 	store *store.Store
 	ops   GroupOps
 	log   *slog.Logger
+	// gatewayFacade is the control-plane group boundary (Increment 7). When set
+	// it is preferred over the legacy in-process ops port.
+	gatewayFacade GatewayGroupFacade
 }
 
 // NewGroupService constructs a GroupService. ops may be nil (live mutations then
@@ -24,6 +29,15 @@ func NewGroupService(s *store.Store, ops GroupOps, log *slog.Logger) *GroupServi
 		log = slog.Default()
 	}
 	return &GroupService{store: s, ops: ops, log: log}
+}
+
+// SetGatewayGroupFacade routes live group operations through the API-owned,
+// resolved engine facade as durable commands. Gateway-local composition keeps
+// its manager-backed ops until API composition supplies this seam.
+func (s *GroupService) SetGatewayGroupFacade(facade GatewayGroupFacade) {
+	if facade != nil {
+		s.gatewayFacade = facade
+	}
 }
 
 func (s *GroupService) requireSession(ctx context.Context, organizationID, sessionID string) error {
@@ -37,25 +51,62 @@ func (s *GroupService) requireSession(ctx context.Context, organizationID, sessi
 	return nil
 }
 
-func (s *GroupService) live(ctx context.Context, organizationID, sessionID string) error {
+// liveFacade verifies ownership and returns the resolved facade, or nil when
+// only the legacy in-process ops port is configured.
+func (s *GroupService) liveFacade(ctx context.Context, organizationID, sessionID string) (GatewayGroupFacade, error) {
 	if err := s.requireSession(ctx, organizationID, sessionID); err != nil {
-		return err
+		return nil, err
+	}
+	if s.gatewayFacade != nil {
+		return s.gatewayFacade, nil
 	}
 	if s.ops == nil {
-		return errLiveUnavailable()
+		return nil, errLiveUnavailable()
 	}
-	return nil
+	return nil, nil
 }
 
-// Create creates a new group (§11 POST /groups).
+// Create creates a new group (§11 POST /groups). The engine returns the raw
+// group metadata; the service upserts its own projection so both API-local and
+// legacy paths leave the store equally populated.
 func (s *GroupService) Create(ctx context.Context, organizationID, sessionID, name string, participants []string) (GroupInfo, error) {
 	if name == "" {
 		return GroupInfo{}, domain.ErrValidation("name is required")
 	}
-	if err := s.live(ctx, organizationID, sessionID); err != nil {
+	facade, err := s.liveFacade(ctx, organizationID, sessionID)
+	if err != nil {
 		return GroupInfo{}, err
 	}
-	return s.ops.CreateGroup(ctx, sessionID, name, participants)
+	if facade == nil {
+		return s.ops.CreateGroup(ctx, sessionID, name, participants)
+	}
+	info, err := facade.CreateGroup(ctx, organizationID, sessionID, name, participants)
+	if err != nil {
+		return GroupInfo{}, err
+	}
+	s.persistGroupProjection(ctx, info)
+	return info, nil
+}
+
+// persistGroupProjection best-effort upserts the stored group row from raw live
+// metadata; a projection failure never fails the live operation itself.
+func (s *GroupService) persistGroupProjection(ctx context.Context, info GroupInfo) {
+	now := domain.NowMs()
+	participants := info.Participants
+	err := s.store.Groups.Upsert(ctx, domain.Group{
+		GroupJID:         info.GroupJID,
+		Subject:          stringPtr(info.Subject),
+		Description:      stringPtr(info.Description),
+		OwnerJID:         stringPtr(info.OwnerJID),
+		ParticipantCount: &participants,
+		IsAnnounce:       &info.IsAnnounce,
+		IsLocked:         &info.IsLocked,
+		FirstSeenAt:      now,
+		UpdatedAt:        now,
+	})
+	if err != nil {
+		s.log.WarnContext(ctx, "persist group projection", "group", info.GroupJID, "err", err)
+	}
 }
 
 // List returns the session's known groups (store-backed; cross-session groups
@@ -88,10 +139,14 @@ func (s *GroupService) participants(ctx context.Context, organizationID, session
 	if len(jids) == 0 {
 		return domain.ErrValidation("at least one participant is required")
 	}
-	if err := s.live(ctx, organizationID, sessionID); err != nil {
+	facade, err := s.liveFacade(ctx, organizationID, sessionID)
+	if err != nil {
 		return err
 	}
-	return s.ops.UpdateParticipants(ctx, sessionID, groupJID, jids, action)
+	if facade == nil {
+		return s.ops.UpdateParticipants(ctx, sessionID, groupJID, jids, action)
+	}
+	return facade.UpdateParticipants(ctx, organizationID, sessionID, groupJID, jids, action)
 }
 
 // AddMembers adds participants (§11 POST /groups/{gid}/members).
@@ -119,26 +174,56 @@ func (s *GroupService) UpdateSettings(ctx context.Context, organizationID, sessi
 	if in.Subject == nil && in.Description == nil && in.Announce == nil && in.Locked == nil {
 		return domain.ErrValidation("no group settings to update")
 	}
-	if err := s.live(ctx, organizationID, sessionID); err != nil {
+	facade, err := s.liveFacade(ctx, organizationID, sessionID)
+	if err != nil {
 		return err
 	}
-	return s.ops.UpdateSettings(ctx, sessionID, groupJID, in)
+	if facade == nil {
+		return s.ops.UpdateSettings(ctx, sessionID, groupJID, in)
+	}
+	if err := facade.UpdateSettings(ctx, organizationID, sessionID, groupJID, in); err != nil {
+		return err
+	}
+	s.refreshGroupProjection(ctx, groupJID)
+	return nil
+}
+
+// refreshGroupProjection best-effort re-reads the stored row and bumps its
+// timestamp after a settings mutation; the next backfill or inbound sync event
+// carries the authoritative values.
+func (s *GroupService) refreshGroupProjection(ctx context.Context, groupJID string) {
+	group, err := s.store.Groups.GetByJID(ctx, groupJID)
+	if err != nil {
+		return
+	}
+	group.UpdatedAt = domain.NowMs()
+	if err := s.store.Groups.Upsert(ctx, group); err != nil {
+		s.log.WarnContext(ctx, "refresh group projection", "group", groupJID, "err", err)
+	}
 }
 
 // InviteLink returns the group's invite link (§11 GET /groups/{gid}/invite).
 func (s *GroupService) InviteLink(ctx context.Context, organizationID, sessionID, groupJID string) (string, error) {
-	if err := s.live(ctx, organizationID, sessionID); err != nil {
+	facade, err := s.liveFacade(ctx, organizationID, sessionID)
+	if err != nil {
 		return "", err
 	}
-	return s.ops.GetInviteLink(ctx, sessionID, groupJID, false)
+	if facade == nil {
+		return s.ops.GetInviteLink(ctx, sessionID, groupJID, false)
+	}
+	return facade.GetInviteLink(ctx, organizationID, sessionID, groupJID, false)
 }
 
 // RevokeInvite resets the invite link, returning the new one (§11 DELETE /groups/{gid}/invite).
 func (s *GroupService) RevokeInvite(ctx context.Context, organizationID, sessionID, groupJID string) (string, error) {
-	if err := s.live(ctx, organizationID, sessionID); err != nil {
+	facade, err := s.liveFacade(ctx, organizationID, sessionID)
+	if err != nil {
 		return "", err
 	}
-	return s.ops.GetInviteLink(ctx, sessionID, groupJID, true)
+	if facade == nil {
+		return s.ops.GetInviteLink(ctx, sessionID, groupJID, true)
+	}
+	return facade.GetInviteLink(ctx, organizationID, sessionID, groupJID, true)
 }
 
 // Join joins a group from an invite code/link (§11 POST /groups:join).
@@ -146,18 +231,26 @@ func (s *GroupService) Join(ctx context.Context, organizationID, sessionID, invi
 	if invite == "" {
 		return "", domain.ErrValidation("invite is required")
 	}
-	if err := s.live(ctx, organizationID, sessionID); err != nil {
+	facade, err := s.liveFacade(ctx, organizationID, sessionID)
+	if err != nil {
 		return "", err
 	}
-	return s.ops.JoinWithLink(ctx, sessionID, invite)
+	if facade == nil {
+		return s.ops.JoinWithLink(ctx, sessionID, invite)
+	}
+	return facade.JoinWithLink(ctx, organizationID, sessionID, invite)
 }
 
 // Leave leaves a group (§11 POST /groups/{gid}:leave).
 func (s *GroupService) Leave(ctx context.Context, organizationID, sessionID, groupJID string) error {
-	if err := s.live(ctx, organizationID, sessionID); err != nil {
+	facade, err := s.liveFacade(ctx, organizationID, sessionID)
+	if err != nil {
 		return err
 	}
-	return s.ops.Leave(ctx, sessionID, groupJID)
+	if facade == nil {
+		return s.ops.Leave(ctx, sessionID, groupJID)
+	}
+	return facade.Leave(ctx, organizationID, sessionID, groupJID)
 }
 
 // ApproveMembers approves pending join requests (§11 POST /groups/{gid}/members:approve).

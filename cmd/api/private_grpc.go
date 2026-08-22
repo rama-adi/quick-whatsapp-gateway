@@ -308,7 +308,8 @@ func (s gatewayControlStore) Accept(ctx context.Context, gatewayID string, hello
 	}, nil
 }
 
-func (s gatewayControlStore) Heartbeat(ctx context.Context, gatewayID string, epoch uint64, heartbeat apigateway.Heartbeat) (apigateway.DesiredLifecycle, error) {	runtimeStatus, valid := runtimeGatewayStatus(heartbeat.RuntimeState)
+func (s gatewayControlStore) Heartbeat(ctx context.Context, gatewayID string, epoch uint64, heartbeat apigateway.Heartbeat) (apigateway.DesiredLifecycle, error) {
+	runtimeStatus, valid := runtimeGatewayStatus(heartbeat.RuntimeState)
 	if !valid {
 		return apigateway.DesiredLifecycle{}, apigateway.ErrConflict
 	}

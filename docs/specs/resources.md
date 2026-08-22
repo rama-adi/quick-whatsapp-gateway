@@ -28,6 +28,35 @@ in `internal/domain/liveops.go` (`GroupInfo`, `GroupSettings`, `OnWhatsApp`,
 `ProfilePicture`, `GroupParticipantAction`) so both the ports and the adapter use
 identical types without an import cycle.
 
+**gRPC control plane (Increment 7): in control-enabled deployments these live
+operations execute API-locally through private engine RPCs instead of an
+in-process manager.** The API composition root sets a resolved facade on each
+resource service (`SetGatewayContactFacade`, `SetGatewayGroupFacade`,
+`SetGatewayChatFacade`, `SetGatewayBackfillFacade`; account presence and session
+state already used `SetGatewayLiveFacade`). The facades are implemented by
+`apigateway.LiveOpsFacade` over the mTLS `EngineClient`, which resolves each
+session to its assigned engine, pools connections, applies deadlines, and maps
+transport errors. The gateway side executes them through
+`wa.ApplicationGatewayAdapter` behind its assignment fence:
+
+- **Reads** (contact lookup, picture, about, invite link get/reset, join,
+  chat-presence subscribe, backfill) carry no command id and never touch the
+  command ledger: repeating them is safe by construction. The fence check is an
+  ownership/epoch check (`OwnsSession`), not a mutation gate.
+- **Mutations** (block/unblock, group create/settings/participants/leave) run as
+  durable commands with the same replay-then-fence-then-singleflight shape as
+  sends: a repeated `command_id` returns the stored terminal outcome instead of
+  re-executing. Block records `CommandSent` with no WhatsApp message id; create
+  stores the group JID so replays return it.
+- **Projections stay API-owned.** The engine RPCs return raw live results; the
+  services persist their own shared-MySQL projections exactly as before (group
+  upsert after create, backfill identity/group writes). A projection write
+  failure never fails the live operation itself.
+
+The legacy manager-backed path remains for control-disabled deployments; when
+neither seam is configured, services keep returning the `not_implemented`
+envelope.
+
 The production adapter is `wa.LiveOps` (`internal/wa/liveops.go`), a
 manager-backed value returned by `Manager.LiveOps()`. It resolves the per-session
 live client via `Manager.Get(id)` → `ManagedSession.client` (type-asserted to a
@@ -39,6 +68,8 @@ for a session without a live connection (outbound-pipeline.md).
 
 `service.New` wires one `*wa.LiveOps` into every resource service; a nil Manager
 yields nil ports and the services fall back to the `not_implemented` envelope.
+In control-enabled deployments the API-side facades (see above) take precedence
+over these ports.
 
 ## Chats (§13)
 

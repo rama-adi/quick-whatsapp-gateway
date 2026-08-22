@@ -26,12 +26,12 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	gatewayv1 "github.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/application"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/assertion"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/config"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/crypto"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/dbconn"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/application"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/gateway/controlclient"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/gateway/controlsupervisor"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/gateway/desiredstate"
@@ -156,8 +156,8 @@ func run() error {
 					Bytes:   positiveInt64ToUint64(metrics.Bytes),
 				}, nil
 			},
-			StartedAt:       time.Now(),
-			Runtime:         controlRuntime,
+			StartedAt: time.Now(),
+			Runtime:   controlRuntime,
 		}, opener)
 		if err != nil {
 			_ = control.Close()

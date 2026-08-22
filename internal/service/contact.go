@@ -11,10 +11,15 @@ import (
 // ContactService backs the "found users" feature (§11 Contacts). The list/detail
 // views are served from the store (contacts + identities + group_members); the
 // check/picture/about/block calls are delegated to the live ContactDirectory.
+// When a GatewayContactFacade is set (API composition), live calls execute
+// through the private engine RPCs instead of an in-process manager.
 type ContactService struct {
 	store     *store.Store
 	directory ContactDirectory
 	log       *slog.Logger
+	// gatewayFacade is the control-plane contact boundary (Increment 7). When
+	// set it is preferred over the legacy in-process directory.
+	gatewayFacade GatewayContactFacade
 }
 
 // NewContactService constructs a ContactService. directory may be nil (the live
@@ -24,6 +29,15 @@ func NewContactService(s *store.Store, directory ContactDirectory, log *slog.Log
 		log = slog.Default()
 	}
 	return &ContactService{store: s, directory: directory, log: log}
+}
+
+// SetGatewayContactFacade routes live contact operations through the API-owned,
+// resolved engine facade. Gateway-local composition keeps its manager-backed
+// directory until API composition supplies this seam.
+func (s *ContactService) SetGatewayContactFacade(facade GatewayContactFacade) {
+	if facade != nil {
+		s.gatewayFacade = facade
+	}
 }
 
 func (s *ContactService) requireSession(ctx context.Context, organizationID, sessionID string) error {
@@ -118,6 +132,16 @@ func (s *ContactService) Check(ctx context.Context, organizationID, sessionID, p
 	if phone == "" {
 		return OnWhatsApp{}, domain.ErrValidation("phone is required")
 	}
+	if s.gatewayFacade != nil {
+		res, err := s.gatewayFacade.LookupContact(ctx, organizationID, sessionID, []string{phone})
+		if err != nil {
+			return OnWhatsApp{}, err
+		}
+		if len(res) == 0 {
+			return OnWhatsApp{Query: phone}, nil
+		}
+		return res[0], nil
+	}
 	if s.directory == nil {
 		return OnWhatsApp{}, errLiveUnavailable()
 	}
@@ -136,6 +160,9 @@ func (s *ContactService) Picture(ctx context.Context, organizationID, sessionID,
 	if err := s.requireSession(ctx, organizationID, sessionID); err != nil {
 		return ProfilePicture{}, err
 	}
+	if s.gatewayFacade != nil {
+		return s.gatewayFacade.GetContactPicture(ctx, organizationID, sessionID, jid)
+	}
 	if s.directory == nil {
 		return ProfilePicture{}, errLiveUnavailable()
 	}
@@ -147,6 +174,9 @@ func (s *ContactService) About(ctx context.Context, organizationID, sessionID, j
 	if err := s.requireSession(ctx, organizationID, sessionID); err != nil {
 		return "", err
 	}
+	if s.gatewayFacade != nil {
+		return s.gatewayFacade.GetContactAbout(ctx, organizationID, sessionID, jid)
+	}
 	if s.directory == nil {
 		return "", errLiveUnavailable()
 	}
@@ -157,6 +187,9 @@ func (s *ContactService) About(ctx context.Context, organizationID, sessionID, j
 func (s *ContactService) SetBlocked(ctx context.Context, organizationID, sessionID, jid string, blocked bool) error {
 	if err := s.requireSession(ctx, organizationID, sessionID); err != nil {
 		return err
+	}
+	if s.gatewayFacade != nil {
+		return s.gatewayFacade.SetBlocked(ctx, organizationID, sessionID, jid, blocked)
 	}
 	if s.directory == nil {
 		return errLiveUnavailable()

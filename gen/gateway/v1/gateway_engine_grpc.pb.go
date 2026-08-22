@@ -19,11 +19,24 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	GatewayEngineService_GetSessionState_FullMethodName    = "/gateway.v1.GatewayEngineService/GetSessionState"
-	GatewayEngineService_SetAccountPresence_FullMethodName = "/gateway.v1.GatewayEngineService/SetAccountPresence"
-	GatewayEngineService_MarkRead_FullMethodName           = "/gateway.v1.GatewayEngineService/MarkRead"
-	GatewayEngineService_SendMessage_FullMethodName        = "/gateway.v1.GatewayEngineService/SendMessage"
-	GatewayEngineService_MessageOp_FullMethodName          = "/gateway.v1.GatewayEngineService/MessageOp"
+	GatewayEngineService_GetSessionState_FullMethodName         = "/gateway.v1.GatewayEngineService/GetSessionState"
+	GatewayEngineService_SetAccountPresence_FullMethodName      = "/gateway.v1.GatewayEngineService/SetAccountPresence"
+	GatewayEngineService_MarkRead_FullMethodName                = "/gateway.v1.GatewayEngineService/MarkRead"
+	GatewayEngineService_SendMessage_FullMethodName             = "/gateway.v1.GatewayEngineService/SendMessage"
+	GatewayEngineService_MessageOp_FullMethodName               = "/gateway.v1.GatewayEngineService/MessageOp"
+	GatewayEngineService_LookupContact_FullMethodName           = "/gateway.v1.GatewayEngineService/LookupContact"
+	GatewayEngineService_GetContactPicture_FullMethodName       = "/gateway.v1.GatewayEngineService/GetContactPicture"
+	GatewayEngineService_GetContactAbout_FullMethodName         = "/gateway.v1.GatewayEngineService/GetContactAbout"
+	GatewayEngineService_SetBlocked_FullMethodName              = "/gateway.v1.GatewayEngineService/SetBlocked"
+	GatewayEngineService_CreateGroup_FullMethodName             = "/gateway.v1.GatewayEngineService/CreateGroup"
+	GatewayEngineService_UpdateGroupSettings_FullMethodName     = "/gateway.v1.GatewayEngineService/UpdateGroupSettings"
+	GatewayEngineService_UpdateGroupParticipants_FullMethodName = "/gateway.v1.GatewayEngineService/UpdateGroupParticipants"
+	GatewayEngineService_GetGroupInviteLink_FullMethodName      = "/gateway.v1.GatewayEngineService/GetGroupInviteLink"
+	GatewayEngineService_JoinGroup_FullMethodName               = "/gateway.v1.GatewayEngineService/JoinGroup"
+	GatewayEngineService_LeaveGroup_FullMethodName              = "/gateway.v1.GatewayEngineService/LeaveGroup"
+	GatewayEngineService_GetChatPresence_FullMethodName         = "/gateway.v1.GatewayEngineService/GetChatPresence"
+	GatewayEngineService_SetChatPresence_FullMethodName         = "/gateway.v1.GatewayEngineService/SetChatPresence"
+	GatewayEngineService_BackfillSession_FullMethodName         = "/gateway.v1.GatewayEngineService/BackfillSession"
 )
 
 // GatewayEngineServiceClient is the client API for GatewayEngineService service.
@@ -38,6 +51,19 @@ type GatewayEngineServiceClient interface {
 	MarkRead(ctx context.Context, in *MarkReadRequest, opts ...grpc.CallOption) (*MarkReadResponse, error)
 	SendMessage(ctx context.Context, in *SendMessageRequest, opts ...grpc.CallOption) (*SendMessageResponse, error)
 	MessageOp(ctx context.Context, in *MessageOpRequest, opts ...grpc.CallOption) (*MessageOpResponse, error)
+	LookupContact(ctx context.Context, in *LookupContactRequest, opts ...grpc.CallOption) (*LookupContactResponse, error)
+	GetContactPicture(ctx context.Context, in *GetContactPictureRequest, opts ...grpc.CallOption) (*GetContactPictureResponse, error)
+	GetContactAbout(ctx context.Context, in *GetContactAboutRequest, opts ...grpc.CallOption) (*GetContactAboutResponse, error)
+	SetBlocked(ctx context.Context, in *SetBlockedRequest, opts ...grpc.CallOption) (*SetBlockedResponse, error)
+	CreateGroup(ctx context.Context, in *CreateGroupRequest, opts ...grpc.CallOption) (*CreateGroupResponse, error)
+	UpdateGroupSettings(ctx context.Context, in *UpdateGroupSettingsRequest, opts ...grpc.CallOption) (*UpdateGroupSettingsResponse, error)
+	UpdateGroupParticipants(ctx context.Context, in *UpdateGroupParticipantsRequest, opts ...grpc.CallOption) (*UpdateGroupParticipantsResponse, error)
+	GetGroupInviteLink(ctx context.Context, in *GetGroupInviteLinkRequest, opts ...grpc.CallOption) (*GetGroupInviteLinkResponse, error)
+	JoinGroup(ctx context.Context, in *JoinGroupRequest, opts ...grpc.CallOption) (*JoinGroupResponse, error)
+	LeaveGroup(ctx context.Context, in *LeaveGroupRequest, opts ...grpc.CallOption) (*LeaveGroupResponse, error)
+	GetChatPresence(ctx context.Context, in *GetChatPresenceRequest, opts ...grpc.CallOption) (*GetChatPresenceResponse, error)
+	SetChatPresence(ctx context.Context, in *SetChatPresenceRequest, opts ...grpc.CallOption) (*SetChatPresenceResponse, error)
+	BackfillSession(ctx context.Context, in *BackfillSessionRequest, opts ...grpc.CallOption) (*BackfillSessionResponse, error)
 }
 
 type gatewayEngineServiceClient struct {
@@ -98,6 +124,136 @@ func (c *gatewayEngineServiceClient) MessageOp(ctx context.Context, in *MessageO
 	return out, nil
 }
 
+func (c *gatewayEngineServiceClient) LookupContact(ctx context.Context, in *LookupContactRequest, opts ...grpc.CallOption) (*LookupContactResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LookupContactResponse)
+	err := c.cc.Invoke(ctx, GatewayEngineService_LookupContact_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *gatewayEngineServiceClient) GetContactPicture(ctx context.Context, in *GetContactPictureRequest, opts ...grpc.CallOption) (*GetContactPictureResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetContactPictureResponse)
+	err := c.cc.Invoke(ctx, GatewayEngineService_GetContactPicture_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *gatewayEngineServiceClient) GetContactAbout(ctx context.Context, in *GetContactAboutRequest, opts ...grpc.CallOption) (*GetContactAboutResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetContactAboutResponse)
+	err := c.cc.Invoke(ctx, GatewayEngineService_GetContactAbout_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *gatewayEngineServiceClient) SetBlocked(ctx context.Context, in *SetBlockedRequest, opts ...grpc.CallOption) (*SetBlockedResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetBlockedResponse)
+	err := c.cc.Invoke(ctx, GatewayEngineService_SetBlocked_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *gatewayEngineServiceClient) CreateGroup(ctx context.Context, in *CreateGroupRequest, opts ...grpc.CallOption) (*CreateGroupResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateGroupResponse)
+	err := c.cc.Invoke(ctx, GatewayEngineService_CreateGroup_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *gatewayEngineServiceClient) UpdateGroupSettings(ctx context.Context, in *UpdateGroupSettingsRequest, opts ...grpc.CallOption) (*UpdateGroupSettingsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateGroupSettingsResponse)
+	err := c.cc.Invoke(ctx, GatewayEngineService_UpdateGroupSettings_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *gatewayEngineServiceClient) UpdateGroupParticipants(ctx context.Context, in *UpdateGroupParticipantsRequest, opts ...grpc.CallOption) (*UpdateGroupParticipantsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateGroupParticipantsResponse)
+	err := c.cc.Invoke(ctx, GatewayEngineService_UpdateGroupParticipants_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *gatewayEngineServiceClient) GetGroupInviteLink(ctx context.Context, in *GetGroupInviteLinkRequest, opts ...grpc.CallOption) (*GetGroupInviteLinkResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetGroupInviteLinkResponse)
+	err := c.cc.Invoke(ctx, GatewayEngineService_GetGroupInviteLink_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *gatewayEngineServiceClient) JoinGroup(ctx context.Context, in *JoinGroupRequest, opts ...grpc.CallOption) (*JoinGroupResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(JoinGroupResponse)
+	err := c.cc.Invoke(ctx, GatewayEngineService_JoinGroup_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *gatewayEngineServiceClient) LeaveGroup(ctx context.Context, in *LeaveGroupRequest, opts ...grpc.CallOption) (*LeaveGroupResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LeaveGroupResponse)
+	err := c.cc.Invoke(ctx, GatewayEngineService_LeaveGroup_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *gatewayEngineServiceClient) GetChatPresence(ctx context.Context, in *GetChatPresenceRequest, opts ...grpc.CallOption) (*GetChatPresenceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetChatPresenceResponse)
+	err := c.cc.Invoke(ctx, GatewayEngineService_GetChatPresence_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *gatewayEngineServiceClient) SetChatPresence(ctx context.Context, in *SetChatPresenceRequest, opts ...grpc.CallOption) (*SetChatPresenceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetChatPresenceResponse)
+	err := c.cc.Invoke(ctx, GatewayEngineService_SetChatPresence_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *gatewayEngineServiceClient) BackfillSession(ctx context.Context, in *BackfillSessionRequest, opts ...grpc.CallOption) (*BackfillSessionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BackfillSessionResponse)
+	err := c.cc.Invoke(ctx, GatewayEngineService_BackfillSession_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // GatewayEngineServiceServer is the server API for GatewayEngineService service.
 // All implementations must embed UnimplementedGatewayEngineServiceServer
 // for forward compatibility.
@@ -110,6 +266,19 @@ type GatewayEngineServiceServer interface {
 	MarkRead(context.Context, *MarkReadRequest) (*MarkReadResponse, error)
 	SendMessage(context.Context, *SendMessageRequest) (*SendMessageResponse, error)
 	MessageOp(context.Context, *MessageOpRequest) (*MessageOpResponse, error)
+	LookupContact(context.Context, *LookupContactRequest) (*LookupContactResponse, error)
+	GetContactPicture(context.Context, *GetContactPictureRequest) (*GetContactPictureResponse, error)
+	GetContactAbout(context.Context, *GetContactAboutRequest) (*GetContactAboutResponse, error)
+	SetBlocked(context.Context, *SetBlockedRequest) (*SetBlockedResponse, error)
+	CreateGroup(context.Context, *CreateGroupRequest) (*CreateGroupResponse, error)
+	UpdateGroupSettings(context.Context, *UpdateGroupSettingsRequest) (*UpdateGroupSettingsResponse, error)
+	UpdateGroupParticipants(context.Context, *UpdateGroupParticipantsRequest) (*UpdateGroupParticipantsResponse, error)
+	GetGroupInviteLink(context.Context, *GetGroupInviteLinkRequest) (*GetGroupInviteLinkResponse, error)
+	JoinGroup(context.Context, *JoinGroupRequest) (*JoinGroupResponse, error)
+	LeaveGroup(context.Context, *LeaveGroupRequest) (*LeaveGroupResponse, error)
+	GetChatPresence(context.Context, *GetChatPresenceRequest) (*GetChatPresenceResponse, error)
+	SetChatPresence(context.Context, *SetChatPresenceRequest) (*SetChatPresenceResponse, error)
+	BackfillSession(context.Context, *BackfillSessionRequest) (*BackfillSessionResponse, error)
 	mustEmbedUnimplementedGatewayEngineServiceServer()
 }
 
@@ -134,6 +303,45 @@ func (UnimplementedGatewayEngineServiceServer) SendMessage(context.Context, *Sen
 }
 func (UnimplementedGatewayEngineServiceServer) MessageOp(context.Context, *MessageOpRequest) (*MessageOpResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method MessageOp not implemented")
+}
+func (UnimplementedGatewayEngineServiceServer) LookupContact(context.Context, *LookupContactRequest) (*LookupContactResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method LookupContact not implemented")
+}
+func (UnimplementedGatewayEngineServiceServer) GetContactPicture(context.Context, *GetContactPictureRequest) (*GetContactPictureResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetContactPicture not implemented")
+}
+func (UnimplementedGatewayEngineServiceServer) GetContactAbout(context.Context, *GetContactAboutRequest) (*GetContactAboutResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetContactAbout not implemented")
+}
+func (UnimplementedGatewayEngineServiceServer) SetBlocked(context.Context, *SetBlockedRequest) (*SetBlockedResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetBlocked not implemented")
+}
+func (UnimplementedGatewayEngineServiceServer) CreateGroup(context.Context, *CreateGroupRequest) (*CreateGroupResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateGroup not implemented")
+}
+func (UnimplementedGatewayEngineServiceServer) UpdateGroupSettings(context.Context, *UpdateGroupSettingsRequest) (*UpdateGroupSettingsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateGroupSettings not implemented")
+}
+func (UnimplementedGatewayEngineServiceServer) UpdateGroupParticipants(context.Context, *UpdateGroupParticipantsRequest) (*UpdateGroupParticipantsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateGroupParticipants not implemented")
+}
+func (UnimplementedGatewayEngineServiceServer) GetGroupInviteLink(context.Context, *GetGroupInviteLinkRequest) (*GetGroupInviteLinkResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetGroupInviteLink not implemented")
+}
+func (UnimplementedGatewayEngineServiceServer) JoinGroup(context.Context, *JoinGroupRequest) (*JoinGroupResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method JoinGroup not implemented")
+}
+func (UnimplementedGatewayEngineServiceServer) LeaveGroup(context.Context, *LeaveGroupRequest) (*LeaveGroupResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method LeaveGroup not implemented")
+}
+func (UnimplementedGatewayEngineServiceServer) GetChatPresence(context.Context, *GetChatPresenceRequest) (*GetChatPresenceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetChatPresence not implemented")
+}
+func (UnimplementedGatewayEngineServiceServer) SetChatPresence(context.Context, *SetChatPresenceRequest) (*SetChatPresenceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetChatPresence not implemented")
+}
+func (UnimplementedGatewayEngineServiceServer) BackfillSession(context.Context, *BackfillSessionRequest) (*BackfillSessionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method BackfillSession not implemented")
 }
 func (UnimplementedGatewayEngineServiceServer) mustEmbedUnimplementedGatewayEngineServiceServer() {}
 func (UnimplementedGatewayEngineServiceServer) testEmbeddedByValue()                              {}
@@ -246,6 +454,240 @@ func _GatewayEngineService_MessageOp_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _GatewayEngineService_LookupContact_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LookupContactRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayEngineServiceServer).LookupContact(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GatewayEngineService_LookupContact_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayEngineServiceServer).LookupContact(ctx, req.(*LookupContactRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _GatewayEngineService_GetContactPicture_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetContactPictureRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayEngineServiceServer).GetContactPicture(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GatewayEngineService_GetContactPicture_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayEngineServiceServer).GetContactPicture(ctx, req.(*GetContactPictureRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _GatewayEngineService_GetContactAbout_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetContactAboutRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayEngineServiceServer).GetContactAbout(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GatewayEngineService_GetContactAbout_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayEngineServiceServer).GetContactAbout(ctx, req.(*GetContactAboutRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _GatewayEngineService_SetBlocked_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetBlockedRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayEngineServiceServer).SetBlocked(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GatewayEngineService_SetBlocked_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayEngineServiceServer).SetBlocked(ctx, req.(*SetBlockedRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _GatewayEngineService_CreateGroup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateGroupRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayEngineServiceServer).CreateGroup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GatewayEngineService_CreateGroup_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayEngineServiceServer).CreateGroup(ctx, req.(*CreateGroupRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _GatewayEngineService_UpdateGroupSettings_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateGroupSettingsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayEngineServiceServer).UpdateGroupSettings(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GatewayEngineService_UpdateGroupSettings_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayEngineServiceServer).UpdateGroupSettings(ctx, req.(*UpdateGroupSettingsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _GatewayEngineService_UpdateGroupParticipants_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateGroupParticipantsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayEngineServiceServer).UpdateGroupParticipants(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GatewayEngineService_UpdateGroupParticipants_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayEngineServiceServer).UpdateGroupParticipants(ctx, req.(*UpdateGroupParticipantsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _GatewayEngineService_GetGroupInviteLink_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetGroupInviteLinkRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayEngineServiceServer).GetGroupInviteLink(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GatewayEngineService_GetGroupInviteLink_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayEngineServiceServer).GetGroupInviteLink(ctx, req.(*GetGroupInviteLinkRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _GatewayEngineService_JoinGroup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(JoinGroupRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayEngineServiceServer).JoinGroup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GatewayEngineService_JoinGroup_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayEngineServiceServer).JoinGroup(ctx, req.(*JoinGroupRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _GatewayEngineService_LeaveGroup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LeaveGroupRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayEngineServiceServer).LeaveGroup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GatewayEngineService_LeaveGroup_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayEngineServiceServer).LeaveGroup(ctx, req.(*LeaveGroupRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _GatewayEngineService_GetChatPresence_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetChatPresenceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayEngineServiceServer).GetChatPresence(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GatewayEngineService_GetChatPresence_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayEngineServiceServer).GetChatPresence(ctx, req.(*GetChatPresenceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _GatewayEngineService_SetChatPresence_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetChatPresenceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayEngineServiceServer).SetChatPresence(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GatewayEngineService_SetChatPresence_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayEngineServiceServer).SetChatPresence(ctx, req.(*SetChatPresenceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _GatewayEngineService_BackfillSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BackfillSessionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayEngineServiceServer).BackfillSession(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GatewayEngineService_BackfillSession_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayEngineServiceServer).BackfillSession(ctx, req.(*BackfillSessionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // GatewayEngineService_ServiceDesc is the grpc.ServiceDesc for GatewayEngineService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -272,6 +714,58 @@ var GatewayEngineService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "MessageOp",
 			Handler:    _GatewayEngineService_MessageOp_Handler,
+		},
+		{
+			MethodName: "LookupContact",
+			Handler:    _GatewayEngineService_LookupContact_Handler,
+		},
+		{
+			MethodName: "GetContactPicture",
+			Handler:    _GatewayEngineService_GetContactPicture_Handler,
+		},
+		{
+			MethodName: "GetContactAbout",
+			Handler:    _GatewayEngineService_GetContactAbout_Handler,
+		},
+		{
+			MethodName: "SetBlocked",
+			Handler:    _GatewayEngineService_SetBlocked_Handler,
+		},
+		{
+			MethodName: "CreateGroup",
+			Handler:    _GatewayEngineService_CreateGroup_Handler,
+		},
+		{
+			MethodName: "UpdateGroupSettings",
+			Handler:    _GatewayEngineService_UpdateGroupSettings_Handler,
+		},
+		{
+			MethodName: "UpdateGroupParticipants",
+			Handler:    _GatewayEngineService_UpdateGroupParticipants_Handler,
+		},
+		{
+			MethodName: "GetGroupInviteLink",
+			Handler:    _GatewayEngineService_GetGroupInviteLink_Handler,
+		},
+		{
+			MethodName: "JoinGroup",
+			Handler:    _GatewayEngineService_JoinGroup_Handler,
+		},
+		{
+			MethodName: "LeaveGroup",
+			Handler:    _GatewayEngineService_LeaveGroup_Handler,
+		},
+		{
+			MethodName: "GetChatPresence",
+			Handler:    _GatewayEngineService_GetChatPresence_Handler,
+		},
+		{
+			MethodName: "SetChatPresence",
+			Handler:    _GatewayEngineService_SetChatPresence_Handler,
+		},
+		{
+			MethodName: "BackfillSession",
+			Handler:    _GatewayEngineService_BackfillSession_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

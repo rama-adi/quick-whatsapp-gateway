@@ -286,6 +286,16 @@ func run() error {
 		services.Sessions.SetGatewayLiveFacade(engineClient)
 		services.Presence.SetGatewayLiveFacade(engineClient)
 
+		// --- API-local live resources (Increment 7): contacts, groups, chat
+		// presence, and admin backfill execute through private engine RPCs. The
+		// engine returns raw live results; these services persist their own
+		// shared-MySQL projections exactly as the legacy in-process path did.
+		liveFacade := apigateway.NewLiveOpsFacade(engineClient)
+		services.Contacts.SetGatewayContactFacade(liveFacade)
+		services.Groups.SetGatewayGroupFacade(liveFacade)
+		services.Chats.SetGatewayChatFacade(liveFacade)
+		services.Admin.SetGatewayBackfillFacade(liveFacade)
+
 		// --- API-owned outbound scheduling (Increment 6): durable command rows,
 		// product rate limits, and retry/backoff decisions run here; the gateway
 		// executes each command at most once per command id. The lease must

@@ -128,6 +128,61 @@ func (AccountPresence) EnumDescriptor() ([]byte, []int) {
 	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{1}
 }
 
+type GroupParticipantChange int32
+
+const (
+	GroupParticipantChange_GROUP_PARTICIPANT_CHANGE_UNSPECIFIED GroupParticipantChange = 0
+	GroupParticipantChange_GROUP_PARTICIPANT_CHANGE_ADD         GroupParticipantChange = 1
+	GroupParticipantChange_GROUP_PARTICIPANT_CHANGE_REMOVE      GroupParticipantChange = 2
+	GroupParticipantChange_GROUP_PARTICIPANT_CHANGE_PROMOTE     GroupParticipantChange = 3
+	GroupParticipantChange_GROUP_PARTICIPANT_CHANGE_DEMOTE      GroupParticipantChange = 4
+)
+
+// Enum value maps for GroupParticipantChange.
+var (
+	GroupParticipantChange_name = map[int32]string{
+		0: "GROUP_PARTICIPANT_CHANGE_UNSPECIFIED",
+		1: "GROUP_PARTICIPANT_CHANGE_ADD",
+		2: "GROUP_PARTICIPANT_CHANGE_REMOVE",
+		3: "GROUP_PARTICIPANT_CHANGE_PROMOTE",
+		4: "GROUP_PARTICIPANT_CHANGE_DEMOTE",
+	}
+	GroupParticipantChange_value = map[string]int32{
+		"GROUP_PARTICIPANT_CHANGE_UNSPECIFIED": 0,
+		"GROUP_PARTICIPANT_CHANGE_ADD":         1,
+		"GROUP_PARTICIPANT_CHANGE_REMOVE":      2,
+		"GROUP_PARTICIPANT_CHANGE_PROMOTE":     3,
+		"GROUP_PARTICIPANT_CHANGE_DEMOTE":      4,
+	}
+)
+
+func (x GroupParticipantChange) Enum() *GroupParticipantChange {
+	p := new(GroupParticipantChange)
+	*p = x
+	return p
+}
+
+func (x GroupParticipantChange) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (GroupParticipantChange) Descriptor() protoreflect.EnumDescriptor {
+	return file_v1_gateway_engine_proto_enumTypes[2].Descriptor()
+}
+
+func (GroupParticipantChange) Type() protoreflect.EnumType {
+	return &file_v1_gateway_engine_proto_enumTypes[2]
+}
+
+func (x GroupParticipantChange) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use GroupParticipantChange.Descriptor instead.
+func (GroupParticipantChange) EnumDescriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{2}
+}
+
 type SessionTarget struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	OrganizationId string                 `protobuf:"bytes,1,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
@@ -924,6 +979,2133 @@ func (x *MessageOpResponse) GetAssignmentEpoch() uint64 {
 	return 0
 }
 
+// LookupContactRequest checks whether phone numbers are on WhatsApp. A read:
+// no command_id and no ledger entry.
+type LookupContactRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Target          *SessionTarget         `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
+	AssignmentEpoch uint64                 `protobuf:"varint,2,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
+	Phones          []string               `protobuf:"bytes,3,rep,name=phones,proto3" json:"phones,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *LookupContactRequest) Reset() {
+	*x = LookupContactRequest{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LookupContactRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LookupContactRequest) ProtoMessage() {}
+
+func (x *LookupContactRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LookupContactRequest.ProtoReflect.Descriptor instead.
+func (*LookupContactRequest) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *LookupContactRequest) GetTarget() *SessionTarget {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *LookupContactRequest) GetAssignmentEpoch() uint64 {
+	if x != nil {
+		return x.AssignmentEpoch
+	}
+	return 0
+}
+
+func (x *LookupContactRequest) GetPhones() []string {
+	if x != nil {
+		return x.Phones
+	}
+	return nil
+}
+
+type LookupContactResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Results       []*ContactLookup       `protobuf:"bytes,1,rep,name=results,proto3" json:"results,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LookupContactResponse) Reset() {
+	*x = LookupContactResponse{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LookupContactResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LookupContactResponse) ProtoMessage() {}
+
+func (x *LookupContactResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LookupContactResponse.ProtoReflect.Descriptor instead.
+func (*LookupContactResponse) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *LookupContactResponse) GetResults() []*ContactLookup {
+	if x != nil {
+		return x.Results
+	}
+	return nil
+}
+
+type ContactLookup struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Query         string                 `protobuf:"bytes,1,opt,name=query,proto3" json:"query,omitempty"`
+	Jid           string                 `protobuf:"bytes,2,opt,name=jid,proto3" json:"jid,omitempty"`
+	IsOnWhatsapp  bool                   `protobuf:"varint,3,opt,name=is_on_whatsapp,json=isOnWhatsapp,proto3" json:"is_on_whatsapp,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ContactLookup) Reset() {
+	*x = ContactLookup{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ContactLookup) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ContactLookup) ProtoMessage() {}
+
+func (x *ContactLookup) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ContactLookup.ProtoReflect.Descriptor instead.
+func (*ContactLookup) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *ContactLookup) GetQuery() string {
+	if x != nil {
+		return x.Query
+	}
+	return ""
+}
+
+func (x *ContactLookup) GetJid() string {
+	if x != nil {
+		return x.Jid
+	}
+	return ""
+}
+
+func (x *ContactLookup) GetIsOnWhatsapp() bool {
+	if x != nil {
+		return x.IsOnWhatsapp
+	}
+	return false
+}
+
+type GetContactPictureRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Target          *SessionTarget         `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
+	AssignmentEpoch uint64                 `protobuf:"varint,2,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
+	Jid             string                 `protobuf:"bytes,3,opt,name=jid,proto3" json:"jid,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *GetContactPictureRequest) Reset() {
+	*x = GetContactPictureRequest{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetContactPictureRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetContactPictureRequest) ProtoMessage() {}
+
+func (x *GetContactPictureRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetContactPictureRequest.ProtoReflect.Descriptor instead.
+func (*GetContactPictureRequest) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *GetContactPictureRequest) GetTarget() *SessionTarget {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *GetContactPictureRequest) GetAssignmentEpoch() uint64 {
+	if x != nil {
+		return x.AssignmentEpoch
+	}
+	return 0
+}
+
+func (x *GetContactPictureRequest) GetJid() string {
+	if x != nil {
+		return x.Jid
+	}
+	return ""
+}
+
+type GetContactPictureResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Url           string                 `protobuf:"bytes,1,opt,name=url,proto3" json:"url,omitempty"`
+	Id            string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetContactPictureResponse) Reset() {
+	*x = GetContactPictureResponse{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetContactPictureResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetContactPictureResponse) ProtoMessage() {}
+
+func (x *GetContactPictureResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetContactPictureResponse.ProtoReflect.Descriptor instead.
+func (*GetContactPictureResponse) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *GetContactPictureResponse) GetUrl() string {
+	if x != nil {
+		return x.Url
+	}
+	return ""
+}
+
+func (x *GetContactPictureResponse) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+type GetContactAboutRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Target          *SessionTarget         `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
+	AssignmentEpoch uint64                 `protobuf:"varint,2,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
+	Jid             string                 `protobuf:"bytes,3,opt,name=jid,proto3" json:"jid,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *GetContactAboutRequest) Reset() {
+	*x = GetContactAboutRequest{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetContactAboutRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetContactAboutRequest) ProtoMessage() {}
+
+func (x *GetContactAboutRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetContactAboutRequest.ProtoReflect.Descriptor instead.
+func (*GetContactAboutRequest) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *GetContactAboutRequest) GetTarget() *SessionTarget {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *GetContactAboutRequest) GetAssignmentEpoch() uint64 {
+	if x != nil {
+		return x.AssignmentEpoch
+	}
+	return 0
+}
+
+func (x *GetContactAboutRequest) GetJid() string {
+	if x != nil {
+		return x.Jid
+	}
+	return ""
+}
+
+type GetContactAboutResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	About         string                 `protobuf:"bytes,1,opt,name=about,proto3" json:"about,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetContactAboutResponse) Reset() {
+	*x = GetContactAboutResponse{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetContactAboutResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetContactAboutResponse) ProtoMessage() {}
+
+func (x *GetContactAboutResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetContactAboutResponse.ProtoReflect.Descriptor instead.
+func (*GetContactAboutResponse) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *GetContactAboutResponse) GetAbout() string {
+	if x != nil {
+		return x.About
+	}
+	return ""
+}
+
+// SetBlockedRequest blocks or unblocks a contact as a durable command. The same
+// command_id ledger semantics as SendMessage apply (CommandSent only: the
+// blocklist mutation carries no WhatsApp message id).
+type SetBlockedRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Target          *SessionTarget         `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
+	AssignmentEpoch uint64                 `protobuf:"varint,2,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
+	CommandId       string                 `protobuf:"bytes,3,opt,name=command_id,json=commandId,proto3" json:"command_id,omitempty"`
+	Jid             string                 `protobuf:"bytes,4,opt,name=jid,proto3" json:"jid,omitempty"`
+	Blocked         bool                   `protobuf:"varint,5,opt,name=blocked,proto3" json:"blocked,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *SetBlockedRequest) Reset() {
+	*x = SetBlockedRequest{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetBlockedRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetBlockedRequest) ProtoMessage() {}
+
+func (x *SetBlockedRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetBlockedRequest.ProtoReflect.Descriptor instead.
+func (*SetBlockedRequest) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *SetBlockedRequest) GetTarget() *SessionTarget {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *SetBlockedRequest) GetAssignmentEpoch() uint64 {
+	if x != nil {
+		return x.AssignmentEpoch
+	}
+	return 0
+}
+
+func (x *SetBlockedRequest) GetCommandId() string {
+	if x != nil {
+		return x.CommandId
+	}
+	return ""
+}
+
+func (x *SetBlockedRequest) GetJid() string {
+	if x != nil {
+		return x.Jid
+	}
+	return ""
+}
+
+func (x *SetBlockedRequest) GetBlocked() bool {
+	if x != nil {
+		return x.Blocked
+	}
+	return false
+}
+
+type SetBlockedResponse struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	CommandId       string                 `protobuf:"bytes,1,opt,name=command_id,json=commandId,proto3" json:"command_id,omitempty"`
+	Target          *SessionTarget         `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
+	AssignmentEpoch uint64                 `protobuf:"varint,3,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *SetBlockedResponse) Reset() {
+	*x = SetBlockedResponse{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetBlockedResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetBlockedResponse) ProtoMessage() {}
+
+func (x *SetBlockedResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetBlockedResponse.ProtoReflect.Descriptor instead.
+func (*SetBlockedResponse) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *SetBlockedResponse) GetCommandId() string {
+	if x != nil {
+		return x.CommandId
+	}
+	return ""
+}
+
+func (x *SetBlockedResponse) GetTarget() *SessionTarget {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *SetBlockedResponse) GetAssignmentEpoch() uint64 {
+	if x != nil {
+		return x.AssignmentEpoch
+	}
+	return 0
+}
+
+// CreateGroupRequest creates a group as a durable command. The response carries
+// the live group metadata the API persists into its own projections.
+type CreateGroupRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Target          *SessionTarget         `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
+	AssignmentEpoch uint64                 `protobuf:"varint,2,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
+	CommandId       string                 `protobuf:"bytes,3,opt,name=command_id,json=commandId,proto3" json:"command_id,omitempty"`
+	Name            string                 `protobuf:"bytes,4,opt,name=name,proto3" json:"name,omitempty"`
+	Participants    []string               `protobuf:"bytes,5,rep,name=participants,proto3" json:"participants,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *CreateGroupRequest) Reset() {
+	*x = CreateGroupRequest{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateGroupRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateGroupRequest) ProtoMessage() {}
+
+func (x *CreateGroupRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateGroupRequest.ProtoReflect.Descriptor instead.
+func (*CreateGroupRequest) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *CreateGroupRequest) GetTarget() *SessionTarget {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *CreateGroupRequest) GetAssignmentEpoch() uint64 {
+	if x != nil {
+		return x.AssignmentEpoch
+	}
+	return 0
+}
+
+func (x *CreateGroupRequest) GetCommandId() string {
+	if x != nil {
+		return x.CommandId
+	}
+	return ""
+}
+
+func (x *CreateGroupRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *CreateGroupRequest) GetParticipants() []string {
+	if x != nil {
+		return x.Participants
+	}
+	return nil
+}
+
+type GroupInfo struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	GroupJid      string                 `protobuf:"bytes,1,opt,name=group_jid,json=groupJid,proto3" json:"group_jid,omitempty"`
+	Subject       string                 `protobuf:"bytes,2,opt,name=subject,proto3" json:"subject,omitempty"`
+	Description   string                 `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
+	OwnerJid      string                 `protobuf:"bytes,4,opt,name=owner_jid,json=ownerJid,proto3" json:"owner_jid,omitempty"`
+	Participants  int32                  `protobuf:"varint,5,opt,name=participants,proto3" json:"participants,omitempty"`
+	IsAnnounce    bool                   `protobuf:"varint,6,opt,name=is_announce,json=isAnnounce,proto3" json:"is_announce,omitempty"`
+	IsLocked      bool                   `protobuf:"varint,7,opt,name=is_locked,json=isLocked,proto3" json:"is_locked,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GroupInfo) Reset() {
+	*x = GroupInfo{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GroupInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GroupInfo) ProtoMessage() {}
+
+func (x *GroupInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GroupInfo.ProtoReflect.Descriptor instead.
+func (*GroupInfo) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *GroupInfo) GetGroupJid() string {
+	if x != nil {
+		return x.GroupJid
+	}
+	return ""
+}
+
+func (x *GroupInfo) GetSubject() string {
+	if x != nil {
+		return x.Subject
+	}
+	return ""
+}
+
+func (x *GroupInfo) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *GroupInfo) GetOwnerJid() string {
+	if x != nil {
+		return x.OwnerJid
+	}
+	return ""
+}
+
+func (x *GroupInfo) GetParticipants() int32 {
+	if x != nil {
+		return x.Participants
+	}
+	return 0
+}
+
+func (x *GroupInfo) GetIsAnnounce() bool {
+	if x != nil {
+		return x.IsAnnounce
+	}
+	return false
+}
+
+func (x *GroupInfo) GetIsLocked() bool {
+	if x != nil {
+		return x.IsLocked
+	}
+	return false
+}
+
+type CreateGroupResponse struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	CommandId       string                 `protobuf:"bytes,1,opt,name=command_id,json=commandId,proto3" json:"command_id,omitempty"`
+	Target          *SessionTarget         `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
+	AssignmentEpoch uint64                 `protobuf:"varint,3,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
+	Group           *GroupInfo             `protobuf:"bytes,4,opt,name=group,proto3" json:"group,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *CreateGroupResponse) Reset() {
+	*x = CreateGroupResponse{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateGroupResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateGroupResponse) ProtoMessage() {}
+
+func (x *CreateGroupResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateGroupResponse.ProtoReflect.Descriptor instead.
+func (*CreateGroupResponse) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *CreateGroupResponse) GetCommandId() string {
+	if x != nil {
+		return x.CommandId
+	}
+	return ""
+}
+
+func (x *CreateGroupResponse) GetTarget() *SessionTarget {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *CreateGroupResponse) GetAssignmentEpoch() uint64 {
+	if x != nil {
+		return x.AssignmentEpoch
+	}
+	return 0
+}
+
+func (x *CreateGroupResponse) GetGroup() *GroupInfo {
+	if x != nil {
+		return x.Group
+	}
+	return nil
+}
+
+// UpdateGroupSettingsRequest applies subject/description/announce/locked as a
+// durable command. Nil-valued settings are simply omitted from the request.
+type UpdateGroupSettingsRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Target          *SessionTarget         `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
+	AssignmentEpoch uint64                 `protobuf:"varint,2,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
+	CommandId       string                 `protobuf:"bytes,3,opt,name=command_id,json=commandId,proto3" json:"command_id,omitempty"`
+	GroupJid        string                 `protobuf:"bytes,4,opt,name=group_jid,json=groupJid,proto3" json:"group_jid,omitempty"`
+	Subject         *string                `protobuf:"bytes,5,opt,name=subject,proto3,oneof" json:"subject,omitempty"`
+	Description     *string                `protobuf:"bytes,6,opt,name=description,proto3,oneof" json:"description,omitempty"`
+	Announce        *bool                  `protobuf:"varint,7,opt,name=announce,proto3,oneof" json:"announce,omitempty"`
+	Locked          *bool                  `protobuf:"varint,8,opt,name=locked,proto3,oneof" json:"locked,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *UpdateGroupSettingsRequest) Reset() {
+	*x = UpdateGroupSettingsRequest{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateGroupSettingsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateGroupSettingsRequest) ProtoMessage() {}
+
+func (x *UpdateGroupSettingsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateGroupSettingsRequest.ProtoReflect.Descriptor instead.
+func (*UpdateGroupSettingsRequest) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *UpdateGroupSettingsRequest) GetTarget() *SessionTarget {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *UpdateGroupSettingsRequest) GetAssignmentEpoch() uint64 {
+	if x != nil {
+		return x.AssignmentEpoch
+	}
+	return 0
+}
+
+func (x *UpdateGroupSettingsRequest) GetCommandId() string {
+	if x != nil {
+		return x.CommandId
+	}
+	return ""
+}
+
+func (x *UpdateGroupSettingsRequest) GetGroupJid() string {
+	if x != nil {
+		return x.GroupJid
+	}
+	return ""
+}
+
+func (x *UpdateGroupSettingsRequest) GetSubject() string {
+	if x != nil && x.Subject != nil {
+		return *x.Subject
+	}
+	return ""
+}
+
+func (x *UpdateGroupSettingsRequest) GetDescription() string {
+	if x != nil && x.Description != nil {
+		return *x.Description
+	}
+	return ""
+}
+
+func (x *UpdateGroupSettingsRequest) GetAnnounce() bool {
+	if x != nil && x.Announce != nil {
+		return *x.Announce
+	}
+	return false
+}
+
+func (x *UpdateGroupSettingsRequest) GetLocked() bool {
+	if x != nil && x.Locked != nil {
+		return *x.Locked
+	}
+	return false
+}
+
+type UpdateGroupSettingsResponse struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	CommandId       string                 `protobuf:"bytes,1,opt,name=command_id,json=commandId,proto3" json:"command_id,omitempty"`
+	Target          *SessionTarget         `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
+	AssignmentEpoch uint64                 `protobuf:"varint,3,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *UpdateGroupSettingsResponse) Reset() {
+	*x = UpdateGroupSettingsResponse{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateGroupSettingsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateGroupSettingsResponse) ProtoMessage() {}
+
+func (x *UpdateGroupSettingsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateGroupSettingsResponse.ProtoReflect.Descriptor instead.
+func (*UpdateGroupSettingsResponse) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *UpdateGroupSettingsResponse) GetCommandId() string {
+	if x != nil {
+		return x.CommandId
+	}
+	return ""
+}
+
+func (x *UpdateGroupSettingsResponse) GetTarget() *SessionTarget {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *UpdateGroupSettingsResponse) GetAssignmentEpoch() uint64 {
+	if x != nil {
+		return x.AssignmentEpoch
+	}
+	return 0
+}
+
+type UpdateGroupParticipantsRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Target          *SessionTarget         `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
+	AssignmentEpoch uint64                 `protobuf:"varint,2,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
+	CommandId       string                 `protobuf:"bytes,3,opt,name=command_id,json=commandId,proto3" json:"command_id,omitempty"`
+	GroupJid        string                 `protobuf:"bytes,4,opt,name=group_jid,json=groupJid,proto3" json:"group_jid,omitempty"`
+	Participants    []string               `protobuf:"bytes,5,rep,name=participants,proto3" json:"participants,omitempty"`
+	Action          GroupParticipantChange `protobuf:"varint,6,opt,name=action,proto3,enum=gateway.v1.GroupParticipantChange" json:"action,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *UpdateGroupParticipantsRequest) Reset() {
+	*x = UpdateGroupParticipantsRequest{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateGroupParticipantsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateGroupParticipantsRequest) ProtoMessage() {}
+
+func (x *UpdateGroupParticipantsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateGroupParticipantsRequest.ProtoReflect.Descriptor instead.
+func (*UpdateGroupParticipantsRequest) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *UpdateGroupParticipantsRequest) GetTarget() *SessionTarget {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *UpdateGroupParticipantsRequest) GetAssignmentEpoch() uint64 {
+	if x != nil {
+		return x.AssignmentEpoch
+	}
+	return 0
+}
+
+func (x *UpdateGroupParticipantsRequest) GetCommandId() string {
+	if x != nil {
+		return x.CommandId
+	}
+	return ""
+}
+
+func (x *UpdateGroupParticipantsRequest) GetGroupJid() string {
+	if x != nil {
+		return x.GroupJid
+	}
+	return ""
+}
+
+func (x *UpdateGroupParticipantsRequest) GetParticipants() []string {
+	if x != nil {
+		return x.Participants
+	}
+	return nil
+}
+
+func (x *UpdateGroupParticipantsRequest) GetAction() GroupParticipantChange {
+	if x != nil {
+		return x.Action
+	}
+	return GroupParticipantChange_GROUP_PARTICIPANT_CHANGE_UNSPECIFIED
+}
+
+type UpdateGroupParticipantsResponse struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	CommandId       string                 `protobuf:"bytes,1,opt,name=command_id,json=commandId,proto3" json:"command_id,omitempty"`
+	Target          *SessionTarget         `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
+	AssignmentEpoch uint64                 `protobuf:"varint,3,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *UpdateGroupParticipantsResponse) Reset() {
+	*x = UpdateGroupParticipantsResponse{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateGroupParticipantsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateGroupParticipantsResponse) ProtoMessage() {}
+
+func (x *UpdateGroupParticipantsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateGroupParticipantsResponse.ProtoReflect.Descriptor instead.
+func (*UpdateGroupParticipantsResponse) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *UpdateGroupParticipantsResponse) GetCommandId() string {
+	if x != nil {
+		return x.CommandId
+	}
+	return ""
+}
+
+func (x *UpdateGroupParticipantsResponse) GetTarget() *SessionTarget {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *UpdateGroupParticipantsResponse) GetAssignmentEpoch() uint64 {
+	if x != nil {
+		return x.AssignmentEpoch
+	}
+	return 0
+}
+
+// GetGroupInviteLinkRequest returns (reset=false) or revokes-and-regenerates
+// (reset=true) a group's invite link. The reset variant mutates WhatsApp state
+// but stays a read on this contract: it carries no command_id, matching the
+// LiveOps surface it mirrors.
+type GetGroupInviteLinkRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Target          *SessionTarget         `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
+	AssignmentEpoch uint64                 `protobuf:"varint,2,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
+	GroupJid        string                 `protobuf:"bytes,3,opt,name=group_jid,json=groupJid,proto3" json:"group_jid,omitempty"`
+	Reset_          bool                   `protobuf:"varint,4,opt,name=reset,proto3" json:"reset,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *GetGroupInviteLinkRequest) Reset() {
+	*x = GetGroupInviteLinkRequest{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetGroupInviteLinkRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetGroupInviteLinkRequest) ProtoMessage() {}
+
+func (x *GetGroupInviteLinkRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetGroupInviteLinkRequest.ProtoReflect.Descriptor instead.
+func (*GetGroupInviteLinkRequest) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *GetGroupInviteLinkRequest) GetTarget() *SessionTarget {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *GetGroupInviteLinkRequest) GetAssignmentEpoch() uint64 {
+	if x != nil {
+		return x.AssignmentEpoch
+	}
+	return 0
+}
+
+func (x *GetGroupInviteLinkRequest) GetGroupJid() string {
+	if x != nil {
+		return x.GroupJid
+	}
+	return ""
+}
+
+func (x *GetGroupInviteLinkRequest) GetReset_() bool {
+	if x != nil {
+		return x.Reset_
+	}
+	return false
+}
+
+type GetGroupInviteLinkResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Link          string                 `protobuf:"bytes,1,opt,name=link,proto3" json:"link,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetGroupInviteLinkResponse) Reset() {
+	*x = GetGroupInviteLinkResponse{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetGroupInviteLinkResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetGroupInviteLinkResponse) ProtoMessage() {}
+
+func (x *GetGroupInviteLinkResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetGroupInviteLinkResponse.ProtoReflect.Descriptor instead.
+func (*GetGroupInviteLinkResponse) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *GetGroupInviteLinkResponse) GetLink() string {
+	if x != nil {
+		return x.Link
+	}
+	return ""
+}
+
+type JoinGroupRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Target          *SessionTarget         `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
+	AssignmentEpoch uint64                 `protobuf:"varint,2,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
+	Invite          string                 `protobuf:"bytes,3,opt,name=invite,proto3" json:"invite,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *JoinGroupRequest) Reset() {
+	*x = JoinGroupRequest{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *JoinGroupRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*JoinGroupRequest) ProtoMessage() {}
+
+func (x *JoinGroupRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use JoinGroupRequest.ProtoReflect.Descriptor instead.
+func (*JoinGroupRequest) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *JoinGroupRequest) GetTarget() *SessionTarget {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *JoinGroupRequest) GetAssignmentEpoch() uint64 {
+	if x != nil {
+		return x.AssignmentEpoch
+	}
+	return 0
+}
+
+func (x *JoinGroupRequest) GetInvite() string {
+	if x != nil {
+		return x.Invite
+	}
+	return ""
+}
+
+type JoinGroupResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	GroupJid      string                 `protobuf:"bytes,1,opt,name=group_jid,json=groupJid,proto3" json:"group_jid,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *JoinGroupResponse) Reset() {
+	*x = JoinGroupResponse{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *JoinGroupResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*JoinGroupResponse) ProtoMessage() {}
+
+func (x *JoinGroupResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use JoinGroupResponse.ProtoReflect.Descriptor instead.
+func (*JoinGroupResponse) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *JoinGroupResponse) GetGroupJid() string {
+	if x != nil {
+		return x.GroupJid
+	}
+	return ""
+}
+
+type LeaveGroupRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Target          *SessionTarget         `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
+	AssignmentEpoch uint64                 `protobuf:"varint,2,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
+	CommandId       string                 `protobuf:"bytes,3,opt,name=command_id,json=commandId,proto3" json:"command_id,omitempty"`
+	GroupJid        string                 `protobuf:"bytes,4,opt,name=group_jid,json=groupJid,proto3" json:"group_jid,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *LeaveGroupRequest) Reset() {
+	*x = LeaveGroupRequest{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LeaveGroupRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LeaveGroupRequest) ProtoMessage() {}
+
+func (x *LeaveGroupRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LeaveGroupRequest.ProtoReflect.Descriptor instead.
+func (*LeaveGroupRequest) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *LeaveGroupRequest) GetTarget() *SessionTarget {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *LeaveGroupRequest) GetAssignmentEpoch() uint64 {
+	if x != nil {
+		return x.AssignmentEpoch
+	}
+	return 0
+}
+
+func (x *LeaveGroupRequest) GetCommandId() string {
+	if x != nil {
+		return x.CommandId
+	}
+	return ""
+}
+
+func (x *LeaveGroupRequest) GetGroupJid() string {
+	if x != nil {
+		return x.GroupJid
+	}
+	return ""
+}
+
+type LeaveGroupResponse struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	CommandId       string                 `protobuf:"bytes,1,opt,name=command_id,json=commandId,proto3" json:"command_id,omitempty"`
+	Target          *SessionTarget         `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
+	AssignmentEpoch uint64                 `protobuf:"varint,3,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *LeaveGroupResponse) Reset() {
+	*x = LeaveGroupResponse{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[32]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LeaveGroupResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LeaveGroupResponse) ProtoMessage() {}
+
+func (x *LeaveGroupResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[32]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LeaveGroupResponse.ProtoReflect.Descriptor instead.
+func (*LeaveGroupResponse) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{32}
+}
+
+func (x *LeaveGroupResponse) GetCommandId() string {
+	if x != nil {
+		return x.CommandId
+	}
+	return ""
+}
+
+func (x *LeaveGroupResponse) GetTarget() *SessionTarget {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *LeaveGroupResponse) GetAssignmentEpoch() uint64 {
+	if x != nil {
+		return x.AssignmentEpoch
+	}
+	return 0
+}
+
+// GetChatPresenceRequest subscribes to a contact's presence updates. The
+// subscription itself is the operation; the snapshot is unknown until a later
+// presence event arrives through the normal inbound pipeline.
+type GetChatPresenceRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Target          *SessionTarget         `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
+	AssignmentEpoch uint64                 `protobuf:"varint,2,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
+	ChatJid         string                 `protobuf:"bytes,3,opt,name=chat_jid,json=chatJid,proto3" json:"chat_jid,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *GetChatPresenceRequest) Reset() {
+	*x = GetChatPresenceRequest{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[33]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetChatPresenceRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetChatPresenceRequest) ProtoMessage() {}
+
+func (x *GetChatPresenceRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[33]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetChatPresenceRequest.ProtoReflect.Descriptor instead.
+func (*GetChatPresenceRequest) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{33}
+}
+
+func (x *GetChatPresenceRequest) GetTarget() *SessionTarget {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *GetChatPresenceRequest) GetAssignmentEpoch() uint64 {
+	if x != nil {
+		return x.AssignmentEpoch
+	}
+	return 0
+}
+
+func (x *GetChatPresenceRequest) GetChatJid() string {
+	if x != nil {
+		return x.ChatJid
+	}
+	return ""
+}
+
+type ChatPresenceStatus struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	ChatJid        string                 `protobuf:"bytes,1,opt,name=chat_jid,json=chatJid,proto3" json:"chat_jid,omitempty"`
+	From           string                 `protobuf:"bytes,2,opt,name=from,proto3" json:"from,omitempty"`
+	State          string                 `protobuf:"bytes,3,opt,name=state,proto3" json:"state,omitempty"`
+	Media          string                 `protobuf:"bytes,4,opt,name=media,proto3" json:"media,omitempty"`
+	Unavailable    bool                   `protobuf:"varint,5,opt,name=unavailable,proto3" json:"unavailable,omitempty"`
+	LastSeenUnixMs int64                  `protobuf:"varint,6,opt,name=last_seen_unix_ms,json=lastSeenUnixMs,proto3" json:"last_seen_unix_ms,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ChatPresenceStatus) Reset() {
+	*x = ChatPresenceStatus{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ChatPresenceStatus) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ChatPresenceStatus) ProtoMessage() {}
+
+func (x *ChatPresenceStatus) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ChatPresenceStatus.ProtoReflect.Descriptor instead.
+func (*ChatPresenceStatus) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{34}
+}
+
+func (x *ChatPresenceStatus) GetChatJid() string {
+	if x != nil {
+		return x.ChatJid
+	}
+	return ""
+}
+
+func (x *ChatPresenceStatus) GetFrom() string {
+	if x != nil {
+		return x.From
+	}
+	return ""
+}
+
+func (x *ChatPresenceStatus) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+func (x *ChatPresenceStatus) GetMedia() string {
+	if x != nil {
+		return x.Media
+	}
+	return ""
+}
+
+func (x *ChatPresenceStatus) GetUnavailable() bool {
+	if x != nil {
+		return x.Unavailable
+	}
+	return false
+}
+
+func (x *ChatPresenceStatus) GetLastSeenUnixMs() int64 {
+	if x != nil {
+		return x.LastSeenUnixMs
+	}
+	return 0
+}
+
+type GetChatPresenceResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Presence      *ChatPresenceStatus    `protobuf:"bytes,1,opt,name=presence,proto3" json:"presence,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetChatPresenceResponse) Reset() {
+	*x = GetChatPresenceResponse{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetChatPresenceResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetChatPresenceResponse) ProtoMessage() {}
+
+func (x *GetChatPresenceResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[35]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetChatPresenceResponse.ProtoReflect.Descriptor instead.
+func (*GetChatPresenceResponse) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{35}
+}
+
+func (x *GetChatPresenceResponse) GetPresence() *ChatPresenceStatus {
+	if x != nil {
+		return x.Presence
+	}
+	return nil
+}
+
+type SetChatPresenceRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Target          *SessionTarget         `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
+	AssignmentEpoch uint64                 `protobuf:"varint,2,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
+	ChatJid         string                 `protobuf:"bytes,3,opt,name=chat_jid,json=chatJid,proto3" json:"chat_jid,omitempty"`
+	State           string                 `protobuf:"bytes,4,opt,name=state,proto3" json:"state,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *SetChatPresenceRequest) Reset() {
+	*x = SetChatPresenceRequest{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[36]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetChatPresenceRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetChatPresenceRequest) ProtoMessage() {}
+
+func (x *SetChatPresenceRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[36]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetChatPresenceRequest.ProtoReflect.Descriptor instead.
+func (*SetChatPresenceRequest) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{36}
+}
+
+func (x *SetChatPresenceRequest) GetTarget() *SessionTarget {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *SetChatPresenceRequest) GetAssignmentEpoch() uint64 {
+	if x != nil {
+		return x.AssignmentEpoch
+	}
+	return 0
+}
+
+func (x *SetChatPresenceRequest) GetChatJid() string {
+	if x != nil {
+		return x.ChatJid
+	}
+	return ""
+}
+
+func (x *SetChatPresenceRequest) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+type SetChatPresenceResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetChatPresenceResponse) Reset() {
+	*x = SetChatPresenceResponse{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[37]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetChatPresenceResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetChatPresenceResponse) ProtoMessage() {}
+
+func (x *SetChatPresenceResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[37]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetChatPresenceResponse.ProtoReflect.Descriptor instead.
+func (*SetChatPresenceResponse) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{37}
+}
+
+// BackfillSessionRequest pulls the session's direct-API data (contacts plus
+// joined groups with members). It is a slow read: callers apply the send
+// deadline, not the unary deadline.
+type BackfillSessionRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Target          *SessionTarget         `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
+	AssignmentEpoch uint64                 `protobuf:"varint,2,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *BackfillSessionRequest) Reset() {
+	*x = BackfillSessionRequest{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[38]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BackfillSessionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BackfillSessionRequest) ProtoMessage() {}
+
+func (x *BackfillSessionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[38]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BackfillSessionRequest.ProtoReflect.Descriptor instead.
+func (*BackfillSessionRequest) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{38}
+}
+
+func (x *BackfillSessionRequest) GetTarget() *SessionTarget {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *BackfillSessionRequest) GetAssignmentEpoch() uint64 {
+	if x != nil {
+		return x.AssignmentEpoch
+	}
+	return 0
+}
+
+type BackfillSnapshot struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Contacts      []*BackfillContact     `protobuf:"bytes,1,rep,name=contacts,proto3" json:"contacts,omitempty"`
+	Groups        []*BackfillGroup       `protobuf:"bytes,2,rep,name=groups,proto3" json:"groups,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BackfillSnapshot) Reset() {
+	*x = BackfillSnapshot{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[39]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BackfillSnapshot) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BackfillSnapshot) ProtoMessage() {}
+
+func (x *BackfillSnapshot) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[39]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BackfillSnapshot.ProtoReflect.Descriptor instead.
+func (*BackfillSnapshot) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{39}
+}
+
+func (x *BackfillSnapshot) GetContacts() []*BackfillContact {
+	if x != nil {
+		return x.Contacts
+	}
+	return nil
+}
+
+func (x *BackfillSnapshot) GetGroups() []*BackfillGroup {
+	if x != nil {
+		return x.Groups
+	}
+	return nil
+}
+
+type BackfillContact struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Lid           string                 `protobuf:"bytes,1,opt,name=lid,proto3" json:"lid,omitempty"`
+	PhoneJid      string                 `protobuf:"bytes,2,opt,name=phone_jid,json=phoneJid,proto3" json:"phone_jid,omitempty"`
+	PhoneNumber   string                 `protobuf:"bytes,3,opt,name=phone_number,json=phoneNumber,proto3" json:"phone_number,omitempty"`
+	Name          string                 `protobuf:"bytes,4,opt,name=name,proto3" json:"name,omitempty"`
+	BusinessName  string                 `protobuf:"bytes,5,opt,name=business_name,json=businessName,proto3" json:"business_name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BackfillContact) Reset() {
+	*x = BackfillContact{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[40]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BackfillContact) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BackfillContact) ProtoMessage() {}
+
+func (x *BackfillContact) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[40]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BackfillContact.ProtoReflect.Descriptor instead.
+func (*BackfillContact) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{40}
+}
+
+func (x *BackfillContact) GetLid() string {
+	if x != nil {
+		return x.Lid
+	}
+	return ""
+}
+
+func (x *BackfillContact) GetPhoneJid() string {
+	if x != nil {
+		return x.PhoneJid
+	}
+	return ""
+}
+
+func (x *BackfillContact) GetPhoneNumber() string {
+	if x != nil {
+		return x.PhoneNumber
+	}
+	return ""
+}
+
+func (x *BackfillContact) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *BackfillContact) GetBusinessName() string {
+	if x != nil {
+		return x.BusinessName
+	}
+	return ""
+}
+
+type BackfillGroup struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	GroupJid          string                 `protobuf:"bytes,1,opt,name=group_jid,json=groupJid,proto3" json:"group_jid,omitempty"`
+	Subject           string                 `protobuf:"bytes,2,opt,name=subject,proto3" json:"subject,omitempty"`
+	Description       string                 `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
+	OwnerJid          string                 `protobuf:"bytes,4,opt,name=owner_jid,json=ownerJid,proto3" json:"owner_jid,omitempty"`
+	Participants      int32                  `protobuf:"varint,5,opt,name=participants,proto3" json:"participants,omitempty"`
+	IsAnnounce        bool                   `protobuf:"varint,6,opt,name=is_announce,json=isAnnounce,proto3" json:"is_announce,omitempty"`
+	IsLocked          bool                   `protobuf:"varint,7,opt,name=is_locked,json=isLocked,proto3" json:"is_locked,omitempty"`
+	CreatedAtWaUnixMs int64                  `protobuf:"varint,8,opt,name=created_at_wa_unix_ms,json=createdAtWaUnixMs,proto3" json:"created_at_wa_unix_ms,omitempty"`
+	Members           []*BackfillMember      `protobuf:"bytes,9,rep,name=members,proto3" json:"members,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *BackfillGroup) Reset() {
+	*x = BackfillGroup{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[41]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BackfillGroup) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BackfillGroup) ProtoMessage() {}
+
+func (x *BackfillGroup) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[41]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BackfillGroup.ProtoReflect.Descriptor instead.
+func (*BackfillGroup) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{41}
+}
+
+func (x *BackfillGroup) GetGroupJid() string {
+	if x != nil {
+		return x.GroupJid
+	}
+	return ""
+}
+
+func (x *BackfillGroup) GetSubject() string {
+	if x != nil {
+		return x.Subject
+	}
+	return ""
+}
+
+func (x *BackfillGroup) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *BackfillGroup) GetOwnerJid() string {
+	if x != nil {
+		return x.OwnerJid
+	}
+	return ""
+}
+
+func (x *BackfillGroup) GetParticipants() int32 {
+	if x != nil {
+		return x.Participants
+	}
+	return 0
+}
+
+func (x *BackfillGroup) GetIsAnnounce() bool {
+	if x != nil {
+		return x.IsAnnounce
+	}
+	return false
+}
+
+func (x *BackfillGroup) GetIsLocked() bool {
+	if x != nil {
+		return x.IsLocked
+	}
+	return false
+}
+
+func (x *BackfillGroup) GetCreatedAtWaUnixMs() int64 {
+	if x != nil {
+		return x.CreatedAtWaUnixMs
+	}
+	return 0
+}
+
+func (x *BackfillGroup) GetMembers() []*BackfillMember {
+	if x != nil {
+		return x.Members
+	}
+	return nil
+}
+
+type BackfillMember struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Lid           string                 `protobuf:"bytes,1,opt,name=lid,proto3" json:"lid,omitempty"`
+	Jid           string                 `protobuf:"bytes,2,opt,name=jid,proto3" json:"jid,omitempty"`
+	PhoneNumber   string                 `protobuf:"bytes,3,opt,name=phone_number,json=phoneNumber,proto3" json:"phone_number,omitempty"`
+	Tag           string                 `protobuf:"bytes,4,opt,name=tag,proto3" json:"tag,omitempty"`
+	Name          string                 `protobuf:"bytes,5,opt,name=name,proto3" json:"name,omitempty"`
+	Role          string                 `protobuf:"bytes,6,opt,name=role,proto3" json:"role,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BackfillMember) Reset() {
+	*x = BackfillMember{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[42]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BackfillMember) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BackfillMember) ProtoMessage() {}
+
+func (x *BackfillMember) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[42]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BackfillMember.ProtoReflect.Descriptor instead.
+func (*BackfillMember) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{42}
+}
+
+func (x *BackfillMember) GetLid() string {
+	if x != nil {
+		return x.Lid
+	}
+	return ""
+}
+
+func (x *BackfillMember) GetJid() string {
+	if x != nil {
+		return x.Jid
+	}
+	return ""
+}
+
+func (x *BackfillMember) GetPhoneNumber() string {
+	if x != nil {
+		return x.PhoneNumber
+	}
+	return ""
+}
+
+func (x *BackfillMember) GetTag() string {
+	if x != nil {
+		return x.Tag
+	}
+	return ""
+}
+
+func (x *BackfillMember) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *BackfillMember) GetRole() string {
+	if x != nil {
+		return x.Role
+	}
+	return ""
+}
+
+type BackfillSessionResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Snapshot      *BackfillSnapshot      `protobuf:"bytes,1,opt,name=snapshot,proto3" json:"snapshot,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BackfillSessionResponse) Reset() {
+	*x = BackfillSessionResponse{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[43]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BackfillSessionResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BackfillSessionResponse) ProtoMessage() {}
+
+func (x *BackfillSessionResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[43]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BackfillSessionResponse.ProtoReflect.Descriptor instead.
+func (*BackfillSessionResponse) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{43}
+}
+
+func (x *BackfillSessionResponse) GetSnapshot() *BackfillSnapshot {
+	if x != nil {
+		return x.Snapshot
+	}
+	return nil
+}
+
 var File_v1_gateway_engine_proto protoreflect.FileDescriptor
 
 const file_v1_gateway_engine_proto_rawDesc = "" +
@@ -1004,7 +3186,173 @@ const file_v1_gateway_engine_proto_rawDesc = "" +
 	"\n" +
 	"command_id\x18\x01 \x01(\tR\tcommandId\x121\n" +
 	"\x06target\x18\x02 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
-	"\x10assignment_epoch\x18\x03 \x01(\x04R\x0fassignmentEpochJ\x04\b\x04\x10\x10*\xf6\x01\n" +
+	"\x10assignment_epoch\x18\x03 \x01(\x04R\x0fassignmentEpochJ\x04\b\x04\x10\x10\"\x92\x01\n" +
+	"\x14LookupContactRequest\x121\n" +
+	"\x06target\x18\x01 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
+	"\x10assignment_epoch\x18\x02 \x01(\x04R\x0fassignmentEpoch\x12\x16\n" +
+	"\x06phones\x18\x03 \x03(\tR\x06phonesJ\x04\b\x04\x10\x10\"R\n" +
+	"\x15LookupContactResponse\x123\n" +
+	"\aresults\x18\x01 \x03(\v2\x19.gateway.v1.ContactLookupR\aresultsJ\x04\b\x02\x10\x10\"c\n" +
+	"\rContactLookup\x12\x14\n" +
+	"\x05query\x18\x01 \x01(\tR\x05query\x12\x10\n" +
+	"\x03jid\x18\x02 \x01(\tR\x03jid\x12$\n" +
+	"\x0eis_on_whatsapp\x18\x03 \x01(\bR\fisOnWhatsappJ\x04\b\x04\x10\x10\"\x90\x01\n" +
+	"\x18GetContactPictureRequest\x121\n" +
+	"\x06target\x18\x01 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
+	"\x10assignment_epoch\x18\x02 \x01(\x04R\x0fassignmentEpoch\x12\x10\n" +
+	"\x03jid\x18\x03 \x01(\tR\x03jidJ\x04\b\x04\x10\x10\"C\n" +
+	"\x19GetContactPictureResponse\x12\x10\n" +
+	"\x03url\x18\x01 \x01(\tR\x03url\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\tR\x02idJ\x04\b\x03\x10\x10\"\x8e\x01\n" +
+	"\x16GetContactAboutRequest\x121\n" +
+	"\x06target\x18\x01 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
+	"\x10assignment_epoch\x18\x02 \x01(\x04R\x0fassignmentEpoch\x12\x10\n" +
+	"\x03jid\x18\x03 \x01(\tR\x03jidJ\x04\b\x04\x10\x10\"5\n" +
+	"\x17GetContactAboutResponse\x12\x14\n" +
+	"\x05about\x18\x01 \x01(\tR\x05aboutJ\x04\b\x02\x10\x10\"\xc2\x01\n" +
+	"\x11SetBlockedRequest\x121\n" +
+	"\x06target\x18\x01 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
+	"\x10assignment_epoch\x18\x02 \x01(\x04R\x0fassignmentEpoch\x12\x1d\n" +
+	"\n" +
+	"command_id\x18\x03 \x01(\tR\tcommandId\x12\x10\n" +
+	"\x03jid\x18\x04 \x01(\tR\x03jid\x12\x18\n" +
+	"\ablocked\x18\x05 \x01(\bR\ablockedJ\x04\b\x06\x10\x10\"\x97\x01\n" +
+	"\x12SetBlockedResponse\x12\x1d\n" +
+	"\n" +
+	"command_id\x18\x01 \x01(\tR\tcommandId\x121\n" +
+	"\x06target\x18\x02 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
+	"\x10assignment_epoch\x18\x03 \x01(\x04R\x0fassignmentEpochJ\x04\b\x04\x10\x10\"\xcf\x01\n" +
+	"\x12CreateGroupRequest\x121\n" +
+	"\x06target\x18\x01 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
+	"\x10assignment_epoch\x18\x02 \x01(\x04R\x0fassignmentEpoch\x12\x1d\n" +
+	"\n" +
+	"command_id\x18\x03 \x01(\tR\tcommandId\x12\x12\n" +
+	"\x04name\x18\x04 \x01(\tR\x04name\x12\"\n" +
+	"\fparticipants\x18\x05 \x03(\tR\fparticipantsJ\x04\b\x06\x10\x10\"\xe9\x01\n" +
+	"\tGroupInfo\x12\x1b\n" +
+	"\tgroup_jid\x18\x01 \x01(\tR\bgroupJid\x12\x18\n" +
+	"\asubject\x18\x02 \x01(\tR\asubject\x12 \n" +
+	"\vdescription\x18\x03 \x01(\tR\vdescription\x12\x1b\n" +
+	"\towner_jid\x18\x04 \x01(\tR\bownerJid\x12\"\n" +
+	"\fparticipants\x18\x05 \x01(\x05R\fparticipants\x12\x1f\n" +
+	"\vis_announce\x18\x06 \x01(\bR\n" +
+	"isAnnounce\x12\x1b\n" +
+	"\tis_locked\x18\a \x01(\bR\bisLockedJ\x04\b\b\x10\x10\"\xc5\x01\n" +
+	"\x13CreateGroupResponse\x12\x1d\n" +
+	"\n" +
+	"command_id\x18\x01 \x01(\tR\tcommandId\x121\n" +
+	"\x06target\x18\x02 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
+	"\x10assignment_epoch\x18\x03 \x01(\x04R\x0fassignmentEpoch\x12+\n" +
+	"\x05group\x18\x04 \x01(\v2\x15.gateway.v1.GroupInfoR\x05groupJ\x04\b\x05\x10\x10\"\xf4\x02\n" +
+	"\x1aUpdateGroupSettingsRequest\x121\n" +
+	"\x06target\x18\x01 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
+	"\x10assignment_epoch\x18\x02 \x01(\x04R\x0fassignmentEpoch\x12\x1d\n" +
+	"\n" +
+	"command_id\x18\x03 \x01(\tR\tcommandId\x12\x1b\n" +
+	"\tgroup_jid\x18\x04 \x01(\tR\bgroupJid\x12\x1d\n" +
+	"\asubject\x18\x05 \x01(\tH\x00R\asubject\x88\x01\x01\x12%\n" +
+	"\vdescription\x18\x06 \x01(\tH\x01R\vdescription\x88\x01\x01\x12\x1f\n" +
+	"\bannounce\x18\a \x01(\bH\x02R\bannounce\x88\x01\x01\x12\x1b\n" +
+	"\x06locked\x18\b \x01(\bH\x03R\x06locked\x88\x01\x01B\n" +
+	"\n" +
+	"\b_subjectB\x0e\n" +
+	"\f_descriptionB\v\n" +
+	"\t_announceB\t\n" +
+	"\a_lockedJ\x04\b\t\x10\x10\"\xa0\x01\n" +
+	"\x1bUpdateGroupSettingsResponse\x12\x1d\n" +
+	"\n" +
+	"command_id\x18\x01 \x01(\tR\tcommandId\x121\n" +
+	"\x06target\x18\x02 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
+	"\x10assignment_epoch\x18\x03 \x01(\x04R\x0fassignmentEpochJ\x04\b\x04\x10\x10\"\xa0\x02\n" +
+	"\x1eUpdateGroupParticipantsRequest\x121\n" +
+	"\x06target\x18\x01 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
+	"\x10assignment_epoch\x18\x02 \x01(\x04R\x0fassignmentEpoch\x12\x1d\n" +
+	"\n" +
+	"command_id\x18\x03 \x01(\tR\tcommandId\x12\x1b\n" +
+	"\tgroup_jid\x18\x04 \x01(\tR\bgroupJid\x12\"\n" +
+	"\fparticipants\x18\x05 \x03(\tR\fparticipants\x12:\n" +
+	"\x06action\x18\x06 \x01(\x0e2\".gateway.v1.GroupParticipantChangeR\x06actionJ\x04\b\a\x10\x10\"\xa4\x01\n" +
+	"\x1fUpdateGroupParticipantsResponse\x12\x1d\n" +
+	"\n" +
+	"command_id\x18\x01 \x01(\tR\tcommandId\x121\n" +
+	"\x06target\x18\x02 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
+	"\x10assignment_epoch\x18\x03 \x01(\x04R\x0fassignmentEpochJ\x04\b\x04\x10\x10\"\xb2\x01\n" +
+	"\x19GetGroupInviteLinkRequest\x121\n" +
+	"\x06target\x18\x01 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
+	"\x10assignment_epoch\x18\x02 \x01(\x04R\x0fassignmentEpoch\x12\x1b\n" +
+	"\tgroup_jid\x18\x03 \x01(\tR\bgroupJid\x12\x14\n" +
+	"\x05reset\x18\x04 \x01(\bR\x05resetJ\x04\b\x05\x10\x10\"6\n" +
+	"\x1aGetGroupInviteLinkResponse\x12\x12\n" +
+	"\x04link\x18\x01 \x01(\tR\x04linkJ\x04\b\x02\x10\x10\"\x8e\x01\n" +
+	"\x10JoinGroupRequest\x121\n" +
+	"\x06target\x18\x01 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
+	"\x10assignment_epoch\x18\x02 \x01(\x04R\x0fassignmentEpoch\x12\x16\n" +
+	"\x06invite\x18\x03 \x01(\tR\x06inviteJ\x04\b\x04\x10\x10\"6\n" +
+	"\x11JoinGroupResponse\x12\x1b\n" +
+	"\tgroup_jid\x18\x01 \x01(\tR\bgroupJidJ\x04\b\x02\x10\x10\"\xb3\x01\n" +
+	"\x11LeaveGroupRequest\x121\n" +
+	"\x06target\x18\x01 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
+	"\x10assignment_epoch\x18\x02 \x01(\x04R\x0fassignmentEpoch\x12\x1d\n" +
+	"\n" +
+	"command_id\x18\x03 \x01(\tR\tcommandId\x12\x1b\n" +
+	"\tgroup_jid\x18\x04 \x01(\tR\bgroupJidJ\x04\b\x05\x10\x10\"\x97\x01\n" +
+	"\x12LeaveGroupResponse\x12\x1d\n" +
+	"\n" +
+	"command_id\x18\x01 \x01(\tR\tcommandId\x121\n" +
+	"\x06target\x18\x02 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
+	"\x10assignment_epoch\x18\x03 \x01(\x04R\x0fassignmentEpochJ\x04\b\x04\x10\x10\"\x97\x01\n" +
+	"\x16GetChatPresenceRequest\x121\n" +
+	"\x06target\x18\x01 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
+	"\x10assignment_epoch\x18\x02 \x01(\x04R\x0fassignmentEpoch\x12\x19\n" +
+	"\bchat_jid\x18\x03 \x01(\tR\achatJidJ\x04\b\x04\x10\x10\"\xc2\x01\n" +
+	"\x12ChatPresenceStatus\x12\x19\n" +
+	"\bchat_jid\x18\x01 \x01(\tR\achatJid\x12\x12\n" +
+	"\x04from\x18\x02 \x01(\tR\x04from\x12\x14\n" +
+	"\x05state\x18\x03 \x01(\tR\x05state\x12\x14\n" +
+	"\x05media\x18\x04 \x01(\tR\x05media\x12 \n" +
+	"\vunavailable\x18\x05 \x01(\bR\vunavailable\x12)\n" +
+	"\x11last_seen_unix_ms\x18\x06 \x01(\x03R\x0elastSeenUnixMsJ\x04\b\a\x10\x10\"[\n" +
+	"\x17GetChatPresenceResponse\x12:\n" +
+	"\bpresence\x18\x01 \x01(\v2\x1e.gateway.v1.ChatPresenceStatusR\bpresenceJ\x04\b\x02\x10\x10\"\xad\x01\n" +
+	"\x16SetChatPresenceRequest\x121\n" +
+	"\x06target\x18\x01 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
+	"\x10assignment_epoch\x18\x02 \x01(\x04R\x0fassignmentEpoch\x12\x19\n" +
+	"\bchat_jid\x18\x03 \x01(\tR\achatJid\x12\x14\n" +
+	"\x05state\x18\x04 \x01(\tR\x05stateJ\x04\b\x05\x10\x10\"\x1f\n" +
+	"\x17SetChatPresenceResponseJ\x04\b\x01\x10\x10\"|\n" +
+	"\x16BackfillSessionRequest\x121\n" +
+	"\x06target\x18\x01 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
+	"\x10assignment_epoch\x18\x02 \x01(\x04R\x0fassignmentEpochJ\x04\b\x03\x10\x10\"\x84\x01\n" +
+	"\x10BackfillSnapshot\x127\n" +
+	"\bcontacts\x18\x01 \x03(\v2\x1b.gateway.v1.BackfillContactR\bcontacts\x121\n" +
+	"\x06groups\x18\x02 \x03(\v2\x19.gateway.v1.BackfillGroupR\x06groupsJ\x04\b\x03\x10\x10\"\xa2\x01\n" +
+	"\x0fBackfillContact\x12\x10\n" +
+	"\x03lid\x18\x01 \x01(\tR\x03lid\x12\x1b\n" +
+	"\tphone_jid\x18\x02 \x01(\tR\bphoneJid\x12!\n" +
+	"\fphone_number\x18\x03 \x01(\tR\vphoneNumber\x12\x12\n" +
+	"\x04name\x18\x04 \x01(\tR\x04name\x12#\n" +
+	"\rbusiness_name\x18\x05 \x01(\tR\fbusinessNameJ\x04\b\x06\x10\x10\"\xd5\x02\n" +
+	"\rBackfillGroup\x12\x1b\n" +
+	"\tgroup_jid\x18\x01 \x01(\tR\bgroupJid\x12\x18\n" +
+	"\asubject\x18\x02 \x01(\tR\asubject\x12 \n" +
+	"\vdescription\x18\x03 \x01(\tR\vdescription\x12\x1b\n" +
+	"\towner_jid\x18\x04 \x01(\tR\bownerJid\x12\"\n" +
+	"\fparticipants\x18\x05 \x01(\x05R\fparticipants\x12\x1f\n" +
+	"\vis_announce\x18\x06 \x01(\bR\n" +
+	"isAnnounce\x12\x1b\n" +
+	"\tis_locked\x18\a \x01(\bR\bisLocked\x120\n" +
+	"\x15created_at_wa_unix_ms\x18\b \x01(\x03R\x11createdAtWaUnixMs\x124\n" +
+	"\amembers\x18\t \x03(\v2\x1a.gateway.v1.BackfillMemberR\amembersJ\x04\b\n" +
+	"\x10\x10\"\x97\x01\n" +
+	"\x0eBackfillMember\x12\x10\n" +
+	"\x03lid\x18\x01 \x01(\tR\x03lid\x12\x10\n" +
+	"\x03jid\x18\x02 \x01(\tR\x03jid\x12!\n" +
+	"\fphone_number\x18\x03 \x01(\tR\vphoneNumber\x12\x10\n" +
+	"\x03tag\x18\x04 \x01(\tR\x03tag\x12\x12\n" +
+	"\x04name\x18\x05 \x01(\tR\x04name\x12\x12\n" +
+	"\x04role\x18\x06 \x01(\tR\x04roleJ\x04\b\a\x10\x10\"Y\n" +
+	"\x17BackfillSessionResponse\x128\n" +
+	"\bsnapshot\x18\x01 \x01(\v2\x1c.gateway.v1.BackfillSnapshotR\bsnapshotJ\x04\b\x02\x10\x10*\xf6\x01\n" +
 	"\x14GatewaySessionStatus\x12&\n" +
 	"\"GATEWAY_SESSION_STATUS_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1eGATEWAY_SESSION_STATUS_STOPPED\x10\x01\x12#\n" +
@@ -1015,13 +3363,34 @@ const file_v1_gateway_engine_proto_rawDesc = "" +
 	"\x0fAccountPresence\x12 \n" +
 	"\x1cACCOUNT_PRESENCE_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17ACCOUNT_PRESENCE_ONLINE\x10\x01\x12\x1c\n" +
-	"\x18ACCOUNT_PRESENCE_OFFLINE\x10\x022\xb8\x03\n" +
+	"\x18ACCOUNT_PRESENCE_OFFLINE\x10\x02*\xd4\x01\n" +
+	"\x16GroupParticipantChange\x12(\n" +
+	"$GROUP_PARTICIPANT_CHANGE_UNSPECIFIED\x10\x00\x12 \n" +
+	"\x1cGROUP_PARTICIPANT_CHANGE_ADD\x10\x01\x12#\n" +
+	"\x1fGROUP_PARTICIPANT_CHANGE_REMOVE\x10\x02\x12$\n" +
+	" GROUP_PARTICIPANT_CHANGE_PROMOTE\x10\x03\x12#\n" +
+	"\x1fGROUP_PARTICIPANT_CHANGE_DEMOTE\x10\x042\xd5\f\n" +
 	"\x14GatewayEngineService\x12Z\n" +
 	"\x0fGetSessionState\x12\".gateway.v1.GetSessionStateRequest\x1a#.gateway.v1.GetSessionStateResponse\x12c\n" +
 	"\x12SetAccountPresence\x12%.gateway.v1.SetAccountPresenceRequest\x1a&.gateway.v1.SetAccountPresenceResponse\x12E\n" +
 	"\bMarkRead\x12\x1b.gateway.v1.MarkReadRequest\x1a\x1c.gateway.v1.MarkReadResponse\x12N\n" +
 	"\vSendMessage\x12\x1e.gateway.v1.SendMessageRequest\x1a\x1f.gateway.v1.SendMessageResponse\x12H\n" +
-	"\tMessageOp\x12\x1c.gateway.v1.MessageOpRequest\x1a\x1d.gateway.v1.MessageOpResponseBDZBgithub.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1;gatewayv1b\x06proto3"
+	"\tMessageOp\x12\x1c.gateway.v1.MessageOpRequest\x1a\x1d.gateway.v1.MessageOpResponse\x12T\n" +
+	"\rLookupContact\x12 .gateway.v1.LookupContactRequest\x1a!.gateway.v1.LookupContactResponse\x12`\n" +
+	"\x11GetContactPicture\x12$.gateway.v1.GetContactPictureRequest\x1a%.gateway.v1.GetContactPictureResponse\x12Z\n" +
+	"\x0fGetContactAbout\x12\".gateway.v1.GetContactAboutRequest\x1a#.gateway.v1.GetContactAboutResponse\x12K\n" +
+	"\n" +
+	"SetBlocked\x12\x1d.gateway.v1.SetBlockedRequest\x1a\x1e.gateway.v1.SetBlockedResponse\x12N\n" +
+	"\vCreateGroup\x12\x1e.gateway.v1.CreateGroupRequest\x1a\x1f.gateway.v1.CreateGroupResponse\x12f\n" +
+	"\x13UpdateGroupSettings\x12&.gateway.v1.UpdateGroupSettingsRequest\x1a'.gateway.v1.UpdateGroupSettingsResponse\x12r\n" +
+	"\x17UpdateGroupParticipants\x12*.gateway.v1.UpdateGroupParticipantsRequest\x1a+.gateway.v1.UpdateGroupParticipantsResponse\x12c\n" +
+	"\x12GetGroupInviteLink\x12%.gateway.v1.GetGroupInviteLinkRequest\x1a&.gateway.v1.GetGroupInviteLinkResponse\x12H\n" +
+	"\tJoinGroup\x12\x1c.gateway.v1.JoinGroupRequest\x1a\x1d.gateway.v1.JoinGroupResponse\x12K\n" +
+	"\n" +
+	"LeaveGroup\x12\x1d.gateway.v1.LeaveGroupRequest\x1a\x1e.gateway.v1.LeaveGroupResponse\x12Z\n" +
+	"\x0fGetChatPresence\x12\".gateway.v1.GetChatPresenceRequest\x1a#.gateway.v1.GetChatPresenceResponse\x12Z\n" +
+	"\x0fSetChatPresence\x12\".gateway.v1.SetChatPresenceRequest\x1a#.gateway.v1.SetChatPresenceResponse\x12Z\n" +
+	"\x0fBackfillSession\x12\".gateway.v1.BackfillSessionRequest\x1a#.gateway.v1.BackfillSessionResponseBDZBgithub.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1;gatewayv1b\x06proto3"
 
 var (
 	file_v1_gateway_engine_proto_rawDescOnce sync.Once
@@ -1035,51 +3404,137 @@ func file_v1_gateway_engine_proto_rawDescGZIP() []byte {
 	return file_v1_gateway_engine_proto_rawDescData
 }
 
-var file_v1_gateway_engine_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_v1_gateway_engine_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_v1_gateway_engine_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_v1_gateway_engine_proto_msgTypes = make([]protoimpl.MessageInfo, 44)
 var file_v1_gateway_engine_proto_goTypes = []any{
-	(GatewaySessionStatus)(0),          // 0: gateway.v1.GatewaySessionStatus
-	(AccountPresence)(0),               // 1: gateway.v1.AccountPresence
-	(*SessionTarget)(nil),              // 2: gateway.v1.SessionTarget
-	(*GetSessionStateRequest)(nil),     // 3: gateway.v1.GetSessionStateRequest
-	(*GetSessionStateResponse)(nil),    // 4: gateway.v1.GetSessionStateResponse
-	(*SetAccountPresenceRequest)(nil),  // 5: gateway.v1.SetAccountPresenceRequest
-	(*MarkReadRequest)(nil),            // 6: gateway.v1.MarkReadRequest
-	(*SetAccountPresenceResponse)(nil), // 7: gateway.v1.SetAccountPresenceResponse
-	(*MarkReadResponse)(nil),           // 8: gateway.v1.MarkReadResponse
-	(*SendMessageRequest)(nil),         // 9: gateway.v1.SendMessageRequest
-	(*SendMessageResponse)(nil),        // 10: gateway.v1.SendMessageResponse
-	(*MessageOpRequest)(nil),           // 11: gateway.v1.MessageOpRequest
-	(*MessageOpResponse)(nil),          // 12: gateway.v1.MessageOpResponse
+	(GatewaySessionStatus)(0),               // 0: gateway.v1.GatewaySessionStatus
+	(AccountPresence)(0),                    // 1: gateway.v1.AccountPresence
+	(GroupParticipantChange)(0),             // 2: gateway.v1.GroupParticipantChange
+	(*SessionTarget)(nil),                   // 3: gateway.v1.SessionTarget
+	(*GetSessionStateRequest)(nil),          // 4: gateway.v1.GetSessionStateRequest
+	(*GetSessionStateResponse)(nil),         // 5: gateway.v1.GetSessionStateResponse
+	(*SetAccountPresenceRequest)(nil),       // 6: gateway.v1.SetAccountPresenceRequest
+	(*MarkReadRequest)(nil),                 // 7: gateway.v1.MarkReadRequest
+	(*SetAccountPresenceResponse)(nil),      // 8: gateway.v1.SetAccountPresenceResponse
+	(*MarkReadResponse)(nil),                // 9: gateway.v1.MarkReadResponse
+	(*SendMessageRequest)(nil),              // 10: gateway.v1.SendMessageRequest
+	(*SendMessageResponse)(nil),             // 11: gateway.v1.SendMessageResponse
+	(*MessageOpRequest)(nil),                // 12: gateway.v1.MessageOpRequest
+	(*MessageOpResponse)(nil),               // 13: gateway.v1.MessageOpResponse
+	(*LookupContactRequest)(nil),            // 14: gateway.v1.LookupContactRequest
+	(*LookupContactResponse)(nil),           // 15: gateway.v1.LookupContactResponse
+	(*ContactLookup)(nil),                   // 16: gateway.v1.ContactLookup
+	(*GetContactPictureRequest)(nil),        // 17: gateway.v1.GetContactPictureRequest
+	(*GetContactPictureResponse)(nil),       // 18: gateway.v1.GetContactPictureResponse
+	(*GetContactAboutRequest)(nil),          // 19: gateway.v1.GetContactAboutRequest
+	(*GetContactAboutResponse)(nil),         // 20: gateway.v1.GetContactAboutResponse
+	(*SetBlockedRequest)(nil),               // 21: gateway.v1.SetBlockedRequest
+	(*SetBlockedResponse)(nil),              // 22: gateway.v1.SetBlockedResponse
+	(*CreateGroupRequest)(nil),              // 23: gateway.v1.CreateGroupRequest
+	(*GroupInfo)(nil),                       // 24: gateway.v1.GroupInfo
+	(*CreateGroupResponse)(nil),             // 25: gateway.v1.CreateGroupResponse
+	(*UpdateGroupSettingsRequest)(nil),      // 26: gateway.v1.UpdateGroupSettingsRequest
+	(*UpdateGroupSettingsResponse)(nil),     // 27: gateway.v1.UpdateGroupSettingsResponse
+	(*UpdateGroupParticipantsRequest)(nil),  // 28: gateway.v1.UpdateGroupParticipantsRequest
+	(*UpdateGroupParticipantsResponse)(nil), // 29: gateway.v1.UpdateGroupParticipantsResponse
+	(*GetGroupInviteLinkRequest)(nil),       // 30: gateway.v1.GetGroupInviteLinkRequest
+	(*GetGroupInviteLinkResponse)(nil),      // 31: gateway.v1.GetGroupInviteLinkResponse
+	(*JoinGroupRequest)(nil),                // 32: gateway.v1.JoinGroupRequest
+	(*JoinGroupResponse)(nil),               // 33: gateway.v1.JoinGroupResponse
+	(*LeaveGroupRequest)(nil),               // 34: gateway.v1.LeaveGroupRequest
+	(*LeaveGroupResponse)(nil),              // 35: gateway.v1.LeaveGroupResponse
+	(*GetChatPresenceRequest)(nil),          // 36: gateway.v1.GetChatPresenceRequest
+	(*ChatPresenceStatus)(nil),              // 37: gateway.v1.ChatPresenceStatus
+	(*GetChatPresenceResponse)(nil),         // 38: gateway.v1.GetChatPresenceResponse
+	(*SetChatPresenceRequest)(nil),          // 39: gateway.v1.SetChatPresenceRequest
+	(*SetChatPresenceResponse)(nil),         // 40: gateway.v1.SetChatPresenceResponse
+	(*BackfillSessionRequest)(nil),          // 41: gateway.v1.BackfillSessionRequest
+	(*BackfillSnapshot)(nil),                // 42: gateway.v1.BackfillSnapshot
+	(*BackfillContact)(nil),                 // 43: gateway.v1.BackfillContact
+	(*BackfillGroup)(nil),                   // 44: gateway.v1.BackfillGroup
+	(*BackfillMember)(nil),                  // 45: gateway.v1.BackfillMember
+	(*BackfillSessionResponse)(nil),         // 46: gateway.v1.BackfillSessionResponse
 }
 var file_v1_gateway_engine_proto_depIdxs = []int32{
-	2,  // 0: gateway.v1.GetSessionStateRequest.target:type_name -> gateway.v1.SessionTarget
-	2,  // 1: gateway.v1.GetSessionStateResponse.target:type_name -> gateway.v1.SessionTarget
+	3,  // 0: gateway.v1.GetSessionStateRequest.target:type_name -> gateway.v1.SessionTarget
+	3,  // 1: gateway.v1.GetSessionStateResponse.target:type_name -> gateway.v1.SessionTarget
 	0,  // 2: gateway.v1.GetSessionStateResponse.status:type_name -> gateway.v1.GatewaySessionStatus
-	2,  // 3: gateway.v1.SetAccountPresenceRequest.target:type_name -> gateway.v1.SessionTarget
+	3,  // 3: gateway.v1.SetAccountPresenceRequest.target:type_name -> gateway.v1.SessionTarget
 	1,  // 4: gateway.v1.SetAccountPresenceRequest.state:type_name -> gateway.v1.AccountPresence
-	2,  // 5: gateway.v1.MarkReadRequest.target:type_name -> gateway.v1.SessionTarget
-	2,  // 6: gateway.v1.SetAccountPresenceResponse.target:type_name -> gateway.v1.SessionTarget
-	2,  // 7: gateway.v1.MarkReadResponse.target:type_name -> gateway.v1.SessionTarget
-	2,  // 8: gateway.v1.SendMessageRequest.target:type_name -> gateway.v1.SessionTarget
-	2,  // 9: gateway.v1.SendMessageResponse.target:type_name -> gateway.v1.SessionTarget
-	2,  // 10: gateway.v1.MessageOpRequest.target:type_name -> gateway.v1.SessionTarget
-	2,  // 11: gateway.v1.MessageOpResponse.target:type_name -> gateway.v1.SessionTarget
-	3,  // 12: gateway.v1.GatewayEngineService.GetSessionState:input_type -> gateway.v1.GetSessionStateRequest
-	5,  // 13: gateway.v1.GatewayEngineService.SetAccountPresence:input_type -> gateway.v1.SetAccountPresenceRequest
-	6,  // 14: gateway.v1.GatewayEngineService.MarkRead:input_type -> gateway.v1.MarkReadRequest
-	9,  // 15: gateway.v1.GatewayEngineService.SendMessage:input_type -> gateway.v1.SendMessageRequest
-	11, // 16: gateway.v1.GatewayEngineService.MessageOp:input_type -> gateway.v1.MessageOpRequest
-	4,  // 17: gateway.v1.GatewayEngineService.GetSessionState:output_type -> gateway.v1.GetSessionStateResponse
-	7,  // 18: gateway.v1.GatewayEngineService.SetAccountPresence:output_type -> gateway.v1.SetAccountPresenceResponse
-	8,  // 19: gateway.v1.GatewayEngineService.MarkRead:output_type -> gateway.v1.MarkReadResponse
-	10, // 20: gateway.v1.GatewayEngineService.SendMessage:output_type -> gateway.v1.SendMessageResponse
-	12, // 21: gateway.v1.GatewayEngineService.MessageOp:output_type -> gateway.v1.MessageOpResponse
-	17, // [17:22] is the sub-list for method output_type
-	12, // [12:17] is the sub-list for method input_type
-	12, // [12:12] is the sub-list for extension type_name
-	12, // [12:12] is the sub-list for extension extendee
-	0,  // [0:12] is the sub-list for field type_name
+	3,  // 5: gateway.v1.MarkReadRequest.target:type_name -> gateway.v1.SessionTarget
+	3,  // 6: gateway.v1.SetAccountPresenceResponse.target:type_name -> gateway.v1.SessionTarget
+	3,  // 7: gateway.v1.MarkReadResponse.target:type_name -> gateway.v1.SessionTarget
+	3,  // 8: gateway.v1.SendMessageRequest.target:type_name -> gateway.v1.SessionTarget
+	3,  // 9: gateway.v1.SendMessageResponse.target:type_name -> gateway.v1.SessionTarget
+	3,  // 10: gateway.v1.MessageOpRequest.target:type_name -> gateway.v1.SessionTarget
+	3,  // 11: gateway.v1.MessageOpResponse.target:type_name -> gateway.v1.SessionTarget
+	3,  // 12: gateway.v1.LookupContactRequest.target:type_name -> gateway.v1.SessionTarget
+	16, // 13: gateway.v1.LookupContactResponse.results:type_name -> gateway.v1.ContactLookup
+	3,  // 14: gateway.v1.GetContactPictureRequest.target:type_name -> gateway.v1.SessionTarget
+	3,  // 15: gateway.v1.GetContactAboutRequest.target:type_name -> gateway.v1.SessionTarget
+	3,  // 16: gateway.v1.SetBlockedRequest.target:type_name -> gateway.v1.SessionTarget
+	3,  // 17: gateway.v1.SetBlockedResponse.target:type_name -> gateway.v1.SessionTarget
+	3,  // 18: gateway.v1.CreateGroupRequest.target:type_name -> gateway.v1.SessionTarget
+	3,  // 19: gateway.v1.CreateGroupResponse.target:type_name -> gateway.v1.SessionTarget
+	24, // 20: gateway.v1.CreateGroupResponse.group:type_name -> gateway.v1.GroupInfo
+	3,  // 21: gateway.v1.UpdateGroupSettingsRequest.target:type_name -> gateway.v1.SessionTarget
+	3,  // 22: gateway.v1.UpdateGroupSettingsResponse.target:type_name -> gateway.v1.SessionTarget
+	3,  // 23: gateway.v1.UpdateGroupParticipantsRequest.target:type_name -> gateway.v1.SessionTarget
+	2,  // 24: gateway.v1.UpdateGroupParticipantsRequest.action:type_name -> gateway.v1.GroupParticipantChange
+	3,  // 25: gateway.v1.UpdateGroupParticipantsResponse.target:type_name -> gateway.v1.SessionTarget
+	3,  // 26: gateway.v1.GetGroupInviteLinkRequest.target:type_name -> gateway.v1.SessionTarget
+	3,  // 27: gateway.v1.JoinGroupRequest.target:type_name -> gateway.v1.SessionTarget
+	3,  // 28: gateway.v1.LeaveGroupRequest.target:type_name -> gateway.v1.SessionTarget
+	3,  // 29: gateway.v1.LeaveGroupResponse.target:type_name -> gateway.v1.SessionTarget
+	3,  // 30: gateway.v1.GetChatPresenceRequest.target:type_name -> gateway.v1.SessionTarget
+	37, // 31: gateway.v1.GetChatPresenceResponse.presence:type_name -> gateway.v1.ChatPresenceStatus
+	3,  // 32: gateway.v1.SetChatPresenceRequest.target:type_name -> gateway.v1.SessionTarget
+	3,  // 33: gateway.v1.BackfillSessionRequest.target:type_name -> gateway.v1.SessionTarget
+	43, // 34: gateway.v1.BackfillSnapshot.contacts:type_name -> gateway.v1.BackfillContact
+	44, // 35: gateway.v1.BackfillSnapshot.groups:type_name -> gateway.v1.BackfillGroup
+	45, // 36: gateway.v1.BackfillGroup.members:type_name -> gateway.v1.BackfillMember
+	42, // 37: gateway.v1.BackfillSessionResponse.snapshot:type_name -> gateway.v1.BackfillSnapshot
+	4,  // 38: gateway.v1.GatewayEngineService.GetSessionState:input_type -> gateway.v1.GetSessionStateRequest
+	6,  // 39: gateway.v1.GatewayEngineService.SetAccountPresence:input_type -> gateway.v1.SetAccountPresenceRequest
+	7,  // 40: gateway.v1.GatewayEngineService.MarkRead:input_type -> gateway.v1.MarkReadRequest
+	10, // 41: gateway.v1.GatewayEngineService.SendMessage:input_type -> gateway.v1.SendMessageRequest
+	12, // 42: gateway.v1.GatewayEngineService.MessageOp:input_type -> gateway.v1.MessageOpRequest
+	14, // 43: gateway.v1.GatewayEngineService.LookupContact:input_type -> gateway.v1.LookupContactRequest
+	17, // 44: gateway.v1.GatewayEngineService.GetContactPicture:input_type -> gateway.v1.GetContactPictureRequest
+	19, // 45: gateway.v1.GatewayEngineService.GetContactAbout:input_type -> gateway.v1.GetContactAboutRequest
+	21, // 46: gateway.v1.GatewayEngineService.SetBlocked:input_type -> gateway.v1.SetBlockedRequest
+	23, // 47: gateway.v1.GatewayEngineService.CreateGroup:input_type -> gateway.v1.CreateGroupRequest
+	26, // 48: gateway.v1.GatewayEngineService.UpdateGroupSettings:input_type -> gateway.v1.UpdateGroupSettingsRequest
+	28, // 49: gateway.v1.GatewayEngineService.UpdateGroupParticipants:input_type -> gateway.v1.UpdateGroupParticipantsRequest
+	30, // 50: gateway.v1.GatewayEngineService.GetGroupInviteLink:input_type -> gateway.v1.GetGroupInviteLinkRequest
+	32, // 51: gateway.v1.GatewayEngineService.JoinGroup:input_type -> gateway.v1.JoinGroupRequest
+	34, // 52: gateway.v1.GatewayEngineService.LeaveGroup:input_type -> gateway.v1.LeaveGroupRequest
+	36, // 53: gateway.v1.GatewayEngineService.GetChatPresence:input_type -> gateway.v1.GetChatPresenceRequest
+	39, // 54: gateway.v1.GatewayEngineService.SetChatPresence:input_type -> gateway.v1.SetChatPresenceRequest
+	41, // 55: gateway.v1.GatewayEngineService.BackfillSession:input_type -> gateway.v1.BackfillSessionRequest
+	5,  // 56: gateway.v1.GatewayEngineService.GetSessionState:output_type -> gateway.v1.GetSessionStateResponse
+	8,  // 57: gateway.v1.GatewayEngineService.SetAccountPresence:output_type -> gateway.v1.SetAccountPresenceResponse
+	9,  // 58: gateway.v1.GatewayEngineService.MarkRead:output_type -> gateway.v1.MarkReadResponse
+	11, // 59: gateway.v1.GatewayEngineService.SendMessage:output_type -> gateway.v1.SendMessageResponse
+	13, // 60: gateway.v1.GatewayEngineService.MessageOp:output_type -> gateway.v1.MessageOpResponse
+	15, // 61: gateway.v1.GatewayEngineService.LookupContact:output_type -> gateway.v1.LookupContactResponse
+	18, // 62: gateway.v1.GatewayEngineService.GetContactPicture:output_type -> gateway.v1.GetContactPictureResponse
+	20, // 63: gateway.v1.GatewayEngineService.GetContactAbout:output_type -> gateway.v1.GetContactAboutResponse
+	22, // 64: gateway.v1.GatewayEngineService.SetBlocked:output_type -> gateway.v1.SetBlockedResponse
+	25, // 65: gateway.v1.GatewayEngineService.CreateGroup:output_type -> gateway.v1.CreateGroupResponse
+	27, // 66: gateway.v1.GatewayEngineService.UpdateGroupSettings:output_type -> gateway.v1.UpdateGroupSettingsResponse
+	29, // 67: gateway.v1.GatewayEngineService.UpdateGroupParticipants:output_type -> gateway.v1.UpdateGroupParticipantsResponse
+	31, // 68: gateway.v1.GatewayEngineService.GetGroupInviteLink:output_type -> gateway.v1.GetGroupInviteLinkResponse
+	33, // 69: gateway.v1.GatewayEngineService.JoinGroup:output_type -> gateway.v1.JoinGroupResponse
+	35, // 70: gateway.v1.GatewayEngineService.LeaveGroup:output_type -> gateway.v1.LeaveGroupResponse
+	38, // 71: gateway.v1.GatewayEngineService.GetChatPresence:output_type -> gateway.v1.GetChatPresenceResponse
+	40, // 72: gateway.v1.GatewayEngineService.SetChatPresence:output_type -> gateway.v1.SetChatPresenceResponse
+	46, // 73: gateway.v1.GatewayEngineService.BackfillSession:output_type -> gateway.v1.BackfillSessionResponse
+	56, // [56:74] is the sub-list for method output_type
+	38, // [38:56] is the sub-list for method input_type
+	38, // [38:38] is the sub-list for extension type_name
+	38, // [38:38] is the sub-list for extension extendee
+	0,  // [0:38] is the sub-list for field type_name
 }
 
 func init() { file_v1_gateway_engine_proto_init() }
@@ -1087,13 +3542,14 @@ func file_v1_gateway_engine_proto_init() {
 	if File_v1_gateway_engine_proto != nil {
 		return
 	}
+	file_v1_gateway_engine_proto_msgTypes[23].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_v1_gateway_engine_proto_rawDesc), len(file_v1_gateway_engine_proto_rawDesc)),
-			NumEnums:      2,
-			NumMessages:   11,
+			NumEnums:      3,
+			NumMessages:   44,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

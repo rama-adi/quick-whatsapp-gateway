@@ -29,6 +29,20 @@ type fakeEngineLiveOps struct {
 	readAt                            time.Time
 	err                               error
 	calls                             int
+
+	// group/contact/presence/backfill recording
+	blockedJID        string
+	blocked           bool
+	groupInfo         domain.GroupInfo
+	settings          domain.GroupSettings
+	partAction        domain.GroupParticipantAction
+	participants      []string
+	inviteReset       bool
+	joinedCode        string
+	leftGroup         string
+	chatPresenceState string
+	subscribedChat    string
+	backfillCalled    bool
 }
 
 func (f *fakeEngineLiveOps) SetPresence(ctx context.Context, sessionID, state string) error {
@@ -42,6 +56,97 @@ func (f *fakeEngineLiveOps) SendReadReceiptAt(ctx context.Context, sessionID, ch
 	f.ctx, f.sessionID, f.chatJID, f.sender = ctx, sessionID, chatJID, sender
 	f.messageIDs, f.readAt = ids, readAt
 	return f.err
+}
+
+func (f *fakeEngineLiveOps) IsOnWhatsApp(ctx context.Context, sessionID string, phones []string) ([]domain.OnWhatsApp, error) {
+	f.calls++
+	f.ctx, f.sessionID = ctx, sessionID
+	return nil, f.err
+}
+
+func (f *fakeEngineLiveOps) ProfilePicture(ctx context.Context, sessionID, jid string) (domain.ProfilePicture, error) {
+	f.calls++
+	f.ctx, f.sessionID = ctx, sessionID
+	return domain.ProfilePicture{}, f.err
+}
+
+func (f *fakeEngineLiveOps) About(ctx context.Context, sessionID, jid string) (string, error) {
+	f.calls++
+	f.ctx, f.sessionID = ctx, sessionID
+	return "", f.err
+}
+
+func (f *fakeEngineLiveOps) SetBlocked(ctx context.Context, sessionID, jid string, blocked bool) error {
+	f.calls++
+	f.ctx, f.sessionID = ctx, sessionID
+	f.blockedJID, f.blocked = jid, blocked
+	return f.err
+}
+
+func (f *fakeEngineLiveOps) CreateGroup(ctx context.Context, sessionID, name string, participants []string) (domain.GroupInfo, error) {
+	f.calls++
+	f.ctx, f.sessionID = ctx, sessionID
+	if f.err != nil {
+		return domain.GroupInfo{}, f.err
+	}
+	f.groupInfo = domain.GroupInfo{GroupJID: "120363@g.us", Subject: name}
+	return f.groupInfo, nil
+}
+
+func (f *fakeEngineLiveOps) UpdateParticipants(ctx context.Context, sessionID, groupJID string, participants []string, action domain.GroupParticipantAction) error {
+	f.calls++
+	f.ctx, f.sessionID = ctx, sessionID
+	f.participants, f.partAction = participants, action
+	return f.err
+}
+
+func (f *fakeEngineLiveOps) UpdateSettings(ctx context.Context, sessionID, groupJID string, s domain.GroupSettings) error {
+	f.calls++
+	f.ctx, f.sessionID = ctx, sessionID
+	f.settings = s
+	return f.err
+}
+
+func (f *fakeEngineLiveOps) GetInviteLink(ctx context.Context, sessionID, groupJID string, reset bool) (string, error) {
+	f.calls++
+	f.ctx, f.sessionID = ctx, sessionID
+	f.inviteReset = reset
+	return "", f.err
+}
+
+func (f *fakeEngineLiveOps) JoinWithLink(ctx context.Context, sessionID, code string) (string, error) {
+	f.calls++
+	f.ctx, f.sessionID = ctx, sessionID
+	f.joinedCode = code
+	return "", f.err
+}
+
+func (f *fakeEngineLiveOps) Leave(ctx context.Context, sessionID, groupJID string) error {
+	f.calls++
+	f.ctx, f.sessionID = ctx, sessionID
+	f.leftGroup = groupJID
+	return f.err
+}
+
+func (f *fakeEngineLiveOps) GetPresence(ctx context.Context, sessionID, chatJID string) (domain.PresenceStatus, error) {
+	f.calls++
+	f.ctx, f.sessionID = ctx, sessionID
+	f.subscribedChat = chatJID
+	return domain.PresenceStatus{}, f.err
+}
+
+func (f *fakeEngineLiveOps) SetChatPresence(ctx context.Context, sessionID, chatJID, state string) error {
+	f.calls++
+	f.ctx, f.sessionID = ctx, sessionID
+	f.chatPresenceState = state
+	return f.err
+}
+
+func (f *fakeEngineLiveOps) BackfillSessionData(ctx context.Context, sessionID string) (domain.BackfillSnapshot, error) {
+	f.calls++
+	f.backfillCalled = true
+	f.ctx, f.sessionID = ctx, sessionID
+	return domain.BackfillSnapshot{}, f.err
 }
 
 var adapterNow = time.Date(2026, 7, 18, 1, 2, 3, 0, time.UTC)
@@ -466,4 +571,191 @@ type blockedDispatcher struct {
 func (b *blockedDispatcher) Dispatch(ctx context.Context, req domain.SendRequest) (string, int64, error) {
 	<-b.gate
 	return b.inner.Dispatch(ctx, req)
+}
+
+// ---- Increment 7 live resource slices ----
+
+func blockCommand(commandID string) application.ContactJIDCommand {
+	return application.ContactJIDCommand{
+		CommandID: commandID, OrganizationID: "org_1", SessionID: "ses_1",
+		GatewayID: "gateway-1", AssignmentEpoch: 4, JID: "628123@s.whatsapp.net", Blocked: true,
+	}
+}
+
+func groupCommand(kind application.GroupMutationKind, commandID string) application.GroupMutationCommand {
+	command := application.GroupMutationCommand{
+		CommandID: commandID, OrganizationID: "org_1", SessionID: "ses_1",
+		GatewayID: "gateway-1", AssignmentEpoch: 4,
+	}
+	switch kind {
+	case application.GroupOpCreate:
+		command.Kind, command.Name, command.Participants = kind, "Team", []string{"628123@s.whatsapp.net"}
+	case application.GroupOpUpdateSettings:
+		subject := "NewName"
+		command.Kind, command.GroupJID, command.Settings = kind, "120363@g.us", application.GroupSettingsUpdate{Subject: &subject}
+	case application.GroupOpUpdateParticipants:
+		command.Kind, command.GroupJID = kind, "120363@g.us"
+		command.Participants, command.Action = []string{"628123@s.whatsapp.net"}, application.GroupChangePromote
+	default:
+		command.Kind, command.GroupJID = kind, "120363@g.us"
+	}
+	return command
+}
+
+// TestSetBlockedRecordsSentWithoutWAMessageID pins that the blocklist mutation
+// is ledger-backed like sends but records CommandSent only (no wa message id).
+func TestSetBlockedRecordsSentWithoutWAMessageID(t *testing.T) {
+	live := &fakeEngineLiveOps{}
+	ledger := &fakeLedger{}
+	adapter, _ := sendTestAdapter(nil, ledger, true)
+	adapter.live = live
+
+	result, err := adapter.SetBlocked(context.Background(), blockCommand("blk_1"))
+	if err != nil {
+		t.Fatalf("SetBlocked: %v", err)
+	}
+	if result.CommandID != "blk_1" || result.AssignmentEpoch != 4 {
+		t.Fatalf("result = %#v", result)
+	}
+	if len(ledger.saved) != 1 || ledger.saved[0].Status != application.CommandSent || ledger.saved[0].WAMessageID != "" {
+		t.Fatalf("saved = %#v", ledger.saved)
+	}
+	if live.blockedJID != "628123@s.whatsapp.net" || !live.blocked {
+		t.Fatalf("live call = jid %q blocked %v", live.blockedJID, live.blocked)
+	}
+}
+
+// TestSetBlockedReplaysStoredResultWithoutReblocking pins replay semantics for
+// the blocklist mutation: a repeated command id never re-executes, and a stale
+// fence does not block a recorded outcome.
+func TestSetBlockedReplaysStoredResultWithoutReblocking(t *testing.T) {
+	live := &fakeEngineLiveOps{}
+	ledger := &fakeLedger{stored: map[string]application.CommandResultRecord{
+		"blk_1": {CommandID: "blk_1", SessionID: "ses_1", Status: application.CommandSent, UpdatedAt: time.UnixMilli(42).UTC()},
+	}}
+	adapter, _ := sendTestAdapter(nil, ledger, false)
+	adapter.live = live
+
+	result, err := adapter.SetBlocked(context.Background(), blockCommand("blk_1"))
+	if err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+	if result.CommandID != "blk_1" {
+		t.Fatalf("replayed = %#v", result)
+	}
+	if live.calls != 0 {
+		t.Fatalf("replay re-executed %d times", live.calls)
+	}
+}
+
+// TestMutateGroupCreateCarriesGroupMetadataAndLedger pins create-group's
+// write-ahead record plus raw-metadata passthrough.
+func TestMutateGroupCreateCarriesGroupMetadataAndLedger(t *testing.T) {
+	live := &fakeEngineLiveOps{}
+	ledger := &fakeLedger{}
+	adapter, _ := sendTestAdapter(nil, ledger, true)
+	adapter.live = live
+
+	result, err := adapter.MutateGroup(context.Background(), groupCommand(application.GroupOpCreate, "grp_1"))
+	if err != nil {
+		t.Fatalf("MutateGroup: %v", err)
+	}
+	if result.CreatedGroup.GroupJID != "120363@g.us" || result.CreatedGroup.Subject != "Team" {
+		t.Fatalf("created = %#v", result.CreatedGroup)
+	}
+	if len(ledger.saved) != 1 || ledger.saved[0].Status != application.CommandSent || ledger.saved[0].WAMessageID != "120363@g.us" {
+		t.Fatalf("saved = %#v", ledger.saved)
+	}
+}
+
+// TestMutateGroupReplaysStoredCreateWithoutRedispatch pins that a repeated
+// create-group command returns the stored group JID without touching WhatsApp.
+func TestMutateGroupReplaysStoredCreateWithoutRedispatch(t *testing.T) {
+	live := &fakeEngineLiveOps{}
+	ledger := &fakeLedger{stored: map[string]application.CommandResultRecord{
+		"grp_1": {CommandID: "grp_1", SessionID: "ses_1", Status: application.CommandSent, WAMessageID: "120363@g.us", UpdatedAt: time.UnixMilli(42).UTC()},
+	}}
+	adapter, _ := sendTestAdapter(nil, ledger, false)
+	adapter.live = live
+
+	result, err := adapter.MutateGroup(context.Background(), groupCommand(application.GroupOpCreate, "grp_1"))
+	if err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+	if result.CreatedGroup.GroupJID != "120363@g.us" {
+		t.Fatalf("replayed = %#v", result)
+	}
+	if live.calls != 0 {
+		t.Fatalf("replay re-executed %d times", live.calls)
+	}
+}
+
+// TestMutateGroupValidationFailureIsTerminalButTransientFailureIsNot mirrors
+// the send pipeline's outcome classification for group commands.
+func TestMutateGroupValidationFailureIsTerminalButTransientFailureIsNot(t *testing.T) {
+	invalid := groupCommand(application.GroupOpUpdateParticipants, "grp_bad")
+	invalid.Action = "bogus"
+	live := &fakeEngineLiveOps{}
+	ledger := &fakeLedger{}
+	adapter, _ := sendTestAdapter(nil, ledger, true)
+	adapter.live = live
+	if _, err := adapter.MutateGroup(context.Background(), invalid); err == nil {
+		t.Fatal("want validation error")
+	}
+	if len(ledger.saved) != 1 || ledger.saved[0].Status != application.CommandFailed {
+		t.Fatalf("validation not recorded: %#v", ledger.saved)
+	}
+
+	transient := groupCommand(application.GroupOpLeave, "grp_transient")
+	live2 := &fakeEngineLiveOps{err: errors.New("whatsapp disconnected")}
+	ledger2 := &fakeLedger{}
+	adapter2, _ := sendTestAdapter(nil, ledger2, true)
+	adapter2.live = live2
+	if _, err := adapter2.MutateGroup(context.Background(), transient); err == nil {
+		t.Fatal("want transient error")
+	}
+	if len(ledger2.saved) != 0 {
+		t.Fatalf("transient failure was recorded as terminal: %#v", ledger2.saved)
+	}
+}
+
+// TestReadOperationsNeverTouchLedgerOrFence pins the read contract: contact
+// lookups, picture/about, invite links, chat presence subscription, typing
+// state, and backfill execute behind the ownership check only — no command id
+// is required and no ledger row is written.
+func TestReadOperationsNeverTouchLedgerOrFence(t *testing.T) {
+	live := &fakeEngineLiveOps{}
+	ledger := &fakeLedger{}
+	adapter, _ := sendTestAdapter(nil, ledger, false) // stale fence: reads must still pass
+	adapter.live = live
+	ctx := context.Background()
+	query := application.SessionStateQuery{OrganizationID: "org_1", SessionID: "ses_1", GatewayID: "gateway-1", AssignmentEpoch: 4}
+
+	if _, err := adapter.LookupContact(ctx, application.LookupContactCommand{OrganizationID: query.OrganizationID, SessionID: query.SessionID, GatewayID: query.GatewayID, AssignmentEpoch: query.AssignmentEpoch, Phones: []string{"+62"}}); err != nil {
+		t.Fatalf("LookupContact: %v", err)
+	}
+	if _, err := adapter.GetContactPicture(ctx, query, "j@s.whatsapp.net"); err != nil {
+		t.Fatalf("GetContactPicture: %v", err)
+	}
+	if _, err := adapter.GetContactAbout(ctx, query, "j@s.whatsapp.net"); err != nil {
+		t.Fatalf("GetContactAbout: %v", err)
+	}
+	if _, err := adapter.GetGroupInviteLink(ctx, query, "g@g.us", false); err != nil {
+		t.Fatalf("GetGroupInviteLink: %v", err)
+	}
+	if _, err := adapter.JoinGroup(ctx, query, "code"); err != nil {
+		t.Fatalf("JoinGroup: %v", err)
+	}
+	if _, err := adapter.GetChatPresence(ctx, query, "c@s.whatsapp.net"); err != nil {
+		t.Fatalf("GetChatPresence: %v", err)
+	}
+	if err := adapter.SetChatPresence(ctx, application.ChatPresenceCommand{OrganizationID: query.OrganizationID, SessionID: query.SessionID, GatewayID: query.GatewayID, AssignmentEpoch: query.AssignmentEpoch, ChatJID: "c@s.whatsapp.net", State: "composing"}); err != nil {
+		t.Fatalf("SetChatPresence: %v", err)
+	}
+	if _, err := adapter.BackfillSession(ctx, query); err != nil {
+		t.Fatalf("BackfillSession: %v", err)
+	}
+	if len(ledger.saved) != 0 {
+		t.Fatalf("reads wrote %d ledger rows", len(ledger.saved))
+	}
 }

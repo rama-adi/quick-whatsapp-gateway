@@ -398,6 +398,188 @@ func TestContactService_Check_Delegates(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Increment 7 facade preference (API-local live resources)
+// ---------------------------------------------------------------------------
+
+type recordingContactFacade struct {
+	phones  []string
+	jid     string
+	blocked bool
+	err     error
+}
+
+func (f *recordingContactFacade) LookupContact(_ context.Context, _, _ string, phones []string) ([]domain.OnWhatsApp, error) {
+	f.phones = phones
+	return []domain.OnWhatsApp{{Query: phones[0], JID: "628@s.whatsapp.net", IsIn: true}}, f.err
+}
+func (f *recordingContactFacade) GetContactPicture(_ context.Context, _, _, jid string) (domain.ProfilePicture, error) {
+	f.jid = jid
+	return domain.ProfilePicture{URL: "https://pfp/1.jpg"}, f.err
+}
+func (f *recordingContactFacade) GetContactAbout(_ context.Context, _, _, jid string) (string, error) {
+	f.jid = jid
+	return "about text", f.err
+}
+func (f *recordingContactFacade) SetBlocked(_ context.Context, _, _, jid string, blocked bool) error {
+	f.jid, f.blocked = jid, blocked
+	return f.err
+}
+
+func TestContactServiceCheckPrefersGatewayFacadeOverLegacyDirectory(t *testing.T) {
+	st, mock := newStore(t)
+	expectSession(mock, "sess_1", "ten_1")
+	facade := &recordingContactFacade{}
+	svc := NewContactService(st, nil, nil)
+	svc.SetGatewayContactFacade(facade)
+	got, err := svc.Check(context.Background(), "ten_1", "sess_1", "+628")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.IsIn || got.JID != "628@s.whatsapp.net" {
+		t.Fatalf("check = %+v", got)
+	}
+	if len(facade.phones) != 1 || facade.phones[0] != "+628" {
+		t.Fatalf("facade phones = %v", facade.phones)
+	}
+}
+
+func TestContactServiceSetBlockedPrefersGatewayFacade(t *testing.T) {
+	st, mock := newStore(t)
+	expectSession(mock, "sess_1", "ten_1")
+	facade := &recordingContactFacade{}
+	svc := NewContactService(st, nil, nil)
+	svc.SetGatewayContactFacade(facade)
+	if err := svc.SetBlocked(context.Background(), "ten_1", "sess_1", "j@s.whatsapp.net", true); err != nil {
+		t.Fatal(err)
+	}
+	if facade.jid != "j@s.whatsapp.net" || !facade.blocked {
+		t.Fatalf("facade = %#v", facade)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+type recordingGroupFacade struct {
+	name         string
+	participants []string
+	action       GroupParticipantAction
+	groupJID     string
+	settings     GroupSettings
+	reset        bool
+	invite       string
+	info         GroupInfo
+	err          error
+}
+
+func (f *recordingGroupFacade) CreateGroup(_ context.Context, _, _, name string, participants []string) (GroupInfo, error) {
+	f.name, f.participants = name, participants
+	return GroupInfo{GroupJID: "120363@g.us", Subject: name, Participants: len(participants)}, f.err
+}
+func (f *recordingGroupFacade) UpdateParticipants(_ context.Context, _, _, groupJID string, participants []string, action GroupParticipantAction) error {
+	f.groupJID, f.participants, f.action = groupJID, participants, action
+	return f.err
+}
+func (f *recordingGroupFacade) UpdateSettings(_ context.Context, _, _, groupJID string, s GroupSettings) error {
+	f.groupJID, f.settings = groupJID, s
+	return f.err
+}
+func (f *recordingGroupFacade) GetInviteLink(_ context.Context, _, _, _ string, reset bool) (string, error) {
+	f.reset = reset
+	return "https://chat.whatsapp.com/abc", f.err
+}
+func (f *recordingGroupFacade) JoinWithLink(_ context.Context, _, _, invite string) (string, error) {
+	f.invite = invite
+	return "120363@g.us", f.err
+}
+func (f *recordingGroupFacade) Leave(context.Context, string, string, string) error { return f.err }
+
+// TestGroupServiceCreateViaFacadePersistsProjection pins the Increment 7 split:
+// the engine RPC returns raw metadata and the service persists its own shared-
+// MySQL projection from it.
+func TestGroupServiceCreateViaFacadePersistsProjection(t *testing.T) {
+	st, mock := newStore(t)
+	expectSession(mock, "sess_1", "ten_1")
+	mock.ExpectExec("INSERT INTO whatsapp_groups").WillReturnResult(sqlmock.NewResult(1, 1))
+	facade := &recordingGroupFacade{}
+	svc := NewGroupService(st, nil, nil)
+	svc.SetGatewayGroupFacade(facade)
+	info, err := svc.Create(context.Background(), "ten_1", "sess_1", "Team", []string{"628123@s.whatsapp.net"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.GroupJID != "120363@g.us" || info.Subject != "Team" {
+		t.Fatalf("info = %+v", info)
+	}
+	if facade.name != "Team" || len(facade.participants) != 1 {
+		t.Fatalf("facade call = %#v", facade)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestGroupServiceParticipantsAndInvitePreferFacade(t *testing.T) {
+	st, mock := newStore(t)
+	expectSession(mock, "sess_1", "ten_1") // participants
+	expectSession(mock, "sess_1", "ten_1") // invite link
+	facade := &recordingGroupFacade{}
+	svc := NewGroupService(st, nil, nil)
+	svc.SetGatewayGroupFacade(facade)
+	if err := svc.Promote(context.Background(), "ten_1", "sess_1", "g@g.us", "a@s.whatsapp.net"); err != nil {
+		t.Fatal(err)
+	}
+	if facade.action != GroupActionPromote || facade.groupJID != "g@g.us" {
+		t.Fatalf("participants call = %#v", facade)
+	}
+	if _, err := svc.RevokeInvite(context.Background(), "ten_1", "sess_1", "g@g.us"); err != nil {
+		t.Fatal(err)
+	}
+	if !facade.reset {
+		t.Fatal("revoke must pass reset=true through the facade")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+type recordingChatFacade struct {
+	chatJID, state string
+	presence       domain.PresenceStatus
+	err            error
+}
+
+func (f *recordingChatFacade) GetChatPresence(_ context.Context, _, _, chatJID string) (domain.PresenceStatus, error) {
+	f.chatJID = chatJID
+	return f.presence, f.err
+}
+func (f *recordingChatFacade) SetChatPresence(_ context.Context, _, _, chatJID, state string) error {
+	f.chatJID, f.state = chatJID, state
+	return f.err
+}
+
+func TestChatServicePresencePrefersGatewayFacade(t *testing.T) {
+	st, mock := newStore(t)
+	expectSession(mock, "sess_1", "ten_1")
+	expectSession(mock, "sess_1", "ten_1")
+	facade := &recordingChatFacade{presence: domain.PresenceStatus{State: "unknown"}}
+	svc := NewChatService(st, nil, nil)
+	svc.SetGatewayChatFacade(facade)
+	if got, err := svc.GetPresence(context.Background(), "ten_1", "sess_1", "c@s.whatsapp.net"); err != nil || got.State != "unknown" {
+		t.Fatalf("presence = %+v err=%v", got, err)
+	}
+	if err := svc.SetPresence(context.Background(), "ten_1", "sess_1", "c@s.whatsapp.net", "composing"); err != nil {
+		t.Fatal(err)
+	}
+	if facade.chatJID != "c@s.whatsapp.net" || facade.state != "composing" {
+		t.Fatalf("facade = %#v", facade)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Status
 // ---------------------------------------------------------------------------
 

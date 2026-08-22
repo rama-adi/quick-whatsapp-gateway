@@ -114,6 +114,31 @@ allowance is evaluated through an injected clock; old timestamps have no artific
 These application types import neither Huma nor protobuf/generated bindings, stores, the WA
 manager, or outbound implementations.
 
+### Increment 7 live-resource engine RPCs
+
+The engine surface now also carries the remaining live resource operations as unary RPCs, each
+fenced by target gateway, organization, and assignment epoch:
+
+| RPC | Class | Notes |
+|---|---|---|
+| `LookupContact` | read | on-WhatsApp check; returns query/JID/flag per phone |
+| `GetContactPicture`, `GetContactAbout` | read | raw picture/about values |
+| `SetBlocked` | ledgered mutation | send-style replay; records `CommandSent` only (no wa message id) |
+| `CreateGroup` | ledgered mutation | response carries the raw group metadata the API projects |
+| `UpdateGroupSettings`, `UpdateGroupParticipants`, `LeaveGroup` | ledgered mutation | settings use proto `optional` so nil = unchanged |
+| `GetGroupInviteLink` | read (`reset=true` revokes+regenerates) | mirrors the LiveOps surface; not ledger-backed |
+| `JoinGroup` | read-classified | mirrors LiveOps `JoinWithLink`; not ledger-backed |
+| `GetChatPresence` | read | subscribes to presence updates; snapshot is `unknown` until an event arrives |
+| `SetChatPresence` | un-ledgered write | repeating a typing state is idempotent by construction |
+| `BackfillSession` | slow read | callers apply the send deadline; response is the full contact/group/member snapshot within `MaxEngineMessageBytes` |
+
+Ledgered mutations reuse the send pipeline's exact shape: replay precedes the fence, only definite
+outcomes are recorded (deterministic rejections as terminal failures), concurrent duplicates join
+the first execution, and create-group stores the new group JID so replays return it. Reads execute
+behind an ownership/epoch check only and never touch the result ledger. Raw results cross the
+boundary unprojected: the API services persist their own shared-MySQL projections (group upserts,
+backfill identity writes), keeping projection ownership API-side.
+
 The enrollment method alone permits a connection with no client certificate. A presented client
 certificate must still verify. Every other unary or streaming method—including health and unknown
 methods—requires a currently valid, non-revoked certificate for a non-disabled, non-deleted gateway.
