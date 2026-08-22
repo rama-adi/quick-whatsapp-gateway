@@ -128,6 +128,9 @@ type ManagedSession struct {
 
 	lastQR        string // most recent QR code streamed during pairing (for GET /qr)
 	lastQRExpires int64  // epoch-ms when lastQR stops being valid (0 = unknown)
+
+	pairedJID string // device JID observed at PairSuccess ("" until paired)
+	pairedLID string // LID observed at PairSuccess ("" until known)
 }
 
 // Status returns the current status under lock.

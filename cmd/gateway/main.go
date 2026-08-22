@@ -1,14 +1,15 @@
 // Command gateway is the gateway entrypoint and composition root: it loads
-// configuration, opens the data stores, wires every subsystem
-// (auth, keystore, outbound, stream, webhooks, the session manager, the async
-// queue), builds the service layer + HTTP router, and runs an HTTP server with
-// graceful shutdown.
+// configuration, opens the local SQLite whatsmeow keystore and event journal,
+// wires the session manager over them, connects the mandatory mTLS control
+// plane, and serves the private engine gRPC listener plus minimal operational
+// probes with graceful shutdown. The gateway has no MySQL or Redis dependency:
+// app-data writes are API-owned (derived from committed events), and every
+// public operation executes API-locally over private engine RPCs.
 package main
 
 import (
 	"context"
 	"crypto/rand"
-	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -21,34 +22,21 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/redis/go-redis/v9"
 
 	gatewayv1 "github.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/application"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/config"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/crypto"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/dbconn"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/gateway/controlclient"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/gateway/controlsupervisor"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/gateway/desiredstate"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/gateway/journal"
-	gwhttp "github.com/ramaadi/quick-whatsapp-gateway/internal/http"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/httpx"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/oidp"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/pki/gatewayidentity"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/queue"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/service"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/stream"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa/inbound"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa/outbound"
-	wastore "github.com/ramaadi/quick-whatsapp-gateway/internal/wa/store"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/webhooks"
 )
 
 var softwareVersion = "dev"
@@ -75,372 +63,235 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// Optional private control-plane bootstrap is fail-closed. With no target this
-	// path performs no filesystem access and the legacy runtime is unchanged.
-	controlEnabled := cfg.ControlPlaneAddr != ""
-	admissionGate := gwhttp.NewAdmissionGate(!controlEnabled)
-	var control *controlclient.Client
-	var controlSupervisor *controlsupervisor.Supervisor
-	var controlRuntime *gatewayControlRuntime
-	var controlIdentity *gatewayidentity.Manager
-	var eventJournal *journal.Journal
-	var desiredReconciler *desiredstate.Reconciler
-	var supervisorCtx context.Context
-	var supervisorExited chan struct{}
-	var supervisorResultMu sync.Mutex
-	var supervisorResult error
-	var supervisorStarted bool
-	var certificateRenewalExpired chan error
-	lifecycleDisabled := make(chan struct{}, 1)
-	if controlEnabled {
-		caInfo, statErr := os.Stat(cfg.BootstrapCAFile)
-		if statErr != nil {
-			return fmt.Errorf("stat gateway bootstrap CA: %w", statErr)
-		}
-		if !caInfo.Mode().IsRegular() || caInfo.Size() <= 0 || caInfo.Size() > 16<<10 {
-			return fmt.Errorf("gateway bootstrap CA must be a regular file within 16 KiB")
-		}
-		bootstrapCA, readErr := os.ReadFile(cfg.BootstrapCAFile)
-		if readErr != nil {
-			return fmt.Errorf("read gateway bootstrap CA: %w", readErr)
-		}
-		identity, identityErr := gatewayidentity.New(gatewayidentity.Config{Directory: cfg.CredentialDir, GatewayID: cfg.GatewayID, BootstrapCA: bootstrapCA})
-		if identityErr != nil {
-			return fmt.Errorf("build gateway identity: %w", identityErr)
-		}
-		controlIdentity = identity
-		control, err = controlclient.New(controlclient.Config{Target: cfg.ControlPlaneAddr, GatewayID: cfg.GatewayID, Identity: identity})
-		if err != nil {
-			return fmt.Errorf("build gateway control client: %w", err)
-		}
-		if err = control.Ensure(ctx, cfg.EnrollmentToken); err != nil {
-			return fmt.Errorf("connect gateway control plane: %w", err)
-		}
-		cfg.EnrollmentToken = ""
-		_ = os.Unsetenv("GATEWAY_ENROLLMENT_TOKEN")
-		opener, openerErr := controlsupervisor.NewCurrentConnOpener(control)
-		if openerErr != nil {
-			_ = control.Close()
-			return fmt.Errorf("build gateway control stream: %w", openerErr)
-		}
-		instanceID, instanceErr := newGatewayInstanceID()
-		if instanceErr != nil {
-			_ = control.Close()
-			return fmt.Errorf("create gateway process instance id: %w", instanceErr)
-		}
-		eventJournal, err = journal.Open(ctx, cfg.JournalPath, journal.DefaultConfig())
-		if err != nil {
-			return fmt.Errorf("open gateway event journal: %w", err)
-		}
-		defer func() {
-			if closeErr := eventJournal.Close(); closeErr != nil {
-				log.Warn("close gateway event journal", "err", closeErr)
-			}
-		}()
-		controlRuntime = newGatewayControlRuntime(log)
-		controlSupervisor, err = controlsupervisor.New(controlsupervisor.Config{
-			InstanceID:      instanceID,
-			SoftwareVersion: softwareVersion,
-			HTTPBaseURL:     cfg.PublicURL,
-			GRPCEndpoint:    cfg.EngineGRPCAdvertise,
-			EventJournal:    journal.ControlAdapter{Journal: eventJournal, GatewayID: cfg.GatewayID},
-			JournalMetrics: func(ctx context.Context) (controlsupervisor.JournalPressure, error) {
-				metrics, err := eventJournal.Metrics(ctx)
-				if err != nil {
-					return controlsupervisor.JournalPressure{}, err
-				}
-				return controlsupervisor.JournalPressure{
-					State:   journalStateFor(metrics.State),
-					Entries: positiveIntToUint64(metrics.Entries),
-					Bytes:   positiveInt64ToUint64(metrics.Bytes),
-				}, nil
-			},
-			StartedAt: time.Now(),
-			Runtime:   controlRuntime,
-		}, opener)
-		if err != nil {
-			_ = control.Close()
-			return fmt.Errorf("build gateway control supervisor: %w", err)
-		}
-		// The control stream outlives the signal context so shutdown can report
-		// DRAINING and DRAINED durably before transport cancellation.
-		var cancelSupervisor context.CancelFunc
-		supervisorCtx, cancelSupervisor = context.WithCancel(context.Background())
-		supervisorExited = make(chan struct{})
-		certificateRenewalExpired = make(chan error, 1)
-		go func() {
-			renewalErr := renewGatewayCertificate(supervisorCtx, controlIdentity, cfg.CertificateRenewBefore, control, controlSupervisor, func() {
-				controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DEGRADED)
-				reportControlRuntime(log, controlSupervisor, gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DEGRADED, 5*time.Second)
-			})
-			if renewalErr != nil {
-				certificateRenewalExpired <- renewalErr
-			}
-		}()
-		go func() {
-			status := controlSupervisor.Status()
-			for {
-				admissionGate.SetOpen(status.Ready)
-				next, waitErr := controlSupervisor.WaitForStatusChange(supervisorCtx, status)
-				if waitErr != nil {
-					return
-				}
-				status = next
-			}
-		}()
-		defer func() {
-			cancelSupervisor()
-			if supervisorStarted {
-				<-supervisorExited
-			}
-			supervisorResultMu.Lock()
-			result := supervisorResult
-			supervisorResultMu.Unlock()
-			if result != nil {
-				log.Warn("gateway control supervisor stopped", "err", result)
-			}
-			if closeErr := control.Close(); closeErr != nil {
-				log.Warn("close gateway control plane", "err", closeErr)
-			}
-		}()
+	// --- Mandatory control plane (fail-closed bootstrap) ---
+	caInfo, statErr := os.Stat(cfg.BootstrapCAFile)
+	if statErr != nil {
+		return fmt.Errorf("stat gateway bootstrap CA: %w", statErr)
 	}
-
-	// --- Transitional app-data store (schema migration is owned by the API) ---
-	db, err := dbconn.OpenMySQL(cfg.MySQLDSN)
+	if !caInfo.Mode().IsRegular() || caInfo.Size() <= 0 || caInfo.Size() > 16<<10 {
+		return fmt.Errorf("gateway bootstrap CA must be a regular file within 16 KiB")
+	}
+	bootstrapCA, readErr := os.ReadFile(cfg.BootstrapCAFile)
+	if readErr != nil {
+		return fmt.Errorf("read gateway bootstrap CA: %w", readErr)
+	}
+	controlIdentity, identityErr := gatewayidentity.New(gatewayidentity.Config{Directory: cfg.CredentialDir, GatewayID: cfg.GatewayID, BootstrapCA: bootstrapCA})
+	if identityErr != nil {
+		return fmt.Errorf("build gateway identity: %w", identityErr)
+	}
+	control, err := controlclient.New(controlclient.Config{Target: cfg.ControlPlaneAddr, GatewayID: cfg.GatewayID, Identity: controlIdentity})
 	if err != nil {
-		return fmt.Errorf("open mysql: %w", err)
+		return fmt.Errorf("build gateway control client: %w", err)
 	}
-	defer func() { _ = db.Close() }()
-	prometheus.MustRegister(collectors.NewDBStatsCollector(db, "gateway"))
-
-	st := store.New(db)
-
-	// --- Crypto (AES-GCM for secrets at rest) ---
-	aes, err := crypto.NewAESGCM(cfg.AppEncryptionKey)
+	if err = control.Ensure(ctx, cfg.EnrollmentToken); err != nil {
+		return fmt.Errorf("connect gateway control plane: %w", err)
+	}
+	cfg.EnrollmentToken = ""
+	_ = os.Unsetenv("GATEWAY_ENROLLMENT_TOKEN")
+	opener, openerErr := controlsupervisor.NewCurrentConnOpener(control)
+	if openerErr != nil {
+		_ = control.Close()
+		return fmt.Errorf("build gateway control stream: %w", openerErr)
+	}
+	instanceID, instanceErr := newGatewayInstanceID()
+	if instanceErr != nil {
+		_ = control.Close()
+		return fmt.Errorf("create gateway process instance id: %w", instanceErr)
+	}
+	eventJournal, err := journal.Open(ctx, cfg.JournalPath, journal.DefaultConfig())
 	if err != nil {
-		return fmt.Errorf("init crypto: %w", err)
+		return fmt.Errorf("open gateway event journal: %w", err)
 	}
+	defer func() {
+		if closeErr := eventJournal.Close(); closeErr != nil {
+			log.Warn("close gateway event journal", "err", closeErr)
+		}
+	}()
+	controlRuntime := newGatewayControlRuntime(log)
+	controlAdapter := journal.ControlAdapter{Journal: eventJournal, GatewayID: cfg.GatewayID}
 
-	// --- Redis ---
-	rdb, err := openRedis(cfg.RedisURL)
-	if err != nil {
-		return fmt.Errorf("open redis: %w", err)
-	}
-	defer func() { _ = rdb.Close() }()
+	var (
+		supervisorCtx             context.Context
+		cancelSupervisor          context.CancelFunc
+		supervisorExited          chan struct{}
+		supervisorResultMu        sync.Mutex
+		supervisorResult          error
+		supervisorStarted         bool
+		certificateRenewalExpired chan error
+		lifecycleDisabled         = make(chan struct{}, 1)
+	)
 
 	// --- whatsmeow keystore (gateway-local SQLite, §6.1) ---
-	// Control-mode adoption is fail-closed: a missing/corrupt volume remains
-	// observable to the control plane but cannot become a replacement device
-	// store. Legacy mode retains its create-on-first-use local-development path.
-	var keystore wa.Keystore
-	var controlKeystore *gatewayKeystoreRuntime
-	if controlEnabled {
-		controlKeystore, err = openControlKeystore(ctx, cfg.WhatsmeowStoreDSN)
-		if err != nil {
-			return fmt.Errorf("inspect whatsmeow keystore: %w", err)
-		}
-		keystore = controlKeystore.holder
-		if controlKeystore.Health().GetState() != gatewayv1.KeystoreHealthState_KEYSTORE_HEALTH_STATE_HEALTHY {
-			controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DEGRADED)
-		}
-	} else {
-		keystore, err = wastore.Open(ctx, cfg.WhatsmeowStoreDSN, nil)
-		if err != nil {
-			return fmt.Errorf("open whatsmeow keystore: %w", err)
-		}
+	// Adoption is fail-closed: a missing/corrupt volume remains observable to
+	// the control plane but cannot become a replacement device store.
+	controlKeystore, err := openControlKeystore(ctx, cfg.WhatsmeowStoreDSN)
+	if err != nil {
+		return fmt.Errorf("inspect whatsmeow keystore: %w", err)
 	}
-
-	// --- Stream publisher (event fan-out over Redis pub/sub) ---
-	publisher := stream.NewPublisher(rdb, log)
-
-	// --- Outbound pipeline (rate limiter + sender over the outbox) ---
-	// The Sender is account-global; its WAClient is constructed below once the
-	// session manager exists, so it can route each send to the per-session
-	// whatsmeow client (outbound.RoutingWAClient resolves it from the manager).
-	limiter := outbound.NewRedisRateLimiter(rdb)
-	outboxAdapter := service.NewOutboxRepoAdapter(st.Outbox, nil)
-
-	// --- Webhooks (enqueuer + dispatcher) ---
-	// Poll-recap emission is API-owned since Increment 5: the durable sweep and
-	// fan-out run beside the committed-event worker, not here.
-	whRepo := service.NewWebhookRepoAdapter(st.Webhooks)
-	whDeliveries := service.NewWebhookDeliveryRepoAdapter(st.WebhookDeliveries)
-	enqueuer := webhooks.NewEnqueuer(whRepo, whDeliveries, nil, log)
-	dispatcher := webhooks.NewDispatcher(whRepo, whDeliveries, st.EventLog, &http.Client{Timeout: 30 * time.Second}, aes, nil, log)
+	keystore := controlKeystore.holder
+	if controlKeystore.Health().GetState() != gatewayv1.KeystoreHealthState_KEYSTORE_HEALTH_STATE_HEALTHY {
+		controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DEGRADED)
+	}
 
 	// --- Session manager (per-session whatsmeow clients) ---
-	managerRepo := service.NewManagerSessionRepo(st.Sessions, nil)
-	managerSink := wa.EventSink(service.NewEventSinkAdapter(publisher, log))
-	inboundSink := inbound.EventSink(publisher)
-	inboundWebhookSink := inbound.WebhookEnqueuer(service.NewInboundWebhookEnqueuerAdapter(enqueuer))
-	inboundRepos := inbound.Repos(service.NewInboundRepos(st, nil))
-	if controlEnabled {
-		controlSink := controlEventSink{
-			adapter: journal.ControlAdapter{Journal: eventJournal, GatewayID: cfg.GatewayID},
-			assignment: func(organizationID, sessionID string) (uint64, bool) {
-				if desiredReconciler == nil {
-					return 0, false
-				}
-				epoch, ok := desiredReconciler.CurrentEpoch(sessionID)
-				return epoch, ok && desiredReconciler.OwnsSession(organizationID, sessionID, epoch)
-			},
-			log: log,
-		}
-		managerSink = managedControlEventSink{controlSink}
-		inboundSink = controlSink
-		inboundWebhookSink = controlWebhookSink{}
-		inboundRepos = controlInboundRepos{Repos: inboundRepos}
+	// Desired-state reconciliation owns session startup: the manager never reads
+	// wa_sessions. Event fan-out is journal-only until the API commits each
+	// envelope; there is no Redis publisher and no local webhook enqueue here.
+	var desiredReconciler *desiredstate.Reconciler
+	managerSink := managedControlEventSink{controlEventSink{
+		adapter: controlAdapter,
+		assignment: func(organizationID, sessionID string) (uint64, bool) {
+			if desiredReconciler == nil {
+				return 0, false
+			}
+			epoch, ok := desiredReconciler.CurrentEpoch(sessionID)
+			return epoch, ok && desiredReconciler.OwnsSession(organizationID, sessionID, epoch)
+		},
+		log: log,
+	}}
+	inboundSink := controlEventSink{
+		adapter: controlAdapter,
+		assignment: func(organizationID, sessionID string) (uint64, bool) {
+			if desiredReconciler == nil {
+				return 0, false
+			}
+			epoch, ok := desiredReconciler.CurrentEpoch(sessionID)
+			return epoch, ok && desiredReconciler.OwnsSession(organizationID, sessionID, epoch)
+		},
+		log: log,
 	}
-	manager := wa.NewManager(keystore, managerRepo, managerSink, nil, nil, log, wa.Config{
-		AdminNumber:         cfg.WhatsAppAdminNumber,
-		AdminOrganizationID: cfg.WhatsAppAdminOrgID,
+	manager := wa.NewManager(keystore, nil, managerSink, nil, nil, log, wa.Config{
 		GatewayID:           cfg.GatewayID,
 		DeviceName:          cfg.WhatsAppDeviceName,
-		DefaultRatePerMin:   cfg.DefaultRatePerMin,
-		DefaultRatePerHour:  cfg.DefaultRatePerHour,
-		DefaultAutoRead:     cfg.DefaultAutoRead,
+		InboundEventTimeout: 0,
 	})
-	msgRecorder := service.NewMessageRecorderAdapter(st.Messages, st.Chats, st.Polls, nil, nil)
-	sender := outbound.NewSender(service.NewRoutingWAClient(manager), outboxAdapter, limiter, outbound.SystemClock(),
-		outbound.WithMessageRecorder(msgRecorder),
-		outbound.WithQuoteResolver(st.Messages))
-	pending := oidp.NewPendingStore(rdb, cfg.RedisPrefix, 10*time.Minute)
-	loginInterceptor := oidp.NewLoginInterceptor(
-		st.OAuthClients,
-		pending,
-		service.NewOIDPGroupMemberChecker(st.GroupMembers),
-		service.NewOIDPBotFeedback(st.Sessions, sender),
-		log,
-	)
-	oidpAppChanges := oidp.NewAppChangeSubscriber(rdb, loginInterceptor, log)
-	if err := oidpAppChanges.Start(ctx); err != nil {
-		log.Warn("oidp app control-bus subscriber disabled", "err", err)
-	} else {
-		defer oidpAppChanges.Stop()
-	}
 	inboundPipeline := inbound.NewPipeline(
-		service.NewInboundNormalizer(manager.LiveOps(), st.Polls),
+		service.NewInboundNormalizer(manager.LiveOps(), nil),
 		inbound.NewNoopCommandRegistry(),
-		inboundRepos,
+		inbound.NoopRepos{},
 		inboundSink,
-		inboundWebhookSink,
+		controlWebhookSink{},
 		manager.LiveOps(),
 		inbound.SystemClock{},
 		inbound.WithLogger(log),
-		inbound.WithLoginInterceptor(loginInterceptor),
 		inbound.WithSessionConfig(func(sessionID string) (inbound.SessionConfig, bool) {
-			if controlEnabled {
-				config, ok := manager.AssignedConfig(sessionID)
-				if !ok {
-					return inbound.SessionConfig{}, false
-				}
-				return inbound.SessionConfig{AutoRead: config.AutoRead, PresenceTyping: config.PresenceTyping}, true
-			}
-			s, err := st.Sessions.Get(context.Background(), sessionID)
-			if err != nil {
+			sessionConfig, ok := manager.AssignedConfig(sessionID)
+			if !ok {
 				return inbound.SessionConfig{}, false
 			}
-			return inbound.SessionConfig{
-				AutoRead:       s.AutoRead,
-				PresenceTyping: s.PresenceTyping,
-			}, true
+			return inbound.SessionConfig{AutoRead: sessionConfig.AutoRead, PresenceTyping: sessionConfig.PresenceTyping}, true
 		}),
 	)
 	inboundHandler := service.NewInboundPipelineHandler(inboundPipeline, log)
 	manager.SetInboundHandler(inboundHandler)
-	// Boot orphan-guard (§4.6 boot reconciliation, §17 R2): before resuming a
-	// session, confirm its owning org still exists in better-auth's shared
-	// `organization` table; orphaned sessions are marked STOPPED and not resumed.
-	orgReader := store.NewOrganizationReader(db)
-	manager.SetOrgExists(orgReader.Exists)
-	if controlEnabled {
-		reconciler := desiredstate.New(manager, nil)
-		desiredReconciler = reconciler
-		controlRuntime.setSessionCounter(func(context.Context) (int, error) {
-			return reconciler.AssignmentCount(), nil
-		})
-		applier := &desiredstate.ControlApplier{Reconciler: reconciler, Health: controlKeystore.Health, OnLeaseExpired: func(expireErr error) {
-			if expireErr != nil {
-				log.Warn("expire desired-state leases", "err", expireErr)
-			}
-			controlSupervisor.MarkDesiredStateUnhealthy()
-			controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DEGRADED)
-			controlSupervisor.ReportNow()
-		}}
-		controlSupervisor.SetDesiredState(&bootstrapControlApplier{delegate: applier, keystore: controlKeystore, onReport: func(state gatewayv1.GatewayRuntimeState) {
-			controlRuntime.setState(state)
-			controlSupervisor.ReportNow()
-		}})
-		defer applier.Stop()
-		go func() {
-			result := controlSupervisor.Run(supervisorCtx)
-			supervisorResultMu.Lock()
-			supervisorResult = result
-			supervisorResultMu.Unlock()
-			close(supervisorExited)
-		}()
-		supervisorStarted = true
-	}
-	if controlEnabled {
-		engine := wa.NewApplicationGatewayAdapter(cfg.GatewayID, manager, desiredReconciler, sender, journalCommandLedger{journal: eventJournal})
-		stopEngine, engineErr := startPrivateEngine(cfg.EngineGRPCAddr, cfg.GatewayID, controlIdentity, engine)
-		if engineErr != nil {
-			return fmt.Errorf("start private gateway engine: %w", engineErr)
-		}
-		defer stopEngine()
-	}
 
-	// Registry lifecycle (D8). Register as `joining` before the manager adopts
-	// sessions, flip to `active` once boot succeeds, then heartbeat last_seen_at +
-	// session_count on a timer so the router can route by liveness and load.
-	// Best-effort: a registry write failure is logged, not fatal.
-	if !controlEnabled {
-		if err := registerGateway(ctx, st.Gateways, cfg, domain.GatewayJoining); err != nil {
-			log.Error("register gateway (joining) failed", "gateway", cfg.GatewayID, "err", err)
-		}
+	desiredReconciler = desiredstate.New(manager, nil)
+	controlRuntime.setSessionCounter(func(context.Context) (int, error) {
+		return desiredReconciler.AssignmentCount(), nil
+	})
+
+	// --- Control supervisor (persistent stream owner) ---
+	controlSupervisor, err := controlsupervisor.New(controlsupervisor.Config{
+		InstanceID:      instanceID,
+		SoftwareVersion: softwareVersion,
+		GRPCEndpoint:    cfg.EngineGRPCAdvertise,
+		EventJournal:    controlAdapter,
+		JournalMetrics: func(ctx context.Context) (controlsupervisor.JournalPressure, error) {
+			metrics, err := eventJournal.Metrics(ctx)
+			if err != nil {
+				return controlsupervisor.JournalPressure{}, err
+			}
+			return controlsupervisor.JournalPressure{
+				State:   journalStateFor(metrics.State),
+				Entries: positiveIntToUint64(metrics.Entries),
+				Bytes:   positiveInt64ToUint64(metrics.Bytes),
+			}, nil
+		},
+		StartedAt: time.Now(),
+		Runtime:   controlRuntime,
+	}, opener)
+	if err != nil {
+		return fmt.Errorf("build gateway control supervisor: %w", err)
 	}
+	applier := &desiredstate.ControlApplier{Reconciler: desiredReconciler, Health: controlKeystore.Health, OnLeaseExpired: func(expireErr error) {
+		if expireErr != nil {
+			log.Warn("expire desired-state leases", "err", expireErr)
+		}
+		controlSupervisor.MarkDesiredStateUnhealthy()
+		controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DEGRADED)
+		controlSupervisor.ReportNow()
+	}}
+	controlSupervisor.SetDesiredState(&bootstrapControlApplier{delegate: applier, keystore: controlKeystore, onReport: func(state gatewayv1.GatewayRuntimeState) {
+		controlRuntime.setState(state)
+		controlSupervisor.ReportNow()
+	}})
+	defer applier.Stop()
+
+	// The control stream outlives the signal context so shutdown can report
+	// DRAINING and DRAINED durably before transport cancellation.
+	supervisorCtx, cancelSupervisor = context.WithCancel(context.Background())
+	supervisorExited = make(chan struct{})
+	certificateRenewalExpired = make(chan error, 1)
+	go func() {
+		renewalErr := renewGatewayCertificate(supervisorCtx, controlIdentity, cfg.CertificateRenewBefore, control, controlSupervisor, func() {
+			controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DEGRADED)
+			reportControlRuntime(log, controlSupervisor, gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DEGRADED, 5*time.Second)
+		})
+		if renewalErr != nil {
+			certificateRenewalExpired <- renewalErr
+		}
+	}()
+	go func() {
+		result := controlSupervisor.Run(supervisorCtx)
+		supervisorResultMu.Lock()
+		supervisorResult = result
+		supervisorResultMu.Unlock()
+		close(supervisorExited)
+	}()
+	supervisorStarted = true
+	defer func() {
+		cancelSupervisor()
+		if supervisorStarted {
+			<-supervisorExited
+		}
+		supervisorResultMu.Lock()
+		result := supervisorResult
+		supervisorResultMu.Unlock()
+		if result != nil {
+			log.Warn("gateway control supervisor stopped", "err", result)
+		}
+		if closeErr := control.Close(); closeErr != nil {
+			log.Warn("close gateway control plane", "err", closeErr)
+		}
+	}()
+
+	// --- Private engine gRPC listener ---
+	engine := wa.NewApplicationGatewayAdapter(cfg.GatewayID, manager, desiredReconciler, newEngineDispatcher(service.NewRoutingWAClient(manager)), journalCommandLedger{journal: eventJournal})
+	stopEngine, engineErr := startPrivateEngine(cfg.EngineGRPCAddr, cfg.GatewayID, controlIdentity, engine)
+	if engineErr != nil {
+		return fmt.Errorf("start private gateway engine: %w", engineErr)
+	}
+	defer stopEngine()
 
 	var managerShutdownOnce sync.Once
-	var managerLifecycleMu sync.Mutex
-	managerTerminal := false
-	managerBooted := false
-	bootManager := func(bootCtx context.Context) (string, error) {
-		managerLifecycleMu.Lock()
-		defer managerLifecycleMu.Unlock()
-		if managerTerminal || managerBooted {
-			return "", nil
+	managerLifecycle := &managerLifecycleState{}
+	startManager := func(bootCtx context.Context) error {
+		if managerLifecycle.terminal() {
+			return nil
 		}
-		if controlEnabled {
-			// Desired-state reconciliation owns control-mode session startup. Never
-			// let the legacy manager Boot read wa_sessions or organizations here.
-			managerBooted = true
-			return "", nil
-		}
-		adminCode, bootErr := manager.Boot(bootCtx)
-		if bootErr == nil {
-			managerBooted = true
-		}
-		return adminCode, bootErr
-	}
-	managerState := func() (terminal, booted bool) {
-		managerLifecycleMu.Lock()
-		defer managerLifecycleMu.Unlock()
-		return managerTerminal, managerBooted
+		_, err := manager.StartAssignedBoot(bootCtx)
+		return err
 	}
 	shutdownManager := func() {
 		managerShutdownOnce.Do(func() {
-			managerLifecycleMu.Lock()
-			defer managerLifecycleMu.Unlock()
-			managerTerminal = true
+			managerLifecycle.markTerminal()
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			if shutdownErr := manager.Shutdown(shutdownCtx); shutdownErr != nil {
 				log.Warn("shutdown session manager", "err", shutdownErr)
 			}
-			if controlKeystore != nil {
-				if closeErr := controlKeystore.Close(); closeErr != nil {
-					log.Warn("checkpoint and close whatsmeow keystore", "err", closeErr)
-				}
+			if closeErr := controlKeystore.Close(); closeErr != nil {
+				log.Warn("checkpoint and close whatsmeow keystore", "err", closeErr)
 			}
 		})
 	}
@@ -448,84 +299,50 @@ func run() error {
 
 	bootAllowed := true
 	welcomePending := false
-	if controlSupervisor != nil {
-		welcomeResult := make(chan struct {
+	welcomeResult := make(chan struct {
+		status controlsupervisor.Status
+		err    error
+	}, 1)
+	go func() {
+		status, waitErr := controlSupervisor.WaitForWelcome(ctx)
+		welcomeResult <- struct {
 			status controlsupervisor.Status
 			err    error
-		}, 1)
-		go func() {
-			status, waitErr := controlSupervisor.WaitForWelcome(ctx)
-			welcomeResult <- struct {
-				status controlsupervisor.Status
-				err    error
-			}{status: status, err: waitErr}
-		}()
-		select {
-		case result := <-welcomeResult:
-			if result.err != nil {
-				return fmt.Errorf("wait for gateway control welcome: %w", result.err)
-			}
-			bootAllowed = result.status.DesiredLifecycle == gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN
-			if bootAllowed {
-				if _, desiredErr := controlSupervisor.WaitForDesiredState(ctx, result.status.ConnectionEpoch); desiredErr != nil {
-					return fmt.Errorf("wait for gateway desired state: %w", desiredErr)
-				}
-			}
-		case <-supervisorExited:
-			supervisorResultMu.Lock()
-			result := supervisorResult
-			supervisorResultMu.Unlock()
-			return fmt.Errorf("gateway control supervisor stopped before welcome: %w", result)
-		case <-time.After(time.Second):
-			// Keep the diagnostics listener available while the persistent
-			// control connection reconnects. Admission remains closed.
-			bootAllowed = false
-			welcomePending = true
+		}{status: status, err: waitErr}
+	}()
+	select {
+	case result := <-welcomeResult:
+		if result.err != nil {
+			return fmt.Errorf("wait for gateway control welcome: %w", result.err)
 		}
+		bootAllowed = result.status.DesiredLifecycle == gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN
+		if bootAllowed {
+			if _, desiredErr := controlSupervisor.WaitForDesiredState(ctx, result.status.ConnectionEpoch); desiredErr != nil {
+				return fmt.Errorf("wait for gateway desired state: %w", desiredErr)
+			}
+		}
+	case <-supervisorExited:
+		supervisorResultMu.Lock()
+		result := supervisorResult
+		supervisorResultMu.Unlock()
+		return fmt.Errorf("gateway control supervisor stopped before welcome: %w", result)
+	case <-time.After(time.Second):
+		// Keep the diagnostics listener available while the persistent
+		// control connection reconnects. Admission remains closed.
+		bootAllowed = false
+		welcomePending = true
 	}
-	var adminCode string
 	if bootAllowed {
-		adminCode, err = bootManager(ctx)
+		if err := startManager(ctx); err != nil {
+			// Non-fatal: the control stream stays up so assignments can be
+			// retried after reconciliation.
+			log.Error("session manager start failed", "err", err)
+			controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DEGRADED)
+		}
 	} else if !welcomePending {
 		shutdownManager()
 		controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED)
 		controlSupervisor.ReportNow()
-	}
-	if err != nil {
-		// Non-fatal: the HTTP surface should still come up so sessions can be
-		// (re)attached via the API.
-		log.Error("session manager boot failed", "err", err)
-		if controlRuntime != nil {
-			controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DEGRADED)
-		}
-	} else if controlRuntime != nil && bootAllowed {
-		controlRuntime.setState(controlRuntimeStateForKeystore(controlKeystore))
-		controlSupervisor.ReportNow()
-	}
-	if adminCode != "" {
-		log.Info("admin session pairing code", "code", adminCode, "number", cfg.WhatsAppAdminNumber)
-		fmt.Printf("\n=== WhatsApp admin pairing code: %s (number %s) ===\n\n", adminCode, cfg.WhatsAppAdminNumber)
-	}
-
-	// Now reachable and adopting sessions → mark active and start heartbeating.
-	var heartbeatStop func()
-	if !controlEnabled {
-		if err := registerGateway(ctx, st.Gateways, cfg, domain.GatewayActive); err != nil {
-			log.Error("register gateway (active) failed", "gateway", cfg.GatewayID, "err", err)
-		}
-		heartbeatStop = startGatewayHeartbeat(ctx, st.Gateways, st.Sessions, cfg, log)
-		defer heartbeatStop()
-	}
-	// Graceful drain on shutdown: stop taking new placements (draining), then mark
-	// drained once the process is on its way out, so the router stops routing here.
-	if !controlEnabled {
-		defer func() {
-			drainCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			if err := st.Gateways.SetStatus(drainCtx, cfg.GatewayID, domain.GatewayDrained, domain.NowMs()); err != nil {
-				log.Warn("mark gateway drained failed", "err", err)
-			}
-		}()
 	}
 	if welcomePending {
 		go func() {
@@ -542,142 +359,52 @@ func run() error {
 			if _, desiredErr := controlSupervisor.WaitForDesiredState(supervisorCtx, status.ConnectionEpoch); desiredErr != nil {
 				return
 			}
-			adminCode, bootErr := bootManager(supervisorCtx)
-			if bootErr != nil {
-				log.Error("deferred session manager boot failed", "err", bootErr)
+			if bootErr := startManager(supervisorCtx); bootErr != nil {
+				log.Error("deferred session manager start failed", "err", bootErr)
 				controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DEGRADED)
 				return
-			}
-			if adminCode != "" {
-				log.Info("admin session pairing code", "code", adminCode, "number", cfg.WhatsAppAdminNumber)
-				fmt.Printf("\n=== WhatsApp admin pairing code: %s (number %s) ===\n\n", adminCode, cfg.WhatsAppAdminNumber)
 			}
 			controlRuntime.setState(controlRuntimeStateForKeystore(controlKeystore))
 			controlSupervisor.ReportNow()
 		}()
 	}
-	// --- Async queue (asynq workers: outbox + retention) ---
-	redisOpt, err := queue.ParseRedisURL(cfg.RedisURL)
-	if err != nil {
-		return fmt.Errorf("parse redis url for queue: %w", err)
-	}
-	qHandlers := queue.Handlers{
-		// Outbound sends are API-owned since Increment 6: the API's durable
-		// command scheduler drains the shared outbox directly over the private
-		// engine. The gateway keeps no send worker.
-		Retention: service.NewRetentionWorker(st, log),
-		// Per-task webhook delivery lands in the next stage; the dispatcher's
-		// DeliverDue ticker (below) drives delivery today.
-	}
-	qServer := queue.NewServer(redisOpt, queue.ServerConfig{}, qHandlers)
-	workers := newAdmittedWorkers(qServer, func() bool {
-		return !controlEnabled || controlSupervisor.Status().Ready
-	})
-	startWorkers := func() error {
-		return workers.Start()
-	}
-	stopWorkers := func() {
-		workers.Drain()
-	}
-	if !controlEnabled {
-		if err := startWorkers(); err != nil {
-			return fmt.Errorf("start queue server: %w", err)
-		}
-	} else {
-		go func() {
-			status := controlSupervisor.Status()
-			for !status.Ready {
-				next, waitErr := controlSupervisor.WaitForStatusChange(supervisorCtx, status)
-				if waitErr != nil {
-					return
-				}
-				status = next
-			}
-			if startErr := startWorkers(); startErr != nil {
-				log.Error("start admitted queue workers", "err", startErr)
-			}
-		}()
-	}
-	defer stopWorkers()
-	if controlSupervisor != nil {
-		go func() {
-			var afterSequence uint64
-			for {
-				directive, waitErr := controlSupervisor.WaitForDirective(supervisorCtx, afterSequence)
-				if waitErr != nil {
-					return
-				}
-				afterSequence = directive.Sequence
-				if directive.Action == gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN {
-					runtimeState := controlRuntimeStateForKeystore(controlKeystore)
-					failure := gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_NONE
-					terminal, _ := managerState()
-					if terminal {
-						runtimeState = gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED
-						failure = gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_BUSY
-					} else {
-						adminCode, bootErr := bootManager(supervisorCtx)
-						if bootErr != nil {
-							log.Error("directive session manager boot failed", "err", bootErr)
-							runtimeState = gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DEGRADED
-							failure = gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_INTERNAL
-						} else if adminCode != "" {
-							log.Info("admin session pairing code", "code", adminCode, "number", cfg.WhatsAppAdminNumber)
-							fmt.Printf("\n=== WhatsApp admin pairing code: %s (number %s) ===\n\n", adminCode, cfg.WhatsAppAdminNumber)
-						}
-						controlRuntime.setState(runtimeState)
-						controlSupervisor.ReportNow()
-					}
-					reportCtx, reportCancel := context.WithTimeout(context.Background(), 5*time.Second)
-					if reportErr := controlSupervisor.ReportLifecycle(reportCtx, directive, runtimeState, failure); reportErr != nil {
-						log.Warn("report lifecycle directive outcome", "directive", directive.ID, "err", reportErr)
-					}
-					reportCancel()
-					continue
-				}
 
-				terminal, _ := managerState()
-				if terminal {
-					reportCtx, reportCancel := context.WithTimeout(context.Background(), 5*time.Second)
-					if reportErr := controlSupervisor.ReportLifecycle(reportCtx, directive, gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED, gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_NONE); reportErr != nil {
-						log.Warn("report lifecycle directive outcome", "directive", directive.ID, "err", reportErr)
-					}
-					reportCancel()
-					if directive.Action == gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DISABLE {
-						select {
-						case lifecycleDisabled <- struct{}{}:
-						default:
-						}
-						return
-					}
-					continue
-				}
-
-				drainCtx := context.Background()
-				var drainCancel context.CancelFunc
-				if directive.DrainDeadline.IsZero() {
-					drainCtx, drainCancel = context.WithTimeout(drainCtx, 10*time.Second)
-				} else {
-					drainCtx, drainCancel = context.WithDeadline(drainCtx, directive.DrainDeadline)
-				}
+	// Lifecycle directives: RUN starts/reconciles the manager; DRAIN stops
+	// sessions terminally and reports each transition before DISABLE exits.
+	go func() {
+		var afterSequence uint64
+		for {
+			directive, waitErr := controlSupervisor.WaitForDirective(supervisorCtx, afterSequence)
+			if waitErr != nil {
+				return
+			}
+			afterSequence = directive.Sequence
+			if directive.Action == gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN {
+				runtimeState := controlRuntimeStateForKeystore(controlKeystore)
 				failure := gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_NONE
-				if drainErr := admissionGate.CloseAndWait(drainCtx); drainErr != nil {
-					log.Warn("wait for admitted gateway requests", "err", drainErr)
-					if errors.Is(drainErr, context.DeadlineExceeded) {
-						failure = gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_TIMEOUT
-					} else {
+				if managerLifecycle.terminal() {
+					runtimeState = gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED
+					failure = gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_BUSY
+				} else {
+					if bootErr := startManager(supervisorCtx); bootErr != nil {
+						log.Error("directive session manager start failed", "err", bootErr)
+						runtimeState = gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DEGRADED
 						failure = gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_INTERNAL
 					}
+					controlRuntime.setState(runtimeState)
+					controlSupervisor.ReportNow()
 				}
-				drainCancel()
-				stopWorkers()
-				controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINING)
-				reportControlRuntime(log, controlSupervisor, gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINING, 5*time.Second)
-				shutdownManager()
-				controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED)
-				reportControlRuntime(log, controlSupervisor, gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED, 5*time.Second)
 				reportCtx, reportCancel := context.WithTimeout(context.Background(), 5*time.Second)
-				if reportErr := controlSupervisor.ReportLifecycle(reportCtx, directive, gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED, failure); reportErr != nil {
+				if reportErr := controlSupervisor.ReportLifecycle(reportCtx, directive, runtimeState, failure); reportErr != nil {
+					log.Warn("report lifecycle directive outcome", "directive", directive.ID, "err", reportErr)
+				}
+				reportCancel()
+				continue
+			}
+
+			if managerLifecycle.terminal() {
+				reportCtx, reportCancel := context.WithTimeout(context.Background(), 5*time.Second)
+				if reportErr := controlSupervisor.ReportLifecycle(reportCtx, directive, gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED, gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_NONE); reportErr != nil {
 					log.Warn("report lifecycle directive outcome", "directive", directive.ID, "err", reportErr)
 				}
 				reportCancel()
@@ -686,33 +413,34 @@ func run() error {
 					case lifecycleDisabled <- struct{}{}:
 					default:
 					}
-				}
-				if directive.Action == gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DISABLE {
 					return
 				}
+				continue
 			}
-		}()
-	}
-	qClient := queue.NewClient(redisOpt)
-	defer func() {
-		if err := qClient.Close(); err != nil {
-			log.Warn("close queue client", "err", err)
+
+			controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINING)
+			reportControlRuntime(log, controlSupervisor, gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINING, 5*time.Second)
+			shutdownManager()
+			controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED)
+			reportControlRuntime(log, controlSupervisor, gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED, 5*time.Second)
+			reportCtx, reportCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			if reportErr := controlSupervisor.ReportLifecycle(reportCtx, directive, gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED, gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_NONE); reportErr != nil {
+				log.Warn("report lifecycle directive outcome", "directive", directive.ID, "err", reportErr)
+			}
+			reportCancel()
+			if directive.Action == gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DISABLE {
+				select {
+				case lifecycleDisabled <- struct{}{}:
+				default:
+				}
+				return
+			}
 		}
 	}()
-	retentionStop := queue.NewRetentionScheduler(rdb, qClient, queue.RetentionSchedulerConfig{
-		RetentionDays: cfg.RetentionDays,
-		RedisPrefix:   cfg.RedisPrefix,
-		Log:           log,
-	}).Start(ctx)
-	defer retentionStop()
-
-	// Background webhook dispatch loop.
-	dispatchStop := startDispatchLoop(ctx, dispatcher, log)
-	defer dispatchStop()
 
 	// The gateway serves no public API: every operation executes API-locally over
 	// private engine RPCs. Only a minimal operational probe surface remains.
-	mux := operationalHandler(readiness(db, rdb, controlSupervisor, eventJournal), db.Stats)
+	mux := operationalHandler(readiness(controlSupervisor, eventJournal))
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           mux,
@@ -747,34 +475,15 @@ func run() error {
 		log.Info("shutdown signal received, draining connections")
 	}
 
-	// Mark draining so the router stops placing new sessions here while in-flight
-	// work finishes (the deferred drained transition runs after Shutdown returns).
-	admissionDrainCtx, admissionDrainCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	if err := admissionGate.CloseAndWait(admissionDrainCtx); err != nil {
-		log.Warn("wait for admitted gateway requests", "err", err)
-	}
-	admissionDrainCancel()
-	stopWorkers()
-	if controlRuntime != nil {
-		controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINING)
-		reportControlRuntime(log, controlSupervisor, gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINING, 5*time.Second)
-	}
-	if !controlEnabled {
-		drainCtx, drainCancel := context.WithTimeout(context.Background(), 3*time.Second)
-		if err := st.Gateways.SetStatus(drainCtx, cfg.GatewayID, domain.GatewayDraining, domain.NowMs()); err != nil {
-			log.Warn("mark gateway draining failed", "err", err)
-		}
-		drainCancel()
-	}
+	controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINING)
+	reportControlRuntime(log, controlSupervisor, gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINING, 5*time.Second)
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	shutdownErr := srv.Shutdown(shutdownCtx)
 	shutdownManager()
-	if controlRuntime != nil {
-		controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED)
-		reportControlRuntime(log, controlSupervisor, gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED, 5*time.Second)
-	}
+	controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED)
+	reportControlRuntime(log, controlSupervisor, gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED, 5*time.Second)
 	if shutdownErr != nil {
 		return fmt.Errorf("graceful shutdown: %w", shutdownErr)
 	}
@@ -785,11 +494,30 @@ func run() error {
 	return nil
 }
 
+// managerLifecycleState tracks whether a DRAIN/DISABLE directive has terminally
+// shut the manager down; RUN after that reports BUSY rather than rebooting.
+type managerLifecycleState struct {
+	mu           sync.Mutex
+	terminalFlag bool
+}
+
+func (s *managerLifecycleState) markTerminal() {
+	s.mu.Lock()
+	s.terminalFlag = true
+	s.mu.Unlock()
+}
+
+func (s *managerLifecycleState) terminal() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.terminalFlag
+}
+
 // operationalHandler is the gateway's minimal net/http probe surface:
 // unauthenticated /healthz and /readyz plus Prometheus /metrics. It exists so
-// the composition root does not need the chi/huma handler stack — the gateway
-// has no public API surface.
-func operationalHandler(readiness func() error, dbStats func() sql.DBStats) http.Handler {
+// the composition root does not need any handler stack — the gateway has no
+// public API surface.
+func operationalHandler(readiness func() error) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -805,7 +533,6 @@ func operationalHandler(readiness func() error, dbStats func() sql.DBStats) http
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ready"))
 	})
-	_ = dbStats // metrics collection owns DB stats via prometheus collectors
 	mux.Handle("/metrics", promhttp.Handler())
 	return mux
 }
@@ -818,79 +545,28 @@ func reportControlRuntime(log *slog.Logger, supervisor *controlsupervisor.Superv
 	}
 }
 
-// registerGateway upserts this gateway's registry row with the given lifecycle
-// status (§7, D8): id=GATEWAY_ID, base_url=GATEWAY_PUBLIC_URL (or legacy
-// PUBLIC_URL), timestamps = epoch-ms now.
-// created_at is preserved on update by the repo; the heartbeat maintains
-// last_seen_at + session_count thereafter.
-func registerGateway(ctx context.Context, repo *store.GatewayRepo, cfg *config.GatewayConfig, status domain.GatewayStatus) error {
-	now := domain.NowMs()
-	g := domain.Gateway{
-		ID:         cfg.GatewayID,
-		Status:     status,
-		LastSeenAt: &now,
-		CreatedAt:  now,
-		UpdatedAt:  now,
+// journalCommandLedger adapts the gateway event journal's command-result table
+// to the engine adapter's transport-independent ledger port.
+type journalCommandLedger struct{ journal *journal.Journal }
+
+func (a journalCommandLedger) LookupCommand(ctx context.Context, commandID string) (*application.CommandResultRecord, error) {
+	result, err := a.journal.LookupCommand(ctx, commandID)
+	if err != nil || result == nil {
+		return nil, err
 	}
-	if cfg.PublicURL != "" {
-		base := cfg.PublicURL
-		g.BaseURL = &base
-	}
-	return repo.Upsert(ctx, g)
+	return &application.CommandResultRecord{
+		CommandID: result.CommandID, SessionID: result.SessionID, Status: result.Status,
+		WAMessageID: result.WAMessageID, Error: result.Error, UpdatedAt: result.UpdatedAt,
+	}, nil
 }
 
-// startGatewayHeartbeat refreshes last_seen_at + session_count on a timer so the
-// router can prune stale gateways and place new sessions on the least-loaded one
-// (D8). It returns a stop func for the shutdown sequence.
-func startGatewayHeartbeat(ctx context.Context, gateways *store.GatewayRepo, sessions *store.SessionRepo, cfg *config.GatewayConfig, log *slog.Logger) func() {
-	loopCtx, cancel := context.WithCancel(ctx)
-	beat := func() {
-		count, err := sessions.CountByGateway(loopCtx, cfg.GatewayID)
-		if err != nil {
-			log.Warn("gateway heartbeat: count sessions failed", "err", err)
-			count = 0
-		}
-		if err := gateways.Heartbeat(loopCtx, cfg.GatewayID, domain.NowMs(), count); err != nil {
-			log.Warn("gateway heartbeat failed", "err", err)
-		}
-	}
-	go func() {
-		ticker := time.NewTicker(30 * time.Second)
-		defer ticker.Stop()
-		beat() // beat once immediately so load is current right after boot
-		for {
-			select {
-			case <-loopCtx.Done():
-				return
-			case <-ticker.C:
-				beat()
-			}
-		}
-	}()
-	return cancel
+func (a journalCommandLedger) SaveCommandResult(ctx context.Context, record application.CommandResultRecord) error {
+	return a.journal.SaveCommandResult(ctx, journal.CommandResult{
+		CommandID: record.CommandID, SessionID: record.SessionID, Status: record.Status,
+		WAMessageID: record.WAMessageID, Error: record.Error, UpdatedAt: record.UpdatedAt,
+	})
 }
 
-// startDispatchLoop runs the webhook dispatcher on a ticker until ctx is done.
-func startDispatchLoop(ctx context.Context, d *webhooks.Dispatcher, log *slog.Logger) func() {
-	loopCtx, cancel := context.WithCancel(ctx)
-	go func() {
-		ticker := time.NewTicker(5 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-loopCtx.Done():
-				return
-			case <-ticker.C:
-				if _, err := d.DeliverDue(loopCtx, webhooks.DefaultClaimLimit); err != nil {
-					log.WarnContext(loopCtx, "webhook dispatch pass failed", "err", err)
-				}
-			}
-		}
-	}()
-	return cancel
-}
-
-// readiness returns a /readyz probe that pings the DB and Redis.
 // journalStateFor maps the local journal capacity state onto the control-stream
 // telemetry enum; unknown states report UNKNOWN rather than a fabricated one.
 func journalStateFor(state journal.CapacityState) gatewayv1.GatewayJournalState {
@@ -922,28 +598,6 @@ func positiveInt64ToUint64(n int64) uint64 {
 	return uint64(n)
 }
 
-// journalCommandLedger adapts the gateway event journal's command-result table
-// to the engine adapter's transport-independent ledger port.
-type journalCommandLedger struct{ journal *journal.Journal }
-
-func (a journalCommandLedger) LookupCommand(ctx context.Context, commandID string) (*application.CommandResultRecord, error) {
-	result, err := a.journal.LookupCommand(ctx, commandID)
-	if err != nil || result == nil {
-		return nil, err
-	}
-	return &application.CommandResultRecord{
-		CommandID: result.CommandID, SessionID: result.SessionID, Status: result.Status,
-		WAMessageID: result.WAMessageID, Error: result.Error, UpdatedAt: result.UpdatedAt,
-	}, nil
-}
-
-func (a journalCommandLedger) SaveCommandResult(ctx context.Context, record application.CommandResultRecord) error {
-	return a.journal.SaveCommandResult(ctx, journal.CommandResult{
-		CommandID: record.CommandID, SessionID: record.SessionID, Status: record.Status,
-		WAMessageID: record.WAMessageID, Error: record.Error, UpdatedAt: record.UpdatedAt,
-	})
-}
-
 type controlStatusSource interface {
 	Status() controlsupervisor.Status
 }
@@ -952,7 +606,9 @@ type journalStatusSource interface {
 	Metrics(context.Context) (journal.Metrics, error)
 }
 
-func readiness(db *sql.DB, rdb *redis.Client, control controlStatusSource, eventJournal journalStatusSource) func() error {
+// readiness pings only gateway-local dependencies: the acknowledged control
+// stream heartbeat and journal capacity. MySQL and Redis no longer exist here.
+func readiness(control controlStatusSource, eventJournal journalStatusSource) func() error {
 	return func() error {
 		if control != nil && !control.Status().Ready {
 			return errors.New("control stream unavailable")
@@ -965,14 +621,6 @@ func readiness(db *sql.DB, rdb *redis.Client, control controlStatusSource, event
 			if metrics.State == journal.CapacityCritical {
 				return errors.New("gateway journal capacity critical")
 			}
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-		if err := db.PingContext(ctx); err != nil {
-			return fmt.Errorf("mysql: %w", err)
-		}
-		if err := rdb.Ping(ctx).Err(); err != nil {
-			return fmt.Errorf("redis: %w", err)
 		}
 		return nil
 	}
@@ -1042,57 +690,6 @@ func newGatewayInstanceID() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(entropy[:]), nil
-}
-
-type workerServer interface {
-	Start() error
-	Shutdown()
-}
-
-type admittedWorkers struct {
-	mu       sync.Mutex
-	server   workerServer
-	ready    func() bool
-	started  bool
-	terminal bool
-}
-
-func newAdmittedWorkers(server workerServer, ready func() bool) *admittedWorkers {
-	return &admittedWorkers{server: server, ready: ready}
-}
-
-func (w *admittedWorkers) Start() error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.terminal || w.started || (w.ready != nil && !w.ready()) {
-		return nil
-	}
-	if err := w.server.Start(); err != nil {
-		return err
-	}
-	w.started = true
-	return nil
-}
-
-func (w *admittedWorkers) Drain() {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	w.terminal = true
-	if w.started {
-		w.server.Shutdown()
-		w.started = false
-	}
-}
-
-func openRedis(rawURL string) (*redis.Client, error) {
-	if rawURL == "" {
-		return nil, fmt.Errorf("REDIS_URL is required")
-	}
-	opt, err := redis.ParseURL(rawURL)
-	if err != nil {
-		return nil, err
-	}
-	return redis.NewClient(opt), nil
 }
 
 // setupLogging installs a JSON slog handler at the configured level.

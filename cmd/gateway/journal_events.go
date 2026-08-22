@@ -57,11 +57,3 @@ type controlWebhookSink struct{}
 func (controlWebhookSink) Enqueue(context.Context, domain.Event) error { return nil }
 
 var _ inbound.WebhookEnqueuer = controlWebhookSink{}
-
-// controlInboundRepos preserves local WhatsApp projections but leaves
-// event_log ownership to the API's committed ingest transaction.
-type controlInboundRepos struct{ inbound.Repos }
-
-func (controlInboundRepos) AppendEventLog(context.Context, domain.Event) error { return nil }
-
-var _ inbound.Repos = controlInboundRepos{}

@@ -1,5 +1,7 @@
 # Explicit opt-in overlay for the private API<->gateway control-plane network.
 # Port 8443 is exposed only to this internal Docker network and is never host-published.
+# The gateway has no MySQL/Redis dependency; it runs entirely on its SQLite
+# keystore + event journal and reaches the API only over this mTLS stream.
 services:
   api:
     expose: ["8443"]
@@ -12,16 +14,34 @@ services:
     volumes: ["api_tls_identity:/data/api-tls"]
     networks: ["default", "gateway-control"]
   gateway:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: whatsmeow-gateway:local
     environment:
+      GATEWAY_HTTP_ADDR: ":8080"
+      GATEWAY_ID: "${GATEWAY_ID:-gw-1}"
       GATEWAY_CONTROL_PLANE_ADDR: "api:8443"
       GATEWAY_CREDENTIAL_DIR: "/data/gateway-credentials"
       GATEWAY_BOOTSTRAP_CA_FILE: "/run/secrets/gateway-bootstrap-ca.pem"
       GATEWAY_ENROLLMENT_TOKEN: "${GATEWAY_ENROLLMENT_TOKEN:-}"
       GATEWAY_CERTIFICATE_RENEW_BEFORE: "${GATEWAY_CERTIFICATE_RENEW_BEFORE:?set an authoritative renewal window}"
+      GATEWAY_ENGINE_GRPC_ADDR: ":9443"
+      GATEWAY_ENGINE_GRPC_ADVERTISE_ADDR: "gateway:9443"
+      GATEWAY_JOURNAL_PATH: "/data/keystore/journal.db"
+      WHATSMEOW_STORE_DSN: "file:/data/keystore/store.db?_pragma=foreign_keys(on)&_pragma=journal_mode(WAL)"
+      LOG_LEVEL: "info"
     volumes:
+      - "keystore_data:/data/keystore"
       - "gateway_credentials:/data/gateway-credentials"
-      - "${GATEWAY_BOOTSTRAP_CA_FILE:?set GATEWAY_BOOTSTRAP_CA_FILE to the operator CA PEM}:/run/secrets/gateway-bootstrap-ca.pem:ro"
+    secrets: ["gateway_bootstrap_ca"]
+    depends_on:
+      api: { condition: service_started }
     networks: ["default", "gateway-control"]
+
+secrets:
+  gateway_bootstrap_ca:
+    file: ${GATEWAY_BOOTSTRAP_CA_FILE:?set GATEWAY_BOOTSTRAP_CA_FILE to the operator CA PEM}
 
 networks:
   gateway-control:
@@ -30,3 +50,4 @@ networks:
 volumes:
   api_tls_identity: {}
   gateway_credentials: {}
+  keystore_data: {}

@@ -1,4 +1,6 @@
-# Local full stack: API + gateway + frontend + MySQL + Redis.
+# Local full stack: API + gateway + frontend + MySQL + Redis. The API owns
+# MySQL/Redis; the gateway runs on its SQLite keystore + journal and reaches the
+# API only over the private control plane (enable with the grpc overlay).
 services:
   api:
     build:
@@ -28,30 +30,6 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
-
-  gateway:
-    build:
-      context: ..
-      dockerfile: deploy/Dockerfile
-    image: whatsmeow-gateway:local
-    expose: ["8080"]
-    environment:
-      GATEWAY_HTTP_ADDR: ":8080"
-      GATEWAY_ID: "gw-1"
-      GATEWAY_PUBLIC_URL: "http://gateway:8080"
-      APP_ENCRYPTION_KEY: "${APP_ENCRYPTION_KEY}"
-      MYSQL_DSN: "gw:gwpass@tcp(mysql:3306)/gateway?parseTime=true&charset=utf8mb4&clientFoundRows=true"
-      WHATSMEOW_STORE_DSN: "file:/data/keystore/store.db?_pragma=foreign_keys(on)&_pragma=journal_mode(WAL)"
-      REDIS_URL: "redis://redis:6379"
-      REDIS_PREFIX: "gw"
-      RETENTION_DAYS: "${RETENTION_DAYS:-0}"
-      WHATSAPP_ADMIN_NUMBER: "${WHATSAPP_ADMIN_NUMBER:-}"
-      LOG_LEVEL: "info"
-    volumes: ["keystore_data:/data/keystore"]
-    depends_on:
-      api: { condition: service_healthy }
-      mysql: { condition: service_healthy }
-      redis: { condition: service_healthy }
 
   frontend:
     build:
@@ -90,5 +68,10 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+
+# The gateway is intentionally absent from the base file: it cannot run without
+# its control plane. Bring the full stack up with
+#   docker compose -f docker-compose.yml -f docker-compose.grpc-control-plane.yml up
+# which adds a configured gateway over the private mTLS network.
 
 volumes: { mysql_data: {}, redis_data: {}, keystore_data: {} }

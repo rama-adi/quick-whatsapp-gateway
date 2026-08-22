@@ -1,4 +1,7 @@
-# Production / split hosting with external MySQL and Redis.
+# Production / split hosting with external MySQL and Redis. The API owns all
+# shared state; the gateway runs on its SQLite keystore + journal and connects
+# to the API over the mandatory private mTLS control plane (overlay:
+# docker-compose.grpc-control-plane.yml provides the gateway service).
 services:
   api:
     image: ghcr.io/you/whatsmeow-api:latest
@@ -22,27 +25,6 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
-
-  gateway:
-    image: ghcr.io/you/whatsmeow-gateway:latest
-    expose: ["8080"]
-    environment:
-      GATEWAY_HTTP_ADDR: ":8080"
-      GATEWAY_ID: "${GATEWAY_ID:-gw-1}"
-      GATEWAY_PUBLIC_URL: "${GATEWAY_PUBLIC_URL:-http://gateway:8080}"
-      APP_ENCRYPTION_KEY: "${APP_ENCRYPTION_KEY}"
-      MYSQL_DSN: "${MYSQL_DSN}"
-      WHATSMEOW_STORE_DSN: "${WHATSMEOW_STORE_DSN:-file:/data/keystore/store.db?_pragma=foreign_keys(on)&_pragma=journal_mode(WAL)}"
-      REDIS_URL: "${REDIS_URL}"
-      REDIS_PREFIX: "${REDIS_PREFIX:-gw}"
-      RETENTION_DAYS: "${RETENTION_DAYS:-0}"
-      WHATSAPP_ADMIN_NUMBER: "${WHATSAPP_ADMIN_NUMBER:-}"
-      WHATSAPP_ADMIN_ORG_ID: "${WHATSAPP_ADMIN_ORG_ID:-}"
-      WHATSAPP_ADMIN_CMD_PREFIX: "${WHATSAPP_ADMIN_CMD_PREFIX:-am}"
-      LOG_LEVEL: "${LOG_LEVEL:-info}"
-    volumes: ["keystore_data:/data/keystore"]
-    depends_on:
-      api: { condition: service_healthy }
 
   frontend:
     image: ghcr.io/you/whatsmeow-web:latest

@@ -1,89 +1,59 @@
-# HTTP foundation & router
+# HTTP foundation
 
-Status: implemented (R1; central-router Increment A).
+Status: implemented (R1; central-router Increment A; **Increment 9: gateway HTTP API removed**).
 
-> **Target migration, not current runtime (gRPC control-plane Increment 0).** Public Huma handlers,
-> validation, errors, OpenAPI generation, and public gRPC adapters will terminate in the API process
->
-> Public gRPC is live: `internal/apigrpc` serves `public.v1` sessions/messages/events beside REST
-> on `API_PUBLIC_GRPC_ADDR` with the same two-acceptor authn, org scoping, and error semantics.
-> See docs/specs/grpc-contracts.md for the wire contract.
-> and invoke shared application services. The private gateway will expose only its mTLS gRPC
-> engine/control contract plus operational probes; it will not host public HTTP, Huma, OpenAPI, or
-> end-user auth middleware. REST remains Huma code-first, and public/private protobuf contracts are
-> separate compatibility domains. The chi/proxy topology below is still implemented today.
+> **Increment 9.** The gateway serves **no HTTP API at all**: no chi router, no
+> huma operations, no admission gate, no OpenAPI, no assertion middleware. Its
+> entire network surface is the private mTLS engine gRPC listener plus a minimal
+> `net/http` probe server (`/healthz`, `/readyz`, `/metrics`). The former
+> `internal/http` chi router (`NewRouter`, `RouterConfig`, `AdmissionGate`) is
+> deleted; `internal/http/handlers` (huma operations) and
+> `internal/http/middleware` remain because the **API** mounts them on its own
+> public surface.
 
-Shared transport plumbing and the chi router. The gateway is a **pure WhatsApp engine with no
-human login**: no `/auth` surface, no embedded SPA, no cookie middleware.
+The API is the single front door: it owns authn/CORS/control-bus, the Huma REST
+surface + generated OpenAPI (`docs/openapi.yaml`, served at
+`/api/v1/openapi.yaml`), ticketed WebSocket realtime, and the `public.v1` gRPC
+adapters in `internal/apigrpc` on `API_PUBLIC_GRPC_ADDR`. Public REST and gRPC
+share one authn stack, org scoping, and error semantics — see
+[`router.md`](router.md), [`grpc-contracts.md`](grpc-contracts.md),
+[`trust-model.md`](trust-model.md).
 
-> **Central-router (Increment A).** The gateway **no longer authenticates end users** and **no longer
-> mounts CORS or serves the public OpenAPI spec** — browsers hit the **router**, which owns the
-> public route surface + CORS and serves `/api/v1/openapi.yaml` ([`router.md`](router.md)). Every
-> `/api/v1` route is now gated by the **internal-assertion middleware** (`assertion.Middleware`,
-> wired via `RouterConfig.Auth`): it verifies the router's request-bound Ed25519 assertion and
-> rebuilds the `Principal`. The capability gates (`RequireRead/Send/Manage/Events/SuperAdmin`) and
-> org-scoped store queries are **unchanged** — they read the asserted principal. Health/metrics
-> probes stay open. Masterplan §4.3, §4.4, §13; [`trust-model.md`](trust-model.md).
+## Gateway probes (`cmd/gateway/main.go`)
 
-## Router (`internal/http/router.go`)
+The composition root builds its own tiny handler instead of any framework:
 
-`NewRouter(RouterConfig)` builds the chi tree:
+- `GET /healthz` — always `200 ok`.
+- `GET /readyz` — `200 ready` only when the acknowledged control-stream
+  heartbeat reports READY/RUN **and** journal capacity is not critical. There is
+  no MySQL or Redis ping: those dependencies no longer exist on the gateway.
+- `/metrics` — Prometheus collector registry.
 
-- **Base stack:** `Recover` (outermost) → `RequestID` → `Logger`. **CORS is no longer mounted on the
-  gateway** (central-router) — it lives on the router.
-- **Open probes:** `GET /healthz`, `GET /readyz`, `/metrics` (Prometheus) — unauthenticated.
-  API `/readyz` shares its dependency-and-admission predicate with public gRPC health. Admission is
-  false before both public sockets are bound and again before coordinated HTTP/gRPC drain begins.
-- **`/api/v1`** — an authenticated group wraps the **assertion middleware** (`RouterConfig.Auth`,
-  `assertion.Middleware`) plus an optional edge `RateLimit`; each resource group then composes its
-  capability gate. The gateway **no longer exposes `/events`** — realtime is WebSocket-only on the
-  router (`GET /api/v1/realtime`); the gateway only publishes events to Redis for the router to
-  fan out.
-- **No SPA, no `/auth`:** any unmatched path is a JSON `404` via `WriteError(ErrNotFound)`.
+## API route surface (capability per group)
 
-`RouterConfig` carries `Auth func(http.Handler) http.Handler` (the assertion middleware),
-`Limiter`, `Readiness`, `Admission`, `Log`. In control-enabled mode `Admission` rejects every
-registered transitional engine request with `503 gateway_unavailable` until the control plane has
-acknowledged a RUN+READY heartbeat. This includes GET/HEAD operations that consult live manager
-state. DRAIN/DISABLE closes the gate terminally for the process and `CloseAndWait` waits for
-requests already admitted through the gate before manager shutdown. Health, readiness, metrics, and
-other diagnostics outside the registered engine group remain available. Control-disabled mode
-retains the legacy always-admitting behavior. **Dropped vs R1 (central-router):** `Tokens`/`Keys` (end-user
-verifiers — now on the router), `CORSOrigins` (CORS now on the router), and serving the OpenAPI spec
-(`OpenAPIPath` — the router serves `/api/v1/openapi.yaml`, plan D9).
-
-The terminal close is `AdmissionGate.CloseForever`: later readiness/status notifications cannot
-reopen it. SIGTERM and authoritative DRAIN both use this irreversible close before waiting for the
-active request count to reach zero.
-
-### Route surface (capability per group)
+The API mounts the shared huma operations from `internal/http/handlers`:
 
 | Group | Gate | Routes |
 |---|---|---|
 | Webhooks | `RequireManage` | `/webhooks`, `/webhooks/{id}` (POST/GET/PATCH/DELETE) |
 | Admin | `RequireSuperAdmin` | `GET /admin/sessions`, `POST /admin/sessions/{session}:backfill`, `GET /admin/sessions/{session}/backfill` |
+| Gateway admin | `RequireSuperAdmin` | gateway inventory/enrollment/lifecycle administration |
 | Sessions | `RequireManage` | `/sessions`, `:start`/`:stop`/`:restart`/`:logout`, `/me`, `/qr`, `/pairing-code`, `POST`/`GET /sessions/{session}/backfill` (crypt15 backup import) |
 | Messages | `RequireSend` | `/sessions/{session}/messages` (+ edit/revoke/reaction/forward/vote) |
 | Chats/Contacts/Groups/Channels | `RequireRead` (GET) / `RequireSend` (mutations) | per-session sub-resources |
 | Status/Presence | `RequireSend` | `/status`, `/presence` |
 
 > **Removed vs v1:** `/auth/*` (→ better-auth on the frontend), `/keys*` (→ better-auth api-key
-> plugin; the router verifies keys), `/auth/admin/*` (→ better-auth admin plugin), and the
+> plugin; the API verifies keys), `/auth/admin/*` (→ better-auth admin plugin), and the
 > embedded SPA static handler.
 
 ## Authz middleware (`internal/authz`)
 
-Auth lives in `internal/authz` and is detailed in [`trust-model.md`](trust-model.md).
-
-> **Central-router (Increment A).** `authz.Authenticate(tokens, keys)` — the two-acceptor end-user
-> middleware (JWT via JWKS / api-key via the shared `apikey` table) — and `CORS(FRONTEND_ORIGINS)`
-> now run **on the router**, not the gateway. On the gateway the `/api/v1` group instead runs the
-> **internal-assertion middleware** (`assertion.Middleware`, `internal/assertion`): it verifies the
-> router's request-bound Ed25519 assertion, rebuilds the `Principal`, and puts it on the context.
-> `RequireRead/Send/Manage/Events/SuperAdmin` (`gates.go`) authorize from that principal, unchanged.
-> There is **no Authula cookie bridge** — that whole v1 path is gone.
-> Browser preflights receive a fixed allow-list of public headers; caller-requested headers are not
-> reflected, so internal-only headers cannot be opted into the browser CORS policy.
+Auth lives in `internal/authz` and is detailed in [`trust-model.md`](trust-model.md):
+the two-acceptor end-user middleware (JWT via JWKS / api-key via the shared
+`apikey` table) runs **only on the API**. `RequireRead/Send/Manage/Events/SuperAdmin`
+(`gates.go`) authorize from the authenticated principal.
+There is **no Authula cookie bridge** — that whole v1 path is gone.
 
 ## `internal/http/middleware`
 
@@ -103,24 +73,23 @@ The canonical `http_request` event is the single completion record for each
 service hop. Every event includes service, method, normalized route pattern,
 status, duration in milliseconds, request ID, and organization. Raw request
 paths are omitted because path parameters can contain JIDs, phone numbers,
-message IDs, or other resource identifiers. A 5xx event is
-emitted at error level. For `503`, the originating seam records a stable
-`failure_cause` (`deadline_exceeded`, `context_canceled`, `upstream_timeout`, or
-`gateway_unavailable`) and `failure_source` (`gateway_handler`, `router_resolve`,
-`router_registry`, `router_proxy`, or `gateway_response`). Gateway events also
-include numeric `database/sql` pool pressure and, on session routes, the
-non-identifying WhatsApp status/connected/logged-in snapshot. Bodies, headers,
-tokens, JIDs, phone numbers, and message text are never logged.
+message IDs, or other resource identifiers. A 5xx event is emitted at error
+level. For `503`, the originating seam records a stable `failure_cause`
+(`deadline_exceeded`, `context_canceled`, `upstream_timeout`, or
+`gateway_unavailable`) and `failure_source`. The API's log events include the
+numeric `database/sql` pool pressure and, on session routes, the
+non-identifying WhatsApp status snapshot resolved through the engine facade.
+Bodies, headers, tokens, JIDs, phone numbers, and message text are never logged.
 
-`X-Request-Id` is validated or minted once at the router, echoed to the caller,
-stored in context, and forwarded to the gateway. Router and gateway log events
-therefore share one correlation ID even when the caller supplied none. The
-Prometheus endpoint exports `gateway_request_failures_total{service,source,cause}`
-and the standard Go SQL pool collector; labels remain low-cardinality and never
-contain request, session, user, or organization IDs.
+`X-Request-Id` is validated or minted once at the API, echoed to the caller,
+stored in context, and forwarded to internal hops so log events share one
+correlation ID even when the caller supplied none. Prometheus exports
+`gateway_request_failures_total{service,source,cause}` and the standard Go SQL
+pool collector; labels remain low-cardinality and never contain request,
+session, user, or organization IDs.
 
 Rate-limit key choice: session routes carry `:session` so they limit **per WhatsApp number**;
-others fall back to an **org-wide** bucket (`org:<id>`, renamed from v1's `tenant:`). **Fail-open**
+others fall back to an **org-wide** bucket (`org:<id>`). **Fail-open**
 on a limiter backend error; a clean `(false, nil)` → `429`.
 
 ## `internal/httpx`
@@ -137,8 +106,7 @@ func WriteJSON(w, status int, v any)
 func WriteError(w, err error)              // *domain.APIError -> mapped status; else masked 500
 // not_found 404, unauthorized 401, forbidden 403, validation_error 400, rate_limited 429,
 // conflict 409, gateway_unavailable 503, not_implemented 501, internal 500.
-// (gateway_unavailable: a session's owning gateway is missing/not active/stale — the router
-//  returns it for a stranded session; central-router Increment A.)
+// (gateway_unavailable: a session's owning gateway is missing/unreachable/unfresh.)
 
 // Decode (1 MiB cap, unknown-field reject -> validation_error):
 func DecodeJSON[T any](r, dst *T) error    ; func DecodeJSONLimit[T any](r, dst *T, max int64) error
@@ -146,6 +114,8 @@ func DecodeJSON[T any](r, dst *T) error    ; func DecodeJSONLimit[T any](r, dst 
 // Pagination (?limit=&cursor=, opaque; envelope {"data":[...],"nextCursor":...}):
 func ParsePage(r) (limit int, cursor string)  ; func ListEnvelope[T any](w, items []T, nextCursor string)
 ```
+
+The gateway binary uses only `WriteError` for its `/readyz` failure body.
 
 ## `internal/crypto`
 
@@ -158,11 +128,6 @@ func (*AESGCM) Encrypt(plaintext []byte) ([]byte, error)
 func (*AESGCM) Decrypt(ciphertext []byte) ([]byte, error)  // ErrMalformedCiphertext on tamper/short/wrong-key
 ```
 
-> The v1 custom api-key helpers (`GenerateAPIKey`/`VerifyAPIKey`/argon2id, `wak_` prefix) are
-> obsolete in v2 — key minting/verification moved to better-auth + `internal/authz`
-> ([`api-keys.md`](api-keys.md)). Any residual helpers in `internal/crypto/apikey.go` are dead and
-> a cleanup candidate (see Verify notes).
-
 ## Tests
 
 - crypto: AES round-trip, nonce randomization, tamper/short/wrong-key detection, bad-key reject.
@@ -171,6 +136,6 @@ func (*AESGCM) Decrypt(ciphertext []byte) ([]byte, error)  // ErrMalformedCipher
   ctx getters.
 - middleware: recover 500 JSON; requestID generate + inbound propagation; ratelimit
   allow/deny/fail-open + key-by-session/org.
-- authz + router auth: covered in [`trust-model.md`](trust-model.md).
+- authz: covered in [`trust-model.md`](trust-model.md).
 
 Run: `CGO_ENABLED=0 go test ./internal/http/... ./internal/httpx/... ./internal/crypto/...`.

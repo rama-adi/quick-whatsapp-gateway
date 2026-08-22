@@ -1,4 +1,5 @@
 # Self-host, single-box stack: API + gateway + frontend share one app container.
+# The gateway talks to the API over the private mTLS control plane (loopback).
 services:
   app:
     build:
@@ -18,15 +19,24 @@ services:
       MYSQL_DSN: "gw:gwpass@tcp(mysql:3306)/gateway?parseTime=true&charset=utf8mb4&clientFoundRows=true"
       REDIS_URL: "redis://redis:6379"
       REDIS_PREFIX: "${REDIS_PREFIX:-gw}"
+      # --- Gateway (control-plane mandatory; no MySQL/Redis) ---
       GATEWAY_HTTP_ADDR: "127.0.0.1:8080"
       GATEWAY_ID: "${GATEWAY_ID:-gw-1}"
-      GATEWAY_PUBLIC_URL: "http://127.0.0.1:8080"
-      APP_ENCRYPTION_KEY: "${APP_ENCRYPTION_KEY}"
+      GATEWAY_CONTROL_PLANE_ADDR: "127.0.0.1:8443"
+      GATEWAY_CREDENTIAL_DIR: "/data/gateway-credentials"
+      GATEWAY_BOOTSTRAP_CA_FILE: "/run/secrets/gateway-bootstrap-ca.pem"
+      GATEWAY_ENROLLMENT_TOKEN: "${GATEWAY_ENROLLMENT_TOKEN:-}"
+      GATEWAY_CERTIFICATE_RENEW_BEFORE: "${GATEWAY_CERTIFICATE_RENEW_BEFORE:-6h}"
+      GATEWAY_ENGINE_GRPC_ADDR: "127.0.0.1:9443"
+      GATEWAY_ENGINE_GRPC_ADVERTISE_ADDR: "127.0.0.1:9443"
+      GATEWAY_JOURNAL_PATH: "/data/keystore/journal.db"
+      # --- API private control-plane listener ---
+      API_GATEWAY_GRPC_ADDR: "127.0.0.1:8443"
+      API_GATEWAY_TLS_IDENTITY_DIR: "/data/api-tls"
+      API_GATEWAY_TLS_RENEW_BEFORE: "${API_GATEWAY_TLS_RENEW_BEFORE:-6h}"
+      PKI_ENCRYPTION_KEY: "${PKI_ENCRYPTION_KEY}"
+      PKI_ENCRYPTION_KEY_ID: "${PKI_ENCRYPTION_KEY_ID:-local-v1}"
       WHATSMEOW_STORE_DSN: "file:/data/keystore/store.db?_pragma=foreign_keys(on)&_pragma=journal_mode(WAL)"
-      RETENTION_DAYS: "${RETENTION_DAYS:-0}"
-      WHATSAPP_ADMIN_NUMBER: "${WHATSAPP_ADMIN_NUMBER:-}"
-      WHATSAPP_ADMIN_ORG_ID: "${WHATSAPP_ADMIN_ORG_ID:-}"
-      WHATSAPP_ADMIN_CMD_PREFIX: "${WHATSAPP_ADMIN_CMD_PREFIX:-am}"
       BETTER_AUTH_SECRET: "${BETTER_AUTH_SECRET}"
       DATABASE_URL: "mysql://gw:gwpass@mysql:3306/gateway"
       GATEWAY_URL: "http://127.0.0.1:8090"
@@ -35,7 +45,11 @@ services:
       USER_REGISTRATION_ENABLED: "${USER_REGISTRATION_ENABLED:-false}"
       ADMIN_USER_IDS: "${ADMIN_USER_IDS:-}"
       LOG_LEVEL: "${LOG_LEVEL:-info}"
-    volumes: ["keystore_data:/data/keystore"]
+    volumes:
+      - keystore_data:/data/keystore
+      - api_tls_identity:/data/api-tls
+      - gateway_credentials:/data/gateway-credentials
+    secrets: ["gateway_bootstrap_ca"]
     depends_on:
       mysql: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -64,4 +78,8 @@ services:
       timeout: 3s
       retries: 20
 
-volumes: { mysql_data: {}, redis_data: {}, keystore_data: {} }
+secrets:
+  gateway_bootstrap_ca:
+    file: ${GATEWAY_BOOTSTRAP_CA_FILE:?set GATEWAY_BOOTSTRAP_CA_FILE to the operator root PEM}
+
+volumes: { mysql_data: {}, redis_data: {}, keystore_data: {}, api_tls_identity: {}, gateway_credentials: {} }

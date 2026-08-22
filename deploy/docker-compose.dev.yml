@@ -1,5 +1,6 @@
-# Development infrastructure. Default starts MySQL + Redis only. Gateway profiles
-# deliberately publish :8080 for local inspection; no production topology does.
+# Development infrastructure. Default starts MySQL + Redis only (API-side).
+# The gateway no longer uses MySQL or Redis: its env carries only the control
+# plane, keystore, journal, and engine listener settings.
 services:
   gateway:
     profiles: ["gateway"]
@@ -8,12 +9,8 @@ services:
     ports: ["8080:8080"]
     env_file: [.env]
     environment: &gateway_overrides
-      MYSQL_DSN: "gw:gwpass@tcp(mysql:3306)/gateway?parseTime=true&charset=utf8mb4&clientFoundRows=true"
-      REDIS_URL: "redis://redis:6379"
       WHATSMEOW_STORE_DSN: "file:/data/keystore/store.db?_pragma=foreign_keys(on)&_pragma=journal_mode(WAL)"
-      ROUTER_JWKS_URL: "http://api:8090/.well-known/router-jwks.json"
       GATEWAY_HTTP_ADDR: ":8080"
-      GATEWAY_PUBLIC_URL: "http://gateway:8080"
     extra_hosts: ["host.docker.internal:host-gateway"]
     volumes: ["keystore_dev:/data/keystore"]
     depends_on:
@@ -29,7 +26,6 @@ services:
     env_file: [.env]
     environment:
       <<: *gateway_overrides
-      GATEWAY_PUBLIC_URL: "http://gateway-dev:8080"
     extra_hosts: ["host.docker.internal:host-gateway"]
     volumes:
       - ..:/src

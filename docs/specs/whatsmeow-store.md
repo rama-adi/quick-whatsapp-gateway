@@ -99,9 +99,9 @@ The SQLite file holds **device crypto material** — lose it and every number mu
 `/data/keystore` on a **named Docker volume** (`keystore_data`, see [packaging §15] and
 `deploy/`). Back it up. In dev, `air` points the DSN at a local path.
 
-With the private control plane configured, `WHATSMEOW_STORE_DSN` must be an explicit local absolute
-`file:/...` path. Relative/default DSNs, memory forms, and URI authorities are rejected. This validation
-does not change the legacy local-development wrapper.
+`WHATSMEOW_STORE_DSN` must be an explicit local absolute
+`file:/...` path. Relative/default DSNs, memory forms, and URI authorities are rejected — the
+keystore is the gateway's irreplaceable durable state and can never live on ephemeral storage.
 
 ## Operator backup and restore
 

@@ -5,15 +5,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/apitypes"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa/events"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa/inbound"
 )
@@ -31,92 +28,13 @@ import (
 // two without changing either side.
 // ---------------------------------------------------------------------------
 
-// ManagerSessionRepo adapts *store.SessionRepo to wa.SessionRepo.
-type ManagerSessionRepo struct {
-	repo  *store.SessionRepo
-	clock func() int64
-}
-
-// NewManagerSessionRepo wraps a store.SessionRepo for the wa.Manager. clock may
-// be nil (domain.NowMs is used).
-func NewManagerSessionRepo(repo *store.SessionRepo, clock func() int64) *ManagerSessionRepo {
-	if clock == nil {
-		clock = domain.NowMs
-	}
-	return &ManagerSessionRepo{repo: repo, clock: clock}
-}
-
-var _ wa.SessionRepo = (*ManagerSessionRepo)(nil)
-
-func (a *ManagerSessionRepo) Get(ctx context.Context, id string) (*domain.WASession, error) {
-	s, err := a.repo.Get(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	return &s, nil
-}
-
-func (a *ManagerSessionRepo) GetByJID(ctx context.Context, jid string) (*domain.WASession, error) {
-	s, err := a.repo.GetByJID(ctx, jid)
-	if err != nil {
-		return nil, err
-	}
-	return &s, nil
-}
-
-func (a *ManagerSessionRepo) ListByOrg(ctx context.Context, organizationID string) ([]*domain.WASession, error) {
-	rows, err := a.repo.ListByOrg(ctx, organizationID)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]*domain.WASession, len(rows))
-	for i := range rows {
-		s := rows[i]
-		out[i] = &s
-	}
-	return out, nil
-}
-
-func (a *ManagerSessionRepo) Create(ctx context.Context, s *domain.WASession) error {
-	return a.repo.Create(ctx, *s)
-}
-
-func (a *ManagerSessionRepo) Update(ctx context.Context, s *domain.WASession) error {
-	s.UpdatedAt = a.clock()
-	return a.repo.Update(ctx, *s)
-}
-
-func (a *ManagerSessionRepo) UpdateStatus(ctx context.Context, id string, status domain.SessionStatus) error {
-	now := a.clock()
-	if err := a.repo.UpdateStatus(ctx, id, status, now); err != nil {
-		return err
-	}
-	// Stamp last_connected_at when a session reaches WORKING. Best-effort: load,
-	// set, write through the full Update. A failure here is logged by the caller.
-	if status == domain.SessionWorking {
-		s, err := a.repo.Get(ctx, id)
-		if err != nil {
-			return nil //nolint:nilerr // status already persisted; stamping is best-effort
-		}
-		s.LastConnectedAt = &now
-		s.UpdatedAt = now
-		_ = a.repo.Update(ctx, s)
-	}
-	return nil
-}
-
-// ---------------------------------------------------------------------------
-// wa.EventSink: stream.Publisher.Publish returns an error; the manager's sink
-// is fire-and-forget (no return). This adapter logs publish failures.
-// ---------------------------------------------------------------------------
-
-// publisher is the slice of *stream.Publisher this adapter needs.
 type publisher interface {
 	Publish(ctx context.Context, e domain.Event) error
 }
 
 // EventSinkAdapter adapts a *stream.Publisher (Publish returning error) to the
-// fire-and-forget wa.EventSink the manager expects.
+// fire-and-forget wa.EventSink the manager expects. It is API-side only now:
+// the gateway's manager publishes through its journal-backed sink.
 type EventSinkAdapter struct {
 	pub publisher
 	log *slog.Logger
@@ -129,8 +47,6 @@ func NewEventSinkAdapter(pub publisher, log *slog.Logger) *EventSinkAdapter {
 	}
 	return &EventSinkAdapter{pub: pub, log: log}
 }
-
-var _ wa.EventSink = (*EventSinkAdapter)(nil)
 
 func (a *EventSinkAdapter) Publish(ctx context.Context, evt domain.Event) {
 	if err := a.pub.Publish(ctx, evt); err != nil {
@@ -158,8 +74,6 @@ func NewInboundPipelineHandler(pipeline *inbound.Pipeline, log *slog.Logger) *In
 	}
 	return &InboundPipelineHandler{pipeline: pipeline, log: log}
 }
-
-var _ wa.InboundHandler = (*InboundPipelineHandler)(nil)
 
 func (h *InboundPipelineHandler) Handle(ctx context.Context, sessionID, organizationID string, isAdmin bool, evt any) {
 	if h.pipeline == nil {
@@ -282,228 +196,6 @@ func resolveSelectedOptions(options, selectedHashes []string) []string {
 		}
 	}
 	return out
-}
-
-// InboundRepos implements every persistence stage over the shared Store. Its
-// methods preserve the pipelines session/org tags and use repository natural
-// keys so protocol redelivery updates rather than duplicates records.
-type InboundRepos struct {
-	store     *store.Store
-	scheduler pollRecapScheduler
-}
-
-// NewInboundRepos wires durable inbound persistence and the optional Redis poll
-// recap accelerator.
-func NewInboundRepos(st *store.Store, scheduler pollRecapScheduler) *InboundRepos {
-	return &InboundRepos{store: st, scheduler: scheduler}
-}
-
-var _ inbound.Repos = (*InboundRepos)(nil)
-
-func (r *InboundRepos) UpsertIdentity(ctx context.Context, in inbound.IdentityUpsert) error {
-	return r.store.Identities.Upsert(ctx, domain.Identity{
-		LID:          in.LID,
-		PhoneNumber:  stringPtr(in.PhoneNumber),
-		PhoneJID:     stringPtr(in.PhoneJID),
-		Name:         stringPtr(in.Name),
-		BusinessName: stringPtr(in.BusinessName),
-		FirstSeenAt:  in.NowMs,
-		UpdatedAt:    in.NowMs,
-	})
-}
-
-func (r *InboundRepos) FillIdentityName(ctx context.Context, in inbound.IdentityNameFill) error {
-	return r.store.Identities.FillNameByJID(ctx, in.JID, in.Name, in.NowMs)
-}
-
-func (r *InboundRepos) UpsertGroup(ctx context.Context, in inbound.GroupUpsert) error {
-	return r.store.Groups.Upsert(ctx, domain.Group{
-		GroupJID:         in.GroupJID,
-		Subject:          stringPtr(in.Subject),
-		Description:      stringPtr(in.Description),
-		OwnerJID:         stringPtr(in.OwnerJID),
-		ParticipantCount: in.ParticipantCount,
-		IsAnnounce:       in.IsAnnounce,
-		IsLocked:         in.IsLocked,
-		CreatedAtWA:      in.CreatedAtWA,
-		FirstSeenAt:      in.NowMs,
-		UpdatedAt:        in.NowMs,
-	})
-}
-
-func (r *InboundRepos) UpsertGroupMember(ctx context.Context, in inbound.GroupMemberUpsert) error {
-	return r.store.GroupMembers.Upsert(ctx, domain.GroupMember{
-		SessionID:   in.SessionID,
-		GroupJID:    in.GroupJID,
-		LID:         in.LID,
-		Tag:         stringPtr(in.Tag),
-		Role:        in.Role,
-		FirstSeenAt: in.NowMs,
-		LastSeenAt:  in.NowMs,
-	})
-}
-
-func (r *InboundRepos) ResolveMentionDetails(ctx context.Context, sessionID, groupJID string, mentions []string) (map[string]inbound.MentionDetail, error) {
-	out := make(map[string]inbound.MentionDetail, len(mentions))
-	if len(mentions) == 0 {
-		return out, nil
-	}
-
-	names, err := r.store.Identities.NamesForMentions(ctx, mentions)
-	if err != nil {
-		return nil, err
-	}
-	members, err := r.store.GroupMembers.ListByGroup(ctx, sessionID, groupJID)
-	if err != nil {
-		return nil, err
-	}
-
-	tagsByLID := make(map[string]string, len(members))
-	for _, member := range members {
-		if member.Tag != nil {
-			tagsByLID[member.LID] = *member.Tag
-		}
-	}
-	for _, jid := range mentions {
-		out[jid] = inbound.MentionDetail{
-			PushName: names[mentionUserPart(jid)],
-			Tag:      tagsByLID[jid],
-		}
-	}
-	return out, nil
-}
-
-func mentionUserPart(jid string) string {
-	if i := strings.IndexAny(jid, "@:"); i >= 0 {
-		return jid[:i]
-	}
-	return jid
-}
-
-// LookupQuotedContext resolves reply context from the locally stored quoted
-// message. A missing quoted message (older than retention, or never captured)
-// maps not_found -> ok=false so the caller keeps the reply's protocol-frame
-// values; any other error propagates.
-func (r *InboundRepos) LookupQuotedContext(ctx context.Context, sessionID, quotedMessageID string) (inbound.QuotedContext, bool, error) {
-	m, err := r.store.Messages.GetByWAID(ctx, sessionID, quotedMessageID)
-	if err != nil {
-		var ae *domain.APIError
-		if errors.As(err, &ae) && ae.Code == domain.CodeNotFound {
-			return inbound.QuotedContext{}, false, nil
-		}
-		return inbound.QuotedContext{}, false, err
-	}
-	return inbound.QuotedContext{
-		FromMe:    m.FromMe,
-		SenderJID: strDeref(m.SenderJID),
-		SenderLID: strDeref(m.SenderLID),
-		Body:      strDeref(m.Body),
-	}, true, nil
-}
-
-// strDeref returns the pointed-to string or "".
-func strDeref(s *string) string {
-	if s == nil {
-		return ""
-	}
-	return *s
-}
-
-func (r *InboundRepos) UpsertChat(ctx context.Context, in inbound.ChatUpsert) error {
-	return r.store.Chats.Upsert(ctx, domain.Chat{
-		SessionID:     in.SessionID,
-		ChatJID:       in.ChatJID,
-		Type:          in.Type,
-		Name:          stringPtr(in.Name),
-		LastMessageAt: int64Ptr(in.LastMessageAt),
-	})
-}
-
-func (r *InboundRepos) InsertMessage(ctx context.Context, in inbound.MessageInsert) error {
-	return r.store.Messages.Upsert(ctx, domain.Message{
-		SessionID:       in.SessionID,
-		WAMessageID:     in.WAMessageID,
-		ChatJID:         in.ChatJID,
-		SenderLID:       stringPtr(in.SenderLID),
-		SenderJID:       stringPtr(in.SenderJID),
-		FromMe:          in.FromMe,
-		Direction:       in.Direction,
-		Type:            in.Type,
-		Body:            stringPtr(in.Body),
-		QuotedMessageID: stringPtr(in.QuotedMessageID),
-		Mentions:        json.RawMessage(mustMarshalJSON(in.Mentions)),
-		HasMedia:        in.HasMedia,
-		MediaMeta:       in.MediaMeta,
-		Timestamp:       in.TimestampMs,
-		RawJSON:         json.RawMessage(in.RawJSON),
-		CreatedAt:       in.NowMs,
-	})
-}
-
-func (r *InboundRepos) MarkMessageEdited(ctx context.Context, sessionID, waMessageID, newBody string) error {
-	return r.store.Messages.MarkEdited(ctx, sessionID, waMessageID, newBody)
-}
-
-func (r *InboundRepos) MarkMessageDeleted(ctx context.Context, sessionID, waMessageID string) error {
-	return r.store.Messages.MarkDeleted(ctx, sessionID, waMessageID)
-}
-
-func (r *InboundRepos) UpdateMessageStatus(ctx context.Context, in inbound.MessageStatusUpdate) error {
-	for _, id := range in.WAMessageIDs {
-		if err := r.store.Messages.AdvanceReceiptStatus(ctx, in.SessionID, id, in.Status, in.AckLevel); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (r *InboundRepos) UpsertPoll(ctx context.Context, in inbound.PollUpsert) error {
-	if err := r.store.Polls.Upsert(ctx, domain.Poll{
-		SessionID:       in.SessionID,
-		PollMessageID:   in.PollMessageID,
-		ChatJID:         in.ChatJID,
-		Name:            in.Name,
-		Options:         in.Options,
-		SelectableCount: in.SelectableCount,
-		EndTime:         in.EndTime,
-		HideVotes:       in.HideVotes,
-		CreatedAt:       in.NowMs,
-		UpdatedAt:       in.NowMs,
-	}); err != nil {
-		return err
-	}
-	if r.scheduler != nil {
-		r.scheduler.Schedule(ctx, in.SessionID, in.PollMessageID, in.EndTime)
-	}
-	return nil
-}
-
-func (r *InboundRepos) InsertPollVote(ctx context.Context, in inbound.PollVoteInsert) error {
-	_, err := r.store.PollVotes.Insert(ctx, domain.PollVote{
-		SessionID:       in.SessionID,
-		PollMessageID:   in.PollMessageID,
-		VoterLID:        in.VoterLID,
-		SelectedOptions: json.RawMessage(in.SelectedOptions),
-		Timestamp:       in.TimestampMs,
-		RawJSON:         json.RawMessage(in.RawJSON),
-	})
-	return err
-}
-
-func (r *InboundRepos) AppendEventLog(ctx context.Context, evt domain.Event) error {
-	payload, err := json.Marshal(evt.Payload)
-	if err != nil {
-		return fmt.Errorf("marshal event payload: %w", err)
-	}
-	_, err = r.store.EventLog.Append(ctx, domain.EventLogEntry{
-		EventID:        evt.ID,
-		OrganizationID: evt.Organization,
-		SessionID:      evt.Session,
-		Type:           evt.Type,
-		Payload:        payload,
-		CreatedAt:      evt.Timestamp,
-	})
-	return err
 }
 
 type inboundWebhookEnqueuer interface {

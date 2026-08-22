@@ -10,16 +10,14 @@ import (
 )
 
 // MessageService runs the outbound send + message-operation pipeline (§8) on
-// behalf of a organization's session. It resolves and organization-scopes the session, then
-// delegates to the outbound.Sender (validation, idempotency, rate limiting,
-// sync/async split all live there).
+// behalf of a organization's session. It resolves and organization-scopes the
+// session, then delegates to the API-owned durable command scheduler, which
+// dispatches through the private engine.
 type MessageService struct {
 	sessions *store.SessionRepo
-	sender   *outbound.Sender
 	log      *slog.Logger
-	// gatewaySend is the control-plane send boundary (Increment 6). When set it
-	// replaces the legacy in-process sender entirely: the legacy path remains
-	// only for control-disabled deployments.
+	// gatewaySend is the control-plane send boundary (Increment 6): the durable
+	// command scheduler over the private engine.
 	gatewaySend GatewayMessageSender
 	// gatewayOps is the control-plane message-operation boundary (Increment 7).
 	gatewayOps GatewayMessageOpSender
@@ -32,11 +30,11 @@ type GatewayMessageSender interface {
 }
 
 // NewMessageService constructs a MessageService.
-func NewMessageService(sessions *store.SessionRepo, sender *outbound.Sender, log *slog.Logger) *MessageService {
+func NewMessageService(sessions *store.SessionRepo, log *slog.Logger) *MessageService {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &MessageService{sessions: sessions, sender: sender, log: log}
+	return &MessageService{sessions: sessions, log: log}
 }
 
 // SetGatewaySendFacade routes every send through the API-owned scheduler.
@@ -71,28 +69,21 @@ func (s *MessageService) session(ctx context.Context, organizationID, id string)
 	return sess, nil
 }
 
-// Send dispatches a unified typed send for a session.
+// Send dispatches a unified typed send for a session through the API-owned
+// durable command scheduler.
 func (s *MessageService) Send(ctx context.Context, organizationID, sessionID string, req domain.SendRequest, opts outbound.SendOptions) (outbound.SendResult, error) {
-	if s.gatewaySend != nil {
-		return s.gatewaySend.Send(ctx, organizationID, sessionID, req, opts)
+	if s.gatewaySend == nil {
+		return outbound.SendResult{}, errLiveUnavailable()
 	}
-	sess, err := s.session(ctx, organizationID, sessionID)
-	if err != nil {
-		return outbound.SendResult{}, err
-	}
-	return s.sender.Send(ctx, sess, req, opts)
+	return s.gatewaySend.Send(ctx, organizationID, sessionID, req, opts)
 }
 
 // op is the shared path for the message-operation sub-resources.
 func (s *MessageService) op(ctx context.Context, organizationID, sessionID string, req outbound.OpRequest) (outbound.SendResult, error) {
-	if s.gatewayOps != nil {
-		return s.gatewayOps.ExecuteOp(ctx, organizationID, sessionID, req)
+	if s.gatewayOps == nil {
+		return outbound.SendResult{}, errLiveUnavailable()
 	}
-	sess, err := s.session(ctx, organizationID, sessionID)
-	if err != nil {
-		return outbound.SendResult{}, err
-	}
-	return s.sender.SendOp(ctx, sess, req)
+	return s.gatewayOps.ExecuteOp(ctx, organizationID, sessionID, req)
 }
 
 // Edit replaces the text of a previously sent message.

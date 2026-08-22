@@ -17,66 +17,29 @@ import (
 )
 
 // GatewayConfig is the fully-parsed gateway runtime configuration. Every field maps to an ENV
-// var documented in masterplan §12.
+// var documented in masterplan §12. The gateway has no MySQL or Redis dependency:
+// its stores are the gateway-local SQLite keystore and the event journal.
 type GatewayConfig struct {
-	// HTTP / server
-	HTTPAddr  string // GATEWAY_HTTP_ADDR; deprecated fallback HTTP_ADDR
-	PublicURL string // GATEWAY_PUBLIC_URL; deprecated fallback PUBLIC_URL
+	// HTTP / server (operational probes only: healthz/readyz/metrics)
+	HTTPAddr string // GATEWAY_HTTP_ADDR; deprecated fallback HTTP_ADDR
 
-	// Secrets
-	AppEncryptionKey string // APP_ENCRYPTION_KEY (base64 32-byte AES-GCM key)
-
-	// Gateway identity (session pinning, gateways registry — §4.5)
-	GatewayID              string        // GATEWAY_ID
-	ControlPlaneAddr       string        // GATEWAY_CONTROL_PLANE_ADDR; empty disables private gRPC bootstrap
+	// Gateway identity
+	GatewayID              string        // GATEWAY_ID; canonical PKI identity name
+	ControlPlaneAddr       string        // GATEWAY_CONTROL_PLANE_ADDR; required mTLS control stream
 	CredentialDir          string        // GATEWAY_CREDENTIAL_DIR
 	BootstrapCAFile        string        // GATEWAY_BOOTSTRAP_CA_FILE
 	EnrollmentToken        string        // GATEWAY_ENROLLMENT_TOKEN; bootstrap-only, never persisted
-	CertificateRenewBefore time.Duration // GATEWAY_CERTIFICATE_RENEW_BEFORE; required with the private control plane
+	CertificateRenewBefore time.Duration // GATEWAY_CERTIFICATE_RENEW_BEFORE
 	EngineGRPCAddr         string        // GATEWAY_ENGINE_GRPC_ADDR: private mTLS listener
 	EngineGRPCAdvertise    string        // GATEWAY_ENGINE_GRPC_ADVERTISE_ADDR: canonical endpoint advertised to API
 	JournalPath            string        // GATEWAY_JOURNAL_PATH: persistent gateway event journal
-
-	// Trust model (§4.1/§4.4). The gateway serves no public HTTP surface and
-	// verifies no end-user or assertion credentials: the API authenticates callers
-	// and executes every operation over the private engine gRPC contract.
-
-	// Legacy better-auth inputs (still consumed by the API and kept for the
-	// trust-seam contract tests).
-	BetterAuthURL     string   // BETTER_AUTH_URL: frontend base URL; the JWT iss/aud to enforce
-	BetterAuthJWKSURL string   // BETTER_AUTH_JWKS_URL: defaults to ${BETTER_AUTH_URL}/api/auth/jwks
-	FrontendOrigins   []string // FRONTEND_ORIGINS: comma-list of allowed CORS origins
-
-	// App data store
-	MySQLDSN string // MYSQL_DSN
 
 	// whatsmeow keystore — always SQLite in v2 (§6.1); the DSN points at the
 	// gateway-local pure-Go SQLite file. No driver selection any more.
 	WhatsmeowStoreDSN string // WHATSMEOW_STORE_DSN
 
-	// Infra
-	RedisURL string // REDIS_URL
-
-	// Control bus (§4.6) — cross-service ctrl:* pub/sub (key/user revocation).
-	PubSubRedisURL string // PUBSUB_REDIS_URL: defaults to REDIS_URL (single instance)
-	RedisPrefix    string // REDIS_PREFIX: isolates independent stacks on one Redis (default "gw")
-
-	// Admin bootstrap (§8): the better-auth user that owns the admin session,
-	// when known. Empty => system-owned admin session (sentinel org).
-	GatewayAdminUserID string // GATEWAY_ADMIN_USER_ID
-
-	// Admin WhatsApp number
-	WhatsAppAdminNumber    string // WHATSAPP_ADMIN_NUMBER
-	WhatsAppAdminCmdPrefix string // WHATSAPP_ADMIN_CMD_PREFIX
-	// WhatsAppAdminOrgID is the organization the bootstrapped admin session
-	// belongs to. It must be a real organization in better-auth's `organization`
-	// table; otherwise the admin session's events cannot publish (they are
-	// org-keyed) and the boot orphan-guard marks the session STOPPED on the next
-	// restart. Required whenever WHATSAPP_ADMIN_NUMBER is set.
-	WhatsAppAdminOrgID string // WHATSAPP_ADMIN_ORG_ID
-	// WhatsAppDeviceName overrides the OS/app label WhatsApp shows for newly
-	// linked companion devices. When empty, the manager derives "Linux -
-	// <GATEWAY_ID>" so Linked devices does not expose the whatsmeow library.
+	// WhatsApp pairing inputs. Session rows and admin bootstrap are API-owned;
+	// these only label devices and seed defaults for assignments.
 	WhatsAppDeviceName string // WHATSAPP_DEVICE_NAME
 
 	// Per-session defaults
@@ -89,16 +52,6 @@ type GatewayConfig struct {
 	IgnoreGroups    bool // IGNORE_GROUPS
 	IgnoreChannels  bool // IGNORE_CHANNELS
 	IgnoreBroadcast bool // IGNORE_BROADCAST
-
-	// Global webhook defaults
-	WebhookURL           string   // WEBHOOK_URL
-	WebhookEvents        []string // WEBHOOK_EVENTS (comma-separated)
-	WebhookHMACKey       string   // WEBHOOK_HMAC_KEY
-	WebhookRetryDelay    int      // WEBHOOK_RETRIES_DELAY (seconds)
-	WebhookRetryAttempts int      // WEBHOOK_RETRIES_ATTEMPTS
-
-	// Data retention
-	RetentionDays int // RETENTION_DAYS (0 = keep forever)
 
 	// Observability
 	LogLevel string // LOG_LEVEL
@@ -117,7 +70,6 @@ func LoadGateway() (*GatewayConfig, error) {
 
 	cfg := &GatewayConfig{
 		HTTPAddr:               getStringFallback("GATEWAY_HTTP_ADDR", "HTTP_ADDR", ":8080"),
-		PublicURL:              getStringFallback("GATEWAY_PUBLIC_URL", "PUBLIC_URL", ""),
 		GatewayID:              getString("GATEWAY_ID", "gw-1"),
 		ControlPlaneAddr:       getString("GATEWAY_CONTROL_PLANE_ADDR", ""),
 		CredentialDir:          getString("GATEWAY_CREDENTIAL_DIR", ""),
@@ -127,19 +79,7 @@ func LoadGateway() (*GatewayConfig, error) {
 		EngineGRPCAddr:         getString("GATEWAY_ENGINE_GRPC_ADDR", ""),
 		EngineGRPCAdvertise:    getString("GATEWAY_ENGINE_GRPC_ADVERTISE_ADDR", ""),
 		JournalPath:            getString("GATEWAY_JOURNAL_PATH", ""),
-		BetterAuthURL:          getString("BETTER_AUTH_URL", ""),
-		BetterAuthJWKSURL:      getString("BETTER_AUTH_JWKS_URL", ""),
-		FrontendOrigins:        getCSV("FRONTEND_ORIGINS"),
-		AppEncryptionKey:       getString("APP_ENCRYPTION_KEY", ""),
-		MySQLDSN:               getString("MYSQL_DSN", ""),
 		WhatsmeowStoreDSN:      getString("WHATSMEOW_STORE_DSN", "file:store.db?_foreign_keys=on"),
-		RedisURL:               getString("REDIS_URL", ""),
-		PubSubRedisURL:         getString("PUBSUB_REDIS_URL", ""),
-		RedisPrefix:            getString("REDIS_PREFIX", "gw"),
-		GatewayAdminUserID:     getString("GATEWAY_ADMIN_USER_ID", ""),
-		WhatsAppAdminNumber:    getString("WHATSAPP_ADMIN_NUMBER", ""),
-		WhatsAppAdminCmdPrefix: getString("WHATSAPP_ADMIN_CMD_PREFIX", "am"),
-		WhatsAppAdminOrgID:     getString("WHATSAPP_ADMIN_ORG_ID", ""),
 		WhatsAppDeviceName:     getString("WHATSAPP_DEVICE_NAME", ""),
 		DefaultRatePerMin:      getInt("DEFAULT_RATE_PER_MIN", 20),
 		DefaultRatePerHour:     getInt("DEFAULT_RATE_PER_HOUR", 200),
@@ -148,32 +88,15 @@ func LoadGateway() (*GatewayConfig, error) {
 		IgnoreGroups:           getBool("IGNORE_GROUPS", false),
 		IgnoreChannels:         getBool("IGNORE_CHANNELS", false),
 		IgnoreBroadcast:        getBool("IGNORE_BROADCAST", false),
-		WebhookURL:             getString("WEBHOOK_URL", ""),
-		WebhookEvents:          getCSV("WEBHOOK_EVENTS"),
-		WebhookHMACKey:         getString("WEBHOOK_HMAC_KEY", ""),
-		WebhookRetryDelay:      getInt("WEBHOOK_RETRIES_DELAY", 2),
-		WebhookRetryAttempts:   getInt("WEBHOOK_RETRIES_ATTEMPTS", 15),
-		RetentionDays:          getInt("RETENTION_DAYS", 0),
 		LogLevel:               getString("LOG_LEVEL", "info"),
-	}
-
-	// BETTER_AUTH_JWKS_URL defaults to ${BETTER_AUTH_URL}/api/auth/jwks (§4.1, §14).
-	if cfg.BetterAuthJWKSURL == "" && cfg.BetterAuthURL != "" {
-		cfg.BetterAuthJWKSURL = strings.TrimRight(cfg.BetterAuthURL, "/") + "/api/auth/jwks"
-	}
-
-	// PUBSUB_REDIS_URL (control bus) defaults to REDIS_URL — single-instance dev
-	// collapses both roles onto one Redis (§4.6, §14).
-	if cfg.PubSubRedisURL == "" {
-		cfg.PubSubRedisURL = cfg.RedisURL
 	}
 
 	return cfg, nil
 }
 
-// Validate checks invariants that must hold before the server starts. It is
-// intentionally lenient about secrets that are only required by features filled
-// in by later milestones; those subsystems validate their own prerequisites.
+// Validate checks invariants that must hold before the server starts. The
+// control plane is mandatory: a gateway without an mTLS control target cannot
+// boot, because every operation and event flows through that stream.
 func (c *GatewayConfig) Validate() error {
 	if c.HTTPAddr == "" {
 		return fmt.Errorf("config: GATEWAY_HTTP_ADDR must not be empty")
@@ -187,45 +110,32 @@ func (c *GatewayConfig) Validate() error {
 	if c.GatewayID == "" {
 		return fmt.Errorf("config: GATEWAY_ID must not be empty")
 	}
-	privateConfigured := c.ControlPlaneAddr != "" || c.CredentialDir != "" || c.BootstrapCAFile != "" || c.EnrollmentToken != ""
-	if privateConfigured {
-		if c.ControlPlaneAddr == "" || c.CredentialDir == "" || c.BootstrapCAFile == "" {
-			return fmt.Errorf("config: GATEWAY_CONTROL_PLANE_ADDR, GATEWAY_CREDENTIAL_DIR, and GATEWAY_BOOTSTRAP_CA_FILE must be configured together")
-		}
-		if pki.ValidateGatewayID(c.GatewayID) != nil {
-			return fmt.Errorf("config: GATEWAY_ID must be canonical for private control plane")
-		}
-		if strings.TrimSpace(c.ControlPlaneAddr) != c.ControlPlaneAddr {
-			return fmt.Errorf("config: GATEWAY_CONTROL_PLANE_ADDR must be canonical")
-		}
-		if c.CertificateRenewBefore <= 0 {
-			return fmt.Errorf("config: GATEWAY_CERTIFICATE_RENEW_BEFORE must be positive when the private control plane is configured")
-		}
-		if c.EngineGRPCAddr == "" || c.EngineGRPCAdvertise == "" || c.JournalPath == "" || !filepath.IsAbs(c.JournalPath) {
-			return fmt.Errorf("config: GATEWAY_ENGINE_GRPC_ADDR, GATEWAY_ENGINE_GRPC_ADVERTISE_ADDR, and absolute GATEWAY_JOURNAL_PATH are required with the private control plane")
-		}
-		for name, value := range map[string]string{"GATEWAY_CREDENTIAL_DIR": c.CredentialDir, "GATEWAY_BOOTSTRAP_CA_FILE": c.BootstrapCAFile} {
-			if value == "" || !filepath.IsAbs(value) || filepath.Clean(value) != value || value == string(filepath.Separator) {
-				return fmt.Errorf("config: %s must be an absolute clean non-root path", name)
-			}
-		}
-		if _, err := sqlitestore.FilePath(c.WhatsmeowStoreDSN); err != nil {
-			return fmt.Errorf("config: WHATSMEOW_STORE_DSN must be an explicit absolute persistent SQLite file path with the private control plane: %w", err)
+	if c.ControlPlaneAddr == "" || c.CredentialDir == "" || c.BootstrapCAFile == "" {
+		return fmt.Errorf("config: GATEWAY_CONTROL_PLANE_ADDR, GATEWAY_CREDENTIAL_DIR, and GATEWAY_BOOTSTRAP_CA_FILE are required — the gateway cannot run without its control plane")
+	}
+	if pki.ValidateGatewayID(c.GatewayID) != nil {
+		return fmt.Errorf("config: GATEWAY_ID must be canonical for the private control plane")
+	}
+	if strings.TrimSpace(c.ControlPlaneAddr) != c.ControlPlaneAddr {
+		return fmt.Errorf("config: GATEWAY_CONTROL_PLANE_ADDR must be canonical")
+	}
+	if c.CertificateRenewBefore <= 0 {
+		return fmt.Errorf("config: GATEWAY_CERTIFICATE_RENEW_BEFORE must be positive")
+	}
+	if c.EngineGRPCAddr == "" || c.EngineGRPCAdvertise == "" || c.JournalPath == "" || !filepath.IsAbs(c.JournalPath) {
+		return fmt.Errorf("config: GATEWAY_ENGINE_GRPC_ADDR, GATEWAY_ENGINE_GRPC_ADVERTISE_ADDR, and absolute GATEWAY_JOURNAL_PATH are required")
+	}
+	for name, value := range map[string]string{"GATEWAY_CREDENTIAL_DIR": c.CredentialDir, "GATEWAY_BOOTSTRAP_CA_FILE": c.BootstrapCAFile} {
+		if value == "" || !filepath.IsAbs(value) || filepath.Clean(value) != value || value == string(filepath.Separator) {
+			return fmt.Errorf("config: %s must be an absolute clean non-root path", name)
 		}
 	}
-
-	// A configured admin number must name the organization that owns its session.
-	// Without it the admin session's (org-keyed) events cannot publish and the boot
-	// orphan-guard would stop the session on the next restart.
-	if c.WhatsAppAdminNumber != "" && c.WhatsAppAdminOrgID == "" {
-		return fmt.Errorf("config: WHATSAPP_ADMIN_ORG_ID must be set when WHATSAPP_ADMIN_NUMBER is set")
+	if _, err := sqlitestore.FilePath(c.WhatsmeowStoreDSN); err != nil {
+		return fmt.Errorf("config: WHATSMEOW_STORE_DSN must be an explicit absolute persistent SQLite file path: %w", err)
 	}
 
 	if c.DefaultRatePerMin < 0 || c.DefaultRatePerHour < 0 {
 		return fmt.Errorf("config: default rate limits must be non-negative")
-	}
-	if c.RetentionDays < 0 {
-		return fmt.Errorf("config: RETENTION_DAYS must be non-negative")
 	}
 
 	switch strings.ToLower(c.LogLevel) {

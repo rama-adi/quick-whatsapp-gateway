@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -148,7 +149,15 @@ func run() error {
 	)
 	committedWorker, err := service.NewCommittedEventWorker(
 		committedEventWorkStore{repo: st.GatewayEvents},
-		service.NewCommittedEventDispatcher(nil, publisher, webhookEnqueuer),
+		service.NewCommittedEventDispatcher(
+			// API-side WhatsApp-data projections (Increment 9): chats, messages,
+			// polls, poll votes, receipt statuses, and identity captures are
+			// derived from committed events, replacing the gateway's local
+			// inbound-pipeline writes. They run before realtime/webhook fan-out.
+			[]application.CommittedEventConsumer{
+				service.NewEventProjectionConsumer(service.NewStoreProjections(st), nil),
+			},
+			publisher, webhookEnqueuer),
 		service.CommittedEventWorkerConfig{
 			Owner: processOwner(),
 			Lease: committedEventLease,
@@ -171,6 +180,21 @@ func run() error {
 	// sweep is the source of truth, and recap events append/publish/enqueue
 	// beside this process's other fan-out instead of on a gateway. The Redis
 	// sorted set is only a low-latency wake-up index. ---
+	// --- Webhook dispatch (API-owned). Enqueue happens in the committed-event
+	// fan-out above; this loop claims due deliveries and performs the HTTP
+	// sends with HMAC + retries, replacing the legacy gateway ticker. ---
+	dispatcher := webhooks.NewDispatcher(
+		service.NewWebhookRepoAdapter(st.Webhooks),
+		service.NewWebhookDeliveryRepoAdapter(st.WebhookDeliveries),
+		st.EventLog,
+		&http.Client{Timeout: 30 * time.Second},
+		aes,
+		nil,
+		log,
+	)
+	dispatchStop := startWebhookDispatchLoop(ctx, dispatcher, log)
+	defer dispatchStop()
+
 	pollRecaps := service.NewPollRecapWorker(st, publisher, webhookEnqueuer, rdb, service.PollRecapConfig{
 		RedisPrefix: cfg.RedisPrefix,
 		Log:         log,
@@ -491,8 +515,28 @@ func startControlBus(ctx context.Context, pubsubURL string, cache controlbus.Key
 	}
 }
 
-// eventLogReader adapts *store.EventLogRepo to stream.EventLogReader for the
-// realtime pump's ?since= replay: it resolves the opaque event-id cursor to the
+// startWebhookDispatchLoop runs the webhook dispatcher on a ticker until ctx
+// is done. It is the API-side replacement for the legacy gateway dispatch loop.
+func startWebhookDispatchLoop(ctx context.Context, d *webhooks.Dispatcher, log *slog.Logger) func() {
+	loopCtx, cancel := context.WithCancel(ctx)
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-loopCtx.Done():
+				return
+			case <-ticker.C:
+				if _, err := d.DeliverDue(loopCtx, webhooks.DefaultClaimLimit); err != nil {
+					log.WarnContext(loopCtx, "webhook dispatch pass failed", "err", err)
+				}
+			}
+		}
+	}()
+	return cancel
+}
+
+// eventLogReader adapts *store.EventLogRepo to stream.EventLogReader for the// realtime pump's ?since= replay: it resolves the opaque event-id cursor to the
 // store's monotonic id, then pages. Kept here (rather than importing the service
 // graph) so the API binary stays lean.
 type eventLogReader struct{ repo *store.EventLogRepo }

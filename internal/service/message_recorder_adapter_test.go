@@ -17,8 +17,10 @@ func TestChatTypeFromJID(t *testing.T) {
 		"120363@g.us":           domain.ChatGroup,
 		"0@newsletter":          domain.ChatNewsletter,
 		"123@broadcast":         domain.ChatBroadcast,
-		"status@broadcast":      domain.ChatBroadcast,
-		"":                      domain.ChatDM,
+		// status@broadcast is the stories feed: its own chat class so the
+		// projections and outbound recorder agree with the gateway-side classifier.
+		"status@broadcast": domain.ChatStatus,
+		"":                 domain.ChatDM,
 	}
 	for jid, want := range cases {
 		if got := chatTypeFromJID(jid); got != want {

@@ -41,7 +41,7 @@ func TestSessionServiceMeUsesEngineAfterRepositoryOwnership(t *testing.T) {
 	st, mock := newStore(t)
 	mock.ExpectQuery("FROM wa_sessions").WithArgs("sess_1").WillReturnRows(sessionRowForLiveState("sess_1", "org_1", "gw_1", "6281@s.whatsapp.net"))
 	engine := &fakeSessionStateEngine{state: application.SessionState{OrganizationID: "org_1", SessionID: "sess_1", GatewayID: "gw_1", Status: domain.SessionStarting, Connected: false, LoggedIn: true}}
-	svc := NewSessionService(st.Sessions, nil, nil, nil)
+	svc := NewSessionService(st.Sessions, nil, nil)
 	svc.SetGatewayLiveFacade(engine)
 	got, err := svc.Me(context.Background(), "org_1", "sess_1")
 	if err != nil {
@@ -62,7 +62,7 @@ func TestSessionServiceMeRejectsForeignOwnerBeforeEngine(t *testing.T) {
 	st, mock := newStore(t)
 	mock.ExpectQuery("FROM wa_sessions").WithArgs("sess_1").WillReturnRows(sessionRowForLiveState("sess_1", "other_org", "gw_1", "6281@s.whatsapp.net"))
 	engine := &fakeSessionStateEngine{}
-	svc := NewSessionService(st.Sessions, nil, nil, nil)
+	svc := NewSessionService(st.Sessions, nil, nil)
 	svc.SetGatewayLiveFacade(engine)
 	_, err := svc.Me(context.Background(), "org_1", "sess_1")
 	var apiErr *domain.APIError
@@ -77,7 +77,7 @@ func TestSessionServiceMeRejectsForeignOwnerBeforeEngine(t *testing.T) {
 func TestSessionServiceMeRejectsMismatchedEngineState(t *testing.T) {
 	st, mock := newStore(t)
 	mock.ExpectQuery("FROM wa_sessions").WithArgs("sess_1").WillReturnRows(sessionRowForLiveState("sess_1", "org_1", "gw_1", "6281@s.whatsapp.net"))
-	svc := NewSessionService(st.Sessions, nil, nil, nil)
+	svc := NewSessionService(st.Sessions, nil, nil)
 	svc.SetGatewayLiveFacade(&fakeSessionStateEngine{state: application.SessionState{OrganizationID: "org_1", SessionID: "other", GatewayID: "gw_1"}})
 	_, err := svc.Me(context.Background(), "org_1", "sess_1")
 	var apiErr *domain.APIError
@@ -93,7 +93,7 @@ func TestSessionServiceMePreservesFacadeError(t *testing.T) {
 	st, mock := newStore(t)
 	mock.ExpectQuery("FROM wa_sessions").WithArgs("sess_1").WillReturnRows(sessionRowForLiveState("sess_1", "org_1", "gw_1", "6281@s.whatsapp.net"))
 	want := errors.New("gateway unavailable")
-	svc := NewSessionService(st.Sessions, nil, nil, nil)
+	svc := NewSessionService(st.Sessions, nil, nil)
 	svc.SetGatewayLiveFacade(&fakeSessionStateEngine{err: want})
 	if _, err := svc.Me(context.Background(), "org_1", "sess_1"); !errors.Is(err, want) {
 		t.Fatalf("err=%v, want facade cause", err)
@@ -160,7 +160,7 @@ func TestSessionServiceQRFavorsFacadeOverMissingManager(t *testing.T) {
 	st, mock := newStore(t)
 	mock.ExpectQuery("FROM wa_sessions").WithArgs("sess_1").WillReturnRows(unpairedSessionRow())
 	facade := &fakeLifecycleFacade{pairSnap: application.PairingSnapshot{Code: "QR-1", ExpiresAt: 999}}
-	svc := NewSessionService(st.Sessions, nil, nil, nil) // manager deliberately nil
+	svc := NewSessionService(st.Sessions, nil, nil)
 	svc.SetGatewaySessionFacade(facade)
 	got, err := svc.QR(context.Background(), "org_1", "sess_1")
 	if err != nil {
@@ -181,7 +181,7 @@ func TestSessionServiceLogoutFavorsFacadeOverMissingManager(t *testing.T) {
 	st, mock := newStore(t)
 	mock.ExpectQuery("FROM wa_sessions").WithArgs("sess_1").WillReturnRows(sessionRowForLiveState("sess_1", "org_1", "gw_1", "6281@s.whatsapp.net"))
 	facade := &fakeLifecycleFacade{}
-	svc := NewSessionService(st.Sessions, nil, nil, nil) // manager deliberately nil
+	svc := NewSessionService(st.Sessions, nil, nil)
 	svc.SetGatewaySessionFacade(facade)
 	if err := svc.Logout(context.Background(), "org_1", "sess_1"); err != nil {
 		t.Fatalf("Logout: %v", err)
@@ -198,7 +198,7 @@ func TestSessionServicePairingCodeFavorsFacadeAndValidatesPhoneFirst(t *testing.
 	st, mock := newStore(t)
 	mock.ExpectQuery("FROM wa_sessions").WithArgs("sess_1").WillReturnRows(unpairedSessionRow())
 	facade := &fakeLifecycleFacade{code: "ABCD-1234"}
-	svc := NewSessionService(st.Sessions, nil, nil, nil) // manager deliberately nil
+	svc := NewSessionService(st.Sessions, nil, nil)
 	svc.SetGatewaySessionFacade(facade)
 	code, err := svc.PairingCode(context.Background(), "org_1", "sess_1", "+628123")
 	if err != nil || code != "ABCD-1234" {

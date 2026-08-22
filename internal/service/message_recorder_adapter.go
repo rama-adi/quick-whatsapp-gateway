@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"strings"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
@@ -112,15 +111,4 @@ func (a *MessageRecorderAdapter) RecordSent(ctx context.Context, m outbound.Sent
 
 // chatTypeFromJID classifies a recipient JID into a chats.type for an outbound
 // send, by the WhatsApp server suffix. DMs (phone JID or @lid) are the default.
-func chatTypeFromJID(jid string) domain.ChatType {
-	switch {
-	case strings.HasSuffix(jid, "@g.us"):
-		return domain.ChatGroup
-	case strings.HasSuffix(jid, "@newsletter"):
-		return domain.ChatNewsletter
-	case strings.HasSuffix(jid, "@broadcast"):
-		return domain.ChatBroadcast
-	default:
-		return domain.ChatDM
-	}
-}
+// (The shared canonical classifier lives in event_projection.go.)

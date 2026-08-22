@@ -1,21 +1,17 @@
 # Queue (asynq background jobs)
 
-Status: implemented.
+Status: implemented. **API-only since gRPC Increment 9** — the gateway has no
+Redis client, no asynq server/client, no retention scheduler, and no rate-limit
+buckets.
 
 Package: `internal/queue` · import `github.com/ramaadi/quick-whatsapp-gateway/internal/queue`.
 
-> **Target migration, not current runtime (gRPC control-plane Increment 0).** Redis/asynq,
-> product-level rate limits, retention/poll scheduling, OAuth pending state, control events, and
-> realtime fan-out move to the API. Gateway events move from lossy Redis publication to an
-> acknowledged gRPC ingest stream backed by a separate local `journal.db`; the gateway retains only
-> an in-memory WhatsApp safety limiter. The current gateway-owned queue and Redis roles below remain
-> implemented until their replacement increments land.
-
 ## Scope
 
-Redis-backed background jobs on [hibiken/asynq], covering three masterplan needs.
-The gateway process owns both the worker and retention scheduler; there is no
-separate cron service to deploy.
+Redis-backed background jobs on [hibiken/asynq], owned and run by the **API**
+composition root (`cmd/api`). The gateway process contains none of this code
+path any more: its only durable dependencies are the SQLite whatsmeow keystore
+and the local event journal.
 
 | Job | Type name | Queue | Masterplan |
 |---|---|---|---|
@@ -25,7 +21,7 @@ separate cron service to deploy.
 
 The package owns: typed task constructors + JSON payloads, an enqueue `Client`,
 a worker `Server`/mux, and a `REDIS_URL` parser. It performs **no** real work
-itself — handlers delegate to consumer interfaces wired in Phase 3.
+itself — handlers delegate to consumer interfaces wired at API composition.
 
 ## Two Redis roles (§4.6)
 
@@ -34,39 +30,34 @@ collapsible to one instance:
 
 | Role | Env | Carries | Who connects |
 |---|---|---|---|
-| **Work/realtime** | `REDIS_URL` | asynq queue, rate-limit buckets, idempotency, gateway `evt:*` publication and router WebSocket fan-out | gateways + router |
-| **Control bus** | `PUBSUB_REDIS_URL` (defaults to `REDIS_URL`) | low-volume `ctrl:*` pub/sub — `ctrl:apikey.revoked` / `ctrl:user.banned` / `ctrl:member.removed` | frontend (publish) + the **router** (subscribe) |
+| **Work/realtime** | `REDIS_URL` | asynq queue, rate-limit buckets, idempotency, committed-event `evt:*` publication and WebSocket fan-out | the API |
+| **Control bus** | `PUBSUB_REDIS_URL` (defaults to `REDIS_URL`) | low-volume `ctrl:*` pub/sub — `ctrl:apikey.revoked` / `ctrl:user.banned` / `ctrl:member.removed` | frontend (publish) + the **API** (subscribe) |
 
-> **Central-router (Increment A):** the `ctrl:*` **subscriber is the router now**, not the gateways
-> (it owns end-user authn + the api-key positive cache). The gateways no longer subscribe to the
-> control bus or hold a key cache. One Redis is still the default (`PUBSUB_REDIS_URL` falls back to
+> **Increment 9:** Redis is entirely off the gateway — no queue, no pub/sub, no
+> limiter. One Redis is still the default (`PUBSUB_REDIS_URL` falls back to
 > `REDIS_URL`); the dedicated-bus split remains a later env change, no code change.
 
 - **Single instance (dev / single server):** leave `PUBSUB_REDIS_URL` unset → it
   falls back to `REDIS_URL`; one Redis does everything.
-- **Split (prod / multi-gateway):** point `PUBSUB_REDIS_URL` at a shared, possibly
-  managed Redis reachable by the frontend and router; gateways use the shared event/work Redis
-  until acknowledged gRPC ingest replaces that dependency. The control bus is the frontend's **only** Redis
-  dependency (publish-only).
+- **Split (prod):** point `PUBSUB_REDIS_URL` at a shared, possibly managed Redis
+  reachable by the frontend and API.
 
 **Key/channel prefixes** (namespacing, not DB numbers — managed Redis often disallows
 `SELECT`):
 
-- work keys → `gw:…` (per-gateway state under `gw:{GATEWAY_ID}:…`); asynq keeps its
-  own `asynq:` prefix; the rate limiter uses `wa:rl:…` (outbound-pipeline.md).
-- stream fan-out channels → `evt:{organization}:{session}` (stream.md).
+- work keys → `gw:…`; asynq keeps its own `asynq:` prefix; the outbound rate
+  limiter uses `wa:rl:…` (outbound-pipeline.md) and runs on the API's scheduler.
+- realtime fan-out channels → `evt:{organization}:{session}` (stream.md).
 - control-bus channels → `ctrl:apikey.revoked`, `ctrl:user.banned`, `ctrl:member.removed`.
 - `REDIS_PREFIX` namespaces application-owned keys/channels, including the
   retention claim, but not Asynq's fixed queue keys. Independent stacks need
   separate Redis databases.
 
 > The control-bus **subscriber** lives in `internal/controlbus`, not this package
-> (asynq is work-queue only). With the central router (Increment A) it runs **on the
-> router**: it evicts the **api-key cache** (`internal/authz`, a ~60s positive cache
-> keyed by SHA-256 of the raw key, indexed by keyId/userId/orgId) on revocation. The
-> live **stream-drop** on revocation is implemented for router WebSockets (Increment B).
-> Redis pub/sub is fire-and-forget; the 60s cache TTL covers any `ctrl:*`
-> message missed while the router was down.
+> (asynq is work-queue only). It runs **on the API**: it evicts the api-key cache
+> (`internal/authz`) on revocation and drops live WebSockets on user/org
+> revocation. Redis pub/sub is fire-and-forget; the cache TTL covers any `ctrl:*`
+> message missed while the API was down.
 
 ## Key types
 
@@ -93,14 +84,14 @@ last-option-wins), and return `*asynq.TaskInfo`. `Close()` releases the conn.
 
 `RetentionCutoffMs(now, retentionDays)` computes the prune cutoff and returns
 `ok=false` when `retentionDays <= 0` (§5: 0 = keep forever) so the scheduler can
-skip enqueueing entirely. `RETENTION_DAYS` is a gateway configuration value:
-negative values are rejected at boot. The daily gateway scheduler uses a UTC
-midnight cutoff, retaining at least the configured number of full UTC days (and
-the current partial day).
+skip enqueueing entirely. `RETENTION_DAYS` is an API configuration value:
+negative values are rejected at boot. The daily scheduler uses a UTC midnight
+cutoff, retaining at least the configured number of full UTC days (and the
+current partial day).
 
 ### Consumer interfaces + handlers (`handlers.go`)
 
-Defined here (consumer-defined interfaces), implemented in Phase 3:
+Defined here (consumer-defined interfaces), implemented at API composition:
 
 ```go
 type OutboxProcessor interface { ProcessOutbox(ctx, outboxID string) error }
@@ -121,26 +112,17 @@ returned plain so asynq retries per the task's MaxRetry.
 outbox (6) and webhooks (3) over the once-a-day retention prune (1). Lifecycle:
 `Run()` (blocking), `Start()`/`Shutdown()` (graceful).
 
-At gateway boot, `cmd/gateway` prepares the worker and starts the daily retention
-scheduler when `RETENTION_DAYS > 0`; worker start timing depends on admission mode below. All gateway replicas that participate in
-this maintenance job must use the same work `REDIS_URL` database **and**
-`REDIS_PREFIX`. The scheduled task uses Redis-backed singleton/dedup admission,
-so a shared deployment gets one logical prune per cadence, not one destructive
-job per gateway replica. Duplicate delivery is still safe: the worker's deletes
-are idempotent and batch-bounded. Asynq's general queue keys remain in its
-fixed namespace, while retention also includes `REDIS_PREFIX` in its daily
-claim marker and task id. Independent stacks therefore need separate Redis
-databases; `REDIS_PREFIX` alone does not isolate their Asynq queues. With
-`RETENTION_DAYS=0`, the scheduler is not started and no retention task is
-enqueued.
-
-The Asynq server itself follows engine admission in private-control mode: it starts only after a
-RUN+READY heartbeat has been durably acknowledged. Authoritative drain or SIGTERM irreversibly
-closes HTTP engine admission and waits for admitted requests, then stops and joins the Asynq server
-before manager shutdown. This prevents queued work from entering the WhatsApp engine during drain.
-Control-disabled legacy mode retains eager worker startup. The retention scheduler remains owned by
-the application context and follows normal process shutdown; moving all workers to the API remains
-a later migration increment.
+At API boot, `cmd/api` builds the worker set and starts the daily retention
+scheduler when `RETENTION_DAYS > 0`. All API replicas that participate in this
+maintenance job must use the same work `REDIS_URL` database **and** `REDIS_PREFIX`.
+The scheduled task uses Redis-backed singleton/dedup admission, so a shared
+deployment gets one logical prune per cadence, not one destructive job per
+replica. Duplicate delivery is still safe: the worker's deletes are idempotent
+and batch-bounded. Asynq's general queue keys remain in its fixed namespace,
+while retention also includes `REDIS_PREFIX` in its daily claim marker and task
+id. Independent stacks therefore need separate Redis databases; `REDIS_PREFIX`
+alone does not isolate their Asynq queues. With `RETENTION_DAYS=0`, the
+scheduler is not started and no retention task is enqueued.
 
 The task payload contains the cutoff captured at enqueue time. `RetentionWorker`
 deletes in bounded batches and repeats only until that batch is exhausted; it
@@ -162,7 +144,7 @@ the path (`redis://h/2`) or `?db=` query. Invalid scheme/host/db → error.
   trigger, not a data store.
 - **Consumer interfaces, no sibling imports.** Imports are limited to stdlib,
   asynq, and `internal/domain` (only for shared conventions). Concrete
-  store/wa/webhook types are injected in Phase 3.
+  store/webhook types are injected at composition.
 - **SkipRetry vs retry.** Payload-shape errors skip retry; runtime/consumer
   errors retry. This keeps poison messages out of the retry loop while still
   retrying transient failures (network, locked rows).
@@ -177,6 +159,10 @@ the path (`redis://h/2`) or `?db=` query. Invalid scheme/host/db → error.
   Deleting other event-log rows bounds realtime resume history; a client whose
   `since` cursor predates the retained window resumes from the oldest retained
   event rather than receiving an error or a synthetic gap.
+- **No gateway admission coupling.** Because the gateway holds no workers, the
+  former "workers start only after acknowledged READY/RUN" machinery retired
+  with it: drain now means stopping sessions and reporting DRAINING/DRAINED, not
+  joining an Asynq server.
 
 ## How it's tested
 
@@ -195,16 +181,16 @@ the path (`redis://h/2`) or `?db=` query. Invalid scheme/host/db → error.
 - Retention worker/repository tests cover positive/disabled retention, a bounded
   batch loop, terminal-only webhook deletion, and safety under repeated task
   delivery. Scheduler tests cover shared-Redis singleton/dedup admission so
-  multiple gateways do not enqueue parallel daily sweeps.
+  multiple replicas do not enqueue parallel daily sweeps.
 
 ## Production wiring
 
-`cmd/gateway` provides `OutboxProcessor` and `RetentionPruner`, builds the
-handler set, and starts the server from `ParseRedisURL(cfg.RedisURL)` eagerly in legacy mode or
-after durable RUN+READY in control mode. It owns
-the retention scheduler and stops it before graceful worker shutdown. Webhook
-delivery is presently driven by the dispatcher cadence described in
-[`webhooks.md`](webhooks.md); retention's terminal-row rule ensures that cadence
-can never lose pending or retryable deliveries.
+`cmd/api` provides the consumers, builds the handler set from
+`ParseRedisURL(cfg.RedisURL)`, and owns the retention scheduler, stopping it on
+graceful shutdown. The gateway binary has no queue wiring at all. Outbound sends
+are drained by the API's durable command scheduler over the private engine
+(outbound-pipeline.md); webhook delivery is driven by the API-side dispatcher
+cadence described in [`webhooks.md`](webhooks.md); retention's terminal-row rule
+ensures that cadence can never lose pending or retryable deliveries.
 
 [hibiken/asynq]: https://github.com/hibiken/asynq

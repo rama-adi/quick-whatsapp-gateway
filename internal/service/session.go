@@ -6,30 +6,27 @@ import (
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa"
 )
 
 // SessionService owns the WhatsApp-session lifecycle (§3): create, list, get,
 // the start/stop/restart/logout actions, delete, plus pairing surfaces (qr,
-// pairing-code) and the /me identity. It coordinates the in-memory wa.Manager
-// (live clients) with the persisted wa_sessions rows (store.SessionRepo).
+// pairing-code) and the /me identity. The API owns wa_sessions rows, placement,
+// and assignments; every live part executes through private engine RPCs.
 type SessionService struct {
 	repo          *store.SessionRepo
 	gateways      *store.GatewayRepo
 	assignments   *store.GatewayAssignmentRepo
-	manager       *wa.Manager
 	liveFacade    GatewayLiveFacade
 	log           *slog.Logger
 	oauthCascader sessionOAuthCascader
 	// desiredController is the API-local lifecycle boundary (Increment 7):
 	// start/stop/restart flip the session's desired run state and advance the
-	// assignment revision; the assigned gateway reconciles. When nil, Start/
-	// Stop/Restart fall back to direct manager calls (legacy path).
+	// assignment revision; the assigned gateway reconciles.
 	desiredController SessionDesiredController
 	// gatewayFacade is the control-plane session-lifecycle boundary (Increment
-	// 7). When set, create/QR/pairing/logout/delete execute their live parts
-	// through private engine RPCs and this service owns rows, placement, and
-	// assignments; the legacy in-process manager remains the fallback.
+	// 7). Create/QR/pairing/logout/delete execute their live parts through
+	// private engine RPCs while this service owns rows, placement, and
+	// assignments.
 	gatewayFacade GatewaySessionFacade
 }
 
@@ -69,14 +66,13 @@ type sessionOAuthCascader interface {
 	CascadeSessionLogoutOrDelete(ctx context.Context, org, sessionID string) error
 }
 
-// NewSessionService constructs a SessionService. gateways is required only for
-// the facade (control-plane) create flow; the legacy manager path ignores it,
-// so gateway-local composition may pass nil.
-func NewSessionService(repo *store.SessionRepo, gateways *store.GatewayRepo, manager *wa.Manager, log *slog.Logger) *SessionService {
+// NewSessionService constructs a SessionService. gateways and the assignment
+// repo are required for the facade (control-plane) create flow.
+func NewSessionService(repo *store.SessionRepo, gateways *store.GatewayRepo, log *slog.Logger) *SessionService {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &SessionService{repo: repo, gateways: gateways, manager: manager, log: log}
+	return &SessionService{repo: repo, gateways: gateways, log: log}
 }
 
 func (s *SessionService) SetOAuthCascader(c sessionOAuthCascader) {
@@ -98,37 +94,14 @@ type CreateInput struct {
 	PresenceTyping *bool
 }
 
-// Create provisions a new session for the organization. When the gateway
-// facade is set, the API owns the row (placement pick + repo insert +
-// assignment) and the engine only prepares its pairing substrate; otherwise
-// the in-process manager mints the row (legacy path). Both paths optionally
-// kick off QR pairing when Start is requested.
+// Create provisions a new session for the organization: the API picks the
+// placement, owns the row + assignment, and the engine prepares its pairing
+// substrate. QR pairing optionally kicks off when Start is requested.
 func (s *SessionService) Create(ctx context.Context, organizationID string, in CreateInput) (domain.WASession, error) {
-	if s.gatewayFacade != nil {
-		return s.createControlled(ctx, organizationID, in)
-	}
-	if s.manager == nil {
+	if s.gatewayFacade == nil {
 		return domain.WASession{}, errLiveUnavailable()
 	}
-	autoRead := true
-	if in.AutoRead != nil {
-		autoRead = *in.AutoRead
-	}
-	presence := false
-	if in.PresenceTyping != nil {
-		presence = *in.PresenceTyping
-	}
-	sess, err := s.manager.CreateSession(ctx, organizationID, in.Label, autoRead, presence)
-	if err != nil {
-		return domain.WASession{}, err
-	}
-	if in.Start {
-		if err := s.manager.StartQR(ctx, sess.ID); err != nil {
-			// Pairing kickoff failed, but the row exists — surface the error.
-			return *sess, err
-		}
-	}
-	return *sess, nil
+	return s.createControlled(ctx, organizationID, in)
 }
 
 // createControlled is the facade path of Create: the API picks a placement,
@@ -197,15 +170,13 @@ func (s *SessionService) Get(ctx context.Context, organizationID, id string) (do
 	return sess, nil
 }
 
-// Start connects an already-paired session.
+// Start connects an already-paired session by flipping its desired run state;
+// the assigned gateway reconciles.
 func (s *SessionService) Start(ctx context.Context, organizationID, id string) error {
 	if _, err := s.Get(ctx, organizationID, id); err != nil {
 		return err
 	}
-	if s.desiredController != nil {
-		return s.desiredController.SetSessionDesired(ctx, id, true)
-	}
-	return s.manager.Start(ctx, id)
+	return s.desiredController.SetSessionDesired(ctx, id, true)
 }
 
 // Stop disconnects a session and marks it stopped.
@@ -213,10 +184,7 @@ func (s *SessionService) Stop(ctx context.Context, organizationID, id string) er
 	if _, err := s.Get(ctx, organizationID, id); err != nil {
 		return err
 	}
-	if s.desiredController != nil {
-		return s.desiredController.SetSessionDesired(ctx, id, false)
-	}
-	return s.manager.Stop(ctx, id)
+	return s.desiredController.SetSessionDesired(ctx, id, false)
 }
 
 // Restart stops then starts a session.
@@ -224,64 +192,50 @@ func (s *SessionService) Restart(ctx context.Context, organizationID, id string)
 	if _, err := s.Get(ctx, organizationID, id); err != nil {
 		return err
 	}
-	if s.desiredController != nil {
-		// One stop→start cycle through desired state; the reconciler converges
-		// on the final run state.
-		if err := s.desiredController.SetSessionDesired(ctx, id, false); err != nil {
-			return err
-		}
-		return s.desiredController.SetSessionDesired(ctx, id, true)
+	// One stop→start cycle through desired state; the reconciler converges
+	// on the final run state.
+	if err := s.desiredController.SetSessionDesired(ctx, id, false); err != nil {
+		return err
 	}
-	return s.manager.Restart(ctx, id)
+	return s.desiredController.SetSessionDesired(ctx, id, true)
 }
 
 // Logout unlinks the device server-side, deletes its keystore device, and marks
-// the session logged out. With the facade set the unlink runs as a durable
-// engine command; the OAuth cascade order (logout first, then cascade) matches
-// the legacy path.
+// the session logged out. The unlink runs as a durable engine command; the OAuth
+// cascade order (logout first, then cascade) matches the legacy path.
 func (s *SessionService) Logout(ctx context.Context, organizationID, id string) error {
 	if _, err := s.Get(ctx, organizationID, id); err != nil {
 		return err
 	}
-	if s.gatewayFacade != nil {
-		if err := s.gatewayFacade.Logout(ctx, organizationID, id); err != nil {
-			return err
-		}
-		return s.cascadeOAuth(ctx, organizationID, id)
-	}
-	if s.manager == nil {
+	if s.gatewayFacade == nil {
 		return errLiveUnavailable()
 	}
-	if err := s.manager.Logout(ctx, id); err != nil {
+	if err := s.gatewayFacade.Logout(ctx, organizationID, id); err != nil {
 		return err
 	}
 	return s.cascadeOAuth(ctx, organizationID, id)
 }
 
-// Delete tears down the live session and removes its persisted row. Facade
-// path: cascade OAuth, have the engine drop its in-memory runtime, delete the
-// row, then unassign so the gateway stops reconciling the session.
+// Delete tears down the live session and removes its persisted row: cascade
+// OAuth, have the engine drop its in-memory runtime, delete the row, then
+// unassign so the gateway stops reconciling the session.
 func (s *SessionService) Delete(ctx context.Context, organizationID, id string) error {
 	if _, err := s.Get(ctx, organizationID, id); err != nil {
 		return err
 	}
-	if s.gatewayFacade == nil && s.manager == nil {
+	if s.gatewayFacade == nil {
 		return errLiveUnavailable()
 	}
 	if err := s.cascadeOAuth(ctx, organizationID, id); err != nil {
 		return err
 	}
-	if s.gatewayFacade != nil {
-		if err := s.gatewayFacade.Forget(ctx, organizationID, id); err != nil {
-			return err
-		}
-		if err := s.repo.Delete(ctx, id); err != nil {
-			return err
-		}
-		return s.assignments.Unassign(ctx, id, domain.NowMs())
+	if err := s.gatewayFacade.Forget(ctx, organizationID, id); err != nil {
+		return err
 	}
-	s.manager.Forget(id)
-	return s.repo.Delete(ctx, id)
+	if err := s.repo.Delete(ctx, id); err != nil {
+		return err
+	}
+	return s.assignments.Unassign(ctx, id, domain.NowMs())
 }
 
 func (s *SessionService) cascadeOAuth(ctx context.Context, organizationID, id string) error {
@@ -349,37 +303,18 @@ func (s *SessionService) QR(ctx context.Context, organizationID, id string) (QR,
 	if sess.WAJID != nil {
 		return QR{}, domain.ErrConflict("session is already paired")
 	}
-	if s.gatewayFacade != nil {
-		snapshot, err := s.gatewayFacade.QR(ctx, organizationID, sess.ID)
-		if err != nil {
-			return QR{}, err
-		}
-		if snapshot.Code == "" {
-			// Pairing is starting; the first code arrives asynchronously over events.
-			return QR{}, domain.ErrNotFound("qr code not ready yet; subscribe to events (auth.qr)")
-		}
-		return QR{Code: snapshot.Code, ExpiresAt: snapshot.ExpiresAt}, nil
-	}
-	if s.manager == nil {
+	if s.gatewayFacade == nil {
 		return QR{}, errLiveUnavailable()
 	}
-	ms := s.manager.Get(id)
-	if ms == nil {
-		return QR{}, domain.ErrNotFound("session not found")
-	}
-	if code, exp := ms.LatestQR(); code != "" {
-		return QR{Code: code, ExpiresAt: exp}, nil
-	}
-	// No code yet: kick off QR pairing so the events stream (and a subsequent
-	// poll) receives one.
-	if err := s.manager.StartQR(ctx, id); err != nil {
+	snapshot, err := s.gatewayFacade.QR(ctx, organizationID, sess.ID)
+	if err != nil {
 		return QR{}, err
 	}
-	if code, exp := ms.LatestQR(); code != "" {
-		return QR{Code: code, ExpiresAt: exp}, nil
+	if snapshot.Code == "" {
+		// Pairing is starting; the first code arrives asynchronously over events.
+		return QR{}, domain.ErrNotFound("qr code not ready yet; subscribe to events (auth.qr)")
 	}
-	// Pairing is starting; the first code arrives asynchronously over events.
-	return QR{}, domain.ErrNotFound("qr code not ready yet; subscribe to events (auth.qr)")
+	return QR{Code: snapshot.Code, ExpiresAt: snapshot.ExpiresAt}, nil
 }
 
 // PairingCode requests a phone-number pairing code for a session.
@@ -394,11 +329,8 @@ func (s *SessionService) PairingCode(ctx context.Context, organizationID, id, ph
 	if sess.WAJID != nil {
 		return "", domain.ErrConflict("session is already paired")
 	}
-	if s.gatewayFacade != nil {
-		return s.gatewayFacade.PairingCode(ctx, organizationID, sess.ID, phone)
-	}
-	if s.manager == nil {
+	if s.gatewayFacade == nil {
 		return "", errLiveUnavailable()
 	}
-	return s.manager.StartPairingCode(ctx, id, phone)
+	return s.gatewayFacade.PairingCode(ctx, organizationID, sess.ID, phone)
 }

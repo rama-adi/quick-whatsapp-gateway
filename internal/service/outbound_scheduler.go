@@ -2,10 +2,12 @@ package service
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/application"
@@ -44,11 +46,16 @@ type outboundEngine interface {
 	application.OpExecutor
 }
 
+// OutboundScheduler owns durable command rows, product rate limits, retry/
+// backoff decisions, and dispatch through the private engine — plus the
+// messages-table projection for the gateway's own sends (the legacy gateway
+// MessageRecorder moved API-side with the MySQL cutover).
 type OutboundScheduler struct {
 	sessions outboundSessionSource
 	outbox   outboundCommandStore
 	engine   outboundEngine
 	limiter  outbound.RateLimiter
+	recorder *MessageRecorderAdapter
 	log      *slog.Logger
 	cfg      OutboundSchedulerConfig
 }
@@ -323,6 +330,11 @@ func (s *OutboundScheduler) dispatchClaimed(ctx context.Context, entry domain.Ou
 	}
 
 	waID := result.WAMessageID
+	// The gateway's legacy Sender recorded its own successful sends into the
+	// messages table; with MySQL removed there, the API mirrors that projection
+	// here after the engine acknowledges a send. Best-effort: WhatsApp delivery
+	// has already succeeded.
+	s.recordSent(ctx, entry.SessionID, req, waID, timestamp)
 	if uerr := s.outbox.UpdateStatus(ctx, entry.ID, domain.OutboxSent, &waID, nil, timestamp); uerr != nil {
 		return outbound.SendResult{}, uerr
 	}
@@ -382,6 +394,101 @@ func replayOutboxResult(e *domain.OutboxEntry) outbound.SendResult {
 	}
 	return r
 }
+
+// SetMessageRecorder wires the messages-table projection for the gateway's own
+// sends. Optional: without it, successful sends are tracked only in the outbox.
+func (s *OutboundScheduler) SetMessageRecorder(recorder *MessageRecorderAdapter) {
+	if recorder != nil {
+		s.recorder = recorder
+	}
+}
+
+// recordSent best-effort persists a from_me/direction=out/status=sent row for
+// a successfully dispatched send. A recorder failure is logged and swallowed:
+// the WhatsApp send already succeeded and must not be reported as failed. The
+// upsert key matches the inbound projection so echoes and receipts reconcile.
+func (s *OutboundScheduler) recordSent(ctx context.Context, sessionID string, req domain.SendRequest, waMessageID string, ts int64) {
+	if s.recorder == nil || waMessageID == "" || sessionID == "" || req.Type == "" && req.To == "" {
+		return
+	}
+	if ts == 0 {
+		ts = domain.NowMs()
+	}
+	mediaMeta, hasMedia := outboundMedia(req)
+	if err := s.recorder.RecordSent(ctx, outbound.SentMessage{
+		SessionID:           sessionID,
+		WAMessageID:         waMessageID,
+		ChatJID:             req.To,
+		Type:                req.Type,
+		Body:                outboundBody(req),
+		ReplyTo:             req.ReplyTo,
+		Mentions:            req.Mentions,
+		HasMedia:            hasMedia,
+		MediaMeta:           mediaMeta,
+		PollOptions:         req.Options,
+		PollSelectableCount: req.SelectableCount,
+		PollEndTime:         req.PollEndTime,
+		PollHideVotes:       req.PollHideVotes,
+		TimestampMs:         ts,
+	}); err != nil {
+		s.log.WarnContext(ctx, "record sent message projection failed",
+			"session", sessionID, "waMessageId", waMessageID, "err", err)
+	}
+}
+
+// outboundBody is the human-readable body stored for a send: the text for a text
+// message, the question for a poll, the label for a location, the caption for
+// media; empty otherwise (the type column carries the rest). Mirrors the legacy
+// gateway Sender's projection inputs.
+func outboundBody(req domain.SendRequest) string {
+	switch req.Type {
+	case domain.SendTypeText:
+		return req.Text
+	case domain.SendTypePoll, domain.SendTypeLocation:
+		return req.Name
+	case domain.SendTypeAlbum:
+		return req.Caption
+	default:
+		if isMediaType(req.Type) && req.Media != nil {
+			return req.Media.Caption
+		}
+		return ""
+	}
+}
+
+// isMediaType reports whether a send type carries a media file.
+func isMediaType(t string) bool {
+	switch t {
+	case domain.SendTypeImage, domain.SendTypeVideo, domain.SendTypeAudio, domain.SendTypeDocument, domain.SendTypeSticker:
+		return true
+	}
+	return false
+}
+
+// outboundMedia derives the media descriptor recorded on the messages row for a
+// media send. URL media size is unknown here (only the gateway's dispatch sees
+// the fetched bytes), so it stays zero — the metadata remains best-effort.
+func outboundMedia(req domain.SendRequest) (*domain.MediaMeta, bool) {
+	if req.Type == domain.SendTypeAlbum {
+		return nil, true
+	}
+	if !isMediaType(req.Type) || req.Media == nil {
+		return nil, false
+	}
+	size := int64(0)
+	if strings.TrimSpace(req.Media.Data) != "" {
+		size = int64(approxDecodedLen(req.Media.Data))
+	}
+	return &domain.MediaMeta{
+		Mimetype: req.Media.Mimetype,
+		Size:     size,
+		Filename: req.Media.Filename,
+	}, true
+}
+
+// approxDecodedLen estimates the decoded byte length of a base64 payload
+// without allocating the buffer (the API never decodes media inline).
+func approxDecodedLen(b64 string) int { return base64.StdEncoding.DecodedLen(len(b64)) }
 
 func optionalString(value string) *string {
 	if value == "" {

@@ -191,12 +191,13 @@ their own JID-classification tables. ~85% statement coverage; `go test` and `go 
 
 ---
 
-## Transport (NDJSON stream + webhooks) — owned by another subsystem
+## Transport (realtime + webhooks) — owned by another subsystem
 
 Status: see `internal/stream` and `internal/webhooks` specs. Both carry the same
-`domain.Event` envelope produced here. Gateway-local fan-out remains transitional:
-it appends to `event_log`, publishes to Redis pub/sub for stream subscribers, and
-enqueues webhook deliveries.
+`domain.Event` envelope produced here. Since Increment 9 the **only** gateway-side
+transport is the event journal: the gateway appends each envelope to its local
+journal (no `event_log`, no Redis publication, no webhook enqueue — those
+dependencies no longer exist on the gateway).
 
 API-owned ingestion hands an envelope to
 `application.CommittedEventConsumer` only **after** its event-log transaction
@@ -204,12 +205,13 @@ commits. `application.CommittedEventWorkStore` is the durable work boundary: its
 store implementation claims only committed, incomplete envelopes and records
 completion only after every consumer accepts the event. `service.CommittedEventWorker`
 uses that port, and its stateless `CommittedEventDispatcher` runs registered
-projections, retains the existing Redis publication, and enqueues webhooks in that
-order. Failed attempts remain incomplete for the store's retry/lease path; durable
-consumers must still use `event.id` as their idempotency key because a crash can
-occur after a consumer accepts an event and before completion is recorded.
+projections (the API-side WhatsApp-data projections), then realtime Redis
+publication, then webhook enqueue in that order. Failed attempts remain
+incomplete for the store's retry/lease path; durable consumers must still use
+`event.id` as their idempotency key because a crash can occur after a consumer
+accepts an event and before completion is recorded.
 
-### Increment 5 durable handoff foundation
+### Increment 5/9 durable handoff
 
 Private-control gateways require an absolute `GATEWAY_JOURNAL_PATH` for a separate SQLite journal.
 The journal accepts the normalized `domain.Event` JSON only while the current desired-state assignment
@@ -221,10 +223,11 @@ unready, while a failed append backpressures the producing pipeline. Every heart
 journal-pressure telemetry (`journal_state`/`journal_entries`/`journal_bytes`, §7): an unreadable
 journal omits the report instead of fabricating one, and the API persists the last reported pressure
 on the registry row for admin observability. Paused/critical states are advisory to optional sync
-work; no gateway sync work is pausable yet, so the seam is reserved, not exercised. In control mode
-the gateway does
+work; no gateway sync work is pausable yet, so the seam is reserved, not exercised.
+
+In control mode (the only mode since Increment 9) the gateway does
 not append `event_log`, publish Redis events, or enqueue webhooks: API ingestion owns the single
-event-log transaction and post-commit fan-out. Legacy mode retains its existing fan-out unchanged.
+event-log transaction and post-commit fan-out.
 Poll-recap emission is API-owned in every mode: the durable MySQL sweep and its event append,
 realtime publish, and webhook enqueue run beside the committed-event worker on the API; the Redis
 sorted set is only a low-latency wake-up index and gateways no longer write it.

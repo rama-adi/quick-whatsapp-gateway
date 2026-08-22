@@ -53,7 +53,8 @@ until later increments replace them.
 | **Increment 5** — reliable gateway event ingestion | ✅ Complete | Journaled gateway events stream over the control stream with commit-gated acknowledgements, fenced transactional ingest + dedup in MySQL, and a leased post-commit worker fanning out to realtime/webhooks. Poll-recap emission is API-owned. Journal pressure reports on heartbeats into admin observability; legacy fan-out remains for control-disabled mode until Increment 9. |
 | **Increment 6** — outbound message commands | ✅ Complete | The API's OutboundScheduler owns durable command rows (row id = stable command_id), product rate limits, and retry/backoff; the gateway executes SendMessage at most once per command id via its journal-local result ledger (write-before-respond), so retried ambiguous attempts replay instead of re-sending. Sends are served API-locally over the private engine; the gateway send worker is retired. |
 | **Increment 7** — remaining live resource operations | ✅ Complete | Every public operation serves API-locally: projections mount directly, live contact/group/chat-presence/backfill operations execute through private engine RPCs with API-owned projections, message ops are ledger-deduped commands, and session lifecycle runs through desired state plus Prepare/Pairing/Logout/Forget RPCs. Backup import is API-owned with its existing upload/quota/stale-lock limits. |
-| **Increments 8–10** — public gRPC, dependency removal, hardening | ⬜ Planned | Implement the public gRPC surface, remove gateway HTTP/MySQL/Redis, then soak and harden the sole target deployment. |
+| **Increment 8** — public gRPC surface | ✅ Complete | `public.v1` sessions/messages/chats/events adapters serve beside REST with the shared two-acceptor authn, org scoping, and error semantics. |
+| **Increment 9** — gateway dependency removal | ✅ Complete | The gateway binary runs on **SQLite keystore + event journal + whatsmeow + mTLS gRPC + probes only**: MySQL (repos, readiness, DB metrics, legacy registry writes) and Redis (queue server/workers/scheduler, stream publisher, OIDP pending store/interceptor subscriber, rate limiter) are removed. Control plane is mandatory (`GATEWAY_CONTROL_PLANE_ADDR` required; control-disabled mode deleted). WhatsApp-data projections run API-side over committed events; the manager holds no session repository; the webhook dispatch loop moved to the API; the gateway chi router/admission gate are deleted. Deploy configs carry only gateway-local settings. Increment 10 hardening remains. |
 
 ## v1 milestones (archived — code complete)
 
@@ -115,22 +116,24 @@ e2e smoke against a live WhatsApp number.
   principal). *Deviation:* the gateway uses a dedicated jwx verifier in `internal/assertion` (extra
   request-binding claims) rather than the plain `JWTVerifier`, reusing the JWKS-cache pattern at
   `ROUTER_JWKS_URL`.
-- **Gateway registry lifecycle = Layer 1 (Increment A):** `gateways` gains `status`
-  lifecycle + `session_count` + `capacity` + `idx_gateways_status_seen` (now folded into `0001`);
-  boot registers `joining→active`, a
-  30s heartbeat writes `last_seen_at`+`session_count`, SIGTERM drains `draining→drained`.
-  `wa_sessions.gateway_id` is **authoritative for routing**. Keystore portability (Layer 2 — live
-  re-homing on a shared `sqlstore`/Postgres) is **deferred**.
+- **Gateway registry lifecycle = superseded by the control stream (Increment 9).** The former
+  Layer-1 boot `joining→active` registration, 30s heartbeat, and SIGTERM
+  `draining→drained` writes are deleted from the gateway: liveness is the acknowledged control-stream
+  heartbeat itself. `wa_sessions.gateway_id` is still **authoritative for routing**.
+  Keystore portability (Layer 2 — live re-homing on a shared `sqlstore`/Postgres) is **deferred**.
 - **Realtime and OpenAPI are router-owned:** browsers mint a scoped ticket and connect to the
   router WebSocket; gateways publish current runtime events through shared Redis `evt:*`. Gateway
   NDJSON is removed. Huma operations/Go DTOs generate `docs/openapi.yaml`, which the router serves.
   Direct acknowledged gateway→API event ingest is part of the gRPC migration, not current runtime.
 - **Current auth boundary:** humans present better-auth JWTs and machines present better-auth API
-  keys to the router. The router verifies both, owns CORS and the positive key cache, and forwards a
-  request-bound internal assertion; gateways do not verify public credentials.
-- **Data:** shared MySQL — frontend writes auth tables, gateway currently writes WA-domain tables;
-  **hybrid reads** use direct MySQL for frontend display, router-mediated REST for actions, and the
-  router WebSocket for realtime. Keystore is **gateway-local SQLite** on a persistent volume.
+  keys to the API. The API verifies both, owns CORS and the positive key cache; gateways verify no
+  public credentials — they authenticate to the API by per-gateway mTLS identity. The former
+  request-bound Ed25519 internal assertion was removed with the HTTP proxy (Increment 9).
+- **Data:** shared MySQL — the frontend writes auth tables, **the API writes all WA-domain
+  tables** (including projections derived from committed gateway events); the gateway has no MySQL.
+  **Hybrid reads** use direct MySQL for frontend display, API REST for actions, and the API
+  WebSocket for realtime. Keystore is **gateway-local SQLite** on a persistent volume, plus a
+  gateway-local event journal.
 - **API-key revocation:** better-auth publishes `ctrl:*`; the router subscriber evicts its positive
   key cache and drops affected WebSockets. The ~60-second cache TTL is the missed-message backstop.
   Gateways neither cache public keys nor subscribe to the public-auth control bus.
@@ -191,6 +194,13 @@ e2e smoke against a live WhatsApp number.
   is all-green.
 - **R6 collaboration UI** — members/invitations UI is the remaining fast-follow; org plumbing
   already shipped.
+- **OIDP login-interceptor re-homing (Increment 9 remainder).** The gateway's Redis-backed OIDP
+  pieces (`oidp.PendingStore`, `LoginInterceptor`, `AppChangeSubscriber`) were deleted with its
+  Redis dependency; the API already owns the OIDP provider, pending codes, and control subscriber.
+  The inbound-pipeline `LoginInterceptor` bridge ("Sign in with WhatsApp" claim messages arriving
+  on a gateway-connected session) needs an API-side re-home — likely as an engine-side raw-message
+  hook or a committed-event consumer — before that feature works end-to-end again. Tracked in
+  [`specs/_V2-STATUS.md`](specs/_V2-STATUS.md) (`oauth.md`).
 - Private gRPC enrollment transport and gateway credential bootstrap are implemented and opt-in,
   including pinned SPIFFE/root verification, pending CSR/key reuse, replay-aware retries, strict
   certificate authorization, and a reusable mTLS connection.

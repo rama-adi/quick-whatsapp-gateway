@@ -15,8 +15,6 @@ import (
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/crypto"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa/outbound"
 )
 
 // Deps groups everything the service layer needs from the composition root. The
@@ -24,8 +22,6 @@ import (
 // package never opens a DB, a Redis client, or a whatsmeow client itself.
 type Deps struct {
 	Store                      *store.Store
-	Manager                    *wa.Manager
-	Sender                     *outbound.Sender
 	Crypto                     *crypto.AESGCM
 	OAuthClientSecretPepper    string
 	OIDCIssuer                 string
@@ -61,31 +57,24 @@ type Services struct {
 // New builds every service from shared immutable dependencies and is the single
 // business-layer wiring point. It starts no goroutines; resource services are
 // safe to share because request state travels through context and repositories.
-// A nil Manager intentionally disables live WhatsApp operations while preserving
-// read-only repository services and their not_implemented failure contract.
+// Live WhatsApp operations are wired later by the API composition root through
+// the gateway facades; until then live calls fail with the not_implemented
+// envelope contract.
 func New(d Deps) *Services {
 	if d.Log == nil {
 		d.Log = slog.Default()
 	}
-	// The manager-backed live-ops adapter satisfies every live port (GroupOps,
-	// ContactDirectory, PresenceController, ChannelOps, StatusPoster). One value
-	// serves all the resource services. nil manager => nil adapter, and the
-	// services fall back to the not_implemented envelope on live calls.
-	var live *wa.LiveOps
-	if d.Manager != nil {
-		live = d.Manager.LiveOps()
-	}
 	services := &Services{
-		Sessions:  NewSessionService(d.Store.Sessions, d.Store.Gateways, d.Manager, d.Log),
-		Messages:  NewMessageService(d.Store.Sessions, d.Sender, d.Log),
+		Sessions:  NewSessionService(d.Store.Sessions, d.Store.Gateways, d.Log),
+		Messages:  NewMessageService(d.Store.Sessions, d.Log),
 		Webhooks:  NewWebhookService(d.Store.Webhooks, d.Crypto, d.DefaultRetryDelay, d.DefaultRetryAttempts, d.Log),
-		Chats:     NewChatService(d.Store, liveOrNilPresence(live), d.Log),
-		Contacts:  NewContactService(d.Store, liveOrNilDirectory(live), d.Log),
-		Groups:    NewGroupService(d.Store, liveOrNilGroupOps(live), d.Log),
-		Channels:  NewChannelService(d.Store, liveOrNilChannelOps(live), d.Log),
-		Status:    NewStatusService(d.Store, liveOrNilStatusPoster(live), d.Log),
-		Presence:  NewPresenceService(d.Store, liveOrNilPresence(live), d.Log),
-		Admin:     NewAdminService(d.Store, liveOrNilBackfill(live), d.Log),
+		Chats:     NewChatService(d.Store, nil, d.Log),
+		Contacts:  NewContactService(d.Store, nil, d.Log),
+		Groups:    NewGroupService(d.Store, nil, d.Log),
+		Channels:  NewChannelService(d.Store, nil, d.Log),
+		Status:    NewStatusService(d.Store, nil, d.Log),
+		Presence:  NewPresenceService(d.Store, nil, d.Log),
+		Admin:     NewAdminService(d.Store, nil, d.Log),
 		Events:    NewEventsService(d.Store.EventLog, d.Log),
 		Backup:    NewBackupImportService(d.Store, d.Log),
 		OAuthApps: NewOAuthAppService(d.Store, d.OAuthClientSecretPepper, d.WhatsAppAdminCommandPrefix, d.OIDCIssuer, d.ControlPublisher),
@@ -99,49 +88,4 @@ func New(d Deps) *Services {
 // database remains authoritative on reconnect/cache expiry.
 type ControlPublisher interface {
 	Publish(ctx context.Context, channel string, payload any) error
-}
-
-// The liveOrNil* helpers convert a possibly-nil *wa.LiveOps into a typed nil
-// interface so a nil adapter stays a nil interface (avoiding a non-nil interface
-// wrapping a nil pointer, which would slip past the services' nil checks).
-func liveOrNilGroupOps(l *wa.LiveOps) GroupOps {
-	if l == nil {
-		return nil
-	}
-	return l
-}
-
-func liveOrNilDirectory(l *wa.LiveOps) ContactDirectory {
-	if l == nil {
-		return nil
-	}
-	return l
-}
-
-func liveOrNilPresence(l *wa.LiveOps) PresenceController {
-	if l == nil {
-		return nil
-	}
-	return l
-}
-
-func liveOrNilChannelOps(l *wa.LiveOps) ChannelOps {
-	if l == nil {
-		return nil
-	}
-	return l
-}
-
-func liveOrNilStatusPoster(l *wa.LiveOps) StatusPoster {
-	if l == nil {
-		return nil
-	}
-	return l
-}
-
-func liveOrNilBackfill(l *wa.LiveOps) BackfillSource {
-	if l == nil {
-		return nil
-	}
-	return l
 }

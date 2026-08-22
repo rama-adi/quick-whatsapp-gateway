@@ -1,37 +1,33 @@
 # Session Manager
 
-> **Increment 7 session lifecycle executes through private engine RPCs.** In
-> control-enabled deployments the API owns rows, placement, and assignments and
-> calls five engine RPCs for the live parts (see "gRPC control plane" below).
-> The API pushes authoritative desired-state assignments and per-session
-> configuration over the control stream. Assignments carry monotonically
-> increasing epochs and renewable leases; gateways stop expired assignments and
-> the API rejects stale commands/events, preventing split brain. Session
-> placement initially requires an API-addressable gateway engine endpoint.
-> Current MySQL boot reads, self-written registry heartbeat, pin adoption, and
-> orphan-guard behavior below remain active until desired-state reconciliation
-> replaces them.
+> **Increment 9: the gateway runs without MySQL or Redis.** The manager holds
+> no session repository: `wa_sessions` rows, placement, assignments, status
+> history, and admin bootstrap are all API-owned. Control-plane desired-state
+> assignments are the only thing that starts a session locally, and every
+> lifecycle event (status changes, pairing) flows to the API through the event
+> journal for post-commit projection. The legacy MySQL-reading `Boot`, the boot
+> orphan-guard, admin-number self-bootstrap, `CreateSession`, and the
+> control-disabled mode are removed.
 
 Status: implemented. Package `internal/wa`, files `manager.go`, `session.go`.
 
 ## Scope
 
 Owns the in-process WhatsApp connection layer (§3, §5, §6): a `*whatsmeow.Client`
-per attached number, each holding a live WebSocket. Responsibilities:
+per assigned session, each holding a live WebSocket. Responsibilities:
 
-- Load devices from the **SQLite** whatsmeow keystore on boot (§6.1) and adopt the
-  matching `wa_sessions` rows; resume sessions that were meant to be running.
-- **Pin** each adopted session to this gateway (§4.5): record `GATEWAY_ID` onto the
-  session's `gateway_id` so a session stays bound to the one gateway whose local
-  keystore holds its crypto material. With the central router (Increment A) this pin
-  is **authoritative for routing** — the router resolves a session → its owning
-  gateway from `wa_sessions.gateway_id`, so adoption must reliably record it.
-  Session responses surface `gatewayId` (resources.md).
+- Materialize runtimes from **control-plane assignments** only: ownership,
+  configuration, and device mapping all arrive in the revisioned assignment
+  snapshot; the manager never reads `wa_sessions` or organizations.
+- Drive pairing (QR and phone-number codes), reconnect with backoff + full
+  jitter, and run the status state machine, emitting `session.status`,
+  `auth.qr`, and `auth.code` through the event sink (the gateway journal).
+- Forward every raw whatsmeow event to the injected inbound handler under a
+  bounded detached deadline.
 
 ## gRPC control plane: API-owned lifecycle
 
-In control-enabled deployments (`GatewaySessionFacade` set by the API composition
-root) the session lifecycle splits cleanly across the trust boundary:
+The session lifecycle splits across the trust boundary:
 
 - **The API owns durable state**: it picks the placement
   (`GatewayRepo.PickForPlacement`), inserts the `wa_sessions` row
@@ -43,8 +39,7 @@ root) the session lifecycle splits cleanly across the trust boundary:
 - **The gateway executes only live parts**, through private engine RPCs served
   by `wa.ApplicationGatewayAdapter` (see [`grpc-contracts.md`](grpc-contracts.md)):
   - `PrepareSession` — creates the local keystore device + managed-session entry
-    for an API-created row (`Manager.EnsureDevice`; never `CreateSession`, which
-    would insert a MySQL row). Idempotent; not ledger-backed.
+    for an API-created row (`Manager.EnsureDevice`). Idempotent; not ledger-backed.
   - `BeginPairing` / `PairPhone` — QR snapshot-with-kick and phone-number
     pairing behind the ownership fence; not ledger-backed.
   - `LogoutSession` — destructive unlink as a durable command with full send-style
@@ -55,43 +50,27 @@ root) the session lifecycle splits cleanly across the trust boundary:
   minted only when the API asks the assigned engine to prepare; reconciliation
   keeps its fail-closed `keystore_missing` policy for sessions whose expected
   device was never prepared or has vanished.
-- The service branches at the top of Create/Logout/Delete/QR/PairingCode,
-  preferring the facade and keeping the legacy in-process manager fallbacks for
-  control-disabled deployments. Delete order with the facade: OAuth cascade →
-  engine forget → repo delete → unassign. Logout order: engine logout → OAuth
-  cascade (unchanged relative order).
-- **Registry lifecycle (Layer 1, Increment A compatibility).** With private control disabled, the
-  gateway maintains its own row in the `gateways` registry through a lifecycle: on boot it
-  registers `status=joining`
-  then `active`; a **30s heartbeat** writes `last_seen_at` + `session_count`
-  (`SessionRepo.CountByGateway`); on `SIGTERM` it marks `draining`, finishes in-flight
-  work, then `drained` and exits. New-session **placement** is the router's call —
-  it picks the least-loaded `active` gateway via `GatewayRepo.PickForPlacement`. A
-  session whose owning gateway is missing/not `active`/stale is *stranded* → the router
-  returns `503 gateway_unavailable`. See [`store.md`](store.md), [`router.md`](router.md).
-- **Control-mode boot and drain.** All engine-route admission stays closed until a RUN+READY
-  heartbeat is durably acknowledged. An initial authoritative DRAIN skips `Manager.Boot`; a DRAIN
-  received after Boot closes admission terminally, waits for admitted requests to finish, and calls
-  `Manager.Shutdown`, disconnecting all managed sessions without rewriting their persisted session
-  statuses. A transient pre-Welcome outage brings diagnostics up unready and closed, then performs
-  the one deferred Boot after a later RUN Welcome. The lifetime lifecycle watcher covers that
-  delayed Boot as well as immediate Boot. Terminal supervisor failure at any later point exits the
-  process cleanly instead of leaving diagnostics alive around a dead control loop.
-  On SIGTERM the supervisor flushes
-  acknowledged DRAINING and DRAINED runtime heartbeats before its independently-owned stream is
-  cancelled. Those are observed states and do not change the separate desired lifecycle. Flush
-  requires a newer acknowledgement and follows a reconnect onto its replacement epoch. This coarse
-  process drain is transitional. The protocol now carries per-session desired-state snapshots and
-  renewable leases, but gateway-side reconciliation remains pending. A post-Welcome RUN can start or affirm engine work only before terminal drain;
-  DRAIN is terminal for the process, and DISABLE follows the same drain path before stopping it.
-- **Control-mode worker lifetime.** The gateway-owned transitional Asynq server does not start until
-  the supervisor has a durably acknowledged RUN+READY state. Terminal DRAIN closes admission and
-  drains admitted requests, then stops and joins Asynq workers before shutting down the manager.
-  This prevents queued work from entering the WhatsApp engine after drain begins. Legacy mode keeps
-  its existing eager worker startup.
-- **Boot orphan-guard** (§4.6 boot reconciliation): before resuming a session, check
-  its **owning organization** still exists and is enabled in MySQL; **skip + mark
-  `STOPPED`** any session whose org was deleted/disabled while the gateway was down.
+- The API-side `SessionService` has no in-process fallback paths any more:
+  Create/Logout/Delete/QR/PairingCode always go through the engine facade, and
+  Start/Stop/Restart flip desired state (`SessionDesiredController`). Delete
+  order: OAuth cascade → engine forget → repo delete → unassign. Logout order:
+  engine logout → OAuth cascade.
+- **Registry writes are gone from the gateway.** There is no `joining`/`active`
+  registration, no heartbeat timer, and no shutdown draining/drained write to
+  `wa_gateways`: liveness is the acknowledged control-stream heartbeat itself.
+- **Boot and drain.** All engine admission stays closed until a RUN+READY
+  heartbeat is durably acknowledged. A DRAIN directive stops sessions terminally
+  via `Manager.Shutdown` and reports DRAINING/DRAINED; a later RUN after terminal
+  drain reports BUSY instead of rebooting sessions. A transient pre-Welcome
+  outage brings diagnostics up unready, then performs the deferred start after a
+  RUN Welcome. On SIGTERM the supervisor flushes acknowledged DRAINING/DRAINED
+  heartbeats before its stream is cancelled. Those are observed states and do
+  not change the separate desired lifecycle.
+- **No orphan-guard and no admin bootstrap on the gateway.** Assignment
+  reconciliation replaces the org-existence guard: an org deletion removes the
+  session's assignment, and reconciliation stops it. Admin session creation,
+  pairing kickoff, and status persistence are API operations executed over the
+  same engine RPCs as any other session.
 
 ## Desired-state assignment foundation
 
@@ -100,25 +79,7 @@ a fresh snapshot after every durably persisted heartbeat to renew leases. Each a
 the organization ID, nonzero durable `assignment_epoch`, absolute lease expiry, and the session's
 auto-read, typing, and rate settings. The gateway acknowledges the applied snapshot revision; the
 API persists that acknowledgement only for the still-current connection epoch and desired revision.
-The gateway reconciliation runtime will consume this contract by stopping unassigned or expired
-sessions and carrying the epoch on all commands and events.
-- Lifecycle: create / start / stop / restart / logout.
-- Reconnect with exponential backoff + full jitter.
-- Status state machine `STARTING · SCAN_QR_CODE · WORKING · FAILED · STOPPED ·
-  LOGGED_OUT`, emitting `session.status` on change.
-- Pairing: QR (`GetQRChannel` before `Connect`, stream codes as `auth.qr`) and
-  pairing-code (`PairPhone`, emit `auth.code`).
-- Terminal events (`LoggedOut` / `StreamReplaced` / `TemporaryBan` /
-  `ClientOutdated` / fatal `ConnectFailure`) → mark `LOGGED_OUT`/`FAILED`, STOP
-  reconnect, emit status.
-- Admin-number bootstrap (§8): if `WHATSAPP_ADMIN_NUMBER` is set and no keystore
-  device exists for it, create an `is_admin_session` row (owned by
-  `GATEWAY_ADMIN_USER_ID`'s org, or left system-owned) and surface the pairing
-  code (returned from `Boot` + logged to console + emitted as `auth.code`).
-- Register one whatsmeow event handler per session that forwards EVERY event to
-  the injected inbound handler (tagged session/organization/isAdmin). Forwarding
-  remains synchronous/ordered, under a 10-second detached deadline so stalled
-  downstream work yields its callback and database resources.
+Reconciliation stops unassigned or expired sessions and carries the epoch on all commands and events.
 
 ## Key types / interfaces
 
@@ -127,11 +88,8 @@ sibling internal imports):
 
 - `Keystore` — slice of the whatsmeow device container
   (`GetAllDevices/GetFirstDevice/GetDevice/NewDevice/DeleteDevice`). Satisfied by
-  `*sqlstore.Container` (SQLite via `modernc.org/sqlite`, §6.1). Uses the external
+  the gateway-local SQLite keystore (`modernc.org/sqlite`, §6.1). Uses the external
   `store.Device` type, which is allowed.
-- `SessionRepo` — the `wa_sessions` methods called:
-  `Get/GetByJID/ListByOrg/Create/Update/UpdateStatus` (plus the `gateway_id` pin
-  write used by boot adoption).
 - `EventSink` — `Publish(ctx, domain.Event)`; the manager only emits
   `session.status`, `auth.qr`, `auth.code`.
 - `InboundHandler` — `Handle(ctx, sessionID, organizationID, isAdmin, evt any)`;
@@ -146,16 +104,19 @@ sibling internal imports):
 Core types:
 
 - `Manager` — `map[sessionID]*ManagedSession` under `sync.RWMutex`; constructor
-  `NewManager(keystore, repo, sink, inbound, clock, log, cfg)`. `cfg.GatewayID`
-  carries `GATEWAY_ID`; `SetOrgExists(predicate)` installs the boot orphan-guard.
+  `NewManager(keystore, repo, sink, inbound, clock, log, cfg)` where `repo` is
+  deprecated plumbing that must be nil (the gateway owns no rows). `StartAssigned`
+  materializes one assignment; `StartAssignedBoot` is the store-free boot hook;
+  `StopAssigned` stops a locally materialized assignment.
 - `ManagedSession` — wraps the device + client + status + reconnect bookkeeping +
-  per-session `context.CancelFunc`. All mutable state guarded by its own mutex.
-- `Config` — `GatewayID`, admin number/org, rate/auto-read defaults, optional
+  per-session `context.CancelFunc`, plus the JID/LID observed at `PairSuccess`.
+  All mutable state guarded by its own mutex.
+- `Config` — `GatewayID`, device display name, rate/auto-read defaults, optional
   backoff.
 
 ## Decisions
 
-- **Pure cores for testability.** Four pure functions carry the load-bearing
+- **Pure cores for testability.** Three pure functions carry the load-bearing
   logic and are unit-tested directly:
   - `classifyEvent(evt any) transition` — maps a whatsmeow event to
     `(status, changed, terminal, keepReconnect)`. `Connected→WORKING`,
@@ -167,35 +128,15 @@ Core types:
   - `backoffFor(cfg, attempt, *rand.Rand)` — exponential `base*factor^n` clamped
     to `max`, then **full jitter** (`uniform[0, ceiling]`). Deterministic given a
     seeded `*rand.Rand`. Production default: 1s base, ×2, cap 2m.
-  - `adminNeedsPairing(number, deviceJIDs, adminJID)` — the bootstrap decision.
-- **Gateway pinning is now authoritative for routing.** Adoption records
-  `gateway_id = GATEWAY_ID` so the central router can resolve a session → its owning
-  gateway (Increment A). The session still resumes locally regardless, but a missing/
-  wrong pin now means the router cannot reach the session (stranded → `503
-  gateway_unavailable`), so the pin write matters for correctness, not just
-  forward-compat. (Local-keystore binding is unchanged; live re-homing is Layer 2,
-  deferred — see [`whatsmeow-store.md`](whatsmeow-store.md).) In control-enabled
-  deployments the API writes the same pin at create time from its placement pick,
-  so both ownership records agree before the engine ever sees the session.
-- **Boot orphan-guard runs before resume.** `bootResumeDecision` consults the
-  injected `orgExists` predicate; a session whose org is gone/disabled is **not**
-  connected and is marked `STOPPED` (closing the window for `ctrl:*` org-deletion
-  messages missed while the gateway was down, §4.6). With no predicate wired the
-  guard is a no-op (resume as before).
-- **Per-session RNG** seeded from `crypto/rand` so concurrent sessions don't
-  share a jitter schedule (avoids thundering-herd reconnects). `math/rand` is
-  correct here — jitter needs non-correlation, not cryptographic strength.
 - **Status ownership is single-writer.** `teardown` clears runtime state but does
-  NOT touch status; `setStatus` is the sole owner of the status field, its
-  persistence (`UpdateStatus`), and its `session.status` emission, and it
-  **dedups** (no event when the status is unchanged).
+  NOT touch status; `setStatus` is the sole owner of the status field and its
+  `session.status` emission, and it **dedups** (no event when the status is
+  unchanged). Persistence is derived API-side from committed events.
 - **Goroutine lifecycle.** Each running session gets a context derived via
   `context.WithoutCancel(parent)` + a `CancelFunc`. Stop/Logout/Shutdown cancel
   it; the reconnect loop and QR pump select on `ctx.Done()` and exit cleanly. The
   loop polls connection state on a 500ms ticker rather than threading extra
   channels through whatsmeow's event model.
-- **Boot resume policy** (`shouldResume`): `STOPPED`/`LOGGED_OUT`/`FAILED` stay
-  down; anything that was live or mid-startup resumes (subject to the orphan-guard).
 - **Pairing / linked-device display name** defaults to `"Chrome (Linux - <GATEWAY_ID>)"` and can
   override the OS/app portion with `WHATSAPP_DEVICE_NAME`. The phone-code pairing string is still
   formatted as `"Chrome (<device name>)"` because whatsmeow validates the `"Browser (OS)"` format.
@@ -210,22 +151,18 @@ Core types:
   `ConnectFailure`; `isFatalConnectFailure` matrix.
 - `backoffFor`: determinism (same seed → same schedule), full-jitter bounds
   per attempt, cap never exceeded, negative attempt clamped.
-- `adminNeedsPairing` / `deviceJIDs`; `bootstrapAdmin` already-paired (no code),
-  needs-pairing (returns code, creates `is_admin_session` row, emits `auth.code`),
-  disabled.
 - `setStatus` dedup; event handler terminal-stops-reconnect + tears down + emits
   + still forwards to inbound; `Connected` resets backoff; `PairSuccess` records
-  the JID/LID onto the session row.
+  the JID/LID onto the managed session.
 - Online presence: the manager announces `PresenceAvailable` on `Connected`, but
   whatsmeow's `SendPresence` requires a push name that only arrives via app-state
   sync (after `Connected`) — so it re-announces on `AppStateSyncComplete`, which is
   when presence actually sticks on a freshly-paired session. A missing push name is
   benign (debug-logged, retried), not a warning.
-- Lifecycle: `CreateSession` persists + registers + applies rate defaults;
-  `Start` rejects unpaired; `Stop` tears down + marks STOPPED; `Logout` calls
-  `client.Logout`, deletes the keystore device, marks LOGGED_OUT; not-found
-  errors; `Boot` adopts paired devices, pins `gateway_id`, and the orphan-guard
-  skips + STOPs a session whose org is gone.
+- Lifecycle: `StartAssigned` uses control config without any session lookup;
+  `Stop` tears down + emits STOPPED; `Logout` calls `client.Logout` and deletes
+  the keystore device; not-found errors; `StartAssignedBoot` is store-free;
+  the manager accepts no session repository.
 
 Verified: `CGO_ENABLED=0 go build ./internal/wa`, `go test ./internal/wa` (incl.
 `-race`), `go vet ./internal/wa` all pass.

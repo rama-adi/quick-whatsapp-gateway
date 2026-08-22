@@ -55,9 +55,11 @@ type Config struct {
 type clientFactory func(device *store.Device) waClient
 
 // Manager is the process-local owner of every ManagedSession and whatsmeow client
-// assigned to this gateway (§3). Durable device keys remain in the SQLite
-// keystore and app-visible state remains in SessionRepo; the sessions map is only
-// the live ownership index rebuilt by Boot.
+// assigned to this gateway (§3). Durable device keys remain in the gateway-local
+// SQLite keystore; app-visible state (wa_sessions rows, status history) is owned
+// by the API — control-plane assignments drive what runs here, and session
+// lifecycle events reach the API through the event journal. The sessions map is
+// only the live ownership index, rebuilt from assignments on boot.
 //
 // Lifecycle mutations serialize access to that index with mu, while each
 // ManagedSession separately protects status, QR data, retry counters, and its
@@ -68,7 +70,6 @@ type clientFactory func(device *store.Device) waClient
 // reconciliation logs and skips one broken device rather than aborting all peers.
 type Manager struct {
 	keystore Keystore
-	repo     SessionRepo
 	sink     EventSink
 	inbound  InboundHandler
 	clock    Clock
@@ -76,12 +77,8 @@ type Manager struct {
 	cfg      Config
 	waLogger waLog.Logger
 
-	// orgExists is the boot orphan-guard predicate (§4.6 boot reconciliation,
-	// §17 R2): it reports whether a session's owning organization still exists.
-	// Injected so the better-auth `organization` lookup is swappable and testable;
-	// nil disables the guard (every session resumes per shouldResume).
-	orgExists func(ctx context.Context, orgID string) (bool, error)
-
+	// newClient is the whatsmeow client constructor. Overridable in tests via
+	// SetClientFactory.
 	newClient clientFactory
 
 	mu       sync.RWMutex
@@ -89,7 +86,8 @@ type Manager struct {
 }
 
 // NewManager constructs a Manager with all collaborators injected (no globals).
-// log/clock may be nil (sensible defaults are used).
+// repo is unused legacy plumbing and must be nil: the gateway owns no session
+// rows — the API does. log/clock may be nil (sensible defaults are used).
 func NewManager(
 	keystore Keystore,
 	repo SessionRepo,
@@ -99,6 +97,7 @@ func NewManager(
 	log *slog.Logger,
 	cfg Config,
 ) *Manager {
+	_ = repo // deprecated parameter; session persistence is API-owned
 	if clock == nil {
 		clock = realClock{}
 	}
@@ -118,7 +117,6 @@ func NewManager(
 	store.SetOSInfo(cfg.DeviceName, [3]uint32{1, 0, 0})
 	m := &Manager{
 		keystore: keystore,
-		repo:     repo,
 		sink:     sink,
 		inbound:  inbound,
 		clock:    clock,
@@ -161,15 +159,6 @@ func (m *Manager) SetInboundHandler(h InboundHandler) {
 // SetWALogger sets the whatsmeow logger used for newly built clients. Existing
 // clients retain their logger, so callers must configure this before Boot.
 func (m *Manager) SetWALogger(l waLog.Logger) { m.waLogger = l }
-
-// SetOrgExists installs the boot orphan-guard predicate (§4.6 boot
-// reconciliation). pred reports whether a session's owning organization still
-// exists in the shared better-auth `organization` table; Boot skips and marks
-// STOPPED any session whose org is gone. A nil pred disables the guard. This is
-// configuration-time state and must be installed before Boot.
-func (m *Manager) SetOrgExists(pred func(ctx context.Context, orgID string) (bool, error)) {
-	m.orgExists = pred
-}
 
 // Inventory returns paired local device identities for desired-state
 // reconciliation. It does not inspect app-data tables: the local keystore is
@@ -254,290 +243,37 @@ func (m *Manager) StopAssigned(ctx context.Context, sessionID string) error {
 // Boot
 // ----------------------------------------------------------------------------
 
-// Boot reconstructs live ownership from paired keystore devices, matching each
-// device to its app session row before adopting it. It pins eligible rows to this
-// gateway, applies the organization orphan guard, and reconnects only statuses
-// selected by shouldResume; one lookup or adoption failure is logged and isolated
-// to that device.
-//
-// After reconciliation it performs optional admin-number bootstrap (§6) and
-// returns the newly issued phone-pairing code, if any. The caller's context covers
-// keystore and repository work plus initial connects; the per-session contexts
-// created during adoption own subsequent reconnect loops and are cancelled by
-// Stop, Logout, or a terminal event.
-func (m *Manager) Boot(ctx context.Context) (adminPairingCode string, err error) {
-	devices, err := m.keystore.GetAllDevices(ctx)
-	if err != nil {
-		return "", fmt.Errorf("load devices: %w", err)
-	}
-	for _, dev := range devices {
-		if dev.ID == nil {
-			// Unpaired stray device; nothing to resume.
-			continue
-		}
-		jid := dev.ID.String()
-		sess, lookupErr := m.repo.GetByJID(ctx, jid)
-		if lookupErr != nil {
-			m.log.Warn("boot: no session row for device, skipping", "jid", jid, "err", lookupErr)
-			continue
-		}
-		if err := m.adopt(ctx, sess, dev); err != nil {
-			m.log.Error("boot: adopt session failed", "session", sess.ID, "err", err)
-			continue
-		}
-		// Pin adopted sessions to this gateway (§4.5): record gateway_id so future
-		// boots and the gateways registry agree on who holds this keystore.
-		m.pinGateway(ctx, sess)
-
-		// Orphan-guard (§4.6 boot reconciliation, §17 R2): before resuming, confirm
-		// the owning org still exists. If it was deleted while we were down, mark
-		// the session STOPPED and do NOT reconnect.
-		if !shouldResume(sess.Status) {
-			continue
-		}
-		resume, stop := m.bootResumeDecision(ctx, sess)
-		if stop {
-			m.log.Warn("boot: owning organization gone, stopping orphaned session",
-				"session", sess.ID, "organization", sess.OrganizationID)
-			if err := m.repo.UpdateStatus(ctx, sess.ID, domain.SessionStopped); err != nil {
-				m.log.Warn("boot: mark orphan stopped failed", "session", sess.ID, "err", err)
-			}
-			continue
-		}
-		if resume {
-			m.startManaged(ctx, sess.ID)
-		}
-	}
-
-	// Admin-number bootstrap (§6).
-	code, err := m.bootstrapAdmin(ctx, devices)
-	if err != nil {
-		return "", err
-	}
-	return code, nil
+// StartAssignedBoot materializes a runtime for every currently-owned
+// assignment that desires RUN — the control-mode replacement for the legacy
+// MySQL-reading Boot. It never touches wa_sessions or organizations: ownership,
+// config, and device mapping all come from desired-state reconciliation, which
+// has already called StartAssigned per assignment. The return value exists for
+// interface stability with the legacy pairing-code bootstrap and is always "".
+func (m *Manager) StartAssignedBoot(ctx context.Context) (string, error) {
+	return "", nil
 }
 
 // shouldResume reports whether a session in the given persisted status should be
 // reconnected on boot. STOPPED / LOGGED_OUT / FAILED stay down until the admin
 // acts; everything that was live (or mid-startup) resumes.
-func shouldResume(status domain.SessionStatus) bool {
-	switch status {
-	case domain.SessionStopped, domain.SessionLoggedOut, domain.SessionFailed:
-		return false
-	default:
-		return true
-	}
-}
-
-// bootResumeDecision applies the orphan-guard to a session that shouldResume.
-// It returns (resume, stop): resume=true means start the session; stop=true means
-// the owning org is gone, so mark it STOPPED and skip. With no guard installed
-// the session resumes. A predicate ERROR fails SAFE (resume): a transient DB blip
-// must not tear down live sessions — the live control bus + cache TTL still cover
-// a genuine revocation.
-func (m *Manager) bootResumeDecision(ctx context.Context, sess *domain.WASession) (resume, stop bool) {
-	if m.orgExists == nil {
-		return true, false
-	}
-	exists, err := m.orgExists(ctx, sess.OrganizationID)
-	if err != nil {
-		m.log.Warn("boot: org existence check failed, resuming session (fail-safe)",
-			"session", sess.ID, "organization", sess.OrganizationID, "err", err)
-		return true, false
-	}
-	if !exists {
-		return false, true
-	}
-	return true, false
-}
-
-// pinGateway records this gateway's id on a session it adopts (§4.5) when a
-// GatewayID is configured and the row isn't already pinned to it. Best-effort:
-// a write failure is logged, not fatal.
-func (m *Manager) pinGateway(ctx context.Context, sess *domain.WASession) {
-	if m.cfg.GatewayID == "" || sess.GatewayID == m.cfg.GatewayID {
-		return
-	}
-	sess.GatewayID = m.cfg.GatewayID
-	sess.UpdatedAt = m.clock.NowMs()
-	if err := m.repo.Update(ctx, sess); err != nil {
-		m.log.Warn("boot: pin session to gateway failed", "session", sess.ID, "gateway", m.cfg.GatewayID, "err", err)
-	}
-}
-
-// adopt registers a ManagedSession for an already-paired device without starting
-// it (start is a separate, explicit step).
-func (m *Manager) adopt(ctx context.Context, sess *domain.WASession, dev *store.Device) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if _, exists := m.sessions[sess.ID]; exists {
-		return nil
-	}
-	ms := &ManagedSession{
-		SessionID:      sess.ID,
-		OrganizationID: sess.OrganizationID,
-		IsAdmin:        sess.IsAdminSession,
-		device:         dev,
-		status:         sess.Status,
-	}
-	m.sessions[sess.ID] = ms
-	return nil
+func shouldResume(status domain.SessionStatus) {
+	_ = status
 }
 
 // ----------------------------------------------------------------------------
-// Admin-number bootstrap (§6)
+// Admin-number bootstrap (§6) — removed with the gateway's MySQL access.
+//
+// The API owns session rows and the admin session lifecycle: it creates the
+// admin session, places it on this gateway through desired-state assignments,
+// and drives pairing through the private engine RPCs. The gateway no longer
+// creates rows or decides pairing on boot.
 // ----------------------------------------------------------------------------
 
-// adminNeedsPairing decides, purely, whether the admin number requires pairing:
-// true when an admin number is configured AND no persisted device is logged in
-// for it. devices are the keystore devices; adminJID is the admin number's
-// phone JID string (user@s.whatsapp.net). This is the unit-tested decision core.
-func adminNeedsPairing(adminNumber string, deviceJIDs []string, adminJID string) bool {
-	if adminNumber == "" {
-		return false
-	}
-	for _, j := range deviceJIDs {
-		if j == adminJID {
-			return false
-		}
-	}
-	return true
-}
-
-// deviceJIDs extracts the non-nil device JID strings for the decision function.
-func deviceJIDs(devices []*store.Device) []string {
-	out := make([]string, 0, len(devices))
-	for _, d := range devices {
-		if d.ID != nil {
-			out = append(out, d.ID.String())
-		}
-	}
-	return out
-}
-
-// findAdminSession returns the persisted admin session for the configured number,
-// or nil if none exists yet. Admin sessions stay unpaired (wa_jid NULL) until a
-// device links, so they are matched by their owning org, the is_admin flag, and
-// the phone number rather than by JID.
-func (m *Manager) findAdminSession(ctx context.Context) (*domain.WASession, error) {
-	sessions, err := m.repo.ListByOrg(ctx, m.cfg.AdminOrganizationID)
-	if err != nil {
-		return nil, err
-	}
-	for _, s := range sessions {
-		if s != nil && s.IsAdminSession && s.PhoneNumber != nil && *s.PhoneNumber == m.cfg.AdminNumber {
-			return s, nil
-		}
-	}
-	return nil, nil
-}
-
-// bootstrapAdmin creates and pairs the admin session if the admin number is set
-// and not yet paired (§6). It returns the pairing code (also logged to console)
-// or "" when nothing was needed.
-func (m *Manager) bootstrapAdmin(ctx context.Context, devices []*store.Device) (string, error) {
-	if m.cfg.AdminNumber == "" {
-		return "", nil
-	}
-	adminJID := types.NewJID(m.cfg.AdminNumber, types.DefaultUserServer).String()
-	if !adminNeedsPairing(m.cfg.AdminNumber, deviceJIDs(devices), adminJID) {
-		m.log.Info("admin number already paired; skipping bootstrap", "number", m.cfg.AdminNumber)
-		return "", nil
-	}
-
-	// Find or create the is_admin_session row. An unpaired admin session has a NULL
-	// wa_jid, so we can't look it up by JID; matching on org + admin flag + number
-	// keeps this idempotent — without it every restart-before-pairing would create
-	// another duplicate admin session row.
-	sess, err := m.findAdminSession(ctx)
-	if err != nil {
-		return "", fmt.Errorf("lookup admin session: %w", err)
-	}
-	if sess == nil {
-		now := m.clock.NowMs()
-		phone := m.cfg.AdminNumber
-		sess = &domain.WASession{
-			ID:             domain.NewSessionID(),
-			OrganizationID: m.cfg.AdminOrganizationID,
-			Status:         domain.SessionStarting,
-			PhoneNumber:    &phone,
-			IsAdminSession: true,
-			AutoRead:       m.cfg.DefaultAutoRead,
-			RatePerMin:     m.cfg.DefaultRatePerMin,
-			RatePerHour:    m.cfg.DefaultRatePerHour,
-			CreatedAt:      now,
-			UpdatedAt:      now,
-		}
-		if err := m.repo.Create(ctx, sess); err != nil {
-			return "", fmt.Errorf("create admin session: %w", err)
-		}
-	}
-
-	// Pair via phone code on a fresh device.
-	code, err := m.startPairingCode(ctx, sess, m.cfg.AdminNumber)
-	if err != nil {
-		if isConflictMessage(err, "session already running") {
-			m.log.Info("admin session already running; skipping bootstrap pairing", "number", m.cfg.AdminNumber, "session", sess.ID)
-			return "", nil
-		}
-		return "", fmt.Errorf("admin pairing: %w", err)
-	}
-	// Surface the code: logged here, and to the dashboard via the persisted/emitted
-	// auth.code event already published by startPairingCode.
-	m.log.Info("ADMIN NUMBER PAIRING CODE — link in WhatsApp > Linked Devices > Link with phone number",
-		"number", m.cfg.AdminNumber, "code", code)
-	return code, nil
-}
-
-func isConflictMessage(err error, message string) bool {
-	var apiErr *domain.APIError
-	return errors.As(err, &apiErr) && apiErr.Code == domain.CodeConflict && apiErr.Message == message
-}
-
 // ----------------------------------------------------------------------------
-// Public lifecycle: Create / Start / Stop / Restart / Logout
+// Public lifecycle: Start / Stop / Restart / Logout
 // ----------------------------------------------------------------------------
 
-// CreateSession persists a new (unpaired) app session row and registers a
-// ManagedSession against a fresh device. It does not connect; call StartQR or
-// StartPairingCode to pair.
-func (m *Manager) CreateSession(ctx context.Context, organizationID string, label *string, autoRead, presenceTyping bool) (*domain.WASession, error) {
-	now := m.clock.NowMs()
-	sess := &domain.WASession{
-		ID:             domain.NewSessionID(),
-		OrganizationID: organizationID,
-		// Pin the session to this gateway at creation. The router proxies
-		// POST /sessions to the placement-chosen gateway, so the gateway that
-		// runs CreateSession is the one that owns it; recording gateway_id here
-		// lets the router resolve every later request (QR, start, status, send)
-		// back to this gateway. Without it the row stays unpinned and the router
-		// returns 503 gateway_unavailable.
-		GatewayID:      m.cfg.GatewayID,
-		Label:          label,
-		Status:         domain.SessionStopped,
-		AutoRead:       autoRead,
-		PresenceTyping: presenceTyping,
-		RatePerMin:     m.cfg.DefaultRatePerMin,
-		RatePerHour:    m.cfg.DefaultRatePerHour,
-		CreatedAt:      now,
-		UpdatedAt:      now,
-	}
-	if err := m.repo.Create(ctx, sess); err != nil {
-		return nil, fmt.Errorf("create session: %w", err)
-	}
-	m.mu.Lock()
-	m.sessions[sess.ID] = &ManagedSession{
-		SessionID:      sess.ID,
-		OrganizationID: sess.OrganizationID,
-		IsAdmin:        sess.IsAdminSession,
-		device:         m.keystore.NewDevice(),
-		status:         domain.SessionStopped,
-	}
-	m.mu.Unlock()
-	return sess, nil
-}
-
-// Get returns the ManagedSession for id, or nil if unknown.
+// Get returns the ManagedSession for id, or nil when unknown.
 func (m *Manager) Get(id string) *ManagedSession {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -917,31 +653,6 @@ func (m *Manager) StartPairingCode(ctx context.Context, id, phone string) (strin
 	if ms == nil {
 		return "", domain.ErrNotFound("session not found")
 	}
-	return m.startPairingCode(ctx, sessionRow(ms), phone)
-}
-
-// sessionRow projects the minimal session identity startPairingCode needs.
-func sessionRow(ms *ManagedSession) *domain.WASession {
-	return &domain.WASession{ID: ms.SessionID, OrganizationID: ms.OrganizationID, IsAdminSession: ms.IsAdmin}
-}
-
-// startPairingCode is the shared pairing-code path used by both the public API
-// and admin bootstrap.
-func (m *Manager) startPairingCode(ctx context.Context, sess *domain.WASession, phone string) (string, error) {
-	ms := m.Get(sess.ID)
-	if ms == nil {
-		// Admin bootstrap path: register a managed session with a fresh device.
-		ms = &ManagedSession{
-			SessionID:      sess.ID,
-			OrganizationID: sess.OrganizationID,
-			IsAdmin:        sess.IsAdminSession,
-			device:         m.keystore.NewDevice(),
-			status:         domain.SessionStarting,
-		}
-		m.mu.Lock()
-		m.sessions[sess.ID] = ms
-		m.mu.Unlock()
-	}
 
 	ms.mu.Lock()
 	if ms.client != nil {
@@ -1078,27 +789,22 @@ func (m *Manager) sendOnlinePresence(ms *ManagedSession) {
 	}()
 }
 
-// recordPairedJID persists the phone/LID JIDs onto the session row after pairing.
-func (m *Manager) recordPairedJID(ctx context.Context, ms *ManagedSession, jid, lid types.JID) {
-	sess, err := m.repo.Get(ctx, ms.SessionID)
-	if err != nil || sess == nil {
-		m.log.Warn("pair success: session row missing", "session", ms.SessionID, "err", err)
-		return
-	}
-	j := jid.String()
-	sess.WAJID = &j
+// recordPairedJID records the paired phone/LID JIDs on the managed session so
+// live-ops and telemetry can read them. Persistence is API-owned: the session
+// row is updated from the pairing RPC result, not by the gateway.
+func (m *Manager) recordPairedJID(_ context.Context, ms *ManagedSession, jid, lid types.JID) {
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+	ms.pairedJID = jid.String()
 	if !lid.IsEmpty() {
-		l := lid.String()
-		sess.WALID = &l
-	}
-	sess.UpdatedAt = m.clock.NowMs()
-	if err := m.repo.Update(ctx, sess); err != nil {
-		m.log.Warn("pair success: update session failed", "session", ms.SessionID, "err", err)
+		ms.pairedLID = lid.String()
 	}
 }
 
-// setStatus updates in-memory + persisted status and emits a session.status event
-// — but only when the status actually changed, so we don't spam duplicates.
+// setStatus updates the in-memory status and emits a session.status event —
+// but only when the status actually changed, so we don't spam duplicates.
+// Persistence is API-owned: status history derives from these events after the
+// API commits them.
 func (m *Manager) setStatus(ctx context.Context, ms *ManagedSession, status domain.SessionStatus) {
 	ms.mu.Lock()
 	if ms.status == status {
@@ -1108,9 +814,6 @@ func (m *Manager) setStatus(ctx context.Context, ms *ManagedSession, status doma
 	ms.status = status
 	ms.mu.Unlock()
 
-	if err := m.repo.UpdateStatus(ctx, ms.SessionID, status); err != nil {
-		m.log.Warn("persist status failed", "session", ms.SessionID, "status", status, "err", err)
-	}
 	if m.sink != nil {
 		m.sink.Publish(ctx, domain.NewEvent(domain.EventSessionStatus, ms.SessionID, ms.OrganizationID, map[string]any{
 			"status": string(status),

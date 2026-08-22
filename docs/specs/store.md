@@ -2,19 +2,20 @@
 
 Status: implemented (R1).
 
-> **Target migration, not current runtime (gRPC control-plane Increment 0).** Shared WA application
-> data becomes API/control-plane runtime state: only the API opens MySQL repositories and performs
-> application-data writes. Gateways report lifecycle/events and request writes through private gRPC;
-> they will not import `internal/store`, `internal/dbconn`, or a MySQL driver. Repository and migration
-> repository write ownership below is still current behavior until those call sites move. Schema
-> migration ownership has already moved: the API applies `up` before opening its pool/listeners,
-> and `cmd/migrate` provides explicit `up|down`; the gateway never executes migrations.
+> **Increment 9: the gateway is out of MySQL entirely.** Only the API opens MySQL
+> repositories and performs application-data writes — including the WhatsApp-data
+> projections (chats, messages, polls, votes, receipts, identities, group members)
+> that are now derived from committed gateway events by the API's projection
+> consumers. The gateway imports no `internal/store`, `internal/dbconn`, or MySQL
+> driver; its only durable stores are the gateway-local SQLite keystore and the
+> event journal. Schema migration ownership: the API applies `up` before opening
+> its pool/listeners, and explicit `up|down` remains available for operations.
 
-The app-data persistence layer for the WA-domain plane. Repositories expose `internal/domain`
+The app-data persistence layer for the WA-domain plane, owned and written **only
+by the API**. Repositories expose `internal/domain`
 types and mostly use generated `sqlc` query bindings over `database/sql` internally; OAuth/OIDC
 repos use the same plain `database/sql` repo boundary directly because their migration was added
-after the sqlc baseline. There is still no ORM and no ORM-owned migrations. The gateway remains a
-transitional runtime data writer, while only API/control-plane tooling writes schema; the frontend reads
+after the sqlc baseline. There is still no ORM and no ORM-owned migrations. The frontend reads
 them read-only via Drizzle ([`frontend.md`](frontend.md) § hybrid reads). Masterplan §6, §7.
 
 ## Ownership — `organization_id`, not `tenant_id`
@@ -268,36 +269,27 @@ evidence that the liveness/session-count/runtime-state update passed the epoch p
 durably applied. Failure or lease expiry sends no acknowledgement. The gateway supervisor waits for
 that acknowledgement before scheduling its next heartbeat.
 
-Existing unfenced `GatewayRepo` lifecycle methods remain active only in control-disabled mode:
+Existing unfenced `GatewayRepo` lifecycle methods are gone from the gateway; the
+control stream is the **exclusive gateway-registry writer**. What remains:
 
-- **`Heartbeat`** — touch `last_seen_at` + `session_count` (the 30s gateway loop).
-- **`SetStatus`** — write observed runtime lifecycle only (`joining`, `active`, `draining`,
-  `drained`, or `degraded`); it never changes administrative intent.
-- **`SetDesiredLifecycle`** — the separate administrative mutation for enrolled gateways; accepts
+- **`SetDesiredLifecycle`** — the administrative mutation for enrolled gateways; accepts
   only `run` or `drain`.
-- **`ListActive`** — the `active` gateways (gateway-agnostic routing target).
-- **`PickForPlacement`** — choose the least-loaded `active` gateway for a new session
-  (`POST /sessions` placement).
-
-When `GATEWAY_CONTROL_PLANE_ADDR` enables the control stream, it is the exclusive gateway-registry
-writer. The composition root gates off exactly five legacy mutations: joining registration, active
-registration, periodic `Heartbeat`, shutdown `SetStatus(draining)`, and shutdown
-`SetStatus(drained)`. `ListActive` and `PickForPlacement` remain control-plane reads. This does not
-yet remove other gateway MySQL dependencies, nor does it implement directive-owned graceful
-lifecycle transitions.
+- **`ListActive` / `PickForPlacement`** — control-plane reads used for placement.
+- `Heartbeat`, `SetStatus`, and self-registration exist only as fenced
+  control-stream writes (epoch-predicated), never as gateway-local loops.
 
 Router reachability uses `connection_mode`: control rows have a 15-second freshness window matching
-their advertised lease; legacy rows retain 90 seconds so their 30-second heartbeat remains viable.
-A control-to-legacy registration changes the mode and therefore changes the applicable freshness
-window. A fenced disconnect makes a current control row immediately unusable by clearing its
-liveness timestamps. Placement additionally requires observed `active`, desired `run`, capacity,
-and freshness; a shutdown report cannot accidentally make a desired drain sticky, and an
+their advertised lease; `legacy` remains a stored value only for pre-migration rows — the gateway
+can no longer self-register, so no new legacy rows are written. A fenced disconnect makes a
+current control row immediately unusable by clearing its liveness timestamps. Placement requires
+observed liveness/freshness, desired `run`, and capacity; a shutdown report cannot accidentally make a desired drain sticky, and an
 operator-desired drain cannot receive new placement merely because observed status is active.
 The disconnect write is attempted on a detached context bounded to five seconds after stream exit;
 the epoch predicate remains the authority that prevents stale cleanup from clearing a replacement.
 
-`SessionRepo` gains **`CountByGateway`** (feeds `session_count` in the heartbeat).
-`wa_sessions.gateway_id` is unchanged (already `NOT NULL`) and is now **authoritative for routing**.
+`SessionRepo.CountByGateway` was removed with the gateway heartbeat: session counts on heartbeats
+now come from the gateway's own reconciliation report (`AssignmentCount`), not a MySQL count.
+`wa_sessions.gateway_id` is unchanged (already `NOT NULL`) and is **authoritative for routing**.
 
 ## Retention indexes (`migration 0009_retention_indexes`)
 
@@ -343,10 +335,11 @@ Regenerate with `make sqlc` after changing store query files or WA migrations. T
 are DB-shaped by design; repo methods map nullable values, JSON blobs, generated enums, and
 `RowsAffected` / `LastInsertId` results back to the stable `domain` API.
 
-The gateway also has read-only hot-path checks against frontend-owned Better Auth tables
-(`apikey`, `organization`). Those tables are still migrated only by the frontend Drizzle
-toolchain; `internal/store/sqlc_schema/auth.sql` is a sqlc-only schema stub so the gateway's typed
-read queries can compile without making the gateway a writer or migration owner for auth tables.
+The gateway has **no MySQL access at all**: the former read-only hot-path checks
+against frontend-owned Better Auth tables (`apikey`, `organization`) moved to the
+API with the trust boundary. Those tables are still migrated only by the frontend
+Drizzle toolchain; `internal/store/sqlc_schema/auth.sql` is a sqlc-only schema stub so the API's typed
+read queries can compile without making the API a writer or migration owner for auth tables.
 
 ## Decisions (carried from v1, still apply)
 
@@ -385,8 +378,8 @@ read queries can compile without making the gateway a writer or migration owner 
   a supplied `ack_level`. Duplicate/stale receipts and unknown message IDs are
   successful no-ops; the latter are expected for pre-capture history and traffic
   from other linked devices.
-- **Retention is a gateway-owned maintenance write.** When `RETENTION_DAYS > 0`,
-  the gateway schedules one shared-Redis-database, deduplicated daily `retention:prune`
+- **Retention is an API-owned maintenance write.** When `RETENTION_DAYS > 0`,
+  the API schedules one shared-Redis-database, deduplicated daily `retention:prune`
   task. The worker uses the cutoff stored in that task and deletes in bounded
   batches, so it neither locks a large historical range nor competes indefinitely
   with foreground writes. `RETENTION_DAYS=0` disables scheduling (keep forever);
@@ -403,12 +396,11 @@ read queries can compile without making the gateway a writer or migration owner 
 - **NULL/JSON.** Nullable columns are `*T`; nullable JSON binds through `nullableJSON`; JSON reads
   as opaque `json.RawMessage` or typed structs (`permissions`, `retry_policy`, `media_meta`,
   `custom_headers`, `events`).
-- **`messages` has two writers.** The inbound pipeline writes received messages
-  (`direction='in'`, plus `from_me`/`out` rows for sends echoed from the account's
-  *other* devices); the outbound pipeline writes the gateway's own sends
-  (`from_me=true`, `direction='out'`, `status='sent'`) via
-  `MessageRecorderAdapter` on each successful dispatch — see
-  [`outbound-pipeline.md`](outbound-pipeline.md). Both go through
+- **`messages` has two writers, both API-side.** The projection consumers write
+  received messages (`direction='in'`, plus `from_me`/`out` rows for sends echoed from the account's
+  *other* devices) from committed events; the outbound scheduler writes the gateway's own sends
+  (`from_me=true`, `direction='out'`, `status='sent'`) via its message recorder after each
+  successful dispatch — see [`outbound-pipeline.md`](outbound-pipeline.md). Both go through
   `MessageRepo.Upsert` keyed by `(session_id, wa_message_id)`, so the two paths
   reconcile onto one row rather than duplicating (a self-send and any later echo
   of it collapse to the same message). A **third writer** is the crypt15 backup
