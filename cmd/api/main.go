@@ -1,8 +1,8 @@
 // Command api is the API/control-plane entrypoint and composition root: the single
 // front door and trust boundary in front of the WhatsApp gateways. It loads the
-// API configuration, opens the shared MySQL routing table and Redis control
-// bus, builds the two-acceptor authenticator (better-auth JWKS + api-key table)
-// and the Ed25519 assertion minter, and runs the HTTP broker with graceful
+// API configuration, opens the shared MySQL tables and Redis, builds the
+// two-acceptor authenticator (better-auth JWKS + api-key table), serves every
+// REST operation locally, and runs the public/private gRPC servers with graceful
 // shutdown. See docs/specs/router.md.
 package main
 
@@ -27,7 +27,6 @@ import (
 	apigateway "github.com/ramaadi/quick-whatsapp-gateway/internal/api/gateway"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/apigrpc"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/application"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/assertion"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/authz"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/config"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/controlbus"
@@ -94,7 +93,7 @@ func run() error {
 	}
 
 	// --- Trust boundary: authenticate end-user callers (D2). The two-acceptor
-	// authn that used to run on every gateway now runs ONLY here. ---
+	// authn runs ONLY here; every operation serves API-locally. ---
 	tokenVerifier, err := authz.NewJWTVerifier(cfg.BetterAuthJWKSURL, cfg.BetterAuthURL)
 	if err != nil {
 		return fmt.Errorf("build jwt verifier: %w", err)
@@ -105,15 +104,6 @@ func run() error {
 	}
 	keyVerifier := authz.NewCachingKeyVerifier(baseKeyVerifier, authz.DefaultKeyCacheTTL)
 
-	// --- Internal assertion minter (router→gateway trust, D3) ---
-	priv, _, err := assertion.ParsePrivateKey(cfg.Ed25519PrivateKey)
-	if err != nil {
-		return fmt.Errorf("parse router signing key: %w", err)
-	}
-	minter, err := assertion.NewMinter(priv, cfg.Issuer)
-	if err != nil {
-		return fmt.Errorf("build assertion minter: %w", err)
-	}
 	oidpSigner, err := oidp.NewSigner(st.OAuthSigningKeys, cfg.OIDCKeyEncKey)
 	if err != nil {
 		return fmt.Errorf("build oidc signer: %w", err)
@@ -372,11 +362,9 @@ func run() error {
 		go renewAPIIdentity(ctx, identity, cfg.GatewayTLSRenewBefore, log)
 	}
 	srv, err := router.NewServer(router.Config{
-		Sessions:         st.Sessions,
-		Gateways:         st.Gateways,
-		Minter:           minter,
 		Tokens:           tokenVerifier,
 		Keys:             keyVerifier,
+		Sessions:         st.Sessions,
 		CORSOrigins:      cfg.FrontendOrigins,
 		Readiness:        readinessGate.check,
 		DBStats:          db.Stats,
@@ -417,7 +405,7 @@ func run() error {
 		readiness:         readinessGate,
 		shutdownTimeout:   15 * time.Second,
 		onBound: func(_, _, _ net.Listener) {
-			log.Info("api listening", "http_addr", cfg.HTTPAddr, "public_grpc_addr", cfg.PublicGRPCAddr, "private_gateway_grpc_enabled", cfg.GatewayGRPCAddr != "", "issuer", cfg.Issuer, "kid", minter.KeyID())
+			log.Info("api listening", "http_addr", cfg.HTTPAddr, "public_grpc_addr", cfg.PublicGRPCAddr, "private_gateway_grpc_enabled", cfg.GatewayGRPCAddr != "")
 		},
 	}
 	if err := runner.run(ctx); err != nil {

@@ -1,13 +1,13 @@
-// Package router implements the central router: the single front door and trust
-// boundary in front of the WhatsApp gateways (docs/specs/router.md). Callers use
-// one base URL + their better-auth credential + a session id; the router
-// authenticates them, resolves which gateway owns the session, and reverse-proxies
-// the request under a short-lived, request-bound Ed25519 assertion the gateway
-// trusts (internal/assertion). The router also owns the control-bus subscriber and
-// (Increment B) the single realtime WebSocket endpoint.
+// Package router implements the API's public HTTP surface: the single front
+// door and trust boundary in front of the WhatsApp gateways (docs/specs/router.md).
+// Callers use one base URL + their better-auth credential; the API authenticates
+// them and serves every operation locally — REST handlers mount directly, live
+// work executes through private engine gRPC, and no reverse proxy remains. The
+// API also owns the control-bus subscriber and the realtime WebSocket endpoint.
 package router
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"log/slog"
@@ -19,7 +19,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/assertion"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/authz"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 	handlersapi "github.com/ramaadi/quick-whatsapp-gateway/internal/http/handlers"
@@ -30,36 +29,48 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/stream"
 )
 
-// defaultStaleAfter matches the lease advertised by the API control stream. A
-// deployment overriding one must pass the same duration through Config.
-const defaultStaleAfter = 15 * time.Second
-const legacyStaleAfter = 90 * time.Second
+// SessionResolver is the slice of the session repository the realtime ticket
+// authorization needs: look up a session to resolve its owning organization.
+type SessionResolver interface {
+	Get(ctx context.Context, id string) (domain.WASession, error)
+}
 
-// JWKSPath is where the router publishes its assertion-verification public keys.
-const JWKSPath = "/.well-known/router-jwks.json"
+// middlewareTokenVerifier and middlewareKeyVerifier are the two-acceptor
+// authn verifiers (better-auth JWT + api-key). authz.TokenVerifier /
+// authz.KeyVerifier satisfy them; the aliases keep this file's signature
+// readable without widening the import surface.
+type (
+	middlewareTokenVerifier = authz.TokenVerifier
+	middlewareKeyVerifier   = authz.KeyVerifier
+)
 
-// Config wires the router's trust, routing, realtime, and observability
-// collaborators. Sessions, Gateways, and Minter are mandatory because the router
-// cannot safely resolve or authorize proxy targets without them. Other nil
-// collaborators disable their optional route family or select the documented
-// default; NewServer validates and snapshots the configuration before serving.
+func authzAuthenticate(tokens middlewareTokenVerifier, keys middlewareKeyVerifier) func(http.Handler) http.Handler {
+	return authz.Authenticate(tokens, keys)
+}
+
+func authzCORS(origins []string) func(http.Handler) http.Handler {
+	return authz.CORS(origins)
+}
+
+// Config wires the API HTTP surface's trust, realtime, and observability
+// collaborators. Tokens/Keys are the better-auth verifiers behind the
+// two-acceptor authn. Handler groups are optional: a nil group disables its
+// route family.
 type Config struct {
-	Sessions SessionResolver
-	Gateways GatewayResolver
-	Minter   *assertion.Minter
+	Tokens middlewareTokenVerifier
+	Keys   middlewareKeyVerifier
 
-	// Tokens/Keys are the better-auth verifiers behind the two-acceptor authn that
-	// now runs ONLY here (D2). Same authz.Authenticate the gateway used to mount.
-	Tokens authz.TokenVerifier
-	Keys   authz.KeyVerifier
+	// Sessions resolves session ownership for realtime ticket authorization
+	// (scope=session). Required when Redis/Pump are configured.
+	Sessions SessionResolver
 
 	CORSOrigins []string
 	Readiness   func() error
 	OpenAPIPath string // served at /api/v1/openapi.yaml; empty disables
 
-	// Realtime (Increment B). When Redis + Pump are present the router serves the
-	// single WebSocket endpoint + ticket mint; Registry lets the control bus drop
-	// live connections on revocation. PublicURL builds the wss:// ticket URL.
+	// Realtime: when Redis + Pump are present the API serves the single WebSocket
+	// endpoint + ticket mint; Registry lets the control bus drop live connections
+	// on revocation. PublicURL builds the wss:// ticket URL.
 	Redis         realtimeRedis
 	Pump          *stream.Pump
 	Registry      *stream.ConnRegistry
@@ -69,38 +80,29 @@ type Config struct {
 	OIDPSigner    *oidp.Signer
 	OIDPProvider  *oidp.Provider
 	OAuthHandlers *handlersapi.Handlers
-	AdminHandlers *handlersapi.Handlers // API-local super-admin operations; never proxied
-	// MessageHandlers serves the API-owned send operation (gRPC Increment 6)
-	// locally instead of proxying it to a gateway; nil keeps full proxying.
+	AdminHandlers *handlersapi.Handlers // super-admin operations
+	// MessageHandlers serves the message/session operations locally.
 	MessageHandlers *handlersapi.Handlers
-	// ResourceHandlers serves the projection/stub resource operations locally
-	// (gRPC Increment 7 wave A): webhooks, chats, contacts, groups, channels,
-	// status, backup, and admin. Live sub-operations inside those groups return
-	// the same 501 envelope until their engine RPCs land. Nil keeps proxying.
+	// ResourceHandlers serves the projection/stub resource operations locally:
+	// webhooks, chats, contacts, groups, channels, status, backup, and admin.
 	ResourceHandlers *handlersapi.Handlers
 
-	StaleAfter time.Duration     // optional; <=0 => defaultStaleAfter
-	Transport  http.RoundTripper // optional; nil => http.DefaultTransport
-	Now        func() time.Time  // optional; nil => time.Now
-	DBStats    func() sql.DBStats
-	Log        *slog.Logger
+	Now     func() time.Time // optional; nil => time.Now
+	DBStats func() sql.DBStats
+	Log     *slog.Logger
 }
 
-// Server is the immutable, concurrency-safe router application after composition.
-// Request handlers read its collaborators but do not mutate configuration; the
-// assertion JWKS is serialized once at construction so every response advertises
-// the same key material used by the Minter. Mutable dependencies such as Redis,
-// repositories, registries, and transports own their own synchronization.
+// Server is the immutable, concurrency-safe API HTTP application after
+// composition. Request handlers read its collaborators but do not mutate
+// configuration. Mutable dependencies such as Redis, repositories, and
+// registries own their own synchronization.
 type Server struct {
+	tokens           middlewareTokenVerifier
+	keys             middlewareKeyVerifier
 	sessions         SessionResolver
-	gateways         GatewayResolver
-	minter           *assertion.Minter
-	tokens           authz.TokenVerifier
-	keys             authz.KeyVerifier
 	corsOrigins      []string
 	readiness        func() error
 	openAPIPath      string
-	jwksJSON         []byte
 	redis            realtimeRedis
 	pump             *stream.Pump
 	registry         *stream.ConnRegistry
@@ -114,42 +116,28 @@ type Server struct {
 	messageHandlers  *handlersapi.Handlers
 	resourceHandlers *handlersapi.Handlers
 	wsOrigins        []string
-	staleAfter       time.Duration
-	transport        http.RoundTripper
 	now              func() time.Time
 	dbStats          func() sql.DBStats
 	log              *slog.Logger
 }
 
-// NewServer validates mandatory routing and signing dependencies, precomputes the
-// public assertion JWKS, and installs bounded transport, clock, staleness, and
-// logger defaults. It performs no network I/O and either returns a fully usable
-// Server or an error; callers must not attempt to serve a partial configuration.
+// NewServer validates mandatory dependencies and installs clock and logger
+// defaults. It performs no network I/O and either returns a fully usable Server
+// or an error; callers must not attempt to serve a partial configuration.
 func NewServer(cfg Config) (*Server, error) {
-	if cfg.Sessions == nil || cfg.Gateways == nil {
-		return nil, errMissing("session/gateway resolvers")
+	if cfg.Tokens == nil || cfg.Keys == nil {
+		return nil, errMissing("token/key verifiers")
 	}
-	if cfg.Minter == nil {
-		return nil, errMissing("assertion minter")
-	}
-	set, err := cfg.Minter.JWKS()
-	if err != nil {
-		return nil, err
-	}
-	jwksJSON, err := json.Marshal(set)
-	if err != nil {
-		return nil, err
+	if (cfg.Redis != nil || cfg.Pump != nil) && cfg.Sessions == nil {
+		return nil, errMissing("session resolver for realtime authorization")
 	}
 	s := &Server{
-		sessions:         cfg.Sessions,
-		gateways:         cfg.Gateways,
-		minter:           cfg.Minter,
 		tokens:           cfg.Tokens,
 		keys:             cfg.Keys,
+		sessions:         cfg.Sessions,
 		corsOrigins:      cfg.CORSOrigins,
 		readiness:        cfg.Readiness,
 		openAPIPath:      cfg.OpenAPIPath,
-		jwksJSON:         jwksJSON,
 		redis:            cfg.Redis,
 		pump:             cfg.Pump,
 		registry:         cfg.Registry,
@@ -163,17 +151,9 @@ func NewServer(cfg Config) (*Server, error) {
 		messageHandlers:  cfg.MessageHandlers,
 		resourceHandlers: cfg.ResourceHandlers,
 		wsOrigins:        cfg.CORSOrigins,
-		staleAfter:       cfg.StaleAfter,
-		transport:        cfg.Transport,
 		now:              cfg.Now,
 		dbStats:          cfg.DBStats,
 		log:              cfg.Log,
-	}
-	if s.staleAfter <= 0 {
-		s.staleAfter = defaultStaleAfter
-	}
-	if s.transport == nil {
-		s.transport = defaultProxyTransport()
 	}
 	if s.now == nil {
 		s.now = time.Now
@@ -184,42 +164,23 @@ func NewServer(cfg Config) (*Server, error) {
 	return s, nil
 }
 
-// proxyResponseHeaderTimeout bounds how long the router waits for the owning
-// gateway to send response HEADERS before giving up. It is the router-side half of
-// the "no request ever hangs forever" guarantee (the gateway bounds its own
-// handlers via middleware.Timeout): if a gateway wedges, its ReverseProxy
-// RoundTrip fails with a timeout and the ErrorHandler renders a clean 503 instead
-// of leaving the client's connection open indefinitely. It bounds only the wait
-// for the first byte of the response, so a legitimate slow-but-progressing
-// upstream (or the proxied NDJSON stream, which flushes headers immediately) is
-// unaffected.
-const proxyResponseHeaderTimeout = 30 * time.Second
-
-// defaultProxyTransport clones http.DefaultTransport and adds a
-// ResponseHeaderTimeout so a hung gateway surfaces as a 503 rather than a hang.
-func defaultProxyTransport() http.RoundTripper {
-	t := http.DefaultTransport.(*http.Transport).Clone()
-	t.ResponseHeaderTimeout = proxyResponseHeaderTimeout
-	return t
-}
-
 func errMissing(what string) error { return &configError{what} }
 
 type configError struct{ what string }
 
 func (e *configError) Error() string { return "router: missing " + e.what }
 
-// Handler builds the router's chi handler. The edge stack (recover/request-id/
-// logger/CORS) wraps everything; health/metrics are unauthenticated; the entire
-// /api/v1 surface is authenticated once (two-acceptor authn) and then brokered to
-// the owning gateway.
+// Handler builds the API's chi handler. The edge stack (recover/request-id/
+// logger/CORS) wraps everything; health/metrics are unauthenticated; every
+// /api/v1 surface authenticates once (two-acceptor authn) and is served
+// locally by mounted huma operations.
 func (s *Server) Handler() http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.Recover(s.log))
 	r.Use(middleware.RequestID())
 	r.Use(middleware.Logger(s.log, middleware.LoggerOptions{Service: "router", DBStats: s.dbStats}))
 	if len(s.corsOrigins) > 0 {
-		r.Use(authz.CORS(s.corsOrigins))
+		r.Use(authzCORS(s.corsOrigins))
 	}
 
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -228,17 +189,16 @@ func (s *Server) Handler() http.Handler {
 	})
 	r.Get("/readyz", s.handleReadyz)
 	r.Handle("/metrics", promhttp.Handler())
-	r.Get(JWKSPath, s.handleJWKS)
 	if s.oauthHandlers != nil {
 		r.Group(func(authed chi.Router) {
-			authed.Use(authz.Authenticate(s.tokens, s.keys))
+			authed.Use(authzAuthenticate(s.tokens, s.keys))
 			hapi := humax.NewAPI(authed)
 			handlersapi.RegisterOAuthAppOps(hapi, s.oauthHandlers)
 		})
 	}
 	if s.adminHandlers != nil {
 		r.Group(func(authed chi.Router) {
-			authed.Use(authz.Authenticate(s.tokens, s.keys))
+			authed.Use(authzAuthenticate(s.tokens, s.keys))
 			hapi := humax.NewAPI(authed)
 			if s.adminHandlers.GatewayAdmin != nil {
 				handlersapi.RegisterGatewayAdminOps(hapi, s.adminHandlers)
@@ -247,7 +207,7 @@ func (s *Server) Handler() http.Handler {
 	}
 	if s.messageHandlers != nil {
 		r.Group(func(authed chi.Router) {
-			authed.Use(authz.Authenticate(s.tokens, s.keys))
+			authed.Use(authzAuthenticate(s.tokens, s.keys))
 			hapi := humax.NewAPI(authed)
 			handlersapi.RegisterMessageOps(hapi, s.messageHandlers)
 			handlersapi.RegisterSessionOps(hapi, s.messageHandlers)
@@ -255,7 +215,7 @@ func (s *Server) Handler() http.Handler {
 	}
 	if s.resourceHandlers != nil {
 		r.Group(func(authed chi.Router) {
-			authed.Use(authz.Authenticate(s.tokens, s.keys))
+			authed.Use(authzAuthenticate(s.tokens, s.keys))
 			hapi := humax.NewAPI(authed)
 			handlersapi.RegisterWebhookOps(hapi, s.resourceHandlers)
 			handlersapi.RegisterChatOps(hapi, s.resourceHandlers)
@@ -286,9 +246,8 @@ func (s *Server) Handler() http.Handler {
 		api.Get("/realtime", s.handleRealtimeWS)
 
 		api.Group(func(authed chi.Router) {
-			authed.Use(authz.Authenticate(s.tokens, s.keys))
+			authed.Use(authzAuthenticate(s.tokens, s.keys))
 			authed.Post("/realtime/ticket", s.handleTicketMint)
-			authed.Handle("/*", http.HandlerFunc(s.handleProxy))
 		})
 	})
 
@@ -335,70 +294,6 @@ func (s *Server) handleOIDCJWKS(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(jwks)
 }
 
-// handleProxy classifies the request and brokers it to the right gateway:
-//   - POST /api/v1/sessions            → placement (least-loaded active gateway)
-//   - any path naming a specific session → that session's owning gateway
-//   - everything else (org-scoped reads/writes on shared MySQL) → any active gateway
-func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
-	p := authz.FromContext(r.Context())
-	if p == nil {
-		httpx.WriteError(w, domain.ErrUnauthorized("authentication required"))
-		return
-	}
-	middleware.SetRequestOrganization(r.Context(), p.OrganizationID)
-
-	if r.Method == http.MethodPost && r.URL.Path == "/api/v1/sessions" {
-		g, err := s.pickPlacementGateway(r.Context())
-		if err != nil {
-			middleware.RecordFailure(r.Context(), "router_resolve", err)
-			httpx.WriteError(w, err)
-			return
-		}
-		s.broker(w, r, g, "")
-		return
-	}
-
-	if session := sessionFromPath(r.URL.Path); session != "" {
-		g, err := s.resolveSessionGateway(r.Context(), p, session)
-		if err != nil {
-			middleware.RecordFailure(r.Context(), "router_resolve", err)
-			httpx.WriteError(w, err)
-			return
-		}
-		s.broker(w, r, g, session)
-		return
-	}
-
-	g, err := s.pickAnyActiveGateway(r.Context())
-	if err != nil {
-		middleware.RecordFailure(r.Context(), "router_resolve", err)
-		httpx.WriteError(w, err)
-		return
-	}
-	s.broker(w, r, g, "")
-}
-
-// sessionFromPath extracts the concrete session id a path targets, or "" if the
-// path is not session-scoped. It recognizes ".../sessions/<id>..." anywhere in the
-// path (so both /sessions/<id>/... and /admin/sessions/<id>:action route to the
-// owner) and strips a trailing :action suffix. The bare collection
-// "/api/v1/sessions" has no following segment and yields "".
-func sessionFromPath(path string) string {
-	const marker = "/sessions/"
-	i := strings.Index(path, marker)
-	if i < 0 {
-		return ""
-	}
-	seg := path[i+len(marker):]
-	if j := strings.IndexByte(seg, '/'); j >= 0 {
-		seg = seg[:j]
-	}
-	if k := strings.IndexByte(seg, ':'); k >= 0 {
-		seg = seg[:k]
-	}
-	return seg
-}
-
 func (s *Server) handleReadyz(w http.ResponseWriter, _ *http.Request) {
 	if s.readiness != nil {
 		if err := s.readiness(); err != nil {
@@ -408,12 +303,6 @@ func (s *Server) handleReadyz(w http.ResponseWriter, _ *http.Request) {
 	}
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("ready"))
-}
-
-func (s *Server) handleJWKS(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Cache-Control", "public, max-age=300")
-	_, _ = w.Write(s.jwksJSON)
 }
 
 func (s *Server) serveFile(path, contentType string) http.HandlerFunc {

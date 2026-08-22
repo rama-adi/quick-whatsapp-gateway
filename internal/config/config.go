@@ -37,16 +37,12 @@ type GatewayConfig struct {
 	EngineGRPCAdvertise    string        // GATEWAY_ENGINE_GRPC_ADVERTISE_ADDR: canonical endpoint advertised to API
 	JournalPath            string        // GATEWAY_JOURNAL_PATH: persistent gateway event journal
 
-	// Trust model (§4.1/§4.4). After the central-router cutover the gateway no
-	// longer verifies end-user JWTs/api-keys directly: the router authenticates
-	// callers and vouches a resolved Principal via a request-bound Ed25519
-	// assertion. The gateway verifies that assertion against the router's JWKS
-	// (docs/specs/router.md, plan D3) — these are the gateway's trust inputs.
-	RouterJWKSURL         string // ROUTER_JWKS_URL: the router's public JWKS (assertion verify)
-	RouterAssertionIssuer string // ROUTER_ASSERTION_ISSUER: expected `iss` on assertions (default "router")
+	// Trust model (§4.1/§4.4). The gateway serves no public HTTP surface and
+	// verifies no end-user or assertion credentials: the API authenticates callers
+	// and executes every operation over the private engine gRPC contract.
 
-	// Legacy better-auth inputs (still consumed in single-binary/dev fallbacks and
-	// kept for the trust-seam contract tests). The router is the primary consumer.
+	// Legacy better-auth inputs (still consumed by the API and kept for the
+	// trust-seam contract tests).
 	BetterAuthURL     string   // BETTER_AUTH_URL: frontend base URL; the JWT iss/aud to enforce
 	BetterAuthJWKSURL string   // BETTER_AUTH_JWKS_URL: defaults to ${BETTER_AUTH_URL}/api/auth/jwks
 	FrontendOrigins   []string // FRONTEND_ORIGINS: comma-list of allowed CORS origins
@@ -131,8 +127,6 @@ func LoadGateway() (*GatewayConfig, error) {
 		EngineGRPCAddr:         getString("GATEWAY_ENGINE_GRPC_ADDR", ""),
 		EngineGRPCAdvertise:    getString("GATEWAY_ENGINE_GRPC_ADVERTISE_ADDR", ""),
 		JournalPath:            getString("GATEWAY_JOURNAL_PATH", ""),
-		RouterJWKSURL:          getString("ROUTER_JWKS_URL", ""),
-		RouterAssertionIssuer:  getString("ROUTER_ASSERTION_ISSUER", DefaultRouterIssuer),
 		BetterAuthURL:          getString("BETTER_AUTH_URL", ""),
 		BetterAuthJWKSURL:      getString("BETTER_AUTH_JWKS_URL", ""),
 		FrontendOrigins:        getCSV("FRONTEND_ORIGINS"),

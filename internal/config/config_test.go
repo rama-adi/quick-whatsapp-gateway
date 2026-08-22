@@ -15,7 +15,6 @@ func clearEnv(t *testing.T) {
 	keys := []string{
 		"GATEWAY_HTTP_ADDR", "HTTP_ADDR", "GATEWAY_PUBLIC_URL", "PUBLIC_URL", "GATEWAY_ID",
 		"GATEWAY_CONTROL_PLANE_ADDR", "GATEWAY_CREDENTIAL_DIR", "GATEWAY_BOOTSTRAP_CA_FILE", "GATEWAY_ENROLLMENT_TOKEN", "GATEWAY_CERTIFICATE_RENEW_BEFORE",
-		"ROUTER_JWKS_URL", "ROUTER_ASSERTION_ISSUER",
 		"BETTER_AUTH_URL", "BETTER_AUTH_JWKS_URL", "FRONTEND_ORIGINS",
 		"APP_ENCRYPTION_KEY", "MYSQL_DSN",
 		"WHATSMEOW_STORE_DSN", "REDIS_URL",
@@ -52,8 +51,6 @@ func TestLoadGateway_Defaults(t *testing.T) {
 		PublicURL:              "",
 		GatewayID:              "gw-1",
 		CertificateRenewBefore: 0,
-		RouterJWKSURL:          "",
-		RouterAssertionIssuer:  DefaultRouterIssuer,
 		BetterAuthURL:          "",
 		BetterAuthJWKSURL:      "",
 		FrontendOrigins:        nil,

@@ -2,7 +2,6 @@ package router
 
 import (
 	"context"
-	"crypto/ed25519"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -14,7 +13,6 @@ import (
 	"github.com/coder/websocket"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/assertion"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/authz"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/stream"
@@ -26,13 +24,10 @@ func newRealtimeServer(t *testing.T, principal *authz.Principal, sessions fakeSe
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	t.Cleanup(func() { _ = rdb.Close() })
 
-	_, priv, _ := ed25519.GenerateKey(nil)
-	m, _ := assertion.NewMinter(priv, "router")
 	srv, err := NewServer(Config{
 		Sessions: sessions,
-		Gateways: fakeGateways{},
-		Minter:   m,
 		Tokens:   fakeTokens{p: principal},
+		Keys:     fakeKeys{p: principal},
 		Redis:    rdb,
 		Pump:     stream.NewPump(stream.PumpConfig{Redis: rdb}),
 		Registry: stream.NewConnRegistry(),

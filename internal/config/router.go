@@ -11,17 +11,15 @@ import (
 	"github.com/joho/godotenv"
 )
 
-// DefaultRouterIssuer is the assertion `iss` both the router (minter) and the
-// gateway (verifier) default to, so a single deployment needs no extra knob to
-// agree on the router's identity. Override with ROUTER_ISSUER / ROUTER_ASSERTION_ISSUER.
+// DefaultRouterIssuer is retained for the gateway's legacy assertion-issuer
+// config key default. The API no longer mints assertions.
 const DefaultRouterIssuer = "router"
 
 // APIConfig is the API/control plane runtime configuration. The API remains the
-// system's single trust boundary: it authenticates callers
-// against cached better-auth JWKS + the shared `apikey` table, resolves the owning
-// gateway for each session, and proxies the request under a signed internal
-// assertion. It needs the shared MySQL (routing table), one Redis (control bus +,
-// later, realtime), the better-auth JWKS inputs, and its own Ed25519 signing key.
+// system's single trust boundary: it authenticates callers against cached
+// better-auth JWKS + the shared `apikey` table and serves every public
+// operation locally over REST/gRPC. It needs the shared MySQL, one Redis
+// (control bus + realtime), and the better-auth JWKS inputs.
 type APIConfig struct {
 	// HTTP / server
 	HTTPAddr                   string        // API_HTTP_ADDR; deprecated fallback ROUTER_HTTP_ADDR (default :8090)
@@ -38,11 +36,6 @@ type APIConfig struct {
 	BetterAuthURL     string   // BETTER_AUTH_URL: JWT iss/aud to enforce
 	BetterAuthJWKSURL string   // BETTER_AUTH_JWKS_URL: defaults to ${BETTER_AUTH_URL}/api/auth/jwks
 	FrontendOrigins   []string // FRONTEND_ORIGINS: allowed browser CORS origins
-
-	// Internal assertion (router→gateway). The router holds the private key and
-	// publishes the public JWKS at /.well-known/router-jwks.json.
-	Ed25519PrivateKey string // API_ED25519_PRIVATE_KEY; deprecated fallback ROUTER_ED25519_PRIVATE_KEY
-	Issuer            string // API_ISSUER; deprecated fallback ROUTER_ISSUER
 
 	// Shared data + infra.
 	MySQLDSN       string // MYSQL_DSN (the routing table: wa_sessions + gateways)
@@ -81,8 +74,6 @@ func LoadAPI() (*APIConfig, error) {
 		BetterAuthURL:              getString("BETTER_AUTH_URL", ""),
 		BetterAuthJWKSURL:          getString("BETTER_AUTH_JWKS_URL", ""),
 		FrontendOrigins:            getCSV("FRONTEND_ORIGINS"),
-		Ed25519PrivateKey:          getStringFallback("API_ED25519_PRIVATE_KEY", "ROUTER_ED25519_PRIVATE_KEY", ""),
-		Issuer:                     getStringFallback("API_ISSUER", "ROUTER_ISSUER", DefaultRouterIssuer),
 		MySQLDSN:                   getString("MYSQL_DSN", ""),
 		RedisURL:                   getString("REDIS_URL", ""),
 		PubSubRedisURL:             getString("PUBSUB_REDIS_URL", ""),
@@ -147,9 +138,9 @@ func LoadAPI() (*APIConfig, error) {
 	return cfg, nil
 }
 
-// Validate checks the router's hard prerequisites. Unlike the gateway it cannot
-// start without its trust inputs: without the signing key it cannot mint
-// assertions, and without the better-auth JWKS it cannot authenticate anyone.
+// Validate checks the API's hard prerequisites. Unlike a gateway it cannot
+// start without its trust inputs: without the better-auth JWKS it cannot
+// authenticate anyone.
 func (c *APIConfig) Validate() error {
 	if c.HTTPAddr == "" {
 		return fmt.Errorf("config: API_HTTP_ADDR must not be empty")
@@ -197,12 +188,6 @@ func (c *APIConfig) Validate() error {
 				return fmt.Errorf("config: API_GATEWAY_GRPC_ADDR must differ from %s", publicAddr.name)
 			}
 		}
-	}
-	if c.Ed25519PrivateKey == "" {
-		return fmt.Errorf("config: API_ED25519_PRIVATE_KEY is required (the API signs internal assertions)")
-	}
-	if c.Issuer == "" {
-		return fmt.Errorf("config: API_ISSUER must not be empty")
 	}
 	if c.MySQLDSN == "" {
 		return fmt.Errorf("config: MYSQL_DSN is required")

@@ -23,11 +23,11 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
 
 	gatewayv1 "github.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/application"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/assertion"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/config"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/crypto"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/dbconn"
@@ -37,8 +37,7 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/gateway/desiredstate"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/gateway/journal"
 	gwhttp "github.com/ramaadi/quick-whatsapp-gateway/internal/http"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/http/handlers"
-	httpmiddleware "github.com/ramaadi/quick-whatsapp-gateway/internal/http/middleware"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/httpx"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/oidp"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/pki/gatewayidentity"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/queue"
@@ -228,22 +227,6 @@ func run() error {
 		return fmt.Errorf("open redis: %w", err)
 	}
 	defer func() { _ = rdb.Close() }()
-
-	// --- Trust seam (§4, D2/D3): the gateway no longer authenticates end users.
-	// The central router terminates authn and vouches a resolved Principal via a
-	// short-lived, request-bound Ed25519 assertion; the gateway verifies it against
-	// the router's JWKS (ROUTER_JWKS_URL) and rebuilds the Principal from it.
-	if cfg.RouterJWKSURL == "" {
-		return fmt.Errorf("ROUTER_JWKS_URL is required: the gateway verifies the router's internal assertion")
-	}
-	routerKeys, err := assertion.NewRemoteKeySet(cfg.RouterJWKSURL)
-	if err != nil {
-		return fmt.Errorf("build router jwks source: %w", err)
-	}
-	assertionVerifier, err := assertion.NewVerifier(routerKeys, cfg.RouterAssertionIssuer, cfg.GatewayID)
-	if err != nil {
-		return fmt.Errorf("build assertion verifier: %w", err)
-	}
 
 	// --- whatsmeow keystore (gateway-local SQLite, §6.1) ---
 	// Control-mode adoption is fail-closed: a missing/corrupt volume remains
@@ -727,55 +710,15 @@ func run() error {
 	dispatchStop := startDispatchLoop(ctx, dispatcher, log)
 	defer dispatchStop()
 
-	// --- Services + handlers + router ---
-	services := service.New(service.Deps{
-		Store:                      st,
-		Manager:                    manager,
-		Sender:                     sender,
-		Crypto:                     aes,
-		OAuthClientSecretPepper:    os.Getenv("OAUTH_CLIENT_SECRET_PEPPER"),
-		WhatsAppAdminCommandPrefix: cfg.WhatsAppAdminCmdPrefix,
-		ControlPublisher:           service.NewRedisControlPublisher(rdb),
-		DefaultRetryDelay:          cfg.WebhookRetryDelay,
-		DefaultRetryAttempts:       cfg.WebhookRetryAttempts,
-		Log:                        log,
-	})
-
-	// Realtime is WebSocket-only and lives on the central router, which owns the
-	// ticket+WS endpoint and subscribes to the events the gateway publishes to
-	// Redis (above). The gateway no longer serves any client transport.
-	h := handlers.New(services, log)
-	router := gwhttp.NewRouter(gwhttp.RouterConfig{
-		Handlers:  h,
-		Auth:      assertion.Middleware(assertionVerifier),
-		Limiter:   nil, // HTTP-edge rate limiting optional; outbound limits sends.
-		Readiness: readiness(db, rdb, controlSupervisor, eventJournal),
-		Admission: admissionGate,
-		DBStats:   db.Stats,
-		SessionState: func(sessionID string) (httpmiddleware.SessionState, bool) {
-			status, connected, loggedIn, ok := manager.ConnectionState(sessionID)
-			return httpmiddleware.SessionState{
-				Status:    string(status),
-				Connected: connected,
-				LoggedIn:  loggedIn,
-			}, ok
-		},
-		// The router serves the public OpenAPI spec now (D9); the gateway does not.
-		Log: log,
-	})
-
+	// The gateway serves no public API: every operation executes API-locally over
+	// private engine RPCs. Only a minimal operational probe surface remains.
+	mux := operationalHandler(readiness(db, rdb, controlSupervisor, eventJournal), db.Stats)
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           router,
+		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
-		// WriteTimeout is a socket-level backstop above the per-request context
-		// deadline (middleware.Timeout, ~15s): the deadline cancels a wedged DB query
-		// and returns a 503 first; this only trips if a handler somehow blocks past
-		// it, guaranteeing the connection is never held open forever. The gateway
-		// serves only unary JSON (realtime/streaming lives on the router), so a write
-		// deadline is safe here.
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  120 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	errCh := make(chan error, 1)
@@ -840,6 +783,31 @@ func run() error {
 	}
 	log.Info("gateway stopped cleanly")
 	return nil
+}
+
+// operationalHandler is the gateway's minimal net/http probe surface:
+// unauthenticated /healthz and /readyz plus Prometheus /metrics. It exists so
+// the composition root does not need the chi/huma handler stack — the gateway
+// has no public API surface.
+func operationalHandler(readiness func() error, dbStats func() sql.DBStats) http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+	mux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) {
+		if readiness != nil {
+			if err := readiness(); err != nil {
+				httpx.WriteError(w, domain.ErrUnavailable("not ready: "+err.Error()))
+				return
+			}
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ready"))
+	})
+	_ = dbStats // metrics collection owns DB stats via prometheus collectors
+	mux.Handle("/metrics", promhttp.Handler())
+	return mux
 }
 
 func reportControlRuntime(log *slog.Logger, supervisor *controlsupervisor.Supervisor, state gatewayv1.GatewayRuntimeState, timeout time.Duration) {
