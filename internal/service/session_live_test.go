@@ -180,6 +180,7 @@ func TestSessionServiceQRFavorsFacadeOverMissingManager(t *testing.T) {
 func TestSessionServiceLogoutFavorsFacadeOverMissingManager(t *testing.T) {
 	st, mock := newStore(t)
 	mock.ExpectQuery("FROM wa_sessions").WithArgs("sess_1").WillReturnRows(sessionRowForLiveState("sess_1", "org_1", "gw_1", "6281@s.whatsapp.net"))
+	mock.ExpectExec("UPDATE wa_sessions").WithArgs(sqlmock.AnyArg(), "sess_1").WillReturnResult(sqlmock.NewResult(0, 1))
 	facade := &fakeLifecycleFacade{}
 	svc := NewSessionService(st.Sessions, nil, nil)
 	svc.SetGatewaySessionFacade(facade)

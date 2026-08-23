@@ -11,12 +11,13 @@ _openapi:
     headings: []
     contents:
       - content: >-
-          Reconnect a session by performing stop then start while keeping its
-          current attachment.
+          Restart a session by performing stop then start. A paired session
+          keeps its attachment and reconnects; an unpaired session begins a
+          fresh QR pairing flow.
 
 
-          Use this for transient failed/reconnecting states. The action is
-          idempotent.
+          Use this for transient failed/reconnecting states or to reset an
+          in-progress QR flow. The action is idempotent.
 
 
           Errors: `not_found` (404), `unauthorized` (401), `forbidden` (403).

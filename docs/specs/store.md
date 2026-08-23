@@ -147,6 +147,18 @@ therefore intentionally not persisted yet.
 
 - **`organization_id`** replaces v1 `tenant_id` on every owned table; `webhooks`, `event_log`,
   `outbox` carry it directly.
+- **Session pairing is detached atomically on logout.** `ClearSessionPairing`
+  writes `status=logged_out` and nulls `wa_jid`, `wa_lid`, and `phone_number` in
+  one statement. Pairing endpoints use these nullable identity fields as their
+  durable precondition, so they cannot disagree with the cleared local keystore.
+  The API calls it from `SessionService.Logout` (synchronously, after the engine
+  unlink) and again from the committed-event projection of the terminal
+  `session.status=logged_out`, so force-logouts and repeated logouts repair rows
+  idempotently. Its write-side twin, `AttachSessionPairing`, persists the
+  PairSuccess identity (`wa_jid`, `wa_lid`, phone) projected from the committed
+  `auth.code` event — desired-state reconciliation derives each assignment's
+  `DeviceJID` from `wa_jid`, so that projection is what lets a freshly paired
+  session start.
 - **`gateways` + `wa_sessions.gateway_id`** are the session-pinning seam
   ([`whatsmeow-store.md`](whatsmeow-store.md), masterplan §4.5); with the central router (Increment A)
   `gateways` is now the live **routing table** the router reads, and `wa_sessions.gateway_id` (already

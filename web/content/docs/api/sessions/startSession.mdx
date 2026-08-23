@@ -11,11 +11,15 @@ _openapi:
     headings: []
     contents:
       - content: >-
-          Connect a paired session to WhatsApp.
+          Start the session. A paired session connects to WhatsApp; an unpaired
+          or logged-out session begins QR pairing.
 
 
-          Precondition: the session must already be paired and owned by your
-          organization.
+          To use a phone pairing code instead, request the code directly without
+          calling `:start` first.
+
+
+          The session must be owned by your organization.
 
 
           Returns updated session row. Calling start repeatedly is idempotent.

@@ -50,6 +50,9 @@ type SessionRepo interface {
 	// UpdateStatus is a narrow fast-path used on every status transition; it also
 	// stamps last_connected_at when status becomes WORKING.
 	UpdateStatus(ctx context.Context, id string, status domain.SessionStatus) error
+	// ClearPairing atomically marks the row logged_out and nulls its WhatsApp
+	// identity fields, so persisted and keystore pairing state cannot disagree.
+	ClearPairing(ctx context.Context, id string) error
 }
 
 // EventSink publishes a domain.Event onto the eventing fabric (Redis pub/sub +

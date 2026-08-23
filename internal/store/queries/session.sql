@@ -57,5 +57,15 @@ UPDATE wa_sessions
 SET status = ?, updated_at = ?
 WHERE id = ?;
 
+-- name: ClearSessionPairing :execrows
+UPDATE wa_sessions
+SET status = 'logged_out', wa_jid = NULL, wa_lid = NULL, phone_number = NULL, updated_at = ?
+WHERE id = ?;
+
+-- name: AttachSessionPairing :execrows
+UPDATE wa_sessions
+SET wa_jid = ?, wa_lid = ?, phone_number = ?, updated_at = ?
+WHERE id = ?;
+
 -- name: DeleteSession :execrows
 DELETE FROM wa_sessions WHERE id = ?;

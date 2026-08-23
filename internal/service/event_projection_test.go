@@ -8,6 +8,7 @@ import (
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/apitypes"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
 )
 
 // fakeProjectionStore records every projection write so each consumer branch
@@ -23,6 +24,20 @@ type fakeProjectionStore struct {
 	upsertedPolls     []ProjectionPollUpsert
 	insertedPollVotes []ProjectionPollVoteInsert
 	upsertMembers     []ProjectionGroupMemberUpsert
+	attachedPairings []store.AttachPairingInput
+	clearedSessions  []string
+	clearedAt        []int64
+}
+
+func (f *fakeProjectionStore) AttachPairing(_ context.Context, in store.AttachPairingInput) error {
+	f.attachedPairings = append(f.attachedPairings, in)
+	return nil
+}
+
+func (f *fakeProjectionStore) ClearPairing(_ context.Context, sessionID string, updatedAt int64) error {
+	f.clearedSessions = append(f.clearedSessions, sessionID)
+	f.clearedAt = append(f.clearedAt, updatedAt)
+	return nil
 }
 
 func (f *fakeProjectionStore) UpsertIdentity(_ context.Context, in ProjectionIdentityUpsert) error {
@@ -245,9 +260,9 @@ func TestProjectionIgnoresNonProjectedEvents(t *testing.T) {
 	store := &fakeProjectionStore{}
 	consumer := newTestProjectionConsumer(store)
 	for _, eventType := range []string{
-		domain.EventSessionStatus, domain.EventAuthQR, domain.EventAuthCode,
-		domain.EventPresenceUpdate, domain.EventGroupUpdate, domain.EventChatUpdate,
-		domain.EventContactUpdate, domain.EventCallIncoming, domain.EventNewsletterUpdate,
+		domain.EventAuthQR, domain.EventPresenceUpdate, domain.EventGroupUpdate,
+		domain.EventChatUpdate, domain.EventContactUpdate, domain.EventCallIncoming,
+		domain.EventNewsletterUpdate,
 	} {
 		event := domain.Event{Schema: domain.Schema, ID: "evt_" + eventType, Type: eventType,
 			Session: "sess_1", Organization: "org_1", Timestamp: 1, Payload: map[string]any{"x": 1}}
@@ -257,5 +272,85 @@ func TestProjectionIgnoresNonProjectedEvents(t *testing.T) {
 	}
 	if len(store.upsertChats)+len(store.insertedMessages)+len(store.upsertIdentities)+len(store.insertedPollVotes) != 0 {
 		t.Fatal("non-projected events wrote rows")
+	}
+}
+
+// TestProjectionPairSuccessAttachesIdentity consumes an auth.code event (the
+// PairSuccess signal) carrying the linked JIDs. The session row must gain the
+// device JID, LID, and derived phone number — desired-state reconciliation
+// derives each assignment's DeviceJID from wa_jid, so this projection is what
+// lets a freshly paired session start.
+func TestProjectionPairSuccessAttachesIdentity(t *testing.T) {
+	store := &fakeProjectionStore{}
+	consumer := newTestProjectionConsumer(store)
+	event := domain.Event{Schema: domain.Schema, ID: "evt_pair", Type: domain.EventAuthCode,
+		Session: "sess_1", Organization: "org_1", Timestamp: 1000,
+		Payload: apitypes.AuthCodePayload{JID: "628111@s.whatsapp.net", LID: "777@lid"}}
+
+	if err := consumer.ConsumeCommittedEvent(context.Background(), event); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.attachedPairings) != 1 {
+		t.Fatalf("expected 1 pairing attach, got %d", len(store.attachedPairings))
+	}
+	got := store.attachedPairings[0]
+	if got.SessionID != "sess_1" || got.WaJID != "628111@s.whatsapp.net" ||
+		got.WaLID != "777@lid" || got.PhoneNumber != "628111" || got.UpdatedAt != 1234 {
+		t.Fatalf("pairing attach = %+v", got)
+	}
+}
+
+// TestProjectionPairSuccessWithoutJIDIsNoOp covers the phone-number pairing
+// kickoff variant of auth.code (code only, no identity yet): nothing attaches.
+func TestProjectionPairSuccessWithoutJIDIsNoOp(t *testing.T) {
+	store := &fakeProjectionStore{}
+	consumer := newTestProjectionConsumer(store)
+	event := domain.Event{Schema: domain.Schema, ID: "evt_code", Type: domain.EventAuthCode,
+		Session: "sess_1", Organization: "org_1", Timestamp: 1000,
+		Payload: apitypes.AuthCodePayload{}}
+
+	if err := consumer.ConsumeCommittedEvent(context.Background(), event); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.attachedPairings) != 0 {
+		t.Fatalf("identity attached without a JID: %+v", store.attachedPairings)
+	}
+}
+
+// TestProjectionLoggedOutClearsPairing consumes the terminal logged_out status
+// event. The row's WhatsApp identity is cleared so QR/pairing-code preconditions
+// immediately see an unpaired session; other statuses write nothing.
+func TestProjectionLoggedOutClearsPairing(t *testing.T) {
+	store := &fakeProjectionStore{}
+	consumer := newTestProjectionConsumer(store)
+
+	for _, status := range []string{"working", "starting", "scan_qr_code", "failed", "stopped"} {
+		event := domain.Event{Schema: domain.Schema, ID: "evt_" + status, Type: domain.EventSessionStatus,
+			Session: "sess_1", Organization: "org_1", Timestamp: 1000,
+			Payload: apitypes.SessionStatusPayload{Status: status}}
+		if err := consumer.ConsumeCommittedEvent(context.Background(), event); err != nil {
+			t.Fatalf("%s: %v", status, err)
+		}
+	}
+	if len(store.clearedSessions) != 0 {
+		t.Fatalf("non-terminal statuses cleared pairing: %v", store.clearedSessions)
+	}
+
+	loggedOut := domain.Event{Schema: domain.Schema, ID: "evt_lo", Type: domain.EventSessionStatus,
+		Session: "sess_1", Organization: "org_1", Timestamp: 2000,
+		Payload: apitypes.SessionStatusPayload{Status: string(domain.SessionLoggedOut)}}
+	if err := consumer.ConsumeCommittedEvent(context.Background(), loggedOut); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.clearedSessions) != 1 || store.clearedSessions[0] != "sess_1" || store.clearedAt[0] != 1234 {
+		t.Fatalf("logged-out clear = %v @ %v", store.clearedSessions, store.clearedAt)
+	}
+
+	// A replayed or repeated logout clears again (repair semantics).
+	if err := consumer.ConsumeCommittedEvent(context.Background(), loggedOut); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.clearedSessions) != 2 {
+		t.Fatalf("repeat clear did not run: %v", store.clearedSessions)
 	}
 }

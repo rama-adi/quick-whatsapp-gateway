@@ -56,13 +56,35 @@ export function applyEvent(qc: QueryClient, e: EventEnvelope): void {
     case "session.status": {
       const status = str(p.status) as WASession["status"] | undefined;
       if (status && s) {
+        const applyStatus = (row: WASession): WASession =>
+          status === "logged_out"
+            ? {
+                ...row,
+                status,
+                waJid: undefined,
+                waLid: undefined,
+                phoneNumber: undefined,
+              }
+            : { ...row, status };
         qc.setQueryData<WASession>(qk.session(s), (cur) =>
-          cur ? { ...cur, status } : cur,
+          cur ? applyStatus(cur) : cur,
         );
         const patch = (row: WASession): WASession =>
-          row.id === s ? { ...row, status } : row;
+          row.id === s ? applyStatus(row) : row;
         patchRow<WASession>(qc, qk.sessions(), (r) => r.id === s, patch);
         patchRow<WASession>(qc, qk.adminSessions(), (r) => r.id === s, patch);
+        if (status === "logged_out") {
+          qc.removeQueries({ queryKey: qk.sessionQR(s), exact: true });
+          qc.removeQueries({ queryKey: qk.sessionPairing(s), exact: true });
+        }
+        if (status === "working") {
+          // PairSuccess persists the JID before Connected emits WORKING. Refresh
+          // rows now so the UI switches from pairing controls to the attached
+          // identity without requiring degraded-stream polling.
+          void qc.invalidateQueries({ queryKey: qk.session(s), exact: true });
+          void qc.invalidateQueries({ queryKey: qk.sessions() });
+          void qc.invalidateQueries({ queryKey: qk.adminSessions() });
+        }
       }
       break;
     }

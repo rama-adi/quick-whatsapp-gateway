@@ -38,6 +38,16 @@ func (p *StoreProjections) FillIdentityName(ctx context.Context, jid, name strin
 	return p.st.Identities.FillNameByJID(ctx, jid, name, nowMs)
 }
 
+// AttachPairing routes a PairSuccess projection onto the session repo.
+func (p *StoreProjections) AttachPairing(ctx context.Context, in store.AttachPairingInput) error {
+	return p.st.Sessions.AttachPairing(ctx, in)
+}
+
+// ClearPairing routes a logged-out projection onto the session repo.
+func (p *StoreProjections) ClearPairing(ctx context.Context, sessionID string, updatedAt int64) error {
+	return p.st.Sessions.ClearPairing(ctx, sessionID, updatedAt)
+}
+
 func (p *StoreProjections) UpsertGroup(ctx context.Context, in ProjectionGroupUpsert) error {
 	return p.st.Groups.Upsert(ctx, domain.Group{
 		GroupJID:         in.GroupJID,

@@ -359,15 +359,27 @@ func (m *Manager) LatestQR(id string) (code string, expiresAt int64) {
 	return ms.LatestQR()
 }
 
-// Start connects an already-paired session and begins the reconnect loop. For
-// unpaired devices use StartQR / StartPairingCode instead.
+// Start connects a paired session and begins the reconnect loop. For an
+// unpaired session it starts QR pairing, making the lifecycle action useful for
+// both fresh/logged-out sessions and existing attachments. Repeated calls while
+// either connection or pairing is already running are idempotent.
 func (m *Manager) Start(ctx context.Context, id string) error {
 	ms := m.Get(id)
 	if ms == nil {
 		return domain.ErrNotFound("session not found")
 	}
-	if ms.device.ID == nil {
-		return domain.ErrValidation("session not paired; use QR or pairing code")
+	ms.mu.Lock()
+	if ms.device == nil {
+		ms.device = m.keystore.NewDevice()
+	}
+	unpaired := ms.device.ID == nil
+	running := ms.client != nil
+	ms.mu.Unlock()
+	if running {
+		return nil
+	}
+	if unpaired {
+		return m.StartQR(ctx, id)
 	}
 	m.startManaged(ctx, id)
 	return nil
@@ -522,21 +534,21 @@ func (m *Manager) Logout(ctx context.Context, id string) error {
 			m.log.Warn("logout call failed; clearing local device anyway", "session", id, "err", err)
 		}
 	}
-	if device != nil {
+	if device != nil && device.ID != nil {
 		if err := m.keystore.DeleteDevice(ctx, device); err != nil {
 			m.log.Warn("delete device failed", "session", id, "err", err)
 		}
 	}
 	m.teardown(ms)
-	m.setStatus(ctx, ms, domain.SessionLoggedOut)
+	m.setLoggedOut(ctx, ms)
 	return nil
 }
 
 // teardown cancels the session goroutine, disconnects the client and clears the
 // per-session runtime state. It deliberately does NOT touch ms.status — the
-// status transition (and its emission) is owned solely by setStatus, which the
-// caller invokes afterwards. Keeping the two responsibilities separate ensures
-// teardown doesn't pre-set the status and suppress setStatus's change detection.
+// status transition (and its emission) is owned by setStatus/setLoggedOut, which
+// the caller invokes afterwards. Keeping the responsibilities separate ensures
+// teardown doesn't pre-set the status and suppress change detection.
 func (m *Manager) teardown(ms *ManagedSession) {
 	ms.mu.Lock()
 	ms.reconnect = false
@@ -568,13 +580,22 @@ func (m *Manager) StartQR(ctx context.Context, id string) error {
 	}
 	ms.mu.Lock()
 	if ms.client != nil {
+		// Starting/refreshing the same QR flow is idempotent. A paired running
+		// client is still a conflict, though the service normally rejects that
+		// from the durable wa_jid precondition before reaching the manager.
+		unpaired := ms.device == nil || ms.device.ID == nil
 		ms.mu.Unlock()
+		if unpaired {
+			return nil
+		}
 		return domain.ErrConflict("session already running")
 	}
 	loopCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	ms.cancel = cancel
 	ms.reconnect = true
 	ms.attempt = 0
+	ms.lastQR = ""
+	ms.lastQRExpires = 0
 	client := m.newClient(ms.device)
 	ms.client = client
 	ms.handlerID = client.AddEventHandler(m.eventHandlerFor(ms))
@@ -655,6 +676,8 @@ func (m *Manager) StartPairingCode(ctx context.Context, id, phone string) (strin
 	ms.cancel = cancel
 	ms.reconnect = true
 	ms.attempt = 0
+	ms.lastQR = ""
+	ms.lastQRExpires = 0
 	client := m.newClient(ms.device)
 	ms.client = client
 	ms.handlerID = client.AddEventHandler(m.eventHandlerFor(ms))
@@ -752,12 +775,14 @@ func (m *Manager) applyEvent(ctx context.Context, ms *ManagedSession, evt any) {
 
 	if t.terminal {
 		// LoggedOut / StreamReplaced / ban / fatal connect-failure: stop reconnect.
-		// teardown clears runtime state; setStatus (below) records + emits the new
-		// status.
+		// teardown clears runtime state; the transition below records + emits the
+		// new status.
 		m.teardown(ms)
 	}
 
-	if t.changed {
+	if t.status == domain.SessionLoggedOut {
+		m.setLoggedOut(ctx, ms)
+	} else if t.changed {
 		m.setStatus(ctx, ms, t.status)
 	}
 }
@@ -789,13 +814,34 @@ func (m *Manager) sendOnlinePresence(ms *ManagedSession) {
 
 // recordPairedJID records the paired phone/LID JIDs on the managed session so
 // live-ops and telemetry can read them. Persistence is API-owned: the session
-// row is updated from the pairing RPC result, not by the gateway.
+// row is updated from the pairing RPC result and the committed auth.code event,
+// not by the gateway.
 func (m *Manager) recordPairedJID(_ context.Context, ms *ManagedSession, jid, lid types.JID) {
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
 	ms.pairedJID = jid.String()
 	if !lid.IsEmpty() {
 		ms.pairedLID = lid.String()
+	}
+}
+// setLoggedOut is the single logout-state transition. It swaps the deleted
+// whatsmeow device for a fresh unpaired one and clears the stale QR cache. The
+// durable pairing-identity clear is API-owned: the session.status event is
+// emitted even when the in-memory status was already logged_out so the API-side
+// projection repeats its row write, letting a repeated logout repair rows left
+// stale by older versions.
+func (m *Manager) setLoggedOut(ctx context.Context, ms *ManagedSession) {
+	ms.mu.Lock()
+	ms.status = domain.SessionLoggedOut
+	ms.device = m.keystore.NewDevice()
+	ms.lastQR = ""
+	ms.lastQRExpires = 0
+	ms.mu.Unlock()
+
+	if m.sink != nil {
+		m.sink.Publish(ctx, domain.NewEvent(domain.EventSessionStatus, ms.SessionID, ms.OrganizationID, map[string]any{
+			"status": string(domain.SessionLoggedOut),
+		}))
 	}
 }
 

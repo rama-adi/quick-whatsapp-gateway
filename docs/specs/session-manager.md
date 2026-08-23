@@ -35,6 +35,26 @@ The session lifecycle splits across the trust boundary:
   revision; an existing assignment is kept so retries never re-epoch a live
   session), and deletes both on teardown (`repo.Delete`, then
   `Unassign`, which advances the revision so the gateway stops reconciling).
+- **Pairing identity is API-projected.** The gateway records the paired JIDs
+  only in memory; the committed `auth.code` event (PairSuccess) is what the API
+  projects onto `wa_sessions` (`SessionRepo.AttachPairing`: `wa_jid`, `wa_lid`,
+  phone derived from the JID). Desired-state reconciliation derives each
+  assignment's `DeviceJID` from `wa_jid`, so this projection — not a gateway
+  write — is what lets a freshly paired session start.
+- **Logout is a full pairing reset across the boundary.** The engine unlink runs
+  as a durable command; then the row is atomically marked `logged_out` with
+  `wa_jid`, `wa_lid`, and `phone_number` cleared (`SessionRepo.ClearPairing`)
+  — synchronously in `SessionService.Logout`, and again from the terminal
+  `session.status` projection when WhatsApp force-logs-out a session or when a
+  repeated logout replays, which repairs stale rows idempotently. The managed
+  session swaps its deleted device for a fresh unpaired one and clears its QR
+  cache, so re-pairing starts immediately.
+- **Start covers unpaired sessions.** `Manager.Start` begins QR pairing for an
+  unpaired device instead of failing validation, and repeats are idempotent;
+  `Restart` completes stop plus that same transition rather than partially
+  stopping. API-side, an unpaired Start/Restart kicks pairing through the
+  facade before flipping desired run state (desired run alone cannot express
+  the unpaired case — reconciliation skips assignments without a device JID).
 - **The gateway executes only live parts**, through private engine RPCs served
   by `wa.ApplicationGatewayAdapter` (see [`grpc-contracts.md`](grpc-contracts.md)):
   - `PrepareSession` — creates the local keystore device + managed-session entry
@@ -53,7 +73,7 @@ The session lifecycle splits across the trust boundary:
   Create/Logout/Delete/QR/PairingCode always go through the engine facade, and
   Start/Stop/Restart flip desired state (`SessionDesiredController`). Delete
   order: OAuth cascade → engine forget → repo delete → unassign. Logout order:
-  engine logout → OAuth cascade.
+  engine logout → pairing clear → OAuth cascade.
 - **Registry writes are gone from the gateway.** There is no `joining`/`active`
   registration, no heartbeat timer, and no shutdown draining/drained write to
   `wa_gateways`: liveness is the acknowledged control-stream heartbeat itself.
@@ -130,7 +150,11 @@ Core types:
 - **Status ownership is single-writer.** `teardown` clears runtime state but does
   NOT touch status; `setStatus` is the sole owner of the status field and its
   `session.status` emission, and it **dedups** (no event when the status is
-  unchanged). Persistence is derived API-side from committed events.
+  unchanged). Persistence is derived API-side from committed events. Logout is
+  the intentional specialized path: `setLoggedOut` swaps in a fresh unpaired
+  device, clears the QR cache, and **always emits** `session.status=logged_out`
+  — even when the in-memory status was already logged_out — because that event
+  is the durable signal the API projection uses to repeat its row clear.
 - **Goroutine lifecycle.** Each running session gets a context derived via
   `context.WithoutCancel(parent)` + a `CancelFunc`. Stop/Logout/Shutdown cancel
   it; the reconnect loop and QR pump select on `ctx.Done()` and exit cleanly. The
@@ -159,9 +183,12 @@ Core types:
   when presence actually sticks on a freshly-paired session. A missing push name is
   benign (debug-logged, retried), not a warning.
 - Lifecycle: `StartAssigned` uses control config without any session lookup;
-  `Stop` tears down + emits STOPPED; `Logout` calls `client.Logout` and deletes
-  the keystore device; not-found errors; `StartAssignedBoot` is store-free;
-  the manager accepts no session repository.
+  `Start` connects paired sessions, starts QR for unpaired ones, and repeats are
+  idempotent; `Stop` tears down + emits STOPPED; `Logout` calls `client.Logout`,
+  deletes the keystore device, installs a fresh unpaired device, re-emits
+  `logged_out` on repeat, and can immediately begin a new pairing-code flow;
+  external `LoggedOut` performs the same reset; not-found errors;
+  `StartAssignedBoot` is store-free; the manager accepts no session repository.
 
 Verified: `CGO_ENABLED=0 go build ./internal/wa`, `go test ./internal/wa` (incl.
 `-race`), `go vet ./internal/wa` all pass.

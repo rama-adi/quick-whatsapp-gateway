@@ -10,6 +10,53 @@ import (
 	"database/sql"
 )
 
+const attachSessionPairing = `-- name: AttachSessionPairing :execrows
+UPDATE wa_sessions
+SET wa_jid = ?, wa_lid = ?, phone_number = ?, updated_at = ?
+WHERE id = ?
+`
+
+type AttachSessionPairingParams struct {
+	WaJid       sql.NullString `db:"wa_jid" json:"wa_jid"`
+	WaLid       sql.NullString `db:"wa_lid" json:"wa_lid"`
+	PhoneNumber sql.NullString `db:"phone_number" json:"phone_number"`
+	UpdatedAt   int64          `db:"updated_at" json:"updated_at"`
+	ID          string         `db:"id" json:"id"`
+}
+
+func (q *Queries) AttachSessionPairing(ctx context.Context, arg AttachSessionPairingParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, attachSessionPairing,
+		arg.WaJid,
+		arg.WaLid,
+		arg.PhoneNumber,
+		arg.UpdatedAt,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const clearSessionPairing = `-- name: ClearSessionPairing :execrows
+UPDATE wa_sessions
+SET status = 'logged_out', wa_jid = NULL, wa_lid = NULL, phone_number = NULL, updated_at = ?
+WHERE id = ?
+`
+
+type ClearSessionPairingParams struct {
+	UpdatedAt int64  `db:"updated_at" json:"updated_at"`
+	ID        string `db:"id" json:"id"`
+}
+
+func (q *Queries) ClearSessionPairing(ctx context.Context, arg ClearSessionPairingParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, clearSessionPairing, arg.UpdatedAt, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const countSessionsByGateway = `-- name: CountSessionsByGateway :one
 SELECT COUNT(*) FROM wa_sessions WHERE gateway_id = ?
 `

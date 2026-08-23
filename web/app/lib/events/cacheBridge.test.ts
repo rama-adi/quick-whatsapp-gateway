@@ -53,6 +53,39 @@ describe("applyEvent", () => {
     expect(list?.pages[0]?.data[0]?.status).toBe("working");
   });
 
+  it("logged_out clears cached attachment and stale pairing artifacts", () => {
+    const paired: WASession = {
+      id: SESSION,
+      organizationId: "org_1",
+      gatewayId: "gw_1",
+      status: "working",
+      waJid: "628111@s.whatsapp.net",
+      waLid: "777@lid",
+      phoneNumber: "628111",
+      isAdminSession: false,
+      autoRead: false,
+      presenceTyping: false,
+      ratePerMin: 10,
+      ratePerHour: 100,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    qc.setQueryData(qk.session(SESSION), paired);
+    qc.setQueryData(qk.sessions(), infinite([paired]));
+    qc.setQueryData(qk.sessionQR(SESSION), { code: "stale-qr" });
+    qc.setQueryData(qk.sessionPairing(SESSION), { code: "STALE" });
+
+    applyEvent(qc, evt("session.status", { status: "logged_out" }));
+
+    const session = qc.getQueryData<WASession>(qk.session(SESSION));
+    expect(session).toMatchObject({ status: "logged_out" });
+    expect(session?.waJid).toBeUndefined();
+    expect(session?.waLid).toBeUndefined();
+    expect(session?.phoneNumber).toBeUndefined();
+    expect(qc.getQueryData(qk.sessionQR(SESSION))).toBeUndefined();
+    expect(qc.getQueryData(qk.sessionPairing(SESSION))).toBeUndefined();
+  });
+
   it("auth.qr seeds the live QR query", () => {
     applyEvent(qc, evt("auth.qr", { code: "2@abc" }));
     expect(qc.getQueryData(qk.sessionQR(SESSION))).toEqual({ code: "2@abc" });

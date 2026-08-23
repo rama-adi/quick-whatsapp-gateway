@@ -8,6 +8,7 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/apitypes"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/application"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
 )
 
 // This file implements the API-side projections over committed gateway events
@@ -32,6 +33,10 @@ type projectionStore interface {
 	UpdateMessageStatus(ctx context.Context, in ProjectionMessageStatusUpdate) error
 	UpsertPoll(ctx context.Context, in ProjectionPollUpsert) error
 	InsertPollVote(ctx context.Context, in ProjectionPollVoteInsert) error
+	// Session pairing lifecycle: the wa_sessions row is API-owned, so PairSuccess
+	// and logout events are the durable signals that attach or clear identity.
+	AttachPairing(ctx context.Context, in store.AttachPairingInput) error
+	ClearPairing(ctx context.Context, sessionID string, updatedAt int64) error
 }
 
 // The Projection* structs mirror the argument structs the gateway's inbound
@@ -169,12 +174,15 @@ func (c *EventProjectionConsumer) ConsumeCommittedEvent(ctx context.Context, eve
 		return c.projectPollVote(ctx, event)
 	case domain.EventMessageStatus:
 		return c.projectReceipt(ctx, event)
+	case domain.EventAuthCode:
+		return c.projectPairSuccess(ctx, event)
+	case domain.EventSessionStatus:
+		return c.projectSessionStatus(ctx, event)
 	default:
-		// session.status / auth.* / presence.update / group.update /
-		// group.participant / chat.update / contact.update / call.incoming /
-		// newsletter.update / poll.recap: no messages-table projection. Identity
-		// and group captures run below where sender/group info is present on the
-		// message-family payloads only.
+		// presence.update / group.update / group.participant / chat.update /
+		// contact.update / call.incoming / newsletter.update / poll.recap: no
+		// messages-table projection. Identity and group captures run below where
+		// sender/group info is present on the message-family payloads only.
 		return nil
 	}
 }
@@ -399,6 +407,48 @@ func (c *EventProjectionConsumer) projectReceipt(ctx context.Context, event doma
 		Status:       domain.MessageStatus(p.Status),
 		NowMs:        c.clock(),
 	})
+}
+
+// projectPairSuccess persists the pairing identity carried by an auth.code
+// event (the PairSuccess signal): device JID, LID, and the phone number derived
+// from the JID. Desired-state reconciliation derives each assignment's
+// DeviceJID from wa_sessions.wa_jid, so this projection is what lets a freshly
+// paired session actually start. Replays (lost acknowledgement) rewrite the
+// same identity and are harmless; a logout that raced ahead of this replay is
+// repaired by the next logout's clear.
+func (c *EventProjectionConsumer) projectPairSuccess(ctx context.Context, event domain.Event) error {
+	var p apitypes.AuthCodePayload
+	if err := decodePayload(event, &p); err != nil {
+		return err
+	}
+	if p.JID == "" {
+		// A phone-number pairing kickoff also emits auth.code with only the code;
+		// identity attaches at PairSuccess, which carries the JID.
+		return nil
+	}
+	return c.store.AttachPairing(ctx, store.AttachPairingInput{
+		SessionID:   event.Session,
+		WaJID:       p.JID,
+		WaLID:       p.LID,
+		PhoneNumber: phoneFromJID(p.JID),
+		UpdatedAt:   c.clock(),
+	})
+}
+
+// projectSessionStatus applies the durable pairing reset when a session is
+// force-logged-out by WhatsApp (terminal LoggedOut event): the row is marked
+// logged_out with its WhatsApp identity cleared. Explicit logouts already wrote
+// the clear synchronously in SessionService.Logout; repeating it here is
+// idempotent and repairs any row the synchronous write missed.
+func (c *EventProjectionConsumer) projectSessionStatus(ctx context.Context, event domain.Event) error {
+	var p apitypes.SessionStatusPayload
+	if err := decodePayload(event, &p); err != nil {
+		return err
+	}
+	if domain.SessionStatus(p.Status) != domain.SessionLoggedOut {
+		return nil
+	}
+	return c.store.ClearPairing(ctx, event.Session, c.clock())
 }
 
 // captureSenderOnly runs the identity half of capture for message-family

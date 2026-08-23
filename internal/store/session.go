@@ -174,6 +174,50 @@ func (r *SessionRepo) UpdateStatus(ctx context.Context, id string, status domain
 	return rowsAffectedOrNotFound(n, "session")
 }
 
+// ClearPairing atomically marks a session logged out and removes the WhatsApp
+// identity that made it appear paired. Keeping these fields in one write avoids
+// a state where lifecycle endpoints see an unpaired keystore while pairing
+// endpoints still see a non-null wa_jid.
+func (r *SessionRepo) ClearPairing(ctx context.Context, id string, updatedAt int64) error {
+	n, err := r.q.ClearSessionPairing(ctx, storedb.ClearSessionPairingParams{
+		UpdatedAt: updatedAt,
+		ID:        id,
+	})
+	if err != nil {
+		return fmt.Errorf("store: clear session pairing: %w", err)
+	}
+	return rowsAffectedOrNotFound(n, "session")
+}
+
+// AttachPairing persists the WhatsApp identity observed at PairSuccess: the
+// device JID, its LID, and the phone number derived from the JID. It is the
+// write-side of pairing on this branch — desired-state reconciliation derives
+// each assignment's DeviceJID from wa_jid, so without it a freshly paired
+// session never starts. Idempotent by event replay: rewriting the same identity
+// is a no-op on the row.
+func (r *SessionRepo) AttachPairing(ctx context.Context, in AttachPairingInput) error {
+	n, err := r.q.AttachSessionPairing(ctx, storedb.AttachSessionPairingParams{
+		WaJid:       nullStringFromValue(in.WaJID),
+		WaLid:       nullStringFromValue(in.WaLID),
+		PhoneNumber: nullStringFromValue(in.PhoneNumber),
+		UpdatedAt:   in.UpdatedAt,
+		ID:          in.SessionID,
+	})
+	if err != nil {
+		return fmt.Errorf("store: attach session pairing: %w", err)
+	}
+	return rowsAffectedOrNotFound(n, "session")
+}
+
+// AttachPairingInput carries the PairSuccess identity for AttachPairing.
+type AttachPairingInput struct {
+	SessionID   string
+	WaJID       string
+	WaLID       string
+	PhoneNumber string
+	UpdatedAt   int64
+}
+
 // Delete removes a session by id.
 func (r *SessionRepo) Delete(ctx context.Context, id string) error {
 	n, err := r.q.DeleteSession(ctx, storedb.DeleteSessionParams{ID: id})

@@ -207,12 +207,14 @@ func TestSetStatus_EmitsOnChangeOnly(t *testing.T) {
 // the transition exactly once.
 func TestEventHandler_TerminalEventStopsReconnect(t *testing.T) {
 	m, sink, inbound, fc := newTestManagerParts(t, Config{})
+	jid := types.NewJID("628111", types.DefaultUserServer)
 	ms := &ManagedSession{
 		SessionID:      "sess_1",
 		OrganizationID: "ten_1",
 		status:         domain.SessionWorking,
 		reconnect:      true,
 		client:         fc,
+		device:         &store.Device{ID: &jid},
 		cancel:         func() {},
 	}
 	m.mu.Lock()
@@ -234,6 +236,9 @@ func TestEventHandler_TerminalEventStopsReconnect(t *testing.T) {
 	}
 	if client != nil {
 		t.Fatal("client should be torn down after LoggedOut")
+	}
+	if ms.device == nil || ms.device.ID != nil {
+		t.Fatal("logged-out session should receive a fresh unpaired device")
 	}
 	if fc.disconnects == 0 {
 		t.Fatal("client should have been disconnected")
@@ -377,7 +382,7 @@ func TestStop_TearsDownAndMarksStopped(t *testing.T) {
 func TestLogout_DeletesDeviceAndMarksLoggedOut(t *testing.T) {
 	jid := types.NewJID("628111", types.DefaultUserServer)
 	dev := &store.Device{ID: &jid}
-	m, _, _, fc := newTestManagerParts(t, Config{})
+	m, sink, _, fc := newTestManagerParts(t, Config{})
 	ks := m.keystore.(*fakeKeystore)
 	ms := &ManagedSession{
 		SessionID: "sess_1", OrganizationID: "ten_1", status: domain.SessionWorking,
@@ -398,6 +403,27 @@ func TestLogout_DeletesDeviceAndMarksLoggedOut(t *testing.T) {
 	}
 	if ms.Status() != domain.SessionLoggedOut {
 		t.Fatalf("status = %s, want logged_out", ms.Status())
+	}
+	ms.mu.Lock()
+	freshDevice := ms.device
+	ms.mu.Unlock()
+	if freshDevice == nil || freshDevice == dev || freshDevice.ID != nil {
+		t.Fatal("logout should replace the deleted device with a fresh unpaired device")
+	}
+	// Repeating logout stays idempotent and still emits the durable reset signal,
+	// which is what lets the API-side projection repair stale pairing rows.
+	before := sink.typeCount(domain.EventSessionStatus)
+	if err := m.Logout(context.Background(), "sess_1"); err != nil {
+		t.Fatalf("repeat logout: %v", err)
+	}
+	if sink.typeCount(domain.EventSessionStatus)-before != 1 {
+		t.Fatal("repeat logout should re-emit session.status for the durable clear")
+	}
+	fc.pairCode = "ABCD-1234"
+	if code, err := m.StartPairingCode(context.Background(), "sess_1", "628111"); err != nil {
+		t.Fatalf("pairing after logout: %v", err)
+	} else if code != "ABCD-1234" {
+		t.Fatalf("pairing code = %q, want ABCD-1234", code)
 	}
 }
 

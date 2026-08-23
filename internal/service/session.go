@@ -174,11 +174,22 @@ func (s *SessionService) Get(ctx context.Context, organizationID, id string) (do
 	return sess, nil
 }
 
-// Start connects an already-paired session by flipping its desired run state;
-// the assigned gateway reconciles.
+// Start connects a paired session or begins QR pairing for an unpaired one.
+// Desired run-state alone can't express the unpaired case — the reconciler
+// skips assignments without a device JID — so an unpaired or logged-out session
+// also kicks QR pairing on its assigned engine before flipping the run state.
 func (s *SessionService) Start(ctx context.Context, organizationID, id string) error {
-	if _, err := s.Get(ctx, organizationID, id); err != nil {
+	sess, err := s.Get(ctx, organizationID, id)
+	if err != nil {
 		return err
+	}
+	if sess.WAJID == nil {
+		if s.gatewayFacade == nil {
+			return errLiveUnavailable()
+		}
+		if _, err := s.gatewayFacade.QR(ctx, organizationID, sess.ID); err != nil {
+			return err
+		}
 	}
 	return s.desiredController.SetSessionDesired(ctx, id, true)
 }
@@ -191,7 +202,9 @@ func (s *SessionService) Stop(ctx context.Context, organizationID, id string) er
 	return s.desiredController.SetSessionDesired(ctx, id, false)
 }
 
-// Restart stops then starts a session.
+// Restart stops then starts a session. Start's unpaired transition applies, so
+// restart also begins a fresh QR pairing flow rather than partially stopping and
+// then failing validation.
 func (s *SessionService) Restart(ctx context.Context, organizationID, id string) error {
 	if _, err := s.Get(ctx, organizationID, id); err != nil {
 		return err
@@ -204,9 +217,12 @@ func (s *SessionService) Restart(ctx context.Context, organizationID, id string)
 	return s.desiredController.SetSessionDesired(ctx, id, true)
 }
 
-// Logout unlinks the device server-side, deletes its keystore device, and marks
-// the session logged out. The unlink runs as a durable engine command; the OAuth
-// cascade order (logout first, then cascade) matches the legacy path.
+// Logout unlinks the device server-side, deletes its keystore device, and
+// resets pairing: the engine unlink runs as a durable command, then the row is
+// atomically marked logged_out with its WhatsApp identity cleared so
+// re-pairing can start immediately. The clear runs even when a previous logout
+// already wrote logged_out, repairing rows left stale by older versions. The
+// OAuth cascade order (logout first, then cascade) matches the legacy path.
 func (s *SessionService) Logout(ctx context.Context, organizationID, id string) error {
 	if _, err := s.Get(ctx, organizationID, id); err != nil {
 		return err
@@ -215,6 +231,12 @@ func (s *SessionService) Logout(ctx context.Context, organizationID, id string) 
 		return errLiveUnavailable()
 	}
 	if err := s.gatewayFacade.Logout(ctx, organizationID, id); err != nil {
+		return err
+	}
+	// The gateway's terminal session.status event also projects this clear; the
+	// synchronous write here keeps the REST contract immediate rather than
+	// worker-lagged.
+	if err := s.repo.ClearPairing(ctx, id, domain.NowMs()); err != nil {
 		return err
 	}
 	return s.cascadeOAuth(ctx, organizationID, id)

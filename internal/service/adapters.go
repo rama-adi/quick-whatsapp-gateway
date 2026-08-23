@@ -28,6 +28,12 @@ import (
 // two without changing either side.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// wa.EventSink: stream.Publisher.Publish returns an error; the manager's sink
+// is fire-and-forget (no return). This adapter logs publish failures.
+// ---------------------------------------------------------------------------
+
+// publisher is the slice of *stream.Publisher this adapter needs.
 type publisher interface {
 	Publish(ctx context.Context, e domain.Event) error
 }
