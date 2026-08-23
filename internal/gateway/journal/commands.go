@@ -43,7 +43,7 @@ func (j *Journal) LookupCommand(ctx context.Context, commandID string) (*Command
 		return nil, errJournalUnavailable
 	}
 	if commandID == "" {
-		return nil, fmt.Errorf("command id is required")
+		return nil, errors.New("command id is required")
 	}
 	var (
 		status      string
@@ -79,10 +79,10 @@ func (j *Journal) SaveCommandResult(ctx context.Context, result CommandResult) e
 		return errJournalUnavailable
 	}
 	if result.CommandID == "" || result.SessionID == "" || result.UpdatedAt.IsZero() {
-		return fmt.Errorf("command result id, session, and time are required")
+		return errors.New("command result id, session, and time are required")
 	}
 	if result.Status != CommandSent && result.Status != CommandFailed {
-		return fmt.Errorf("command result status must be sent or failed")
+		return errors.New("command result status must be sent or failed")
 	}
 	expiresAt := result.UpdatedAt.Add(CommandResultRetention)
 	_, err := j.db.ExecContext(ctx,

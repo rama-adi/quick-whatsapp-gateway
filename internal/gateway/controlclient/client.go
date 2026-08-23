@@ -30,9 +30,17 @@ type RenewalTransport interface {
 }
 
 // RenewalFunc adapts a function into RenewalTransport.
-type RenewalFunc func(context.Context, *grpc.ClientConn, []byte) (gatewayidentity.Installation, error)
+type RenewalFunc func(
+	context.Context,
+	*grpc.ClientConn,
+	[]byte,
+) (gatewayidentity.Installation, error)
 
-func (f RenewalFunc) RenewCertificate(ctx context.Context, conn *grpc.ClientConn, csrDER []byte) (gatewayidentity.Installation, error) {
+func (f RenewalFunc) RenewCertificate(
+	ctx context.Context,
+	conn *grpc.ClientConn,
+	csrDER []byte,
+) (gatewayidentity.Installation, error) {
 	return f(ctx, conn, csrDER)
 }
 
@@ -40,12 +48,31 @@ func (f RenewalFunc) RenewCertificate(ctx context.Context, conn *grpc.ClientConn
 // the incumbent mTLS connection.
 type GRPCRenewalTransport struct{}
 
-func (GRPCRenewalTransport) RenewCertificate(ctx context.Context, conn *grpc.ClientConn, csrDER []byte) (gatewayidentity.Installation, error) {
-	response, err := gatewayv1.NewGatewayEnrollmentServiceClient(conn).Renew(ctx, &gatewayv1.GatewayEnrollmentServiceRenewRequest{CsrDer: csrDER})
+func (GRPCRenewalTransport) RenewCertificate(
+	ctx context.Context,
+	conn *grpc.ClientConn,
+	csrDER []byte,
+) (gatewayidentity.Installation, error) {
+	response, err := gatewayv1.NewGatewayEnrollmentServiceClient(conn).Renew(
+		ctx,
+		&gatewayv1.GatewayEnrollmentServiceRenewRequest{CsrDer: csrDER},
+	)
 	if err != nil {
 		return gatewayidentity.Installation{}, err
 	}
-	return gatewayidentity.Installation{GatewayID: response.GatewayId, ChainPEM: response.CertificateChainPem, TrustBundlePEM: response.TrustBundlePem, AuthorityID: response.AuthorityId, Serial: response.SerialNumber, NotBefore: response.NotBeforeUnixMs, NotAfter: response.NotAfterUnixMs}, nil
+	return installationFromRenewal(response), nil
+}
+
+func installationFromRenewal(response *gatewayv1.GatewayEnrollmentServiceRenewResponse) gatewayidentity.Installation {
+	return gatewayidentity.Installation{
+		GatewayID:      response.GatewayId,
+		ChainPEM:       response.CertificateChainPem,
+		TrustBundlePEM: response.TrustBundlePem,
+		AuthorityID:    response.AuthorityId,
+		Serial:         response.SerialNumber,
+		NotBefore:      response.NotBeforeUnixMs,
+		NotAfter:       response.NotAfterUnixMs,
+	}
 }
 
 type Client struct {
@@ -165,6 +192,7 @@ func (r *Renewal) Rollback() error {
 	r.replacement = nil
 	return err
 }
+
 func (c *Client) enroll(ctx context.Context, token string) error {
 	pending, err := c.cfg.Identity.Prepare()
 	if err != nil {
@@ -182,16 +210,28 @@ func (c *Client) enroll(ctx context.Context, token string) error {
 	client := gatewayv1.NewGatewayEnrollmentServiceClient(conn)
 	for attempt := 0; ; attempt++ {
 		attemptCtx, cancel := context.WithTimeout(ctx, c.cfg.AttemptTimeout)
-		response, callErr := client.Enroll(attemptCtx, &gatewayv1.GatewayEnrollmentServiceEnrollRequest{Token: token, CsrDer: pending.CSRDER})
+		response, callErr := client.Enroll(
+			attemptCtx,
+			&gatewayv1.GatewayEnrollmentServiceEnrollRequest{Token: token, CsrDer: pending.CSRDER},
+		)
 		cancel()
 		if callErr == nil {
-			return c.cfg.Identity.Install(gatewayidentity.Installation{GatewayID: response.GatewayId, ChainPEM: response.CertificateChainPem, TrustBundlePEM: response.TrustBundlePem, AuthorityID: response.AuthorityId, Serial: response.SerialNumber, NotBefore: response.NotBeforeUnixMs, NotAfter: response.NotAfterUnixMs})
+			return c.cfg.Identity.Install(gatewayidentity.Installation{
+				GatewayID:      response.GatewayId,
+				ChainPEM:       response.CertificateChainPem,
+				TrustBundlePEM: response.TrustBundlePem,
+				AuthorityID:    response.AuthorityId,
+				Serial:         response.SerialNumber,
+				NotBefore:      response.NotBeforeUnixMs,
+				NotAfter:       response.NotAfterUnixMs,
+			})
 		}
 		if !retryable(status.Code(callErr)) {
 			return errors.New("control client: enrollment rejected")
 		}
-		delay := time.Duration(100*(1<<min(attempt, 5)))*time.Millisecond + time.Duration(rand.IntN(100))*time.Millisecond
-		timer := time.NewTimer(delay)
+		backoff := time.Duration(100*(1<<min(attempt, 5))) * time.Millisecond
+		jitter := time.Duration(rand.IntN(100)) * time.Millisecond
+		timer := time.NewTimer(backoff + jitter)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
@@ -200,6 +240,7 @@ func (c *Client) enroll(ctx context.Context, token string) error {
 		}
 	}
 }
+
 func retryable(code codes.Code) bool {
 	switch code {
 	case codes.Unavailable, codes.DeadlineExceeded, codes.Aborted, codes.ResourceExhausted:
@@ -212,6 +253,7 @@ func retryable(code codes.Code) bool {
 // Retryable reports whether an RPC failure is safe to retry while the
 // incumbent credential remains valid.
 func Retryable(err error) bool { return retryable(status.Code(err)) }
+
 func (c *Client) connectAuthenticated(ctx context.Context) error {
 	conn, err := c.newAuthenticatedConn()
 	if err != nil {
@@ -220,6 +262,7 @@ func (c *Client) connectAuthenticated(ctx context.Context) error {
 	c.conn = conn
 	return nil
 }
+
 func (c *Client) newAuthenticatedConn() (*grpc.ClientConn, error) {
 	tlsConfig, err := pki.NewAPIPeerTLSConfig(c.cfg.Identity.BootstrapCA(), time.Now)
 	if err != nil {
@@ -232,7 +275,13 @@ func (c *Client) newAuthenticatedConn() (*grpc.ClientConn, error) {
 	}
 	return conn, nil
 }
-func (c *Client) Conn() *grpc.ClientConn { c.mu.Lock(); defer c.mu.Unlock(); return c.conn }
+
+func (c *Client) Conn() *grpc.ClientConn {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.conn
+}
+
 func (c *Client) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()

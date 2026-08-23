@@ -20,7 +20,14 @@ func renewalDeadline(expiry time.Time, renewBefore time.Duration) time.Time {
 // NotAfter and the operator-configured renewal window. The old connection is
 // only closed after an overlapping replacement stream has a Welcome and a
 // durable heartbeat acknowledgement.
-func renewGatewayCertificate(ctx context.Context, identity *gatewayidentity.Manager, renewBefore time.Duration, client *controlclient.Client, supervisor *controlsupervisor.Supervisor, expired func()) error {
+func renewGatewayCertificate(
+	ctx context.Context,
+	identity *gatewayidentity.Manager,
+	renewBefore time.Duration,
+	client *controlclient.Client,
+	supervisor *controlsupervisor.Supervisor,
+	expired func(),
+) error {
 	if identity == nil || client == nil || supervisor == nil || renewBefore <= 0 || expired == nil {
 		return errors.New("gateway certificate renewal: invalid configuration")
 	}

@@ -132,26 +132,69 @@ location, and contact message types do work.`)
 		o.Components.SecuritySchemes = map[string]*huma.SecurityScheme{}
 	}
 	o.Components.SecuritySchemes["bearerAuth"] = &huma.SecurityScheme{
-		Type: "http", Scheme: "bearer", BearerFormat: "JWT",
-		Description: "Send `Authorization: Bearer <token>`. The token can be a login JWT from the frontend or an api-key for a script. JWT access comes from the person's organization role. Api-key access comes from the permissions saved on the key.",
+		Type:         "http",
+		Scheme:       "bearer",
+		BearerFormat: "JWT",
+		Description: "Send `Authorization: Bearer <token>`. The token can be a login JWT from the frontend or an api-key " +
+			"for a script. JWT access comes from the person's organization role. " +
+			"Api-key access comes from the permissions saved on the key.",
 	}
 	o.Components.SecuritySchemes["apiKeyHeader"] = &huma.SecurityScheme{
 		Type: "apiKey", In: "header", Name: "x-api-key",
-		Description: "Send an api-key here when your client cannot set `Authorization`. It is the same as sending the api-key as a Bearer token.",
+		Description: "Send an api-key here when your client cannot set `Authorization`. " +
+			"It is the same as sending the api-key as a Bearer token.",
 	}
 	o.Security = []map[string][]string{{"bearerAuth": {}}, {"apiKeyHeader": {}}}
 
 	o.Tags = []*huma.Tag{
-		{Name: "Sessions", Description: "Create, pair, start, stop, restart, and delete WhatsApp sessions. A session is one attached WhatsApp number."},
-		{Name: "Messages", Description: "Send text, individual media, grouped image/video albums, polls, locations, and contacts. You can also edit, delete for everyone, react, forward, and vote on polls."},
-		{Name: "Chats", Description: "List chats, read messages, mark chats read, update chat flags, delete chats, and set typing or recording presence."},
-		{Name: "Contacts", Description: "List and check contacts, read profile info, fetch profile pictures and about text, and block or unblock contacts."},
-		{Name: "Groups", Description: "List groups and members, read invites, create groups, add or remove members, promote or demote members, edit group info, join or leave groups, and approve join requests."},
-		{Name: "Channels", Description: "WhatsApp channels (newsletters). All channel operations return 501 not_implemented in v1."},
-		{Name: "Status & Presence", Description: "Post text status updates and set whether the WhatsApp session is available, unavailable, typing, recording, or paused. Image status returns 501 in v1."},
-		{Name: "Webhooks", Description: "Create webhook endpoints that receive events over HTTP. Optional HMAC signing lets receivers verify the request body."},
-		{Name: "Admin", Description: "Platform super-admin endpoints for listing all sessions and starting or checking history backfills."},
-		{Name: "Gateway Administration", Description: "Platform super-admin gateway inventory, enrollment, and lifecycle operations. Enrollment bearers are returned exactly once and never appear in read models."},
+		{
+			Name: "Sessions",
+			Description: "Create, pair, start, stop, restart, and delete WhatsApp sessions. " +
+				"A session is one attached WhatsApp number.",
+		},
+		{
+			Name: "Messages",
+			Description: "Send text, individual media, grouped image/video albums, polls, locations, and contacts. " +
+				"You can also edit, delete for everyone, react, forward, and vote on polls.",
+		},
+		{
+			Name: "Chats",
+			Description: "List chats, read messages, mark chats read, update chat flags, delete chats, " +
+				"and set typing or recording presence.",
+		},
+		{
+			Name: "Contacts",
+			Description: "List and check contacts, read profile info, fetch profile pictures and about text, " +
+				"and block or unblock contacts.",
+		},
+		{
+			Name: "Groups",
+			Description: "List groups and members, read invites, create groups, add or remove members, promote or demote " +
+				"members, edit group info, join or leave groups, and approve join requests.",
+		},
+		{
+			Name:        "Channels",
+			Description: "WhatsApp channels (newsletters). All channel operations return 501 not_implemented in v1.",
+		},
+		{
+			Name: "Status & Presence",
+			Description: "Post text status updates and set whether the WhatsApp session is available, unavailable, typing, " +
+				"recording, or paused. Image status returns 501 in v1.",
+		},
+		{
+			Name: "Webhooks",
+			Description: "Create webhook endpoints that receive events over HTTP. " +
+				"Optional HMAC signing lets receivers verify the request body.",
+		},
+		{
+			Name:        "Admin",
+			Description: "Platform super-admin endpoints for listing all sessions and starting or checking history backfills.",
+		},
+		{
+			Name: "Gateway Administration",
+			Description: "Platform super-admin gateway inventory, enrollment, and lifecycle operations. " +
+				"Enrollment bearers are returned exactly once and never appear in read models.",
+		},
 	}
 }
 
@@ -201,7 +244,9 @@ func registerEventWebhooks(api huma.API) {
 				},
 			},
 			Responses: map[string]*huma.Response{
-				"200": {Description: "Return any 2xx to acknowledge receipt. Non-2xx (or a timeout) makes the gateway retry with backoff."},
+				"200": {
+					Description: "Return any 2xx to acknowledge receipt. Non-2xx (or a timeout) makes the gateway retry with backoff.",
+				},
 			},
 		},
 	}
@@ -219,13 +264,9 @@ func eventEnumValues(t reflect.Type) []string {
 		return nil
 	}
 	var out []string
-	start := 0
-	for i := 0; i <= len(enum); i++ {
-		if i == len(enum) || enum[i] == ',' {
-			if start < i {
-				out = append(out, enum[start:i])
-			}
-			start = i + 1
+	for _, part := range strings.Split(enum, ",") {
+		if part != "" {
+			out = append(out, part)
 		}
 	}
 	return out

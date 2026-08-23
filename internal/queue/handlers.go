@@ -2,6 +2,7 @@ package queue
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/hibiken/asynq"
@@ -9,9 +10,8 @@ import (
 
 // Consumer interfaces (defined here, implemented by sibling packages). The
 // handlers in this package are thin: decode the payload, then delegate to one of
-// these. This
-// keeps queue free of sibling-package imports and makes handler dispatch trivial
-// to test with fakes.
+// these. This keeps queue free of sibling-package imports and makes handler
+// dispatch trivial to test with fakes.
 
 // OutboxProcessor drives a persisted outbox row to WhatsApp. Implementations load
 // the row by id, send via the wa client, and update outbox status / wa_message_id.
@@ -45,7 +45,7 @@ type Handlers struct {
 // handleOutboxSend decodes the task and delegates to the OutboxProcessor.
 func (h Handlers) handleOutboxSend(ctx context.Context, t *asynq.Task) error {
 	if h.Outbox == nil {
-		return fmt.Errorf("queue: no OutboxProcessor registered")
+		return errors.New("queue: no OutboxProcessor registered")
 	}
 	p, err := parseOutboxSend(t)
 	if err != nil {
@@ -61,7 +61,7 @@ func (h Handlers) handleOutboxSend(ctx context.Context, t *asynq.Task) error {
 // handleWebhookDeliver decodes the task and delegates to the WebhookDeliverer.
 func (h Handlers) handleWebhookDeliver(ctx context.Context, t *asynq.Task) error {
 	if h.Webhooks == nil {
-		return fmt.Errorf("queue: no WebhookDeliverer registered")
+		return errors.New("queue: no WebhookDeliverer registered")
 	}
 	p, err := parseWebhookDeliver(t)
 	if err != nil {
@@ -76,7 +76,7 @@ func (h Handlers) handleWebhookDeliver(ctx context.Context, t *asynq.Task) error
 // handleRetentionPrune decodes the task and delegates to the RetentionPruner.
 func (h Handlers) handleRetentionPrune(ctx context.Context, t *asynq.Task) error {
 	if h.Retention == nil {
-		return fmt.Errorf("queue: no RetentionPruner registered")
+		return errors.New("queue: no RetentionPruner registered")
 	}
 	p, err := parseRetentionPrune(t)
 	if err != nil {

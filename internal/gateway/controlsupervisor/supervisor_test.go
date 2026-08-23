@@ -533,7 +533,7 @@ func TestLeaseExpiryReconnectsWithBackoffAndReplaysUnackedEvents(t *testing.T) {
 	}
 
 	// The API never answers: the advertised 5-second lease expires.
-	if !clock.fire(5*time.Second) {
+	if !clock.fire(5 * time.Second) {
 		t.Fatal("lease timer not registered")
 	}
 	waitStatus(t, supervisor, func(status Status) bool { return !status.Connected && !status.Ready })

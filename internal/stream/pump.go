@@ -3,6 +3,7 @@ package stream
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -72,7 +73,13 @@ func NewPump(cfg PumpConfig) *Pump {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	return &Pump{redis: cfg.Redis, logReader: cfg.LogReader, clock: clock, heartbeat: hb, log: log}
+	return &Pump{
+		redis:     cfg.Redis,
+		logReader: cfg.LogReader,
+		clock:     clock,
+		heartbeat: hb,
+		log:       log,
+	}
 }
 
 // Run subscribes per scope, emits a connected frame, replays from the durable log
@@ -81,11 +88,11 @@ func NewPump(cfg PumpConfig) *Pump {
 // allow-list ("*"/empty = all).
 func (p *Pump) Run(ctx context.Context, sink Sink, scope Scope, events []string, since string) error {
 	if scope.Organization == "" && scope.Session != "" {
-		return fmt.Errorf("stream: session scope requires an organization")
+		return errors.New("stream: session scope requires an organization")
 	}
 	filter := parseEventFilter(strings.Join(events, ","))
 	if filter.empty() {
-		return fmt.Errorf("stream: event filter matches no types")
+		return errors.New("stream: event filter matches no types")
 	}
 
 	pubsub := p.subscribe(ctx, scope)
@@ -101,7 +108,13 @@ func (p *Pump) Run(ctx context.Context, sink Sink, scope Scope, events []string,
 		var err error
 		lastReplayed, err = p.replay(ctx, sink, scope, since, filter)
 		if err != nil {
-			p.log.Error("stream replay failed", "organization", scope.Organization, "session", scope.Session, "since", since, "err", err)
+			p.log.Error(
+				"stream replay failed",
+				"organization", scope.Organization,
+				"session", scope.Session,
+				"since", since,
+				"err", err,
+			)
 			_ = p.send(ctx, sink, map[string]any{"event": "error", "error": "replay_failed"})
 			return err
 		}
@@ -142,7 +155,14 @@ func (p *Pump) replay(ctx context.Context, sink Sink, scope Scope, since string,
 	return last, nil
 }
 
-func (p *Pump) tail(ctx context.Context, sink Sink, msgs <-chan *redis.Message, ticker Ticker, filter eventFilter, afterID string) error {
+func (p *Pump) tail(
+	ctx context.Context,
+	sink Sink,
+	msgs <-chan *redis.Message,
+	ticker Ticker,
+	filter eventFilter,
+	afterID string,
+) error {
 	for {
 		select {
 		case <-ctx.Done():

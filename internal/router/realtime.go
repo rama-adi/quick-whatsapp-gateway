@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/coder/websocket"
@@ -82,7 +83,8 @@ func (s *Server) handleTicketMint(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req ticketRequest
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16))
+	if err := decoder.Decode(&req); err != nil && !errors.Is(err, io.EOF) {
 		httpx.WriteError(w, domain.ErrValidation("invalid ticket request body"))
 		return
 	}
@@ -140,7 +142,13 @@ func (s *Server) authorizeTicket(ctx context.Context, p *authz.Principal, req ti
 		if p.OrganizationID == "" {
 			return ticket{}, domain.ErrForbidden("no active organization")
 		}
-		return ticket{Scope: "organization", Organization: p.OrganizationID, Events: req.Events, Since: req.Since, Principal: tp}, nil
+		return ticket{
+			Scope:        "organization",
+			Organization: p.OrganizationID,
+			Events:       req.Events,
+			Since:        req.Since,
+			Principal:    tp,
+		}, nil
 
 	case "session":
 		if req.Session == "" {
@@ -156,7 +164,14 @@ func (s *Server) authorizeTicket(ctx context.Context, p *authz.Principal, req ti
 		if !p.IsSuperAdmin() && sess.OrganizationID != p.OrganizationID {
 			return ticket{}, domain.ErrNotFound("session not found")
 		}
-		return ticket{Scope: "session", Organization: sess.OrganizationID, Session: req.Session, Events: req.Events, Since: req.Since, Principal: tp}, nil
+		return ticket{
+			Scope:        "session",
+			Organization: sess.OrganizationID,
+			Session:      req.Session,
+			Events:       req.Events,
+			Since:        req.Since,
+			Principal:    tp,
+		}, nil
 
 	default:
 		return ticket{}, domain.ErrValidation("scope must be one of session|organization|firehose")
@@ -235,7 +250,7 @@ func (s *Server) wsURL(id string) string {
 		return realtimeWSPath + "?ticket=" + id
 	}
 	scheme := "wss"
-	if len(base) >= 5 && base[:5] == "http:" {
+	if strings.HasPrefix(base, "http:") {
 		scheme = "ws"
 	}
 	// strip scheme://host from publicURL, rebuild with ws(s)
@@ -248,12 +263,11 @@ func (s *Server) wsURL(id string) string {
 
 func indexAfterScheme(u string) int {
 	const sep = "://"
-	for i := 0; i+len(sep) <= len(u); i++ {
-		if u[i:i+len(sep)] == sep {
-			return i + len(sep)
-		}
+	i := strings.Index(u, sep)
+	if i < 0 {
+		return -1
 	}
-	return -1
+	return i + len(sep)
 }
 
 func newTicketID() (string, error) {

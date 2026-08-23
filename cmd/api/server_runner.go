@@ -34,7 +34,10 @@ type publicHealthService struct {
 	readiness func() error
 }
 
-func (s publicHealthService) Check(context.Context, *publicv1.PublicHealthServiceCheckRequest) (*publicv1.PublicHealthServiceCheckResponse, error) {
+func (s publicHealthService) Check(
+	context.Context,
+	*publicv1.PublicHealthServiceCheckRequest,
+) (*publicv1.PublicHealthServiceCheckResponse, error) {
 	status := publicv1.ServingStatus_SERVING_STATUS_SERVING
 	if s.readiness != nil && s.readiness() != nil {
 		status = publicv1.ServingStatus_SERVING_STATUS_NOT_SERVING

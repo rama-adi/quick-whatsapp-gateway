@@ -69,17 +69,25 @@ func run() error {
 		return fmt.Errorf("stat gateway bootstrap CA: %w", statErr)
 	}
 	if !caInfo.Mode().IsRegular() || caInfo.Size() <= 0 || caInfo.Size() > 16<<10 {
-		return fmt.Errorf("gateway bootstrap CA must be a regular file within 16 KiB")
+		return errors.New("gateway bootstrap CA must be a regular file within 16 KiB")
 	}
 	bootstrapCA, readErr := os.ReadFile(cfg.BootstrapCAFile)
 	if readErr != nil {
 		return fmt.Errorf("read gateway bootstrap CA: %w", readErr)
 	}
-	controlIdentity, identityErr := gatewayidentity.New(gatewayidentity.Config{Directory: cfg.CredentialDir, GatewayID: cfg.GatewayID, BootstrapCA: bootstrapCA})
+	controlIdentity, identityErr := gatewayidentity.New(gatewayidentity.Config{
+		Directory:   cfg.CredentialDir,
+		GatewayID:   cfg.GatewayID,
+		BootstrapCA: bootstrapCA,
+	})
 	if identityErr != nil {
 		return fmt.Errorf("build gateway identity: %w", identityErr)
 	}
-	control, err := controlclient.New(controlclient.Config{Target: cfg.ControlPlaneAddr, GatewayID: cfg.GatewayID, Identity: controlIdentity})
+	control, err := controlclient.New(controlclient.Config{
+		Target:    cfg.ControlPlaneAddr,
+		GatewayID: cfg.GatewayID,
+		Identity:  controlIdentity,
+	})
 	if err != nil {
 		return fmt.Errorf("build gateway control client: %w", err)
 	}
@@ -213,18 +221,27 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("build gateway control supervisor: %w", err)
 	}
-	applier := &desiredstate.ControlApplier{Reconciler: desiredReconciler, Health: controlKeystore.Health, OnLeaseExpired: func(expireErr error) {
-		if expireErr != nil {
-			log.Warn("expire desired-state leases", "err", expireErr)
-		}
-		controlSupervisor.MarkDesiredStateUnhealthy()
-		controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DEGRADED)
-		controlSupervisor.ReportNow()
-	}}
-	controlSupervisor.SetDesiredState(&bootstrapControlApplier{delegate: applier, keystore: controlKeystore, onReport: func(state gatewayv1.GatewayRuntimeState) {
-		controlRuntime.setState(state)
-		controlSupervisor.ReportNow()
-	}})
+	applier := &desiredstate.ControlApplier{
+		Reconciler: desiredReconciler,
+		Health:     controlKeystore.Health,
+		OnLeaseExpired: func(expireErr error) {
+			if expireErr != nil {
+				log.Warn("expire desired-state leases", "err", expireErr)
+			}
+			controlSupervisor.MarkDesiredStateUnhealthy()
+			controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DEGRADED)
+			controlSupervisor.ReportNow()
+		},
+	}
+	bootstrapApplier := &bootstrapControlApplier{
+		delegate: applier,
+		keystore: controlKeystore,
+		onReport: func(state gatewayv1.GatewayRuntimeState) {
+			controlRuntime.setState(state)
+			controlSupervisor.ReportNow()
+		},
+	}
+	controlSupervisor.SetDesiredState(bootstrapApplier)
 	defer applier.Stop()
 
 	// The control stream outlives the signal context so shutdown can report
@@ -233,10 +250,22 @@ func run() error {
 	supervisorExited = make(chan struct{})
 	certificateRenewalExpired = make(chan error, 1)
 	go func() {
-		renewalErr := renewGatewayCertificate(supervisorCtx, controlIdentity, cfg.CertificateRenewBefore, control, controlSupervisor, func() {
-			controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DEGRADED)
-			reportControlRuntime(log, controlSupervisor, gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DEGRADED, 5*time.Second)
-		})
+		renewalErr := renewGatewayCertificate(
+			supervisorCtx,
+			controlIdentity,
+			cfg.CertificateRenewBefore,
+			control,
+			controlSupervisor,
+			func() {
+				controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DEGRADED)
+				reportControlRuntime(
+					log,
+					controlSupervisor,
+					gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DEGRADED,
+					5*time.Second,
+				)
+			},
+		)
 		if renewalErr != nil {
 			certificateRenewalExpired <- renewalErr
 		}
@@ -266,7 +295,13 @@ func run() error {
 	}()
 
 	// --- Private engine gRPC listener ---
-	engine := wa.NewApplicationGatewayAdapter(cfg.GatewayID, manager, desiredReconciler, newEngineDispatcher(service.NewRoutingWAClient(manager)), journalCommandLedger{journal: eventJournal})
+	engine := wa.NewApplicationGatewayAdapter(
+		cfg.GatewayID,
+		manager,
+		desiredReconciler,
+		newEngineDispatcher(service.NewRoutingWAClient(manager)),
+		journalCommandLedger{journal: eventJournal},
+	)
 	stopEngine, engineErr := startPrivateEngine(cfg.EngineGRPCAddr, cfg.GatewayID, controlIdentity, engine)
 	if engineErr != nil {
 		return fmt.Errorf("start private gateway engine: %w", engineErr)
@@ -404,7 +439,12 @@ func run() error {
 
 			if managerLifecycle.terminal() {
 				reportCtx, reportCancel := context.WithTimeout(context.Background(), 5*time.Second)
-				if reportErr := controlSupervisor.ReportLifecycle(reportCtx, directive, gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED, gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_NONE); reportErr != nil {
+				if reportErr := controlSupervisor.ReportLifecycle(
+					reportCtx,
+					directive,
+					gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED,
+					gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_NONE,
+				); reportErr != nil {
 					log.Warn("report lifecycle directive outcome", "directive", directive.ID, "err", reportErr)
 				}
 				reportCancel()
@@ -419,12 +459,27 @@ func run() error {
 			}
 
 			controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINING)
-			reportControlRuntime(log, controlSupervisor, gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINING, 5*time.Second)
+			reportControlRuntime(
+				log,
+				controlSupervisor,
+				gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINING,
+				5*time.Second,
+			)
 			shutdownManager()
 			controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED)
-			reportControlRuntime(log, controlSupervisor, gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED, 5*time.Second)
+			reportControlRuntime(
+				log,
+				controlSupervisor,
+				gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED,
+				5*time.Second,
+			)
 			reportCtx, reportCancel := context.WithTimeout(context.Background(), 5*time.Second)
-			if reportErr := controlSupervisor.ReportLifecycle(reportCtx, directive, gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED, gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_NONE); reportErr != nil {
+			if reportErr := controlSupervisor.ReportLifecycle(
+				reportCtx,
+				directive,
+				gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED,
+				gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_NONE,
+			); reportErr != nil {
 				log.Warn("report lifecycle directive outcome", "directive", directive.ID, "err", reportErr)
 			}
 			reportCancel()
@@ -476,14 +531,24 @@ func run() error {
 	}
 
 	controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINING)
-	reportControlRuntime(log, controlSupervisor, gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINING, 5*time.Second)
+	reportControlRuntime(
+		log,
+		controlSupervisor,
+		gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINING,
+		5*time.Second,
+	)
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	shutdownErr := srv.Shutdown(shutdownCtx)
 	shutdownManager()
 	controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED)
-	reportControlRuntime(log, controlSupervisor, gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED, 5*time.Second)
+	reportControlRuntime(
+		log,
+		controlSupervisor,
+		gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED,
+		5*time.Second,
+	)
 	if shutdownErr != nil {
 		return fmt.Errorf("graceful shutdown: %w", shutdownErr)
 	}
@@ -537,7 +602,12 @@ func operationalHandler(readiness func() error) http.Handler {
 	return mux
 }
 
-func reportControlRuntime(log *slog.Logger, supervisor *controlsupervisor.Supervisor, state gatewayv1.GatewayRuntimeState, timeout time.Duration) {
+func reportControlRuntime(
+	log *slog.Logger,
+	supervisor *controlsupervisor.Supervisor,
+	state gatewayv1.GatewayRuntimeState,
+	timeout time.Duration,
+) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	if err := supervisor.Flush(ctx); err != nil {
@@ -549,7 +619,10 @@ func reportControlRuntime(log *slog.Logger, supervisor *controlsupervisor.Superv
 // to the engine adapter's transport-independent ledger port.
 type journalCommandLedger struct{ journal *journal.Journal }
 
-func (a journalCommandLedger) LookupCommand(ctx context.Context, commandID string) (*application.CommandResultRecord, error) {
+func (a journalCommandLedger) LookupCommand(
+	ctx context.Context,
+	commandID string,
+) (*application.CommandResultRecord, error) {
 	result, err := a.journal.LookupCommand(ctx, commandID)
 	if err != nil || result == nil {
 		return nil, err

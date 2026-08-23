@@ -175,7 +175,12 @@ func (d *Dispatcher) fail(
 }
 
 // buildRequest constructs the signed POST for a delivery.
-func (d *Dispatcher) buildRequest(ctx context.Context, hook domain.Webhook, evt domain.Event, body []byte) (*http.Request, error) {
+func (d *Dispatcher) buildRequest(
+	ctx context.Context,
+	hook domain.Webhook,
+	evt domain.Event,
+	body []byte,
+) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, hook.URL, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)

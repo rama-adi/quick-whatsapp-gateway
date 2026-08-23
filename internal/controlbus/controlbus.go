@@ -185,7 +185,12 @@ func (s *Subscriber) handle(channel, payload string) {
 		if s.dropper != nil {
 			dropped = s.dropper.DropByUserOrg(m.UserID, m.OrganizationID)
 		}
-		s.log.Info("control bus: member removed", "userId", m.UserID, "organizationId", m.OrganizationID, "streamsDropped", dropped)
+		s.log.Info(
+			"control bus: member removed",
+			"userId", m.UserID,
+			"organizationId", m.OrganizationID,
+			"streamsDropped", dropped,
+		)
 	default:
 		s.log.Warn("control bus: message on unexpected channel", "channel", channel)
 	}

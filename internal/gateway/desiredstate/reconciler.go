@@ -6,7 +6,7 @@ package desiredstate
 import (
 	"context"
 	"errors"
-	"sort"
+	"slices"
 	"sync"
 	"time"
 )
@@ -100,38 +100,36 @@ func (r *Reconciler) Apply(ctx context.Context, snapshot Snapshot) (Result, erro
 	}
 	next := make(map[string]Assignment, len(snapshot.Assignments))
 	wantedDevices := make(map[string]struct{}, len(snapshot.Assignments))
-	result := Result{Revision: snapshot.Revision, Healthy: true, CorruptJIDs: sorted(inventory.CorruptJIDs), LocalDeviceJIDs: sorted(append([]string(nil), inventory.PairedJIDs...))}
+	result := Result{
+		Revision:        snapshot.Revision,
+		Healthy:         true,
+		CorruptJIDs:     sorted(inventory.CorruptJIDs),
+		LocalDeviceJIDs: sorted(slices.Clone(inventory.PairedJIDs)),
+	}
 	now := r.now()
 	for _, assignment := range snapshot.Assignments {
 		if assignment.DeviceJID != "" {
 			wantedDevices[assignment.DeviceJID] = struct{}{}
 		}
-		if !assignment.DesiredRun {
+		if !assignment.DesiredRun || !assignment.LeaseExpiresAt.After(now) {
+			if err := r.stopIfActiveLocked(ctx, assignment.SessionID); err != nil {
+				return Result{}, err
+			}
+			if assignment.DesiredRun {
+				continue // expired lease: not retained, not restarted
+			}
 			next[assignment.SessionID] = assignment
-			if _, active := r.assignments[assignment.SessionID]; active {
-				if err := r.runtime.StopAssigned(ctx, assignment.SessionID); err != nil {
-					return Result{}, err
-				}
-			}
-			continue
-		}
-		if !assignment.LeaseExpiresAt.After(now) {
-			if _, active := r.assignments[assignment.SessionID]; active {
-				if err := r.runtime.StopAssigned(ctx, assignment.SessionID); err != nil {
-					return Result{}, err
-				}
-			}
 			continue
 		}
 		next[assignment.SessionID] = assignment
-		if _, found := paired[assignment.DeviceJID]; found {
-			// Runtime start is idempotent. Calling it every snapshot both admits a
-			// device that appeared since the previous report and refreshes config.
-			if err := r.runtime.StartAssigned(ctx, assignment); err != nil {
-				return Result{}, err
-			}
-		} else {
+		if _, found := paired[assignment.DeviceJID]; !found {
 			result.MissingDeviceJIDs = append(result.MissingDeviceJIDs, assignment.DeviceJID)
+			continue
+		}
+		// Runtime start is idempotent. Calling it every snapshot both admits a
+		// device that appeared since the previous report and refreshes config.
+		if err := r.runtime.StartAssigned(ctx, assignment); err != nil {
+			return Result{}, err
 		}
 	}
 	for id := range r.assignments {
@@ -148,9 +146,21 @@ func (r *Reconciler) Apply(ctx context.Context, snapshot Snapshot) (Result, erro
 	}
 	result.MissingDeviceJIDs = sorted(result.MissingDeviceJIDs)
 	result.UnexpectedJIDs = sorted(result.UnexpectedJIDs)
-	result.Healthy = len(result.MissingDeviceJIDs) == 0 && len(result.UnexpectedJIDs) == 0 && len(result.CorruptJIDs) == 0
+	noMissing := len(result.MissingDeviceJIDs) == 0
+	noUnexpected := len(result.UnexpectedJIDs) == 0
+	noCorrupt := len(result.CorruptJIDs) == 0
+	result.Healthy = noMissing && noUnexpected && noCorrupt
 	r.assignments, r.revision = next, snapshot.Revision
 	return result, nil
+}
+
+// stopIfActiveLocked stops a session that is currently assigned. Callers must
+// hold r.mu.
+func (r *Reconciler) stopIfActiveLocked(ctx context.Context, sessionID string) error {
+	if _, active := r.assignments[sessionID]; !active {
+		return nil
+	}
+	return r.runtime.StopAssigned(ctx, sessionID)
 }
 
 // Expire stops assignments whose API-clock lease has elapsed. The caller owns
@@ -186,7 +196,7 @@ func (r *Reconciler) AllowsMutation(organizationID, sessionID string, epoch uint
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	a, ok := r.assignments[sessionID]
-	return ok && a.OrganizationID == organizationID && a.DesiredRun && a.AssignmentEpoch == epoch && a.LeaseExpiresAt.After(r.now())
+	return ok && assignmentActive(a, organizationID, epoch, r.now())
 }
 
 // OwnsSession is the read-side ownership check for gateway-local live state.
@@ -194,10 +204,21 @@ func (r *Reconciler) OwnsSession(organizationID, sessionID string, epoch uint64)
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	a, ok := r.assignments[sessionID]
-	return ok && a.OrganizationID == organizationID && a.DesiredRun && a.AssignmentEpoch == epoch && a.LeaseExpiresAt.After(r.now())
+	return ok && assignmentActive(a, organizationID, epoch, r.now())
 }
 
-func (r *Reconciler) Revision() uint64 { r.mu.RLock(); defer r.mu.RUnlock(); return r.revision }
+func assignmentActive(a Assignment, organizationID string, epoch uint64, now time.Time) bool {
+	return a.OrganizationID == organizationID &&
+		a.DesiredRun &&
+		a.AssignmentEpoch == epoch &&
+		a.LeaseExpiresAt.After(now)
+}
+
+func (r *Reconciler) Revision() uint64 {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.revision
+}
 
 // AssignmentCount returns the current authoritative assignment set after the
 // last successfully applied snapshot. It is safe for heartbeat reporting and
@@ -227,9 +248,15 @@ func validate(snapshot Snapshot) error {
 	if snapshot.Revision == 0 {
 		return ErrInvalidSnapshot
 	}
-	seenSessions, seenDevices := map[string]struct{}{}, map[string]struct{}{}
+	seenSessions := make(map[string]struct{})
+	seenDevices := make(map[string]struct{})
 	for _, a := range snapshot.Assignments {
-		if a.SessionID == "" || a.OrganizationID == "" || (a.DesiredRun && a.DeviceJID == "") || a.AssignmentEpoch == 0 || a.LeaseExpiresAt.IsZero() {
+		invalid := a.SessionID == "" ||
+			a.OrganizationID == "" ||
+			(a.DesiredRun && a.DeviceJID == "") ||
+			a.AssignmentEpoch == 0 ||
+			a.LeaseExpiresAt.IsZero()
+		if invalid {
 			return ErrInvalidSnapshot
 		}
 		if _, exists := seenSessions[a.SessionID]; exists {
@@ -247,4 +274,7 @@ func validate(snapshot Snapshot) error {
 	return nil
 }
 
-func sorted(values []string) []string { sort.Strings(values); return values }
+func sorted(values []string) []string {
+	slices.Sort(values)
+	return values
+}

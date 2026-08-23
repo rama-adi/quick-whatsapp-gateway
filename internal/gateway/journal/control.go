@@ -22,7 +22,14 @@ type ControlAdapter struct {
 	GatewayID string
 }
 
-func (a ControlAdapter) Batch(ctx context.Context, maxEntries int, maxBytes int64, gatewayID string, connectionEpoch uint64, metadata func([]byte) (*gatewayv1.GatewayEvent, error)) (*gatewayv1.GatewayEventBatch, error) {
+func (a ControlAdapter) Batch(
+	ctx context.Context,
+	maxEntries int,
+	maxBytes int64,
+	gatewayID string,
+	connectionEpoch uint64,
+	metadata func([]byte) (*gatewayv1.GatewayEvent, error),
+) (*gatewayv1.GatewayEventBatch, error) {
 	entries, err := a.Journal.ReadUnacked(ctx, maxEntries, maxBytes)
 	if err != nil {
 		return nil, err
@@ -33,7 +40,10 @@ func (a ControlAdapter) Batch(ctx context.Context, maxEntries int, maxBytes int6
 		if decodeErr != nil {
 			return nil, decodeErr
 		}
-		event.JournalSequence, event.EventId, event.GatewayId, event.ConnectionEpoch = entry.Seq, entry.EventID, gatewayID, connectionEpoch
+		event.JournalSequence = entry.Seq
+		event.EventId = entry.EventID
+		event.GatewayId = gatewayID
+		event.ConnectionEpoch = connectionEpoch
 		batch.Events = append(batch.Events, event)
 		if int64(proto.Size(batch)) > maxBytes {
 			batch.Events = batch.Events[:len(batch.Events)-1]
@@ -53,40 +63,46 @@ func (a ControlAdapter) Ack(ctx context.Context, sequence uint64) error {
 func (a ControlAdapter) AckEvents(ctx context.Context, sequence uint64) error {
 	return a.Ack(ctx, sequence)
 }
+
 func (a ControlAdapter) NextEventBatch(ctx context.Context, epoch uint64) (*gatewayv1.GatewayEventBatch, error) {
-	return a.Batch(ctx, DefaultBatchEntries, DefaultBatchBytes, a.GatewayID, epoch, func(payload []byte) (*gatewayv1.GatewayEvent, error) {
-		var persisted persistedEvent
-		if err := json.Unmarshal(payload, &persisted); err != nil {
-			return nil, fmt.Errorf("decode journal event: %w", err)
-		}
-		if persisted.Event.ID == "" || persisted.AssignmentEpoch == 0 {
-			return nil, errors.New("journal event is missing canonical assignment metadata")
-		}
-		jsonPayload, err := json.Marshal(persisted.Event)
-		if err != nil {
-			return nil, fmt.Errorf("marshal normalized event: %w", err)
-		}
-		var value map[string]any
-		if err := json.Unmarshal(jsonPayload, &value); err != nil {
-			return nil, fmt.Errorf("decode normalized event JSON: %w", err)
-		}
-		payloadStruct, err := structpb.NewStruct(value)
-		if err != nil {
-			return nil, fmt.Errorf("build normalized event payload: %w", err)
-		}
-		encoded, err := proto.Marshal(payloadStruct)
-		if err != nil {
-			return nil, fmt.Errorf("marshal normalized event payload: %w", err)
-		}
-		return &gatewayv1.GatewayEvent{
-			AssignmentEpoch:  persisted.AssignmentEpoch,
-			SessionId:        persisted.Event.Session,
-			OrganizationId:   persisted.Event.Organization,
-			EventType:        persisted.Event.Type,
-			OccurredAtUnixMs: persisted.Event.Timestamp,
-			Payload:          encoded,
-		}, nil
-	})
+	return a.Batch(ctx, DefaultBatchEntries, DefaultBatchBytes, a.GatewayID, epoch, decodeJournalEvent)
+}
+
+// decodeJournalEvent converts one stored journal payload into the private
+// control-stream event representation.
+func decodeJournalEvent(payload []byte) (*gatewayv1.GatewayEvent, error) {
+	var persisted persistedEvent
+	if err := json.Unmarshal(payload, &persisted); err != nil {
+		return nil, fmt.Errorf("decode journal event: %w", err)
+	}
+	missingMetadata := persisted.Event.ID == "" || persisted.AssignmentEpoch == 0
+	if missingMetadata {
+		return nil, errors.New("journal event is missing canonical assignment metadata")
+	}
+	jsonPayload, err := json.Marshal(persisted.Event)
+	if err != nil {
+		return nil, fmt.Errorf("marshal normalized event: %w", err)
+	}
+	var value map[string]any
+	if err := json.Unmarshal(jsonPayload, &value); err != nil {
+		return nil, fmt.Errorf("decode normalized event JSON: %w", err)
+	}
+	payloadStruct, err := structpb.NewStruct(value)
+	if err != nil {
+		return nil, fmt.Errorf("build normalized event payload: %w", err)
+	}
+	encoded, err := proto.Marshal(payloadStruct)
+	if err != nil {
+		return nil, fmt.Errorf("marshal normalized event payload: %w", err)
+	}
+	return &gatewayv1.GatewayEvent{
+		AssignmentEpoch:  persisted.AssignmentEpoch,
+		SessionId:        persisted.Event.Session,
+		OrganizationId:   persisted.Event.Organization,
+		EventType:        persisted.Event.Type,
+		OccurredAtUnixMs: persisted.Event.Timestamp,
+		Payload:          encoded,
+	}, nil
 }
 
 // persistedEvent keeps the ownership epoch that was current when the event was
@@ -100,7 +116,11 @@ type persistedEvent struct {
 // AppendDomainEvent durably records a normalized event only while its current
 // desired-state assignment is live. The stored JSON is converted to a protobuf
 // Struct at the private control boundary.
-func (a ControlAdapter) AppendDomainEvent(ctx context.Context, event domain.Event, assignmentEpoch uint64) (Entry, bool, error) {
+func (a ControlAdapter) AppendDomainEvent(
+	ctx context.Context,
+	event domain.Event,
+	assignmentEpoch uint64,
+) (Entry, bool, error) {
 	payload, err := json.Marshal(persistedEvent{Event: event, AssignmentEpoch: assignmentEpoch})
 	if err != nil {
 		return Entry{}, false, fmt.Errorf("marshal normalized event: %w", err)

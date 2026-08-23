@@ -58,7 +58,11 @@ type RetentionScheduler struct {
 
 // NewRetentionScheduler constructs a retention scheduler. Start is a no-op
 // when RetentionDays is zero, preserving RETENTION_DAYS=0 as keep-forever.
-func NewRetentionScheduler(redisClient redis.Cmdable, enqueuer retentionEnqueuer, cfg RetentionSchedulerConfig) *RetentionScheduler {
+func NewRetentionScheduler(
+	redisClient redis.Cmdable,
+	enqueuer retentionEnqueuer,
+	cfg RetentionSchedulerConfig,
+) *RetentionScheduler {
 	log := cfg.Log
 	if log == nil {
 		log = slog.Default()
@@ -158,7 +162,8 @@ func (s *RetentionScheduler) enqueueDay(ctx context.Context, now time.Time) erro
 	_, err = s.enqueuer.EnqueueRetentionPrune(ctx, cutoff,
 		asynq.TaskID("retention:"+key),
 	)
-	if err == nil || errors.Is(err, asynq.ErrDuplicateTask) || errors.Is(err, asynq.ErrTaskIDConflict) {
+	alreadyScheduled := errors.Is(err, asynq.ErrDuplicateTask) || errors.Is(err, asynq.ErrTaskIDConflict)
+	if err == nil || alreadyScheduled {
 		s.log.Info("retention prune scheduled", "cutoff_ms", cutoff, "date", dayStart.Format(time.DateOnly))
 		return nil
 	}
@@ -181,7 +186,8 @@ func (s *RetentionScheduler) claimKey(day time.Time) string {
 }
 
 func (s *RetentionScheduler) releaseClaim(ctx context.Context, key, token string) error {
-	const compareAndDelete = `if redis.call("GET", KEYS[1]) == ARGV[1] then return redis.call("DEL", KEYS[1]) else return 0 end`
+	const compareAndDelete = `if redis.call("GET", KEYS[1]) == ARGV[1] then` +
+		` return redis.call("DEL", KEYS[1]) else return 0 end`
 	return s.redis.Eval(ctx, compareAndDelete, []string{key}, token).Err()
 }
 

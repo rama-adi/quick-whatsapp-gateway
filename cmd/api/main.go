@@ -272,14 +272,27 @@ func run() error {
 		if policyErr != nil {
 			return fmt.Errorf("build gateway PKI policy: %w", policyErr)
 		}
-		signer, signerErr := localmysql.New(db, localmysql.Config{KEK: cfg.GatewayPKI.EncryptionKey, KeyID: cfg.GatewayPKI.EncryptionKeyID, RootTTL: cfg.GatewayPKI.RootTTL, IntermediateTTL: cfg.GatewayPKI.IntermediateTTL, RenewBefore: cfg.GatewayPKI.IntermediateRenewBefore, Policy: policy})
+		signer, signerErr := localmysql.New(db, localmysql.Config{
+			KEK:             cfg.GatewayPKI.EncryptionKey,
+			KeyID:           cfg.GatewayPKI.EncryptionKeyID,
+			RootTTL:         cfg.GatewayPKI.RootTTL,
+			IntermediateTTL: cfg.GatewayPKI.IntermediateTTL,
+			RenewBefore:     cfg.GatewayPKI.IntermediateRenewBefore,
+			Policy:          policy,
+		})
 		if signerErr != nil {
 			return fmt.Errorf("build gateway PKI signer: %w", signerErr)
 		}
 		if signerErr = signer.EnsureHierarchy(ctx); signerErr != nil {
 			return fmt.Errorf("ensure gateway PKI hierarchy: %w", signerErr)
 		}
-		identity, identityErr := apiidentity.New(apiidentity.Config{Directory: cfg.GatewayTLSIdentityDir, RenewBefore: cfg.GatewayTLSRenewBefore}, signer)
+		identity, identityErr := apiidentity.New(
+			apiidentity.Config{
+				Directory:   cfg.GatewayTLSIdentityDir,
+				RenewBefore: cfg.GatewayTLSRenewBefore,
+			},
+			signer,
+		)
 		if identityErr != nil {
 			return fmt.Errorf("build API TLS identity: %w", identityErr)
 		}
@@ -292,9 +305,14 @@ func run() error {
 		}
 		clientRoots := x509.NewCertPool()
 		if !clientRoots.AppendCertsFromPEM(bundle) {
-			return fmt.Errorf("load gateway trust bundle: invalid PEM")
+			return errors.New("load gateway trust bundle: invalid PEM")
 		}
-		engineClient, identityErr = apigateway.NewEngineClient(st.Gateways, apigateway.NewEngineMTLSDial(identity.GetCertificate, clientRoots), cfg.GatewayEngineUnaryDeadline, cfg.GatewayEngineSendDeadline)
+		engineClient, identityErr = apigateway.NewEngineClient(
+			st.Gateways,
+			apigateway.NewEngineMTLSDial(identity.GetCertificate, clientRoots),
+			cfg.GatewayEngineUnaryDeadline,
+			cfg.GatewayEngineSendDeadline,
+		)
 		if identityErr != nil {
 			return fmt.Errorf("build gateway engine client: %w", identityErr)
 		}
@@ -326,7 +344,10 @@ func run() error {
 		// exceed the engine send deadline so an in-flight dispatch is never
 		// reclaimed mid-flight. ---
 		outboundScheduler, schedulerErr := service.NewOutboundScheduler(
-			st.Sessions, st.Outbox, engineClient, outbound.NewRedisRateLimiter(rdb),
+			st.Sessions,
+			st.Outbox,
+			engineClient,
+			outbound.NewRedisRateLimiter(rdb),
 			service.OutboundSchedulerConfig{
 				Lease:       cfg.GatewayEngineSendDeadline + time.Minute,
 				Batch:       32,
@@ -335,7 +356,9 @@ func run() error {
 				BackoffBase: 5 * time.Second,
 				BackoffCap:  10 * time.Minute,
 				Now:         time.Now,
-			}, log)
+			},
+			log,
+		)
 		if schedulerErr != nil {
 			return fmt.Errorf("build outbound scheduler: %w", schedulerErr)
 		}
@@ -347,17 +370,25 @@ func run() error {
 			}
 		}()
 		if services.Messages == nil {
-			return fmt.Errorf("message service is not constructed")
+			return errors.New("message service is not constructed")
 		}
 		services.Messages.SetGatewaySendFacade(outboundScheduler)
 		services.Messages.SetGatewayOpFacade(outboundScheduler)
-		services.Sessions.SetSessionDesiredController(sessionDesiredController{assignments: store.NewGatewayAssignmentRepo(db)})
+		services.Sessions.SetSessionDesiredController(sessionDesiredController{
+			assignments: store.NewGatewayAssignmentRepo(db),
+		})
 		tlsConfig := privateGatewayTLSConfig(identity, clientRoots)
 		enrollment, enrollmentErr := service.NewEnrollmentService(db, signer, service.DefaultEnrollmentConfig())
 		if enrollmentErr != nil {
 			return fmt.Errorf("build enrollment service: %w", enrollmentErr)
 		}
-		gatewayAdminService, enrollmentErr := gatewayadmin.NewWithActions(st.Gateways, st.Sessions, st.AuditEvents, enrollment, store.NewGatewayAdminStore(db))
+		gatewayAdminService, enrollmentErr := gatewayadmin.NewWithActions(
+			st.Gateways,
+			st.Sessions,
+			st.AuditEvents,
+			enrollment,
+			store.NewGatewayAdminStore(db),
+		)
 		if enrollmentErr != nil {
 			return fmt.Errorf("build gateway administration service: %w", enrollmentErr)
 		}
@@ -376,13 +407,24 @@ func run() error {
 			return readiness(db, nil)()
 		}
 		control := &apigateway.Server{
-			Store: gatewayControlStore{repo: st.Gateways, reconciliation: store.NewGatewayReconciliationRepo(db), eventIngest: store.NewGatewayEventIngestRepo(db)},
+			Store: gatewayControlStore{
+				repo:           st.Gateways,
+				reconciliation: store.NewGatewayReconciliationRepo(db),
+				eventIngest:    store.NewGatewayEventIngestRepo(db),
+			},
 			ResolveGatewayID: func(ctx context.Context) (string, bool) {
 				identity, ok := gatewayIdentityFromContext(ctx)
 				return identity.GatewayID, ok
 			},
 		}
-		privateGRPCServer = newPrivateGatewayGRPCServer(tlsConfig, privateGatewayAuthenticator{store: mysqlGatewayCredentialStore{db: db}}, enrollment, renewal, privateReady, control)
+		privateGRPCServer = newPrivateGatewayGRPCServer(
+			tlsConfig,
+			privateGatewayAuthenticator{store: mysqlGatewayCredentialStore{db: db}},
+			enrollment,
+			renewal,
+			privateReady,
+			control,
+		)
 		go renewAPIIdentity(ctx, identity, cfg.GatewayTLSRenewBefore, log)
 	}
 	srv, err := router.NewServer(router.Config{
@@ -429,7 +471,12 @@ func run() error {
 		readiness:         readinessGate,
 		shutdownTimeout:   15 * time.Second,
 		onBound: func(_, _, _ net.Listener) {
-			log.Info("api listening", "http_addr", cfg.HTTPAddr, "public_grpc_addr", cfg.PublicGRPCAddr, "private_gateway_grpc_enabled", cfg.GatewayGRPCAddr != "")
+			log.Info(
+				"api listening",
+				"http_addr", cfg.HTTPAddr,
+				"public_grpc_addr", cfg.PublicGRPCAddr,
+				"private_gateway_grpc_enabled", cfg.GatewayGRPCAddr != "",
+			)
 		},
 	}
 	if err := runner.run(ctx); err != nil {
@@ -439,7 +486,11 @@ func run() error {
 	return nil
 }
 
-func prepareAPIDatabase(dsn string, migrate func(string, dbmigrate.Direction) error, open func(string) (*sql.DB, error)) (*sql.DB, error) {
+func prepareAPIDatabase(
+	dsn string,
+	migrate func(string, dbmigrate.Direction) error,
+	open func(string) (*sql.DB, error),
+) (*sql.DB, error) {
 	if err := migrate(dsn, dbmigrate.Up); err != nil {
 		return nil, fmt.Errorf("run API schema migrations: %w", err)
 	}
@@ -452,13 +503,13 @@ func prepareAPIDatabase(dsn string, migrate func(string, dbmigrate.Direction) er
 
 func runOIDPRotateKey(ctx context.Context, cfg *config.APIConfig, args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: api oidp rotate-key generate-next|promote <kid>|retire <kid>")
+		return errors.New("usage: api oidp rotate-key generate-next|promote <kid>|retire <kid>")
 	}
 	if cfg.MySQLDSN == "" {
-		return fmt.Errorf("config: MYSQL_DSN is required")
+		return errors.New("config: MYSQL_DSN is required")
 	}
 	if cfg.OIDCKeyEncKey == "" {
-		return fmt.Errorf("config: OIDC_KEY_ENC_KEY is required")
+		return errors.New("config: OIDC_KEY_ENC_KEY is required")
 	}
 	db, err := dbconn.OpenMySQL(cfg.MySQLDSN)
 	if err != nil {
@@ -477,23 +528,29 @@ func runOIDPRotateKey(ctx context.Context, cfg *config.APIConfig, args []string)
 		return nil
 	case "promote":
 		if len(args) != 2 {
-			return fmt.Errorf("usage: api oidp rotate-key promote <kid>")
+			return errors.New("usage: api oidp rotate-key promote <kid>")
 		}
 		return oidp.PromoteNextKey(ctx, repo, args[1], now)
 	case "retire":
 		if len(args) != 2 {
-			return fmt.Errorf("usage: api oidp rotate-key retire <kid>")
+			return errors.New("usage: api oidp rotate-key retire <kid>")
 		}
 		return oidp.RetireKey(ctx, repo, args[1], now)
 	default:
-		return fmt.Errorf("usage: api oidp rotate-key generate-next|promote <kid>|retire <kid>")
+		return errors.New("usage: api oidp rotate-key generate-next|promote <kid>|retire <kid>")
 	}
 }
 
 // startControlBus subscribes to the ctrl:* revocation bus and evicts the api-key
 // cache + drops matching live WebSocket connections. Empty URL → no-op (the cache
 // TTL is the revocation backstop).
-func startControlBus(ctx context.Context, pubsubURL string, cache controlbus.KeyCache, dropper controlbus.StreamDropper, log *slog.Logger) func() {
+func startControlBus(
+	ctx context.Context,
+	pubsubURL string,
+	cache controlbus.KeyCache,
+	dropper controlbus.StreamDropper,
+	log *slog.Logger,
+) func() {
 	if pubsubURL == "" {
 		log.Warn("control bus disabled: PUBSUB_REDIS_URL/REDIS_URL empty; relying on api-key cache TTL for revocation")
 		return func() {}
@@ -536,12 +593,17 @@ func startWebhookDispatchLoop(ctx context.Context, d *webhooks.Dispatcher, log *
 	return cancel
 }
 
-// eventLogReader adapts *store.EventLogRepo to stream.EventLogReader for the// realtime pump's ?since= replay: it resolves the opaque event-id cursor to the
+// eventLogReader adapts *store.EventLogRepo to stream.EventLogReader for the
+// realtime pump's ?since= replay: it resolves the opaque event-id cursor to the
 // store's monotonic id, then pages. Kept here (rather than importing the service
 // graph) so the API binary stays lean.
 type eventLogReader struct{ repo *store.EventLogRepo }
 
-func (a *eventLogReader) ListSince(ctx context.Context, organization, session, afterEventID string, limit int) ([]domain.EventLogEntry, error) {
+func (a *eventLogReader) ListSince(
+	ctx context.Context,
+	organization, session, afterEventID string,
+	limit int,
+) ([]domain.EventLogEntry, error) {
 	var afterID uint64
 	if afterEventID != "" {
 		if entry, err := a.repo.GetByEventID(ctx, afterEventID); err == nil {
@@ -556,7 +618,10 @@ func (a *eventLogReader) ListSince(ctx context.Context, organization, session, a
 // internal/store keeps no application-layer imports.
 type committedEventWorkStore struct{ repo *store.GatewayEventIngestRepo }
 
-func (a committedEventWorkStore) ClaimCommittedEvents(ctx context.Context, claim application.CommittedEventClaim) ([]domain.Event, error) {
+func (a committedEventWorkStore) ClaimCommittedEvents(
+	ctx context.Context,
+	claim application.CommittedEventClaim,
+) ([]domain.Event, error) {
 	return a.repo.ClaimCommittedEvents(ctx, store.CommittedEventWork{
 		Owner: claim.Owner, LeaseUntil: claim.LeaseUntil, MaxItems: claim.MaxItems,
 	})

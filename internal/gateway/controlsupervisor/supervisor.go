@@ -170,7 +170,9 @@ func New(cfg Config, opener StreamOpener) (*Supervisor, error) {
 		return nil, errors.New("control supervisor: invalid heartbeat bounds")
 	}
 	return &Supervisor{
-		cfg: cfg, opener: opener,
+		cfg:    cfg,
+		opener: opener,
+
 		report:           make(chan struct{}, 1),
 		lifecycleReports: make(chan lifecycleReportRequest),
 		changed:          make(chan struct{}),
@@ -210,7 +212,10 @@ func (s *Supervisor) SetDesiredState(applier DesiredStateApplier) {
 func (s *Supervisor) WaitForDesiredState(ctx context.Context, epoch uint64) (Status, error) {
 	for {
 		s.mu.RLock()
-		if s.status.Connected && s.status.ConnectionEpoch == epoch && s.status.DesiredStateApplied {
+		applied := s.status.Connected &&
+			s.status.ConnectionEpoch == epoch &&
+			s.status.DesiredStateApplied
+		if applied {
 			status := copyStatus(s.status)
 			s.mu.RUnlock()
 			return status, nil
@@ -248,84 +253,153 @@ func (s *Supervisor) ProveCurrentConnection(ctx context.Context) (func(), error)
 	if !validRuntimeState(runtime.State) {
 		return nil, fmt.Errorf("%w: invalid runtime state", ErrProtocol)
 	}
-	hello := &gatewayv1.GatewayFrame{ProtocolVersion: ProtocolVersion, Sequence: 1, Payload: &gatewayv1.GatewayFrame_Hello{Hello: &gatewayv1.GatewayHello{
-		InstanceId: s.cfg.InstanceID, SoftwareVersion: s.cfg.SoftwareVersion, StartedAtUnixMs: s.cfg.StartedAt.UnixMilli(), SessionCount: runtime.SessionCount, RuntimeState: runtime.State,
-	}}}
-	if s.cfg.HTTPBaseURL != "" {
-		hello.GetHello().HttpBaseUrl = &s.cfg.HTTPBaseURL
-	}
-	if s.cfg.GRPCEndpoint != "" {
-		hello.GetHello().GrpcEndpoint = &s.cfg.GRPCEndpoint
-	}
 	probeCtx, cancel := context.WithCancel(ctx)
-	if err = s.sendHandshake(probeCtx, cancel, stream, hello); err != nil {
+	if err := s.sendHandshake(probeCtx, cancel, stream, s.newHelloFrame(runtime)); err != nil {
 		cancel()
 		return nil, fmt.Errorf("send replacement hello: %w", err)
 	}
+	welcome, first, err := s.receiveReplacementWelcome(ctx, cancel, stream)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	if err := s.probeReplacementHeartbeat(probeCtx, cancel, stream, welcome, first, runtime); err != nil {
+		cancel()
+		return nil, err
+	}
+	return cancel, nil
+}
+
+// newHelloFrame builds the sequence-1 Hello advertising the given runtime.
+func (s *Supervisor) newHelloFrame(runtime RuntimeSnapshot) *gatewayv1.GatewayFrame {
+	hello := &gatewayv1.GatewayHello{
+		InstanceId:      s.cfg.InstanceID,
+		SoftwareVersion: s.cfg.SoftwareVersion,
+		StartedAtUnixMs: s.cfg.StartedAt.UnixMilli(),
+		SessionCount:    runtime.SessionCount,
+		RuntimeState:    runtime.State,
+	}
+	if s.cfg.HTTPBaseURL != "" {
+		hello.HttpBaseUrl = &s.cfg.HTTPBaseURL
+	}
+	if s.cfg.GRPCEndpoint != "" {
+		hello.GrpcEndpoint = &s.cfg.GRPCEndpoint
+	}
+	return &gatewayv1.GatewayFrame{
+		ProtocolVersion: ProtocolVersion,
+		Sequence:        1,
+		Payload:         &gatewayv1.GatewayFrame_Hello{Hello: hello},
+	}
+}
+
+// receiveReplacementWelcome waits for the replacement stream's Welcome, bounded
+// by the handshake timeout. first carries the received frame even on protocol
+// errors so callers can echo its control sequence.
+func (s *Supervisor) receiveReplacementWelcome(
+	ctx context.Context,
+	cancel context.CancelFunc,
+	stream Stream,
+) (*gatewayv1.ControlWelcome, receiveResult, error) {
 	received := make(chan receiveResult, 1)
 	go receive(stream, received)
 	var first receiveResult
 	select {
 	case <-ctx.Done():
-		cancel()
-		return nil, ctx.Err()
+		return nil, first, ctx.Err()
 	case <-s.cfg.Clock.After(s.cfg.HandshakeTimeout):
-		cancel()
-		return nil, errors.New("control supervisor: replacement welcome timeout")
+		return nil, first, errors.New("control supervisor: replacement welcome timeout")
 	case first = <-received:
 	}
 	if first.err != nil {
-		cancel()
-		return nil, fmt.Errorf("receive replacement welcome: %w", first.err)
+		return nil, first, fmt.Errorf("receive replacement welcome: %w", first.err)
 	}
 	welcome, err := validateWelcome(first.frame)
 	if err != nil {
-		cancel()
-		return nil, err
+		return nil, first, err
 	}
+	return welcome, first, nil
+}
+
+// probeReplacementHeartbeat proves the replacement stream can carry an
+// acknowledged heartbeat within the advertised lease.
+func (s *Supervisor) probeReplacementHeartbeat(
+	probeCtx context.Context,
+	cancel context.CancelFunc,
+	stream Stream,
+	welcome *gatewayv1.ControlWelcome,
+	first receiveResult,
+	runtime RuntimeSnapshot,
+) error {
 	heartbeatInterval := time.Duration(welcome.HeartbeatIntervalMs) * time.Millisecond
 	leaseTimeout := time.Duration(welcome.LeaseTimeoutMs) * time.Millisecond
-	if heartbeatInterval < s.cfg.MinHeartbeat || heartbeatInterval > s.cfg.MaxHeartbeat || leaseTimeout <= heartbeatInterval {
-		cancel()
-		return nil, fmt.Errorf("%w: invalid replacement timing", ErrProtocol)
+	intervalOutOfBounds := heartbeatInterval < s.cfg.MinHeartbeat || heartbeatInterval > s.cfg.MaxHeartbeat
+	if intervalOutOfBounds || leaseTimeout <= heartbeatInterval {
+		return fmt.Errorf("%w: invalid replacement timing", ErrProtocol)
 	}
-	heartbeat := &gatewayv1.GatewayFrame{ProtocolVersion: ProtocolVersion, Sequence: 2, Payload: &gatewayv1.GatewayFrame_Heartbeat{Heartbeat: &gatewayv1.GatewayHeartbeat{
-		ConnectionEpoch: welcome.ConnectionEpoch, LastControlSequence: first.frame.Sequence, SentAtUnixMs: s.cfg.Clock.Now().UnixMilli(), SessionCount: runtime.SessionCount, RuntimeState: runtime.State,
-	}}}
-	if err = s.sendWithin(probeCtx, cancel, stream, heartbeat, leaseTimeout-heartbeatInterval); err != nil {
-		cancel()
-		return nil, fmt.Errorf("send replacement heartbeat: %w", err)
+	heartbeat := &gatewayv1.GatewayFrame{
+		ProtocolVersion: ProtocolVersion,
+		Sequence:        2,
+		Payload: &gatewayv1.GatewayFrame_Heartbeat{Heartbeat: newGatewayHeartbeat(
+			welcome.ConnectionEpoch, first.frame.Sequence, runtime, s.cfg.Clock.Now(),
+		)},
 	}
+	budget := leaseTimeout - heartbeatInterval
+	if err := s.sendWithin(probeCtx, cancel, stream, heartbeat, budget); err != nil {
+		return fmt.Errorf("send replacement heartbeat: %w", err)
+	}
+	return s.awaitReplacementAck(probeCtx, cancel, stream, welcome, first, leaseTimeout)
+}
+
+func (s *Supervisor) awaitReplacementAck(
+	probeCtx context.Context,
+	cancel context.CancelFunc,
+	stream Stream,
+	welcome *gatewayv1.ControlWelcome,
+	first receiveResult,
+	leaseTimeout time.Duration,
+) error {
 	acked := make(chan receiveResult, 1)
 	go receive(stream, acked)
 	select {
-	case <-ctx.Done():
-		cancel()
-		return nil, ctx.Err()
+	case <-probeCtx.Done():
+		return probeCtx.Err()
 	case <-s.cfg.Clock.After(leaseTimeout):
-		cancel()
-		return nil, errors.New("control supervisor: replacement heartbeat acknowledgement timeout")
+		return errors.New("control supervisor: replacement heartbeat acknowledgement timeout")
 	case result := <-acked:
-		if result.err != nil {
-			cancel()
-			return nil, fmt.Errorf("receive replacement heartbeat acknowledgement: %w", result.err)
-		}
-		if err = validateControl(result.frame, first.frame.Sequence+1, welcome.ConnectionEpoch, 2, s.cfg.Clock.Now()); err != nil {
-			cancel()
-			return nil, err
-		}
-		if result.frame.GetHeartbeatAck() == nil {
-			cancel()
-			return nil, fmt.Errorf("%w: replacement control frame is not a heartbeat acknowledgement", ErrProtocol)
-		}
+		return validateReplacementAck(result, first, welcome, s.cfg.Clock.Now())
 	}
-	return cancel, nil
 }
 
-func (s *Supervisor) WaitForLifecycleChange(ctx context.Context, epoch uint64, desired gatewayv1.LifecycleDirectiveAction) (Status, error) {
+func validateReplacementAck(result, first receiveResult, welcome *gatewayv1.ControlWelcome, now time.Time) error {
+	if result.err != nil {
+		return fmt.Errorf("receive replacement heartbeat acknowledgement: %w", result.err)
+	}
+	const gatewaySequence = 2
+	if err := validateControl(
+		result.frame,
+		first.frame.Sequence+1,
+		welcome.ConnectionEpoch,
+		gatewaySequence,
+		now,
+	); err != nil {
+		return err
+	}
+	if result.frame.GetHeartbeatAck() == nil {
+		return fmt.Errorf("%w: replacement control frame is not a heartbeat acknowledgement", ErrProtocol)
+	}
+	return nil
+}
+
+func (s *Supervisor) WaitForLifecycleChange(
+	ctx context.Context,
+	epoch uint64,
+	desired gatewayv1.LifecycleDirectiveAction,
+) (Status, error) {
 	for {
 		s.mu.RLock()
-		if s.status.Connected && (s.status.ConnectionEpoch != epoch || s.status.DesiredLifecycle != desired) {
+		superseded := s.status.Connected &&
+			(s.status.ConnectionEpoch != epoch || s.status.DesiredLifecycle != desired)
+		if superseded {
 			status := copyStatus(s.status)
 			s.mu.RUnlock()
 			return status, nil
@@ -347,7 +421,8 @@ func (s *Supervisor) WaitForDirective(ctx context.Context, afterSequence uint64)
 	for {
 		s.mu.RLock()
 		directive := s.status.Directive
-		if s.status.Connected && directive != nil && directive.Sequence > afterSequence {
+		available := s.status.Connected && directive != nil && directive.Sequence > afterSequence
+		if available {
 			value := *directive
 			s.mu.RUnlock()
 			return value, nil
@@ -364,7 +439,12 @@ func (s *Supervisor) WaitForDirective(ctx context.Context, afterSequence uint64)
 
 // ReportLifecycle sends one report for the exact directive supplied by
 // WaitForDirective. It never substitutes a newer directive after reconnect.
-func (s *Supervisor) ReportLifecycle(ctx context.Context, directive LifecycleDirective, state gatewayv1.GatewayRuntimeState, failure gatewayv1.LifecycleFailure) error {
+func (s *Supervisor) ReportLifecycle(
+	ctx context.Context,
+	directive LifecycleDirective,
+	state gatewayv1.GatewayRuntimeState,
+	failure gatewayv1.LifecycleFailure,
+) error {
 	if err := validateLifecycleReport(directive, state, failure); err != nil {
 		return err
 	}
@@ -386,8 +466,11 @@ func (s *Supervisor) WaitForStatusChange(ctx context.Context, previous Status) (
 	for {
 		s.mu.RLock()
 		current := copyStatus(s.status)
-		if current.Ready != previous.Ready || current.Connected != previous.Connected ||
-			current.ConnectionEpoch != previous.ConnectionEpoch || current.DesiredLifecycle != previous.DesiredLifecycle {
+		stateChanged := current.Ready != previous.Ready ||
+			current.Connected != previous.Connected ||
+			current.ConnectionEpoch != previous.ConnectionEpoch ||
+			current.DesiredLifecycle != previous.DesiredLifecycle
+		if stateChanged {
 			s.mu.RUnlock()
 			return current, nil
 		}
@@ -446,8 +529,10 @@ func (s *Supervisor) Flush(ctx context.Context) error {
 	s.ReportNow()
 	for {
 		s.mu.RLock()
-		if s.status.Connected && s.status.AcknowledgedRuntime == state &&
-			(s.status.ConnectionEpoch != initial.ConnectionEpoch || s.status.LastControlSequence > initial.LastControlSequence) {
+		confirmed := s.status.Connected && s.status.AcknowledgedRuntime == state
+		fresh := s.status.ConnectionEpoch != initial.ConnectionEpoch ||
+			s.status.LastControlSequence > initial.LastControlSequence
+		if confirmed && fresh {
 			s.mu.RUnlock()
 			return nil
 		}
@@ -491,6 +576,32 @@ func (s *Supervisor) Status() Status {
 	return copyStatus(s.status)
 }
 
+// controlStream holds the mutable state of one established control-stream
+// session. All of its methods run on the supervisor's Run goroutine.
+type controlStream struct {
+	sup    *Supervisor
+	ctx    context.Context
+	cancel context.CancelFunc
+	stream Stream
+	recv   chan receiveResult
+
+	welcome           *gatewayv1.ControlWelcome
+	heartbeatInterval time.Duration
+	leaseTimeout      time.Duration
+
+	nextGatewaySequence uint64
+	lastGatewaySequence uint64
+	lastControlSequence uint64
+	runtime             RuntimeSnapshot
+
+	heartbeat          <-chan time.Time
+	lease              <-chan time.Time
+	acknowledgedCycles uint32
+	pendingReport      bool
+	eventInFlight      bool
+	expectedEventAck   uint64
+}
+
 func (s *Supervisor) runStream(ctx context.Context) error {
 	streamCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -498,237 +609,358 @@ func (s *Supervisor) runStream(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("open control stream: %w", err)
 	}
+	session, err := s.openSession(ctx, streamCtx, cancel, stream)
+	if err != nil || session == nil {
+		return err // nil session with nil error: shutdown requested mid-handshake
+	}
+	return session.loop(ctx)
+}
+
+// openSession performs the authenticated handshake on a freshly opened stream
+// and returns the established session. A nil session with a nil error means
+// ctx was cancelled while waiting for the Welcome.
+func (s *Supervisor) openSession(
+	parent context.Context,
+	streamCtx context.Context,
+	cancel context.CancelFunc,
+	stream Stream,
+) (*controlStream, error) {
 	runtime := s.cfg.Runtime.Snapshot()
 	if !validRuntimeState(runtime.State) {
-		return fmt.Errorf("%w: invalid runtime state", ErrProtocol)
+		return nil, fmt.Errorf("%w: invalid runtime state", ErrProtocol)
 	}
-	hello := &gatewayv1.GatewayHello{
-		InstanceId:      s.cfg.InstanceID,
-		SoftwareVersion: s.cfg.SoftwareVersion,
-		StartedAtUnixMs: s.cfg.StartedAt.UnixMilli(),
-		SessionCount:    runtime.SessionCount,
-		RuntimeState:    runtime.State,
+	if err := s.sendHandshake(streamCtx, cancel, stream, s.newHelloFrame(runtime)); err != nil {
+		return nil, fmt.Errorf("send hello: %w", err)
 	}
-	if s.cfg.HTTPBaseURL != "" {
-		hello.HttpBaseUrl = &s.cfg.HTTPBaseURL
+	welcomeFrame, err := s.receiveWelcome(parent, stream)
+	if welcomeFrame == nil && err == nil {
+		return nil, nil // clean shutdown requested mid-handshake
 	}
-	if s.cfg.GRPCEndpoint != "" {
-		hello.GrpcEndpoint = &s.cfg.GRPCEndpoint
-	}
-	helloFrame := &gatewayv1.GatewayFrame{
-		ProtocolVersion: ProtocolVersion,
-		Sequence:        1,
-		Payload:         &gatewayv1.GatewayFrame_Hello{Hello: hello},
-	}
-	if err = s.sendHandshake(streamCtx, cancel, stream, helloFrame); err != nil {
-		return fmt.Errorf("send hello: %w", err)
-	}
-	handshakeRecv := make(chan receiveResult, 1)
-	go receive(stream, handshakeRecv)
-	var welcomeFrame *gatewayv1.ControlFrame
-	select {
-	case <-ctx.Done():
-		return nil
-	case <-s.cfg.Clock.After(s.cfg.HandshakeTimeout):
+	if err != nil {
 		cancel()
-		return errors.New("control supervisor: welcome timeout")
-	case result := <-handshakeRecv:
-		if result.err != nil {
-			return fmt.Errorf("receive welcome: %w", result.err)
-		}
-		welcomeFrame = result.frame
+		return nil, err
 	}
 	welcome, err := validateWelcome(welcomeFrame)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	heartbeatInterval := time.Duration(welcome.HeartbeatIntervalMs) * time.Millisecond
 	if heartbeatInterval < s.cfg.MinHeartbeat || heartbeatInterval > s.cfg.MaxHeartbeat {
-		return fmt.Errorf("%w: invalid heartbeat interval", ErrProtocol)
+		return nil, fmt.Errorf("%w: invalid heartbeat interval", ErrProtocol)
 	}
 	leaseTimeout := time.Duration(welcome.LeaseTimeoutMs) * time.Millisecond
 	if leaseTimeout <= heartbeatInterval {
-		return fmt.Errorf("%w: invalid lease timeout", ErrProtocol)
+		return nil, fmt.Errorf("%w: invalid lease timeout", ErrProtocol)
 	}
 	s.connected(welcome, runtime.State)
 
-	recv := make(chan receiveResult, 1)
-	go receive(stream, recv)
-	nextGatewaySequence := uint64(2)
-	lastGatewaySequence := uint64(1)
-	lastControlSequence := welcomeFrame.Sequence
-	heartbeat := s.cfg.Clock.After(heartbeatInterval)
+	session := &controlStream{
+		sup:                 s,
+		ctx:                 streamCtx,
+		cancel:              cancel,
+		stream:              stream,
+		recv:                make(chan receiveResult, 1),
+		welcome:             welcome,
+		heartbeatInterval:   heartbeatInterval,
+		leaseTimeout:        leaseTimeout,
+		nextGatewaySequence: 2,
+		lastGatewaySequence: 1,
+		lastControlSequence: welcomeFrame.Sequence,
+		runtime:             runtime,
+	}
+	go receive(stream, session.recv)
+	// Register the interval timer unconditionally before the immediate-journal
+	// override, preserving the historical Clock.After call sequence: Clock
+	// implementations observe every registration, and the supervisor's test
+	// clock depends on it.
+	session.heartbeat = s.cfg.Clock.After(heartbeatInterval)
 	if s.cfg.EventJournal != nil {
-		heartbeat = s.cfg.Clock.After(0)
+		session.heartbeat = s.cfg.Clock.After(0)
 	}
-	lease := s.cfg.Clock.After(leaseTimeout)
-	acknowledgedCycles := uint32(0)
-	pendingReport := false
-	eventInFlight := false
-	var expectedEventAck uint64
-	sendEventBatch := func() error {
-		if s.cfg.EventJournal == nil || eventInFlight {
-			return nil
-		}
-		batch, batchErr := s.cfg.EventJournal.NextEventBatch(streamCtx, welcome.ConnectionEpoch)
-		if batchErr != nil {
-			return fmt.Errorf("read journal batch: %w", batchErr)
-		}
-		if len(batch.Events) == 0 {
-			return nil
-		}
-		frame := &gatewayv1.GatewayFrame{ProtocolVersion: ProtocolVersion, Sequence: nextGatewaySequence, Payload: &gatewayv1.GatewayFrame_EventBatch{EventBatch: batch}}
-		if sendErr := s.sendWithin(streamCtx, cancel, stream, frame, leaseTimeout-heartbeatInterval); sendErr != nil {
-			return fmt.Errorf("send journal batch: %w", sendErr)
-		}
-		nextGatewaySequence++
-		eventInFlight = true
-		expectedEventAck = batch.Events[len(batch.Events)-1].JournalSequence
-		return nil
+	session.lease = s.cfg.Clock.After(leaseTimeout)
+	return session, nil
+}
+
+// receiveWelcome waits for the first control frame on a stream, bounded by the
+// handshake timeout. A nil frame with a nil error means parent was cancelled.
+func (s *Supervisor) receiveWelcome(parent context.Context, stream Stream) (*gatewayv1.ControlFrame, error) {
+	handshakeRecv := make(chan receiveResult, 1)
+	go receive(stream, handshakeRecv)
+	var result receiveResult
+	select {
+	case <-parent.Done():
+		return nil, nil
+	case <-s.cfg.Clock.After(s.cfg.HandshakeTimeout):
+		return nil, errors.New("control supervisor: welcome timeout")
+	case result = <-handshakeRecv:
 	}
-	sendHeartbeat := func() error {
-		runtime = s.cfg.Runtime.Snapshot()
-		if !validRuntimeState(runtime.State) {
-			return fmt.Errorf("%w: invalid runtime state", ErrProtocol)
-		}
-		heartbeatFrame := &gatewayv1.GatewayHeartbeat{
-			ConnectionEpoch:     welcome.ConnectionEpoch,
-			LastControlSequence: lastControlSequence,
-			SentAtUnixMs:        s.cfg.Clock.Now().UnixMilli(),
-			SessionCount:        runtime.SessionCount,
-			RuntimeState:        runtime.State,
-		}
-		if s.cfg.JournalMetrics != nil {
-			// Unreadable telemetry is omitted, never fabricated; the API treats
-			// UNKNOWN as "no report this cycle".
-			if pressure, err := s.cfg.JournalMetrics(streamCtx); err == nil {
-				heartbeatFrame.JournalState = pressure.State
-				heartbeatFrame.JournalEntries = pressure.Entries
-				heartbeatFrame.JournalBytes = pressure.Bytes
-			}
-		}
-		heartbeatEnvelope := &gatewayv1.GatewayFrame{
-			ProtocolVersion: ProtocolVersion,
-			Sequence:        nextGatewaySequence,
-			Payload:         &gatewayv1.GatewayFrame_Heartbeat{Heartbeat: heartbeatFrame},
-		}
-		if sendErr := s.sendWithin(streamCtx, cancel, stream, heartbeatEnvelope, leaseTimeout-heartbeatInterval); sendErr != nil {
-			return fmt.Errorf("send heartbeat: %w", sendErr)
-		}
-		lastGatewaySequence = nextGatewaySequence
-		nextGatewaySequence++
-		if err := sendEventBatch(); err != nil {
-			return err
-		}
-		heartbeat = nil
-		return nil
+	if result.err != nil {
+		return nil, fmt.Errorf("receive welcome: %w", result.err)
 	}
+	return result.frame, nil
+}
+
+// loop pumps frames and timers for one established session until ctx is
+// cancelled or the stream fails.
+func (l *controlStream) loop(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-lease:
+		case <-l.lease:
 			return errors.New("control supervisor: control lease expired")
-		case result := <-recv:
-			if result.err != nil {
-				if errors.Is(result.err, io.EOF) {
-					return errors.New("control supervisor: stream closed")
-				}
-				return fmt.Errorf("receive control frame: %w", result.err)
-			}
-			if err = validateControl(result.frame, lastControlSequence+1, welcome.ConnectionEpoch, lastGatewaySequence, s.cfg.Clock.Now()); err != nil {
+		case result := <-l.recv:
+			if err := l.handleFrame(result); err != nil {
 				return err
 			}
-			lastControlSequence = result.frame.Sequence
-			if eventAck := result.frame.GetEventAck(); eventAck != nil {
-				if s.cfg.EventJournal == nil {
-					return fmt.Errorf("%w: unexpected event acknowledgement", ErrProtocol)
-				}
-				if !eventInFlight || eventAck.AcknowledgedJournalSequence != expectedEventAck {
-					return fmt.Errorf("%w: event acknowledgement does not match in-flight batch", ErrProtocol)
-				}
-				if err := s.cfg.EventJournal.AckEvents(streamCtx, eventAck.AcknowledgedJournalSequence); err != nil {
-					return fmt.Errorf("ack journal events: %w", err)
-				}
-				eventInFlight = false
-				expectedEventAck = 0
-				if err := sendEventBatch(); err != nil {
-					return err
-				}
-			} else if directive := result.frame.GetLifecycleDirective(); directive != nil {
-				s.directiveReceived(lifecycleDirectiveValue(directive, result.frame.Sequence))
-			} else if snapshot := result.frame.GetDesiredStateSnapshot(); snapshot != nil {
-				if s.cfg.DesiredState == nil {
-					return fmt.Errorf("%w: received desired state without applier", ErrProtocol)
-				}
-				if err := validateDesiredState(snapshot); err != nil {
-					return err
-				}
-				report, err := s.cfg.DesiredState.ApplyDesiredState(streamCtx, welcome.ConnectionEpoch, snapshot)
-				if err != nil {
-					return fmt.Errorf("apply desired state: %w", err)
-				}
-				if report == nil || report.ConnectionEpoch != welcome.ConnectionEpoch || report.ProcessedRevision != snapshot.Revision {
-					return fmt.Errorf("%w: invalid desired-state report", ErrProtocol)
-				}
-				ack := &gatewayv1.GatewayFrame{ProtocolVersion: ProtocolVersion, Sequence: nextGatewaySequence,
-					Payload: &gatewayv1.GatewayFrame_DesiredStateReport{DesiredStateReport: report}}
-				if err := s.sendWithin(streamCtx, cancel, stream, ack, leaseTimeout-heartbeatInterval); err != nil {
-					return fmt.Errorf("send desired state acknowledgement: %w", err)
-				}
-				nextGatewaySequence++
-				s.desiredStateApplied(snapshot.Revision, desiredStateHealthy(report))
-			} else {
-				acknowledgedCycles++
-				s.heartbeatAcknowledged(lastControlSequence, runtime.State, acknowledgedCycles >= 2)
-				if pendingReport {
-					heartbeat = s.cfg.Clock.After(0)
-					pendingReport = false
-				} else {
-					heartbeat = s.cfg.Clock.After(heartbeatInterval)
-				}
-			}
-			lease = s.cfg.Clock.After(leaseTimeout)
-			go receive(stream, recv)
-		case <-heartbeat:
-			if err = sendHeartbeat(); err != nil {
+			l.lease = l.sup.cfg.Clock.After(l.leaseTimeout)
+			go receive(l.stream, l.recv)
+		case <-l.heartbeat:
+			if err := l.sendHeartbeat(); err != nil {
 				return err
 			}
-		case <-s.report:
-			if heartbeat == nil {
-				pendingReport = true
+		case <-l.sup.report:
+			if l.heartbeat == nil {
+				l.pendingReport = true
 				continue
 			}
-			if err = sendHeartbeat(); err != nil {
+			if err := l.sendHeartbeat(); err != nil {
 				return err
 			}
-		case request := <-s.lifecycleReports:
-			if !s.matchesActiveDirective(request.directive) {
+		case request := <-l.sup.lifecycleReports:
+			if !l.sup.matchesActiveDirective(request.directive) {
 				request.result <- ErrDirectiveSuperseded
 				continue
 			}
-			report := &gatewayv1.GatewayFrame{
-				ProtocolVersion: ProtocolVersion,
-				Sequence:        nextGatewaySequence,
-				Payload: &gatewayv1.GatewayFrame_LifecycleReport{LifecycleReport: &gatewayv1.GatewayLifecycleReport{
-					ConnectionEpoch: request.directive.ConnectionEpoch,
-					DirectiveId:     request.directive.ID,
-					State:           request.state,
-					Failure:         request.failure,
-				}},
+			if err := l.sendLifecycleReport(request); err != nil {
+				return err
 			}
-			if sendErr := s.sendWithin(streamCtx, cancel, stream, report, leaseTimeout-heartbeatInterval); sendErr != nil {
-				request.result <- fmt.Errorf("send lifecycle report: %w", sendErr)
-				return fmt.Errorf("send lifecycle report: %w", sendErr)
-			}
-			nextGatewaySequence++
-			s.directiveReported(request.directive)
-			request.result <- nil
 		}
 	}
 }
 
-func (s *Supervisor) sendHandshake(ctx context.Context, cancel context.CancelFunc, stream Stream, frame *gatewayv1.GatewayFrame) error {
+func (l *controlStream) handleFrame(result receiveResult) error {
+	if result.err != nil {
+		if errors.Is(result.err, io.EOF) {
+			return errors.New("control supervisor: stream closed")
+		}
+		return fmt.Errorf("receive control frame: %w", result.err)
+	}
+	err := validateControl(
+		result.frame,
+		l.lastControlSequence+1,
+		l.welcome.ConnectionEpoch,
+		l.lastGatewaySequence,
+		l.now(),
+	)
+	if err != nil {
+		return err
+	}
+	l.lastControlSequence = result.frame.Sequence
+	switch {
+	case result.frame.GetEventAck() != nil:
+		return l.handleEventAck(result.frame.GetEventAck())
+	case result.frame.GetLifecycleDirective() != nil:
+		directive := result.frame.GetLifecycleDirective()
+		l.sup.directiveReceived(lifecycleDirectiveValue(directive, result.frame.Sequence))
+		return nil
+	case result.frame.GetDesiredStateSnapshot() != nil:
+		return l.applyDesiredState(result.frame.GetDesiredStateSnapshot())
+	default:
+		l.acknowledgeHeartbeat()
+		return nil
+	}
+}
+
+func (l *controlStream) handleEventAck(ack *gatewayv1.GatewayEventAck) error {
+	if l.sup.cfg.EventJournal == nil {
+		return fmt.Errorf("%w: unexpected event acknowledgement", ErrProtocol)
+	}
+	mismatchedBatch := !l.eventInFlight || ack.AcknowledgedJournalSequence != l.expectedEventAck
+	if mismatchedBatch {
+		return fmt.Errorf("%w: event acknowledgement does not match in-flight batch", ErrProtocol)
+	}
+	if err := l.sup.cfg.EventJournal.AckEvents(l.ctx, ack.AcknowledgedJournalSequence); err != nil {
+		return fmt.Errorf("ack journal events: %w", err)
+	}
+	l.eventInFlight = false
+	l.expectedEventAck = 0
+	return l.sendEventBatch()
+}
+
+func (l *controlStream) applyDesiredState(snapshot *gatewayv1.DesiredStateSnapshot) error {
+	if l.sup.cfg.DesiredState == nil {
+		return fmt.Errorf("%w: received desired state without applier", ErrProtocol)
+	}
+	if err := validateDesiredState(snapshot); err != nil {
+		return err
+	}
+	report, err := l.sup.cfg.DesiredState.ApplyDesiredState(l.ctx, l.welcome.ConnectionEpoch, snapshot)
+	if err != nil {
+		return fmt.Errorf("apply desired state: %w", err)
+	}
+	reportValid := report != nil &&
+		report.ConnectionEpoch == l.welcome.ConnectionEpoch &&
+		report.ProcessedRevision == snapshot.Revision
+	if !reportValid {
+		return fmt.Errorf("%w: invalid desired-state report", ErrProtocol)
+	}
+	ack := &gatewayv1.GatewayFrame{
+		ProtocolVersion: ProtocolVersion,
+		Sequence:        l.nextGatewaySequence,
+		Payload:         &gatewayv1.GatewayFrame_DesiredStateReport{DesiredStateReport: report},
+	}
+	if err := l.send(ack); err != nil {
+		return fmt.Errorf("send desired state acknowledgement: %w", err)
+	}
+	l.nextGatewaySequence++
+	l.sup.desiredStateApplied(snapshot.Revision, desiredStateHealthy(report))
+	return nil
+}
+
+// acknowledgeHeartbeat records an acknowledged cycle and re-arms the heartbeat
+// timer, honoring any report request that arrived while an acknowledgement was
+// outstanding.
+func (l *controlStream) acknowledgeHeartbeat() {
+	l.acknowledgedCycles++
+	stable := l.acknowledgedCycles >= 2
+	l.sup.heartbeatAcknowledged(l.lastControlSequence, l.runtime.State, stable)
+	if l.pendingReport {
+		l.pendingReport = false
+		l.heartbeat = l.sup.cfg.Clock.After(0)
+		return
+	}
+	l.heartbeat = l.sup.cfg.Clock.After(l.heartbeatInterval)
+}
+
+func (l *controlStream) sendLifecycleReport(request lifecycleReportRequest) error {
+	report := &gatewayv1.GatewayFrame{
+		ProtocolVersion: ProtocolVersion,
+		Sequence:        l.nextGatewaySequence,
+		Payload: &gatewayv1.GatewayFrame_LifecycleReport{LifecycleReport: &gatewayv1.GatewayLifecycleReport{
+			ConnectionEpoch: request.directive.ConnectionEpoch,
+			DirectiveId:     request.directive.ID,
+			State:           request.state,
+			Failure:         request.failure,
+		}},
+	}
+	sendErr := l.send(report)
+	if sendErr != nil {
+		request.result <- fmt.Errorf("send lifecycle report: %w", sendErr)
+		return fmt.Errorf("send lifecycle report: %w", sendErr)
+	}
+	l.nextGatewaySequence++
+	l.sup.directiveReported(request.directive)
+	request.result <- nil
+	return nil
+}
+
+func (l *controlStream) sendHeartbeat() error {
+	l.runtime = l.sup.cfg.Runtime.Snapshot()
+	if !validRuntimeState(l.runtime.State) {
+		return fmt.Errorf("%w: invalid runtime state", ErrProtocol)
+	}
+	frame := l.newHeartbeatFrame()
+	if pressure, ok := l.journalPressure(); ok {
+		telemetry := frame.GetHeartbeat()
+		telemetry.JournalState = pressure.State
+		telemetry.JournalEntries = pressure.Entries
+		telemetry.JournalBytes = pressure.Bytes
+	}
+	if err := l.send(frame); err != nil {
+		return fmt.Errorf("send heartbeat: %w", err)
+	}
+	l.lastGatewaySequence = l.nextGatewaySequence
+	l.nextGatewaySequence++
+	if err := l.sendEventBatch(); err != nil {
+		return err
+	}
+	l.heartbeat = nil
+	return nil
+}
+
+// journalPressure reads optional journal telemetry for the heartbeat. Unreadable
+// telemetry is omitted, never fabricated; the API treats UNKNOWN as "no report
+// this cycle".
+func (l *controlStream) journalPressure() (JournalPressure, bool) {
+	if l.sup.cfg.JournalMetrics == nil {
+		return JournalPressure{}, false
+	}
+	pressure, err := l.sup.cfg.JournalMetrics(l.ctx)
+	if err != nil {
+		return JournalPressure{}, false
+	}
+	return pressure, true
+}
+
+func (l *controlStream) newHeartbeatFrame() *gatewayv1.GatewayFrame {
+	return &gatewayv1.GatewayFrame{
+		ProtocolVersion: ProtocolVersion,
+		Sequence:        l.nextGatewaySequence,
+		Payload: &gatewayv1.GatewayFrame_Heartbeat{Heartbeat: newGatewayHeartbeat(
+			l.welcome.ConnectionEpoch,
+			l.lastControlSequence,
+			l.runtime,
+			l.now(),
+		)},
+	}
+}
+
+func newGatewayHeartbeat(
+	connectionEpoch uint64,
+	lastControlSequence uint64,
+	snapshot RuntimeSnapshot,
+	now time.Time,
+) *gatewayv1.GatewayHeartbeat {
+	return &gatewayv1.GatewayHeartbeat{
+		ConnectionEpoch:     connectionEpoch,
+		LastControlSequence: lastControlSequence,
+		SentAtUnixMs:        now.UnixMilli(),
+		SessionCount:        snapshot.SessionCount,
+		RuntimeState:        snapshot.State,
+	}
+}
+
+func (l *controlStream) sendEventBatch() error {
+	if l.sup.cfg.EventJournal == nil || l.eventInFlight {
+		return nil
+	}
+	batch, err := l.sup.cfg.EventJournal.NextEventBatch(l.ctx, l.welcome.ConnectionEpoch)
+	if err != nil {
+		return fmt.Errorf("read journal batch: %w", err)
+	}
+	if len(batch.Events) == 0 {
+		return nil
+	}
+	frame := &gatewayv1.GatewayFrame{
+		ProtocolVersion: ProtocolVersion,
+		Sequence:        l.nextGatewaySequence,
+		Payload:         &gatewayv1.GatewayFrame_EventBatch{EventBatch: batch},
+	}
+	if err := l.send(frame); err != nil {
+		return fmt.Errorf("send journal batch: %w", err)
+	}
+	l.nextGatewaySequence++
+	l.eventInFlight = true
+	l.expectedEventAck = batch.Events[len(batch.Events)-1].JournalSequence
+	return nil
+}
+
+// send writes one gateway frame within the session's remaining lease budget.
+func (l *controlStream) send(frame *gatewayv1.GatewayFrame) error {
+	return l.sup.sendWithin(l.ctx, l.cancel, l.stream, frame, l.leaseTimeout-l.heartbeatInterval)
+}
+
+func (l *controlStream) now() time.Time {
+	return l.sup.cfg.Clock.Now()
+}
+
+func (s *Supervisor) sendHandshake(
+	ctx context.Context,
+	cancel context.CancelFunc,
+	stream Stream,
+	frame *gatewayv1.GatewayFrame,
+) error {
 	result := make(chan error, 1)
 	go func() { result <- stream.Send(frame) }()
 	select {
@@ -742,7 +974,13 @@ func (s *Supervisor) sendHandshake(ctx context.Context, cancel context.CancelFun
 	}
 }
 
-func (s *Supervisor) sendWithin(ctx context.Context, cancel context.CancelFunc, stream Stream, frame *gatewayv1.GatewayFrame, timeout time.Duration) error {
+func (s *Supervisor) sendWithin(
+	ctx context.Context,
+	cancel context.CancelFunc,
+	stream Stream,
+	frame *gatewayv1.GatewayFrame,
+	timeout time.Duration,
+) error {
 	result := make(chan error, 1)
 	go func() { result <- stream.Send(frame) }()
 	select {
@@ -774,11 +1012,7 @@ func validateWelcome(frame *gatewayv1.ControlFrame) (*gatewayv1.ControlWelcome, 
 	if welcome == nil || welcome.ConnectionId == "" || welcome.ConnectionEpoch == 0 || welcome.ServerTimeUnixMs <= 0 {
 		return nil, fmt.Errorf("%w: invalid welcome", ErrProtocol)
 	}
-	switch welcome.DesiredLifecycle {
-	case gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN,
-		gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DRAIN,
-		gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DISABLE:
-	default:
+	if !validLifecycleAction(welcome.DesiredLifecycle) {
 		return nil, fmt.Errorf("%w: invalid desired lifecycle", ErrProtocol)
 	}
 	return welcome, nil
@@ -801,8 +1035,12 @@ func validateControl(frame *gatewayv1.ControlFrame, sequence, epoch, gatewaySequ
 		return nil
 	}
 	ack := frame.GetHeartbeatAck()
-	if ack == nil || ack.ConnectionEpoch != epoch || ack.AcknowledgedGatewaySequence != gatewaySequence ||
-		ack.ServerTimeUnixMs <= 0 || gatewaySequence <= 1 {
+	invalidAck := ack == nil ||
+		ack.ConnectionEpoch != epoch ||
+		ack.AcknowledgedGatewaySequence != gatewaySequence ||
+		ack.ServerTimeUnixMs <= 0 ||
+		gatewaySequence <= 1
+	if invalidAck {
 		return fmt.Errorf("%w: invalid heartbeat acknowledgement", ErrProtocol)
 	}
 	return nil
@@ -814,7 +1052,7 @@ func validateDesiredState(snapshot *gatewayv1.DesiredStateSnapshot) error {
 	}
 	seen := make(map[string]struct{}, len(snapshot.Assignments))
 	for _, assignment := range snapshot.Assignments {
-		if assignment == nil || assignment.SessionId == "" || assignment.OrganizationId == "" || assignment.AssignmentEpoch == 0 || assignment.LeaseExpiresAtUnixMs <= 0 || (assignment.DesiredAction != gatewayv1.SessionDesiredAction_SESSION_DESIRED_ACTION_RUN && assignment.DesiredAction != gatewayv1.SessionDesiredAction_SESSION_DESIRED_ACTION_STOP) || (assignment.DesiredAction == gatewayv1.SessionDesiredAction_SESSION_DESIRED_ACTION_RUN && assignment.DeviceJid == nil) {
+		if !validAssignment(assignment) {
 			return fmt.Errorf("%w: invalid session assignment", ErrProtocol)
 		}
 		if _, exists := seen[assignment.SessionId]; exists {
@@ -825,44 +1063,106 @@ func validateDesiredState(snapshot *gatewayv1.DesiredStateSnapshot) error {
 	return nil
 }
 
+func validAssignment(assignment *gatewayv1.SessionAssignment) bool {
+	if assignment == nil {
+		return false
+	}
+	knownAction := assignment.DesiredAction == gatewayv1.SessionDesiredAction_SESSION_DESIRED_ACTION_RUN ||
+		assignment.DesiredAction == gatewayv1.SessionDesiredAction_SESSION_DESIRED_ACTION_STOP
+	runWithoutDevice := assignment.DesiredAction == gatewayv1.SessionDesiredAction_SESSION_DESIRED_ACTION_RUN &&
+		assignment.DeviceJid == nil
+
+	return assignment.SessionId != "" &&
+		assignment.OrganizationId != "" &&
+		assignment.AssignmentEpoch != 0 &&
+		assignment.LeaseExpiresAtUnixMs > 0 &&
+		knownAction &&
+		!runWithoutDevice
+}
+
 func validateDirective(directive *gatewayv1.LifecycleDirective, epoch uint64, now time.Time) error {
-	if directive == nil || directive.DirectiveId == "" || directive.ConnectionEpoch != epoch || !validLifecycleAction(directive.Action) || !validDirectiveReason(directive.Reason) {
+	invalid := directive == nil ||
+		directive.DirectiveId == "" ||
+		directive.ConnectionEpoch != epoch ||
+		!validLifecycleAction(directive.Action) ||
+		!validDirectiveReason(directive.Reason)
+	if invalid {
 		return fmt.Errorf("%w: invalid lifecycle directive", ErrProtocol)
 	}
-	if directive.Action == gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DRAIN {
-		if directive.DrainDeadlineUnixMs != nil && directive.GetDrainDeadlineUnixMs() <= now.UnixMilli() {
-			return fmt.Errorf("%w: invalid drain deadline", ErrProtocol)
+	hasDeadline := directive.DrainDeadlineUnixMs != nil
+	if directive.Action != gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DRAIN {
+		if hasDeadline {
+			return fmt.Errorf("%w: unexpected drain deadline", ErrProtocol)
 		}
-	} else if directive.DrainDeadlineUnixMs != nil {
-		return fmt.Errorf("%w: unexpected drain deadline", ErrProtocol)
+		return nil
+	}
+	expired := hasDeadline && directive.GetDrainDeadlineUnixMs() <= now.UnixMilli()
+	if expired {
+		return fmt.Errorf("%w: invalid drain deadline", ErrProtocol)
 	}
 	return nil
 }
 
 func validLifecycleAction(action gatewayv1.LifecycleDirectiveAction) bool {
-	return action == gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN || action == gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DRAIN || action == gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DISABLE
+	switch action {
+	case gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN,
+		gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DRAIN,
+		gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DISABLE:
+		return true
+	default:
+		return false
+	}
 }
 
 func validDirectiveReason(reason gatewayv1.LifecycleDirectiveReason) bool {
-	return reason == gatewayv1.LifecycleDirectiveReason_LIFECYCLE_DIRECTIVE_REASON_OPERATOR || reason == gatewayv1.LifecycleDirectiveReason_LIFECYCLE_DIRECTIVE_REASON_MAINTENANCE || reason == gatewayv1.LifecycleDirectiveReason_LIFECYCLE_DIRECTIVE_REASON_CAPACITY || reason == gatewayv1.LifecycleDirectiveReason_LIFECYCLE_DIRECTIVE_REASON_POLICY
+	switch reason {
+	case gatewayv1.LifecycleDirectiveReason_LIFECYCLE_DIRECTIVE_REASON_OPERATOR,
+		gatewayv1.LifecycleDirectiveReason_LIFECYCLE_DIRECTIVE_REASON_MAINTENANCE,
+		gatewayv1.LifecycleDirectiveReason_LIFECYCLE_DIRECTIVE_REASON_CAPACITY,
+		gatewayv1.LifecycleDirectiveReason_LIFECYCLE_DIRECTIVE_REASON_POLICY:
+		return true
+	default:
+		return false
+	}
 }
 
 func lifecycleDirectiveValue(directive *gatewayv1.LifecycleDirective, sequence uint64) LifecycleDirective {
-	value := LifecycleDirective{ID: directive.DirectiveId, ConnectionEpoch: directive.ConnectionEpoch, Sequence: sequence, Action: directive.Action, Reason: directive.Reason}
+	value := LifecycleDirective{
+		ID:              directive.DirectiveId,
+		ConnectionEpoch: directive.ConnectionEpoch,
+		Sequence:        sequence,
+		Action:          directive.Action,
+		Reason:          directive.Reason,
+	}
 	if directive.DrainDeadlineUnixMs != nil {
 		value.DrainDeadline = time.UnixMilli(*directive.DrainDeadlineUnixMs).UTC()
 	}
 	return value
 }
 
-func validateLifecycleReport(directive LifecycleDirective, state gatewayv1.GatewayRuntimeState, failure gatewayv1.LifecycleFailure) error {
-	if directive.ID == "" || directive.ConnectionEpoch == 0 || directive.Sequence == 0 || !validLifecycleAction(directive.Action) || !validDirectiveReason(directive.Reason) || !validRuntimeState(state) {
+func validateLifecycleReport(
+	directive LifecycleDirective,
+	state gatewayv1.GatewayRuntimeState,
+	failure gatewayv1.LifecycleFailure,
+) error {
+	invalid := directive.ID == "" ||
+		directive.ConnectionEpoch == 0 ||
+		directive.Sequence == 0 ||
+		!validLifecycleAction(directive.Action) ||
+		!validDirectiveReason(directive.Reason) ||
+		!validRuntimeState(state)
+	if invalid {
 		return fmt.Errorf("%w: invalid lifecycle report", ErrProtocol)
 	}
-	if failure != gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_NONE && failure != gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_BUSY && failure != gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_TIMEOUT && failure != gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_INTERNAL {
+	switch failure {
+	case gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_NONE,
+		gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_BUSY,
+		gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_TIMEOUT,
+		gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_INTERNAL:
+		return nil
+	default:
 		return fmt.Errorf("%w: invalid lifecycle failure", ErrProtocol)
 	}
-	return nil
 }
 
 func validRuntimeState(state gatewayv1.GatewayRuntimeState) bool {
@@ -929,8 +1229,11 @@ func (s *Supervisor) heartbeatAcknowledged(sequence uint64, runtime gatewayv1.Ga
 	s.status.Stable = stable
 	s.status.LastControlSequence = sequence
 	s.status.AcknowledgedRuntime = runtime
-	s.status.Ready = s.status.DesiredLifecycle == gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN &&
-		runtime == gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_READY && s.status.DesiredStateApplied && s.status.DesiredStateHealthy
+	runAndReady := s.status.DesiredLifecycle == gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN &&
+		runtime == gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_READY &&
+		s.status.DesiredStateApplied &&
+		s.status.DesiredStateHealthy
+	s.status.Ready = runAndReady
 	s.signalChangedLocked()
 }
 
@@ -1016,7 +1319,10 @@ func (b ExponentialBackoff) Delay(attempt uint) time.Duration {
 		b.Max = 30 * time.Second
 	}
 	delay := b.Min
-	for i := uint(0); i < attempt && delay < b.Max/2; i++ {
+	for range attempt {
+		if delay >= b.Max/2 {
+			break
+		}
 		delay *= 2
 	}
 	if delay > b.Max {

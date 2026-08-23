@@ -208,7 +208,11 @@ type bootstrapControlApplier struct {
 	onReport func(gatewayv1.GatewayRuntimeState)
 }
 
-func (a *bootstrapControlApplier) ApplyDesiredState(ctx context.Context, epoch uint64, snapshot *gatewayv1.DesiredStateSnapshot) (*gatewayv1.DesiredStateReport, error) {
+func (a *bootstrapControlApplier) ApplyDesiredState(
+	ctx context.Context,
+	epoch uint64,
+	snapshot *gatewayv1.DesiredStateSnapshot,
+) (*gatewayv1.DesiredStateReport, error) {
 	if len(snapshot.GetAssignments()) == 0 {
 		if err := a.keystore.BootstrapEmpty(ctx); err != nil {
 			return nil, err

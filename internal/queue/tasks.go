@@ -2,6 +2,7 @@ package queue
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/hibiken/asynq"
@@ -83,7 +84,7 @@ func parseOutboxSend(t *asynq.Task) (OutboxSendPayload, error) {
 		return p, fmt.Errorf("unmarshal outbox-send payload: %w", err)
 	}
 	if p.OutboxID == "" {
-		return p, fmt.Errorf("outbox-send payload: empty outboxId")
+		return p, errors.New("outbox-send payload: empty outboxId")
 	}
 	return p, nil
 }
@@ -95,7 +96,7 @@ func parseWebhookDeliver(t *asynq.Task) (WebhookDeliverPayload, error) {
 		return p, fmt.Errorf("unmarshal webhook-deliver payload: %w", err)
 	}
 	if p.DeliveryID == 0 {
-		return p, fmt.Errorf("webhook-deliver payload: zero deliveryId")
+		return p, errors.New("webhook-deliver payload: zero deliveryId")
 	}
 	return p, nil
 }
@@ -107,7 +108,7 @@ func parseRetentionPrune(t *asynq.Task) (RetentionPrunePayload, error) {
 		return p, fmt.Errorf("unmarshal retention-prune payload: %w", err)
 	}
 	if p.CutoffMs <= 0 {
-		return p, fmt.Errorf("retention-prune payload: non-positive cutoffMs")
+		return p, errors.New("retention-prune payload: non-positive cutoffMs")
 	}
 	return p, nil
 }

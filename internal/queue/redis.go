@@ -2,6 +2,7 @@ package queue
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -31,7 +32,7 @@ func ParseRedisURL(raw string) (asynq.RedisClientOpt, error) {
 
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return opt, fmt.Errorf("parse REDIS_URL: empty url")
+		return opt, errors.New("parse REDIS_URL: empty url")
 	}
 
 	u, err := url.Parse(raw)
@@ -48,7 +49,7 @@ func ParseRedisURL(raw string) (asynq.RedisClientOpt, error) {
 
 	host := u.Host
 	if host == "" {
-		return opt, fmt.Errorf("parse REDIS_URL: missing host")
+		return opt, errors.New("parse REDIS_URL: missing host")
 	}
 	// Default the port to Redis's well-known 6379 when omitted, so "redis://localhost"
 	// works without forcing every caller to spell out ":6379".

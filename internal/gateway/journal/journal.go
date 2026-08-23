@@ -55,7 +55,13 @@ type Config struct {
 }
 
 func DefaultConfig() Config {
-	return Config{MaxBytes: DefaultMaxBytes, MaxVolumeShare: DefaultMaxVolumeShare, DegradedAt: DefaultDegradedAt, PauseAt: DefaultPauseAt, CriticalAt: DefaultCriticalAt}
+	return Config{
+		MaxBytes:       DefaultMaxBytes,
+		MaxVolumeShare: DefaultMaxVolumeShare,
+		DegradedAt:     DefaultDegradedAt,
+		PauseAt:        DefaultPauseAt,
+		CriticalAt:     DefaultCriticalAt,
+	}
 }
 
 func (c Config) normalized(volumeBytes int64) (Config, error) {
@@ -78,11 +84,21 @@ func (c Config) normalized(volumeBytes int64) (Config, error) {
 	if c.VolumeBytes == 0 {
 		c.VolumeBytes = volumeBytes
 	}
-	if c.MaxBytes <= 0 || c.VolumeBytes <= 0 || c.MaxVolumeShare <= 0 || c.MaxVolumeShare > 100 || c.DegradedAt <= 0 || c.DegradedAt >= c.PauseAt || c.PauseAt >= c.CriticalAt || c.CriticalAt >= 100 {
-		return Config{}, fmt.Errorf("invalid gateway journal capacity configuration")
+	boundsValid := c.MaxBytes > 0 && c.VolumeBytes > 0 && c.MaxVolumeShare > 0 && c.MaxVolumeShare <= 100
+	thresholdsOrdered := c.DegradedAt > 0 &&
+		c.DegradedAt < c.PauseAt &&
+		c.PauseAt < c.CriticalAt &&
+		c.CriticalAt < 100
+	if !boundsValid || !thresholdsOrdered {
+		return Config{}, errors.New("invalid gateway journal capacity configuration")
 	}
 	if c.MaxBytes > c.VolumeBytes*c.MaxVolumeShare/100 {
-		return Config{}, fmt.Errorf("gateway journal cap %d exceeds %d%% of volume budget %d", c.MaxBytes, c.MaxVolumeShare, c.VolumeBytes)
+		return Config{}, fmt.Errorf(
+			"gateway journal cap %d exceeds %d%% of volume budget %d",
+			c.MaxBytes,
+			c.MaxVolumeShare,
+			c.VolumeBytes,
+		)
 	}
 	return c, nil
 }
@@ -113,7 +129,7 @@ type Journal struct {
 // database before it is used for event acknowledgement state.
 func Open(ctx context.Context, path string, cfg Config) (*Journal, error) {
 	if path == "" || !filepath.IsAbs(path) {
-		return nil, fmt.Errorf("gateway journal path must be absolute")
+		return nil, errors.New("gateway journal path must be absolute")
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("create journal directory: %w", err)
@@ -126,12 +142,16 @@ func Open(ctx context.Context, path string, cfg Config) (*Journal, error) {
 	if err != nil {
 		return nil, err
 	}
-	if info, statErr := os.Stat(path); statErr == nil && !info.Mode().IsRegular() {
-		return nil, fmt.Errorf("gateway journal path is not a regular file")
-	} else if statErr != nil && !errors.Is(statErr, fs.ErrNotExist) {
+	info, statErr := os.Stat(path)
+	switch {
+	case statErr == nil && !info.Mode().IsRegular():
+		return nil, errors.New("gateway journal path is not a regular file")
+	case statErr != nil && !errors.Is(statErr, fs.ErrNotExist):
 		return nil, fmt.Errorf("stat gateway journal: %w", statErr)
 	}
-	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)")
+	dsn := "file:" + path
+	dsn += "?_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)"
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open gateway journal: %w", err)
 	}
@@ -176,18 +196,33 @@ func filesystemBytes(path string) (int64, error) {
 
 func integrityCheck(ctx context.Context, db *sql.DB) error {
 	var result string
-	if err := db.QueryRowContext(ctx, "PRAGMA quick_check").Scan(&result); err != nil || result != "ok" {
-		if err != nil {
-			return fmt.Errorf("%w: quick_check: %v", ErrCorrupt, err)
-		}
+	err := db.QueryRowContext(ctx, "PRAGMA quick_check").Scan(&result)
+	switch {
+	case err != nil:
+		return fmt.Errorf("%w: quick_check: %v", ErrCorrupt, err)
+	case result != "ok":
 		return fmt.Errorf("%w: quick_check returned %q", ErrCorrupt, result)
 	}
 	return nil
 }
 
-func (j *Journal) Append(ctx context.Context, eventID string, payload []byte, createdAt time.Time) (Entry, bool, error) {
+func newEntry(seq int64, eventID string, payload []byte, createdMS int64) Entry {
+	return Entry{
+		Seq:       uint64(seq),
+		EventID:   eventID,
+		Payload:   append([]byte(nil), payload...),
+		CreatedAt: time.UnixMilli(createdMS).UTC(),
+	}
+}
+
+func (j *Journal) Append(
+	ctx context.Context,
+	eventID string,
+	payload []byte,
+	createdAt time.Time,
+) (Entry, bool, error) {
 	if eventID == "" || len(payload) == 0 || createdAt.IsZero() {
-		return Entry{}, false, fmt.Errorf("gateway journal event id, payload, and time are required")
+		return Entry{}, false, errors.New("gateway journal event id, payload, and time are required")
 	}
 	tx, err := j.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -197,12 +232,16 @@ func (j *Journal) Append(ctx context.Context, eventID string, payload []byte, cr
 	var seq int64
 	var existing []byte
 	var createdMS int64
-	err = tx.QueryRowContext(ctx, `SELECT seq, payload, created_at FROM journal_entries WHERE event_id=?`, eventID).Scan(&seq, &existing, &createdMS)
+	err = tx.QueryRowContext(
+		ctx,
+		`SELECT seq, payload, created_at FROM journal_entries WHERE event_id=?`,
+		eventID,
+	).Scan(&seq, &existing, &createdMS)
 	if err == nil {
 		if err = tx.Commit(); err != nil {
 			return Entry{}, false, classifySQLiteError(err)
 		}
-		return Entry{Seq: uint64(seq), EventID: eventID, Payload: append([]byte(nil), existing...), CreatedAt: time.UnixMilli(createdMS).UTC()}, false, nil
+		return newEntry(seq, eventID, existing, createdMS), false, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return Entry{}, false, classifySQLiteError(err)
@@ -211,11 +250,18 @@ func (j *Journal) Append(ctx context.Context, eventID string, payload []byte, cr
 	if err != nil {
 		return Entry{}, false, classifySQLiteError(err)
 	}
-	if metrics.Bytes+int64(len(payload)) > j.cfg.MaxBytes {
-		return Entry{}, false, fmt.Errorf("%w: %d > %d", ErrCapacity, metrics.Bytes+int64(len(payload)), j.cfg.MaxBytes)
+	projectedBytes := metrics.Bytes + int64(len(payload))
+	if projectedBytes > j.cfg.MaxBytes {
+		return Entry{}, false, fmt.Errorf("%w: %d > %d", ErrCapacity, projectedBytes, j.cfg.MaxBytes)
 	}
 	createdMS = createdAt.UTC().UnixMilli()
-	result, err := tx.ExecContext(ctx, `INSERT INTO journal_entries (event_id, payload, created_at) VALUES (?, ?, ?)`, eventID, payload, createdMS)
+	result, err := tx.ExecContext(
+		ctx,
+		`INSERT INTO journal_entries (event_id, payload, created_at) VALUES (?, ?, ?)`,
+		eventID,
+		payload,
+		createdMS,
+	)
 	if err != nil {
 		return Entry{}, false, classifySQLiteError(err)
 	}
@@ -226,16 +272,20 @@ func (j *Journal) Append(ctx context.Context, eventID string, payload []byte, cr
 	if err = tx.Commit(); err != nil {
 		return Entry{}, false, classifySQLiteError(err)
 	}
-	return Entry{Seq: uint64(seq), EventID: eventID, Payload: append([]byte(nil), payload...), CreatedAt: time.UnixMilli(createdMS).UTC()}, true, nil
+	return newEntry(seq, eventID, payload, createdMS), true, nil
 }
 
 // ReadUnacked returns the oldest entries in strict sequence order, stopping
 // before either caller-supplied batch limit would be exceeded.
 func (j *Journal) ReadUnacked(ctx context.Context, maxEntries int, maxBytes int64) ([]Entry, error) {
 	if maxEntries <= 0 || maxBytes <= 0 {
-		return nil, fmt.Errorf("gateway journal read limits must be positive")
+		return nil, errors.New("gateway journal read limits must be positive")
 	}
-	rows, err := j.db.QueryContext(ctx, `SELECT seq, event_id, payload, created_at FROM journal_entries ORDER BY seq ASC LIMIT ?`, maxEntries)
+	rows, err := j.db.QueryContext(
+		ctx,
+		`SELECT seq, event_id, payload, created_at FROM journal_entries ORDER BY seq ASC LIMIT ?`,
+		maxEntries,
+	)
 	if err != nil {
 		return nil, classifySQLiteError(err)
 	}
@@ -282,7 +332,8 @@ func (j *Journal) Ack(ctx context.Context, through uint64) error {
 		return tx.Commit()
 	}
 	var maximum int64
-	if err = tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), ?) FROM journal_entries`, watermark).Scan(&maximum); err != nil {
+	maximumQuery := `SELECT COALESCE(MAX(seq), ?) FROM journal_entries`
+	if err = tx.QueryRowContext(ctx, maximumQuery, watermark).Scan(&maximum); err != nil {
 		return classifySQLiteError(err)
 	}
 	if through > uint64(maximum) {
@@ -311,9 +362,11 @@ func (j *Journal) Metrics(ctx context.Context) (Metrics, error) {
 func metricsDB(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }, cfg Config) (Metrics, error) {
+	const usageQuery = `SELECT COUNT(*), COALESCE(SUM(length(payload)),0), MIN(created_at),` +
+		` (SELECT acked_through FROM journal_meta WHERE id=1) FROM journal_entries`
 	var count, bytes, watermark int64
 	var oldest sql.NullInt64
-	if err := q.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(SUM(length(payload)),0), MIN(created_at), (SELECT acked_through FROM journal_meta WHERE id=1) FROM journal_entries`).Scan(&count, &bytes, &oldest, &watermark); err != nil {
+	if err := q.QueryRowContext(ctx, usageQuery).Scan(&count, &bytes, &oldest, &watermark); err != nil {
 		return Metrics{}, classifySQLiteError(err)
 	}
 	m := Metrics{Entries: int(count), Bytes: bytes, AckedThrough: uint64(watermark), State: stateFor(bytes, cfg)}
@@ -323,9 +376,11 @@ func metricsDB(ctx context.Context, q interface {
 	}
 	return m, nil
 }
+
 func metricsTx(ctx context.Context, tx *sql.Tx, cfg Config) (Metrics, error) {
 	return metricsDB(ctx, tx, cfg)
 }
+
 func stateFor(bytes int64, cfg Config) CapacityState {
 	percent := bytes * 100 / cfg.MaxBytes
 	if percent >= cfg.CriticalAt {
@@ -346,6 +401,7 @@ func (j *Journal) Checkpoint(ctx context.Context) error {
 	}
 	return nil
 }
+
 func (j *Journal) Close() error {
 	if j == nil || j.db == nil {
 		return nil

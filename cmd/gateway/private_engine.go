@@ -23,19 +23,32 @@ func privateEngineTLSConfig(identity *gatewayidentity.Manager) (*tls.Config, err
 	if err != nil {
 		return nil, err
 	}
-	return &tls.Config{MinVersion: tls.VersionTLS13, ClientAuth: tls.RequireAndVerifyClientCert, ClientCAs: roots, GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) { return identity.GetClientCertificate(nil) }, VerifyConnection: func(state tls.ConnectionState) error {
-		if len(state.PeerCertificates) == 0 {
-			return errors.New("API client certificate missing")
-		}
-		leaf := state.PeerCertificates[0]
-		if leaf.IsCA || len(leaf.URIs) != 1 || leaf.URIs[0].String() != pki.APIIdentityURI {
-			return errors.New("invalid API client identity")
-		}
-		return nil
-	}}, nil
+	return &tls.Config{
+		MinVersion: tls.VersionTLS13,
+		ClientAuth: tls.RequireAndVerifyClientCert,
+		ClientCAs:  roots,
+		GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+			return identity.GetClientCertificate(nil)
+		},
+		VerifyConnection: func(state tls.ConnectionState) error {
+			if len(state.PeerCertificates) == 0 {
+				return errors.New("API client certificate missing")
+			}
+			leaf := state.PeerCertificates[0]
+			if leaf.IsCA || len(leaf.URIs) != 1 || leaf.URIs[0].String() != pki.APIIdentityURI {
+				return errors.New("invalid API client identity")
+			}
+			return nil
+		},
+	}, nil
 }
 
-func startPrivateEngine(addr, gatewayID string, identity *gatewayidentity.Manager, engine *wa.ApplicationGatewayAdapter) (func(), error) {
+func startPrivateEngine(
+	addr string,
+	gatewayID string,
+	identity *gatewayidentity.Manager,
+	engine *wa.ApplicationGatewayAdapter,
+) (func(), error) {
 	tlsConfig, err := privateEngineTLSConfig(identity)
 	if err != nil {
 		return nil, err
@@ -44,10 +57,15 @@ func startPrivateEngine(addr, gatewayID string, identity *gatewayidentity.Manage
 	if err != nil {
 		return nil, err
 	}
-	server := grpc.NewServer(grpc.Creds(credentials.NewTLS(tlsConfig)),
+	server := grpc.NewServer(
+		grpc.Creds(credentials.NewTLS(tlsConfig)),
 		grpc.MaxRecvMsgSize(apigateway.MaxEngineMessageBytes),
-		grpc.MaxSendMsgSize(apigateway.MaxEngineMessageBytes))
-	gatewayv1.RegisterGatewayEngineServiceServer(server, &enginegrpc.Server{GatewayID: gatewayID, Engine: engine})
+		grpc.MaxSendMsgSize(apigateway.MaxEngineMessageBytes),
+	)
+	gatewayv1.RegisterGatewayEngineServiceServer(server, &enginegrpc.Server{
+		GatewayID: gatewayID,
+		Engine:    engine,
+	})
 	go func() { _ = server.Serve(listener) }()
 	return func() { server.GracefulStop(); _ = listener.Close() }, nil
 }

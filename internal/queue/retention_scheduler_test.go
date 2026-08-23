@@ -18,7 +18,11 @@ type retentionEnqueueFake struct {
 	err     error
 }
 
-func (f *retentionEnqueueFake) EnqueueRetentionPrune(_ context.Context, cutoff int64, _ ...asynq.Option) (*asynq.TaskInfo, error) {
+func (f *retentionEnqueueFake) EnqueueRetentionPrune(
+	_ context.Context,
+	cutoff int64,
+	_ ...asynq.Option,
+) (*asynq.TaskInfo, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.err != nil {
@@ -67,7 +71,8 @@ func TestRetentionScheduler_DeduplicatesAcrossReplicas(t *testing.T) {
 	if got[0] != want {
 		t.Fatalf("cutoff = %d, want %d", got[0], want)
 	}
-	if exists, err := rdb.Exists(context.Background(), "stack:retention:scheduled:20260715").Result(); err != nil || exists != 1 {
+	existsCmd := rdb.Exists(context.Background(), "stack:retention:scheduled:20260715")
+	if exists, err := existsCmd.Result(); err != nil || exists != 1 {
 		t.Fatalf("daily claim exists = %d, %v; want 1, nil", exists, err)
 	}
 }
@@ -78,7 +83,11 @@ func TestRetentionScheduler_ReleasesClaimAfterEnqueueFailure(t *testing.T) {
 	rdb := newRetentionRedis(t)
 	q := &retentionEnqueueFake{err: errors.New("redis unavailable")}
 	now := time.Date(2026, time.July, 15, 9, 0, 0, 0, time.UTC)
-	s := NewRetentionScheduler(rdb, q, RetentionSchedulerConfig{RetentionDays: 7, RedisPrefix: "gw", Now: func() time.Time { return now }})
+	s := NewRetentionScheduler(rdb, q, RetentionSchedulerConfig{
+		RetentionDays: 7,
+		RedisPrefix:   "gw",
+		Now:           func() time.Time { return now },
+	})
 
 	if err := s.enqueueDay(context.Background(), now); err == nil {
 		t.Fatal("enqueueDay succeeded, want error")
@@ -103,7 +112,10 @@ func TestRetentionScheduler_StartDisabledAndImmediate(t *testing.T) {
 	now := time.Date(2026, time.July, 15, 9, 0, 0, 0, time.UTC)
 
 	disabledQ := &retentionEnqueueFake{}
-	disabled := NewRetentionScheduler(rdb, disabledQ, RetentionSchedulerConfig{RetentionDays: 0, Now: func() time.Time { return now }})
+	disabled := NewRetentionScheduler(rdb, disabledQ, RetentionSchedulerConfig{
+		RetentionDays: 0,
+		Now:           func() time.Time { return now },
+	})
 	disabled.Start(context.Background())()
 	if got := disabledQ.calls(); len(got) != 0 {
 		t.Fatalf("disabled enqueues = %d, want 0", len(got))

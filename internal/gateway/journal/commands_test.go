@@ -37,7 +37,8 @@ func TestCommandResultRoundTripAndImmutability(t *testing.T) {
 		t.Fatalf("stored result mutated: %#v", record)
 	}
 
-	if err := j.SaveCommandResult(ctx, CommandResult{CommandID: "cmd_2", SessionID: "s", Status: "weird", UpdatedAt: sentAt}); err == nil {
+	rejected := CommandResult{CommandID: "cmd_2", SessionID: "s", Status: "weird", UpdatedAt: sentAt}
+	if err := j.SaveCommandResult(ctx, rejected); err == nil {
 		t.Fatal("unknown status accepted")
 	}
 }

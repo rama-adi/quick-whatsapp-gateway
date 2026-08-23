@@ -20,7 +20,10 @@ type Server struct {
 	Engine    application.GatewayEngine
 }
 
-func (s *Server) GetSessionState(ctx context.Context, req *gatewayv1.GetSessionStateRequest) (*gatewayv1.GetSessionStateResponse, error) {
+func (s *Server) GetSessionState(
+	ctx context.Context,
+	req *gatewayv1.GetSessionStateRequest,
+) (*gatewayv1.GetSessionStateResponse, error) {
 	target, err := s.target(req.GetTarget())
 	if err != nil {
 		return nil, grpcError(err)
@@ -28,14 +31,22 @@ func (s *Server) GetSessionState(ctx context.Context, req *gatewayv1.GetSessionS
 	if req.GetAssignmentEpoch() == 0 {
 		return nil, status.Error(codes.InvalidArgument, "invalid session-state request")
 	}
-	value, err := s.Engine.GetSessionState(ctx, application.SessionStateQuery{OrganizationID: target.OrganizationId, SessionID: target.SessionId, GatewayID: target.GatewayId, AssignmentEpoch: req.GetAssignmentEpoch()})
+	value, err := s.Engine.GetSessionState(ctx, sessionQuery(target, req.GetAssignmentEpoch()))
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	return &gatewayv1.GetSessionStateResponse{Target: target, Status: sessionStatus(value.Status), Connected: value.Connected, LoggedIn: value.LoggedIn}, nil
+	return &gatewayv1.GetSessionStateResponse{
+		Target:    target,
+		Status:    sessionStatus(value.Status),
+		Connected: value.Connected,
+		LoggedIn:  value.LoggedIn,
+	}, nil
 }
 
-func (s *Server) SetAccountPresence(ctx context.Context, req *gatewayv1.SetAccountPresenceRequest) (*gatewayv1.SetAccountPresenceResponse, error) {
+func (s *Server) SetAccountPresence(
+	ctx context.Context,
+	req *gatewayv1.SetAccountPresenceRequest,
+) (*gatewayv1.SetAccountPresenceResponse, error) {
 	target, err := s.target(req.GetTarget())
 	if err != nil {
 		return nil, grpcError(err)
@@ -52,29 +63,54 @@ func (s *Server) SetAccountPresence(ctx context.Context, req *gatewayv1.SetAccou
 	default:
 		return nil, status.Error(codes.InvalidArgument, "invalid presence state")
 	}
-	result, err := s.Engine.SetAccountPresence(ctx, application.SetPresenceCommand{CommandID: req.GetCommandId(), OrganizationID: target.OrganizationId, SessionID: target.SessionId, GatewayID: target.GatewayId, AssignmentEpoch: req.GetAssignmentEpoch(), State: state})
+	result, err := s.Engine.SetAccountPresence(ctx, application.SetPresenceCommand{
+		CommandID:       req.GetCommandId(),
+		OrganizationID:  target.OrganizationId,
+		SessionID:       target.SessionId,
+		GatewayID:       target.GatewayId,
+		AssignmentEpoch: req.GetAssignmentEpoch(),
+		State:           state,
+	})
 	if err != nil {
 		return nil, grpcError(err)
 	}
 	return presenceResponse(result), nil
 }
 
-func (s *Server) MarkRead(ctx context.Context, req *gatewayv1.MarkReadRequest) (*gatewayv1.MarkReadResponse, error) {
+func (s *Server) MarkRead(
+	ctx context.Context,
+	req *gatewayv1.MarkReadRequest,
+) (*gatewayv1.MarkReadResponse, error) {
 	target, err := s.target(req.GetTarget())
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	if req.GetAssignmentEpoch() == 0 || req.GetCommandId() == "" || len(req.GetMessageIds()) == 0 || req.GetReadAtUnixMs() <= 0 {
+	missingMessageIDs := len(req.GetMessageIds()) == 0
+	invalidTimestamp := req.GetReadAtUnixMs() <= 0
+	if req.GetAssignmentEpoch() == 0 || req.GetCommandId() == "" || missingMessageIDs || invalidTimestamp {
 		return nil, status.Error(codes.InvalidArgument, "invalid mark-read request")
 	}
-	result, err := s.Engine.MarkRead(ctx, application.MarkReadCommand{CommandID: req.GetCommandId(), OrganizationID: target.OrganizationId, SessionID: target.SessionId, GatewayID: target.GatewayId, AssignmentEpoch: req.GetAssignmentEpoch(), ChatJID: req.GetChatJid(), SenderJID: req.GetSenderJid(), MessageIDs: req.GetMessageIds(), ReadAt: time.UnixMilli(req.GetReadAtUnixMs()).UTC()})
+	result, err := s.Engine.MarkRead(ctx, application.MarkReadCommand{
+		CommandID:       req.GetCommandId(),
+		OrganizationID:  target.OrganizationId,
+		SessionID:       target.SessionId,
+		GatewayID:       target.GatewayId,
+		AssignmentEpoch: req.GetAssignmentEpoch(),
+		ChatJID:         req.GetChatJid(),
+		SenderJID:       req.GetSenderJid(),
+		MessageIDs:      req.GetMessageIds(),
+		ReadAt:          time.UnixMilli(req.GetReadAtUnixMs()).UTC(),
+	})
 	if err != nil {
 		return nil, grpcError(err)
 	}
 	return readResponse(result), nil
 }
 
-func (s *Server) SendMessage(ctx context.Context, req *gatewayv1.SendMessageRequest) (*gatewayv1.SendMessageResponse, error) {
+func (s *Server) SendMessage(
+	ctx context.Context,
+	req *gatewayv1.SendMessageRequest,
+) (*gatewayv1.SendMessageResponse, error) {
 	target, err := s.target(req.GetTarget())
 	if err != nil {
 		return nil, grpcError(err)
@@ -94,17 +130,24 @@ func (s *Server) SendMessage(ctx context.Context, req *gatewayv1.SendMessageRequ
 		return nil, grpcError(err)
 	}
 	return &gatewayv1.SendMessageResponse{
-		CommandId: result.CommandID, Target: targetResponse(result.MutationResult), AssignmentEpoch: result.AssignmentEpoch,
-		WaMessageId: result.WAMessageID, SentAtUnixMs: result.SentAt.UnixMilli(),
+		CommandId:       result.CommandID,
+		Target:          targetResponse(result.MutationResult),
+		AssignmentEpoch: result.AssignmentEpoch,
+		WaMessageId:     result.WAMessageID,
+		SentAtUnixMs:    result.SentAt.UnixMilli(),
 	}, nil
 }
 
-func (s *Server) MessageOp(ctx context.Context, req *gatewayv1.MessageOpRequest) (*gatewayv1.MessageOpResponse, error) {
+func (s *Server) MessageOp(
+	ctx context.Context,
+	req *gatewayv1.MessageOpRequest,
+) (*gatewayv1.MessageOpResponse, error) {
 	target, err := s.target(req.GetTarget())
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	if req.GetAssignmentEpoch() == 0 || req.GetCommandId() == "" || req.GetOp() == "" || req.GetMessageId() == "" {
+	missingCommand := req.GetAssignmentEpoch() == 0 || req.GetCommandId() == ""
+	if missingCommand || req.GetOp() == "" || req.GetMessageId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "invalid message-op request")
 	}
 	result, err := s.Engine.ExecuteOp(ctx, application.MessageOpCommand{
@@ -122,7 +165,10 @@ func (s *Server) MessageOp(ctx context.Context, req *gatewayv1.MessageOpRequest)
 	}, nil
 }
 
-func (s *Server) LookupContact(ctx context.Context, req *gatewayv1.LookupContactRequest) (*gatewayv1.LookupContactResponse, error) {
+func (s *Server) LookupContact(
+	ctx context.Context,
+	req *gatewayv1.LookupContactRequest,
+) (*gatewayv1.LookupContactResponse, error) {
 	target, err := s.target(req.GetTarget())
 	if err != nil {
 		return nil, grpcError(err)
@@ -139,12 +185,19 @@ func (s *Server) LookupContact(ctx context.Context, req *gatewayv1.LookupContact
 	}
 	response := &gatewayv1.LookupContactResponse{Results: make([]*gatewayv1.ContactLookup, 0, len(results))}
 	for _, r := range results {
-		response.Results = append(response.Results, &gatewayv1.ContactLookup{Query: r.Query, Jid: r.JID, IsOnWhatsapp: r.IsIn})
+		response.Results = append(response.Results, &gatewayv1.ContactLookup{
+			Query:        r.Query,
+			Jid:          r.JID,
+			IsOnWhatsapp: r.IsIn,
+		})
 	}
 	return response, nil
 }
 
-func (s *Server) GetContactPicture(ctx context.Context, req *gatewayv1.GetContactPictureRequest) (*gatewayv1.GetContactPictureResponse, error) {
+func (s *Server) GetContactPicture(
+	ctx context.Context,
+	req *gatewayv1.GetContactPictureRequest,
+) (*gatewayv1.GetContactPictureResponse, error) {
 	query, err := s.queryTarget(req.GetTarget(), req.GetAssignmentEpoch())
 	if err != nil {
 		return nil, grpcError(err)
@@ -156,7 +209,10 @@ func (s *Server) GetContactPicture(ctx context.Context, req *gatewayv1.GetContac
 	return &gatewayv1.GetContactPictureResponse{Url: picture.URL, Id: picture.ID}, nil
 }
 
-func (s *Server) GetContactAbout(ctx context.Context, req *gatewayv1.GetContactAboutRequest) (*gatewayv1.GetContactAboutResponse, error) {
+func (s *Server) GetContactAbout(
+	ctx context.Context,
+	req *gatewayv1.GetContactAboutRequest,
+) (*gatewayv1.GetContactAboutResponse, error) {
 	query, err := s.queryTarget(req.GetTarget(), req.GetAssignmentEpoch())
 	if err != nil {
 		return nil, grpcError(err)
@@ -168,7 +224,10 @@ func (s *Server) GetContactAbout(ctx context.Context, req *gatewayv1.GetContactA
 	return &gatewayv1.GetContactAboutResponse{About: about}, nil
 }
 
-func (s *Server) SetBlocked(ctx context.Context, req *gatewayv1.SetBlockedRequest) (*gatewayv1.SetBlockedResponse, error) {
+func (s *Server) SetBlocked(
+	ctx context.Context,
+	req *gatewayv1.SetBlockedRequest,
+) (*gatewayv1.SetBlockedResponse, error) {
 	target, err := s.target(req.GetTarget())
 	if err != nil {
 		return nil, grpcError(err)
@@ -183,15 +242,23 @@ func (s *Server) SetBlocked(ctx context.Context, req *gatewayv1.SetBlockedReques
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	return &gatewayv1.SetBlockedResponse{CommandId: result.CommandID, Target: targetResponse(result.MutationResult), AssignmentEpoch: result.AssignmentEpoch}, nil
+	return &gatewayv1.SetBlockedResponse{
+		CommandId:       result.CommandID,
+		Target:          targetResponse(result.MutationResult),
+		AssignmentEpoch: result.AssignmentEpoch,
+	}, nil
 }
 
-func (s *Server) CreateGroup(ctx context.Context, req *gatewayv1.CreateGroupRequest) (*gatewayv1.CreateGroupResponse, error) {
+func (s *Server) CreateGroup(
+	ctx context.Context,
+	req *gatewayv1.CreateGroupRequest,
+) (*gatewayv1.CreateGroupResponse, error) {
 	target, err := s.target(req.GetTarget())
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	if req.GetAssignmentEpoch() == 0 || req.GetCommandId() == "" || req.GetName() == "" || len(req.GetParticipants()) == 0 {
+	missingCommand := req.GetAssignmentEpoch() == 0 || req.GetCommandId() == ""
+	if missingCommand || req.GetName() == "" || len(req.GetParticipants()) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "invalid create-group request")
 	}
 	result, err := s.Engine.MutateGroup(ctx, application.GroupMutationCommand{
@@ -209,14 +276,26 @@ func (s *Server) CreateGroup(ctx context.Context, req *gatewayv1.CreateGroupRequ
 	}, nil
 }
 
-func (s *Server) UpdateGroupSettings(ctx context.Context, req *gatewayv1.UpdateGroupSettingsRequest) (*gatewayv1.UpdateGroupSettingsResponse, error) {
+func (s *Server) UpdateGroupSettings(
+	ctx context.Context,
+	req *gatewayv1.UpdateGroupSettingsRequest,
+) (*gatewayv1.UpdateGroupSettingsResponse, error) {
 	target, err := s.target(req.GetTarget())
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	settings := application.GroupSettingsUpdate{Subject: req.Subject, Description: req.Description, Announce: req.Announce, Locked: req.Locked}
-	if req.GetAssignmentEpoch() == 0 || req.GetCommandId() == "" || req.GetGroupJid() == "" ||
-		(settings.Subject == nil && settings.Description == nil && settings.Announce == nil && settings.Locked == nil) {
+	settings := application.GroupSettingsUpdate{
+		Subject:     req.Subject,
+		Description: req.Description,
+		Announce:    req.Announce,
+		Locked:      req.Locked,
+	}
+	noSettingGiven := settings.Subject == nil &&
+		settings.Description == nil &&
+		settings.Announce == nil &&
+		settings.Locked == nil
+	missingCommand := req.GetAssignmentEpoch() == 0 || req.GetCommandId() == "" || req.GetGroupJid() == ""
+	if missingCommand || noSettingGiven {
 		return nil, status.Error(codes.InvalidArgument, "invalid update-group-settings request")
 	}
 	result, err := s.Engine.MutateGroup(ctx, application.GroupMutationCommand{
@@ -227,17 +306,24 @@ func (s *Server) UpdateGroupSettings(ctx context.Context, req *gatewayv1.UpdateG
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	return &gatewayv1.UpdateGroupSettingsResponse{CommandId: result.CommandID, Target: targetResponse(result.MutationResult), AssignmentEpoch: result.AssignmentEpoch}, nil
+	return &gatewayv1.UpdateGroupSettingsResponse{
+		CommandId:       result.CommandID,
+		Target:          targetResponse(result.MutationResult),
+		AssignmentEpoch: result.AssignmentEpoch,
+	}, nil
 }
 
-func (s *Server) UpdateGroupParticipants(ctx context.Context, req *gatewayv1.UpdateGroupParticipantsRequest) (*gatewayv1.UpdateGroupParticipantsResponse, error) {
+func (s *Server) UpdateGroupParticipants(
+	ctx context.Context,
+	req *gatewayv1.UpdateGroupParticipantsRequest,
+) (*gatewayv1.UpdateGroupParticipantsResponse, error) {
 	target, err := s.target(req.GetTarget())
 	if err != nil {
 		return nil, grpcError(err)
 	}
 	action, validAction := participantChange(req.GetAction())
-	if req.GetAssignmentEpoch() == 0 || req.GetCommandId() == "" || req.GetGroupJid() == "" ||
-		len(req.GetParticipants()) == 0 || !validAction {
+	missingCommand := req.GetAssignmentEpoch() == 0 || req.GetCommandId() == "" || req.GetGroupJid() == ""
+	if missingCommand || len(req.GetParticipants()) == 0 || !validAction {
 		return nil, status.Error(codes.InvalidArgument, "invalid update-group-participants request")
 	}
 	result, err := s.Engine.MutateGroup(ctx, application.GroupMutationCommand{
@@ -249,10 +335,17 @@ func (s *Server) UpdateGroupParticipants(ctx context.Context, req *gatewayv1.Upd
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	return &gatewayv1.UpdateGroupParticipantsResponse{CommandId: result.CommandID, Target: targetResponse(result.MutationResult), AssignmentEpoch: result.AssignmentEpoch}, nil
+	return &gatewayv1.UpdateGroupParticipantsResponse{
+		CommandId:       result.CommandID,
+		Target:          targetResponse(result.MutationResult),
+		AssignmentEpoch: result.AssignmentEpoch,
+	}, nil
 }
 
-func (s *Server) GetGroupInviteLink(ctx context.Context, req *gatewayv1.GetGroupInviteLinkRequest) (*gatewayv1.GetGroupInviteLinkResponse, error) {
+func (s *Server) GetGroupInviteLink(
+	ctx context.Context,
+	req *gatewayv1.GetGroupInviteLinkRequest,
+) (*gatewayv1.GetGroupInviteLinkResponse, error) {
 	query, err := s.queryTarget(req.GetTarget(), req.GetAssignmentEpoch())
 	if err != nil {
 		return nil, grpcError(err)
@@ -267,7 +360,10 @@ func (s *Server) GetGroupInviteLink(ctx context.Context, req *gatewayv1.GetGroup
 	return &gatewayv1.GetGroupInviteLinkResponse{Link: link}, nil
 }
 
-func (s *Server) JoinGroup(ctx context.Context, req *gatewayv1.JoinGroupRequest) (*gatewayv1.JoinGroupResponse, error) {
+func (s *Server) JoinGroup(
+	ctx context.Context,
+	req *gatewayv1.JoinGroupRequest,
+) (*gatewayv1.JoinGroupResponse, error) {
 	query, err := s.queryTarget(req.GetTarget(), req.GetAssignmentEpoch())
 	if err != nil {
 		return nil, grpcError(err)
@@ -282,7 +378,10 @@ func (s *Server) JoinGroup(ctx context.Context, req *gatewayv1.JoinGroupRequest)
 	return &gatewayv1.JoinGroupResponse{GroupJid: groupJID}, nil
 }
 
-func (s *Server) LeaveGroup(ctx context.Context, req *gatewayv1.LeaveGroupRequest) (*gatewayv1.LeaveGroupResponse, error) {
+func (s *Server) LeaveGroup(
+	ctx context.Context,
+	req *gatewayv1.LeaveGroupRequest,
+) (*gatewayv1.LeaveGroupResponse, error) {
 	target, err := s.target(req.GetTarget())
 	if err != nil {
 		return nil, grpcError(err)
@@ -298,10 +397,17 @@ func (s *Server) LeaveGroup(ctx context.Context, req *gatewayv1.LeaveGroupReques
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	return &gatewayv1.LeaveGroupResponse{CommandId: result.CommandID, Target: targetResponse(result.MutationResult), AssignmentEpoch: result.AssignmentEpoch}, nil
+	return &gatewayv1.LeaveGroupResponse{
+		CommandId:       result.CommandID,
+		Target:          targetResponse(result.MutationResult),
+		AssignmentEpoch: result.AssignmentEpoch,
+	}, nil
 }
 
-func (s *Server) GetChatPresence(ctx context.Context, req *gatewayv1.GetChatPresenceRequest) (*gatewayv1.GetChatPresenceResponse, error) {
+func (s *Server) GetChatPresence(
+	ctx context.Context,
+	req *gatewayv1.GetChatPresenceRequest,
+) (*gatewayv1.GetChatPresenceResponse, error) {
 	query, err := s.queryTarget(req.GetTarget(), req.GetAssignmentEpoch())
 	if err != nil {
 		return nil, grpcError(err)
@@ -316,7 +422,10 @@ func (s *Server) GetChatPresence(ctx context.Context, req *gatewayv1.GetChatPres
 	return &gatewayv1.GetChatPresenceResponse{Presence: presenceStatusProto(presence)}, nil
 }
 
-func (s *Server) SetChatPresence(ctx context.Context, req *gatewayv1.SetChatPresenceRequest) (*gatewayv1.SetChatPresenceResponse, error) {
+func (s *Server) SetChatPresence(
+	ctx context.Context,
+	req *gatewayv1.SetChatPresenceRequest,
+) (*gatewayv1.SetChatPresenceResponse, error) {
 	target, err := s.target(req.GetTarget())
 	if err != nil {
 		return nil, grpcError(err)
@@ -335,7 +444,10 @@ func (s *Server) SetChatPresence(ctx context.Context, req *gatewayv1.SetChatPres
 	return &gatewayv1.SetChatPresenceResponse{}, nil
 }
 
-func (s *Server) BackfillSession(ctx context.Context, req *gatewayv1.BackfillSessionRequest) (*gatewayv1.BackfillSessionResponse, error) {
+func (s *Server) BackfillSession(
+	ctx context.Context,
+	req *gatewayv1.BackfillSessionRequest,
+) (*gatewayv1.BackfillSessionResponse, error) {
 	query, err := s.queryTarget(req.GetTarget(), req.GetAssignmentEpoch())
 	if err != nil {
 		return nil, grpcError(err)
@@ -347,7 +459,10 @@ func (s *Server) BackfillSession(ctx context.Context, req *gatewayv1.BackfillSes
 	return &gatewayv1.BackfillSessionResponse{Snapshot: backfillSnapshotProto(snapshot)}, nil
 }
 
-func (s *Server) PrepareSession(ctx context.Context, req *gatewayv1.PrepareSessionRequest) (*gatewayv1.PrepareSessionResponse, error) {
+func (s *Server) PrepareSession(
+	ctx context.Context,
+	req *gatewayv1.PrepareSessionRequest,
+) (*gatewayv1.PrepareSessionResponse, error) {
 	target, err := s.target(req.GetTarget())
 	if err != nil {
 		return nil, grpcError(err)
@@ -355,14 +470,17 @@ func (s *Server) PrepareSession(ctx context.Context, req *gatewayv1.PrepareSessi
 	if req.GetAssignmentEpoch() == 0 {
 		return nil, status.Error(codes.InvalidArgument, "invalid prepare-session request")
 	}
-	result, err := s.Engine.PrepareSession(ctx, application.SessionStateQuery{OrganizationID: target.OrganizationId, SessionID: target.SessionId, GatewayID: target.GatewayId, AssignmentEpoch: req.GetAssignmentEpoch()})
+	result, err := s.Engine.PrepareSession(ctx, sessionQuery(target, req.GetAssignmentEpoch()))
 	if err != nil {
 		return nil, grpcError(err)
 	}
 	return &gatewayv1.PrepareSessionResponse{Target: target, AssignmentEpoch: result.AssignmentEpoch}, nil
 }
 
-func (s *Server) BeginPairing(ctx context.Context, req *gatewayv1.BeginPairingRequest) (*gatewayv1.BeginPairingResponse, error) {
+func (s *Server) BeginPairing(
+	ctx context.Context,
+	req *gatewayv1.BeginPairingRequest,
+) (*gatewayv1.BeginPairingResponse, error) {
 	query, err := s.queryTarget(req.GetTarget(), req.GetAssignmentEpoch())
 	if err != nil {
 		return nil, grpcError(err)
@@ -378,7 +496,10 @@ func (s *Server) BeginPairing(ctx context.Context, req *gatewayv1.BeginPairingRe
 	return response, nil
 }
 
-func (s *Server) PairPhone(ctx context.Context, req *gatewayv1.PairPhoneRequest) (*gatewayv1.PairPhoneResponse, error) {
+func (s *Server) PairPhone(
+	ctx context.Context,
+	req *gatewayv1.PairPhoneRequest,
+) (*gatewayv1.PairPhoneResponse, error) {
 	query, err := s.queryTarget(req.GetTarget(), req.GetAssignmentEpoch())
 	if err != nil {
 		return nil, grpcError(err)
@@ -390,10 +511,17 @@ func (s *Server) PairPhone(ctx context.Context, req *gatewayv1.PairPhoneRequest)
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	return &gatewayv1.PairPhoneResponse{Target: targetProto(query), AssignmentEpoch: query.AssignmentEpoch, PairingCode: code}, nil
+	return &gatewayv1.PairPhoneResponse{
+		Target:          targetProto(query),
+		AssignmentEpoch: query.AssignmentEpoch,
+		PairingCode:     code,
+	}, nil
 }
 
-func (s *Server) LogoutSession(ctx context.Context, req *gatewayv1.LogoutSessionRequest) (*gatewayv1.LogoutSessionResponse, error) {
+func (s *Server) LogoutSession(
+	ctx context.Context,
+	req *gatewayv1.LogoutSessionRequest,
+) (*gatewayv1.LogoutSessionResponse, error) {
 	target, err := s.target(req.GetTarget())
 	if err != nil {
 		return nil, grpcError(err)
@@ -408,10 +536,17 @@ func (s *Server) LogoutSession(ctx context.Context, req *gatewayv1.LogoutSession
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	return &gatewayv1.LogoutSessionResponse{CommandId: result.CommandID, Target: targetResponse(result.MutationResult), AssignmentEpoch: result.AssignmentEpoch}, nil
+	return &gatewayv1.LogoutSessionResponse{
+		CommandId:       result.CommandID,
+		Target:          targetResponse(result.MutationResult),
+		AssignmentEpoch: result.AssignmentEpoch,
+	}, nil
 }
 
-func (s *Server) ForgetSession(ctx context.Context, req *gatewayv1.ForgetSessionRequest) (*gatewayv1.ForgetSessionResponse, error) {
+func (s *Server) ForgetSession(
+	ctx context.Context,
+	req *gatewayv1.ForgetSessionRequest,
+) (*gatewayv1.ForgetSessionResponse, error) {
 	target, err := s.target(req.GetTarget())
 	if err != nil {
 		return nil, grpcError(err)
@@ -423,29 +558,63 @@ func (s *Server) ForgetSession(ctx context.Context, req *gatewayv1.ForgetSession
 }
 
 func (s *Server) target(target *gatewayv1.SessionTarget) (*gatewayv1.SessionTarget, error) {
-	if s.Engine == nil || s.GatewayID == "" || target == nil || target.GetOrganizationId() == "" || target.GetSessionId() == "" || target.GetGatewayId() != s.GatewayID {
+	misconfigured := s.Engine == nil || s.GatewayID == ""
+	incomplete := target == nil || target.GetOrganizationId() == "" || target.GetSessionId() == ""
+	foreign := target != nil && target.GetGatewayId() != s.GatewayID
+	if misconfigured || incomplete || foreign {
 		return nil, domain.ErrValidation("invalid gateway target")
 	}
 	return target, nil
 }
 
 func presenceResponse(value application.MutationResult) *gatewayv1.SetAccountPresenceResponse {
-	return &gatewayv1.SetAccountPresenceResponse{CommandId: value.CommandID, Target: targetResponse(value), AssignmentEpoch: value.AssignmentEpoch}
+	return &gatewayv1.SetAccountPresenceResponse{
+		CommandId:       value.CommandID,
+		Target:          targetResponse(value),
+		AssignmentEpoch: value.AssignmentEpoch,
+	}
 }
+
 func readResponse(value application.MutationResult) *gatewayv1.MarkReadResponse {
-	return &gatewayv1.MarkReadResponse{CommandId: value.CommandID, Target: targetResponse(value), AssignmentEpoch: value.AssignmentEpoch}
+	return &gatewayv1.MarkReadResponse{
+		CommandId:       value.CommandID,
+		Target:          targetResponse(value),
+		AssignmentEpoch: value.AssignmentEpoch,
+	}
 }
+
 func targetResponse(value application.MutationResult) *gatewayv1.SessionTarget {
-	return &gatewayv1.SessionTarget{OrganizationId: value.OrganizationID, SessionId: value.SessionID, GatewayId: value.GatewayID}
+	return &gatewayv1.SessionTarget{
+		OrganizationId: value.OrganizationID,
+		SessionId:      value.SessionID,
+		GatewayId:      value.GatewayID,
+	}
+}
+
+// sessionQuery builds the routing metadata shared by session-state reads.
+func sessionQuery(target *gatewayv1.SessionTarget, assignmentEpoch uint64) application.SessionStateQuery {
+	return application.SessionStateQuery{
+		OrganizationID:  target.OrganizationId,
+		SessionID:       target.SessionId,
+		GatewayID:       target.GatewayId,
+		AssignmentEpoch: assignmentEpoch,
+	}
 }
 
 func targetProto(query application.SessionStateQuery) *gatewayv1.SessionTarget {
-	return &gatewayv1.SessionTarget{OrganizationId: query.OrganizationID, SessionId: query.SessionID, GatewayId: query.GatewayID}
+	return &gatewayv1.SessionTarget{
+		OrganizationId: query.OrganizationID,
+		SessionId:      query.SessionID,
+		GatewayId:      query.GatewayID,
+	}
 }
 
 // queryTarget validates a read request's routing metadata without requiring a
 // command id.
-func (s *Server) queryTarget(target *gatewayv1.SessionTarget, assignmentEpoch uint64) (application.SessionStateQuery, error) {
+func (s *Server) queryTarget(
+	target *gatewayv1.SessionTarget,
+	assignmentEpoch uint64,
+) (application.SessionStateQuery, error) {
 	value, err := s.target(target)
 	if err != nil {
 		return application.SessionStateQuery{}, err
@@ -490,7 +659,10 @@ func presenceStatusProto(status domain.PresenceStatus) *gatewayv1.ChatPresenceSt
 }
 
 func backfillSnapshotProto(snapshot domain.BackfillSnapshot) *gatewayv1.BackfillSnapshot {
-	out := &gatewayv1.BackfillSnapshot{Contacts: make([]*gatewayv1.BackfillContact, 0, len(snapshot.Contacts)), Groups: make([]*gatewayv1.BackfillGroup, 0, len(snapshot.Groups))}
+	out := &gatewayv1.BackfillSnapshot{
+		Contacts: make([]*gatewayv1.BackfillContact, 0, len(snapshot.Contacts)),
+		Groups:   make([]*gatewayv1.BackfillGroup, 0, len(snapshot.Groups)),
+	}
 	for _, c := range snapshot.Contacts {
 		out.Contacts = append(out.Contacts, &gatewayv1.BackfillContact{
 			Lid: c.LID, PhoneJid: c.PhoneJID, PhoneNumber: c.PhoneNumber, Name: c.Name, BusinessName: c.BusinessName,
