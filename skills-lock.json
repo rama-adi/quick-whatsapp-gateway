@@ -25,6 +25,12 @@
       "skillPath": "better-auth/emailAndPassword/SKILL.md",
       "computedHash": "747d7f73bd9e2ec5317b8ef88dc70f97df716d00e3d02de4051feebaa48b062d"
     },
+    "golang-code-style": {
+      "source": "samber/cc-skills-golang",
+      "sourceType": "github",
+      "skillPath": "skills/golang-code-style/SKILL.md",
+      "computedHash": "8ce09e462ef435cedc78307c124adb0c83848366b4bc51cd0942d3c79fff1e71"
+    },
     "organization-best-practices": {
       "source": "better-auth/skills",
       "sourceType": "github",
