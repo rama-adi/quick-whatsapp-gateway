@@ -11,7 +11,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -48,7 +48,11 @@ type OAuthAppService struct {
 // NewOAuthAppService wires the OAuth repositories and normalizes process-level
 // configuration. Empty pepper and admin prefix fall back to environment values;
 // the resulting service starts no workers and is safe for concurrent requests.
-func NewOAuthAppService(st *store.Store, secretPepper, adminPrefix, issuer string, publisher ControlPublisher) *OAuthAppService {
+func NewOAuthAppService(
+	st *store.Store,
+	secretPepper, adminPrefix, issuer string,
+	publisher ControlPublisher,
+) *OAuthAppService {
 	if secretPepper == "" {
 		secretPepper = os.Getenv("OAUTH_CLIENT_SECRET_PEPPER")
 	}
@@ -105,7 +109,13 @@ type OAuthAppUpdateInput struct {
 	RefreshTTLSeconds *int
 }
 
-func (s *OAuthAppService) List(ctx context.Context, org string, isSuperAdmin bool, cursor string, limit int) (store.Page[apitypes.OAuthApp], error) {
+func (s *OAuthAppService) List(
+	ctx context.Context,
+	org string,
+	isSuperAdmin bool,
+	cursor string,
+	limit int,
+) (store.Page[apitypes.OAuthApp], error) {
 	// The repo has no cross-org list because the dashboard is org-scoped; super_admin
 	// bypass applies to direct id lookups.
 	_ = isSuperAdmin
@@ -123,7 +133,11 @@ func (s *OAuthAppService) List(ctx context.Context, org string, isSuperAdmin boo
 // Create validates session ownership and the complete client policy before one
 // repository insert. Confidential secrets are generated once, returned only in
 // this response, and stored as a peppered hash; public clients persist no secret.
-func (s *OAuthAppService) Create(ctx context.Context, org string, in OAuthAppCreateInput) (apitypes.OAuthAppWithSecret, error) {
+func (s *OAuthAppService) Create(
+	ctx context.Context,
+	org string,
+	in OAuthAppCreateInput,
+) (apitypes.OAuthAppWithSecret, error) {
 	if err := s.assertSessionOrg(ctx, org, in.SessionID); err != nil {
 		return apitypes.OAuthAppWithSecret{}, err
 	}
@@ -198,7 +212,12 @@ func (s *OAuthAppService) Get(ctx context.Context, org, id string, isSuperAdmin 
 // Update applies a partial patch to an organization-visible client, validates the
 // resulting complete object, persists it, then publishes app-change invalidation.
 // Moving sessions is ownership-checked before mutation.
-func (s *OAuthAppService) Update(ctx context.Context, org, id string, isSuperAdmin bool, in OAuthAppUpdateInput) (apitypes.OAuthApp, error) {
+func (s *OAuthAppService) Update(
+	ctx context.Context,
+	org, id string,
+	isSuperAdmin bool,
+	in OAuthAppUpdateInput,
+) (apitypes.OAuthApp, error) {
 	c, err := s.getClient(ctx, org, id, isSuperAdmin)
 	if err != nil {
 		return apitypes.OAuthApp{}, err
@@ -220,14 +239,17 @@ func (s *OAuthAppService) Update(ctx context.Context, org, id string, isSuperAdm
 	}
 	if in.ClientType != nil {
 		next := strings.TrimSpace(*in.ClientType)
-		if next != c.ClientType {
-			if next == string(apitypes.OAuthClientPublic) {
-				c.ClientType = next
-				c.SecretHash = nil
-				c.SecretLast4 = nil
-			} else {
-				return apitypes.OAuthApp{}, domain.ErrValidation("clientType can only be changed from confidential to public; create or rotate a confidential secret explicitly")
-			}
+		unchanged := next == c.ClientType
+		toPublic := next == string(apitypes.OAuthClientPublic)
+		if !unchanged && !toPublic {
+			return apitypes.OAuthApp{}, domain.ErrValidation(
+				"clientType can only be changed from confidential to public; " +
+					"create or rotate a confidential secret explicitly")
+		}
+		if !unchanged {
+			c.ClientType = next
+			c.SecretHash = nil
+			c.SecretLast4 = nil
 		}
 	}
 	if in.LoginCommand != nil {
@@ -271,7 +293,11 @@ func (s *OAuthAppService) Update(ctx context.Context, org, id string, isSuperAdm
 	return s.mapOAuthClient(c)
 }
 
-func (s *OAuthAppService) RotateSecret(ctx context.Context, org, id string, isSuperAdmin bool) (apitypes.OAuthAppWithSecret, error) {
+func (s *OAuthAppService) RotateSecret(
+	ctx context.Context,
+	org, id string,
+	isSuperAdmin bool,
+) (apitypes.OAuthAppWithSecret, error) {
 	c, err := s.getClient(ctx, org, id, isSuperAdmin)
 	if err != nil {
 		return apitypes.OAuthAppWithSecret{}, err
@@ -319,14 +345,18 @@ func (s *OAuthAppService) Delete(ctx context.Context, org, id string, isSuperAdm
 	return err
 }
 
-func (s *OAuthAppService) SetEnabled(ctx context.Context, org, id string, isSuperAdmin bool, enabled bool) (apitypes.OAuthApp, error) {
+func (s *OAuthAppService) SetEnabled(
+	ctx context.Context,
+	org, id string,
+	isSuperAdmin bool,
+	enabled bool,
+) (apitypes.OAuthApp, error) {
 	c, err := s.getClient(ctx, org, id, isSuperAdmin)
 	if err != nil {
 		return apitypes.OAuthApp{}, err
 	}
-	if enabled {
-		c.Status = string(apitypes.OAuthAppActive)
-	} else {
+	c.Status = string(apitypes.OAuthAppActive)
+	if !enabled {
 		c.Status = string(apitypes.OAuthAppDisabled)
 	}
 	c.UpdatedAt = domain.NowMs()
@@ -337,7 +367,13 @@ func (s *OAuthAppService) SetEnabled(ctx context.Context, org, id string, isSupe
 	return s.mapOAuthClient(c)
 }
 
-func (s *OAuthAppService) ListGrants(ctx context.Context, org, appID string, isSuperAdmin bool, cursor string, limit int) (store.Page[apitypes.OAuthGrant], error) {
+func (s *OAuthAppService) ListGrants(
+	ctx context.Context,
+	org, appID string,
+	isSuperAdmin bool,
+	cursor string,
+	limit int,
+) (store.Page[apitypes.OAuthGrant], error) {
 	c, err := s.getClient(ctx, org, appID, isSuperAdmin)
 	if err != nil {
 		return store.Page[apitypes.OAuthGrant]{}, err
@@ -400,7 +436,7 @@ func (s *OAuthAppService) CascadeSessionLogoutOrDelete(ctx context.Context, org,
 		return err
 	}
 	now := domain.NowMs()
-	var revoked []domain.OAuthGrant
+	revoked := []domain.OAuthGrant{}
 	for _, c := range clients {
 		if c.OrganizationID != org {
 			continue
@@ -423,7 +459,11 @@ func (s *OAuthAppService) CascadeSessionLogoutOrDelete(ctx context.Context, org,
 	return nil
 }
 
-func (s *OAuthAppService) getClient(ctx context.Context, org, id string, isSuperAdmin bool) (domain.OAuthClient, error) {
+func (s *OAuthAppService) getClient(
+	ctx context.Context,
+	org, id string,
+	isSuperAdmin bool,
+) (domain.OAuthClient, error) {
 	if isSuperAdmin {
 		return s.clients.GetAny(ctx, id)
 	}
@@ -434,10 +474,17 @@ func (s *OAuthAppService) publishAppChanged(ctx context.Context, c domain.OAuthC
 	if s.publisher == nil {
 		return
 	}
-	_ = s.publisher.Publish(ctx, oidp.ChannelOIDPAppChanged, map[string]string{"sessionId": c.SessionID, "clientId": c.ClientID})
+	_ = s.publisher.Publish(ctx, oidp.ChannelOIDPAppChanged, map[string]string{
+		"sessionId": c.SessionID,
+		"clientId":  c.ClientID,
+	})
 }
 
-func (s *OAuthAppService) revokeClientGrants(ctx context.Context, orgID, clientID string, revokedAt int64) ([]domain.OAuthGrant, error) {
+func (s *OAuthAppService) revokeClientGrants(
+	ctx context.Context,
+	orgID, clientID string,
+	revokedAt int64,
+) ([]domain.OAuthGrant, error) {
 	page, err := s.grants.ListByClient(ctx, orgID, clientID, "", 1000)
 	if err != nil {
 		return nil, err
@@ -467,7 +514,11 @@ func (s *OAuthAppService) publishGrantRevoked(ctx context.Context, grantID, orgI
 	if s.publisher == nil || grantID == "" {
 		return
 	}
-	_ = s.publisher.Publish(ctx, oidp.ChannelOIDPGrantRevoked, map[string]string{"grantId": grantID, "organizationId": orgID, "clientId": clientID})
+	_ = s.publisher.Publish(ctx, oidp.ChannelOIDPGrantRevoked, map[string]string{
+		"grantId":        grantID,
+		"organizationId": orgID,
+		"clientId":       clientID,
+	})
 }
 
 func (s *OAuthAppService) assertSessionOrg(ctx context.Context, org, id string) error {
@@ -507,14 +558,12 @@ func (s *OAuthAppService) validateAndFill(c *domain.OAuthClient, redirects, mode
 		return err
 	}
 	c.Modes = strings.Join(normalizedModes, ",")
-	hasGroup := false
-	for _, m := range normalizedModes {
-		hasGroup = hasGroup || m == string(apitypes.OAuthAppModeGroup)
-	}
-	if hasGroup && (c.GroupJID == nil || strings.TrimSpace(*c.GroupJID) == "") {
+	hasGroup := slices.Contains(normalizedModes, string(apitypes.OAuthAppModeGroup))
+	groupJIDSet := c.GroupJID != nil && strings.TrimSpace(*c.GroupJID) != ""
+	if hasGroup && !groupJIDSet {
 		return domain.ErrValidation("groupJid is required when group mode is enabled")
 	}
-	if !hasGroup && c.GroupJID != nil {
+	if !hasGroup && groupJIDSet {
 		return domain.ErrValidation("groupJid is only allowed when group mode is enabled")
 	}
 	normalizedScopes := normalizeStringSet(scopes)
@@ -538,7 +587,8 @@ func validateRedirectURIs(values []string) ([]string, error) {
 	}
 	for _, raw := range values {
 		u, err := url.Parse(raw)
-		if err != nil || !u.IsAbs() || u.Host == "" {
+		unroutable := err != nil || !u.IsAbs() || u.Host == ""
+		if unroutable {
 			return nil, domain.ErrValidation("redirectUris must be absolute URLs")
 		}
 		if u.Fragment != "" {
@@ -588,7 +638,7 @@ func normalizeStringSet(values []string) []string {
 	for v := range set {
 		out = append(out, v)
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
 
@@ -604,7 +654,7 @@ func trimStringPtr(v *string) *string {
 }
 
 func stringSliceFromRaw(raw json.RawMessage) ([]string, error) {
-	var out []string
+	out := []string{}
 	if len(raw) == 0 {
 		return out, nil
 	}

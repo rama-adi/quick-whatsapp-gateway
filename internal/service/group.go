@@ -69,7 +69,11 @@ func (s *GroupService) liveFacade(ctx context.Context, organizationID, sessionID
 // Create creates a new group (§11 POST /groups). The engine returns the raw
 // group metadata; the service upserts its own projection so both API-local and
 // legacy paths leave the store equally populated.
-func (s *GroupService) Create(ctx context.Context, organizationID, sessionID, name string, participants []string) (GroupInfo, error) {
+func (s *GroupService) Create(
+	ctx context.Context,
+	organizationID, sessionID, name string,
+	participants []string,
+) (GroupInfo, error) {
 	if name == "" {
 		return GroupInfo{}, domain.ErrValidation("name is required")
 	}
@@ -127,7 +131,10 @@ func (s *GroupService) Get(ctx context.Context, organizationID, sessionID, group
 }
 
 // Members lists a group's members with role + per-group nickname.
-func (s *GroupService) Members(ctx context.Context, organizationID, sessionID, groupJID string) ([]domain.GroupMember, error) {
+func (s *GroupService) Members(
+	ctx context.Context,
+	organizationID, sessionID, groupJID string,
+) ([]domain.GroupMember, error) {
 	if err := s.requireSession(ctx, organizationID, sessionID); err != nil {
 		return nil, err
 	}
@@ -135,7 +142,12 @@ func (s *GroupService) Members(ctx context.Context, organizationID, sessionID, g
 }
 
 // participants applies an add/remove/promote/demote action.
-func (s *GroupService) participants(ctx context.Context, organizationID, sessionID, groupJID string, jids []string, action GroupParticipantAction) error {
+func (s *GroupService) participants(
+	ctx context.Context,
+	organizationID, sessionID, groupJID string,
+	jids []string,
+	action GroupParticipantAction,
+) error {
 	if len(jids) == 0 {
 		return domain.ErrValidation("at least one participant is required")
 	}
@@ -150,7 +162,11 @@ func (s *GroupService) participants(ctx context.Context, organizationID, session
 }
 
 // AddMembers adds participants (§11 POST /groups/{gid}/members).
-func (s *GroupService) AddMembers(ctx context.Context, organizationID, sessionID, groupJID string, jids []string) error {
+func (s *GroupService) AddMembers(
+	ctx context.Context,
+	organizationID, sessionID, groupJID string,
+	jids []string,
+) error {
 	return s.participants(ctx, organizationID, sessionID, groupJID, jids, GroupActionAdd)
 }
 
@@ -170,8 +186,13 @@ func (s *GroupService) Demote(ctx context.Context, organizationID, sessionID, gr
 }
 
 // UpdateSettings applies subject/description/announce/locked (§11 PATCH /groups/{gid}).
-func (s *GroupService) UpdateSettings(ctx context.Context, organizationID, sessionID, groupJID string, in GroupSettings) error {
-	if in.Subject == nil && in.Description == nil && in.Announce == nil && in.Locked == nil {
+func (s *GroupService) UpdateSettings(
+	ctx context.Context,
+	organizationID, sessionID, groupJID string,
+	in GroupSettings,
+) error {
+	noSettings := in.Subject == nil && in.Description == nil && in.Announce == nil && in.Locked == nil
+	if noSettings {
 		return domain.ErrValidation("no group settings to update")
 	}
 	facade, err := s.liveFacade(ctx, organizationID, sessionID)
@@ -256,7 +277,11 @@ func (s *GroupService) Leave(ctx context.Context, organizationID, sessionID, gro
 // ApproveMembers approves pending join requests (§11 POST /groups/{gid}/members:approve).
 // whatsmeow does not expose membership-approval in the surface wired for v1, so
 // this is reported as not_implemented consistently with the media types.
-func (s *GroupService) ApproveMembers(ctx context.Context, organizationID, sessionID, groupJID string, jids []string) error {
+func (s *GroupService) ApproveMembers(
+	ctx context.Context,
+	organizationID, sessionID, groupJID string,
+	jids []string,
+) error {
 	if err := s.requireSession(ctx, organizationID, sessionID); err != nil {
 		return err
 	}

@@ -213,7 +213,9 @@ type ChatPresenceCommand struct {
 	AssignmentEpoch uint64
 	ChatJID         string
 	State           string // composing | paused | recording
-} // CommandResultRecord is one definite terminal outcome of a stable engine
+}
+
+// CommandResultRecord is one definite terminal outcome of a stable engine
 // command, stored by the executing gateway for idempotent replay.
 type CommandResultRecord struct {
 	CommandID   string

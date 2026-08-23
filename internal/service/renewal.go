@@ -55,7 +55,10 @@ func NewRenewalService(db *sql.DB, signer pki.CertificateSigner) (*RenewalServic
 	})
 }
 
-func NewRenewalServiceWithDependencies(signer pki.CertificateSigner, deps RenewalDependencies) (*RenewalService, error) {
+func NewRenewalServiceWithDependencies(
+	signer pki.CertificateSigner,
+	deps RenewalDependencies,
+) (*RenewalService, error) {
 	if signer == nil || deps.Store == nil || deps.Clock == nil || deps.IDs == nil {
 		return nil, errors.New("renewal dependencies required")
 	}
@@ -64,7 +67,9 @@ func NewRenewalServiceWithDependencies(signer pki.CertificateSigner, deps Renewa
 
 func (s *RenewalService) Renew(ctx context.Context, input RenewalInput) (EnrollmentResult, error) {
 	credential := input.Credential
-	if credential.GatewayID == "" || credential.CertificateID == "" || credential.SerialNumber == "" || len(credential.Fingerprint) == 0 {
+	credentialIncomplete := credential.GatewayID == "" || credential.CertificateID == "" ||
+		credential.SerialNumber == "" || len(credential.Fingerprint) == 0
+	if credentialIncomplete {
 		return EnrollmentResult{}, &InvalidCredentialError{Cause: ErrEnrollmentDenied}
 	}
 	csr, err := pki.ValidateCSR(input.CSRDER, credential.GatewayID)
@@ -73,14 +78,28 @@ func (s *RenewalService) Renew(ctx context.Context, input RenewalInput) (Enrollm
 	}
 	hash := csr.DERHash()
 	now := s.clock()
-	storeCredential := store.RenewalCredential{GatewayID: credential.GatewayID, CertificateID: credential.CertificateID, SerialNumber: credential.SerialNumber, Fingerprint: append([]byte(nil), credential.Fingerprint...)}
-	if replay, err := s.store.PrepareRenewal(ctx, store.PrepareRenewalInput{Credential: storeCredential, CSRHash: hash[:], Now: now.UnixMilli()}); err != nil {
+	storeCredential := store.RenewalCredential{
+		GatewayID:     credential.GatewayID,
+		CertificateID: credential.CertificateID,
+		SerialNumber:  credential.SerialNumber,
+		Fingerprint:   append([]byte(nil), credential.Fingerprint...),
+	}
+	replay, err := s.store.PrepareRenewal(ctx, store.PrepareRenewalInput{
+		Credential: storeCredential,
+		CSRHash:    hash[:],
+		Now:        now.UnixMilli(),
+	})
+	if err != nil {
 		return EnrollmentResult{}, s.mapRenewalError(ctx, err)
-	} else if replay != nil {
+	}
+	if replay != nil {
 		return resultFromCertificate(*replay), nil
 	}
 
-	signed, err := s.signer.Sign(ctx, pki.SignRequest{GatewayID: credential.GatewayID, CSR: csr})
+	signed, err := s.signer.Sign(ctx, pki.SignRequest{
+		GatewayID: credential.GatewayID,
+		CSR:       csr,
+	})
 	if err != nil {
 		if ctx.Err() != nil {
 			return EnrollmentResult{}, ctx.Err()
@@ -92,14 +111,24 @@ func (s *RenewalService) Renew(ctx context.Context, input RenewalInput) (Enrollm
 	}
 	issuedAt := s.clock().UnixMilli()
 	certificate := domain.GatewayCertificate{
-		ID: s.id(), GatewayID: credential.GatewayID, AuthorityID: signed.AuthorityID,
-		IssuanceKind: "renewal", CSRSHA256: hash[:], SerialNumber: signed.Serial.String(),
-		CertificatePEM: string(signed.ChainPEM), TrustBundlePEM: string(signed.TrustBundlePEM),
-		Fingerprint: signed.Fingerprint, NotBefore: signed.NotBefore.UnixMilli(),
-		NotAfter: signed.NotAfter.UnixMilli(), CreatedAt: issuedAt,
+		ID:             s.id(),
+		GatewayID:      credential.GatewayID,
+		AuthorityID:    signed.AuthorityID,
+		IssuanceKind:   "renewal",
+		CSRSHA256:      hash[:],
+		SerialNumber:   signed.Serial.String(),
+		CertificatePEM: string(signed.ChainPEM),
+		TrustBundlePEM: string(signed.TrustBundlePEM),
+		Fingerprint:    signed.Fingerprint,
+		NotBefore:      signed.NotBefore.UnixMilli(),
+		NotAfter:       signed.NotAfter.UnixMilli(),
+		CreatedAt:      issuedAt,
 	}
 	persisted, err := s.store.FinalizeRenewal(ctx, store.FinalizeRenewalInput{
-		Credential: storeCredential, CSRHash: hash[:], Now: issuedAt, Certificate: certificate,
+		Credential:     storeCredential,
+		CSRHash:        hash[:],
+		Now:            issuedAt,
+		Certificate:    certificate,
 		SucceededAudit: renewalAudit(s.id(), credential.GatewayID, signed.Fingerprint, issuedAt),
 	})
 	if err == nil {
@@ -109,8 +138,13 @@ func (s *RenewalService) Renew(ctx context.Context, input RenewalInput) (Enrollm
 	// PrepareRenewal is safe and returns only the exact persisted replay.
 	recoveryCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	if replay, recoveryErr := s.store.PrepareRenewal(recoveryCtx, store.PrepareRenewalInput{Credential: storeCredential, CSRHash: hash[:], Now: s.clock().UnixMilli()}); recoveryErr == nil && replay != nil {
-		return resultFromCertificate(*replay), nil
+	replayed, recoveryErr := s.store.PrepareRenewal(recoveryCtx, store.PrepareRenewalInput{
+		Credential: storeCredential,
+		CSRHash:    hash[:],
+		Now:        s.clock().UnixMilli(),
+	})
+	if recoveryErr == nil && replayed != nil {
+		return resultFromCertificate(*replayed), nil
 	}
 	return EnrollmentResult{}, s.mapRenewalError(ctx, err)
 }
@@ -129,5 +163,15 @@ func (s *RenewalService) mapRenewalError(ctx context.Context, err error) error {
 
 func renewalAudit(id, gatewayID string, fingerprint []byte, now int64) domain.AuditEvent {
 	resourceID, actorID := gatewayID, gatewayID
-	return domain.AuditEvent{ID: id, ActorType: actorTypeNode, ActorID: &actorID, Action: "renewal.succeeded", ResourceType: "gateway", ResourceID: &resourceID, Outcome: "success", Metadata: map[string]any{"certificate_fingerprint": fmt.Sprintf("%x", fingerprint)}, CreatedAt: now}
+	return domain.AuditEvent{
+		ID:           id,
+		ActorType:    actorTypeNode,
+		ActorID:      &actorID,
+		Action:       "renewal.succeeded",
+		ResourceType: "gateway",
+		ResourceID:   &resourceID,
+		Outcome:      "success",
+		Metadata:     map[string]any{"certificate_fingerprint": fmt.Sprintf("%x", fingerprint)},
+		CreatedAt:    now,
+	}
 }

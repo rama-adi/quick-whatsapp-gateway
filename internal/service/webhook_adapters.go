@@ -27,7 +27,10 @@ var _ webhooks.WebhookRepo = (*WebhookRepoAdapter)(nil)
 
 // ListMatching returns the candidate webhooks for (organization, session); the events
 // filter is applied by the dispatcher/enqueuer via webhooks.EventMatches.
-func (a *WebhookRepoAdapter) ListMatching(ctx context.Context, organization, session, eventType string) ([]domain.Webhook, error) {
+func (a *WebhookRepoAdapter) ListMatching(
+	ctx context.Context,
+	organization, session, eventType string,
+) ([]domain.Webhook, error) {
 	hooks, err := a.repo.ListActiveForEvent(ctx, organization, session)
 	if err != nil {
 		return nil, err
@@ -64,7 +67,11 @@ func (a *WebhookDeliveryRepoAdapter) Create(ctx context.Context, d *domain.Webho
 	return a.repo.Create(ctx, d)
 }
 
-func (a *WebhookDeliveryRepoAdapter) ClaimDue(ctx context.Context, now int64, limit int) ([]domain.WebhookDelivery, error) {
+func (a *WebhookDeliveryRepoAdapter) ClaimDue(
+	ctx context.Context,
+	now int64,
+	limit int,
+) ([]domain.WebhookDelivery, error) {
 	return a.repo.ClaimDue(ctx, now, limit)
 }
 
@@ -72,11 +79,24 @@ func (a *WebhookDeliveryRepoAdapter) MarkDelivered(ctx context.Context, id uint6
 	return a.repo.MarkDelivered(ctx, id, responseCode)
 }
 
-func (a *WebhookDeliveryRepoAdapter) MarkFailed(ctx context.Context, id uint64, _ int, nextRetryAt int64, responseCode *int, lastErr string) error {
+func (a *WebhookDeliveryRepoAdapter) MarkFailed(
+	ctx context.Context,
+	id uint64,
+	_ int,
+	nextRetryAt int64,
+	responseCode *int,
+	lastErr string,
+) error {
 	return a.repo.MarkFailed(ctx, id, responseCode, lastErr, nextRetryAt)
 }
 
-func (a *WebhookDeliveryRepoAdapter) MarkDead(ctx context.Context, id uint64, _ int, responseCode *int, lastErr string) error {
+func (a *WebhookDeliveryRepoAdapter) MarkDead(
+	ctx context.Context,
+	id uint64,
+	_ int,
+	responseCode *int,
+	lastErr string,
+) error {
 	return a.repo.MarkDead(ctx, id, responseCode, lastErr)
 }
 

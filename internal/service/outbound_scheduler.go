@@ -24,7 +24,13 @@ type outboundSessionSource interface {
 type outboundCommandStore interface {
 	Insert(ctx context.Context, o domain.OutboxEntry) error
 	GetByIdempotency(ctx context.Context, organizationID, idempotencyKey string) (domain.OutboxEntry, error)
-	UpdateStatus(ctx context.Context, id string, status domain.OutboxStatus, waMessageID, errMsg *string, updatedAt int64) error
+	UpdateStatus(
+		ctx context.Context,
+		id string,
+		status domain.OutboxStatus,
+		waMessageID, errMsg *string,
+		updatedAt int64,
+	) error
 	ClaimDue(ctx context.Context, limit int, dueBefore, staleBefore, updatedAt int64) ([]domain.OutboxEntry, error)
 	Reschedule(ctx context.Context, id string, note string, nextAttemptAt, updatedAt int64) (bool, error)
 }
@@ -92,7 +98,14 @@ func (c *OutboundSchedulerConfig) normalize() error {
 }
 
 // NewOutboundScheduler validates its configuration and returns the scheduler.
-func NewOutboundScheduler(sessions outboundSessionSource, outbox outboundCommandStore, engine outboundEngine, limiter outbound.RateLimiter, cfg OutboundSchedulerConfig, log *slog.Logger) (*OutboundScheduler, error) {
+func NewOutboundScheduler(
+	sessions outboundSessionSource,
+	outbox outboundCommandStore,
+	engine outboundEngine,
+	limiter outbound.RateLimiter,
+	cfg OutboundSchedulerConfig,
+	log *slog.Logger,
+) (*OutboundScheduler, error) {
 	if sessions == nil || outbox == nil || engine == nil {
 		return nil, errors.New("outbound scheduler dependencies are required")
 	}
@@ -105,14 +118,26 @@ func NewOutboundScheduler(sessions outboundSessionSource, outbox outboundCommand
 	if log == nil {
 		log = slog.Default()
 	}
-	return &OutboundScheduler{sessions: sessions, outbox: outbox, engine: engine, limiter: limiter, log: log, cfg: cfg}, nil
+	return &OutboundScheduler{
+		sessions: sessions,
+		outbox:   outbox,
+		engine:   engine,
+		limiter:  limiter,
+		log:      log,
+		cfg:      cfg,
+	}, nil
 }
 
 // Send is the synchronous front door behind MessageService. It preserves the
 // legacy §8 contract: idempotency replay before anything else, sync sends
 // enforce the rate limit and block on the WhatsApp ack, async sends persist a
 // queued command and return accepted.
-func (s *OutboundScheduler) Send(ctx context.Context, organizationID, sessionID string, req domain.SendRequest, opts outbound.SendOptions) (outbound.SendResult, error) {
+func (s *OutboundScheduler) Send(
+	ctx context.Context,
+	organizationID, sessionID string,
+	req domain.SendRequest,
+	opts outbound.SendOptions,
+) (outbound.SendResult, error) {
 	if err := outbound.Validate(req); err != nil {
 		return outbound.SendResult{}, err
 	}
@@ -148,7 +173,10 @@ func (s *OutboundScheduler) session(ctx context.Context, organizationID, session
 	return sess, nil
 }
 
-func (s *OutboundScheduler) priorByIdempotency(ctx context.Context, organizationID, key string) (*domain.OutboxEntry, bool, error) {
+func (s *OutboundScheduler) priorByIdempotency(
+	ctx context.Context,
+	organizationID, key string,
+) (*domain.OutboxEntry, bool, error) {
 	prior, err := s.outbox.GetByIdempotency(ctx, organizationID, key)
 	if err == nil {
 		return &prior, true, nil
@@ -163,7 +191,12 @@ func (s *OutboundScheduler) priorByIdempotency(ctx context.Context, organization
 // enqueueAsync persists the queued command and returns accepted. A rate-limit
 // breach does not error here: the row simply stays queued for a later attempt
 // (§8 deferred behavior).
-func (s *OutboundScheduler) enqueueAsync(ctx context.Context, sess domain.WASession, req domain.SendRequest, opts outbound.SendOptions) (outbound.SendResult, error) {
+func (s *OutboundScheduler) enqueueAsync(
+	ctx context.Context,
+	sess domain.WASession,
+	req domain.SendRequest,
+	opts outbound.SendOptions,
+) (outbound.SendResult, error) {
 	now := s.now()
 	entry := s.newCommand(sess, opts.IdempotencyKey, domain.OutboxQueued, now)
 	if err := s.insertCommand(ctx, entry, req); err != nil {
@@ -179,7 +212,12 @@ func (s *OutboundScheduler) enqueueAsync(ctx context.Context, sess domain.WASess
 
 // sendSync blocks on the outcome. The command row always exists first, so even
 // a keyless send leaves durable evidence and its ambiguity can be reconciled.
-func (s *OutboundScheduler) sendSync(ctx context.Context, sess domain.WASession, req domain.SendRequest, opts outbound.SendOptions) (outbound.SendResult, error) {
+func (s *OutboundScheduler) sendSync(
+	ctx context.Context,
+	sess domain.WASession,
+	req domain.SendRequest,
+	opts outbound.SendOptions,
+) (outbound.SendResult, error) {
 	ok, retryAfter, err := s.limiter.Allow(ctx, sess.ID, sess.RatePerMin, sess.RatePerHour)
 	if err != nil {
 		return outbound.SendResult{}, fmt.Errorf("rate check: %w", err)
@@ -205,7 +243,12 @@ func (s *OutboundScheduler) sendSync(ctx context.Context, sess domain.WASession,
 }
 
 // newCommand builds one queued-or-sending command row identity.
-func (s *OutboundScheduler) newCommand(sess domain.WASession, idempotencyKey string, status domain.OutboxStatus, now time.Time) domain.OutboxEntry {
+func (s *OutboundScheduler) newCommand(
+	sess domain.WASession,
+	idempotencyKey string,
+	status domain.OutboxStatus,
+	now time.Time,
+) domain.OutboxEntry {
 	return domain.OutboxEntry{
 		ID:             domain.NewULID(),
 		OrganizationID: sess.OrganizationID,
@@ -270,7 +313,12 @@ func (s *OutboundScheduler) processDue(ctx context.Context) {
 // dispatchClaimed drives one leased command to a terminal state or schedules
 // its next attempt. checkLimit gates whether this attempt consumes a rate-limit
 // token (worker attempts do; a sync front-door attempt already consumed one).
-func (s *OutboundScheduler) dispatchClaimed(ctx context.Context, entry domain.OutboxEntry, req domain.SendRequest, checkLimit bool) (outbound.SendResult, error) {
+func (s *OutboundScheduler) dispatchClaimed(
+	ctx context.Context,
+	entry domain.OutboxEntry,
+	req domain.SendRequest,
+	checkLimit bool,
+) (outbound.SendResult, error) {
 	// Op commands encode their discriminator in the payload's "type" field,
 	// which is disjoint from every SendRequest type.
 	if isOpType(req.Type) {
@@ -296,7 +344,13 @@ func (s *OutboundScheduler) dispatchClaimed(ctx context.Context, entry domain.Ou
 			return outbound.SendResult{}, s.ambiguous(ctx, entry, fmt.Sprintf("rate check: %v", err))
 		}
 		if !ok {
-			if _, rerr := s.outbox.Reschedule(ctx, entry.ID, "rate limited", now.Add(retryAfter).UnixMilli(), now.UnixMilli()); rerr != nil {
+			if _, rerr := s.outbox.Reschedule(
+				ctx,
+				entry.ID,
+				"rate limited",
+				now.Add(retryAfter).UnixMilli(),
+				now.UnixMilli(),
+			); rerr != nil {
 				return outbound.SendResult{}, rerr
 			}
 			return outbound.SendResult{}, domain.ErrRateLimited("send deferred: rate limit").
@@ -357,7 +411,14 @@ func (s *OutboundScheduler) ambiguous(ctx context.Context, entry domain.OutboxEn
 	note := fmt.Sprintf("%s (attempt %d)", cause, attempt)
 	if attempt >= s.cfg.MaxAttempts {
 		message := fmt.Sprintf("no definite outcome after %d attempts; last error: %s", attempt, cause)
-		if uerr := s.outbox.UpdateStatus(ctx, entry.ID, domain.OutboxFailed, nil, &message, s.now().UnixMilli()); uerr != nil {
+		if uerr := s.outbox.UpdateStatus(
+			ctx,
+			entry.ID,
+			domain.OutboxFailed,
+			nil,
+			&message,
+			s.now().UnixMilli(),
+		); uerr != nil {
 			return uerr
 		}
 		return errors.New(note)
@@ -407,8 +468,17 @@ func (s *OutboundScheduler) SetMessageRecorder(recorder *MessageRecorderAdapter)
 // a successfully dispatched send. A recorder failure is logged and swallowed:
 // the WhatsApp send already succeeded and must not be reported as failed. The
 // upsert key matches the inbound projection so echoes and receipts reconcile.
-func (s *OutboundScheduler) recordSent(ctx context.Context, sessionID string, req domain.SendRequest, waMessageID string, ts int64) {
-	if s.recorder == nil || waMessageID == "" || sessionID == "" || req.Type == "" && req.To == "" {
+func (s *OutboundScheduler) recordSent(
+	ctx context.Context,
+	sessionID string,
+	req domain.SendRequest,
+	waMessageID string,
+	ts int64,
+) {
+	noRecorder := s.recorder == nil
+	missingTarget := waMessageID == "" || sessionID == ""
+	emptyRequest := req.Type == "" && req.To == ""
+	if noRecorder || missingTarget || emptyRequest {
 		return
 	}
 	if ts == 0 {
@@ -459,7 +529,8 @@ func outboundBody(req domain.SendRequest) string {
 // isMediaType reports whether a send type carries a media file.
 func isMediaType(t string) bool {
 	switch t {
-	case domain.SendTypeImage, domain.SendTypeVideo, domain.SendTypeAudio, domain.SendTypeDocument, domain.SendTypeSticker:
+	case domain.SendTypeImage, domain.SendTypeVideo, domain.SendTypeAudio,
+		domain.SendTypeDocument, domain.SendTypeSticker:
 		return true
 	}
 	return false
@@ -512,13 +583,29 @@ type opPayload struct {
 }
 
 func opRequestToPayload(req outbound.OpRequest) opPayload {
-	return opPayload{Type: req.Op, Chat: req.Chat, Sender: req.Sender, MsgID: req.MsgID,
-		Emoji: req.Emoji, NewText: req.NewText, Options: req.Options, To: req.To}
+	return opPayload{
+		Type:    req.Op,
+		Chat:    req.Chat,
+		Sender:  req.Sender,
+		MsgID:   req.MsgID,
+		Emoji:   req.Emoji,
+		NewText: req.NewText,
+		Options: req.Options,
+		To:      req.To,
+	}
 }
 
 func (p opPayload) toOpRequest() outbound.OpRequest {
-	return outbound.OpRequest{Op: p.Type, Chat: p.Chat, Sender: p.Sender, MsgID: p.MsgID,
-		Emoji: p.Emoji, NewText: p.NewText, Options: p.Options, To: p.To}
+	return outbound.OpRequest{
+		Op:      p.Type,
+		Chat:    p.Chat,
+		Sender:  p.Sender,
+		MsgID:   p.MsgID,
+		Emoji:   p.Emoji,
+		NewText: p.NewText,
+		Options: p.Options,
+		To:      p.To,
+	}
 }
 
 // isOpType reports whether a decoded SendRequest.Type names an op command.
@@ -534,7 +621,11 @@ func isOpType(t string) bool {
 // ExecuteOp runs one message sub-resource operation through the same durable
 // command pipeline as sends: rate limit, row insert, engine dispatch with the
 // row id as command id, terminal update or backoff reschedule.
-func (s *OutboundScheduler) ExecuteOp(ctx context.Context, organizationID, sessionID string, req outbound.OpRequest) (outbound.SendResult, error) {
+func (s *OutboundScheduler) ExecuteOp(
+	ctx context.Context,
+	organizationID, sessionID string,
+	req outbound.OpRequest,
+) (outbound.SendResult, error) {
 	if err := outbound.ValidateOp(req); err != nil {
 		return outbound.SendResult{}, err
 	}
@@ -565,13 +656,24 @@ func (s *OutboundScheduler) ExecuteOp(ctx context.Context, organizationID, sessi
 }
 
 // dispatchOp drives one claimed op command to a terminal state.
-func (s *OutboundScheduler) dispatchOp(ctx context.Context, entry domain.OutboxEntry, payload opPayload) (outbound.SendResult, error) {
+func (s *OutboundScheduler) dispatchOp(
+	ctx context.Context,
+	entry domain.OutboxEntry,
+	payload opPayload,
+) (outbound.SendResult, error) {
 	now := s.now()
 	result, err := s.engine.ExecuteOp(ctx, application.MessageOpCommand{
-		CommandID: entry.ID, OrganizationID: entry.OrganizationID, SessionID: entry.SessionID,
-		Op: application.MessageOp(payload.Type), ChatJID: payload.Chat, SenderJID: payload.Sender,
-		MessageID: payload.MsgID, Emoji: payload.Emoji, NewText: payload.NewText,
-		Options: payload.Options, ToJID: payload.To,
+		CommandID:      entry.ID,
+		OrganizationID: entry.OrganizationID,
+		SessionID:      entry.SessionID,
+		Op:             application.MessageOp(payload.Type),
+		ChatJID:        payload.Chat,
+		SenderJID:      payload.Sender,
+		MessageID:      payload.MsgID,
+		Emoji:          payload.Emoji,
+		NewText:        payload.NewText,
+		Options:        payload.Options,
+		ToJID:          payload.To,
 	})
 	timestamp := now.UnixMilli()
 	if err != nil {

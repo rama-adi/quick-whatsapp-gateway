@@ -69,7 +69,13 @@ func NewBackupImportService(s *store.Store, log *slog.Logger) *BackupImportServi
 // temporary database, and inserts the running job before launching background
 // work. Failures before insertion remove staged plaintext and have no quota effect;
 // success returns only after durable job visibility, not after import completion.
-func (s *BackupImportService) StartImport(ctx context.Context, organizationID, sessionID string, isSuperAdmin bool, ciphertext []byte, key string) (domain.BackfillImport, error) {
+func (s *BackupImportService) StartImport(
+	ctx context.Context,
+	organizationID, sessionID string,
+	isSuperAdmin bool,
+	ciphertext []byte,
+	key string,
+) (domain.BackfillImport, error) {
 	sess, err := s.store.Sessions.Get(ctx, sessionID)
 	if err != nil {
 		return domain.BackfillImport{}, err
@@ -84,7 +90,8 @@ func (s *BackupImportService) StartImport(ctx context.Context, organizationID, s
 	// reserve a job or touch the quota.
 	plain, err := s.decrypt(ciphertext, key)
 	if err != nil {
-		return domain.BackfillImport{}, domain.ErrValidation("could not decrypt backup (check the key and file): " + err.Error())
+		return domain.BackfillImport{}, domain.ErrValidation(
+			"could not decrypt backup (check the key and file): " + err.Error())
 	}
 
 	now := s.clock()
@@ -103,7 +110,8 @@ func (s *BackupImportService) StartImport(ctx context.Context, organizationID, s
 			return domain.BackfillImport{}, err
 		}
 		if ok && now-at < quotaWindowMs {
-			return domain.BackfillImport{}, domain.ErrRateLimited("a backup can be imported once per day per session; try again later")
+			return domain.BackfillImport{}, domain.ErrRateLimited(
+				"a backup can be imported once per day per session; try again later")
 		}
 	}
 
@@ -131,7 +139,11 @@ func (s *BackupImportService) StartImport(ctx context.Context, organizationID, s
 }
 
 // ImportStatus returns the latest import for a session (ownership-checked).
-func (s *BackupImportService) ImportStatus(ctx context.Context, organizationID, sessionID string, isSuperAdmin bool) (domain.BackfillImport, error) {
+func (s *BackupImportService) ImportStatus(
+	ctx context.Context,
+	organizationID, sessionID string,
+	isSuperAdmin bool,
+) (domain.BackfillImport, error) {
 	sess, err := s.store.Sessions.Get(ctx, sessionID)
 	if err != nil {
 		return domain.BackfillImport{}, err
@@ -185,12 +197,19 @@ func (s *BackupImportService) runImport(ctx context.Context, job domain.Backfill
 		job.Status = "failed"
 		job.Error = err.Error()
 		s.log.WarnContext(ctx, "backup import failed", "session", job.SessionID, "job", job.ID, "err", err)
-	} else {
-		job.Status = "succeeded"
-		s.log.InfoContext(ctx, "backup import finished", "session", job.SessionID, "job", job.ID,
-			"chats", job.Chats, "messages", job.Messages, "identities", job.Identities,
-			"groups", job.Groups, "members", job.GroupMembers)
+		s.finishJob(ctx, job)
+		return
 	}
+	job.Status = "succeeded"
+	s.log.InfoContext(ctx, "backup import finished", "session", job.SessionID, "job", job.ID,
+		"chats", job.Chats, "messages", job.Messages, "identities", job.Identities,
+		"groups", job.Groups, "members", job.GroupMembers)
+	s.finishJob(ctx, job)
+}
+
+// finishJob records the terminal job row; a persistence failure is logged and
+// otherwise dropped because the staged file is already gone.
+func (s *BackupImportService) finishJob(ctx context.Context, job domain.BackfillImport) {
 	if e := s.store.BackfillImports.Finish(ctx, job); e != nil {
 		s.log.WarnContext(ctx, "backup import: record result failed", "job", job.ID, "err", e)
 	}
@@ -211,7 +230,12 @@ func (s *BackupImportService) finishFailed(ctx context.Context, job domain.Backf
 // onto job. Identities/groups/members are imported before chats/messages so
 // senders resolve and group subjects are present. Any error aborts (the job is
 // marked failed); partial counts so far are preserved on the row.
-func (s *BackupImportService) importAll(ctx context.Context, db backupReader, sessionID string, job *domain.BackfillImport) error {
+func (s *BackupImportService) importAll(
+	ctx context.Context,
+	db backupReader,
+	sessionID string,
+	job *domain.BackfillImport,
+) error {
 	now := s.clock()
 
 	if err := db.EachIdentity(ctx, func(id backup.Identity) error {

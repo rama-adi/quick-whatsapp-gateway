@@ -56,7 +56,8 @@ const (
 
 func (s GatewayStatus) Valid() bool {
 	switch s {
-	case GatewayPendingEnrollment, GatewayJoining, GatewayActive, GatewayDraining, GatewayDrained, GatewayDegraded, GatewayDisabled:
+	case GatewayPendingEnrollment, GatewayJoining, GatewayActive,
+		GatewayDraining, GatewayDrained, GatewayDegraded, GatewayDisabled:
 		return true
 	default:
 		return false

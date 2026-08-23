@@ -65,19 +65,25 @@ func New(d Deps) *Services {
 		d.Log = slog.Default()
 	}
 	services := &Services{
-		Sessions:  NewSessionService(d.Store.Sessions, d.Store.Gateways, d.Log),
-		Messages:  NewMessageService(d.Store.Sessions, d.Log),
-		Webhooks:  NewWebhookService(d.Store.Webhooks, d.Crypto, d.DefaultRetryDelay, d.DefaultRetryAttempts, d.Log),
-		Chats:     NewChatService(d.Store, nil, d.Log),
-		Contacts:  NewContactService(d.Store, nil, d.Log),
-		Groups:    NewGroupService(d.Store, nil, d.Log),
-		Channels:  NewChannelService(d.Store, nil, d.Log),
-		Status:    NewStatusService(d.Store, nil, d.Log),
-		Presence:  NewPresenceService(d.Store, nil, d.Log),
-		Admin:     NewAdminService(d.Store, nil, d.Log),
-		Events:    NewEventsService(d.Store.EventLog, d.Log),
-		Backup:    NewBackupImportService(d.Store, d.Log),
-		OAuthApps: NewOAuthAppService(d.Store, d.OAuthClientSecretPepper, d.WhatsAppAdminCommandPrefix, d.OIDCIssuer, d.ControlPublisher),
+		Sessions: NewSessionService(d.Store.Sessions, d.Store.Gateways, d.Log),
+		Messages: NewMessageService(d.Store.Sessions, d.Log),
+		Webhooks: NewWebhookService(d.Store.Webhooks, d.Crypto, d.DefaultRetryDelay, d.DefaultRetryAttempts, d.Log),
+		Chats:    NewChatService(d.Store, nil, d.Log),
+		Contacts: NewContactService(d.Store, nil, d.Log),
+		Groups:   NewGroupService(d.Store, nil, d.Log),
+		Channels: NewChannelService(d.Store, nil, d.Log),
+		Status:   NewStatusService(d.Store, nil, d.Log),
+		Presence: NewPresenceService(d.Store, nil, d.Log),
+		Admin:    NewAdminService(d.Store, nil, d.Log),
+		Events:   NewEventsService(d.Store.EventLog, d.Log),
+		Backup:   NewBackupImportService(d.Store, d.Log),
+		OAuthApps: NewOAuthAppService(
+			d.Store,
+			d.OAuthClientSecretPepper,
+			d.WhatsAppAdminCommandPrefix,
+			d.OIDCIssuer,
+			d.ControlPublisher,
+		),
 	}
 	services.Sessions.SetOAuthCascader(services.OAuthApps)
 	return services

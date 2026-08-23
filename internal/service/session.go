@@ -108,7 +108,11 @@ func (s *SessionService) Create(ctx context.Context, organizationID string, in C
 // inserts the session row, records the assignment, then has the assigned
 // engine materialize its keystore device. A QR-kick failure keeps the row and
 // assignment (the session is retryable via POST .../qr) but is surfaced.
-func (s *SessionService) createControlled(ctx context.Context, organizationID string, in CreateInput) (domain.WASession, error) {
+func (s *SessionService) createControlled(
+	ctx context.Context,
+	organizationID string,
+	in CreateInput,
+) (domain.WASession, error) {
 	gatewayRow, err := s.gateways.PickForPlacement(ctx)
 	if err != nil {
 		return domain.WASession{}, domain.ErrUnavailable("no eligible gateway available for placement")
@@ -271,7 +275,10 @@ func (s *SessionService) Me(ctx context.Context, organizationID, id string) (Me,
 		if err != nil {
 			return Me{}, err
 		}
-		if state.OrganizationID != organizationID || state.SessionID != sess.ID || state.GatewayID != sess.GatewayID {
+		stateOwned := state.OrganizationID == organizationID &&
+			state.SessionID == sess.ID &&
+			state.GatewayID == sess.GatewayID
+		if !stateOwned {
 			return Me{}, domain.ErrConflict("gateway returned mismatched session state")
 		}
 		status, connected = state.Status, state.Connected

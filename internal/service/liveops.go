@@ -42,7 +42,12 @@ const (
 type GroupOps interface {
 	CreateGroup(ctx context.Context, sessionID, name string, participants []string) (GroupInfo, error)
 	GetGroupInfo(ctx context.Context, sessionID, groupJID string) (GroupInfo, error)
-	UpdateParticipants(ctx context.Context, sessionID, groupJID string, participants []string, action GroupParticipantAction) error
+	UpdateParticipants(
+		ctx context.Context,
+		sessionID, groupJID string,
+		participants []string,
+		action GroupParticipantAction,
+	) error
 	UpdateSettings(ctx context.Context, sessionID, groupJID string, s GroupSettings) error
 	GetInviteLink(ctx context.Context, sessionID, groupJID string, reset bool) (string, error)
 	JoinWithLink(ctx context.Context, sessionID, code string) (groupJID string, err error)
@@ -90,8 +95,17 @@ type GatewayContactFacade interface {
 // Mutations run as durable engine commands; the service persists projections
 // from the raw results.
 type GatewayGroupFacade interface {
-	CreateGroup(ctx context.Context, organizationID, sessionID, name string, participants []string) (domain.GroupInfo, error)
-	UpdateParticipants(ctx context.Context, organizationID, sessionID, groupJID string, participants []string, action GroupParticipantAction) error
+	CreateGroup(
+		ctx context.Context,
+		organizationID, sessionID, name string,
+		participants []string,
+	) (domain.GroupInfo, error)
+	UpdateParticipants(
+		ctx context.Context,
+		organizationID, sessionID, groupJID string,
+		participants []string,
+		action GroupParticipantAction,
+	) error
 	UpdateSettings(ctx context.Context, organizationID, sessionID, groupJID string, s GroupSettings) error
 	GetInviteLink(ctx context.Context, organizationID, sessionID, groupJID string, reset bool) (string, error)
 	JoinWithLink(ctx context.Context, organizationID, sessionID, code string) (groupJID string, err error)

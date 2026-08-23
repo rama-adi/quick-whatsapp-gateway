@@ -76,8 +76,10 @@ func (s *Service) GetGateway(ctx context.Context, gatewayID string) (domain.Gate
 		return domain.GatewayAdminDetail{}, fmt.Errorf("gateway admin: list audit: %w", err)
 	}
 	detail := domain.GatewayAdminDetail{
-		Gateway: gateway, AssignedSessionCount: len(sessions),
-		AssignedSessions: sessions, Certificates: certificates,
+		Gateway:               gateway,
+		AssignedSessionCount:  len(sessions),
+		AssignedSessions:      sessions,
+		Certificates:          certificates,
 		ReconciliationResults: reconciliation,
 		Audit:                 make([]domain.GatewayAuditEntry, 0, len(audit)),
 	}
@@ -89,9 +91,14 @@ func (s *Service) GetGateway(ctx context.Context, gatewayID string) (domain.Gate
 	}
 	for _, event := range audit {
 		detail.Audit = append(detail.Audit, domain.GatewayAuditEntry{
-			ID: event.ID, ActorType: event.ActorType, ActorID: event.ActorID,
-			Action: event.Action, Outcome: event.Outcome, RequestID: event.RequestID,
-			Metadata: event.Metadata, CreatedAt: event.CreatedAt,
+			ID:        event.ID,
+			ActorType: event.ActorType,
+			ActorID:   event.ActorID,
+			Action:    event.Action,
+			Outcome:   event.Outcome,
+			RequestID: event.RequestID,
+			Metadata:  event.Metadata,
+			CreatedAt: event.CreatedAt,
 		})
 	}
 	return detail, nil

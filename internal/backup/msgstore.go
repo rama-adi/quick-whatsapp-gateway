@@ -5,9 +5,10 @@ import (
 	"database/sql"
 	"fmt"
 	"hash/fnv"
+	"maps"
 	"net/url"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 
 	_ "modernc.org/sqlite" // CGO-free SQLite driver, registered as "sqlite"
@@ -156,20 +157,10 @@ func fingerprint(db *sql.DB, caps capabilities) string {
 	// Hash the sorted table+column set so a schema change is visible in the
 	// fingerprint without dumping the whole set.
 	h := fnv.New32a()
-	tbls := make([]string, 0, len(caps.tables))
-	for t := range caps.tables {
-		tbls = append(tbls, t)
-	}
-	sort.Strings(tbls)
-	for _, t := range tbls {
+	for _, t := range slices.Sorted(maps.Keys(caps.tables)) {
 		h.Write([]byte(t))
 		h.Write([]byte{0})
-		cols := make([]string, 0, len(caps.cols[t]))
-		for col := range caps.cols[t] {
-			cols = append(cols, col)
-		}
-		sort.Strings(cols)
-		for _, col := range cols {
+		for _, col := range slices.Sorted(maps.Keys(caps.cols[t])) {
 			h.Write([]byte(col))
 			h.Write([]byte{0})
 		}

@@ -55,7 +55,11 @@ func (s *ChatService) requireSession(ctx context.Context, organizationID, sessio
 }
 
 // List returns a page of the session's chats.
-func (s *ChatService) List(ctx context.Context, organizationID, sessionID, cursor string, limit int) (store.Page[domain.Chat], error) {
+func (s *ChatService) List(
+	ctx context.Context,
+	organizationID, sessionID, cursor string,
+	limit int,
+) (store.Page[domain.Chat], error) {
 	if err := s.requireSession(ctx, organizationID, sessionID); err != nil {
 		return store.Page[domain.Chat]{}, err
 	}
@@ -72,7 +76,11 @@ func (s *ChatService) Get(ctx context.Context, organizationID, sessionID, chatJI
 
 // ListMessages returns a page of a chat's messages, with @-mentions resolved to
 // display names (MentionNames) so a client can render "@<name>".
-func (s *ChatService) ListMessages(ctx context.Context, organizationID, sessionID, chatJID, cursor string, limit int) (store.Page[domain.Message], error) {
+func (s *ChatService) ListMessages(
+	ctx context.Context,
+	organizationID, sessionID, chatJID, cursor string,
+	limit int,
+) (store.Page[domain.Message], error) {
 	if err := s.requireSession(ctx, organizationID, sessionID); err != nil {
 		return store.Page[domain.Message]{}, err
 	}
@@ -88,7 +96,10 @@ func (s *ChatService) ListMessages(ctx context.Context, organizationID, sessionI
 // returns the current REST snapshot. The initial state is often "unknown"; the
 // realtime stream patches the same qk.presence cache when WhatsApp emits a
 // presence.update event after the subscription.
-func (s *ChatService) GetPresence(ctx context.Context, organizationID, sessionID, chatJID string) (domain.PresenceStatus, error) {
+func (s *ChatService) GetPresence(
+	ctx context.Context,
+	organizationID, sessionID, chatJID string,
+) (domain.PresenceStatus, error) {
 	if err := s.requireSession(ctx, organizationID, sessionID); err != nil {
 		return domain.PresenceStatus{}, err
 	}
@@ -113,7 +124,7 @@ func resolveMentionNames(ctx context.Context, ids *store.IdentityRepo, log *slog
 		return
 	}
 	perMsg := make([][]string, len(msgs))
-	var all []string
+	all := []string{}
 	for i := range msgs {
 		jids := parseMentionJIDs(msgs[i].Mentions)
 		if len(jids) == 0 {
@@ -156,7 +167,7 @@ func parseMentionJIDs(raw json.RawMessage) []string {
 	if len(raw) == 0 {
 		return nil
 	}
-	var jids []string
+	jids := []string{}
 	if err := json.Unmarshal(raw, &jids); err != nil {
 		return nil
 	}
@@ -183,7 +194,15 @@ func (s *ChatService) Read(ctx context.Context, organizationID, sessionID, chatJ
 	if err != nil {
 		return domain.Chat{}, err
 	}
-	if err := s.store.Chats.UpdateFlags(ctx, sessionID, chatJID, chat.Archived, chat.Pinned, chat.MutedUntil, 0); err != nil {
+	if err := s.store.Chats.UpdateFlags(
+		ctx,
+		sessionID,
+		chatJID,
+		chat.Archived,
+		chat.Pinned,
+		chat.MutedUntil,
+		0,
+	); err != nil {
 		return domain.Chat{}, err
 	}
 	chat.UnreadCount = 0
@@ -199,7 +218,11 @@ type ChatUpdate struct {
 }
 
 // Update applies the user-managed chat flags (archive/pin/mute).
-func (s *ChatService) Update(ctx context.Context, organizationID, sessionID, chatJID string, in ChatUpdate) (domain.Chat, error) {
+func (s *ChatService) Update(
+	ctx context.Context,
+	organizationID, sessionID, chatJID string,
+	in ChatUpdate,
+) (domain.Chat, error) {
 	if err := s.requireSession(ctx, organizationID, sessionID); err != nil {
 		return domain.Chat{}, err
 	}
@@ -218,7 +241,15 @@ func (s *ChatService) Update(ctx context.Context, organizationID, sessionID, cha
 	} else if in.MutedUntil != nil {
 		chat.MutedUntil = in.MutedUntil
 	}
-	if err := s.store.Chats.UpdateFlags(ctx, sessionID, chatJID, chat.Archived, chat.Pinned, chat.MutedUntil, chat.UnreadCount); err != nil {
+	if err := s.store.Chats.UpdateFlags(
+		ctx,
+		sessionID,
+		chatJID,
+		chat.Archived,
+		chat.Pinned,
+		chat.MutedUntil,
+		chat.UnreadCount,
+	); err != nil {
 		return domain.Chat{}, err
 	}
 	return chat, nil

@@ -49,7 +49,12 @@ func (c *RoutingWAClient) client(ctx context.Context) (outbound.WAClient, error)
 	return outbound.NewWhatsmeowClient(cli), nil
 }
 
-func (c *RoutingWAClient) SendText(ctx context.Context, to, text string, quote outbound.QuoteInfo, mentions []string) (string, int64, error) {
+func (c *RoutingWAClient) SendText(
+	ctx context.Context,
+	to, text string,
+	quote outbound.QuoteInfo,
+	mentions []string,
+) (string, int64, error) {
 	w, err := c.client(ctx)
 	if err != nil {
 		return "", 0, err
@@ -57,7 +62,14 @@ func (c *RoutingWAClient) SendText(ctx context.Context, to, text string, quote o
 	return w.SendText(ctx, to, text, quote, mentions)
 }
 
-func (c *RoutingWAClient) SendPoll(ctx context.Context, to, name string, options []string, selectableCount int, endTime int64, hideVotes bool) (string, int64, error) {
+func (c *RoutingWAClient) SendPoll(
+	ctx context.Context,
+	to, name string,
+	options []string,
+	selectableCount int,
+	endTime int64,
+	hideVotes bool,
+) (string, int64, error) {
 	w, err := c.client(ctx)
 	if err != nil {
 		return "", 0, err
@@ -65,7 +77,12 @@ func (c *RoutingWAClient) SendPoll(ctx context.Context, to, name string, options
 	return w.SendPoll(ctx, to, name, options, selectableCount, endTime, hideVotes)
 }
 
-func (c *RoutingWAClient) SendLocation(ctx context.Context, to string, lat, lon float64, name string) (string, int64, error) {
+func (c *RoutingWAClient) SendLocation(
+	ctx context.Context,
+	to string,
+	lat, lon float64,
+	name string,
+) (string, int64, error) {
 	w, err := c.client(ctx)
 	if err != nil {
 		return "", 0, err
@@ -81,7 +98,14 @@ func (c *RoutingWAClient) SendContact(ctx context.Context, to, name, phone, vcar
 	return w.SendContact(ctx, to, name, phone, vcard)
 }
 
-func (c *RoutingWAClient) SendMedia(ctx context.Context, to, mediaType string, data []byte, mimetype, caption, filename string, quote outbound.QuoteInfo, mentions []string) (string, int64, error) {
+func (c *RoutingWAClient) SendMedia(
+	ctx context.Context,
+	to, mediaType string,
+	data []byte,
+	mimetype, caption, filename string,
+	quote outbound.QuoteInfo,
+	mentions []string,
+) (string, int64, error) {
 	w, err := c.client(ctx)
 	if err != nil {
 		return "", 0, err
@@ -89,7 +113,13 @@ func (c *RoutingWAClient) SendMedia(ctx context.Context, to, mediaType string, d
 	return w.SendMedia(ctx, to, mediaType, data, mimetype, caption, filename, quote, mentions)
 }
 
-func (c *RoutingWAClient) SendAlbum(ctx context.Context, to, caption string, medias []outbound.AlbumMedia, quote outbound.QuoteInfo, mentions []string) (string, int64, error) {
+func (c *RoutingWAClient) SendAlbum(
+	ctx context.Context,
+	to, caption string,
+	medias []outbound.AlbumMedia,
+	quote outbound.QuoteInfo,
+	mentions []string,
+) (string, int64, error) {
 	w, err := c.client(ctx)
 	if err != nil {
 		return "", 0, err
@@ -121,7 +151,11 @@ func (c *RoutingWAClient) Revoke(ctx context.Context, chat, sender, msgID string
 	return w.Revoke(ctx, chat, sender, msgID)
 }
 
-func (c *RoutingWAClient) Vote(ctx context.Context, pollChat, pollSender, pollMsgID string, options []string) (string, int64, error) {
+func (c *RoutingWAClient) Vote(
+	ctx context.Context,
+	pollChat, pollSender, pollMsgID string,
+	options []string,
+) (string, int64, error) {
 	w, err := c.client(ctx)
 	if err != nil {
 		return "", 0, err
@@ -129,7 +163,10 @@ func (c *RoutingWAClient) Vote(ctx context.Context, pollChat, pollSender, pollMs
 	return w.Vote(ctx, pollChat, pollSender, pollMsgID, options)
 }
 
-func (c *RoutingWAClient) Forward(ctx context.Context, to, sourceChat, sourceSender, sourceMsgID string) (string, int64, error) {
+func (c *RoutingWAClient) Forward(
+	ctx context.Context,
+	to, sourceChat, sourceSender, sourceMsgID string,
+) (string, int64, error) {
 	w, err := c.client(ctx)
 	if err != nil {
 		return "", 0, err

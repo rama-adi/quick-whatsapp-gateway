@@ -26,7 +26,11 @@ var _ stream.EventLogReader = (*EventLogReaderAdapter)(nil)
 // ListSince resolves afterEventID to the monotonic cursor and returns the next
 // page of entries for the organization/session. An empty/unknown afterEventID replays
 // from the start.
-func (a *EventLogReaderAdapter) ListSince(ctx context.Context, organization, session, afterEventID string, limit int) ([]domain.EventLogEntry, error) {
+func (a *EventLogReaderAdapter) ListSince(
+	ctx context.Context,
+	organization, session, afterEventID string,
+	limit int,
+) ([]domain.EventLogEntry, error) {
 	var afterID uint64
 	if afterEventID != "" {
 		entry, err := a.repo.GetByEventID(ctx, afterEventID)

@@ -33,7 +33,11 @@ type CommittedEventDispatcher struct {
 // NewCommittedEventDispatcher builds the transport-independent fan-out attempt.
 // Projections run before external consumers; Redis publication is retained
 // during the gateway-to-API transition, followed by webhook delivery enqueueing.
-func NewCommittedEventDispatcher(projections []application.CommittedEventConsumer, publisher committedEventPublisher, webhooks committedEventWebhookEnqueuer) *CommittedEventDispatcher {
+func NewCommittedEventDispatcher(
+	projections []application.CommittedEventConsumer,
+	publisher committedEventPublisher,
+	webhooks committedEventWebhookEnqueuer,
+) *CommittedEventDispatcher {
 	activeProjections := make([]application.CommittedEventConsumer, 0, len(projections))
 	for _, projection := range projections {
 		if projection != nil {
@@ -91,7 +95,11 @@ type CommittedEventWorkerConfig struct {
 	Now   func() time.Time
 }
 
-func NewCommittedEventWorker(store application.CommittedEventWorkStore, dispatcher application.CommittedEventConsumer, config CommittedEventWorkerConfig) (*CommittedEventWorker, error) {
+func NewCommittedEventWorker(
+	store application.CommittedEventWorkStore,
+	dispatcher application.CommittedEventConsumer,
+	config CommittedEventWorkerConfig,
+) (*CommittedEventWorker, error) {
 	if store == nil || dispatcher == nil {
 		return nil, errors.New("committed event worker dependencies are required")
 	}

@@ -60,16 +60,33 @@ type ActionDependencies struct {
 }
 
 func defaultActionDependencies() ActionDependencies {
-	return ActionDependencies{Clock: time.Now, Entropy: rand.Reader, IDs: func() string { return ulid.Make().String() }}
+	return ActionDependencies{
+		Clock:   time.Now,
+		Entropy: rand.Reader,
+		IDs:     func() string { return ulid.Make().String() },
+	}
 }
 
 // NewWithActions augments the read service with the operator-only write use
 // cases. The enrollment issuer remains the sole creation/replacement authority.
-func NewWithActions(gateways GatewayReader, sessions SessionReader, audit AuditReader, enrollment EnrollmentIssuer, mutations GatewayAdminMutator) (*Service, error) {
+func NewWithActions(
+	gateways GatewayReader,
+	sessions SessionReader,
+	audit AuditReader,
+	enrollment EnrollmentIssuer,
+	mutations GatewayAdminMutator,
+) (*Service, error) {
 	return NewWithActionDependencies(gateways, sessions, audit, enrollment, mutations, defaultActionDependencies())
 }
 
-func NewWithActionDependencies(gateways GatewayReader, sessions SessionReader, audit AuditReader, enrollment EnrollmentIssuer, mutations GatewayAdminMutator, deps ActionDependencies) (*Service, error) {
+func NewWithActionDependencies(
+	gateways GatewayReader,
+	sessions SessionReader,
+	audit AuditReader,
+	enrollment EnrollmentIssuer,
+	mutations GatewayAdminMutator,
+	deps ActionDependencies,
+) (*Service, error) {
 	if enrollment == nil || mutations == nil || deps.Clock == nil || deps.Entropy == nil || deps.IDs == nil {
 		return nil, errors.New("gateway admin action dependencies required")
 	}
@@ -82,7 +99,17 @@ func (s *Service) CreateGateway(ctx context.Context, in CreateGatewayInput) (Iss
 	if !validActor(in.Actor) {
 		return IssuedEnrollment{}, ErrDenied
 	}
-	issued, err := s.enrollment.CreateGateway(ctx, coreservice.CreateGatewayInput{Label: in.Label, Notes: in.Notes, Capacity: in.Capacity, CreatedByUserID: in.Actor.UserID, Actor: coreservice.Actor{Type: "user", ID: in.Actor.UserID, RequestID: in.Actor.RequestID}})
+	issued, err := s.enrollment.CreateGateway(ctx, coreservice.CreateGatewayInput{
+		Label:           in.Label,
+		Notes:           in.Notes,
+		Capacity:        in.Capacity,
+		CreatedByUserID: in.Actor.UserID,
+		Actor: coreservice.Actor{
+			Type:      "user",
+			ID:        in.Actor.UserID,
+			RequestID: in.Actor.RequestID,
+		},
+	})
 	return fromIssued(issued), actionError(err)
 }
 
@@ -90,7 +117,8 @@ func (s *Service) ReplaceEnrollmentToken(ctx context.Context, gatewayID string, 
 	if gatewayID == "" || !validActor(actor) {
 		return IssuedEnrollment{}, ErrDenied
 	}
-	issued, err := s.enrollment.ReplaceTokenAs(ctx, gatewayID, coreservice.Actor{Type: "user", ID: actor.UserID, RequestID: actor.RequestID})
+	actorID := coreservice.Actor{Type: "user", ID: actor.UserID, RequestID: actor.RequestID}
+	issued, err := s.enrollment.ReplaceTokenAs(ctx, gatewayID, actorID)
 	return fromIssued(issued), actionError(err)
 }
 
@@ -125,13 +153,34 @@ func (s *Service) Reenroll(ctx context.Context, gatewayID string, actor Actor) (
 		return IssuedEnrollment{}, err
 	}
 	audits := []store.GatewayAdminAudit{
-		{Event: s.auditEvent(actor, "gateway.reenrolled", gatewayID, now.UnixMilli(), map[string]any{"enrollment_id": persisted.ID})},
-		{Event: s.auditEvent(actor, "enrollment.issued", gatewayID, now.UnixMilli(), map[string]any{"enrollment_id": persisted.ID})},
+		{
+			Event: s.auditEvent(
+				actor,
+				"gateway.reenrolled",
+				gatewayID,
+				now.UnixMilli(),
+				map[string]any{"enrollment_id": persisted.ID},
+			),
+		},
+		{
+			Event: s.auditEvent(
+				actor,
+				"enrollment.issued",
+				gatewayID,
+				now.UnixMilli(),
+				map[string]any{"enrollment_id": persisted.ID},
+			),
+		},
 	}
 	if err := actionError(s.mutations.Reenroll(ctx, gatewayID, persisted, now.UnixMilli(), audits)); err != nil {
 		return IssuedEnrollment{}, err
 	}
-	return IssuedEnrollment{GatewayID: gatewayID, TokenID: token.Selector(), Token: token.String(), ExpiresAt: persisted.ExpiresAt}, nil
+	return IssuedEnrollment{
+		GatewayID: gatewayID,
+		TokenID:   token.Selector(),
+		Token:     token.String(),
+		ExpiresAt: persisted.ExpiresAt,
+	}, nil
 }
 
 func (s *Service) Delete(ctx context.Context, gatewayID string, consequencesAcknowledged bool, actor Actor) error {
@@ -145,7 +194,13 @@ func (s *Service) Delete(ctx context.Context, gatewayID string, consequencesAckn
 
 var ErrDenied = errors.New("gateway administration denied")
 
-func (s *Service) mutate(ctx context.Context, gatewayID string, actor Actor, action string, fn func(int64, store.GatewayAdminAudit) error) error {
+func (s *Service) mutate(
+	ctx context.Context,
+	gatewayID string,
+	actor Actor,
+	action string,
+	fn func(int64, store.GatewayAdminAudit) error,
+) error {
 	if gatewayID == "" || !validActor(actor) {
 		return ErrDenied
 	}
@@ -155,27 +210,61 @@ func (s *Service) mutate(ctx context.Context, gatewayID string, actor Actor, act
 
 func validActor(actor Actor) bool { return actor.UserID != "" }
 
-func (s *Service) newToken(now time.Time, gatewayID, userID string) (enrollmenttoken.Token, domain.EnrollmentToken, error) {
+func (s *Service) newToken(
+	now time.Time,
+	gatewayID, userID string,
+) (enrollmenttoken.Token, domain.EnrollmentToken, error) {
 	token, err := enrollmenttoken.GenerateWith(s.entropy, s.id)
 	if err != nil {
 		return enrollmenttoken.Token{}, domain.EnrollmentToken{}, err
 	}
 	digest := enrollmenttoken.Digest(token.String())
 	config := coreservice.DefaultEnrollmentConfig()
-	return token, domain.EnrollmentToken{ID: token.Selector(), GatewayID: gatewayID, TokenHash: digest[:], TokenPrefix: safePrefix(token.String()), MaxAttempts: config.MaxAttempts, ExpiresAt: now.Add(config.TokenTTL).UnixMilli(), CreatedByUserID: userID, CreatedAt: now.UnixMilli(), UpdatedAt: now.UnixMilli()}, nil
+	return token, domain.EnrollmentToken{
+		ID:              token.Selector(),
+		GatewayID:       gatewayID,
+		TokenHash:       digest[:],
+		TokenPrefix:     safePrefix(token.String()),
+		MaxAttempts:     config.MaxAttempts,
+		ExpiresAt:       now.Add(config.TokenTTL).UnixMilli(),
+		CreatedByUserID: userID,
+		CreatedAt:       now.UnixMilli(),
+		UpdatedAt:       now.UnixMilli(),
+	}, nil
 }
 
-func (s *Service) auditEvent(actor Actor, action, gatewayID string, at int64, metadata map[string]any) domain.AuditEvent {
+func (s *Service) auditEvent(
+	actor Actor,
+	action, gatewayID string,
+	at int64,
+	metadata map[string]any,
+) domain.AuditEvent {
 	actorID, requestID := actor.UserID, actor.RequestID
 	var request *string
 	if requestID != "" {
 		request = &requestID
 	}
-	return domain.AuditEvent{ID: "aud_" + s.id(), ActorType: "user", ActorID: &actorID, Action: action, ResourceType: "gateway", ResourceID: &gatewayID, Outcome: "success", RequestID: request, Metadata: metadata, CreatedAt: at}
+	return domain.AuditEvent{
+		ID:           "aud_" + s.id(),
+		ActorType:    "user",
+		ActorID:      &actorID,
+		Action:       action,
+		ResourceType: "gateway",
+		ResourceID:   &gatewayID,
+		Outcome:      "success",
+		RequestID:    request,
+		Metadata:     metadata,
+		CreatedAt:    at,
+	}
 }
 
 func fromIssued(value coreservice.IssuedEnrollment) IssuedEnrollment {
-	return IssuedEnrollment{GatewayID: value.GatewayID, TokenID: value.TokenID, Token: value.Token, ExpiresAt: value.ExpiresAt}
+	return IssuedEnrollment{
+		GatewayID: value.GatewayID,
+		TokenID:   value.TokenID,
+		Token:     value.Token,
+		ExpiresAt: value.ExpiresAt,
+	}
 }
 func actionError(err error) error {
 	if errors.Is(err, store.ErrGatewayAdminState) || errors.Is(err, store.ErrEnrollmentState) {

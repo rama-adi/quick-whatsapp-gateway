@@ -22,7 +22,12 @@ type WebhookService struct {
 
 // NewWebhookService constructs a WebhookService. defaultDelay/defaultTries seed
 // a webhook's retry policy when the caller does not specify one.
-func NewWebhookService(repo *store.WebhookRepo, c *crypto.AESGCM, defaultDelay, defaultTries int, log *slog.Logger) *WebhookService {
+func NewWebhookService(
+	repo *store.WebhookRepo,
+	c *crypto.AESGCM,
+	defaultDelay, defaultTries int,
+	log *slog.Logger,
+) *WebhookService {
 	if log == nil {
 		log = slog.Default()
 	}
@@ -109,7 +114,11 @@ func (s *WebhookService) Get(ctx context.Context, organizationID, id string) (do
 }
 
 // Update applies a partial update to a webhook.
-func (s *WebhookService) Update(ctx context.Context, organizationID, id string, in WebhookInput) (domain.Webhook, error) {
+func (s *WebhookService) Update(
+	ctx context.Context,
+	organizationID, id string,
+	in WebhookInput,
+) (domain.Webhook, error) {
 	w, err := s.Get(ctx, organizationID, id)
 	if err != nil {
 		return domain.Webhook{}, err
@@ -130,16 +139,17 @@ func (s *WebhookService) Update(ctx context.Context, organizationID, id string, 
 		w.Active = *in.Active
 	}
 	w.SessionID = in.SessionID
-	if in.Secret != nil {
-		if *in.Secret == "" {
-			w.HMACSecret = nil
-		} else {
-			enc, err := s.encryptSecret(*in.Secret)
-			if err != nil {
-				return domain.Webhook{}, err
-			}
-			w.HMACSecret = enc
+	switch {
+	case in.Secret == nil:
+		// unchanged
+	case *in.Secret == "":
+		w.HMACSecret = nil
+	default:
+		enc, err := s.encryptSecret(*in.Secret)
+		if err != nil {
+			return domain.Webhook{}, err
 		}
+		w.HMACSecret = enc
 	}
 	w.UpdatedAt = domain.NowMs()
 	if err := s.repo.Update(ctx, w); err != nil {

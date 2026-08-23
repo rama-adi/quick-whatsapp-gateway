@@ -243,7 +243,8 @@ func (c *EventProjectionConsumer) projectMessage(ctx context.Context, event doma
 		dir = domain.DirectionOut
 	}
 	body := p.Body
-	if body == "" && p.Location == nil && p.Contact == nil && p.Poll == nil {
+	noDisplayableContent := body == "" && p.Location == nil && p.Contact == nil && p.Poll == nil
+	if noDisplayableContent {
 		// Keep the legacy behavior of storing the normalized payload JSON as the
 		// row body when the content had no displayable text (system/media frames);
 		// the type column carries the rest.
@@ -402,7 +403,11 @@ func (c *EventProjectionConsumer) projectReceipt(ctx context.Context, event doma
 
 // captureSenderOnly runs the identity half of capture for message-family
 // events that do not insert message rows (reactions, votes).
-func (c *EventProjectionConsumer) captureSenderOnly(ctx context.Context, event domain.Event, p apitypes.MessagePayload) error {
+func (c *EventProjectionConsumer) captureSenderOnly(
+	ctx context.Context,
+	event domain.Event,
+	p apitypes.MessagePayload,
+) error {
 	now := c.clock()
 	if p.SenderLID != "" {
 		return c.store.UpsertIdentity(ctx, ProjectionIdentityUpsert{
@@ -421,9 +426,6 @@ func (c *EventProjectionConsumer) captureSenderOnly(ctx context.Context, event d
 
 // mentionKeys flattens the wire mentions map onto the stored mention JID list.
 func mentionKeys(m map[string]apitypes.MentionData) []string {
-	if len(m) == 0 {
-		return nil
-	}
 	out := make([]string, 0, len(m))
 	for jid := range m {
 		out = append(out, jid)
@@ -448,12 +450,4 @@ func chatTypeFromJID(jid string) domain.ChatType {
 	default:
 		return domain.ChatDM
 	}
-}
-
-func phoneFromJIDShared(jid string) string {
-	const suffix = "@s.whatsapp.net"
-	if !strings.HasSuffix(jid, suffix) {
-		return ""
-	}
-	return strings.TrimSuffix(jid, suffix)
 }

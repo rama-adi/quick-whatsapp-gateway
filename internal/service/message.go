@@ -26,7 +26,12 @@ type MessageService struct {
 // GatewayMessageSender is the API-owned outbound send boundary backed by the
 // durable command scheduler and the private engine.
 type GatewayMessageSender interface {
-	Send(ctx context.Context, organizationID, sessionID string, req domain.SendRequest, opts outbound.SendOptions) (outbound.SendResult, error)
+	Send(
+		ctx context.Context,
+		organizationID, sessionID string,
+		req domain.SendRequest,
+		opts outbound.SendOptions,
+	) (outbound.SendResult, error)
 }
 
 // NewMessageService constructs a MessageService.
@@ -71,7 +76,12 @@ func (s *MessageService) session(ctx context.Context, organizationID, id string)
 
 // Send dispatches a unified typed send for a session through the API-owned
 // durable command scheduler.
-func (s *MessageService) Send(ctx context.Context, organizationID, sessionID string, req domain.SendRequest, opts outbound.SendOptions) (outbound.SendResult, error) {
+func (s *MessageService) Send(
+	ctx context.Context,
+	organizationID, sessionID string,
+	req domain.SendRequest,
+	opts outbound.SendOptions,
+) (outbound.SendResult, error) {
 	if s.gatewaySend == nil {
 		return outbound.SendResult{}, errLiveUnavailable()
 	}
@@ -79,7 +89,11 @@ func (s *MessageService) Send(ctx context.Context, organizationID, sessionID str
 }
 
 // op is the shared path for the message-operation sub-resources.
-func (s *MessageService) op(ctx context.Context, organizationID, sessionID string, req outbound.OpRequest) (outbound.SendResult, error) {
+func (s *MessageService) op(
+	ctx context.Context,
+	organizationID, sessionID string,
+	req outbound.OpRequest,
+) (outbound.SendResult, error) {
 	if s.gatewayOps == nil {
 		return outbound.SendResult{}, errLiveUnavailable()
 	}
@@ -87,36 +101,70 @@ func (s *MessageService) op(ctx context.Context, organizationID, sessionID strin
 }
 
 // Edit replaces the text of a previously sent message.
-func (s *MessageService) Edit(ctx context.Context, organizationID, sessionID, chat, msgID, newText string) (outbound.SendResult, error) {
+func (s *MessageService) Edit(
+	ctx context.Context,
+	organizationID, sessionID, chat, msgID, newText string,
+) (outbound.SendResult, error) {
 	return s.op(ctx, organizationID, sessionID, outbound.OpRequest{
-		Op: outbound.OpEdit, Chat: chat, MsgID: msgID, NewText: newText,
+		Op:      outbound.OpEdit,
+		Chat:    chat,
+		MsgID:   msgID,
+		NewText: newText,
 	})
 }
 
 // Revoke deletes a message for everyone.
-func (s *MessageService) Revoke(ctx context.Context, organizationID, sessionID, chat, sender, msgID string) (outbound.SendResult, error) {
+func (s *MessageService) Revoke(
+	ctx context.Context,
+	organizationID, sessionID, chat, sender, msgID string,
+) (outbound.SendResult, error) {
 	return s.op(ctx, organizationID, sessionID, outbound.OpRequest{
-		Op: outbound.OpRevoke, Chat: chat, Sender: sender, MsgID: msgID,
+		Op:     outbound.OpRevoke,
+		Chat:   chat,
+		Sender: sender,
+		MsgID:  msgID,
 	})
 }
 
 // React adds (emoji != "") or removes (emoji == "") a reaction.
-func (s *MessageService) React(ctx context.Context, organizationID, sessionID, chat, sender, msgID, emoji string) (outbound.SendResult, error) {
+func (s *MessageService) React(
+	ctx context.Context,
+	organizationID, sessionID, chat, sender, msgID, emoji string,
+) (outbound.SendResult, error) {
 	return s.op(ctx, organizationID, sessionID, outbound.OpRequest{
-		Op: outbound.OpReaction, Chat: chat, Sender: sender, MsgID: msgID, Emoji: emoji,
+		Op:     outbound.OpReaction,
+		Chat:   chat,
+		Sender: sender,
+		MsgID:  msgID,
+		Emoji:  emoji,
 	})
 }
 
 // Forward forwards a message to a destination chat.
-func (s *MessageService) Forward(ctx context.Context, organizationID, sessionID, chat, sender, msgID, to string) (outbound.SendResult, error) {
+func (s *MessageService) Forward(
+	ctx context.Context,
+	organizationID, sessionID, chat, sender, msgID, to string,
+) (outbound.SendResult, error) {
 	return s.op(ctx, organizationID, sessionID, outbound.OpRequest{
-		Op: outbound.OpForward, Chat: chat, Sender: sender, MsgID: msgID, To: to,
+		Op:     outbound.OpForward,
+		Chat:   chat,
+		Sender: sender,
+		MsgID:  msgID,
+		To:     to,
 	})
 }
 
 // Vote casts a poll vote on the given poll message.
-func (s *MessageService) Vote(ctx context.Context, organizationID, sessionID, chat, sender, msgID string, options []string) (outbound.SendResult, error) {
+func (s *MessageService) Vote(
+	ctx context.Context,
+	organizationID, sessionID, chat, sender, msgID string,
+	options []string,
+) (outbound.SendResult, error) {
 	return s.op(ctx, organizationID, sessionID, outbound.OpRequest{
-		Op: outbound.OpVote, Chat: chat, Sender: sender, MsgID: msgID, Options: options,
+		Op:      outbound.OpVote,
+		Chat:    chat,
+		Sender:  sender,
+		MsgID:   msgID,
+		Options: options,
 	})
 }

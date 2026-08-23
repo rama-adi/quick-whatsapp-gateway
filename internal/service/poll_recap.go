@@ -5,7 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"sort"
+	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -60,7 +61,13 @@ type PollRecapConfig struct {
 // NewPollRecapWorker builds a worker whose durable source is MySQL and whose
 // Redis sorted set is only a wake-up accelerator. Losing Redis entries therefore
 // delays a recap until the database sweep but does not lose it.
-func NewPollRecapWorker(st *store.Store, publisher pollRecapPublisher, webhooks pollRecapEnqueuer, rdb *redis.Client, cfg PollRecapConfig) *PollRecapWorker {
+func NewPollRecapWorker(
+	st *store.Store,
+	publisher pollRecapPublisher,
+	webhooks pollRecapEnqueuer,
+	rdb *redis.Client,
+	cfg PollRecapConfig,
+) *PollRecapWorker {
 	if cfg.Clock == nil {
 		cfg.Clock = domain.NowMs
 	}
@@ -105,7 +112,13 @@ func (w *PollRecapWorker) Schedule(ctx context.Context, sessionID, pollMessageID
 	}
 	member := sessionID + "|" + pollMessageID
 	if err := w.redis.ZAdd(ctx, w.key, redis.Z{Score: float64(endTimeMs), Member: member}).Err(); err != nil {
-		w.log.WarnContext(ctx, "schedule poll recap in redis failed", "session", sessionID, "message_id", pollMessageID, "err", err)
+		w.log.WarnContext(
+			ctx,
+			"schedule poll recap in redis failed",
+			"session", sessionID,
+			"message_id", pollMessageID,
+			"err", err,
+		)
 	}
 }
 
@@ -138,7 +151,13 @@ func (w *PollRecapWorker) processDue(ctx context.Context) {
 	}
 	for _, poll := range due {
 		if err := w.emitOne(ctx, poll); err != nil {
-			w.log.WarnContext(ctx, "emit poll recap failed", "session", poll.SessionID, "message_id", poll.PollMessageID, "err", err)
+			w.log.WarnContext(
+				ctx,
+				"emit poll recap failed",
+				"session", poll.SessionID,
+				"message_id", poll.PollMessageID,
+				"err", err,
+			)
 		}
 	}
 }
@@ -181,7 +200,10 @@ func (w *PollRecapWorker) emitOne(ctx context.Context, poll domain.PollRecapCand
 	return nil
 }
 
-func (w *PollRecapWorker) buildPayload(ctx context.Context, poll domain.PollRecapCandidate) (domain.PollRecapPayload, error) {
+func (w *PollRecapWorker) buildPayload(
+	ctx context.Context,
+	poll domain.PollRecapCandidate,
+) (domain.PollRecapPayload, error) {
 	votes, err := w.votes.ListByPoll(ctx, poll.SessionID, poll.PollMessageID)
 	if err != nil {
 		return domain.PollRecapPayload{}, err
@@ -197,10 +219,14 @@ func (w *PollRecapWorker) buildPayload(ctx context.Context, poll domain.PollReca
 	return buildPollRecapPayload(poll, votes, names)
 }
 
-func buildPollRecapPayload(poll domain.PollRecapCandidate, votes []domain.PollVote, names map[string]string) (domain.PollRecapPayload, error) {
+func buildPollRecapPayload(
+	poll domain.PollRecapCandidate,
+	votes []domain.PollVote,
+	names map[string]string,
+) (domain.PollRecapPayload, error) {
 	latest := make(map[string][]string)
 	for i, vote := range votes {
-		var selected []string
+		selected := []string{}
 		if len(vote.SelectedOptions) > 0 {
 			if err := json.Unmarshal(vote.SelectedOptions, &selected); err != nil {
 				return domain.PollRecapPayload{}, fmt.Errorf("decode poll vote selection: %w", err)
@@ -228,11 +254,7 @@ func buildPollRecapPayload(poll domain.PollRecapCandidate, votes []domain.PollVo
 	}
 	var voters []domain.PollRecapVoter
 	if !poll.HideVotes {
-		voterIDs := make([]string, 0, len(latest))
-		for voterID := range latest {
-			voterIDs = append(voterIDs, voterID)
-		}
-		sort.Strings(voterIDs)
+		voterIDs := slices.Sorted(maps.Keys(latest))
 		voters = make([]domain.PollRecapVoter, 0, len(voterIDs))
 		for _, voterID := range voterIDs {
 			// Synthetic keys stand in for legacy rows persisted without a voter

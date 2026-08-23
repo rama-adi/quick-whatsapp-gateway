@@ -25,6 +25,11 @@ func NewEventsService(eventLog *store.EventLogRepo, logger *slog.Logger) *Events
 }
 
 // ListSince returns event-log entries after the given monotonic cursor.
-func (s *EventsService) ListSince(ctx context.Context, organizationID, sessionID string, afterID uint64, limit int) ([]domain.EventLogEntry, error) {
+func (s *EventsService) ListSince(
+	ctx context.Context,
+	organizationID, sessionID string,
+	afterID uint64,
+	limit int,
+) ([]domain.EventLogEntry, error) {
 	return s.log.ListSince(ctx, organizationID, sessionID, afterID, limit)
 }

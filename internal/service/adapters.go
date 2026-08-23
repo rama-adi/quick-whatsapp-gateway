@@ -120,7 +120,11 @@ func NewInboundNormalizer(decryptor pollVoteDecryptor, polls pollOptionStore) *I
 
 var _ inbound.Normalizer = (*InboundNormalizer)(nil)
 
-func (n *InboundNormalizer) Normalize(ctx context.Context, evt any, sessionID, organizationID string) (domain.Event, *inbound.NormalizedMessage, bool) {
+func (n *InboundNormalizer) Normalize(
+	ctx context.Context,
+	evt any,
+	sessionID, organizationID string,
+) (domain.Event, *inbound.NormalizedMessage, bool) {
 	ev, pr, ok := events.Normalize(evt, sessionID, organizationID)
 	if !ok {
 		return domain.Event{}, nil, false
@@ -147,7 +151,13 @@ func (n *InboundNormalizer) Normalize(ctx context.Context, evt any, sessionID, o
 // and the outbound envelope (ev.Payload). A failure is logged and left as an
 // empty selection rather than dropping the vote — the row + event still record
 // who voted on which poll.
-func (n *InboundNormalizer) resolvePollVote(ctx context.Context, sessionID string, evt any, ev *domain.Event, nm *inbound.NormalizedMessage) {
+func (n *InboundNormalizer) resolvePollVote(
+	ctx context.Context,
+	sessionID string,
+	evt any,
+	ev *domain.Event,
+	nm *inbound.NormalizedMessage,
+) {
 	if n.decryptor == nil || n.polls == nil {
 		return
 	}
@@ -189,11 +199,11 @@ func resolveSelectedOptions(options, selectedHashes []string) []string {
 		byHash[hex.EncodeToString(sum[:])] = opt
 	}
 	for _, h := range selectedHashes {
-		if name, ok := byHash[strings.ToLower(h)]; ok {
-			out = append(out, name)
-		} else {
-			out = append(out, h)
+		name, ok := byHash[strings.ToLower(h)]
+		if !ok {
+			name = h
 		}
+		out = append(out, name)
 	}
 	return out
 }
@@ -217,7 +227,10 @@ func NewInboundWebhookEnqueuerAdapter(enqueuer inboundWebhookEnqueuer) *InboundW
 
 var _ inbound.WebhookEnqueuer = (*InboundWebhookEnqueuerAdapter)(nil)
 
-func (a *InboundWebhookEnqueuerAdapter) Enqueue(ctx context.Context, evt domain.Event) error {
+func (a *InboundWebhookEnqueuerAdapter) Enqueue(
+	ctx context.Context,
+	evt domain.Event,
+) error {
 	if a == nil || a.enqueuer == nil {
 		return nil
 	}
@@ -225,7 +238,11 @@ func (a *InboundWebhookEnqueuerAdapter) Enqueue(ctx context.Context, evt domain.
 	return err
 }
 
-func inboundMessageFromPersistResult(pr events.PersistResult, ev domain.Event, sessionID, organizationID string) *inbound.NormalizedMessage {
+func inboundMessageFromPersistResult(
+	pr events.PersistResult,
+	ev domain.Event,
+	sessionID, organizationID string,
+) *inbound.NormalizedMessage {
 	switch pr.Kind {
 	case events.PersistMessage:
 		return inboundMessageFromEventsMessage(pr.Message, inbound.KindMessage, ev, sessionID, organizationID)
@@ -300,7 +317,12 @@ func inboundMessageFromPersistResult(pr events.PersistResult, ev domain.Event, s
 	}
 }
 
-func inboundMessageFromEventsMessage(m *events.NormalizedMessage, kind inbound.MessageKind, ev domain.Event, sessionID, organizationID string) *inbound.NormalizedMessage {
+func inboundMessageFromEventsMessage(
+	m *events.NormalizedMessage,
+	kind inbound.MessageKind,
+	ev domain.Event,
+	sessionID, organizationID string,
+) *inbound.NormalizedMessage {
 	if m == nil {
 		return nil
 	}

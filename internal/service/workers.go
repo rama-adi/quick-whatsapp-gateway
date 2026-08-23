@@ -129,7 +129,12 @@ func (w *OutboxWorker) ProcessOutbox(ctx context.Context, outboxID string) error
 // task cancellation. Without detaching, a dispatch timeout would make the
 // immediate failed/sent write inherit an already-done context and force the row
 // to wait for stale-lease recovery even though this process knows the outcome.
-func (w *OutboxWorker) updateStatus(ctx context.Context, id string, status domain.OutboxStatus, waID, message *string) error {
+func (w *OutboxWorker) updateStatus(
+	ctx context.Context,
+	id string,
+	status domain.OutboxStatus,
+	waID, message *string,
+) error {
 	bookkeepingCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), outboxBookkeepingTTL)
 	defer cancel()
 	return w.outbox.UpdateStatus(bookkeepingCtx, id, status, waID, message, domain.NowMs())

@@ -76,10 +76,19 @@ type presentedEnrollment struct {
 }
 
 func DefaultEnrollmentConfig() EnrollmentConfig {
-	return EnrollmentConfig{TokenTTL: 15 * time.Minute, LeaseTTL: 60 * time.Second, SignTimeout: 20 * time.Second, SafetyMargin: 5 * time.Second, MaxAttempts: 5}
+	return EnrollmentConfig{
+		TokenTTL:     15 * time.Minute,
+		LeaseTTL:     60 * time.Second,
+		SignTimeout:  20 * time.Second,
+		SafetyMargin: 5 * time.Second,
+		MaxAttempts:  5,
+	}
 }
 func (c EnrollmentConfig) Validate() error {
-	if c.TokenTTL <= 0 || c.LeaseTTL <= 0 || c.SignTimeout <= 0 || c.SignTimeout >= c.LeaseTTL || c.SafetyMargin <= 0 || c.SignTimeout+c.SafetyMargin >= c.LeaseTTL || c.MaxAttempts == 0 {
+	durationsMissing := c.TokenTTL <= 0 || c.LeaseTTL <= 0
+	signTimeoutInvalid := c.SignTimeout <= 0 || c.SignTimeout >= c.LeaseTTL
+	marginInvalid := c.SafetyMargin <= 0 || c.SignTimeout+c.SafetyMargin >= c.LeaseTTL
+	if durationsMissing || signTimeoutInvalid || marginInvalid || c.MaxAttempts == 0 {
 		return errors.New("invalid enrollment config")
 	}
 	return nil
@@ -94,7 +103,14 @@ type EnrollmentDependencies struct {
 	Store       EnrollmentPersistence
 }
 type EnrollmentPersistence interface {
-	CreatePendingWithToken(context.Context, domain.Gateway, *string, string, domain.EnrollmentToken, []domain.AuditEvent) error
+	CreatePendingWithToken(
+		context.Context,
+		domain.Gateway,
+		*string,
+		string,
+		domain.EnrollmentToken,
+		[]domain.AuditEvent,
+	) error
 	LookupSelector(context.Context, string) (store.SelectorRecord, error)
 	ReplaceLiveToken(context.Context, string, domain.EnrollmentToken, domain.AuditEvent, int64) error
 	AcquireEnrollmentLease(context.Context, store.AcquireEnrollmentLeaseInput) (store.AcquireEnrollmentLeaseResult, error)
@@ -113,7 +129,17 @@ type EnrollmentService struct {
 }
 
 func NewEnrollmentService(db *sql.DB, signer pki.CertificateSigner, cfg EnrollmentConfig) (*EnrollmentService, error) {
-	return NewEnrollmentServiceWithDependencies(db, signer, cfg, EnrollmentDependencies{Clock: time.Now, Entropy: rand.Reader, IDs: func() string { return ulid.Make().String() }, DenialDelay: defaultDenialDelay})
+	return NewEnrollmentServiceWithDependencies(
+		db,
+		signer,
+		cfg,
+		EnrollmentDependencies{
+			Clock:       time.Now,
+			Entropy:     rand.Reader,
+			IDs:         func() string { return ulid.Make().String() },
+			DenialDelay: defaultDenialDelay,
+		},
+	)
 }
 func defaultDenialDelay(ctx context.Context, started time.Time) {
 	var b [1]byte
@@ -129,7 +155,12 @@ func defaultDenialDelay(ctx context.Context, started time.Time) {
 	case <-timer.C:
 	}
 }
-func NewEnrollmentServiceWithDependencies(db *sql.DB, signer pki.CertificateSigner, cfg EnrollmentConfig, deps EnrollmentDependencies) (*EnrollmentService, error) {
+func NewEnrollmentServiceWithDependencies(
+	db *sql.DB,
+	signer pki.CertificateSigner,
+	cfg EnrollmentConfig,
+	deps EnrollmentDependencies,
+) (*EnrollmentService, error) {
 	if (db == nil && deps.Store == nil) || signer == nil {
 		return nil, errors.New("enrollment dependencies required")
 	}
@@ -143,7 +174,15 @@ func NewEnrollmentServiceWithDependencies(db *sql.DB, signer pki.CertificateSign
 	if persistence == nil {
 		persistence = store.NewEnrollmentStore(db)
 	}
-	return &EnrollmentService{store: persistence, signer: signer, cfg: cfg, now: deps.Clock, entropy: deps.Entropy, id: deps.IDs, denialDelay: deps.DenialDelay}, nil
+	return &EnrollmentService{
+		store:       persistence,
+		signer:      signer,
+		cfg:         cfg,
+		now:         deps.Clock,
+		entropy:     deps.Entropy,
+		id:          deps.IDs,
+		denialDelay: deps.DenialDelay,
+	}, nil
 }
 
 type CreateGatewayInput struct {
@@ -181,12 +220,21 @@ func (s *EnrollmentService) CreateGateway(ctx context.Context, in CreateGatewayI
 	if err != nil {
 		return IssuedEnrollment{}, err
 	}
-	return IssuedEnrollment{gatewayID, token.Selector(), token.String(), persisted.ExpiresAt}, nil
+	return IssuedEnrollment{
+		GatewayID: gatewayID,
+		TokenID:   token.Selector(),
+		Token:     token.String(),
+		ExpiresAt: persisted.ExpiresAt,
+	}, nil
 }
 func (s *EnrollmentService) ReplaceToken(ctx context.Context, gatewayID, userID string) (IssuedEnrollment, error) {
 	return s.ReplaceTokenAs(ctx, gatewayID, Actor{Type: actorTypeUser, ID: userID})
 }
-func (s *EnrollmentService) ReplaceTokenAs(ctx context.Context, gatewayID string, actor Actor) (IssuedEnrollment, error) {
+func (s *EnrollmentService) ReplaceTokenAs(
+	ctx context.Context,
+	gatewayID string,
+	actor Actor,
+) (IssuedEnrollment, error) {
 	userID := actor.ID
 	if gatewayID == "" || userID == "" || actor.Type != actorTypeUser {
 		return IssuedEnrollment{}, ErrEnrollmentDenied
@@ -196,11 +244,17 @@ func (s *EnrollmentService) ReplaceTokenAs(ctx context.Context, gatewayID string
 	if err != nil {
 		return IssuedEnrollment{}, err
 	}
-	err = s.store.ReplaceLiveToken(ctx, gatewayID, persisted, s.audit(actor, "enrollment.replaced", gatewayID, "success", now.UnixMilli(), nil), now.UnixMilli())
+	replacedAudit := s.audit(actor, "enrollment.replaced", gatewayID, "success", now.UnixMilli(), nil)
+	err = s.store.ReplaceLiveToken(ctx, gatewayID, persisted, replacedAudit, now.UnixMilli())
 	if err != nil {
 		return IssuedEnrollment{}, publicErr(err)
 	}
-	return IssuedEnrollment{gatewayID, token.Selector(), token.String(), persisted.ExpiresAt}, nil
+	return IssuedEnrollment{
+		GatewayID: gatewayID,
+		TokenID:   token.Selector(),
+		Token:     token.String(),
+		ExpiresAt: persisted.ExpiresAt,
+	}, nil
 }
 
 func (s *EnrollmentService) actorOrCreator(actor Actor, createdBy string) Actor {
@@ -214,7 +268,11 @@ func (s *EnrollmentService) isUserActor(actor Actor) bool {
 	return actor.Type == actorTypeUser && actor.ID != ""
 }
 
-func (s *EnrollmentService) newEnrollmentToken(now time.Time, gatewayID, actorID string) (enrollmenttoken.Token, domain.EnrollmentToken, error) {
+func (s *EnrollmentService) newEnrollmentToken(
+	now time.Time,
+	gatewayID,
+	actorID string,
+) (enrollmenttoken.Token, domain.EnrollmentToken, error) {
 	token, err := enrollmenttoken.GenerateWith(s.entropy, s.id)
 	if err != nil {
 		return enrollmenttoken.Token{}, domain.EnrollmentToken{}, err
@@ -235,7 +293,13 @@ func (s *EnrollmentService) newEnrollmentToken(now time.Time, gatewayID, actorID
 }
 
 func (s *EnrollmentService) newGateway(now time.Time, gatewayID string, in CreateGatewayInput) domain.Gateway {
-	return domain.Gateway{ID: gatewayID, Label: in.Label, Capacity: in.Capacity, CreatedAt: now.UnixMilli(), UpdatedAt: now.UnixMilli()}
+	return domain.Gateway{
+		ID:        gatewayID,
+		Label:     in.Label,
+		Capacity:  in.Capacity,
+		CreatedAt: now.UnixMilli(),
+		UpdatedAt: now.UnixMilli(),
+	}
 }
 
 func (s *EnrollmentService) resolveCredential(ctx context.Context, token string) presentedEnrollment {
@@ -294,19 +358,48 @@ func (s *EnrollmentService) RedeemWithInput(ctx context.Context, input RedeemInp
 	}
 	deadline, ok := s.calculateSigningDeadline(now, now.Add(s.cfg.LeaseTTL))
 	if !ok {
-		s.release(credential.gatewayID, credential.tokenID, credential.expected, nonce, validation.hash[:], enrollmentFailureLeaseExhausted, input.RequestID)
+		s.release(
+			credential.gatewayID,
+			credential.tokenID,
+			credential.expected,
+			nonce,
+			validation.hash[:],
+			enrollmentFailureLeaseExhausted,
+			input.RequestID,
+		)
 		return EnrollmentResult{}, &TransientError{Cause: context.DeadlineExceeded}
 	}
 	signed, err := s.signEnrollment(ctx, deadline, validation, credential)
 	if err != nil {
-		s.release(credential.gatewayID, credential.tokenID, credential.expected, nonce, validation.hash[:], enrollmentFailureSignFailure, input.RequestID)
+		s.release(
+			credential.gatewayID,
+			credential.tokenID,
+			credential.expected,
+			nonce,
+			validation.hash[:],
+			enrollmentFailureSignFailure,
+			input.RequestID,
+		)
 		if ctx.Err() != nil {
 			return EnrollmentResult{}, ctx.Err()
 		}
 		return EnrollmentResult{}, &TransientError{Cause: err}
 	}
-	if validationErr := pki.ValidateSignedGateway(signed, validation.validated, credential.gatewayID, s.now().UTC()); validationErr != nil {
-		s.release(credential.gatewayID, credential.tokenID, credential.expected, nonce, validation.hash[:], enrollmentFailureSignerInvalid, input.RequestID)
+	if validationErr := pki.ValidateSignedGateway(
+		signed,
+		validation.validated,
+		credential.gatewayID,
+		s.now().UTC(),
+	); validationErr != nil {
+		s.release(
+			credential.gatewayID,
+			credential.tokenID,
+			credential.expected,
+			nonce,
+			validation.hash[:],
+			enrollmentFailureSignerInvalid,
+			input.RequestID,
+		)
 		return EnrollmentResult{}, &TransientError{Cause: validationErr}
 	}
 	persisted, err := s.persistCertificate(ctx, requestStarted, credential, nonce, validation, input.RequestID, signed)
@@ -337,7 +430,14 @@ func (s *EnrollmentService) nextNonce() ([]byte, error) {
 	return nonce, err
 }
 
-func (s *EnrollmentService) startLease(ctx context.Context, requestID string, credential presentedEnrollment, nonce []byte, now time.Time, csr parsedCSR) (store.AcquireEnrollmentLeaseResult, error) {
+func (s *EnrollmentService) startLease(
+	ctx context.Context,
+	requestID string,
+	credential presentedEnrollment,
+	nonce []byte,
+	now time.Time,
+	csr parsedCSR,
+) (store.AcquireEnrollmentLeaseResult, error) {
 	input := store.AcquireEnrollmentLeaseInput{
 		GatewayID:    credential.gatewayID,
 		TokenID:      credential.tokenID,
@@ -347,7 +447,14 @@ func (s *EnrollmentService) startLease(ctx context.Context, requestID string, cr
 		Now:          now.UnixMilli(),
 		LeaseUntil:   now.Add(s.cfg.LeaseTTL).UnixMilli(),
 		CSRValid:     csr.valid,
-		StartedAudit: s.audit(Actor{Type: actorTypeNode, ID: credential.gatewayID, RequestID: requestID}, "enrollment.started", credential.gatewayID, "success", now.UnixMilli(), nil),
+		StartedAudit: s.audit(
+			Actor{Type: actorTypeNode, ID: credential.gatewayID, RequestID: requestID},
+			"enrollment.started",
+			credential.gatewayID,
+			"success",
+			now.UnixMilli(),
+			nil,
+		),
 	}
 	return s.store.AcquireEnrollmentLease(ctx, input)
 }
@@ -358,7 +465,11 @@ type leaseDispositionDecision struct {
 	err    error
 }
 
-func (s *EnrollmentService) handleLeaseDisposition(ctx context.Context, started time.Time, acquired store.AcquireEnrollmentLeaseResult) leaseDispositionDecision {
+func (s *EnrollmentService) handleLeaseDisposition(
+	ctx context.Context,
+	started time.Time,
+	acquired store.AcquireEnrollmentLeaseResult,
+) leaseDispositionDecision {
 	switch acquired.Disposition {
 	case enrollmentDispositionReplay:
 		return leaseDispositionDecision{done: true, result: resultFromCertificate(*acquired.Certificate)}
@@ -387,7 +498,12 @@ func (s *EnrollmentService) calculateSigningDeadline(now, leaseUntil time.Time) 
 	return deadline, true
 }
 
-func (s *EnrollmentService) signEnrollment(ctx context.Context, deadline time.Time, csr parsedCSR, credential presentedEnrollment) (pki.SignedCertificate, error) {
+func (s *EnrollmentService) signEnrollment(
+	ctx context.Context,
+	deadline time.Time,
+	csr parsedCSR,
+	credential presentedEnrollment,
+) (pki.SignedCertificate, error) {
 	signCtx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
 	return s.signer.Sign(signCtx, pki.SignRequest{
@@ -397,7 +513,15 @@ func (s *EnrollmentService) signEnrollment(ctx context.Context, deadline time.Ti
 	})
 }
 
-func (s *EnrollmentService) persistCertificate(ctx context.Context, started time.Time, credential presentedEnrollment, nonce []byte, csr parsedCSR, requestID string, signed pki.SignedCertificate) (EnrollmentResult, error) {
+func (s *EnrollmentService) persistCertificate(
+	ctx context.Context,
+	started time.Time,
+	credential presentedEnrollment,
+	nonce []byte,
+	csr parsedCSR,
+	requestID string,
+	signed pki.SignedCertificate,
+) (EnrollmentResult, error) {
 	result := EnrollmentResult{
 		GatewayID:      credential.gatewayID,
 		CertificatePEM: string(signed.ChainPEM),
@@ -424,22 +548,43 @@ func (s *EnrollmentService) persistCertificate(ctx context.Context, started time
 		CreatedAt:         now,
 	}
 	persisted, err := s.store.FinalizeEnrollmentIssuance(ctx, store.FinalizeEnrollmentIssuanceInput{
-		GatewayID:      credential.gatewayID,
-		TokenID:        credential.tokenID,
-		ExpectedHash:   credential.expected[:],
-		Nonce:          nonce,
-		CSRHash:        csr.hash[:],
-		Now:            now,
-		Certificate:    cert,
-		SucceededAudit: s.audit(Actor{Type: actorTypeNode, ID: credential.gatewayID, RequestID: requestID}, "enrollment.succeeded", credential.gatewayID, "success", now, map[string]any{"certificate_fingerprint": fmt.Sprintf("%x", signed.Fingerprint)}),
+		GatewayID:    credential.gatewayID,
+		TokenID:      credential.tokenID,
+		ExpectedHash: credential.expected[:],
+		Nonce:        nonce,
+		CSRHash:      csr.hash[:],
+		Now:          now,
+		Certificate:  cert,
+		SucceededAudit: s.audit(
+			Actor{Type: actorTypeNode, ID: credential.gatewayID, RequestID: requestID},
+			"enrollment.succeeded",
+			credential.gatewayID,
+			"success",
+			now,
+			map[string]any{"certificate_fingerprint": fmt.Sprintf("%x", signed.Fingerprint)},
+		),
 	})
 	if err != nil {
 		recoveryCtx, recoveryCancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer recoveryCancel()
-		if recovered, re := s.recoverCommitted(recoveryCtx, credential.gatewayID, credential.tokenID, credential.expected, csr.hash[:]); re == nil {
+		if recovered, re := s.recoverCommitted(
+			recoveryCtx,
+			credential.gatewayID,
+			credential.tokenID,
+			credential.expected,
+			csr.hash[:],
+		); re == nil {
 			return recovered, nil
 		}
-		s.release(credential.gatewayID, credential.tokenID, credential.expected, nonce, csr.hash[:], enrollmentFailureFinalize, requestID)
+		s.release(
+			credential.gatewayID,
+			credential.tokenID,
+			credential.expected,
+			nonce,
+			csr.hash[:],
+			enrollmentFailureFinalize,
+			requestID,
+		)
 		if ctx.Err() != nil {
 			return EnrollmentResult{}, ctx.Err()
 		}
@@ -451,20 +596,67 @@ func (s *EnrollmentService) persistCertificate(ctx context.Context, started time
 	return resultFromCertificate(persisted), nil
 }
 
-func (s *EnrollmentService) release(gatewayID, id string, expected [32]byte, nonce, csr []byte, class, requestID string) {
+func (s *EnrollmentService) release(
+	gatewayID,
+	id string,
+	expected [32]byte,
+	nonce, csr []byte,
+	class, requestID string,
+) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	now := s.now().UTC().UnixMilli()
-	_, _ = s.store.ReleaseEnrollmentLease(ctx, store.ReleaseEnrollmentLeaseInput{GatewayID: gatewayID, TokenID: id, ExpectedHash: expected[:], Nonce: nonce, CSRHash: csr, Now: now, FailureAudit: s.audit(Actor{Type: actorTypeNode, ID: gatewayID, RequestID: requestID}, "enrollment.failed", gatewayID, "failure", now, map[string]any{"failure_class": class})})
+	failureAudit := s.audit(
+		Actor{Type: actorTypeNode, ID: gatewayID, RequestID: requestID},
+		"enrollment.failed",
+		gatewayID,
+		"failure",
+		now,
+		map[string]any{"failure_class": class},
+	)
+	_, _ = s.store.ReleaseEnrollmentLease(ctx, store.ReleaseEnrollmentLeaseInput{
+		GatewayID:    gatewayID,
+		TokenID:      id,
+		ExpectedHash: expected[:],
+		Nonce:        nonce,
+		CSRHash:      csr,
+		Now:          now,
+		FailureAudit: failureAudit,
+	})
 }
-func (s *EnrollmentService) recoverCommitted(ctx context.Context, gatewayID, id string, expected [32]byte, csr []byte) (EnrollmentResult, error) {
-	cert, err := s.store.RecoverEnrollmentIssuance(ctx, store.RecoverEnrollmentIssuanceInput{GatewayID: gatewayID, TokenID: id, ExpectedHash: expected[:], CSRHash: csr, Now: s.now().UTC().UnixMilli()})
+func (s *EnrollmentService) recoverCommitted(
+	ctx context.Context,
+	gatewayID,
+	id string,
+	expected [32]byte,
+	csr []byte,
+) (EnrollmentResult, error) {
+	cert, err := s.store.RecoverEnrollmentIssuance(ctx, store.RecoverEnrollmentIssuanceInput{
+		GatewayID:    gatewayID,
+		TokenID:      id,
+		ExpectedHash: expected[:],
+		CSRHash:      csr,
+		Now:          s.now().UTC().UnixMilli(),
+	})
 	return resultFromCertificate(cert), err
 }
 func resultFromCertificate(c domain.GatewayCertificate) EnrollmentResult {
-	return EnrollmentResult{GatewayID: c.GatewayID, CertificatePEM: c.CertificatePEM, TrustBundlePEM: c.TrustBundlePEM, AuthorityID: c.AuthorityID, SerialNumber: c.SerialNumber, NotBefore: c.NotBefore, NotAfter: c.NotAfter}
+	return EnrollmentResult{
+		GatewayID:      c.GatewayID,
+		CertificatePEM: c.CertificatePEM,
+		TrustBundlePEM: c.TrustBundlePEM,
+		AuthorityID:    c.AuthorityID,
+		SerialNumber:   c.SerialNumber,
+		NotBefore:      c.NotBefore,
+		NotAfter:       c.NotAfter,
+	}
 }
-func (s *EnrollmentService) audit(actor Actor, action, resource, outcome string, at int64, meta map[string]any) domain.AuditEvent {
+func (s *EnrollmentService) audit(
+	actor Actor,
+	action, resource, outcome string,
+	at int64,
+	meta map[string]any,
+) domain.AuditEvent {
 	rid := resource
 	aid := actor.ID
 	var request *string
@@ -475,7 +667,18 @@ func (s *EnrollmentService) audit(actor Actor, action, resource, outcome string,
 		meta = map[string]any{}
 	}
 	meta["gateway_id"] = resource
-	return domain.AuditEvent{ID: s.id(), ActorType: actor.Type, ActorID: &aid, Action: action, ResourceType: "gateway", ResourceID: &rid, Outcome: outcome, RequestID: request, Metadata: meta, CreatedAt: at}
+	return domain.AuditEvent{
+		ID:           s.id(),
+		ActorType:    actor.Type,
+		ActorID:      &aid,
+		Action:       action,
+		ResourceType: "gateway",
+		ResourceID:   &rid,
+		Outcome:      outcome,
+		RequestID:    request,
+		Metadata:     meta,
+		CreatedAt:    at,
+	}
 }
 func safePrefix(v string) string {
 	if len(v) > tokenPrefixLen {

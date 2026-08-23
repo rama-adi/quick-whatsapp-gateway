@@ -53,7 +53,10 @@ func (s *ChannelService) live(ctx context.Context, organizationID, sessionID str
 }
 
 // Create creates a channel/newsletter (§11 POST /channels).
-func (s *ChannelService) Create(ctx context.Context, organizationID, sessionID, name, description string) (string, error) {
+func (s *ChannelService) Create(
+	ctx context.Context,
+	organizationID, sessionID, name, description string,
+) (string, error) {
 	if name == "" {
 		return "", domain.ErrValidation("name is required")
 	}
@@ -88,7 +91,11 @@ func (s *ChannelService) Mute(ctx context.Context, organizationID, sessionID, ji
 }
 
 // Messages returns stored channel messages (§11 GET /channels/{jid}/messages).
-func (s *ChannelService) Messages(ctx context.Context, organizationID, sessionID, jid, cursor string, limit int) (store.Page[domain.Message], error) {
+func (s *ChannelService) Messages(
+	ctx context.Context,
+	organizationID, sessionID, jid, cursor string,
+	limit int,
+) (store.Page[domain.Message], error) {
 	if err := s.requireSession(ctx, organizationID, sessionID); err != nil {
 		return store.Page[domain.Message]{}, err
 	}
@@ -341,18 +348,18 @@ func (s *AdminService) orgIDFor(sessionID string) string {
 	return sess.OrganizationID
 }
 
-func (s *AdminService) persistBackfill(ctx context.Context, sessionID string, snapshot domain.BackfillSnapshot) (int, int, int, error) {
+func (s *AdminService) persistBackfill(
+	ctx context.Context,
+	sessionID string,
+	snapshot domain.BackfillSnapshot,
+) (int, int, int, error) {
 	now := domain.NowMs()
 	contactCount := 0
 	for _, c := range snapshot.Contacts {
 		if !isLID(c.LID) {
 			continue
 		}
-		// name is left NULL when unknown so a real push name captured later wins
-		// (Identity.Upsert COALESCEs) — never store the LID/JID as the name.
-		// Contacts feed the central identity table; DM "found" status is derived
-		// later from the chats table, so there is no per-session contact row. Name
-		// is left NULL when unknown so a real push name captured later wins
+		// Name is left NULL when unknown so a real push name captured later wins
 		// (Identity.Upsert COALESCEs) — never store the LID/JID as the name.
 		if err := s.store.Identities.Upsert(ctx, domain.Identity{
 			LID:          c.LID,

@@ -53,11 +53,18 @@ func (s *ContactService) requireSession(ctx context.Context, organizationID, ses
 
 // List returns a page of found-user contacts, applying the §11 filters
 // (?source=dm|group, ?group=, ?q=).
-func (s *ContactService) List(ctx context.Context, organizationID, sessionID string, f store.ContactFilter, cursor string, limit int) (store.Page[domain.Contact], error) {
+func (s *ContactService) List(
+	ctx context.Context,
+	organizationID, sessionID string,
+	f store.ContactFilter,
+	cursor string,
+	limit int,
+) (store.Page[domain.Contact], error) {
 	if err := s.requireSession(ctx, organizationID, sessionID); err != nil {
 		return store.Page[domain.Contact]{}, err
 	}
-	if f.Source != "" && f.Source != "dm" && f.Source != "group" {
+	invalidSource := f.Source != "" && f.Source != "dm" && f.Source != "group"
+	if invalidSource {
 		return store.Page[domain.Contact]{}, domain.ErrValidation("source must be dm or group")
 	}
 	return s.store.Contacts.List(ctx, sessionID, f, cursor, limit)

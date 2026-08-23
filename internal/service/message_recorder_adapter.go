@@ -31,7 +31,13 @@ type pollRecapScheduler interface {
 
 // NewMessageRecorderAdapter wraps the chat + message repos for the
 // outbound.Sender. clock may be nil (domain.NowMs is used).
-func NewMessageRecorderAdapter(messages *store.MessageRepo, chats *store.ChatRepo, polls *store.PollRepo, scheduler pollRecapScheduler, clock func() int64) *MessageRecorderAdapter {
+func NewMessageRecorderAdapter(
+	messages *store.MessageRepo,
+	chats *store.ChatRepo,
+	polls *store.PollRepo,
+	scheduler pollRecapScheduler,
+	clock func() int64,
+) *MessageRecorderAdapter {
 	if clock == nil {
 		clock = domain.NowMs
 	}
