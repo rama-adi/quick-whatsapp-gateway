@@ -111,15 +111,28 @@ func GatewayAdminFromDomain(g domain.Gateway) GatewayAdmin {
 
 func GatewayAdminDetailFromDomain(d domain.GatewayAdminDetail) GatewayAdminDetail {
 	out := GatewayAdminDetail{
-		Gateway: GatewayAdminFromDomain(d.Gateway), AssignedSessionCount: d.AssignedSessionCount,
-		AssignedSessions: d.AssignedSessions, Certificates: make([]GatewayCertificateSummary, 0, len(d.Certificates)),
-		Audit: make([]GatewayAuditEntry, 0, len(d.Audit)), ReconciliationResults: make([]GatewayReconciliationResult, 0, len(d.ReconciliationResults)),
+		Gateway:               GatewayAdminFromDomain(d.Gateway),
+		AssignedSessionCount:  d.AssignedSessionCount,
+		AssignedSessions:      d.AssignedSessions,
+		Certificates:          make([]GatewayCertificateSummary, 0, len(d.Certificates)),
+		Audit:                 make([]GatewayAuditEntry, 0, len(d.Audit)),
+		ReconciliationResults: make([]GatewayReconciliationResult, 0, len(d.ReconciliationResults)),
 	}
 	if out.AssignedSessions == nil {
 		out.AssignedSessions = []domain.WASession{}
 	}
 	for _, c := range d.Certificates {
-		mapped := GatewayCertificateSummary{ID: c.ID, AuthorityID: c.AuthorityID, SerialNumber: c.SerialNumber, Fingerprint: append([]byte(nil), c.Fingerprint...), NotBefore: c.NotBefore, NotAfter: c.NotAfter, CreatedAt: c.CreatedAt, RevokedAt: c.RevokedAt, RevocationReason: c.RevocationReason}
+		mapped := GatewayCertificateSummary{
+			ID:               c.ID,
+			AuthorityID:      c.AuthorityID,
+			SerialNumber:     c.SerialNumber,
+			Fingerprint:      append([]byte(nil), c.Fingerprint...),
+			NotBefore:        c.NotBefore,
+			NotAfter:         c.NotAfter,
+			CreatedAt:        c.CreatedAt,
+			RevokedAt:        c.RevokedAt,
+			RevocationReason: c.RevocationReason,
+		}
 		out.Certificates = append(out.Certificates, mapped)
 		if d.ActiveCertificate != nil && c.ID == d.ActiveCertificate.ID {
 			copy := mapped
@@ -127,10 +140,26 @@ func GatewayAdminDetailFromDomain(d domain.GatewayAdminDetail) GatewayAdminDetai
 		}
 	}
 	for _, a := range d.Audit {
-		out.Audit = append(out.Audit, GatewayAuditEntry{ID: a.ID, ActorType: a.ActorType, ActorID: a.ActorID, Action: a.Action, Outcome: a.Outcome, RequestID: a.RequestID, Metadata: a.Metadata, CreatedAt: a.CreatedAt})
+		out.Audit = append(out.Audit, GatewayAuditEntry{
+			ID:        a.ID,
+			ActorType: a.ActorType,
+			ActorID:   a.ActorID,
+			Action:    a.Action,
+			Outcome:   a.Outcome,
+			RequestID: a.RequestID,
+			Metadata:  a.Metadata,
+			CreatedAt: a.CreatedAt,
+		})
 	}
 	for _, r := range d.ReconciliationResults {
-		out.ReconciliationResults = append(out.ReconciliationResults, GatewayReconciliationResult{DeviceJID: r.DeviceJID, SessionID: r.SessionID, AssignmentEpoch: r.AssignmentEpoch, Status: r.Status, DesiredRevision: r.DesiredRevision, UpdatedAt: r.UpdatedAt})
+		out.ReconciliationResults = append(out.ReconciliationResults, GatewayReconciliationResult{
+			DeviceJID:       r.DeviceJID,
+			SessionID:       r.SessionID,
+			AssignmentEpoch: r.AssignmentEpoch,
+			Status:          r.Status,
+			DesiredRevision: r.DesiredRevision,
+			UpdatedAt:       r.UpdatedAt,
+		})
 	}
 	return out
 }

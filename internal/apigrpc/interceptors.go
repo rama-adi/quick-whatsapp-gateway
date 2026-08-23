@@ -28,7 +28,10 @@ const (
 // (and its organization id) on the RPC context via authz.SetPrincipal, so
 // capability checks (authz.Allow) and org scoping behave identically to REST.
 // Missing or invalid credentials are rejected with Unauthenticated.
-func Interceptors(tokens authz.TokenVerifier, keys authz.KeyVerifier) (grpc.UnaryServerInterceptor, grpc.StreamServerInterceptor) {
+func Interceptors(
+	tokens authz.TokenVerifier,
+	keys authz.KeyVerifier,
+) (grpc.UnaryServerInterceptor, grpc.StreamServerInterceptor) {
 	unary := func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		if isPublicMethod(info.FullMethod) {
 			return handler(ctx, req)
@@ -63,7 +66,14 @@ func isPublicMethod(fullMethod string) bool {
 // exemption in isPublicMethod.
 func authenticate(ctx context.Context, tokens authz.TokenVerifier, keys authz.KeyVerifier) (context.Context, error) {
 	bearer, hasBearer := bearerFromMetadata(ctx)
-	p := authz.ResolveCredential(ctx, tokens, keys, bearer, hasBearer, apiKeyFromMetadata(ctx))
+	p := authz.ResolveCredential(
+		ctx,
+		tokens,
+		keys,
+		bearer,
+		hasBearer,
+		apiKeyFromMetadata(ctx),
+	)
 	if p == nil {
 		return ctx, status.Error(codes.Unauthenticated, "missing or invalid credentials")
 	}

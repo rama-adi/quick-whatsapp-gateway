@@ -55,7 +55,15 @@ func RegisterGatewayAdminOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, err
 		}
-		issued, err := h.GatewayAdmin.CreateGateway(ctx, gatewayadmin.CreateGatewayInput{Label: in.Body.Label, Notes: in.Body.Notes, Capacity: in.Body.Capacity, Actor: actor})
+		issued, err := h.GatewayAdmin.CreateGateway(
+			ctx,
+			gatewayadmin.CreateGatewayInput{
+				Label:    in.Body.Label,
+				Notes:    in.Body.Notes,
+				Capacity: in.Body.Capacity,
+				Actor:    actor,
+			},
+		)
 		if err != nil {
 			return nil, gatewayAdminError(ctx, err)
 		}
@@ -90,24 +98,66 @@ func RegisterGatewayAdminOps(api huma.API, h *Handlers) {
 		return &gatewayAdminOutput{Body: apitypes.GatewayAdminDetailFromDomain(detail)}, nil
 	})
 
-	registerGatewayEnrollmentAction(api, h, "replaceAdminGatewayEnrollmentToken", ":replace-enrollment-token", "Replace an unredeemed enrollment token", func(ctx context.Context, id string, actor gatewayadmin.Actor) (gatewayadmin.IssuedEnrollment, error) {
-		return h.GatewayAdmin.ReplaceEnrollmentToken(ctx, id, actor)
-	})
-	registerGatewayEnrollmentAction(api, h, "reenrollAdminGateway", ":reenroll", "Re-enroll a drained or disabled gateway", func(ctx context.Context, id string, actor gatewayadmin.Actor) (gatewayadmin.IssuedEnrollment, error) {
-		return h.GatewayAdmin.Reenroll(ctx, id, actor)
-	})
-	registerGatewayAction(api, h, "drainAdminGateway", ":drain", "Drain a gateway", func(ctx context.Context, id string, actor gatewayadmin.Actor) error {
-		return h.GatewayAdmin.Drain(ctx, id, actor)
-	})
-	registerGatewayAction(api, h, "resumeAdminGateway", ":resume", "Resume placement on a drained gateway", func(ctx context.Context, id string, actor gatewayadmin.Actor) error {
-		return h.GatewayAdmin.Resume(ctx, id, actor)
-	})
-	registerGatewayAction(api, h, "disableAdminGateway", ":disable", "Disable a gateway", func(ctx context.Context, id string, actor gatewayadmin.Actor) error {
-		return h.GatewayAdmin.Disable(ctx, id, actor)
-	})
-	registerGatewayAction(api, h, "reenableAdminGateway", ":reenable", "Re-enable a gateway", func(ctx context.Context, id string, actor gatewayadmin.Actor) error {
-		return h.GatewayAdmin.Reenable(ctx, id, actor)
-	})
+	registerGatewayEnrollmentAction(
+		api,
+		h,
+		"replaceAdminGatewayEnrollmentToken",
+		":replace-enrollment-token",
+		"Replace an unredeemed enrollment token",
+		func(ctx context.Context, id string, actor gatewayadmin.Actor) (gatewayadmin.IssuedEnrollment, error) {
+			return h.GatewayAdmin.ReplaceEnrollmentToken(ctx, id, actor)
+		},
+	)
+	registerGatewayEnrollmentAction(
+		api,
+		h,
+		"reenrollAdminGateway",
+		":reenroll",
+		"Re-enroll a drained or disabled gateway",
+		func(ctx context.Context, id string, actor gatewayadmin.Actor) (gatewayadmin.IssuedEnrollment, error) {
+			return h.GatewayAdmin.Reenroll(ctx, id, actor)
+		},
+	)
+	registerGatewayAction(
+		api,
+		h,
+		"drainAdminGateway",
+		":drain",
+		"Drain a gateway",
+		func(ctx context.Context, id string, actor gatewayadmin.Actor) error {
+			return h.GatewayAdmin.Drain(ctx, id, actor)
+		},
+	)
+	registerGatewayAction(
+		api,
+		h,
+		"resumeAdminGateway",
+		":resume",
+		"Resume placement on a drained gateway",
+		func(ctx context.Context, id string, actor gatewayadmin.Actor) error {
+			return h.GatewayAdmin.Resume(ctx, id, actor)
+		},
+	)
+	registerGatewayAction(
+		api,
+		h,
+		"disableAdminGateway",
+		":disable",
+		"Disable a gateway",
+		func(ctx context.Context, id string, actor gatewayadmin.Actor) error {
+			return h.GatewayAdmin.Disable(ctx, id, actor)
+		},
+	)
+	registerGatewayAction(
+		api,
+		h,
+		"reenableAdminGateway",
+		":reenable",
+		"Re-enable a gateway",
+		func(ctx context.Context, id string, actor gatewayadmin.Actor) error {
+			return h.GatewayAdmin.Reenable(ctx, id, actor)
+		},
+	)
 
 	huma.Register(api, huma.Operation{
 		OperationID: "deleteAdminGateway", Method: "DELETE", Path: "/api/v1/admin/gateways/{gatewayId}",
@@ -119,15 +169,35 @@ func RegisterGatewayAdminOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, err
 		}
-		if err = h.GatewayAdmin.Delete(ctx, in.GatewayID, in.Body.ConsequencesAcknowledged, actor); err != nil {
+		if err = h.GatewayAdmin.Delete(
+			ctx,
+			in.GatewayID,
+			in.Body.ConsequencesAcknowledged,
+			actor,
+		); err != nil {
 			return nil, gatewayAdminError(ctx, err)
 		}
 		return nil, nil
 	})
 }
 
-func registerGatewayEnrollmentAction(api huma.API, h *Handlers, operationID, suffix, summary string, action func(context.Context, string, gatewayadmin.Actor) (gatewayadmin.IssuedEnrollment, error)) {
-	huma.Register(api, huma.Operation{OperationID: operationID, Method: "POST", Path: "/api/v1/admin/gateways/{gatewayId}" + suffix, Summary: summary + " (super_admin)", Tags: []string{"Gateway Administration"}, Description: "Returns a plaintext single-use enrollment bearer exactly once. Requires platform `super_admin`; invalid lifecycle state returns `conflict`.", DefaultStatus: 201, Middlewares: huma.Middlewares{humax.RequireSuperAdmin(api)}}, func(ctx context.Context, in *gatewayAdminIDInput) (*gatewayEnrollmentOutput, error) {
+func registerGatewayEnrollmentAction(
+	api huma.API,
+	h *Handlers,
+	operationID string,
+	suffix string,
+	summary string,
+	action func(context.Context, string, gatewayadmin.Actor) (gatewayadmin.IssuedEnrollment, error),
+) {
+	huma.Register(api, huma.Operation{
+		OperationID: operationID, Method: "POST",
+		Path:          "/api/v1/admin/gateways/{gatewayId}" + suffix,
+		Summary:       summary + " (super_admin)",
+		Tags:          []string{"Gateway Administration"},
+		Description:   "Returns a plaintext single-use enrollment bearer exactly once. Requires platform `super_admin`; invalid lifecycle state returns `conflict`.",
+		DefaultStatus: 201,
+		Middlewares:   huma.Middlewares{humax.RequireSuperAdmin(api)},
+	}, func(ctx context.Context, in *gatewayAdminIDInput) (*gatewayEnrollmentOutput, error) {
 		actor, err := gatewayAdminActor(ctx)
 		if err != nil {
 			return nil, err
@@ -140,8 +210,23 @@ func registerGatewayEnrollmentAction(api huma.API, h *Handlers, operationID, suf
 	})
 }
 
-func registerGatewayAction(api huma.API, h *Handlers, operationID, suffix, summary string, action func(context.Context, string, gatewayadmin.Actor) error) {
-	huma.Register(api, huma.Operation{OperationID: operationID, Method: "POST", Path: "/api/v1/admin/gateways/{gatewayId}" + suffix, Summary: summary + " (super_admin)", Tags: []string{"Gateway Administration"}, Description: "Changes the gateway's durable administrative state and records a non-secret audit event. Requires platform `super_admin`; invalid lifecycle state returns `conflict`.", DefaultStatus: 204, Middlewares: huma.Middlewares{humax.RequireSuperAdmin(api)}}, func(ctx context.Context, in *gatewayAdminIDInput) (*gatewayAdminEmptyOutput, error) {
+func registerGatewayAction(
+	api huma.API,
+	h *Handlers,
+	operationID string,
+	suffix string,
+	summary string,
+	action func(context.Context, string, gatewayadmin.Actor) error,
+) {
+	huma.Register(api, huma.Operation{
+		OperationID: operationID, Method: "POST",
+		Path:          "/api/v1/admin/gateways/{gatewayId}" + suffix,
+		Summary:       summary + " (super_admin)",
+		Tags:          []string{"Gateway Administration"},
+		Description:   "Changes the gateway's durable administrative state and records a non-secret audit event. Requires platform `super_admin`; invalid lifecycle state returns `conflict`.",
+		DefaultStatus: 204,
+		Middlewares:   huma.Middlewares{humax.RequireSuperAdmin(api)},
+	}, func(ctx context.Context, in *gatewayAdminIDInput) (*gatewayAdminEmptyOutput, error) {
 		actor, err := gatewayAdminActor(ctx)
 		if err != nil {
 			return nil, err
@@ -162,7 +247,12 @@ func gatewayAdminActor(ctx context.Context) (gatewayadmin.Actor, error) {
 }
 
 func enrollmentResult(issued gatewayadmin.IssuedEnrollment) apitypes.GatewayEnrollmentResult {
-	return apitypes.GatewayEnrollmentResult{GatewayID: issued.GatewayID, TokenID: issued.TokenID, Token: issued.Token, ExpiresAt: issued.ExpiresAt}
+	return apitypes.GatewayEnrollmentResult{
+		GatewayID: issued.GatewayID,
+		TokenID:   issued.TokenID,
+		Token:     issued.Token,
+		ExpiresAt: issued.ExpiresAt,
+	}
 }
 
 func gatewayAdminError(ctx context.Context, err error) error {

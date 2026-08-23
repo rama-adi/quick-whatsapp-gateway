@@ -41,7 +41,10 @@ type Sessions struct {
 // NewSessions builds the sessions adapter.
 func NewSessions(sessions SessionsDeps) *Sessions { return &Sessions{Sessions: sessions} }
 
-func (s *Sessions) CreateSession(ctx context.Context, req *publicv1.CreateSessionRequest) (*publicv1.CreateSessionResponse, error) {
+func (s *Sessions) CreateSession(
+	ctx context.Context,
+	req *publicv1.CreateSessionRequest,
+) (*publicv1.CreateSessionResponse, error) {
 	org, err := requireOrg(ctx, authz.CapManage)
 	if err != nil {
 		return nil, err
@@ -62,7 +65,10 @@ func (s *Sessions) CreateSession(ctx context.Context, req *publicv1.CreateSessio
 	return &publicv1.CreateSessionResponse{Session: sessionToProto(sess)}, nil
 }
 
-func (s *Sessions) ListSessions(ctx context.Context, _ *publicv1.ListSessionsRequest) (*publicv1.ListSessionsResponse, error) {
+func (s *Sessions) ListSessions(
+	ctx context.Context,
+	_ *publicv1.ListSessionsRequest,
+) (*publicv1.ListSessionsResponse, error) {
 	org, err := requireOrg(ctx, authz.CapManage)
 	if err != nil {
 		return nil, err
@@ -72,13 +78,16 @@ func (s *Sessions) ListSessions(ctx context.Context, _ *publicv1.ListSessionsReq
 		return nil, Status(err)
 	}
 	out := &publicv1.ListSessionsResponse{Sessions: make([]*publicv1.Session, 0, len(sessions))}
-	for i := range sessions {
-		out.Sessions = append(out.Sessions, sessionToProto(sessions[i]))
+	for _, sess := range sessions {
+		out.Sessions = append(out.Sessions, sessionToProto(sess))
 	}
 	return out, nil
 }
 
-func (s *Sessions) GetSession(ctx context.Context, req *publicv1.GetSessionRequest) (*publicv1.GetSessionResponse, error) {
+func (s *Sessions) GetSession(
+	ctx context.Context,
+	req *publicv1.GetSessionRequest,
+) (*publicv1.GetSessionResponse, error) {
 	org, err := requireOrg(ctx, authz.CapManage)
 	if err != nil {
 		return nil, err
@@ -90,7 +99,10 @@ func (s *Sessions) GetSession(ctx context.Context, req *publicv1.GetSessionReque
 	return &publicv1.GetSessionResponse{Session: sessionToProto(sess)}, nil
 }
 
-func (s *Sessions) DeleteSession(ctx context.Context, req *publicv1.DeleteSessionRequest) (*publicv1.DeleteSessionResponse, error) {
+func (s *Sessions) DeleteSession(
+	ctx context.Context,
+	req *publicv1.DeleteSessionRequest,
+) (*publicv1.DeleteSessionResponse, error) {
 	org, err := requireOrg(ctx, authz.CapManage)
 	if err != nil {
 		return nil, err
@@ -103,7 +115,11 @@ func (s *Sessions) DeleteSession(ctx context.Context, req *publicv1.DeleteSessio
 
 // lifecycle runs one no-payload action and returns the refreshed row — the
 // same shape as the REST :start/:stop/:restart/:logout actions.
-func (s *Sessions) lifecycle(ctx context.Context, sessionID string, run func(context.Context, string, string) error) (*publicv1.Session, error) {
+func (s *Sessions) lifecycle(
+	ctx context.Context,
+	sessionID string,
+	run func(context.Context, string, string) error,
+) (*publicv1.Session, error) {
 	org, err := requireOrg(ctx, authz.CapManage)
 	if err != nil {
 		return nil, err
@@ -118,7 +134,10 @@ func (s *Sessions) lifecycle(ctx context.Context, sessionID string, run func(con
 	return sessionToProto(sess), nil
 }
 
-func (s *Sessions) StartSession(ctx context.Context, req *publicv1.StartSessionRequest) (*publicv1.StartSessionResponse, error) {
+func (s *Sessions) StartSession(
+	ctx context.Context,
+	req *publicv1.StartSessionRequest,
+) (*publicv1.StartSessionResponse, error) {
 	sess, err := s.lifecycle(ctx, req.GetSessionId(), s.Sessions.Start)
 	if err != nil {
 		return nil, err
@@ -126,7 +145,10 @@ func (s *Sessions) StartSession(ctx context.Context, req *publicv1.StartSessionR
 	return &publicv1.StartSessionResponse{Session: sess}, nil
 }
 
-func (s *Sessions) StopSession(ctx context.Context, req *publicv1.StopSessionRequest) (*publicv1.StopSessionResponse, error) {
+func (s *Sessions) StopSession(
+	ctx context.Context,
+	req *publicv1.StopSessionRequest,
+) (*publicv1.StopSessionResponse, error) {
 	sess, err := s.lifecycle(ctx, req.GetSessionId(), s.Sessions.Stop)
 	if err != nil {
 		return nil, err
@@ -134,7 +156,10 @@ func (s *Sessions) StopSession(ctx context.Context, req *publicv1.StopSessionReq
 	return &publicv1.StopSessionResponse{Session: sess}, nil
 }
 
-func (s *Sessions) RestartSession(ctx context.Context, req *publicv1.RestartSessionRequest) (*publicv1.RestartSessionResponse, error) {
+func (s *Sessions) RestartSession(
+	ctx context.Context,
+	req *publicv1.RestartSessionRequest,
+) (*publicv1.RestartSessionResponse, error) {
 	sess, err := s.lifecycle(ctx, req.GetSessionId(), s.Sessions.Restart)
 	if err != nil {
 		return nil, err
@@ -142,7 +167,10 @@ func (s *Sessions) RestartSession(ctx context.Context, req *publicv1.RestartSess
 	return &publicv1.RestartSessionResponse{Session: sess}, nil
 }
 
-func (s *Sessions) LogoutSession(ctx context.Context, req *publicv1.LogoutSessionRequest) (*publicv1.LogoutSessionResponse, error) {
+func (s *Sessions) LogoutSession(
+	ctx context.Context,
+	req *publicv1.LogoutSessionRequest,
+) (*publicv1.LogoutSessionResponse, error) {
 	sess, err := s.lifecycle(ctx, req.GetSessionId(), s.Sessions.Logout)
 	if err != nil {
 		return nil, err
@@ -150,7 +178,10 @@ func (s *Sessions) LogoutSession(ctx context.Context, req *publicv1.LogoutSessio
 	return &publicv1.LogoutSessionResponse{Session: sess}, nil
 }
 
-func (s *Sessions) GetSessionQrCode(ctx context.Context, req *publicv1.GetSessionQrCodeRequest) (*publicv1.GetSessionQrCodeResponse, error) {
+func (s *Sessions) GetSessionQrCode(
+	ctx context.Context,
+	req *publicv1.GetSessionQrCodeRequest,
+) (*publicv1.GetSessionQrCodeResponse, error) {
 	org, err := requireOrg(ctx, authz.CapManage)
 	if err != nil {
 		return nil, err
@@ -162,7 +193,10 @@ func (s *Sessions) GetSessionQrCode(ctx context.Context, req *publicv1.GetSessio
 	return &publicv1.GetSessionQrCodeResponse{QrCode: qrToProto(qr)}, nil
 }
 
-func (s *Sessions) CreatePairingCode(ctx context.Context, req *publicv1.CreatePairingCodeRequest) (*publicv1.CreatePairingCodeResponse, error) {
+func (s *Sessions) CreatePairingCode(
+	ctx context.Context,
+	req *publicv1.CreatePairingCodeRequest,
+) (*publicv1.CreatePairingCodeResponse, error) {
 	org, err := requireOrg(ctx, authz.CapManage)
 	if err != nil {
 		return nil, err

@@ -60,7 +60,12 @@ func RegisterStatusOps(api huma.API, h *Handlers) {
 		}
 		switch in.Body.Type {
 		case "", "text":
-			id, err := h.Status.PostText(ctx, org, in.Session, in.Body.Text)
+			id, err := h.Status.PostText(
+				ctx,
+				org,
+				in.Session,
+				in.Body.Text,
+			)
 			if err != nil {
 				return nil, humax.ErrContext(ctx, err)
 			}
@@ -88,7 +93,12 @@ func RegisterStatusOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, err
 		}
-		if err := h.Presence.Set(ctx, org, in.Session, in.Body.State); err != nil {
+		if err := h.Presence.Set(
+			ctx,
+			org,
+			in.Session,
+			in.Body.State,
+		); err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
 		return &emptyOutput{}, nil

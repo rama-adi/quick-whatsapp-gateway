@@ -14,8 +14,8 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa/outbound"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 )
@@ -41,11 +41,11 @@ func (f *fakeSessions) Get(_ context.Context, organizationID, _ string) (domain.
 	f.orgs = append(f.orgs, organizationID)
 	return f.session, f.err
 }
-func (f *fakeSessions) Start(context.Context, string, string) error    { return nil }
-func (f *fakeSessions) Stop(context.Context, string, string) error     { return nil }
-func (f *fakeSessions) Restart(context.Context, string, string) error  { return nil }
-func (f *fakeSessions) Logout(context.Context, string, string) error   { return nil }
-func (f *fakeSessions) Delete(context.Context, string, string) error   { return nil }
+func (f *fakeSessions) Start(context.Context, string, string) error   { return nil }
+func (f *fakeSessions) Stop(context.Context, string, string) error    { return nil }
+func (f *fakeSessions) Restart(context.Context, string, string) error { return nil }
+func (f *fakeSessions) Logout(context.Context, string, string) error  { return nil }
+func (f *fakeSessions) Delete(context.Context, string, string) error  { return nil }
 func (f *fakeSessions) Me(_ context.Context, _, _ string) (service.Me, error) {
 	return service.Me{SessionID: "ses_1", Status: domain.SessionWorking, Connected: true}, nil
 }
@@ -59,9 +59,9 @@ func (f *fakeSessions) PairingCode(context.Context, string, string, string) (str
 var _ SessionsDeps = (*fakeSessions)(nil)
 
 type fakeMessages struct {
-	orgs  []string
+	orgs   []string
 	result outbound.SendResult
-	err   error
+	err    error
 }
 
 func (f *fakeMessages) Send(_ context.Context, organizationID, _ string, _ domain.SendRequest, _ outbound.SendOptions) (outbound.SendResult, error) {
@@ -108,6 +108,7 @@ func (f *fakeEvents) ListSince(ctx context.Context, org, session string, afterID
 }
 
 var dbgCalls []any
+
 func (f *fakeEvents) GetByEventID(_ context.Context, eventID string) (domain.EventLogEntry, error) {
 	if eventID == "evt_known" {
 		return domain.EventLogEntry{ID: 41, EventID: "evt_known", OrganizationID: "org_1"}, nil
@@ -186,15 +187,15 @@ func memberCtx(string) context.Context {
 // huma's HTTP mapping so REST and gRPC callers see equivalent outcomes.
 func TestErrorMappingMirrorsREST(t *testing.T) {
 	cases := map[string]codes.Code{
-		domain.CodeNotFound:       codes.NotFound,
-		domain.CodeUnauthorized:   codes.Unauthenticated,
-		domain.CodeForbidden:      codes.PermissionDenied,
+		domain.CodeNotFound:        codes.NotFound,
+		domain.CodeUnauthorized:    codes.Unauthenticated,
+		domain.CodeForbidden:       codes.PermissionDenied,
 		domain.CodeValidationError: codes.InvalidArgument,
-		domain.CodeConflict:       codes.FailedPrecondition,
-		domain.CodeRateLimited:    codes.ResourceExhausted,
-		domain.CodeNotImplemented: codes.Unimplemented,
-		domain.CodeUnavailable:    codes.Unavailable,
-		"internal_error":          codes.Internal,
+		domain.CodeConflict:        codes.FailedPrecondition,
+		domain.CodeRateLimited:     codes.ResourceExhausted,
+		domain.CodeNotImplemented:  codes.Unimplemented,
+		domain.CodeUnavailable:     codes.Unavailable,
+		"internal_error":           codes.Internal,
 	}
 	for code, want := range cases {
 		err := Status(&domain.APIError{Code: code, Message: "x"})

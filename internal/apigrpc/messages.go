@@ -16,19 +16,70 @@ import (
 // handlers.ChatSvc ListMessages route. The concrete *service.MessageService /
 // *service.ChatService satisfy them.
 type MessagesDeps interface {
-	Send(ctx context.Context, organizationID, sessionID string, req domain.SendRequest, opts outbound.SendOptions) (outbound.SendResult, error)
-	Edit(ctx context.Context, organizationID, sessionID, chat, msgID, newText string) (outbound.SendResult, error)
-	Revoke(ctx context.Context, organizationID, sessionID, chat, sender, msgID string) (outbound.SendResult, error)
-	React(ctx context.Context, organizationID, sessionID, chat, sender, msgID, emoji string) (outbound.SendResult, error)
-	Forward(ctx context.Context, organizationID, sessionID, chat, sender, msgID, to string) (outbound.SendResult, error)
-	Vote(ctx context.Context, organizationID, sessionID, chat, sender, msgID string, options []string) (outbound.SendResult, error)
+	Send(
+		ctx context.Context,
+		organizationID string,
+		sessionID string,
+		req domain.SendRequest,
+		opts outbound.SendOptions,
+	) (outbound.SendResult, error)
+	Edit(
+		ctx context.Context,
+		organizationID string,
+		sessionID string,
+		chat string,
+		msgID string,
+		newText string,
+	) (outbound.SendResult, error)
+	Revoke(
+		ctx context.Context,
+		organizationID string,
+		sessionID string,
+		chat string,
+		sender string,
+		msgID string,
+	) (outbound.SendResult, error)
+	React(
+		ctx context.Context,
+		organizationID string,
+		sessionID string,
+		chat string,
+		sender string,
+		msgID string,
+		emoji string,
+	) (outbound.SendResult, error)
+	Forward(
+		ctx context.Context,
+		organizationID string,
+		sessionID string,
+		chat string,
+		sender string,
+		msgID string,
+		to string,
+	) (outbound.SendResult, error)
+	Vote(
+		ctx context.Context,
+		organizationID string,
+		sessionID string,
+		chat string,
+		sender string,
+		msgID string,
+		options []string,
+	) (outbound.SendResult, error)
 }
 
 var _ MessagesDeps = (*service.MessageService)(nil)
 
 // ChatsReader is the chat-history read slice apigrpc consumes.
 type ChatsReader interface {
-	ListMessages(ctx context.Context, organizationID, sessionID, chatJID, cursor string, limit int) (store.Page[domain.Message], error)
+	ListMessages(
+		ctx context.Context,
+		organizationID string,
+		sessionID string,
+		chatJID string,
+		cursor string,
+		limit int,
+	) (store.Page[domain.Message], error)
 }
 
 var _ ChatsReader = (*service.ChatService)(nil)
@@ -47,7 +98,10 @@ func NewMessages(messages MessagesDeps, chats ChatsReader) *Messages {
 	return &Messages{Messages: messages, Chats: chats}
 }
 
-func (m *Messages) SendMessage(ctx context.Context, req *publicv1.SendMessageRequest) (*publicv1.SendMessageResponse, error) {
+func (m *Messages) SendMessage(
+	ctx context.Context,
+	req *publicv1.SendMessageRequest,
+) (*publicv1.SendMessageResponse, error) {
 	org, err := requireOrg(ctx, authz.CapSend)
 	if err != nil {
 		return nil, err
@@ -58,68 +112,127 @@ func (m *Messages) SendMessage(ctx context.Context, req *publicv1.SendMessageReq
 		body = sendBodyFromProto(req.GetBody())
 		opts = outbound.SendOptions{Async: req.GetAsync(), IdempotencyKey: req.GetIdempotencyKey()}
 	}
-	res, err := m.Messages.Send(ctx, org, req.GetSessionId(), body, opts)
+	res, err := m.Messages.Send(
+		ctx,
+		org,
+		req.GetSessionId(),
+		body,
+		opts,
+	)
 	if err != nil {
 		return nil, Status(err)
 	}
 	return &publicv1.SendMessageResponse{Result: sendResultToProto(res)}, nil
 }
 
-func (m *Messages) EditMessage(ctx context.Context, req *publicv1.EditMessageRequest) (*publicv1.EditMessageResponse, error) {
+func (m *Messages) EditMessage(
+	ctx context.Context,
+	req *publicv1.EditMessageRequest,
+) (*publicv1.EditMessageResponse, error) {
 	org, err := requireOrg(ctx, authz.CapSend)
 	if err != nil {
 		return nil, err
 	}
-	res, err := m.Messages.Edit(ctx, org, req.GetSessionId(), req.GetChat(), req.GetMessageId(), req.GetText())
+	res, err := m.Messages.Edit(
+		ctx,
+		org,
+		req.GetSessionId(),
+		req.GetChat(),
+		req.GetMessageId(),
+		req.GetText(),
+	)
 	if err != nil {
 		return nil, Status(err)
 	}
 	return &publicv1.EditMessageResponse{Result: sendResultToProto(res)}, nil
 }
 
-func (m *Messages) RevokeMessage(ctx context.Context, req *publicv1.RevokeMessageRequest) (*publicv1.RevokeMessageResponse, error) {
+func (m *Messages) RevokeMessage(
+	ctx context.Context,
+	req *publicv1.RevokeMessageRequest,
+) (*publicv1.RevokeMessageResponse, error) {
 	org, err := requireOrg(ctx, authz.CapSend)
 	if err != nil {
 		return nil, err
 	}
-	res, err := m.Messages.Revoke(ctx, org, req.GetSessionId(), req.GetChat(), req.GetSender(), req.GetMessageId())
+	res, err := m.Messages.Revoke(
+		ctx,
+		org,
+		req.GetSessionId(),
+		req.GetChat(),
+		req.GetSender(),
+		req.GetMessageId(),
+	)
 	if err != nil {
 		return nil, Status(err)
 	}
 	return &publicv1.RevokeMessageResponse{Result: sendResultToProto(res)}, nil
 }
 
-func (m *Messages) AddReaction(ctx context.Context, req *publicv1.AddReactionRequest) (*publicv1.AddReactionResponse, error) {
+func (m *Messages) AddReaction(
+	ctx context.Context,
+	req *publicv1.AddReactionRequest,
+) (*publicv1.AddReactionResponse, error) {
 	org, err := requireOrg(ctx, authz.CapSend)
 	if err != nil {
 		return nil, err
 	}
-	res, err := m.Messages.React(ctx, org, req.GetSessionId(), req.GetChat(), req.GetSender(), req.GetMessageId(), req.GetEmoji())
+	res, err := m.Messages.React(
+		ctx,
+		org,
+		req.GetSessionId(),
+		req.GetChat(),
+		req.GetSender(),
+		req.GetMessageId(),
+		req.GetEmoji(),
+	)
 	if err != nil {
 		return nil, Status(err)
 	}
 	return &publicv1.AddReactionResponse{Result: sendResultToProto(res)}, nil
 }
 
-func (m *Messages) RemoveReaction(ctx context.Context, req *publicv1.RemoveReactionRequest) (*publicv1.RemoveReactionResponse, error) {
+func (m *Messages) RemoveReaction(
+	ctx context.Context,
+	req *publicv1.RemoveReactionRequest,
+) (*publicv1.RemoveReactionResponse, error) {
 	org, err := requireOrg(ctx, authz.CapSend)
 	if err != nil {
 		return nil, err
 	}
 	// Empty emoji clears the reaction — same as the REST DELETE route.
-	res, err := m.Messages.React(ctx, org, req.GetSessionId(), req.GetChat(), req.GetSender(), req.GetMessageId(), "")
+	res, err := m.Messages.React(
+		ctx,
+		org,
+		req.GetSessionId(),
+		req.GetChat(),
+		req.GetSender(),
+		req.GetMessageId(),
+		"",
+	)
 	if err != nil {
 		return nil, Status(err)
 	}
 	return &publicv1.RemoveReactionResponse{Result: sendResultToProto(res)}, nil
 }
 
-func (m *Messages) ForwardMessage(ctx context.Context, req *publicv1.ForwardMessageRequest) (*publicv1.ForwardMessageResponse, error) {
+func (m *Messages) ForwardMessage(
+	ctx context.Context,
+	req *publicv1.ForwardMessageRequest,
+) (*publicv1.ForwardMessageResponse, error) {
 	org, err := requireOrg(ctx, authz.CapSend)
 	if err != nil {
 		return nil, err
 	}
-	res, err := m.Messages.Forward(ctx, org, req.GetSessionId(), req.GetChat(), req.GetSender(), req.GetMessageId(), req.GetTo())
+	res, err := m.Messages.Forward(
+		ctx,
+		org,
+		req.GetSessionId(),
+		req.GetChat(),
+		req.GetSender(),
+		req.GetMessageId(),
+		req.GetTo(),
+	)
 	if err != nil {
 		return nil, Status(err)
 	}
@@ -131,19 +244,37 @@ func (m *Messages) VotePoll(ctx context.Context, req *publicv1.VotePollRequest) 
 	if err != nil {
 		return nil, err
 	}
-	res, err := m.Messages.Vote(ctx, org, req.GetSessionId(), req.GetChat(), req.GetSender(), req.GetMessageId(), req.GetOptions())
+	res, err := m.Messages.Vote(
+		ctx,
+		org,
+		req.GetSessionId(),
+		req.GetChat(),
+		req.GetSender(),
+		req.GetMessageId(),
+		req.GetOptions(),
+	)
 	if err != nil {
 		return nil, Status(err)
 	}
 	return &publicv1.VotePollResponse{Result: sendResultToProto(res)}, nil
 }
 
-func (m *Messages) ListMessages(ctx context.Context, req *publicv1.ListMessagesRequest) (*publicv1.ListMessagesResponse, error) {
+func (m *Messages) ListMessages(
+	ctx context.Context,
+	req *publicv1.ListMessagesRequest,
+) (*publicv1.ListMessagesResponse, error) {
 	org, err := requireOrg(ctx, authz.CapRead)
 	if err != nil {
 		return nil, err
 	}
-	page, err := m.Chats.ListMessages(ctx, org, req.GetSessionId(), req.GetChatJid(), req.GetCursor(), clampLimit(int(req.GetLimit())))
+	page, err := m.Chats.ListMessages(
+		ctx,
+		org,
+		req.GetSessionId(),
+		req.GetChatJid(),
+		req.GetCursor(),
+		clampLimit(int(req.GetLimit())),
+	)
 	if err != nil {
 		return nil, Status(err)
 	}
@@ -151,8 +282,8 @@ func (m *Messages) ListMessages(ctx context.Context, req *publicv1.ListMessagesR
 		Messages:   make([]*publicv1.StoredMessage, 0, len(page.Items)),
 		NextCursor: page.NextCursor,
 	}
-	for i := range page.Items {
-		out.Messages = append(out.Messages, messageToProto(page.Items[i]))
+	for _, item := range page.Items {
+		out.Messages = append(out.Messages, messageToProto(item))
 	}
 	return out, nil
 }
@@ -249,12 +380,12 @@ func sendResultToProto(r outbound.SendResult) *publicv1.SendResult {
 		waMsg = &v
 	}
 	return &publicv1.SendResult{
-		Mode:           r.Mode,
-		WaMessageId:    waMsg,
-		Status:         statusField,
+		Mode:            r.Mode,
+		WaMessageId:     waMsg,
+		Status:          statusField,
 		TimestampUnixMs: ts,
-		OutboxId:       outbox,
-		Replayed:       r.Replayed,
+		OutboxId:        outbox,
+		Replayed:        r.Replayed,
 	}
 }
 
@@ -303,26 +434,26 @@ func i64PtrToProto(v *int64) *int64 {
 
 func messageToProto(m domain.Message) *publicv1.StoredMessage {
 	msg := &publicv1.StoredMessage{
-		Id:               m.ID,
-		SessionId:        m.SessionID,
-		WaMessageId:      m.WAMessageID,
-		ChatJid:          m.ChatJID,
-		SenderLid:        strPtrToProto(m.SenderLID),
-		SenderJid:        strPtrToProto(m.SenderJID),
-		SenderName:       strPtrToProto(m.SenderName),
-		FromMe:           m.FromMe,
-		Direction:        directionToProto(m.Direction),
-		Type:             m.Type,
-		Body:             strPtrToProto(m.Body),
-		QuotedMessageId:  strPtrToProto(m.QuotedMessageID),
-		HasMedia:         m.HasMedia,
-		AckLevel:         i32PtrToProto(m.AckLevel),
-		Error:            strPtrToProto(m.Error),
-		Edited:           m.Edited,
-		Deleted:          m.Deleted,
-		TimestampUnixMs:  m.Timestamp,
-		CreatedAtUnixMs:  m.CreatedAt,
-		MentionNames:     m.MentionNames,
+		Id:              m.ID,
+		SessionId:       m.SessionID,
+		WaMessageId:     m.WAMessageID,
+		ChatJid:         m.ChatJID,
+		SenderLid:       strPtrToProto(m.SenderLID),
+		SenderJid:       strPtrToProto(m.SenderJID),
+		SenderName:      strPtrToProto(m.SenderName),
+		FromMe:          m.FromMe,
+		Direction:       directionToProto(m.Direction),
+		Type:            m.Type,
+		Body:            strPtrToProto(m.Body),
+		QuotedMessageId: strPtrToProto(m.QuotedMessageID),
+		HasMedia:        m.HasMedia,
+		AckLevel:        i32PtrToProto(m.AckLevel),
+		Error:           strPtrToProto(m.Error),
+		Edited:          m.Edited,
+		Deleted:         m.Deleted,
+		TimestampUnixMs: m.Timestamp,
+		CreatedAtUnixMs: m.CreatedAt,
+		MentionNames:    m.MentionNames,
 	}
 	for _, mention := range m.Mentions {
 		msg.Mentions = append(msg.Mentions, string(mention))

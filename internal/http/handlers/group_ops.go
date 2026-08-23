@@ -159,7 +159,13 @@ func RegisterGroupOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, err
 		}
-		info, err := h.Groups.Create(ctx, org, in.Session, in.Body.Name, in.Body.Participants)
+		info, err := h.Groups.Create(
+			ctx,
+			org,
+			in.Session,
+			in.Body.Name,
+			in.Body.Participants,
+		)
 		if err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
@@ -194,7 +200,12 @@ func RegisterGroupOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, err
 		}
-		group, err := h.Groups.Get(ctx, org, in.Session, decodeParam(in.GID))
+		group, err := h.Groups.Get(
+			ctx,
+			org,
+			in.Session,
+			decodeParam(in.GID),
+		)
 		if err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
@@ -211,7 +222,12 @@ func RegisterGroupOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, err
 		}
-		members, err := h.Groups.Members(ctx, org, in.Session, decodeParam(in.GID))
+		members, err := h.Groups.Members(
+			ctx,
+			org,
+			in.Session,
+			decodeParam(in.GID),
+		)
 		if err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
@@ -230,7 +246,13 @@ func RegisterGroupOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, err
 		}
-		if err := h.Groups.AddMembers(ctx, org, in.Session, decodeParam(in.GID), in.Body.Participants); err != nil {
+		if err := h.Groups.AddMembers(
+			ctx,
+			org,
+			in.Session,
+			decodeParam(in.GID),
+			in.Body.Participants,
+		); err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
 		return &emptyOutput{}, nil
@@ -247,14 +269,21 @@ func RegisterGroupOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, err
 		}
-		if err := h.Groups.RemoveMember(ctx, org, in.Session, decodeParam(in.GID), decodeParam(in.JID)); err != nil {
+		if err := h.Groups.RemoveMember(
+			ctx,
+			org,
+			in.Session,
+			decodeParam(in.GID),
+			decodeParam(in.JID),
+		); err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
 		return &emptyOutput{}, nil
 	})
 
 	huma.Register(api, huma.Operation{
-		OperationID: "promoteGroupMember", Method: "POST", Path: "/api/v1/sessions/{session}/groups/{gid}/members/{jid}/promote",
+		OperationID: "promoteGroupMember", Method: "POST",
+		Path:    "/api/v1/sessions/{session}/groups/{gid}/members/{jid}/promote",
 		Summary: "Promote a member to admin", Tags: []string{"Groups"},
 		Description: "Set one member to admin. No change if member is already admin.\n" +
 			"Requires `send`, a connected session, and admin rights in the group. Returns 204.\n\n" +
@@ -265,14 +294,21 @@ func RegisterGroupOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, err
 		}
-		if err := h.Groups.Promote(ctx, org, in.Session, decodeParam(in.GID), decodeParam(in.JID)); err != nil {
+		if err := h.Groups.Promote(
+			ctx,
+			org,
+			in.Session,
+			decodeParam(in.GID),
+			decodeParam(in.JID),
+		); err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
 		return &emptyOutput{}, nil
 	})
 
 	huma.Register(api, huma.Operation{
-		OperationID: "demoteGroupMember", Method: "POST", Path: "/api/v1/sessions/{session}/groups/{gid}/members/{jid}/demote",
+		OperationID: "demoteGroupMember", Method: "POST",
+		Path:    "/api/v1/sessions/{session}/groups/{gid}/members/{jid}/demote",
 		Summary: "Demote an admin to member", Tags: []string{"Groups"},
 		Description: "Demote one admin to regular member. No change if already member.\n" +
 			"Requires `send`, a connected session, and admin rights in the group. Returns 204.\n\n" +
@@ -283,7 +319,13 @@ func RegisterGroupOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, err
 		}
-		if err := h.Groups.Demote(ctx, org, in.Session, decodeParam(in.GID), decodeParam(in.JID)); err != nil {
+		if err := h.Groups.Demote(
+			ctx,
+			org,
+			in.Session,
+			decodeParam(in.GID),
+			decodeParam(in.JID),
+		); err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
 		return &emptyOutput{}, nil
@@ -301,12 +343,18 @@ func RegisterGroupOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, err
 		}
-		err = h.Groups.UpdateSettings(ctx, org, in.Session, decodeParam(in.GID), domain.GroupSettings{
-			Subject:     in.Body.Subject,
-			Description: in.Body.Description,
-			Announce:    in.Body.Announce,
-			Locked:      in.Body.Locked,
-		})
+		err = h.Groups.UpdateSettings(
+			ctx,
+			org,
+			in.Session,
+			decodeParam(in.GID),
+			domain.GroupSettings{
+				Subject:     in.Body.Subject,
+				Description: in.Body.Description,
+				Announce:    in.Body.Announce,
+				Locked:      in.Body.Locked,
+			},
+		)
 		if err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
@@ -325,7 +373,12 @@ func RegisterGroupOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, err
 		}
-		link, err := h.Groups.InviteLink(ctx, org, in.Session, decodeParam(in.GID))
+		link, err := h.Groups.InviteLink(
+			ctx,
+			org,
+			in.Session,
+			decodeParam(in.GID),
+		)
 		if err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
@@ -344,7 +397,12 @@ func RegisterGroupOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, err
 		}
-		link, err := h.Groups.RevokeInvite(ctx, org, in.Session, decodeParam(in.GID))
+		link, err := h.Groups.RevokeInvite(
+			ctx,
+			org,
+			in.Session,
+			decodeParam(in.GID),
+		)
 		if err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
@@ -363,7 +421,12 @@ func RegisterGroupOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, err
 		}
-		jid, err := h.Groups.Join(ctx, org, in.Session, in.Body.Invite)
+		jid, err := h.Groups.Join(
+			ctx,
+			org,
+			in.Session,
+			in.Body.Invite,
+		)
 		if err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
@@ -383,7 +446,12 @@ func RegisterGroupOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, err
 		}
-		if err := h.Groups.Leave(ctx, org, in.Session, decodeParam(in.GID)); err != nil {
+		if err := h.Groups.Leave(
+			ctx,
+			org,
+			in.Session,
+			decodeParam(in.GID),
+		); err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
 		return &emptyOutput{}, nil
@@ -399,7 +467,13 @@ func RegisterGroupOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, err
 		}
-		if err := h.Groups.ApproveMembers(ctx, org, in.Session, decodeParam(in.GID), in.Body.Participants); err != nil {
+		if err := h.Groups.ApproveMembers(
+			ctx,
+			org,
+			in.Session,
+			decodeParam(in.GID),
+			in.Body.Participants,
+		); err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
 		return &emptyOutput{}, nil

@@ -32,12 +32,21 @@ func (f *SessionLifecycleFacade) Prepare(ctx context.Context, organizationID, se
 // QR starts (or resumes) QR pairing and returns the current snapshot code. An
 // empty Code means no code is ready yet — the caller polls again or subscribes
 // to auth.qr events.
-func (f *SessionLifecycleFacade) QR(ctx context.Context, organizationID, sessionID string) (application.PairingSnapshot, error) {
+func (f *SessionLifecycleFacade) QR(
+	ctx context.Context,
+	organizationID string,
+	sessionID string,
+) (application.PairingSnapshot, error) {
 	return f.client.BeginPairing(ctx, organizationID, sessionID)
 }
 
 // PairingCode requests a phone-number pairing code through the assigned engine.
-func (f *SessionLifecycleFacade) PairingCode(ctx context.Context, organizationID, sessionID, phone string) (string, error) {
+func (f *SessionLifecycleFacade) PairingCode(
+	ctx context.Context,
+	organizationID string,
+	sessionID string,
+	phone string,
+) (string, error) {
 	return f.client.PairPhone(ctx, organizationID, sessionID, phone)
 }
 

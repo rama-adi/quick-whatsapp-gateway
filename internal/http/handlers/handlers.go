@@ -41,12 +41,42 @@ type SessionSvc interface {
 
 // MessageSvc is the outbound send + message-op surface.
 type MessageSvc interface {
-	Send(ctx context.Context, organizationID, sessionID string, req domain.SendRequest, opts outbound.SendOptions) (outbound.SendResult, error)
+	Send(
+		ctx context.Context,
+		organizationID string,
+		sessionID string,
+		req domain.SendRequest,
+		opts outbound.SendOptions,
+	) (outbound.SendResult, error)
 	Edit(ctx context.Context, organizationID, sessionID, chat, msgID, newText string) (outbound.SendResult, error)
 	Revoke(ctx context.Context, organizationID, sessionID, chat, sender, msgID string) (outbound.SendResult, error)
-	React(ctx context.Context, organizationID, sessionID, chat, sender, msgID, emoji string) (outbound.SendResult, error)
-	Forward(ctx context.Context, organizationID, sessionID, chat, sender, msgID, to string) (outbound.SendResult, error)
-	Vote(ctx context.Context, organizationID, sessionID, chat, sender, msgID string, options []string) (outbound.SendResult, error)
+	React(
+		ctx context.Context,
+		organizationID string,
+		sessionID string,
+		chat string,
+		sender string,
+		msgID string,
+		emoji string,
+	) (outbound.SendResult, error)
+	Forward(
+		ctx context.Context,
+		organizationID string,
+		sessionID string,
+		chat string,
+		sender string,
+		msgID string,
+		to string,
+	) (outbound.SendResult, error)
+	Vote(
+		ctx context.Context,
+		organizationID string,
+		sessionID string,
+		chat string,
+		sender string,
+		msgID string,
+		options []string,
+	) (outbound.SendResult, error)
 }
 
 // WebhookSvc is the webhook CRUD surface.
@@ -82,7 +112,14 @@ type GatewayAdminSvc interface {
 
 // BackupSvc is the user-facing WhatsApp backup (crypt15) import surface.
 type BackupSvc interface {
-	StartImport(ctx context.Context, organizationID, sessionID string, isSuperAdmin bool, ciphertext []byte, key string) (domain.BackfillImport, error)
+	StartImport(
+		ctx context.Context,
+		organizationID string,
+		sessionID string,
+		isSuperAdmin bool,
+		ciphertext []byte,
+		key string,
+	) (domain.BackfillImport, error)
 	ImportStatus(ctx context.Context, organizationID, sessionID string, isSuperAdmin bool) (domain.BackfillImport, error)
 }
 
@@ -90,7 +127,14 @@ type BackupSvc interface {
 type ChatSvc interface {
 	List(ctx context.Context, organizationID, sessionID, cursor string, limit int) (store.Page[domain.Chat], error)
 	Get(ctx context.Context, organizationID, sessionID, chatJID string) (domain.Chat, error)
-	ListMessages(ctx context.Context, organizationID, sessionID, chatJID, cursor string, limit int) (store.Page[domain.Message], error)
+	ListMessages(
+		ctx context.Context,
+		organizationID string,
+		sessionID string,
+		chatJID string,
+		cursor string,
+		limit int,
+	) (store.Page[domain.Message], error)
 	GetPresence(ctx context.Context, organizationID, sessionID, chatJID string) (domain.PresenceStatus, error)
 	Read(ctx context.Context, organizationID, sessionID, chatJID string) (domain.Chat, error)
 	Update(ctx context.Context, organizationID, sessionID, chatJID string, in service.ChatUpdate) (domain.Chat, error)
@@ -100,7 +144,14 @@ type ChatSvc interface {
 
 // ContactSvc is the "found users" + live contact surface (§11 Contacts).
 type ContactSvc interface {
-	List(ctx context.Context, organizationID, sessionID string, f store.ContactFilter, cursor string, limit int) (store.Page[domain.Contact], error)
+	List(
+		ctx context.Context,
+		organizationID string,
+		sessionID string,
+		f store.ContactFilter,
+		cursor string,
+		limit int,
+	) (store.Page[domain.Contact], error)
 	Get(ctx context.Context, organizationID, sessionID, lid string) (service.ContactDetail, error)
 	Check(ctx context.Context, organizationID, sessionID, phone string) (domain.OnWhatsApp, error)
 	Picture(ctx context.Context, organizationID, sessionID, jid string) (domain.ProfilePicture, error)
@@ -132,7 +183,14 @@ type ChannelSvc interface {
 	Follow(ctx context.Context, organizationID, sessionID, jid string) error
 	Unfollow(ctx context.Context, organizationID, sessionID, jid string) error
 	Mute(ctx context.Context, organizationID, sessionID, jid string, mute bool) error
-	Messages(ctx context.Context, organizationID, sessionID, jid, cursor string, limit int) (store.Page[domain.Message], error)
+	Messages(
+		ctx context.Context,
+		organizationID string,
+		sessionID string,
+		jid string,
+		cursor string,
+		limit int,
+	) (store.Page[domain.Message], error)
 }
 
 // StatusSvc is the status/stories surface (§11 Status).
@@ -147,14 +205,33 @@ type PresenceSvc interface {
 }
 
 type OAuthAppSvc interface {
-	List(ctx context.Context, organizationID string, isSuperAdmin bool, cursor string, limit int) (store.Page[apitypes.OAuthApp], error)
+	List(
+		ctx context.Context,
+		organizationID string,
+		isSuperAdmin bool,
+		cursor string,
+		limit int,
+	) (store.Page[apitypes.OAuthApp], error)
 	Create(ctx context.Context, organizationID string, in service.OAuthAppCreateInput) (apitypes.OAuthAppWithSecret, error)
 	Get(ctx context.Context, organizationID, id string, isSuperAdmin bool) (apitypes.OAuthApp, error)
-	Update(ctx context.Context, organizationID, id string, isSuperAdmin bool, in service.OAuthAppUpdateInput) (apitypes.OAuthApp, error)
+	Update(
+		ctx context.Context,
+		organizationID string,
+		id string,
+		isSuperAdmin bool,
+		in service.OAuthAppUpdateInput,
+	) (apitypes.OAuthApp, error)
 	RotateSecret(ctx context.Context, organizationID, id string, isSuperAdmin bool) (apitypes.OAuthAppWithSecret, error)
 	Delete(ctx context.Context, organizationID, id string, isSuperAdmin bool) error
 	SetEnabled(ctx context.Context, organizationID, id string, isSuperAdmin bool, enabled bool) (apitypes.OAuthApp, error)
-	ListGrants(ctx context.Context, organizationID, appID string, isSuperAdmin bool, cursor string, limit int) (store.Page[apitypes.OAuthGrant], error)
+	ListGrants(
+		ctx context.Context,
+		organizationID string,
+		appID string,
+		isSuperAdmin bool,
+		cursor string,
+		limit int,
+	) (store.Page[apitypes.OAuthGrant], error)
 	RevokeGrant(ctx context.Context, organizationID, appID, grantID string, isSuperAdmin bool) error
 	RevokeAllGrants(ctx context.Context, organizationID, appID string, isSuperAdmin bool) error
 }

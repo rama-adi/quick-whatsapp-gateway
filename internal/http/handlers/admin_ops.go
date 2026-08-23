@@ -30,7 +30,8 @@ func RegisterAdminOps(api huma.API, h *Handlers) {
 
 	huma.Register(api, huma.Operation{
 		OperationID: "adminListSessions", Method: "GET", Path: "/api/v1/admin/sessions",
-		Summary: "List sessions across all organizations (super_admin)", Tags: []string{"Admin"}, Middlewares: superAdmin,
+		Summary: "List sessions across all organizations (super_admin)",
+		Tags:    []string{"Admin"}, Middlewares: superAdmin,
 		Description: "Return all sessions across all organizations for platform admins.\n\n" +
 			"Read-only route.\n\n" +
 			"Requires a login JWT with role `super_admin`.\n\n" +
@@ -64,7 +65,8 @@ func RegisterAdminOps(api huma.API, h *Handlers) {
 
 	huma.Register(api, huma.Operation{
 		OperationID: "adminSessionBackfillStatus", Method: "GET", Path: "/api/v1/admin/sessions/{session}/backfill",
-		Summary: "Get the current or latest session backfill job (super_admin)", Tags: []string{"Admin"}, Middlewares: superAdmin,
+		Summary: "Get the current or latest session backfill job (super_admin)",
+		Tags:    []string{"Admin"}, Middlewares: superAdmin,
 		Description: "Get the active backfill job for a session, or the most recent completed/failed one if none is running.\n\n" +
 			"Backfill state is in-memory, so restarts clear job history.\n\n" +
 			"Requires platform super_admin login JWT.\n\n" +

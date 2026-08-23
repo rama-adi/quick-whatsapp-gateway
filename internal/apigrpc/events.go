@@ -16,7 +16,13 @@ import (
 // commit-gated event log is the source of truth: a row exists only after its
 // ingest transaction commits, so tailing it never serves an uncommitted event.
 type EventsReader interface {
-	ListSince(ctx context.Context, organizationID, sessionID string, afterID uint64, limit int) ([]domain.EventLogEntry, error)
+	ListSince(
+		ctx context.Context,
+		organizationID string,
+		sessionID string,
+		afterID uint64,
+		limit int,
+	) ([]domain.EventLogEntry, error)
 }
 
 // EventIDResolver resolves a public event id ("evt_…") to its log entry.
@@ -67,7 +73,10 @@ func NewEvents(events EventsReader, cfg StreamConfig) *Events {
 	return &Events{Events: events, Config: cfg}
 }
 
-func (e *Events) StreamEvents(req *publicv1.StreamEventsRequest, stream publicv1.PublicEventsService_StreamEventsServer) error {
+func (e *Events) StreamEvents(
+	req *publicv1.StreamEventsRequest,
+	stream publicv1.PublicEventsService_StreamEventsServer,
+) error {
 	ctx := stream.Context()
 	org, err := requireOrg(ctx, authz.CapEvents)
 	if err != nil {

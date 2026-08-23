@@ -25,7 +25,12 @@ func NewLiveOpsFacade(client *EngineClient) *LiveOpsFacade {
 }
 
 // LookupContact checks phone numbers on WhatsApp through the assigned engine.
-func (f *LiveOpsFacade) LookupContact(ctx context.Context, organizationID, sessionID string, phones []string) ([]domain.OnWhatsApp, error) {
+func (f *LiveOpsFacade) LookupContact(
+	ctx context.Context,
+	organizationID string,
+	sessionID string,
+	phones []string,
+) ([]domain.OnWhatsApp, error) {
 	results, err := f.client.LookupContact(ctx, organizationID, sessionID, phones)
 	if err != nil {
 		return nil, err
@@ -38,7 +43,12 @@ func (f *LiveOpsFacade) LookupContact(ctx context.Context, organizationID, sessi
 }
 
 // GetContactPicture fetches a contact's profile picture.
-func (f *LiveOpsFacade) GetContactPicture(ctx context.Context, organizationID, sessionID, jid string) (domain.ProfilePicture, error) {
+func (f *LiveOpsFacade) GetContactPicture(
+	ctx context.Context,
+	organizationID string,
+	sessionID string,
+	jid string,
+) (domain.ProfilePicture, error) {
 	return f.client.GetContactPicture(ctx, organizationID, sessionID, jid)
 }
 
@@ -54,10 +64,19 @@ func (f *LiveOpsFacade) SetBlocked(ctx context.Context, organizationID, sessionI
 
 // CreateGroup creates a group and returns its raw live metadata. Projection
 // persistence stays with the calling service.
-func (f *LiveOpsFacade) CreateGroup(ctx context.Context, organizationID, sessionID, name string, participants []string) (domain.GroupInfo, error) {
+func (f *LiveOpsFacade) CreateGroup(
+	ctx context.Context,
+	organizationID string,
+	sessionID string,
+	name string,
+	participants []string,
+) (domain.GroupInfo, error) {
 	result, err := f.client.MutateGroup(ctx, application.GroupMutationCommand{
-		OrganizationID: organizationID, SessionID: sessionID,
-		Kind: application.GroupOpCreate, Name: name, Participants: participants,
+		OrganizationID: organizationID,
+		SessionID:      sessionID,
+		Kind:           application.GroupOpCreate,
+		Name:           name,
+		Participants:   participants,
 	})
 	if err != nil {
 		return domain.GroupInfo{}, err
@@ -66,28 +85,57 @@ func (f *LiveOpsFacade) CreateGroup(ctx context.Context, organizationID, session
 }
 
 // UpdateParticipants applies one add/remove/promote/demote as a durable command.
-func (f *LiveOpsFacade) UpdateParticipants(ctx context.Context, organizationID, sessionID, groupJID string, participants []string, action domain.GroupParticipantAction) error {
+func (f *LiveOpsFacade) UpdateParticipants(
+	ctx context.Context,
+	organizationID string,
+	sessionID string,
+	groupJID string,
+	participants []string,
+	action domain.GroupParticipantAction,
+) error {
 	_, err := f.client.MutateGroup(ctx, application.GroupMutationCommand{
-		OrganizationID: organizationID, SessionID: sessionID,
-		Kind: application.GroupOpUpdateParticipants, GroupJID: groupJID,
-		Participants: participants, Action: application.GroupParticipantChange(action),
+		OrganizationID: organizationID,
+		SessionID:      sessionID,
+		Kind:           application.GroupOpUpdateParticipants,
+		GroupJID:       groupJID,
+		Participants:   participants,
+		Action:         application.GroupParticipantChange(action),
 	})
 	return err
 }
 
 // UpdateSettings applies subject/description/announce/locked as a durable
 // command; nil fields are unchanged.
-func (f *LiveOpsFacade) UpdateSettings(ctx context.Context, organizationID, sessionID, groupJID string, s domain.GroupSettings) error {
+func (f *LiveOpsFacade) UpdateSettings(
+	ctx context.Context,
+	organizationID string,
+	sessionID string,
+	groupJID string,
+	s domain.GroupSettings,
+) error {
 	_, err := f.client.MutateGroup(ctx, application.GroupMutationCommand{
-		OrganizationID: organizationID, SessionID: sessionID,
-		Kind: application.GroupOpUpdateSettings, GroupJID: groupJID,
-		Settings: application.GroupSettingsUpdate{Subject: s.Subject, Description: s.Description, Announce: s.Announce, Locked: s.Locked},
+		OrganizationID: organizationID,
+		SessionID:      sessionID,
+		Kind:           application.GroupOpUpdateSettings,
+		GroupJID:       groupJID,
+		Settings: application.GroupSettingsUpdate{
+			Subject:     s.Subject,
+			Description: s.Description,
+			Announce:    s.Announce,
+			Locked:      s.Locked,
+		},
 	})
 	return err
 }
 
 // GetInviteLink reads (reset=false) or resets (reset=true) a group invite link.
-func (f *LiveOpsFacade) GetInviteLink(ctx context.Context, organizationID, sessionID, groupJID string, reset bool) (string, error) {
+func (f *LiveOpsFacade) GetInviteLink(
+	ctx context.Context,
+	organizationID string,
+	sessionID string,
+	groupJID string,
+	reset bool,
+) (string, error) {
 	return f.client.GetGroupInviteLink(ctx, organizationID, sessionID, groupJID, reset)
 }
 
@@ -106,7 +154,12 @@ func (f *LiveOpsFacade) Leave(ctx context.Context, organizationID, sessionID, gr
 }
 
 // GetChatPresence subscribes to a contact's presence and returns the snapshot.
-func (f *LiveOpsFacade) GetChatPresence(ctx context.Context, organizationID, sessionID, chatJID string) (domain.PresenceStatus, error) {
+func (f *LiveOpsFacade) GetChatPresence(
+	ctx context.Context,
+	organizationID string,
+	sessionID string,
+	chatJID string,
+) (domain.PresenceStatus, error) {
 	return f.client.GetChatPresence(ctx, organizationID, sessionID, chatJID)
 }
 
@@ -117,7 +170,11 @@ func (f *LiveOpsFacade) SetChatPresence(ctx context.Context, organizationID, ses
 
 // BackfillSessionData pulls the raw backfill snapshot from the assigned engine
 // under the send deadline. Projection persistence stays with the caller.
-func (f *LiveOpsFacade) BackfillSessionData(ctx context.Context, organizationID, sessionID string) (domain.BackfillSnapshot, error) {
+func (f *LiveOpsFacade) BackfillSessionData(
+	ctx context.Context,
+	organizationID string,
+	sessionID string,
+) (domain.BackfillSnapshot, error) {
 	return f.client.BackfillSession(ctx, organizationID, sessionID)
 }
 

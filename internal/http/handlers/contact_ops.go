@@ -70,7 +70,14 @@ func RegisterContactOps(api huma.API, h *Handlers) {
 			return nil, err
 		}
 		f := store.ContactFilter{Source: in.Source, GroupJID: in.Group, Q: in.Q}
-		page, err := h.Contacts.List(ctx, org, in.Session, f, in.Cursor, clampLimit(in.Limit))
+		page, err := h.Contacts.List(
+			ctx,
+			org,
+			in.Session,
+			f,
+			in.Cursor,
+			clampLimit(in.Limit),
+		)
 		if err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
@@ -89,7 +96,12 @@ func RegisterContactOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, err
 		}
-		res, err := h.Contacts.Check(ctx, org, in.Session, in.Phone)
+		res, err := h.Contacts.Check(
+			ctx,
+			org,
+			in.Session,
+			in.Phone,
+		)
 		if err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
@@ -108,7 +120,12 @@ func RegisterContactOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, err
 		}
-		detail, err := h.Contacts.Get(ctx, org, in.Session, in.LID)
+		detail, err := h.Contacts.Get(
+			ctx,
+			org,
+			in.Session,
+			in.LID,
+		)
 		if err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
@@ -127,7 +144,12 @@ func RegisterContactOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, err
 		}
-		pic, err := h.Contacts.Picture(ctx, org, in.Session, in.JID)
+		pic, err := h.Contacts.Picture(
+			ctx,
+			org,
+			in.Session,
+			in.JID,
+		)
 		if err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
@@ -146,7 +168,12 @@ func RegisterContactOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, err
 		}
-		about, err := h.Contacts.About(ctx, org, in.Session, in.JID)
+		about, err := h.Contacts.About(
+			ctx,
+			org,
+			in.Session,
+			in.JID,
+		)
 		if err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
@@ -168,7 +195,13 @@ func RegisterContactOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, err
 		}
-		if err := h.Contacts.SetBlocked(ctx, org, in.Session, in.JID, true); err != nil {
+		if err := h.Contacts.SetBlocked(
+			ctx,
+			org,
+			in.Session,
+			in.JID,
+			true,
+		); err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
 		return &emptyOutput{}, nil
@@ -187,7 +220,13 @@ func RegisterContactOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, err
 		}
-		if err := h.Contacts.SetBlocked(ctx, org, in.Session, in.JID, false); err != nil {
+		if err := h.Contacts.SetBlocked(
+			ctx,
+			org,
+			in.Session,
+			in.JID,
+			false,
+		); err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
 		return &emptyOutput{}, nil

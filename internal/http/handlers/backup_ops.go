@@ -87,7 +87,14 @@ func RegisterBackupOps(api huma.API, h *Handlers) {
 			return nil, humax.ErrContext(ctx, domain.ErrValidation("file is empty"))
 		}
 
-		job, err := h.Backup.StartImport(ctx, org, in.Session, p.IsSuperAdmin(), data, key)
+		job, err := h.Backup.StartImport(
+			ctx,
+			org,
+			in.Session,
+			p.IsSuperAdmin(),
+			data,
+			key,
+		)
 		if err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
@@ -111,7 +118,12 @@ func RegisterBackupOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, err
 		}
-		job, err := h.Backup.ImportStatus(ctx, org, in.Session, p.IsSuperAdmin())
+		job, err := h.Backup.ImportStatus(
+			ctx,
+			org,
+			in.Session,
+			p.IsSuperAdmin(),
+		)
 		if err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}

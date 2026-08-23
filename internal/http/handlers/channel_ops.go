@@ -73,7 +73,13 @@ func RegisterChannelOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, err
 		}
-		jid, err := h.Channels.Create(ctx, org, in.Session, in.Body.Name, in.Body.Description)
+		jid, err := h.Channels.Create(
+			ctx,
+			org,
+			in.Session,
+			in.Body.Name,
+			in.Body.Description,
+		)
 		if err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
@@ -96,7 +102,12 @@ func RegisterChannelOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, err
 		}
-		if err := h.Channels.Follow(ctx, org, in.Session, decodeParam(in.JID)); err != nil {
+		if err := h.Channels.Follow(
+			ctx,
+			org,
+			in.Session,
+			decodeParam(in.JID),
+		); err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
 		return &emptyOutput{}, nil
@@ -116,7 +127,12 @@ func RegisterChannelOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, err
 		}
-		if err := h.Channels.Unfollow(ctx, org, in.Session, decodeParam(in.JID)); err != nil {
+		if err := h.Channels.Unfollow(
+			ctx,
+			org,
+			in.Session,
+			decodeParam(in.JID),
+		); err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
 		return &emptyOutput{}, nil
@@ -140,7 +156,13 @@ func RegisterChannelOps(api huma.API, h *Handlers) {
 		if in.Body.Mute != nil {
 			mute = *in.Body.Mute
 		}
-		if err := h.Channels.Mute(ctx, org, in.Session, decodeParam(in.JID), mute); err != nil {
+		if err := h.Channels.Mute(
+			ctx,
+			org,
+			in.Session,
+			decodeParam(in.JID),
+			mute,
+		); err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
 		return &emptyOutput{}, nil
@@ -159,7 +181,14 @@ func RegisterChannelOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, err
 		}
-		page, err := h.Channels.Messages(ctx, org, in.Session, decodeParam(in.JID), in.Cursor, clampLimit(in.Limit))
+		page, err := h.Channels.Messages(
+			ctx,
+			org,
+			in.Session,
+			decodeParam(in.JID),
+			in.Cursor,
+			clampLimit(in.Limit),
+		)
 		if err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}

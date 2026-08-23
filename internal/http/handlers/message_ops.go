@@ -105,7 +105,14 @@ func RegisterMessageOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, err
 		}
-		res, err := h.Messages.Edit(ctx, org, in.Session, in.Body.Chat, in.MID, in.Body.Text)
+		res, err := h.Messages.Edit(
+			ctx,
+			org,
+			in.Session,
+			in.Body.Chat,
+			in.MID,
+			in.Body.Text,
+		)
 		if err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
@@ -124,7 +131,14 @@ func RegisterMessageOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, err
 		}
-		res, err := h.Messages.Revoke(ctx, org, in.Session, in.Body.Chat, in.Body.Sender, in.MID)
+		res, err := h.Messages.Revoke(
+			ctx,
+			org,
+			in.Session,
+			in.Body.Chat,
+			in.Body.Sender,
+			in.MID,
+		)
 		if err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
@@ -143,7 +157,15 @@ func RegisterMessageOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, err
 		}
-		res, err := h.Messages.React(ctx, org, in.Session, in.Body.Chat, in.Body.Sender, in.MID, in.Body.Emoji)
+		res, err := h.Messages.React(
+			ctx,
+			org,
+			in.Session,
+			in.Body.Chat,
+			in.Body.Sender,
+			in.MID,
+			in.Body.Emoji,
+		)
 		if err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
@@ -163,7 +185,15 @@ func RegisterMessageOps(api huma.API, h *Handlers) {
 			return nil, err
 		}
 		// Empty emoji clears the reaction.
-		res, err := h.Messages.React(ctx, org, in.Session, in.Body.Chat, in.Body.Sender, in.MID, "")
+		res, err := h.Messages.React(
+			ctx,
+			org,
+			in.Session,
+			in.Body.Chat,
+			in.Body.Sender,
+			in.MID,
+			"",
+		)
 		if err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
@@ -182,7 +212,15 @@ func RegisterMessageOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, err
 		}
-		res, err := h.Messages.Forward(ctx, org, in.Session, in.Body.Chat, in.Body.Sender, in.MID, in.Body.To)
+		res, err := h.Messages.Forward(
+			ctx,
+			org,
+			in.Session,
+			in.Body.Chat,
+			in.Body.Sender,
+			in.MID,
+			in.Body.To,
+		)
 		if err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
@@ -202,7 +240,15 @@ func RegisterMessageOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, err
 		}
-		res, err := h.Messages.Vote(ctx, org, in.Session, in.Body.Chat, in.Body.Sender, in.MID, in.Body.Options)
+		res, err := h.Messages.Vote(
+			ctx,
+			org,
+			in.Session,
+			in.Body.Chat,
+			in.Body.Sender,
+			in.MID,
+			in.Body.Options,
+		)
 		if err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}

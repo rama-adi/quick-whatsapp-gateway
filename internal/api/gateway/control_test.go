@@ -28,10 +28,10 @@ type fakeStore struct {
 	disconnect            []uint64
 	disconnectHasDeadline bool
 	// ingest records committed event batches and can fail the ack send.
-	ingested        [][]GatewayEvent
-	ingestErr       error
-	ackSends        []uint64
-	failEventAckN   int // number of EventAck sends to fail before succeeding
+	ingested      [][]GatewayEvent
+	ingestErr     error
+	ackSends      []uint64
+	failEventAckN int // number of EventAck sends to fail before succeeding
 }
 
 func (s *fakeStore) Accept(_ context.Context, id string, _ Hello) (Connection, error) {

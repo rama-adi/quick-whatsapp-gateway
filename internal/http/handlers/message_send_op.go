@@ -36,7 +36,13 @@ func RegisterSendMessageOp(api huma.API, h *Handlers) {
 			return nil, err
 		}
 		opts := outbound.SendOptions{Async: in.Async, IdempotencyKey: in.IdempotencyKey}
-		res, err := h.Messages.Send(ctx, org, in.Session, in.Body, opts)
+		res, err := h.Messages.Send(
+			ctx,
+			org,
+			in.Session,
+			in.Body,
+			opts,
+		)
 		if err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}

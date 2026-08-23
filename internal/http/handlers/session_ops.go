@@ -230,7 +230,16 @@ func RegisterSessionOps(api huma.API, h *Handlers) {
 
 // registerSessionAction wires a no-payload lifecycle action (:start, :stop,
 // :restart, :logout): it calls fn then returns the refreshed session row.
-func registerSessionAction(api huma.API, h *Handlers, mw huma.Middlewares, opID, path, summary, description string, fn func(ctx context.Context, organizationID, id string) error) {
+func registerSessionAction(
+	api huma.API,
+	h *Handlers,
+	mw huma.Middlewares,
+	opID string,
+	path string,
+	summary string,
+	description string,
+	fn func(ctx context.Context, organizationID, id string) error,
+) {
 	huma.Register(api, huma.Operation{
 		OperationID: opID, Method: "POST", Path: path,
 		Summary: summary, Description: description, Tags: []string{"Sessions"}, Middlewares: mw,

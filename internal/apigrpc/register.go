@@ -42,13 +42,7 @@ func RegisterServer(deps Deps) *grpc.Server {
 // [MinLimit, MaxLimit] — identical to handlers.clampLimit / httpx.ParsePage.
 func clampLimit(limit int) int {
 	if limit == 0 {
-		limit = httpx.DefaultLimit
+		return httpx.DefaultLimit
 	}
-	if limit < httpx.MinLimit {
-		limit = httpx.MinLimit
-	}
-	if limit > httpx.MaxLimit {
-		limit = httpx.MaxLimit
-	}
-	return limit
+	return min(max(limit, httpx.MinLimit), httpx.MaxLimit)
 }

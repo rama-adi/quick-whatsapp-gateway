@@ -30,26 +30,27 @@ func init() {
 	// handlers return) as the §11 envelope. huma calls NewError for validation
 	// failures; it also marshals a returned StatusError directly — apiError
 	// satisfies both paths.
-	huma.NewError = func(status int, msg string, errs ...error) huma.StatusError {
-		// huma uses 422 for request validation; the v2 contract uses 400
-		// validation_error, so coerce it.
-		if status == http.StatusUnprocessableEntity {
-			status = http.StatusBadRequest
-		}
-		d := ErrorDetail{Code: codeForStatus(status), Message: msg}
-		if len(errs) > 0 {
-			details := make([]string, 0, len(errs))
-			for _, e := range errs {
-				if e != nil {
-					details = append(details, e.Error())
-				}
-			}
-			if len(details) > 0 {
-				d.Details = map[string]any{"errors": details}
-			}
-		}
-		return &apiError{Err: d}
+	huma.NewError = envelopeError
+}
+
+// envelopeError builds the §11 envelope for a huma-originated status, message,
+// and optional validation errors. huma uses 422 for request validation; the v2
+// contract uses 400 validation_error, so coerce it.
+func envelopeError(status int, msg string, errs ...error) huma.StatusError {
+	if status == http.StatusUnprocessableEntity {
+		status = http.StatusBadRequest
 	}
+	d := ErrorDetail{Code: codeForStatus(status), Message: msg}
+	details := make([]string, 0, len(errs))
+	for _, e := range errs {
+		if e != nil {
+			details = append(details, e.Error())
+		}
+	}
+	if len(details) > 0 {
+		d.Details = map[string]any{"errors": details}
+	}
+	return &apiError{Err: d}
 }
 
 // ErrorDetail is the inner object of the §11 error envelope — the machine-readable

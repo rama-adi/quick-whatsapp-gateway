@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
@@ -64,7 +65,7 @@ func decodeError(err error) error {
 	case errors.Is(err, io.EOF):
 		return domain.ErrValidation("request body must not be empty")
 	case errors.As(err, &syntaxErr):
-		return domain.ErrValidation(fmt.Sprintf("malformed JSON at byte %d", syntaxErr.Offset))
+		return domain.ErrValidation("malformed JSON at byte " + strconv.FormatInt(syntaxErr.Offset, 10))
 	case errors.As(err, &typeErr):
 		return domain.ErrValidation(fmt.Sprintf("invalid value for field %q", typeErr.Field))
 	case errors.As(err, &maxBytesErr):

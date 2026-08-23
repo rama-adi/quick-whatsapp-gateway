@@ -16,15 +16,9 @@ import (
 // clampLimit reproduces the same limit defaults and bounds as the chi handler.
 func clampLimit(limit int) int {
 	if limit == 0 {
-		limit = httpx.DefaultLimit
+		return httpx.DefaultLimit
 	}
-	if limit < httpx.MinLimit {
-		limit = httpx.MinLimit
-	}
-	if limit > httpx.MaxLimit {
-		limit = httpx.MaxLimit
-	}
-	return limit
+	return min(max(limit, httpx.MinLimit), httpx.MaxLimit)
 }
 
 // listChatsInput is GET /sessions/{session}/chats.
@@ -102,7 +96,13 @@ func RegisterChatOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, err
 		}
-		page, err := h.Chats.List(ctx, org, in.Session, in.Cursor, clampLimit(in.Limit))
+		page, err := h.Chats.List(
+			ctx,
+			org,
+			in.Session,
+			in.Cursor,
+			clampLimit(in.Limit),
+		)
 		if err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
@@ -120,7 +120,12 @@ func RegisterChatOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, err
 		}
-		chat, err := h.Chats.Get(ctx, org, in.Session, in.CID)
+		chat, err := h.Chats.Get(
+			ctx,
+			org,
+			in.Session,
+			in.CID,
+		)
 		if err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
@@ -138,7 +143,14 @@ func RegisterChatOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, err
 		}
-		page, err := h.Chats.ListMessages(ctx, org, in.Session, in.CID, in.Cursor, clampLimit(in.Limit))
+		page, err := h.Chats.ListMessages(
+			ctx,
+			org,
+			in.Session,
+			in.CID,
+			in.Cursor,
+			clampLimit(in.Limit),
+		)
 		if err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
@@ -156,7 +168,12 @@ func RegisterChatOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, err
 		}
-		presence, err := h.Chats.GetPresence(ctx, org, in.Session, in.CID)
+		presence, err := h.Chats.GetPresence(
+			ctx,
+			org,
+			in.Session,
+			in.CID,
+		)
 		if err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
@@ -174,7 +191,12 @@ func RegisterChatOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, err
 		}
-		chat, err := h.Chats.Read(ctx, org, in.Session, in.CID)
+		chat, err := h.Chats.Read(
+			ctx,
+			org,
+			in.Session,
+			in.CID,
+		)
 		if err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
@@ -192,12 +214,18 @@ func RegisterChatOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, err
 		}
-		chat, err := h.Chats.Update(ctx, org, in.Session, in.CID, service.ChatUpdate{
-			Archived:   in.Body.Archived,
-			Pinned:     in.Body.Pinned,
-			MutedUntil: in.Body.MutedUntil,
-			Unmute:     in.Body.Unmute,
-		})
+		chat, err := h.Chats.Update(
+			ctx,
+			org,
+			in.Session,
+			in.CID,
+			service.ChatUpdate{
+				Archived:   in.Body.Archived,
+				Pinned:     in.Body.Pinned,
+				MutedUntil: in.Body.MutedUntil,
+				Unmute:     in.Body.Unmute,
+			},
+		)
 		if err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
@@ -216,7 +244,12 @@ func RegisterChatOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, err
 		}
-		if err := h.Chats.Delete(ctx, org, in.Session, in.CID); err != nil {
+		if err := h.Chats.Delete(
+			ctx,
+			org,
+			in.Session,
+			in.CID,
+		); err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
 		return &emptyOutput{}, nil
@@ -234,7 +267,13 @@ func RegisterChatOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, err
 		}
-		if err := h.Chats.SetPresence(ctx, org, in.Session, in.CID, in.Body.State); err != nil {
+		if err := h.Chats.SetPresence(
+			ctx,
+			org,
+			in.Session,
+			in.CID,
+			in.Body.State,
+		); err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
 		return &emptyOutput{}, nil

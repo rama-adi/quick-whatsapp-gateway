@@ -32,12 +32,41 @@ const MaxEngineMessageBytes = 68 << 20
 
 // NewEngineMTLSDial constructs a gateway-bound TLS 1.3 dialer. The callback is
 // supplied by apiidentity.Manager so rotations affect new pooled connections.
-func NewEngineMTLSDial(certificate func(*tls.ClientHelloInfo) (*tls.Certificate, error), roots *x509.CertPool) EngineDial {
+func NewEngineMTLSDial(
+	certificate func(*tls.ClientHelloInfo) (*tls.Certificate, error),
+	roots *x509.CertPool,
+) EngineDial {
 	return func(ctx context.Context, gatewayID, endpoint string) (*grpc.ClientConn, error) {
 		if certificate == nil || roots == nil {
 			return nil, errors.New("gateway engine mTLS is not configured")
 		}
-		return grpc.DialContext(ctx, endpoint, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13, InsecureSkipVerify: true, GetClientCertificate: func(*tls.CertificateRequestInfo) (*tls.Certificate, error) { return certificate(nil) }, VerifyConnection: func(state tls.ConnectionState) error {
+		tlsConfig := engineTLSConfig(gatewayID, certificate, roots)
+		return grpc.DialContext(
+			ctx,
+			endpoint,
+			grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)),
+			grpc.WithDefaultCallOptions(
+				grpc.MaxCallRecvMsgSize(MaxEngineMessageBytes),
+				grpc.MaxCallSendMsgSize(MaxEngineMessageBytes),
+			),
+		)
+	}
+}
+
+// engineTLSConfig pins TLS 1.3 and verifies the gateway leaf certificate's
+// SPIFFE URI against the expected gateway id instead of WebPKI names.
+func engineTLSConfig(
+	gatewayID string,
+	certificate func(*tls.ClientHelloInfo) (*tls.Certificate, error),
+	roots *x509.CertPool,
+) *tls.Config {
+	return &tls.Config{
+		MinVersion:         tls.VersionTLS13,
+		InsecureSkipVerify: true,
+		GetClientCertificate: func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
+			return certificate(nil)
+		},
+		VerifyConnection: func(state tls.ConnectionState) error {
 			if len(state.PeerCertificates) == 0 {
 				return errors.New("gateway certificate missing")
 			}
@@ -46,14 +75,20 @@ func NewEngineMTLSDial(certificate func(*tls.ClientHelloInfo) (*tls.Certificate,
 			for _, cert := range state.PeerCertificates[1:] {
 				inter.AddCert(cert)
 			}
-			if _, err := leaf.Verify(x509.VerifyOptions{Roots: roots, Intermediates: inter, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}); err != nil {
+			verifyOptions := x509.VerifyOptions{
+				Roots:         roots,
+				Intermediates: inter,
+				KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+			}
+			if _, err := leaf.Verify(verifyOptions); err != nil {
 				return err
 			}
-			if len(leaf.URIs) != 1 || leaf.URIs[0].String() != "spiffe://quick-wa/gateway/"+gatewayID {
+			expectedSPIFFE := "spiffe://quick-wa/gateway/" + gatewayID
+			if len(leaf.URIs) != 1 || leaf.URIs[0].String() != expectedSPIFFE {
 				return errors.New("gateway SPIFFE identity mismatch")
 			}
 			return nil
-		}})), grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(MaxEngineMessageBytes), grpc.MaxCallSendMsgSize(MaxEngineMessageBytes)))
+		},
 	}
 }
 
@@ -74,14 +109,26 @@ type EngineHealth struct {
 	LastError                string
 }
 
-func NewEngineClient(resolver EngineTargetResolver, dial EngineDial, deadline, sendDeadline time.Duration) (*EngineClient, error) {
+func NewEngineClient(
+	resolver EngineTargetResolver,
+	dial EngineDial,
+	deadline time.Duration,
+	sendDeadline time.Duration,
+) (*EngineClient, error) {
 	if deadline <= 0 {
 		return nil, errors.New("gateway engine unary deadline is required")
 	}
 	if sendDeadline <= 0 {
 		return nil, errors.New("gateway engine send deadline is required")
 	}
-	return &EngineClient{resolver: resolver, dial: dial, conns: map[string]*grpc.ClientConn{}, deadline: deadline, sendDeadline: sendDeadline, health: map[string]EngineHealth{}}, nil
+	return &EngineClient{
+		resolver:     resolver,
+		dial:         dial,
+		conns:        map[string]*grpc.ClientConn{},
+		deadline:     deadline,
+		sendDeadline: sendDeadline,
+		health:       map[string]EngineHealth{},
+	}, nil
 }
 func (c *EngineClient) Health() []EngineHealth {
 	c.mu.Lock()
@@ -154,7 +201,10 @@ func (c *EngineClient) GetSessionState(ctx context.Context, org, session string)
 	if err != nil {
 		return application.SessionState{}, err
 	}
-	response, err := gatewayv1.NewGatewayEngineServiceClient(conn).GetSessionState(ctx, &gatewayv1.GetSessionStateRequest{Target: &gatewayv1.SessionTarget{OrganizationId: target.OrganizationID, SessionId: target.SessionID, GatewayId: target.GatewayID}, AssignmentEpoch: target.AssignmentEpoch})
+	response, err := gatewayv1.NewGatewayEngineServiceClient(conn).GetSessionState(ctx, &gatewayv1.GetSessionStateRequest{
+		Target:          sessionTargetProto(target),
+		AssignmentEpoch: target.AssignmentEpoch,
+	})
 	c.record(target.GatewayID, target.GRPCEndpoint, err)
 	if err != nil {
 		return application.SessionState{}, mapEngineError(err)
@@ -163,9 +213,21 @@ func (c *EngineClient) GetSessionState(ctx context.Context, org, session string)
 	if err != nil {
 		return application.SessionState{}, err
 	}
-	return application.SessionState{OrganizationID: target.OrganizationID, SessionID: target.SessionID, GatewayID: target.GatewayID, Status: state, Connected: response.Connected, LoggedIn: response.LoggedIn}, nil
+	return application.SessionState{
+		OrganizationID: target.OrganizationID,
+		SessionID:      target.SessionID,
+		GatewayID:      target.GatewayID,
+		Status:         state,
+		Connected:      response.Connected,
+		LoggedIn:       response.LoggedIn,
+	}, nil
 }
-func (c *EngineClient) SetAccountPresence(ctx context.Context, org, session string, presence application.AccountPresence) error {
+func (c *EngineClient) SetAccountPresence(
+	ctx context.Context,
+	org string,
+	session string,
+	presence application.AccountPresence,
+) error {
 	ctx, cancel := context.WithTimeout(ctx, c.deadline)
 	defer cancel()
 	target, err := c.resolver.ResolveSessionEngineTarget(ctx, org, session)
@@ -180,7 +242,12 @@ func (c *EngineClient) SetAccountPresence(ctx context.Context, org, session stri
 	if err != nil {
 		return err
 	}
-	_, err = gatewayv1.NewGatewayEngineServiceClient(conn).SetAccountPresence(ctx, &gatewayv1.SetAccountPresenceRequest{Target: &gatewayv1.SessionTarget{OrganizationId: target.OrganizationID, SessionId: target.SessionID, GatewayId: target.GatewayID}, AssignmentEpoch: target.AssignmentEpoch, CommandId: domain.NewULID(), State: state})
+	_, err = gatewayv1.NewGatewayEngineServiceClient(conn).SetAccountPresence(ctx, &gatewayv1.SetAccountPresenceRequest{
+		Target:          sessionTargetProto(target),
+		AssignmentEpoch: target.AssignmentEpoch,
+		CommandId:       domain.NewULID(),
+		State:           state,
+	})
 	c.record(target.GatewayID, target.GRPCEndpoint, err)
 	return mapEngineError(err)
 }
@@ -189,7 +256,10 @@ func (c *EngineClient) SetAccountPresence(ctx context.Context, org, session stri
 // CommandID (from the durable command row); this method never mints one, so a
 // retried ambiguous send re-issues the same id and the gateway's ledger
 // returns the original terminal result.
-func (c *EngineClient) SendMessage(ctx context.Context, command application.SendCommand) (application.SendMessageResult, error) {
+func (c *EngineClient) SendMessage(
+	ctx context.Context,
+	command application.SendCommand,
+) (application.SendMessageResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.sendDeadline)
 	defer cancel()
 	if command.CommandID == "" {
@@ -208,7 +278,7 @@ func (c *EngineClient) SendMessage(ctx context.Context, command application.Send
 		return application.SendMessageResult{}, fmt.Errorf("encode send payload: %w", err)
 	}
 	response, err := gatewayv1.NewGatewayEngineServiceClient(conn).SendMessage(ctx, &gatewayv1.SendMessageRequest{
-		Target:          &gatewayv1.SessionTarget{OrganizationId: target.OrganizationID, SessionId: target.SessionID, GatewayId: target.GatewayID},
+		Target:          sessionTargetProto(target),
 		AssignmentEpoch: target.AssignmentEpoch,
 		CommandId:       command.CommandID,
 		PayloadJson:     payload,
@@ -226,9 +296,13 @@ func (c *EngineClient) SendMessage(ctx context.Context, command application.Send
 		SentAt:      time.UnixMilli(response.SentAtUnixMs).UTC(),
 	}, nil
 }
+
 // ExecuteOp dispatches one message sub-resource command. The caller owns the
 // stable CommandID from the durable command row.
-func (c *EngineClient) ExecuteOp(ctx context.Context, command application.MessageOpCommand) (application.MessageOpResult, error) {
+func (c *EngineClient) ExecuteOp(
+	ctx context.Context,
+	command application.MessageOpCommand,
+) (application.MessageOpResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.sendDeadline)
 	defer cancel()
 	if command.CommandID == "" {
@@ -243,7 +317,7 @@ func (c *EngineClient) ExecuteOp(ctx context.Context, command application.Messag
 		return application.MessageOpResult{}, err
 	}
 	response, err := gatewayv1.NewGatewayEngineServiceClient(conn).MessageOp(ctx, &gatewayv1.MessageOpRequest{
-		Target:          &gatewayv1.SessionTarget{OrganizationId: target.OrganizationID, SessionId: target.SessionID, GatewayId: target.GatewayID},
+		Target:          sessionTargetProto(target),
 		AssignmentEpoch: target.AssignmentEpoch,
 		CommandId:       command.CommandID,
 		Op:              string(command.Op),
@@ -269,7 +343,12 @@ func (c *EngineClient) ExecuteOp(ctx context.Context, command application.Messag
 
 // LookupContact checks phone numbers on WhatsApp through the assigned engine.
 // Quick read: unary deadline.
-func (c *EngineClient) LookupContact(ctx context.Context, org, session string, phones []string) ([]application.ContactLookup, error) {
+func (c *EngineClient) LookupContact(
+	ctx context.Context,
+	org string,
+	session string,
+	phones []string,
+) ([]application.ContactLookup, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.deadline)
 	defer cancel()
 	target, err := c.resolver.ResolveSessionEngineTarget(ctx, org, session)
@@ -281,7 +360,7 @@ func (c *EngineClient) LookupContact(ctx context.Context, org, session string, p
 		return nil, err
 	}
 	response, err := gatewayv1.NewGatewayEngineServiceClient(conn).LookupContact(ctx, &gatewayv1.LookupContactRequest{
-		Target:          &gatewayv1.SessionTarget{OrganizationId: target.OrganizationID, SessionId: target.SessionID, GatewayId: target.GatewayID},
+		Target:          sessionTargetProto(target),
 		AssignmentEpoch: target.AssignmentEpoch,
 		Phones:          phones,
 	})
@@ -296,7 +375,12 @@ func (c *EngineClient) LookupContact(ctx context.Context, org, session string, p
 	return out, nil
 }
 
-func (c *EngineClient) GetContactPicture(ctx context.Context, org, session, jid string) (domain.ProfilePicture, error) {
+func (c *EngineClient) GetContactPicture(
+	ctx context.Context,
+	org string,
+	session string,
+	jid string,
+) (domain.ProfilePicture, error) {
 	query, conn, cancel, err := c.readQuery(ctx, org, session)
 	if err != nil {
 		return domain.ProfilePicture{}, err
@@ -314,7 +398,12 @@ func (c *EngineClient) GetContactPicture(ctx context.Context, org, session, jid 
 	return domain.ProfilePicture{URL: response.GetUrl(), ID: response.GetId()}, nil
 }
 
-func (c *EngineClient) GetContactAbout(ctx context.Context, org, session, jid string) (string, error) {
+func (c *EngineClient) GetContactAbout(
+	ctx context.Context,
+	org string,
+	session string,
+	jid string,
+) (string, error) {
 	query, conn, cancel, err := c.readQuery(ctx, org, session)
 	if err != nil {
 		return "", err
@@ -346,7 +435,7 @@ func (c *EngineClient) SetBlocked(ctx context.Context, org, session, jid string,
 		return err
 	}
 	_, err = gatewayv1.NewGatewayEngineServiceClient(conn).SetBlocked(ctx, &gatewayv1.SetBlockedRequest{
-		Target:          &gatewayv1.SessionTarget{OrganizationId: target.OrganizationID, SessionId: target.SessionID, GatewayId: target.GatewayID},
+		Target:          sessionTargetProto(target),
 		AssignmentEpoch: target.AssignmentEpoch,
 		CommandId:       domain.NewULID(),
 		Jid:             jid,
@@ -359,7 +448,10 @@ func (c *EngineClient) SetBlocked(ctx context.Context, org, session, jid string,
 // MutateGroup executes one durable group command (create/settings/participants/
 // leave) behind the scheduler's command id; the raw group metadata in create
 // results feeds the API's own projection writes.
-func (c *EngineClient) MutateGroup(ctx context.Context, command application.GroupMutationCommand) (application.GroupCreateResult, error) {
+func (c *EngineClient) MutateGroup(
+	ctx context.Context,
+	command application.GroupMutationCommand,
+) (application.GroupCreateResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.sendDeadline)
 	defer cancel()
 	if command.CommandID == "" {
@@ -378,25 +470,36 @@ func (c *EngineClient) MutateGroup(ctx context.Context, command application.Grou
 		CommandID: command.CommandID, OrganizationID: target.OrganizationID,
 		SessionID: target.SessionID, GatewayID: target.GatewayID, AssignmentEpoch: target.AssignmentEpoch,
 	}
-	targetProto := &gatewayv1.SessionTarget{OrganizationId: target.OrganizationID, SessionId: target.SessionID, GatewayId: target.GatewayID}
+	targetProto := sessionTargetProto(target)
 	var result application.GroupCreateResult
 	switch command.Kind {
 	case application.GroupOpCreate:
 		response, rpcErr := client.CreateGroup(ctx, &gatewayv1.CreateGroupRequest{
-			Target: targetProto, AssignmentEpoch: target.AssignmentEpoch, CommandId: command.CommandID,
-			Name: command.Name, Participants: command.Participants,
+			Target:          targetProto,
+			AssignmentEpoch: target.AssignmentEpoch,
+			CommandId:       command.CommandID,
+			Name:            command.Name,
+			Participants:    command.Participants,
 		})
 		c.record(target.GatewayID, target.GRPCEndpoint, rpcErr)
 		if rpcErr != nil {
 			return application.GroupCreateResult{}, mapEngineError(rpcErr)
 		}
-		result = application.GroupCreateResult{MutationOnlyResult: application.MutationOnlyResult{MutationResult: base}, CreatedGroup: protoGroupInfo(response.GetGroup())}
+		result = application.GroupCreateResult{
+			MutationOnlyResult: application.MutationOnlyResult{MutationResult: base},
+			CreatedGroup:       protoGroupInfo(response.GetGroup()),
+		}
 	case application.GroupOpUpdateSettings:
 		settings := command.Settings
 		_, rpcErr := client.UpdateGroupSettings(ctx, &gatewayv1.UpdateGroupSettingsRequest{
-			Target: targetProto, AssignmentEpoch: target.AssignmentEpoch, CommandId: command.CommandID,
-			GroupJid:    command.GroupJID,
-			Subject:     settings.Subject, Description: settings.Description, Announce: settings.Announce, Locked: settings.Locked,
+			Target:          targetProto,
+			AssignmentEpoch: target.AssignmentEpoch,
+			CommandId:       command.CommandID,
+			GroupJid:        command.GroupJID,
+			Subject:         settings.Subject,
+			Description:     settings.Description,
+			Announce:        settings.Announce,
+			Locked:          settings.Locked,
 		})
 		c.record(target.GatewayID, target.GRPCEndpoint, rpcErr)
 		if rpcErr != nil {
@@ -409,8 +512,12 @@ func (c *EngineClient) MutateGroup(ctx context.Context, command application.Grou
 			return application.GroupCreateResult{}, domain.ErrValidation("invalid participant action")
 		}
 		_, rpcErr := client.UpdateGroupParticipants(ctx, &gatewayv1.UpdateGroupParticipantsRequest{
-			Target: targetProto, AssignmentEpoch: target.AssignmentEpoch, CommandId: command.CommandID,
-			GroupJid: command.GroupJID, Participants: command.Participants, Action: action,
+			Target:          targetProto,
+			AssignmentEpoch: target.AssignmentEpoch,
+			CommandId:       command.CommandID,
+			GroupJid:        command.GroupJID,
+			Participants:    command.Participants,
+			Action:          action,
 		})
 		c.record(target.GatewayID, target.GRPCEndpoint, rpcErr)
 		if rpcErr != nil {
@@ -419,8 +526,10 @@ func (c *EngineClient) MutateGroup(ctx context.Context, command application.Grou
 		result = application.GroupCreateResult{MutationOnlyResult: application.MutationOnlyResult{MutationResult: base}}
 	case application.GroupOpLeave:
 		_, rpcErr := client.LeaveGroup(ctx, &gatewayv1.LeaveGroupRequest{
-			Target: targetProto, AssignmentEpoch: target.AssignmentEpoch, CommandId: command.CommandID,
-			GroupJid: command.GroupJID,
+			Target:          targetProto,
+			AssignmentEpoch: target.AssignmentEpoch,
+			CommandId:       command.CommandID,
+			GroupJid:        command.GroupJID,
 		})
 		c.record(target.GatewayID, target.GRPCEndpoint, rpcErr)
 		if rpcErr != nil {
@@ -435,7 +544,13 @@ func (c *EngineClient) MutateGroup(ctx context.Context, command application.Grou
 
 // GetGroupInviteLink reads (reset=false) or resets (reset=true) a group invite
 // link through the assigned engine.
-func (c *EngineClient) GetGroupInviteLink(ctx context.Context, org, session, groupJID string, reset bool) (string, error) {
+func (c *EngineClient) GetGroupInviteLink(
+	ctx context.Context,
+	org string,
+	session string,
+	groupJID string,
+	reset bool,
+) (string, error) {
 	query, conn, cancel, err := c.readQuery(ctx, org, session)
 	if err != nil {
 		return "", err
@@ -455,7 +570,12 @@ func (c *EngineClient) GetGroupInviteLink(ctx context.Context, org, session, gro
 }
 
 // JoinGroup joins a group from an invite code/link through the assigned engine.
-func (c *EngineClient) JoinGroup(ctx context.Context, org, session, invite string) (string, error) {
+func (c *EngineClient) JoinGroup(
+	ctx context.Context,
+	org string,
+	session string,
+	invite string,
+) (string, error) {
 	query, conn, cancel, err := c.readQuery(ctx, org, session)
 	if err != nil {
 		return "", err
@@ -475,7 +595,12 @@ func (c *EngineClient) JoinGroup(ctx context.Context, org, session, invite strin
 
 // GetChatPresence subscribes to a contact's presence updates and returns the
 // unknown snapshot.
-func (c *EngineClient) GetChatPresence(ctx context.Context, org, session, chatJID string) (domain.PresenceStatus, error) {
+func (c *EngineClient) GetChatPresence(
+	ctx context.Context,
+	org string,
+	session string,
+	chatJID string,
+) (domain.PresenceStatus, error) {
 	query, conn, cancel, err := c.readQuery(ctx, org, session)
 	if err != nil {
 		return domain.PresenceStatus{}, err
@@ -498,7 +623,13 @@ func (c *EngineClient) GetChatPresence(ctx context.Context, org, session, chatJI
 }
 
 // SetChatPresence sends per-chat typing state through the assigned engine.
-func (c *EngineClient) SetChatPresence(ctx context.Context, org, session, chatJID, state string) error {
+func (c *EngineClient) SetChatPresence(
+	ctx context.Context,
+	org string,
+	session string,
+	chatJID string,
+	state string,
+) error {
 	ctx, cancel := context.WithTimeout(ctx, c.deadline)
 	defer cancel()
 	target, err := c.resolver.ResolveSessionEngineTarget(ctx, org, session)
@@ -510,7 +641,7 @@ func (c *EngineClient) SetChatPresence(ctx context.Context, org, session, chatJI
 		return err
 	}
 	_, err = gatewayv1.NewGatewayEngineServiceClient(conn).SetChatPresence(ctx, &gatewayv1.SetChatPresenceRequest{
-		Target:          &gatewayv1.SessionTarget{OrganizationId: target.OrganizationID, SessionId: target.SessionID, GatewayId: target.GatewayID},
+		Target:          sessionTargetProto(target),
 		AssignmentEpoch: target.AssignmentEpoch,
 		ChatJid:         chatJID,
 		State:           state,
@@ -521,7 +652,11 @@ func (c *EngineClient) SetChatPresence(ctx context.Context, org, session, chatJI
 
 // BackfillSession pulls the session's direct-API snapshot. Slow read: the send
 // deadline applies because a large history pull can outlast the unary budget.
-func (c *EngineClient) BackfillSession(ctx context.Context, org, session string) (domain.BackfillSnapshot, error) {
+func (c *EngineClient) BackfillSession(
+	ctx context.Context,
+	org string,
+	session string,
+) (domain.BackfillSnapshot, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.sendDeadline)
 	defer cancel()
 	target, err := c.resolver.ResolveSessionEngineTarget(ctx, org, session)
@@ -533,7 +668,7 @@ func (c *EngineClient) BackfillSession(ctx context.Context, org, session string)
 		return domain.BackfillSnapshot{}, err
 	}
 	response, err := gatewayv1.NewGatewayEngineServiceClient(conn).BackfillSession(ctx, &gatewayv1.BackfillSessionRequest{
-		Target:          &gatewayv1.SessionTarget{OrganizationId: target.OrganizationID, SessionId: target.SessionID, GatewayId: target.GatewayID},
+		Target:          sessionTargetProto(target),
 		AssignmentEpoch: target.AssignmentEpoch,
 	})
 	c.record(target.GatewayID, target.GRPCEndpoint, err)
@@ -571,7 +706,11 @@ func (c *EngineClient) BackfillSession(ctx context.Context, org, session string)
 
 // PrepareSession materializes the gateway-local pairing substrate for an
 // API-created session row. Quick idempotent call: unary deadline.
-func (c *EngineClient) PrepareSession(ctx context.Context, org, session string) error {
+func (c *EngineClient) PrepareSession(
+	ctx context.Context,
+	org string,
+	session string,
+) error {
 	ctx, cancel := context.WithTimeout(ctx, c.deadline)
 	defer cancel()
 	target, err := c.resolver.ResolveSessionEngineTarget(ctx, org, session)
@@ -583,7 +722,7 @@ func (c *EngineClient) PrepareSession(ctx context.Context, org, session string) 
 		return err
 	}
 	_, err = gatewayv1.NewGatewayEngineServiceClient(conn).PrepareSession(ctx, &gatewayv1.PrepareSessionRequest{
-		Target:          &gatewayv1.SessionTarget{OrganizationId: target.OrganizationID, SessionId: target.SessionID, GatewayId: target.GatewayID},
+		Target:          sessionTargetProto(target),
 		AssignmentEpoch: target.AssignmentEpoch,
 	})
 	c.record(target.GatewayID, target.GRPCEndpoint, err)
@@ -593,7 +732,11 @@ func (c *EngineClient) PrepareSession(ctx context.Context, org, session string) 
 // BeginPairing starts QR pairing and returns the current snapshot code. The
 // first code usually arrives asynchronously over the auth.qr event stream, so
 // an empty snapshot is a normal outcome rather than an error.
-func (c *EngineClient) BeginPairing(ctx context.Context, org, session string) (application.PairingSnapshot, error) {
+func (c *EngineClient) BeginPairing(
+	ctx context.Context,
+	org string,
+	session string,
+) (application.PairingSnapshot, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.deadline)
 	defer cancel()
 	target, err := c.resolver.ResolveSessionEngineTarget(ctx, org, session)
@@ -605,7 +748,7 @@ func (c *EngineClient) BeginPairing(ctx context.Context, org, session string) (a
 		return application.PairingSnapshot{}, err
 	}
 	response, err := gatewayv1.NewGatewayEngineServiceClient(conn).BeginPairing(ctx, &gatewayv1.BeginPairingRequest{
-		Target:          &gatewayv1.SessionTarget{OrganizationId: target.OrganizationID, SessionId: target.SessionID, GatewayId: target.GatewayID},
+		Target:          sessionTargetProto(target),
 		AssignmentEpoch: target.AssignmentEpoch,
 	})
 	c.record(target.GatewayID, target.GRPCEndpoint, err)
@@ -618,7 +761,12 @@ func (c *EngineClient) BeginPairing(ctx context.Context, org, session string) (a
 // PairPhone requests a phone-number pairing code through the assigned engine.
 // The gateway connects and negotiates the code with WhatsApp before answering,
 // so the send deadline applies like the other slow operations.
-func (c *EngineClient) PairPhone(ctx context.Context, org, session, phone string) (string, error) {
+func (c *EngineClient) PairPhone(
+	ctx context.Context,
+	org string,
+	session string,
+	phone string,
+) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.sendDeadline)
 	defer cancel()
 	target, err := c.resolver.ResolveSessionEngineTarget(ctx, org, session)
@@ -630,7 +778,7 @@ func (c *EngineClient) PairPhone(ctx context.Context, org, session, phone string
 		return "", err
 	}
 	response, err := gatewayv1.NewGatewayEngineServiceClient(conn).PairPhone(ctx, &gatewayv1.PairPhoneRequest{
-		Target:          &gatewayv1.SessionTarget{OrganizationId: target.OrganizationID, SessionId: target.SessionID, GatewayId: target.GatewayID},
+		Target:          sessionTargetProto(target),
 		AssignmentEpoch: target.AssignmentEpoch,
 		Phone:           phone,
 	})
@@ -644,7 +792,11 @@ func (c *EngineClient) PairPhone(ctx context.Context, org, session, phone string
 // LogoutSession unlinks the device as a durable command; the engine mints its
 // own stable command id from the request's ULID and the ledger replays it on
 // retry. Destructive but quick: unary deadline.
-func (c *EngineClient) LogoutSession(ctx context.Context, org, session string) error {
+func (c *EngineClient) LogoutSession(
+	ctx context.Context,
+	org string,
+	session string,
+) error {
 	ctx, cancel := context.WithTimeout(ctx, c.deadline)
 	defer cancel()
 	target, err := c.resolver.ResolveSessionEngineTarget(ctx, org, session)
@@ -656,7 +808,7 @@ func (c *EngineClient) LogoutSession(ctx context.Context, org, session string) e
 		return err
 	}
 	_, err = gatewayv1.NewGatewayEngineServiceClient(conn).LogoutSession(ctx, &gatewayv1.LogoutSessionRequest{
-		Target:          &gatewayv1.SessionTarget{OrganizationId: target.OrganizationID, SessionId: target.SessionID, GatewayId: target.GatewayID},
+		Target:          sessionTargetProto(target),
 		AssignmentEpoch: target.AssignmentEpoch,
 		CommandId:       domain.NewULID(),
 	})
@@ -666,7 +818,11 @@ func (c *EngineClient) LogoutSession(ctx context.Context, org, session string) e
 
 // ForgetSession drops the session's in-memory runtime on its assigned engine.
 // Idempotent by contract: forgetting an unknown session succeeds.
-func (c *EngineClient) ForgetSession(ctx context.Context, org, session string) error {
+func (c *EngineClient) ForgetSession(
+	ctx context.Context,
+	org string,
+	session string,
+) error {
 	ctx, cancel := context.WithTimeout(ctx, c.deadline)
 	defer cancel()
 	target, err := c.resolver.ResolveSessionEngineTarget(ctx, org, session)
@@ -678,7 +834,7 @@ func (c *EngineClient) ForgetSession(ctx context.Context, org, session string) e
 		return err
 	}
 	_, err = gatewayv1.NewGatewayEngineServiceClient(conn).ForgetSession(ctx, &gatewayv1.ForgetSessionRequest{
-		Target: &gatewayv1.SessionTarget{OrganizationId: target.OrganizationID, SessionId: target.SessionID, GatewayId: target.GatewayID},
+		Target: sessionTargetProto(target),
 	})
 	c.record(target.GatewayID, target.GRPCEndpoint, err)
 	return mapEngineError(err)
@@ -686,7 +842,12 @@ func (c *EngineClient) ForgetSession(ctx context.Context, org, session string) e
 
 // readQuery resolves a read target and pooled connection under the unary
 // deadline; callers close the returned cancel.
-func (c *EngineClient) readQuery(ctx context.Context, org, session string) (domain.SessionEngineTarget, *grpc.ClientConn, context.CancelFunc, error) {	ctx, cancel := context.WithTimeout(ctx, c.deadline)
+func (c *EngineClient) readQuery(
+	ctx context.Context,
+	org string,
+	session string,
+) (domain.SessionEngineTarget, *grpc.ClientConn, context.CancelFunc, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.deadline)
 	target, err := c.resolver.ResolveSessionEngineTarget(ctx, org, session)
 	if err != nil {
 		cancel()
@@ -701,7 +862,11 @@ func (c *EngineClient) readQuery(ctx context.Context, org, session string) (doma
 }
 
 func sessionTargetProto(query domain.SessionEngineTarget) *gatewayv1.SessionTarget {
-	return &gatewayv1.SessionTarget{OrganizationId: query.OrganizationID, SessionId: query.SessionID, GatewayId: query.GatewayID}
+	return &gatewayv1.SessionTarget{
+		OrganizationId: query.OrganizationID,
+		SessionId:      query.SessionID,
+		GatewayId:      query.GatewayID,
+	}
 }
 
 func protoGroupInfo(info *gatewayv1.GroupInfo) application.GroupInfoResult {

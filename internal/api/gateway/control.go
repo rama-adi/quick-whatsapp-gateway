@@ -5,9 +5,9 @@ package gateway
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -174,7 +174,10 @@ func (s *Server) Connect(stream gatewayv1.GatewayControlService_ConnectServer) (
 	if err != nil {
 		return storeStatus(err)
 	}
-	if connection.ID == "" || connection.Epoch == 0 || connection.HeartbeatInterval <= 0 || connection.LeaseTimeout <= 0 || !knownLifecycleAction(connection.DesiredLifecycle) {
+	invalidAllocation := connection.ID == "" || connection.Epoch == 0 ||
+		connection.HeartbeatInterval <= 0 || connection.LeaseTimeout <= 0 ||
+		!knownLifecycleAction(connection.DesiredLifecycle)
+	if invalidAllocation {
 		return status.Error(codes.Internal, "invalid gateway connection allocation")
 	}
 	defer func() {
@@ -228,16 +231,24 @@ func (s *Server) Connect(stream gatewayv1.GatewayControlService_ConnectServer) (
 			if payload.Heartbeat.ConnectionEpoch != connection.Epoch {
 				return status.Error(codes.FailedPrecondition, "gateway connection epoch mismatch")
 			}
-			if payload.Heartbeat.LastControlSequence > outboundSequence || payload.Heartbeat.LastControlSequence < lastAcknowledgedControlSequence {
+			ack := payload.Heartbeat.LastControlSequence
+			ackAhead := ack > outboundSequence
+			ackBehind := ack < lastAcknowledgedControlSequence
+			if ackAhead || ackBehind {
 				return status.Error(codes.FailedPrecondition, "gateway control acknowledgement mismatch")
 			}
-			lastAcknowledgedControlSequence = payload.Heartbeat.LastControlSequence
-			desired, heartbeatErr := s.Store.Heartbeat(stream.Context(), gatewayID, connection.Epoch, heartbeatValue(payload.Heartbeat))
-			if heartbeatErr == nil {
+			lastAcknowledgedControlSequence = ack
+			desired, heartbeatErr := s.Store.Heartbeat(
+				stream.Context(), gatewayID, connection.Epoch, heartbeatValue(payload.Heartbeat),
+			)
+			err = heartbeatErr
+			if err == nil {
 				if err = validateDesiredLifecycle(desired); err != nil {
 					return err
 				}
-				if desired.Revision < lastIssuedDesiredRevision || (desired.Revision == lastIssuedDesiredRevision && desired.Action != lastIssuedDesiredAction) {
+				lifecycleRegressed := desired.Revision < lastIssuedDesiredRevision ||
+					(desired.Revision == lastIssuedDesiredRevision && desired.Action != lastIssuedDesiredAction)
+				if lifecycleRegressed {
 					return status.Error(codes.Internal, "invalid desired lifecycle revision")
 				}
 				resetTimer(leaseTimer, connection.LeaseTimeout)
@@ -272,17 +283,21 @@ func (s *Server) Connect(stream gatewayv1.GatewayControlService_ConnectServer) (
 					lastIssuedDesiredRevision = desired.Revision
 					lastIssuedDesiredAction = desired.Action
 				}
-				if outboundSequence, err = s.sendDesiredState(stream, gatewayID, Connection{Epoch: connection.Epoch, LeaseTimeout: connection.LeaseTimeout, DesiredRevision: desired.Revision}, outboundSequence); err != nil {
+				if outboundSequence, err = s.sendDesiredState(
+					stream, gatewayID,
+					Connection{Epoch: connection.Epoch, LeaseTimeout: connection.LeaseTimeout, DesiredRevision: desired.Revision},
+					outboundSequence,
+				); err != nil {
 					return err
 				}
-			} else {
-				err = heartbeatErr
 			}
 		case *gatewayv1.GatewayFrame_DesiredStateReport:
 			if err = validateDesiredStateReport(payload.DesiredStateReport, connection.Epoch); err != nil {
 				return err
 			}
-			err = s.Store.PersistDesiredStateReport(stream.Context(), gatewayID, connection.Epoch, reconciliationReport(payload.DesiredStateReport))
+			err = s.Store.PersistDesiredStateReport(
+				stream.Context(), gatewayID, connection.Epoch, reconciliationReport(payload.DesiredStateReport),
+			)
 		case *gatewayv1.GatewayFrame_EventBatch:
 			events, validationErr := eventBatch(payload.EventBatch, gatewayID, connection.Epoch)
 			if validationErr != nil {
@@ -290,7 +305,14 @@ func (s *Server) Connect(stream gatewayv1.GatewayControlService_ConnectServer) (
 			}
 			if err = s.Store.IngestEvents(stream.Context(), gatewayID, connection.Epoch, events); err == nil {
 				outboundSequence++
-				if err = stream.Send(&gatewayv1.ControlFrame{ProtocolVersion: ProtocolVersion, Sequence: outboundSequence, Payload: &gatewayv1.ControlFrame_EventAck{EventAck: &gatewayv1.GatewayEventAck{AcknowledgedJournalSequence: events[len(events)-1].JournalSequence}}}); err != nil {
+				ack := &gatewayv1.ControlFrame{
+					ProtocolVersion: ProtocolVersion,
+					Sequence:        outboundSequence,
+					Payload: &gatewayv1.ControlFrame_EventAck{EventAck: &gatewayv1.GatewayEventAck{
+						AcknowledgedJournalSequence: events[len(events)-1].JournalSequence,
+					}},
+				}
+				if err = stream.Send(ack); err != nil {
 					// A lost acknowledgement is a transport failure, not a
 					// persistence failure: map it like every other send so the
 					// gateway's journal replay is classified as retryable.
@@ -327,16 +349,40 @@ func eventBatch(batch *gatewayv1.GatewayEventBatch, gatewayID string, epoch uint
 		return nil, status.Error(codes.InvalidArgument, "gateway event batch too large")
 	}
 	for _, v := range batch.Events {
-		if v == nil || v.GatewayId != gatewayID || v.JournalSequence == 0 || v.JournalSequence <= last || v.ConnectionEpoch != epoch || v.AssignmentEpoch == 0 || v.EventId == "" || v.SessionId == "" || v.OrganizationId == "" || v.EventType == "" || v.OccurredAtUnixMs <= 0 {
+		if v == nil {
+			return nil, status.Error(codes.FailedPrecondition, "invalid gateway event")
+		}
+		unknownGateway := v.GatewayId != gatewayID
+		badSequence := v.JournalSequence == 0 || v.JournalSequence <= last
+		wrongEpoch := v.ConnectionEpoch != epoch
+		unassigned := v.AssignmentEpoch == 0
+		missingIdentity := v.EventId == "" || v.SessionId == "" || v.OrganizationId == "" || v.EventType == ""
+		badTimestamp := v.OccurredAtUnixMs <= 0
+		if unknownGateway || badSequence || wrongEpoch || unassigned || missingIdentity || badTimestamp {
 			return nil, status.Error(codes.FailedPrecondition, "invalid gateway event")
 		}
 		last = v.JournalSequence
-		out = append(out, GatewayEvent{JournalSequence: v.JournalSequence, ConnectionEpoch: v.ConnectionEpoch, AssignmentEpoch: v.AssignmentEpoch, EventID: v.EventId, SessionID: v.SessionId, OrganizationID: v.OrganizationId, Type: v.EventType, OccurredAt: time.UnixMilli(v.OccurredAtUnixMs).UTC(), Payload: append([]byte(nil), v.Payload...)})
+		out = append(out, GatewayEvent{
+			JournalSequence: v.JournalSequence,
+			ConnectionEpoch: v.ConnectionEpoch,
+			AssignmentEpoch: v.AssignmentEpoch,
+			EventID:         v.EventId,
+			SessionID:       v.SessionId,
+			OrganizationID:  v.OrganizationId,
+			Type:            v.EventType,
+			OccurredAt:      time.UnixMilli(v.OccurredAtUnixMs).UTC(),
+			Payload:         append([]byte(nil), v.Payload...),
+		})
 	}
 	return out, nil
 }
 
-func (s *Server) sendDesiredState(stream gatewayv1.GatewayControlService_ConnectServer, gatewayID string, connection Connection, sequence uint64) (uint64, error) {
+func (s *Server) sendDesiredState(
+	stream gatewayv1.GatewayControlService_ConnectServer,
+	gatewayID string,
+	connection Connection,
+	sequence uint64,
+) (uint64, error) {
 	leaseExpiresAt := s.clock().Add(connection.LeaseTimeout)
 	desired, err := s.Store.DesiredState(stream.Context(), gatewayID, connection.Epoch, connection.DesiredRevision, leaseExpiresAt)
 	if err != nil {
@@ -347,17 +393,35 @@ func (s *Server) sendDesiredState(stream gatewayv1.GatewayControlService_Connect
 	}
 	assignments := make([]*gatewayv1.SessionAssignment, 0, len(desired.Assignments))
 	for _, assignment := range desired.Assignments {
-		assignments = append(assignments, &gatewayv1.SessionAssignment{
-			SessionId: assignment.SessionID, OrganizationId: assignment.OrganizationID, AssignmentEpoch: assignment.AssignmentEpoch, DesiredAction: assignment.DesiredAction,
+		item := &gatewayv1.SessionAssignment{
+			SessionId:            assignment.SessionID,
+			OrganizationId:       assignment.OrganizationID,
+			AssignmentEpoch:      assignment.AssignmentEpoch,
+			DesiredAction:        assignment.DesiredAction,
 			LeaseExpiresAtUnixMs: assignment.LeaseExpiresAt.UnixMilli(),
-			Config:               &gatewayv1.SessionConfig{Revision: assignment.ConfigRevision, AutoRead: assignment.AutoRead, PresenceTyping: assignment.PresenceTyping, RatePerMin: assignment.RatePerMin, RatePerHour: assignment.RatePerHour},
-		})
-		if assignment.DeviceJID != "" {
-			assignments[len(assignments)-1].DeviceJid = &assignment.DeviceJID
+			Config: &gatewayv1.SessionConfig{
+				Revision:       assignment.ConfigRevision,
+				AutoRead:       assignment.AutoRead,
+				PresenceTyping: assignment.PresenceTyping,
+				RatePerMin:     assignment.RatePerMin,
+				RatePerHour:    assignment.RatePerHour,
+			},
 		}
+		if assignment.DeviceJID != "" {
+			item.DeviceJid = &assignment.DeviceJID
+		}
+		assignments = append(assignments, item)
 	}
 	sequence++
-	if err := stream.Send(&gatewayv1.ControlFrame{ProtocolVersion: ProtocolVersion, Sequence: sequence, Payload: &gatewayv1.ControlFrame_DesiredStateSnapshot{DesiredStateSnapshot: &gatewayv1.DesiredStateSnapshot{Revision: desired.Revision, Assignments: assignments}}}); err != nil {
+	snapshot := &gatewayv1.ControlFrame{
+		ProtocolVersion: ProtocolVersion,
+		Sequence:        sequence,
+		Payload: &gatewayv1.ControlFrame_DesiredStateSnapshot{DesiredStateSnapshot: &gatewayv1.DesiredStateSnapshot{
+			Revision:    desired.Revision,
+			Assignments: assignments,
+		}},
+	}
+	if err := stream.Send(snapshot); err != nil {
 		return sequence, sendStatus(err)
 	}
 	return sequence, nil
@@ -368,7 +432,11 @@ func validDesiredState(desired DesiredState, minimumLease time.Time) bool {
 		return false
 	}
 	for _, assignment := range desired.Assignments {
-		if assignment.SessionID == "" || assignment.OrganizationID == "" || assignment.AssignmentEpoch == 0 || assignment.DesiredAction == gatewayv1.SessionDesiredAction_SESSION_DESIRED_ACTION_UNKNOWN || assignment.ConfigRevision != desired.Revision || !assignment.LeaseExpiresAt.After(minimumLease.Add(-time.Millisecond)) {
+		missingIdentity := assignment.SessionID == "" || assignment.OrganizationID == ""
+		unknownAction := assignment.DesiredAction == gatewayv1.SessionDesiredAction_SESSION_DESIRED_ACTION_UNKNOWN
+		staleRevision := assignment.ConfigRevision != desired.Revision
+		expiredLease := !assignment.LeaseExpiresAt.After(minimumLease.Add(-time.Millisecond))
+		if missingIdentity || assignment.AssignmentEpoch == 0 || unknownAction || staleRevision || expiredLease {
 			return false
 		}
 	}
@@ -376,14 +444,21 @@ func validDesiredState(desired DesiredState, minimumLease time.Time) bool {
 }
 
 func validateDesiredStateReport(report *gatewayv1.DesiredStateReport, epoch uint64) error {
-	if report == nil || report.ConnectionEpoch == 0 || report.ConnectionEpoch != epoch || report.KeystoreHealth == nil || report.KeystoreHealth.State == gatewayv1.KeystoreHealthState_KEYSTORE_HEALTH_STATE_UNKNOWN {
+	if report == nil {
+		return status.Error(codes.FailedPrecondition, "invalid desired state report")
+	}
+	badEpoch := report.ConnectionEpoch == 0 || report.ConnectionEpoch != epoch
+	keystoreUnreported := report.KeystoreHealth == nil ||
+		report.KeystoreHealth.State == gatewayv1.KeystoreHealthState_KEYSTORE_HEALTH_STATE_UNKNOWN
+	if badEpoch || keystoreUnreported {
 		return status.Error(codes.FailedPrecondition, "invalid desired state report")
 	}
 	return nil
 }
 
 func reconciliationReport(report *gatewayv1.DesiredStateReport) ReconciliationReport {
-	out := ReconciliationReport{Revision: report.ProcessedRevision, KeystoreState: strings.TrimPrefix(strings.ToLower(report.KeystoreHealth.State.String()), "keystore_health_state_")}
+	keystoreState := strings.TrimPrefix(strings.ToLower(report.KeystoreHealth.State.String()), "keystore_health_state_")
+	out := ReconciliationReport{Revision: report.ProcessedRevision, KeystoreState: keystoreState}
 	if report.KeystoreHealth.ByteSize != nil {
 		v := *report.KeystoreHealth.ByteSize
 		out.KeystoreBytes = &v
@@ -396,8 +471,13 @@ func reconciliationReport(report *gatewayv1.DesiredStateReport) ReconciliationRe
 		out.LocalDevices = append(out.LocalDevices, device.DeviceJid)
 	}
 	for _, r := range report.Results {
-		status := strings.TrimPrefix(strings.ToLower(r.Status.String()), "reconciliation_result_status_")
-		out.Results = append(out.Results, ReconciliationResult{SessionID: r.SessionId, AssignmentEpoch: r.AssignmentEpoch, DeviceJID: r.DeviceJid, Status: status})
+		resultStatus := strings.TrimPrefix(strings.ToLower(r.Status.String()), "reconciliation_result_status_")
+		out.Results = append(out.Results, ReconciliationResult{
+			SessionID:       r.SessionId,
+			AssignmentEpoch: r.AssignmentEpoch,
+			DeviceJID:       r.DeviceJid,
+			Status:          resultStatus,
+		})
 	}
 	return out
 }
@@ -426,7 +506,12 @@ func receiveFrames(stream gatewayv1.GatewayControlService_ConnectServer) <-chan 
 	return results
 }
 
-func receiveBefore(ctx context.Context, received <-chan receiveResult, deadline <-chan time.Time, timeoutMessage string) (*gatewayv1.GatewayFrame, error) {
+func receiveBefore(
+	ctx context.Context,
+	received <-chan receiveResult,
+	deadline <-chan time.Time,
+	timeoutMessage string,
+) (*gatewayv1.GatewayFrame, error) {
 	select {
 	case <-ctx.Done():
 		return nil, receiveStatus(ctx.Err())
@@ -494,13 +579,18 @@ func validateHello(hello *gatewayv1.GatewayHello) error {
 }
 
 func validateHeartbeat(heartbeat *gatewayv1.GatewayHeartbeat) error {
-	if heartbeat == nil || heartbeat.ConnectionEpoch == 0 || heartbeat.SentAtUnixMs <= 0 || heartbeat.SentAtUnixMs > maxUnixMillis || !knownRuntimeState(heartbeat.RuntimeState) {
+	if heartbeat == nil {
+		return status.Error(codes.InvalidArgument, "invalid gateway heartbeat")
+	}
+	badClock := heartbeat.SentAtUnixMs <= 0 || heartbeat.SentAtUnixMs > maxUnixMillis
+	if heartbeat.ConnectionEpoch == 0 || badClock || !knownRuntimeState(heartbeat.RuntimeState) {
 		return status.Error(codes.InvalidArgument, "invalid gateway heartbeat")
 	}
 	if !knownJournalState(heartbeat.JournalState) {
 		return status.Error(codes.InvalidArgument, "invalid gateway journal state")
 	}
-	if heartbeat.JournalState == gatewayv1.GatewayJournalState_GATEWAY_JOURNAL_STATE_UNKNOWN && (heartbeat.JournalEntries != 0 || heartbeat.JournalBytes != 0) {
+	journalUnreported := heartbeat.JournalEntries != 0 || heartbeat.JournalBytes != 0
+	if heartbeat.JournalState == gatewayv1.GatewayJournalState_GATEWAY_JOURNAL_STATE_UNKNOWN && journalUnreported {
 		return status.Error(codes.InvalidArgument, "gateway journal telemetry requires a journal state")
 	}
 	return nil
@@ -525,7 +615,7 @@ type issuedDirective struct {
 }
 
 func directiveID(connectionID string, revision uint64) string {
-	return fmt.Sprintf("%s:%d", connectionID, revision)
+	return connectionID + ":" + strconv.FormatUint(revision, 10)
 }
 
 func validateDesiredLifecycle(desired DesiredLifecycle) error {
@@ -535,7 +625,11 @@ func validateDesiredLifecycle(desired DesiredLifecycle) error {
 	return nil
 }
 
-func validateLifecycleReport(report *gatewayv1.GatewayLifecycleReport, epoch uint64, directive issuedDirective) error {
+func validateLifecycleReport(
+	report *gatewayv1.GatewayLifecycleReport,
+	epoch uint64,
+	directive issuedDirective,
+) error {
 	if report == nil || report.DirectiveId == "" || !knownRuntimeState(report.State) || !knownLifecycleFailure(report.Failure) {
 		return status.Error(codes.InvalidArgument, "invalid gateway lifecycle report")
 	}
@@ -632,7 +726,16 @@ func helloValue(v *gatewayv1.GatewayHello) Hello {
 	if v.HttpBaseUrl != nil {
 		httpBaseURL = *v.HttpBaseUrl
 	}
-	return Hello{InstanceID: v.InstanceId, SoftwareVersion: v.SoftwareVersion, GRPCEndpoint: endpoint, HTTPBaseURL: httpBaseURL, Capabilities: append([]gatewayv1.GatewayCapability(nil), v.Capabilities...), StartedAt: time.UnixMilli(v.StartedAtUnixMs).UTC(), SessionCount: v.SessionCount, RuntimeState: v.RuntimeState}
+	return Hello{
+		InstanceID:      v.InstanceId,
+		SoftwareVersion: v.SoftwareVersion,
+		GRPCEndpoint:    endpoint,
+		HTTPBaseURL:     httpBaseURL,
+		Capabilities:    append([]gatewayv1.GatewayCapability(nil), v.Capabilities...),
+		StartedAt:       time.UnixMilli(v.StartedAtUnixMs).UTC(),
+		SessionCount:    v.SessionCount,
+		RuntimeState:    v.RuntimeState,
+	}
 }
 
 func validateHTTPBaseURL(raw string) error {
@@ -640,18 +743,28 @@ func validateHTTPBaseURL(raw string) error {
 		return status.Error(codes.InvalidArgument, "invalid gateway HTTP base URL")
 	}
 	u, err := url.Parse(raw)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.RawPath != "" || u.Path != "" {
+	if err != nil {
 		return status.Error(codes.InvalidArgument, "invalid gateway HTTP base URL")
 	}
-	if u.String() != raw {
+	httpScheme := u.Scheme == "http" || u.Scheme == "https"
+	bareOrigin := u.Hostname() != "" && u.User == nil &&
+		u.RawQuery == "" && u.Fragment == "" && u.RawPath == "" && u.Path == ""
+	if !httpScheme || !bareOrigin || u.String() != raw {
 		return status.Error(codes.InvalidArgument, "invalid gateway HTTP base URL")
 	}
 	return nil
 }
 
 func heartbeatValue(v *gatewayv1.GatewayHeartbeat) Heartbeat {
-	return Heartbeat{LastControlSequence: v.LastControlSequence, SentAt: time.UnixMilli(v.SentAtUnixMs).UTC(), SessionCount: v.SessionCount, RuntimeState: v.RuntimeState,
-		JournalState: v.JournalState, JournalEntries: v.JournalEntries, JournalBytes: v.JournalBytes}
+	return Heartbeat{
+		LastControlSequence: v.LastControlSequence,
+		SentAt:              time.UnixMilli(v.SentAtUnixMs).UTC(),
+		SessionCount:        v.SessionCount,
+		RuntimeState:        v.RuntimeState,
+		JournalState:        v.JournalState,
+		JournalEntries:      v.JournalEntries,
+		JournalBytes:        v.JournalBytes,
+	}
 }
 
 func lifecycleValue(v *gatewayv1.GatewayLifecycleReport) LifecycleReport {
