@@ -3,6 +3,7 @@ package authz
 import (
 	"context"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
@@ -35,7 +36,14 @@ import (
 //  3. Neither → nil Principal. The caller renders its own 401/Unauthenticated.
 //
 // Never leak why verification failed; a nil result is all the caller sees.
-func ResolveCredential(ctx context.Context, tokens TokenVerifier, keys KeyVerifier, bearer string, hasBearer bool, apiKey string) *Principal {
+func ResolveCredential(
+	ctx context.Context,
+	tokens TokenVerifier,
+	keys KeyVerifier,
+	bearer string,
+	hasBearer bool,
+	apiKey string,
+) *Principal {
 	// Acceptor 1: a bearer that looks like a JWT → JWKS verify.
 	if hasBearer && looksLikeJWT(bearer) {
 		if tokens != nil {
@@ -68,7 +76,8 @@ func Authenticate(tokens TokenVerifier, keys KeyVerifier) func(http.Handler) htt
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			bearer, hasBearer := bearerToken(r)
-			if p := ResolveCredential(r.Context(), tokens, keys, bearer, hasBearer, r.Header.Get("X-Api-Key")); p != nil {
+			apiKey := r.Header.Get("X-Api-Key")
+			if p := ResolveCredential(r.Context(), tokens, keys, bearer, hasBearer, apiKey); p != nil {
 				next.ServeHTTP(w, r.WithContext(SetPrincipal(r.Context(), p)))
 				return
 			}
@@ -117,13 +126,5 @@ func bearerToken(r *http.Request) (string, bool) {
 // reliably separates the two. The verifier still does the real validation.
 func looksLikeJWT(tok string) bool {
 	parts := strings.Split(tok, ".")
-	if len(parts) != 3 {
-		return false
-	}
-	for _, p := range parts {
-		if p == "" {
-			return false
-		}
-	}
-	return true
+	return len(parts) == 3 && !slices.Contains(parts, "")
 }

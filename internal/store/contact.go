@@ -32,7 +32,13 @@ type ContactFilter struct {
 // List returns a page of found-user contacts for a session, applying ContactFilter
 // and cursor pagination over the identity id. The DM/group EXISTS clauses both
 // label each row's `source` AND scope the result to people THIS session saw.
-func (r *ContactRepo) List(ctx context.Context, sessionID string, f ContactFilter, cursor string, limit int) (Page[domain.Contact], error) {
+func (r *ContactRepo) List(
+	ctx context.Context,
+	sessionID string,
+	f ContactFilter,
+	cursor string,
+	limit int,
+) (Page[domain.Contact], error) {
 	afterID, err := parseCursor(cursor)
 	if err != nil {
 		return Page[domain.Contact]{}, err
@@ -45,7 +51,11 @@ func (r *ContactRepo) List(ctx context.Context, sessionID string, f ContactFilte
 	switch {
 	case f.GroupJID != "" && f.Q != "":
 		rows, err := r.q.ListContactsByGroupSearch(ctx, storedb.ListContactsByGroupSearchParams{
-			SessionID: sessionID, AfterID: afterID, GroupJid: f.GroupJID, NamePattern: namePattern, Limit: limit32,
+			SessionID:   sessionID,
+			AfterID:     afterID,
+			GroupJid:    f.GroupJID,
+			NamePattern: namePattern,
+			Limit:       limit32,
 		})
 		if err != nil {
 			return Page[domain.Contact]{}, fmt.Errorf("store: list contacts: %w", err)
@@ -56,7 +66,10 @@ func (r *ContactRepo) List(ctx context.Context, sessionID string, f ContactFilte
 		}
 	case f.GroupJID != "":
 		rows, err := r.q.ListContactsByGroup(ctx, storedb.ListContactsByGroupParams{
-			SessionID: sessionID, AfterID: afterID, GroupJid: f.GroupJID, Limit: limit32,
+			SessionID: sessionID,
+			AfterID:   afterID,
+			GroupJid:  f.GroupJID,
+			Limit:     limit32,
 		})
 		if err != nil {
 			return Page[domain.Contact]{}, fmt.Errorf("store: list contacts: %w", err)
@@ -67,7 +80,10 @@ func (r *ContactRepo) List(ctx context.Context, sessionID string, f ContactFilte
 		}
 	case f.Source == "dm" && f.Q != "":
 		rows, err := r.q.ListContactsDMSearch(ctx, storedb.ListContactsDMSearchParams{
-			SessionID: sessionID, AfterID: afterID, NamePattern: namePattern, Limit: limit32,
+			SessionID:   sessionID,
+			AfterID:     afterID,
+			NamePattern: namePattern,
+			Limit:       limit32,
 		})
 		if err != nil {
 			return Page[domain.Contact]{}, fmt.Errorf("store: list contacts: %w", err)
@@ -77,7 +93,11 @@ func (r *ContactRepo) List(ctx context.Context, sessionID string, f ContactFilte
 			out = append(out, contactFromParts(row.ID, row.Lid, row.PhoneNumber, row.Name, row.BusinessName, row.InDm != 0))
 		}
 	case f.Source == "dm":
-		rows, err := r.q.ListContactsDM(ctx, storedb.ListContactsDMParams{SessionID: sessionID, AfterID: afterID, Limit: limit32})
+		rows, err := r.q.ListContactsDM(ctx, storedb.ListContactsDMParams{
+			SessionID: sessionID,
+			AfterID:   afterID,
+			Limit:     limit32,
+		})
 		if err != nil {
 			return Page[domain.Contact]{}, fmt.Errorf("store: list contacts: %w", err)
 		}
@@ -87,7 +107,10 @@ func (r *ContactRepo) List(ctx context.Context, sessionID string, f ContactFilte
 		}
 	case f.Source == "group" && f.Q != "":
 		rows, err := r.q.ListContactsGroupSearch(ctx, storedb.ListContactsGroupSearchParams{
-			SessionID: sessionID, AfterID: afterID, NamePattern: namePattern, Limit: limit32,
+			SessionID:   sessionID,
+			AfterID:     afterID,
+			NamePattern: namePattern,
+			Limit:       limit32,
 		})
 		if err != nil {
 			return Page[domain.Contact]{}, fmt.Errorf("store: list contacts: %w", err)
@@ -97,7 +120,11 @@ func (r *ContactRepo) List(ctx context.Context, sessionID string, f ContactFilte
 			out = append(out, contactFromParts(row.ID, row.Lid, row.PhoneNumber, row.Name, row.BusinessName, row.InDm))
 		}
 	case f.Source == "group":
-		rows, err := r.q.ListContactsGroup(ctx, storedb.ListContactsGroupParams{SessionID: sessionID, AfterID: afterID, Limit: limit32})
+		rows, err := r.q.ListContactsGroup(ctx, storedb.ListContactsGroupParams{
+			SessionID: sessionID,
+			AfterID:   afterID,
+			Limit:     limit32,
+		})
 		if err != nil {
 			return Page[domain.Contact]{}, fmt.Errorf("store: list contacts: %w", err)
 		}
@@ -107,7 +134,10 @@ func (r *ContactRepo) List(ctx context.Context, sessionID string, f ContactFilte
 		}
 	case f.Q != "":
 		rows, err := r.q.ListContactsAnywhereSearch(ctx, storedb.ListContactsAnywhereSearchParams{
-			SessionID: sessionID, AfterID: afterID, NamePattern: namePattern, Limit: limit32,
+			SessionID:   sessionID,
+			AfterID:     afterID,
+			NamePattern: namePattern,
+			Limit:       limit32,
 		})
 		if err != nil {
 			return Page[domain.Contact]{}, fmt.Errorf("store: list contacts: %w", err)
@@ -117,7 +147,11 @@ func (r *ContactRepo) List(ctx context.Context, sessionID string, f ContactFilte
 			out = append(out, contactFromParts(row.ID, row.Lid, row.PhoneNumber, row.Name, row.BusinessName, row.InDm))
 		}
 	default:
-		rows, err := r.q.ListContactsAnywhere(ctx, storedb.ListContactsAnywhereParams{SessionID: sessionID, AfterID: afterID, Limit: limit32})
+		rows, err := r.q.ListContactsAnywhere(ctx, storedb.ListContactsAnywhereParams{
+			SessionID: sessionID,
+			AfterID:   afterID,
+			Limit:     limit32,
+		})
 		if err != nil {
 			return Page[domain.Contact]{}, fmt.Errorf("store: list contacts: %w", err)
 		}

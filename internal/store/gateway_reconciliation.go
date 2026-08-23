@@ -36,7 +36,10 @@ func (r *GatewayReconciliationRepo) Persist(ctx context.Context, report GatewayR
 	}
 	defer func() { _ = tx.Rollback() }()
 	var desired uint64
-	if err = tx.QueryRowContext(ctx, `SELECT desired_revision FROM gateways WHERE id=? AND connection_epoch=? AND deleted_at IS NULL FOR UPDATE`, report.GatewayID, report.Epoch).Scan(&desired); err != nil {
+	if err = tx.QueryRowContext(ctx,
+		`SELECT desired_revision FROM gateways WHERE id=? AND connection_epoch=? AND deleted_at IS NULL FOR UPDATE`,
+		report.GatewayID, report.Epoch,
+	).Scan(&desired); err != nil {
 		return fmt.Errorf("reconciliation fence: %w", err)
 	}
 	if desired != report.Revision {
@@ -44,7 +47,10 @@ func (r *GatewayReconciliationRepo) Persist(ctx context.Context, report GatewayR
 	}
 	// Lock the full authoritative assignment set before accepting a report. A
 	// healthy report may not omit an assigned session.
-	rows, err := tx.QueryContext(ctx, `SELECT a.session_id, COALESCE(s.wa_jid,''), s.status IN ('starting','scan_qr_code','working') FROM gateway_session_assignments a JOIN wa_sessions s ON s.id=a.session_id WHERE a.gateway_id=? FOR UPDATE`, report.GatewayID)
+	rows, err := tx.QueryContext(ctx,
+		`SELECT a.session_id, COALESCE(s.wa_jid,''), s.status IN ('starting','scan_qr_code','working') FROM gateway_session_assignments a JOIN wa_sessions s ON s.id=a.session_id WHERE a.gateway_id=? FOR UPDATE`,
+		report.GatewayID,
+	)
 	if err != nil {
 		return err
 	}
@@ -102,7 +108,10 @@ func (r *GatewayReconciliationRepo) Persist(ctx context.Context, report GatewayR
 		}
 		seen[*result.SessionID] = true
 		var n int
-		if err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM gateway_session_assignments a JOIN wa_sessions s ON s.id=a.session_id WHERE a.gateway_id=? AND a.session_id=? AND a.assignment_epoch=? AND ((s.wa_jid IS NULL AND ?='') OR s.wa_jid=?)`, report.GatewayID, *result.SessionID, result.AssignmentEpoch, result.DeviceJID, result.DeviceJID).Scan(&n); err != nil || n != 1 {
+		if err = tx.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM gateway_session_assignments a JOIN wa_sessions s ON s.id=a.session_id WHERE a.gateway_id=? AND a.session_id=? AND a.assignment_epoch=? AND ((s.wa_jid IS NULL AND ?='') OR s.wa_jid=?)`,
+			report.GatewayID, *result.SessionID, result.AssignmentEpoch, result.DeviceJID, result.DeviceJID,
+		).Scan(&n); err != nil || n != 1 {
 			return fmt.Errorf("assigned reconciliation result fence")
 		}
 		if result.Status != "applied" {
@@ -123,7 +132,16 @@ func (r *GatewayReconciliationRepo) Persist(ctx context.Context, report GatewayR
 		return err
 	}
 	for _, result := range report.Results {
-		if _, err = tx.ExecContext(ctx, `INSERT INTO gateway_reconciliation_results (gateway_id,device_jid,session_id,assignment_epoch,status,desired_revision,updated_at) VALUES (?,?,?,?,?,?,?)`, report.GatewayID, result.DeviceJID, result.SessionID, result.AssignmentEpoch, result.Status, report.Revision, at); err != nil {
+		if _, err = tx.ExecContext(ctx,
+			`INSERT INTO gateway_reconciliation_results (gateway_id,device_jid,session_id,assignment_epoch,status,desired_revision,updated_at) VALUES (?,?,?,?,?,?,?)`,
+			report.GatewayID,
+			result.DeviceJID,
+			result.SessionID,
+			result.AssignmentEpoch,
+			result.Status,
+			report.Revision,
+			at,
+		); err != nil {
 			return err
 		}
 	}
@@ -132,7 +150,19 @@ func (r *GatewayReconciliationRepo) Persist(ctx context.Context, report GatewayR
 		status = "degraded"
 	}
 	present := report.KeystoreState != "missing"
-	updated, err := tx.ExecContext(ctx, `UPDATE gateways SET reconciliation_status=?,keystore_present=?,keystore_bytes=?,keystore_integrity=?,keystore_checked_at=?,applied_revision=?,updated_at=? WHERE id=? AND connection_epoch=? AND desired_revision=?`, status, present, report.KeystoreBytes, report.KeystoreState, report.CheckedAt, report.Revision, at, report.GatewayID, report.Epoch, report.Revision)
+	updated, err := tx.ExecContext(ctx,
+		`UPDATE gateways SET reconciliation_status=?,keystore_present=?,keystore_bytes=?,keystore_integrity=?,keystore_checked_at=?,applied_revision=?,updated_at=? WHERE id=? AND connection_epoch=? AND desired_revision=?`,
+		status,
+		present,
+		report.KeystoreBytes,
+		report.KeystoreState,
+		report.CheckedAt,
+		report.Revision,
+		at,
+		report.GatewayID,
+		report.Epoch,
+		report.Revision,
+	)
 	if err != nil {
 		return err
 	}

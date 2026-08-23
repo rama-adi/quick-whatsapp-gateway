@@ -141,7 +141,8 @@ func (r *OutboxRepo) UpdateStatus(ctx context.Context, id string, status domain.
 		n   int64
 		err error
 	)
-	if status == domain.OutboxSent {
+	switch status {
+	case domain.OutboxSent:
 		n, err = r.q.UpdateOutboxStatusAndStripMedia(ctx, storedb.UpdateOutboxStatusAndStripMediaParams{
 			Status:      storedb.OutboxStatus(status),
 			WaMessageID: nullString(waMessageID),
@@ -150,14 +151,14 @@ func (r *OutboxRepo) UpdateStatus(ctx context.Context, id string, status domain.
 			TerminalAt:  sql.NullInt64{Int64: updatedAt, Valid: true},
 			ID:          id,
 		})
-	} else if status == domain.OutboxFailed {
+	case domain.OutboxFailed:
 		n, err = r.q.CompleteOutbox(ctx, storedb.CompleteOutboxParams{
-			FinalStatus: storedb.OutboxStatus(status),
-			WaMessageID: nullString(waMessageID),
-			Error:       nullString(errMsg),
-			TerminalAt:  sql.NullInt64{Int64: updatedAt, Valid: true},
-			UpdatedAt:   updatedAt,
-			ID:          id,
+			FinalStatus:   storedb.OutboxStatus(status),
+			WaMessageID:   nullString(waMessageID),
+			Error:         nullString(errMsg),
+			TerminalAt:    sql.NullInt64{Int64: updatedAt, Valid: true},
+			UpdatedAt:     updatedAt,
+			ID:            id,
 			SendingStatus: storedb.OutboxStatus(domain.OutboxSending),
 		})
 		if n == 0 {
@@ -171,7 +172,7 @@ func (r *OutboxRepo) UpdateStatus(ctx context.Context, id string, status domain.
 				ID:          id,
 			})
 		}
-	} else {
+	default:
 		n, err = r.q.UpdateOutboxStatus(ctx, storedb.UpdateOutboxStatusParams{
 			Status:      storedb.OutboxStatus(status),
 			WaMessageID: nullString(waMessageID),

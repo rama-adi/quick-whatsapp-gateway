@@ -27,20 +27,30 @@ type GatewayAdminAudit struct {
 
 func (s *GatewayAdminStore) Drain(ctx context.Context, gatewayID string, at int64, audit GatewayAdminAudit) error {
 	return s.transition(ctx, gatewayID, at, audit, func(tx *sql.Tx, status string, enrolled bool) error {
-		if !enrolled || (status != string(domain.GatewayJoining) && status != string(domain.GatewayActive) && status != string(domain.GatewayDegraded)) {
+		drainable := status == string(domain.GatewayJoining) ||
+			status == string(domain.GatewayActive) ||
+			status == string(domain.GatewayDegraded)
+		if !enrolled || !drainable {
 			return ErrGatewayAdminState
 		}
-		result, err := tx.ExecContext(ctx, "UPDATE gateways SET desired_lifecycle='drain', desired_revision=desired_revision+1, updated_at=? WHERE id=? AND deleted_at IS NULL AND status<> 'disabled'", at, gatewayID)
+		result, err := tx.ExecContext(ctx,
+			"UPDATE gateways SET desired_lifecycle='drain', desired_revision=desired_revision+1, updated_at=? WHERE id=? AND deleted_at IS NULL AND status<> 'disabled'",
+			at, gatewayID,
+		)
 		return changed(result, err)
 	})
 }
 
 func (s *GatewayAdminStore) Resume(ctx context.Context, gatewayID string, at int64, audit GatewayAdminAudit) error {
 	return s.transition(ctx, gatewayID, at, audit, func(tx *sql.Tx, status string, enrolled bool) error {
-		if !enrolled || (status != string(domain.GatewayDraining) && status != string(domain.GatewayDrained)) {
+		resumable := status == string(domain.GatewayDraining) || status == string(domain.GatewayDrained)
+		if !enrolled || !resumable {
 			return ErrGatewayAdminState
 		}
-		result, err := tx.ExecContext(ctx, "UPDATE gateways SET desired_lifecycle='run', desired_revision=desired_revision+1, updated_at=? WHERE id=? AND deleted_at IS NULL AND status<> 'disabled'", at, gatewayID)
+		result, err := tx.ExecContext(ctx,
+			"UPDATE gateways SET desired_lifecycle='run', desired_revision=desired_revision+1, updated_at=? WHERE id=? AND deleted_at IS NULL AND status<> 'disabled'",
+			at, gatewayID,
+		)
 		return changed(result, err)
 	})
 }
@@ -50,7 +60,10 @@ func (s *GatewayAdminStore) Disable(ctx context.Context, gatewayID string, at in
 		if status == string(domain.GatewayDisabled) {
 			return ErrGatewayAdminState
 		}
-		result, err := tx.ExecContext(ctx, "UPDATE gateways SET status='disabled', connection_epoch=connection_epoch+1, updated_at=? WHERE id=? AND deleted_at IS NULL", at, gatewayID)
+		result, err := tx.ExecContext(ctx,
+			"UPDATE gateways SET status='disabled', connection_epoch=connection_epoch+1, updated_at=? WHERE id=? AND deleted_at IS NULL",
+			at, gatewayID,
+		)
 		return changed(result, err)
 	})
 }
@@ -64,7 +77,10 @@ func (s *GatewayAdminStore) Reenable(ctx context.Context, gatewayID string, at i
 		if enrolled {
 			next = "joining"
 		}
-		result, err := tx.ExecContext(ctx, "UPDATE gateways SET status=?, desired_lifecycle='run', desired_revision=desired_revision+1, updated_at=? WHERE id=? AND deleted_at IS NULL AND status='disabled'", next, at, gatewayID)
+		result, err := tx.ExecContext(ctx,
+			"UPDATE gateways SET status=?, desired_lifecycle='run', desired_revision=desired_revision+1, updated_at=? WHERE id=? AND deleted_at IS NULL AND status='disabled'",
+			next, at, gatewayID,
+		)
 		return changed(result, err)
 	})
 }
@@ -72,18 +88,34 @@ func (s *GatewayAdminStore) Reenable(ctx context.Context, gatewayID string, at i
 // Reenroll revokes credentials before returning a replacement bootstrap token.
 // It is restricted to quiesced gateways, avoiding a surprise credential cutover
 // on a gateway which can still be serving sessions.
-func (s *GatewayAdminStore) Reenroll(ctx context.Context, gatewayID string, token domain.EnrollmentToken, at int64, audits []GatewayAdminAudit) error {
+func (s *GatewayAdminStore) Reenroll(
+	ctx context.Context,
+	gatewayID string,
+	token domain.EnrollmentToken,
+	at int64,
+	audits []GatewayAdminAudit,
+) error {
 	return s.withGateway(ctx, gatewayID, func(tx *sql.Tx, status string, enrolled bool) error {
-		if !enrolled || (status != string(domain.GatewayDrained) && status != string(domain.GatewayDisabled)) {
+		reenrollable := status == string(domain.GatewayDrained) || status == string(domain.GatewayDisabled)
+		if !enrolled || !reenrollable {
 			return ErrGatewayAdminState
 		}
-		if _, err := tx.ExecContext(ctx, "UPDATE gateway_enrollment_tokens SET status='revoked', revoked_at=?, updated_at=?, redemption_nonce=NULL, csr_sha256=NULL, redeeming_at=NULL, lease_expires_at=NULL WHERE gateway_id=? AND status IN ('active','redeeming')", at, at, gatewayID); err != nil {
+		if _, err := tx.ExecContext(ctx,
+			"UPDATE gateway_enrollment_tokens SET status='revoked', revoked_at=?, updated_at=?, redemption_nonce=NULL, csr_sha256=NULL, redeeming_at=NULL, lease_expires_at=NULL WHERE gateway_id=? AND status IN ('active','redeeming')",
+			at, at, gatewayID,
+		); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, "UPDATE gateway_certificates SET revoked_at=?, revocation_reason='re_enrollment' WHERE gateway_id=? AND revoked_at IS NULL", at, gatewayID); err != nil {
+		if _, err := tx.ExecContext(ctx,
+			"UPDATE gateway_certificates SET revoked_at=?, revocation_reason='re_enrollment' WHERE gateway_id=? AND revoked_at IS NULL",
+			at, gatewayID,
+		); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, "UPDATE gateways SET status='pending_enrollment', desired_lifecycle='run', desired_revision=desired_revision+1, connection_epoch=connection_epoch+1, connected_at=NULL, last_seen_at=NULL, updated_at=? WHERE id=? AND deleted_at IS NULL", at, gatewayID); err != nil {
+		if _, err := tx.ExecContext(ctx,
+			"UPDATE gateways SET status='pending_enrollment', desired_lifecycle='run', desired_revision=desired_revision+1, connection_epoch=connection_epoch+1, connected_at=NULL, last_seen_at=NULL, updated_at=? WHERE id=? AND deleted_at IS NULL",
+			at, gatewayID,
+		); err != nil {
 			return err
 		}
 		if err := newEnrollmentTokenRepo(tx).issue(ctx, token); err != nil {
@@ -100,12 +132,19 @@ func (s *GatewayAdminStore) Reenroll(ctx context.Context, gatewayID string, toke
 
 // Delete is intentionally a soft delete. It accepts only a terminal gateway
 // with no assigned sessions, unredeemed bootstrap token, or usable certificate.
-func (s *GatewayAdminStore) Delete(ctx context.Context, gatewayID string, acknowledged bool, at int64, audit GatewayAdminAudit) error {
+func (s *GatewayAdminStore) Delete(
+	ctx context.Context,
+	gatewayID string,
+	acknowledged bool,
+	at int64,
+	audit GatewayAdminAudit,
+) error {
 	if !acknowledged {
 		return ErrGatewayAdminState
 	}
 	return s.withGateway(ctx, gatewayID, func(tx *sql.Tx, status string, _ bool) error {
-		if status != string(domain.GatewayDrained) && status != string(domain.GatewayDisabled) {
+		deletable := status == string(domain.GatewayDrained) || status == string(domain.GatewayDisabled)
+		if !deletable {
 			return ErrGatewayAdminState
 		}
 		var assigned int
@@ -115,7 +154,10 @@ func (s *GatewayAdminStore) Delete(ctx context.Context, gatewayID string, acknow
 		if assigned != 0 {
 			return ErrGatewayAdminState
 		}
-		result, err := tx.ExecContext(ctx, "UPDATE gateways SET status='disabled', deleted_at=?, updated_at=? WHERE id=? AND deleted_at IS NULL AND status IN ('drained','disabled') AND NOT EXISTS (SELECT 1 FROM gateway_enrollment_tokens t WHERE t.gateway_id=gateways.id AND t.status IN ('active','redeeming')) AND NOT EXISTS (SELECT 1 FROM gateway_certificates c WHERE c.gateway_id=gateways.id AND c.revoked_at IS NULL)", at, at, gatewayID)
+		result, err := tx.ExecContext(ctx,
+			"UPDATE gateways SET status='disabled', deleted_at=?, updated_at=? WHERE id=? AND deleted_at IS NULL AND status IN ('drained','disabled') AND NOT EXISTS (SELECT 1 FROM gateway_enrollment_tokens t WHERE t.gateway_id=gateways.id AND t.status IN ('active','redeeming')) AND NOT EXISTS (SELECT 1 FROM gateway_certificates c WHERE c.gateway_id=gateways.id AND c.revoked_at IS NULL)",
+			at, at, gatewayID,
+		)
 		if err := changed(result, err); err != nil {
 			return err
 		}
@@ -123,7 +165,13 @@ func (s *GatewayAdminStore) Delete(ctx context.Context, gatewayID string, acknow
 	})
 }
 
-func (s *GatewayAdminStore) transition(ctx context.Context, gatewayID string, at int64, audit GatewayAdminAudit, apply func(*sql.Tx, string, bool) error) error {
+func (s *GatewayAdminStore) transition(
+	ctx context.Context,
+	gatewayID string,
+	at int64,
+	audit GatewayAdminAudit,
+	apply func(*sql.Tx, string, bool) error,
+) error {
 	return s.withGateway(ctx, gatewayID, func(tx *sql.Tx, status string, enrolled bool) error {
 		if err := apply(tx, status, enrolled); err != nil {
 			return err
@@ -140,7 +188,10 @@ func (s *GatewayAdminStore) withGateway(ctx context.Context, gatewayID string, f
 	defer func() { _ = tx.Rollback() }()
 	var status string
 	var enrolledAt sql.NullInt64
-	if err := tx.QueryRowContext(ctx, "SELECT status,enrolled_at FROM gateways WHERE id=? AND deleted_at IS NULL FOR UPDATE", gatewayID).Scan(&status, &enrolledAt); err != nil {
+	if err := tx.QueryRowContext(ctx,
+		"SELECT status,enrolled_at FROM gateways WHERE id=? AND deleted_at IS NULL FOR UPDATE",
+		gatewayID,
+	).Scan(&status, &enrolledAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrGatewayAdminState
 		}

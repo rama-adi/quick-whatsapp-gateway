@@ -73,11 +73,24 @@ func (r *GatewayEventIngestRepo) IngestBatch(ctx context.Context, events []Gatew
 	defer func() { _ = rollback() }()
 	for _, event := range events {
 		var n int
-		err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM gateway_session_assignments a JOIN wa_sessions s ON s.id=a.session_id JOIN gateways g ON g.id=a.gateway_id WHERE a.gateway_id=? AND a.session_id=? AND s.organization_id=? AND a.assignment_epoch=? AND g.connection_epoch=? AND g.deleted_at IS NULL`, event.GatewayID, event.SessionID, event.OrganizationID, event.AssignmentEpoch, event.ConnectionEpoch).Scan(&n)
+		err = tx.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM gateway_session_assignments a JOIN wa_sessions s ON s.id=a.session_id JOIN gateways g ON g.id=a.gateway_id WHERE a.gateway_id=? AND a.session_id=? AND s.organization_id=? AND a.assignment_epoch=? AND g.connection_epoch=? AND g.deleted_at IS NULL`,
+			event.GatewayID, event.SessionID, event.OrganizationID, event.AssignmentEpoch, event.ConnectionEpoch,
+		).Scan(&n)
 		if err != nil || n != 1 {
 			return ErrGatewayEventStale
 		}
-		result, err := tx.ExecContext(ctx, `INSERT IGNORE INTO gateway_ingested_events (gateway_event_id,gateway_id,connection_epoch,session_id,assignment_epoch,organization_id,event_log_id,committed_at) VALUES (?,?,?,?,?,?,?,?)`, event.EventID, event.GatewayID, event.ConnectionEpoch, event.SessionID, event.AssignmentEpoch, event.OrganizationID, event.EventID, committedAt)
+		result, err := tx.ExecContext(ctx,
+			`INSERT IGNORE INTO gateway_ingested_events (gateway_event_id,gateway_id,connection_epoch,session_id,assignment_epoch,organization_id,event_log_id,committed_at) VALUES (?,?,?,?,?,?,?,?)`,
+			event.EventID,
+			event.GatewayID,
+			event.ConnectionEpoch,
+			event.SessionID,
+			event.AssignmentEpoch,
+			event.OrganizationID,
+			event.EventID,
+			committedAt,
+		)
 		if err != nil {
 			return err
 		}
@@ -85,7 +98,10 @@ func (r *GatewayEventIngestRepo) IngestBatch(ctx context.Context, events []Gatew
 		if affected == 0 {
 			continue
 		}
-		if _, err = tx.ExecContext(ctx, `INSERT INTO event_log (event_id,organization_id,session_id,type,payload,created_at) VALUES (?,?,?,?,?,?)`, event.EventID, event.OrganizationID, event.SessionID, event.Type, event.Payload, event.OccurredAt); err != nil {
+		if _, err = tx.ExecContext(ctx,
+			`INSERT INTO event_log (event_id,organization_id,session_id,type,payload,created_at) VALUES (?,?,?,?,?,?)`,
+			event.EventID, event.OrganizationID, event.SessionID, event.Type, event.Payload, event.OccurredAt,
+		); err != nil {
 			return err
 		}
 	}
@@ -119,7 +135,10 @@ func (r *GatewayEventIngestRepo) ClaimCommittedEvents(ctx context.Context, work 
 	defer func() { _ = rollback() }()
 
 	leaseUntilMs := work.LeaseUntil.UnixMilli()
-	rows, err := tx.QueryContext(ctx, `SELECT i.event_log_id, e.type, e.organization_id, e.session_id, e.created_at, e.payload FROM gateway_ingested_events i JOIN event_log e ON e.event_id=i.event_log_id WHERE i.completed_at IS NULL AND (i.lease_until IS NULL OR i.lease_until<?) ORDER BY i.committed_at, i.event_log_id LIMIT ? FOR UPDATE SKIP LOCKED`, leaseUntilMs, work.MaxItems)
+	rows, err := tx.QueryContext(ctx,
+		`SELECT i.event_log_id, e.type, e.organization_id, e.session_id, e.created_at, e.payload FROM gateway_ingested_events i JOIN event_log e ON e.event_id=i.event_log_id WHERE i.completed_at IS NULL AND (i.lease_until IS NULL OR i.lease_until<?) ORDER BY i.committed_at, i.event_log_id LIMIT ? FOR UPDATE SKIP LOCKED`,
+		leaseUntilMs, work.MaxItems,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("store: select claimable committed events: %w", err)
 	}
@@ -148,7 +167,10 @@ func (r *GatewayEventIngestRepo) ClaimCommittedEvents(ctx context.Context, work 
 
 	events := make([]domain.Event, 0, len(claimed))
 	for _, row := range claimed {
-		result, err := tx.ExecContext(ctx, `UPDATE gateway_ingested_events SET claimed_by=?, lease_until=? WHERE event_log_id=? AND completed_at IS NULL`, work.Owner, leaseUntilMs, row.eventID)
+		result, err := tx.ExecContext(ctx,
+			`UPDATE gateway_ingested_events SET claimed_by=?, lease_until=? WHERE event_log_id=? AND completed_at IS NULL`,
+			work.Owner, leaseUntilMs, row.eventID,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("store: lease committed event %s: %w", row.eventID, err)
 		}
@@ -179,7 +201,10 @@ func (r *GatewayEventIngestRepo) CompleteCommittedEvent(ctx context.Context, own
 	if owner == "" || eventID == "" {
 		return fmt.Errorf("store: committed event owner and id are required")
 	}
-	result, err := r.db.ExecContext(ctx, `UPDATE gateway_ingested_events SET completed_at=? WHERE event_log_id=? AND claimed_by=? AND completed_at IS NULL`, completedAt.UnixMilli(), eventID, owner)
+	result, err := r.db.ExecContext(ctx,
+		`UPDATE gateway_ingested_events SET completed_at=? WHERE event_log_id=? AND claimed_by=? AND completed_at IS NULL`,
+		completedAt.UnixMilli(), eventID, owner,
+	)
 	if err != nil {
 		return fmt.Errorf("store: complete committed event %s: %w", eventID, err)
 	}
@@ -187,7 +212,10 @@ func (r *GatewayEventIngestRepo) CompleteCommittedEvent(ctx context.Context, own
 		return nil
 	}
 	var completedByOwner bool
-	err = r.db.QueryRowContext(ctx, `SELECT (claimed_by = ?) AND (completed_at IS NOT NULL) FROM gateway_ingested_events WHERE event_log_id=?`, owner, eventID).Scan(&completedByOwner)
+	err = r.db.QueryRowContext(ctx,
+		`SELECT (claimed_by = ?) AND (completed_at IS NOT NULL) FROM gateway_ingested_events WHERE event_log_id=?`,
+		owner, eventID,
+	).Scan(&completedByOwner)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return errCommittedEventNotClaimed

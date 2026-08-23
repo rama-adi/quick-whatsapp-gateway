@@ -76,13 +76,15 @@ func (v *RemoteKeyVerifier) VerifyKey(ctx context.Context, raw string) (*Princip
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return nil, fmt.Errorf("authz: decode remote verify: %w", err)
 	}
-	if !out.Valid || out.Key == nil || !out.Key.Enabled || out.Key.OrganizationID == "" {
+	key := out.Key
+	usable := out.Valid && key != nil && key.Enabled && key.OrganizationID != ""
+	if !usable {
 		return nil, errors.New("authz: remote verify rejected key")
 	}
 	return &Principal{
 		Kind:           KindAPIKey,
-		OrganizationID: out.Key.OrganizationID,
-		KeyID:          out.Key.ID,
+		OrganizationID: key.OrganizationID,
+		KeyID:          key.ID,
 		// Permission shape mapping deferred to adoption (§4.2 fallback).
 	}, nil
 }

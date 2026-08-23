@@ -57,7 +57,15 @@ func LoadPKIWith(getenv func(string) string) (*PKIConfig, error) {
 	if err != nil {
 		return nil, fmt.Errorf("config: PKI_INTERMEDIATE_RENEW_BEFORE: %w", err)
 	}
-	c := &PKIConfig{EncryptionKey: key, EncryptionKeyID: getenv("PKI_ENCRYPTION_KEY_ID"), LeafTTL: ttl, ClockSkew: skew, RootTTL: rootTTL, IntermediateTTL: intermediateTTL, IntermediateRenewBefore: renew}
+	c := &PKIConfig{
+		EncryptionKey:           key,
+		EncryptionKeyID:         getenv("PKI_ENCRYPTION_KEY_ID"),
+		LeafTTL:                 ttl,
+		ClockSkew:               skew,
+		RootTTL:                 rootTTL,
+		IntermediateTTL:         intermediateTTL,
+		IntermediateRenewBefore: renew,
+	}
 	if err := c.Validate(); err != nil {
 		return nil, err
 	}

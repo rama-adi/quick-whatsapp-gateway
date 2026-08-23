@@ -163,7 +163,10 @@ func (r *IdentityRepo) GetByLID(ctx context.Context, lid string) (domain.Identit
 // Missing ids become domain not-found errors; operational database failures
 // retain their cause and repository context.
 func (r *IdentityRepo) GetByID(ctx context.Context, id uint64) (domain.Identity, error) {
-	row := r.db.QueryRowContext(ctx, `SELECT id, lid, phone_number, phone_jid, name, business_name, first_seen_at, updated_at FROM whatsapp_identities WHERE id = ?`, id)
+	row := r.db.QueryRowContext(ctx,
+		`SELECT id, lid, phone_number, phone_jid, name, business_name, first_seen_at, updated_at FROM whatsapp_identities WHERE id = ?`,
+		id,
+	)
 	var i domain.Identity
 	var phoneNumber, phoneJID, name, businessName sql.NullString
 	if err := row.Scan(&i.ID, &i.LID, &phoneNumber, &phoneJID, &name, &businessName, &i.FirstSeenAt, &i.UpdatedAt); err != nil {

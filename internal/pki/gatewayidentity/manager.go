@@ -84,12 +84,16 @@ func (m *Manager) Load() error {
 		return err
 	}
 	m.active.Store(loaded)
-	if pending, pendingErr := m.loadPending(); pendingErr == nil && loaded.cert.Leaf != nil && loaded.cert.Leaf.PublicKey.(ed25519.PublicKey).Equal(pending.PublicKey) {
-		if removeErr := os.RemoveAll(filepath.Join(m.cfg.Directory, "pending")); removeErr != nil {
-			return removeErr
-		}
-		if syncErr := syncDir(m.cfg.Directory); syncErr != nil {
-			return syncErr
+	if pending, pendingErr := m.loadPending(); pendingErr == nil {
+		leafKeyMatches := loaded.cert.Leaf != nil &&
+			loaded.cert.Leaf.PublicKey.(ed25519.PublicKey).Equal(pending.PublicKey)
+		if leafKeyMatches {
+			if removeErr := os.RemoveAll(filepath.Join(m.cfg.Directory, "pending")); removeErr != nil {
+				return removeErr
+			}
+			if syncErr := syncDir(m.cfg.Directory); syncErr != nil {
+				return syncErr
+			}
 		}
 	}
 	return nil
@@ -116,9 +120,12 @@ func (m *Manager) Prepare() (Pending, error) {
 	if err := ensureDir(m.cfg.Directory); err != nil {
 		return Pending{}, err
 	}
-	if _, statErr := os.Stat(filepath.Join(m.cfg.Directory, "pending")); statErr == nil {
+	pendingPath := filepath.Join(m.cfg.Directory, "pending")
+	_, statErr := os.Stat(pendingPath)
+	switch {
+	case statErr == nil:
 		return m.loadPending()
-	} else if !os.IsNotExist(statErr) {
+	case !os.IsNotExist(statErr):
 		return Pending{}, statErr
 	}
 	public, private, err := ed25519.GenerateKey(rand.Reader)
@@ -126,23 +133,39 @@ func (m *Manager) Prepare() (Pending, error) {
 		return Pending{}, err
 	}
 	u, _ := url.Parse("spiffe://quick-wa/gateway/" + m.cfg.GatewayID)
-	csr, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{Subject: pkix.Name{CommonName: m.cfg.GatewayID}, URIs: []*url.URL{u}}, private)
+	csr, err := x509.CreateCertificateRequest(
+		rand.Reader,
+		&x509.CertificateRequest{
+			Subject: pkix.Name{CommonName: m.cfg.GatewayID},
+			URIs:    []*url.URL{u},
+		},
+		private,
+	)
 	if err != nil {
 		return Pending{}, err
 	}
 	hash := sha256.Sum256(csr)
-	meta, _ := json.Marshal(pendingMetadata{Version: version, GatewayID: m.cfg.GatewayID, CSRHash: fmt.Sprintf("%x", hash[:])})
+	meta, _ := json.Marshal(pendingMetadata{
+		Version:   version,
+		GatewayID: m.cfg.GatewayID,
+		CSRHash:   fmt.Sprintf("%x", hash[:]),
+	})
 	pkcs8, _ := x509.MarshalPKCS8PrivateKey(private)
 	pendingDir := filepath.Join(m.cfg.Directory, ".pending.tmp")
 	_ = os.RemoveAll(pendingDir)
 	if err = os.Mkdir(pendingDir, 0o700); err != nil {
 		return Pending{}, err
 	}
-	for _, f := range []struct {
+	files := []struct {
 		name string
 		data []byte
 		mode os.FileMode
-	}{{"key.pem", pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: pkcs8}), 0o600}, {"csr.der", csr, 0o644}, {"metadata.json", append(meta, '\n'), 0o644}} {
+	}{
+		{name: "key.pem", data: pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: pkcs8}), mode: 0o600},
+		{name: "csr.der", data: csr, mode: 0o644},
+		{name: "metadata.json", data: append(meta, '\n'), mode: 0o644},
+	}
+	for _, f := range files {
 		if err = writeSync(filepath.Join(pendingDir, f.name), f.data, f.mode); err != nil {
 			return Pending{}, err
 		}
@@ -219,7 +242,14 @@ func (m *Manager) Install(in Installation) error {
 	if err != nil {
 		return err
 	}
-	if in.GatewayID != m.cfg.GatewayID || len(in.GatewayID) > 64 || len(in.ChainPEM) == 0 || len(in.ChainPEM) > 64<<10 || len(in.TrustBundlePEM) == 0 || len(in.TrustBundlePEM) > 16<<10 || in.AuthorityID == "" || len(in.AuthorityID) > 128 || in.Serial == "" || len(in.Serial) > 128 || in.NotBefore <= 0 || in.NotAfter <= in.NotBefore {
+	invalidResponse := in.GatewayID != m.cfg.GatewayID ||
+		len(in.GatewayID) > 64 ||
+		len(in.ChainPEM) == 0 || len(in.ChainPEM) > 64<<10 ||
+		len(in.TrustBundlePEM) == 0 || len(in.TrustBundlePEM) > 16<<10 ||
+		in.AuthorityID == "" || len(in.AuthorityID) > 128 ||
+		in.Serial == "" || len(in.Serial) > 128 ||
+		in.NotBefore <= 0 || in.NotAfter <= in.NotBefore
+	if invalidResponse {
 		return errors.New("gateway identity: invalid enrollment response")
 	}
 	if !bytes.Equal(in.TrustBundlePEM, m.cfg.BootstrapCA) {
@@ -238,11 +268,24 @@ func (m *Manager) Install(in Installation) error {
 		return err
 	}
 	fp := sha256.Sum256(leaf.Raw)
-	signed := pki.SignedCertificate{DER: leaf.Raw, ChainPEM: in.ChainPEM, TrustBundlePEM: in.TrustBundlePEM, Fingerprint: fp[:], AuthorityID: in.AuthorityID, Serial: leaf.SerialNumber, NotBefore: leaf.NotBefore, NotAfter: leaf.NotAfter}
+	signed := pki.SignedCertificate{
+		DER:            leaf.Raw,
+		ChainPEM:       in.ChainPEM,
+		TrustBundlePEM: in.TrustBundlePEM,
+		Fingerprint:    fp[:],
+		AuthorityID:    in.AuthorityID,
+		Serial:         leaf.SerialNumber,
+		NotBefore:      leaf.NotBefore,
+		NotAfter:       leaf.NotAfter,
+	}
 	if err = pki.ValidateSignedGateway(signed, validated, m.cfg.GatewayID, time.Now().UTC()); err != nil {
 		return err
 	}
-	if leaf.SerialNumber.String() != in.Serial || leaf.NotBefore.UnixMilli() != in.NotBefore || leaf.NotAfter.UnixMilli() != in.NotAfter || !leaf.PublicKey.(ed25519.PublicKey).Equal(pending.PublicKey) {
+	metadataMismatch := leaf.SerialNumber.String() != in.Serial ||
+		leaf.NotBefore.UnixMilli() != in.NotBefore ||
+		leaf.NotAfter.UnixMilli() != in.NotAfter ||
+		!leaf.PublicKey.(ed25519.PublicKey).Equal(pending.PublicKey)
+	if metadataMismatch {
 		return errors.New("gateway identity: enrollment metadata mismatch")
 	}
 	keyPEM, err := os.ReadFile(filepath.Join(m.cfg.Directory, "pending", "key.pem"))
@@ -261,12 +304,26 @@ func (m *Manager) Install(in Installation) error {
 			_ = os.RemoveAll(filepath.Join(m.cfg.Directory, gen))
 		}
 	}()
-	meta, _ := json.Marshal(metadata{Version: version, Generation: gen, GatewayID: m.cfg.GatewayID, Authority: in.AuthorityID, Serial: in.Serial, NotBefore: in.NotBefore, NotAfter: in.NotAfter})
-	for _, f := range []struct {
+	meta, _ := json.Marshal(metadata{
+		Version:    version,
+		Generation: gen,
+		GatewayID:  m.cfg.GatewayID,
+		Authority:  in.AuthorityID,
+		Serial:     in.Serial,
+		NotBefore:  in.NotBefore,
+		NotAfter:   in.NotAfter,
+	})
+	files := []struct {
 		name string
 		data []byte
 		mode os.FileMode
-	}{{"key.pem", keyPEM, 0o600}, {"chain.pem", in.ChainPEM, 0o644}, {"trust.pem", in.TrustBundlePEM, 0o644}, {"metadata.json", append(meta, '\n'), 0o644}} {
+	}{
+		{name: "key.pem", data: keyPEM, mode: 0o600},
+		{name: "chain.pem", data: in.ChainPEM, mode: 0o644},
+		{name: "trust.pem", data: in.TrustBundlePEM, mode: 0o644},
+		{name: "metadata.json", data: append(meta, '\n'), mode: 0o644},
+	}
+	for _, f := range files {
 		if err = writeSync(filepath.Join(staging, f.name), f.data, f.mode); err != nil {
 			return err
 		}
@@ -364,7 +421,12 @@ func (m *Manager) loadGeneration(gen string) (*identity, error) {
 		return nil, e
 	}
 	var meta metadata
-	if json.Unmarshal(metaBytes, &meta) != nil || meta.Version != version || meta.Generation != gen || meta.GatewayID != m.cfg.GatewayID || !bytes.Equal(trust, m.cfg.BootstrapCA) {
+	metadataInvalid := json.Unmarshal(metaBytes, &meta) != nil ||
+		meta.Version != version ||
+		meta.Generation != gen ||
+		meta.GatewayID != m.cfg.GatewayID ||
+		!bytes.Equal(trust, m.cfg.BootstrapCA)
+	if metadataInvalid {
 		return nil, errors.New("gateway identity: invalid metadata")
 	}
 	cert, e := tls.X509KeyPair(chain, keyPEM)
@@ -376,7 +438,11 @@ func (m *Manager) loadGeneration(gen string) (*identity, error) {
 		return nil, e
 	}
 	cert.Leaf = leaf
-	if leaf.SerialNumber.String() != meta.Serial || leaf.NotBefore.UnixMilli() != meta.NotBefore || leaf.NotAfter.UnixMilli() != meta.NotAfter || !time.Now().UTC().Before(leaf.NotAfter) {
+	certMetadataInvalid := leaf.SerialNumber.String() != meta.Serial ||
+		leaf.NotBefore.UnixMilli() != meta.NotBefore ||
+		leaf.NotAfter.UnixMilli() != meta.NotAfter ||
+		!time.Now().UTC().Before(leaf.NotAfter)
+	if certMetadataInvalid {
 		return nil, errors.New("gateway identity: invalid certificate metadata")
 	}
 	private, ok := cert.PrivateKey.(ed25519.PrivateKey)
@@ -384,7 +450,14 @@ func (m *Manager) loadGeneration(gen string) (*identity, error) {
 		return nil, errors.New("gateway identity: invalid private key")
 	}
 	u, _ := url.Parse("spiffe://quick-wa/gateway/" + m.cfg.GatewayID)
-	csrDER, e := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{Subject: pkix.Name{CommonName: m.cfg.GatewayID}, URIs: []*url.URL{u}}, private)
+	csrDER, e := x509.CreateCertificateRequest(
+		rand.Reader,
+		&x509.CertificateRequest{
+			Subject: pkix.Name{CommonName: m.cfg.GatewayID},
+			URIs:    []*url.URL{u},
+		},
+		private,
+	)
 	if e != nil {
 		return nil, e
 	}
@@ -393,7 +466,16 @@ func (m *Manager) loadGeneration(gen string) (*identity, error) {
 		return nil, e
 	}
 	fingerprint := sha256.Sum256(leaf.Raw)
-	signed := pki.SignedCertificate{DER: leaf.Raw, ChainPEM: chain, TrustBundlePEM: trust, Fingerprint: fingerprint[:], AuthorityID: meta.Authority, Serial: leaf.SerialNumber, NotBefore: leaf.NotBefore, NotAfter: leaf.NotAfter}
+	signed := pki.SignedCertificate{
+		DER:            leaf.Raw,
+		ChainPEM:       chain,
+		TrustBundlePEM: trust,
+		Fingerprint:    fingerprint[:],
+		AuthorityID:    meta.Authority,
+		Serial:         leaf.SerialNumber,
+		NotBefore:      leaf.NotBefore,
+		NotAfter:       leaf.NotAfter,
+	}
 	if e = pki.ValidateSignedGateway(signed, validated, m.cfg.GatewayID, time.Now().UTC()); e != nil {
 		return nil, e
 	}

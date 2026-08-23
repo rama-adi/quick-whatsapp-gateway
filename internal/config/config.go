@@ -110,8 +110,12 @@ func (c *GatewayConfig) Validate() error {
 	if c.GatewayID == "" {
 		return fmt.Errorf("config: GATEWAY_ID must not be empty")
 	}
-	if c.ControlPlaneAddr == "" || c.CredentialDir == "" || c.BootstrapCAFile == "" {
-		return fmt.Errorf("config: GATEWAY_CONTROL_PLANE_ADDR, GATEWAY_CREDENTIAL_DIR, and GATEWAY_BOOTSTRAP_CA_FILE are required — the gateway cannot run without its control plane")
+	controlPlaneConfigured := c.ControlPlaneAddr != "" && c.CredentialDir != "" && c.BootstrapCAFile != ""
+	if !controlPlaneConfigured {
+		return fmt.Errorf(
+			"config: GATEWAY_CONTROL_PLANE_ADDR, GATEWAY_CREDENTIAL_DIR, and GATEWAY_BOOTSTRAP_CA_FILE are required" +
+				" — the gateway cannot run without its control plane",
+		)
 	}
 	if pki.ValidateGatewayID(c.GatewayID) != nil {
 		return fmt.Errorf("config: GATEWAY_ID must be canonical for the private control plane")
@@ -122,11 +126,21 @@ func (c *GatewayConfig) Validate() error {
 	if c.CertificateRenewBefore <= 0 {
 		return fmt.Errorf("config: GATEWAY_CERTIFICATE_RENEW_BEFORE must be positive")
 	}
-	if c.EngineGRPCAddr == "" || c.EngineGRPCAdvertise == "" || c.JournalPath == "" || !filepath.IsAbs(c.JournalPath) {
-		return fmt.Errorf("config: GATEWAY_ENGINE_GRPC_ADDR, GATEWAY_ENGINE_GRPC_ADVERTISE_ADDR, and absolute GATEWAY_JOURNAL_PATH are required")
+	engineConfigured := c.EngineGRPCAddr != "" && c.EngineGRPCAdvertise != "" &&
+		c.JournalPath != "" && filepath.IsAbs(c.JournalPath)
+	if !engineConfigured {
+		return fmt.Errorf(
+			"config: GATEWAY_ENGINE_GRPC_ADDR, GATEWAY_ENGINE_GRPC_ADVERTISE_ADDR, and absolute" +
+				" GATEWAY_JOURNAL_PATH are required",
+		)
 	}
-	for name, value := range map[string]string{"GATEWAY_CREDENTIAL_DIR": c.CredentialDir, "GATEWAY_BOOTSTRAP_CA_FILE": c.BootstrapCAFile} {
-		if value == "" || !filepath.IsAbs(value) || filepath.Clean(value) != value || value == string(filepath.Separator) {
+	for name, value := range map[string]string{
+		"GATEWAY_CREDENTIAL_DIR":    c.CredentialDir,
+		"GATEWAY_BOOTSTRAP_CA_FILE": c.BootstrapCAFile,
+	} {
+		invalidPath := value == "" || !filepath.IsAbs(value) ||
+			filepath.Clean(value) != value || value == string(filepath.Separator)
+		if invalidPath {
 			return fmt.Errorf("config: %s must be an absolute clean non-root path", name)
 		}
 	}
@@ -189,7 +203,7 @@ func getBool(key string, def bool) bool {
 func getCSV(key string) []string {
 	v, ok := os.LookupEnv(key)
 	if !ok || strings.TrimSpace(v) == "" {
-		return nil
+		return []string{}
 	}
 	parts := strings.Split(v, ",")
 	out := make([]string, 0, len(parts))

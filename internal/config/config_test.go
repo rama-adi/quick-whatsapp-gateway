@@ -167,9 +167,9 @@ func TestGatewayControlPlaneEnvTypoFailsValidation(t *testing.T) {
 
 func TestLoadGateway_EndpointEnvPrecedence(t *testing.T) {
 	tests := []struct {
-		name      string
-		primary   string
-		wantAddr  string
+		name     string
+		primary  string
+		wantAddr string
 	}{
 		{"set", ":7001", ":7001"},
 		{"defaults", "", ":8080"},

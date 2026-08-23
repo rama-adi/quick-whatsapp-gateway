@@ -75,7 +75,7 @@ func (r *PollRepo) ListDueRecaps(ctx context.Context, nowMs int64, limit int) ([
 	}
 	out := make([]domain.PollRecapCandidate, 0, len(rows))
 	for _, row := range rows {
-		var options []string
+		options := []string{}
 		if len(row.Options) > 0 {
 			if err := json.Unmarshal(row.Options, &options); err != nil {
 				return nil, fmt.Errorf("store: decode recap poll options: %w", err)

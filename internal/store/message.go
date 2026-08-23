@@ -81,7 +81,31 @@ func (r *MessageRepo) GetByWAID(ctx context.Context, sessionID, waMessageID stri
 	if err != nil {
 		return domain.Message{}, notFound(err, "message")
 	}
-	return messageFromParts(row.ID, row.SessionID, row.WaMessageID, row.ChatJid, row.SenderLid, row.SenderJid, row.FromMe, row.Direction, row.Type, row.Body, row.QuotedMessageID, row.Mentions, row.HasMedia, row.MediaMeta, row.Status, row.AckLevel, row.Error, row.Edited, row.Deleted, row.Timestamp, row.RawJson, row.CreatedAt, row.SenderName)
+	return messageFromParts(
+		row.ID,
+		row.SessionID,
+		row.WaMessageID,
+		row.ChatJid,
+		row.SenderLid,
+		row.SenderJid,
+		row.FromMe,
+		row.Direction,
+		row.Type,
+		row.Body,
+		row.QuotedMessageID,
+		row.Mentions,
+		row.HasMedia,
+		row.MediaMeta,
+		row.Status,
+		row.AckLevel,
+		row.Error,
+		row.Edited,
+		row.Deleted,
+		row.Timestamp,
+		row.RawJson,
+		row.CreatedAt,
+		row.SenderName,
+	)
 }
 
 // AdvanceReceiptStatus applies a WhatsApp delivery/read/played receipt without
@@ -144,7 +168,11 @@ func (r *MessageRepo) MarkDeleted(ctx context.Context, sessionID, waMessageID st
 // ListByChat returns a page of a chat's messages for a session (§11 GET
 // /chats/{cid}/messages). Page 0 is newest-first; the opaque cursor is the last
 // returned id and the next page returns older rows (`id < cursor`).
-func (r *MessageRepo) ListByChat(ctx context.Context, sessionID, chatJID, cursor string, limit int) (Page[domain.Message], error) {
+func (r *MessageRepo) ListByChat(
+	ctx context.Context,
+	sessionID, chatJID, cursor string,
+	limit int,
+) (Page[domain.Message], error) {
 	afterID, err := parseStringCursor(cursor)
 	if err != nil {
 		return Page[domain.Message]{}, err
@@ -163,7 +191,31 @@ func (r *MessageRepo) ListByChat(ctx context.Context, sessionID, chatJID, cursor
 	}
 	out := make([]domain.Message, 0, len(rows))
 	for _, row := range rows {
-		m, err := messageFromParts(row.ID, row.SessionID, row.WaMessageID, row.ChatJid, row.SenderLid, row.SenderJid, row.FromMe, row.Direction, row.Type, row.Body, row.QuotedMessageID, row.Mentions, row.HasMedia, row.MediaMeta, row.Status, row.AckLevel, row.Error, row.Edited, row.Deleted, row.Timestamp, row.RawJson, row.CreatedAt, row.SenderName)
+		m, err := messageFromParts(
+			row.ID,
+			row.SessionID,
+			row.WaMessageID,
+			row.ChatJid,
+			row.SenderLid,
+			row.SenderJid,
+			row.FromMe,
+			row.Direction,
+			row.Type,
+			row.Body,
+			row.QuotedMessageID,
+			row.Mentions,
+			row.HasMedia,
+			row.MediaMeta,
+			row.Status,
+			row.AckLevel,
+			row.Error,
+			row.Edited,
+			row.Deleted,
+			row.Timestamp,
+			row.RawJson,
+			row.CreatedAt,
+			row.SenderName,
+		)
 		if err != nil {
 			return Page[domain.Message]{}, err
 		}
@@ -172,7 +224,25 @@ func (r *MessageRepo) ListByChat(ctx context.Context, sessionID, chatJID, cursor
 	return pageFromString(out, limit, func(m domain.Message) string { return m.ID }), nil
 }
 
-func messageFromParts(id, sessionID, waMessageID, chatJID string, senderLID, senderJID sql.NullString, fromMe bool, direction storedb.MessagesDirection, typ string, body, quotedMessageID sql.NullString, mentions json.RawMessage, hasMedia bool, mediaMeta json.RawMessage, status storedb.NullMessagesStatus, ackLevel sql.NullInt32, errMsg sql.NullString, edited, deleted bool, timestamp int64, rawJSON json.RawMessage, createdAt int64, senderName sql.NullString) (domain.Message, error) {
+func messageFromParts(
+	id, sessionID, waMessageID, chatJID string,
+	senderLID, senderJID sql.NullString,
+	fromMe bool,
+	direction storedb.MessagesDirection,
+	typ string,
+	body, quotedMessageID sql.NullString,
+	mentions json.RawMessage,
+	hasMedia bool,
+	mediaMeta json.RawMessage,
+	status storedb.NullMessagesStatus,
+	ackLevel sql.NullInt32,
+	errMsg sql.NullString,
+	edited, deleted bool,
+	timestamp int64,
+	rawJSON json.RawMessage,
+	createdAt int64,
+	senderName sql.NullString,
+) (domain.Message, error) {
 	m := domain.Message{
 		ID:              id,
 		SessionID:       sessionID,

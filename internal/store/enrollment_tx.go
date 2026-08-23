@@ -78,11 +78,21 @@ type RecoverEnrollmentIssuanceInput struct {
 
 func (s *EnrollmentStore) LookupSelector(ctx context.Context, id string) (SelectorRecord, error) {
 	var r SelectorRecord
-	err := s.db.QueryRowContext(ctx, "SELECT id,gateway_id,status,token_hash FROM gateway_enrollment_tokens WHERE id=?", id).Scan(&r.TokenID, &r.GatewayID, &r.Status, &r.TokenHash)
+	err := s.db.QueryRowContext(ctx,
+		"SELECT id,gateway_id,status,token_hash FROM gateway_enrollment_tokens WHERE id=?",
+		id,
+	).Scan(&r.TokenID, &r.GatewayID, &r.Status, &r.TokenHash)
 	return r, err
 }
 
-func (s *EnrollmentStore) CreatePendingWithToken(ctx context.Context, g domain.Gateway, notes *string, creator string, token domain.EnrollmentToken, audits []domain.AuditEvent) error {
+func (s *EnrollmentStore) CreatePendingWithToken(
+	ctx context.Context,
+	g domain.Gateway,
+	notes *string,
+	creator string,
+	token domain.EnrollmentToken,
+	audits []domain.AuditEvent,
+) error {
 	return s.withTx(ctx, func(t *enrollmentTx) error {
 		if err := NewGatewayRepo(t.tx).CreatePending(ctx, g, notes, &creator, 0); err != nil {
 			return err
@@ -99,7 +109,13 @@ func (s *EnrollmentStore) CreatePendingWithToken(ctx context.Context, g domain.G
 	})
 }
 
-func (s *EnrollmentStore) ReplaceLiveToken(ctx context.Context, gatewayID string, token domain.EnrollmentToken, audit domain.AuditEvent, now int64) error {
+func (s *EnrollmentStore) ReplaceLiveToken(
+	ctx context.Context,
+	gatewayID string,
+	token domain.EnrollmentToken,
+	audit domain.AuditEvent,
+	now int64,
+) error {
 	err := s.withGatewayTx(ctx, gatewayID, func(t *enrollmentTx) error {
 		if !t.gatewayPending() {
 			return ErrEnrollmentState
@@ -118,7 +134,10 @@ func (s *EnrollmentStore) ReplaceLiveToken(ctx context.Context, gatewayID string
 	return err
 }
 
-func (s *EnrollmentStore) AcquireEnrollmentLease(ctx context.Context, in AcquireEnrollmentLeaseInput) (AcquireEnrollmentLeaseResult, error) {
+func (s *EnrollmentStore) AcquireEnrollmentLease(
+	ctx context.Context,
+	in AcquireEnrollmentLeaseInput,
+) (AcquireEnrollmentLeaseResult, error) {
 	var out AcquireEnrollmentLeaseResult
 	err := s.withGatewayTx(ctx, in.GatewayID, func(t *enrollmentTx) error {
 		token, err := t.loadToken(ctx, in.TokenID, in.ExpectedHash)
@@ -165,7 +184,10 @@ func (s *EnrollmentStore) AcquireEnrollmentLease(ctx context.Context, in Acquire
 			if lock {
 				status = tokenStatusLocked
 			}
-			if _, err = t.tx.ExecContext(ctx, "UPDATE gateway_enrollment_tokens SET status=?,attempt_count=LEAST(attempt_count+1,max_attempts),redemption_nonce=NULL,csr_sha256=NULL,redeeming_at=NULL,lease_expires_at=NULL,updated_at=? WHERE id=?", status, in.Now, in.TokenID); err != nil {
+			if _, err = t.tx.ExecContext(ctx,
+				"UPDATE gateway_enrollment_tokens SET status=?,attempt_count=LEAST(attempt_count+1,max_attempts),redemption_nonce=NULL,csr_sha256=NULL,redeeming_at=NULL,lease_expires_at=NULL,updated_at=? WHERE id=?",
+				status, in.Now, in.TokenID,
+			); err != nil {
 				return err
 			}
 			if lock {
@@ -191,11 +213,17 @@ func (s *EnrollmentStore) AcquireEnrollmentLease(ctx context.Context, in Acquire
 	return out, err
 }
 
-func (s *EnrollmentStore) FinalizeEnrollmentIssuance(ctx context.Context, in FinalizeEnrollmentIssuanceInput) (domain.GatewayCertificate, error) {
+func (s *EnrollmentStore) FinalizeEnrollmentIssuance(
+	ctx context.Context,
+	in FinalizeEnrollmentIssuanceInput,
+) (domain.GatewayCertificate, error) {
 	out := in.Certificate
 	err := s.withGatewayTx(ctx, in.GatewayID, func(t *enrollmentTx) error {
 		token, err := t.loadToken(ctx, in.TokenID, in.ExpectedHash)
-		if err != nil || token.Status != tokenStatusRedeeming || !equalBytes(token.RedemptionNonce, in.Nonce) || !equalBytes(token.CSRSHA256, in.CSRHash) || token.LeaseExpiresAt == nil || *token.LeaseExpiresAt <= in.Now {
+		leaseExpired := token.LeaseExpiresAt == nil || *token.LeaseExpiresAt <= in.Now
+		materialMismatch := !equalBytes(token.RedemptionNonce, in.Nonce) ||
+			!equalBytes(token.CSRSHA256, in.CSRHash)
+		if err != nil || token.Status != tokenStatusRedeeming || materialMismatch || leaseExpired {
 			return ErrEnrollmentState
 		}
 		duplicateIssuance := false
@@ -234,7 +262,9 @@ func (s *EnrollmentStore) ReleaseEnrollmentLease(ctx context.Context, in Release
 	released := false
 	err := s.withGatewayTx(ctx, in.GatewayID, func(t *enrollmentTx) error {
 		token, err := t.loadToken(ctx, in.TokenID, in.ExpectedHash)
-		if err != nil || token.Status != tokenStatusRedeeming || !equalBytes(token.RedemptionNonce, in.Nonce) || !equalBytes(token.CSRSHA256, in.CSRHash) {
+		materialMismatch := !equalBytes(token.RedemptionNonce, in.Nonce) ||
+			!equalBytes(token.CSRSHA256, in.CSRHash)
+		if err != nil || token.Status != tokenStatusRedeeming || materialMismatch {
 			return nil
 		}
 		ok, err := newEnrollmentTokenRepo(t.tx).release(ctx, in.TokenID, in.Nonce, in.CSRHash, in.Now)
@@ -253,7 +283,10 @@ func (s *EnrollmentStore) ReleaseEnrollmentLease(ctx context.Context, in Release
 	return released, err
 }
 
-func (s *EnrollmentStore) RecoverEnrollmentIssuance(ctx context.Context, in RecoverEnrollmentIssuanceInput) (domain.GatewayCertificate, error) {
+func (s *EnrollmentStore) RecoverEnrollmentIssuance(
+	ctx context.Context,
+	in RecoverEnrollmentIssuanceInput,
+) (domain.GatewayCertificate, error) {
 	var out domain.GatewayCertificate
 	err := s.withGatewayTx(ctx, in.GatewayID, func(t *enrollmentTx) error {
 		token, err := t.loadToken(ctx, in.TokenID, in.ExpectedHash)
@@ -302,7 +335,10 @@ func (s *EnrollmentStore) withGatewayTx(ctx context.Context, gatewayID string, f
 func (t *enrollmentTx) loadGateway(ctx context.Context, id string) error {
 	var status string
 	var deleted sql.NullInt64
-	if err := t.tx.QueryRowContext(ctx, "SELECT id,status,deleted_at FROM gateways WHERE id=? FOR UPDATE", id).Scan(&t.gatewayID, &status, &deleted); err != nil {
+	if err := t.tx.QueryRowContext(ctx,
+		"SELECT id,status,deleted_at FROM gateways WHERE id=? FOR UPDATE",
+		id,
+	).Scan(&t.gatewayID, &status, &deleted); err != nil {
 		return err
 	}
 	t.gatewayStatus = status
@@ -327,7 +363,12 @@ func (t *enrollmentTx) gatewayDuplicateFinalizeEligible(duplicateIssuance bool) 
 	return duplicateIssuance && !t.gatewayDeleted && t.gatewayStatus == gatewayStatusJoining
 }
 func certificateMatches(cert domain.GatewayCertificate, gatewayID, tokenID string, csrHash []byte, now int64) bool {
-	return cert.GatewayID == gatewayID && cert.IssuanceKind == "enrollment" && cert.EnrollmentTokenID != nil && *cert.EnrollmentTokenID == tokenID && equalBytes(cert.CSRSHA256, csrHash) && cert.NotBefore <= now && cert.NotAfter > now
+	tokenMatch := cert.EnrollmentTokenID != nil && *cert.EnrollmentTokenID == tokenID
+	return cert.GatewayID == gatewayID &&
+		cert.IssuanceKind == "enrollment" &&
+		tokenMatch &&
+		equalBytes(cert.CSRSHA256, csrHash) &&
+		cert.NotBefore <= now && cert.NotAfter > now
 }
 func (t *enrollmentTx) loadToken(ctx context.Context, id string, hash []byte) (domain.EnrollmentToken, error) {
 	token, err := t.lockToken(ctx, id)

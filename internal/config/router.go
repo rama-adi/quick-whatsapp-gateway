@@ -152,11 +152,10 @@ func (c *APIConfig) Validate() error {
 		return fmt.Errorf("config: API_PUBLIC_GRPC_ADDR must differ from API_HTTP_ADDR")
 	}
 	privateConfigured := c.GatewayGRPCAddr != "" || c.GatewayTLSIdentityDir != ""
-	if !privateConfigured {
-		if c.GatewayPKI != nil {
-			return fmt.Errorf("config: private gateway PKI requires API_GATEWAY_GRPC_ADDR")
-		}
-	} else {
+	if !privateConfigured && c.GatewayPKI != nil {
+		return fmt.Errorf("config: private gateway PKI requires API_GATEWAY_GRPC_ADDR")
+	}
+	if privateConfigured {
 		if c.GatewayGRPCAddr == "" || c.GatewayTLSIdentityDir == "" {
 			return fmt.Errorf("config: API_GATEWAY_GRPC_ADDR and API_GATEWAY_TLS_IDENTITY_DIR must be configured together")
 		}
@@ -175,7 +174,14 @@ func (c *APIConfig) Validate() error {
 		if c.GatewayTLSRenewBefore >= c.GatewayPKI.LeafTTL {
 			return fmt.Errorf("config: API_GATEWAY_TLS_RENEW_BEFORE must be shorter than PKI_LEAF_TTL")
 		}
-		for _, publicAddr := range []struct{ name, value string }{{"API_HTTP_ADDR", c.HTTPAddr}, {"API_PUBLIC_GRPC_ADDR", c.PublicGRPCAddr}} {
+		publicListeners := []struct {
+			name  string
+			value string
+		}{
+			{name: "API_HTTP_ADDR", value: c.HTTPAddr},
+			{name: "API_PUBLIC_GRPC_ADDR", value: c.PublicGRPCAddr},
+		}
+		for _, publicAddr := range publicListeners {
 			overlap, overlapErr := tcpEndpointsOverlap(publicAddr.value, c.GatewayGRPCAddr)
 			if overlapErr != nil {
 				return fmt.Errorf("config: private listen address against %s: %w", publicAddr.name, overlapErr)

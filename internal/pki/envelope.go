@@ -16,7 +16,13 @@ type KeyBinding struct {
 type Envelope struct{ Ciphertext, Nonce []byte }
 
 func aad(b KeyBinding) []byte {
-	parts := [][]byte{[]byte("quick-wa/pki-key/v1"), []byte(b.AuthorityID), []byte(b.Kind), b.CertificateFingerprint, []byte(b.KeyID)}
+	parts := [][]byte{
+		[]byte("quick-wa/pki-key/v1"),
+		[]byte(b.AuthorityID),
+		[]byte(b.Kind),
+		b.CertificateFingerprint,
+		[]byte(b.KeyID),
+	}
 	var out []byte
 	for _, p := range parts {
 		var size [4]byte

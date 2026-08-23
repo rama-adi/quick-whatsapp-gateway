@@ -53,7 +53,13 @@ type Signer struct {
 }
 
 func New(db *sql.DB, cfg Config) (*Signer, error) {
-	if db == nil || len(cfg.KEK) != 32 || cfg.KeyID == "" || cfg.RootTTL <= 0 || cfg.IntermediateTTL <= 0 || cfg.IntermediateTTL >= cfg.RootTTL || cfg.RenewBefore <= 0 || cfg.RenewBefore >= cfg.IntermediateTTL {
+	invalidConfig := db == nil ||
+		len(cfg.KEK) != 32 ||
+		cfg.KeyID == "" ||
+		cfg.RootTTL <= 0 ||
+		cfg.IntermediateTTL <= 0 || cfg.IntermediateTTL >= cfg.RootTTL ||
+		cfg.RenewBefore <= 0 || cfg.RenewBefore >= cfg.IntermediateTTL
+	if invalidConfig {
 		return nil, errors.New("pki: invalid local CA config")
 	}
 	if _, err := base.NewPolicy(cfg.Policy.TTL, cfg.Policy.Skew); err != nil {
@@ -176,7 +182,16 @@ func (s *Signer) createRoot(now time.Time) (domain.PKIAuthority, error) {
 	if err != nil {
 		return domain.PKIAuthority{}, err
 	}
-	t := &x509.Certificate{SerialNumber: serial, Subject: pkix.Name{CommonName: "Quick WA Local Root"}, NotBefore: now.Add(-s.cfg.Policy.Skew), NotAfter: now.Add(s.cfg.RootTTL), IsCA: true, BasicConstraintsValid: true, MaxPathLen: 1, KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageCRLSign}
+	t := &x509.Certificate{
+		SerialNumber:          serial,
+		Subject:               pkix.Name{CommonName: "Quick WA Local Root"},
+		NotBefore:             now.Add(-s.cfg.Policy.Skew),
+		NotAfter:              now.Add(s.cfg.RootTTL),
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+		MaxPathLen:            1,
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+	}
 	der, err := x509.CreateCertificate(s.random, t, t, pub, key)
 	if err != nil {
 		return domain.PKIAuthority{}, err
@@ -200,7 +215,17 @@ func (s *Signer) createIntermediate(now time.Time, root domain.PKIAuthority) (do
 	if rc.NotAfter.Before(notAfter) {
 		notAfter = rc.NotAfter
 	}
-	t := &x509.Certificate{SerialNumber: serial, Subject: pkix.Name{CommonName: "Quick WA Local Intermediate"}, NotBefore: now.Add(-s.cfg.Policy.Skew), NotAfter: notAfter, IsCA: true, BasicConstraintsValid: true, MaxPathLen: 0, MaxPathLenZero: true, KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageCRLSign}
+	t := &x509.Certificate{
+		SerialNumber:          serial,
+		Subject:               pkix.Name{CommonName: "Quick WA Local Intermediate"},
+		NotBefore:             now.Add(-s.cfg.Policy.Skew),
+		NotAfter:              notAfter,
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+		MaxPathLen:            0,
+		MaxPathLenZero:        true,
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+	}
 	der, err := x509.CreateCertificate(s.random, t, rc, pub, rk)
 	if err != nil {
 		return domain.PKIAuthority{}, err
@@ -212,18 +237,48 @@ func (s *Signer) createIntermediate(now time.Time, root domain.PKIAuthority) (do
 	id := identifier.String()
 	return s.row(id, "intermediate", &root.ID, der, key, now)
 }
-func (s *Signer) row(id, kind string, parent *string, der []byte, key ed25519.PrivateKey, now time.Time) (domain.PKIAuthority, error) {
+func (s *Signer) row(
+	id, kind string,
+	parent *string,
+	der []byte,
+	key ed25519.PrivateKey,
+	now time.Time,
+) (domain.PKIAuthority, error) {
 	fp := sha256.Sum256(der)
 	pkcs8, err := x509.MarshalPKCS8PrivateKey(key)
 	if err != nil {
 		return domain.PKIAuthority{}, err
 	}
-	env, err := base.SealKey(s.cfg.KEK, pkcs8, base.KeyBinding{AuthorityID: id, Kind: kind, KeyID: s.cfg.KeyID, CertificateFingerprint: fp[:]}, s.random)
+	env, err := base.SealKey(
+		s.cfg.KEK,
+		pkcs8,
+		base.KeyBinding{
+			AuthorityID:            id,
+			Kind:                   kind,
+			KeyID:                  s.cfg.KeyID,
+			CertificateFingerprint: fp[:],
+		},
+		s.random,
+	)
 	if err != nil {
 		return domain.PKIAuthority{}, err
 	}
 	cert, _ := x509.ParseCertificate(der)
-	return domain.PKIAuthority{ID: id, Kind: kind, ParentAuthorityID: parent, Status: "active", CertificatePEM: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})), CertificateFingerprint: fp[:], EncryptedPrivateKey: env.Ciphertext, PrivateKeyNonce: env.Nonce, EncryptionKeyID: s.cfg.KeyID, NotBefore: millis(cert.NotBefore), NotAfter: millis(cert.NotAfter), CreatedAt: millis(now), UpdatedAt: millis(now)}, nil
+	return domain.PKIAuthority{
+		ID:                     id,
+		Kind:                   kind,
+		ParentAuthorityID:      parent,
+		Status:                 "active",
+		CertificatePEM:         string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})),
+		CertificateFingerprint: fp[:],
+		EncryptedPrivateKey:    env.Ciphertext,
+		PrivateKeyNonce:        env.Nonce,
+		EncryptionKeyID:        s.cfg.KeyID,
+		NotBefore:              millis(cert.NotBefore),
+		NotAfter:               millis(cert.NotAfter),
+		CreatedAt:              millis(now),
+		UpdatedAt:              millis(now),
+	}, nil
 }
 func (s *Signer) validate(a domain.PKIAuthority, now time.Time) (*x509.Certificate, ed25519.PrivateKey, error) {
 	if a.Status != "active" || (a.Kind != "root" && a.Kind != "intermediate") {
@@ -256,7 +311,16 @@ func (s *Signer) validate(a domain.PKIAuthority, now time.Time) (*x509.Certifica
 	if a.Kind == "intermediate" && (a.ParentAuthorityID == nil || !cert.MaxPathLenZero) {
 		return nil, nil, errors.New("invalid intermediate")
 	}
-	plain, err := base.OpenKey(s.cfg.KEK, base.Envelope{Ciphertext: a.EncryptedPrivateKey, Nonce: a.PrivateKeyNonce}, base.KeyBinding{AuthorityID: a.ID, Kind: a.Kind, KeyID: a.EncryptionKeyID, CertificateFingerprint: a.CertificateFingerprint})
+	plain, err := base.OpenKey(
+		s.cfg.KEK,
+		base.Envelope{Ciphertext: a.EncryptedPrivateKey, Nonce: a.PrivateKeyNonce},
+		base.KeyBinding{
+			AuthorityID:            a.ID,
+			Kind:                   a.Kind,
+			KeyID:                  a.EncryptionKeyID,
+			CertificateFingerprint: a.CertificateFingerprint,
+		},
+	)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -290,10 +354,14 @@ func (s *Signer) prepare(root, intermediate domain.PKIAuthority, now time.Time) 
 	if err != nil {
 		return nil, err
 	}
-	if intermediate.ParentAuthorityID == nil || *intermediate.ParentAuthorityID != root.ID || ic.CheckSignatureFrom(rc) != nil {
+	hierarchyInvalid := intermediate.ParentAuthorityID == nil ||
+		*intermediate.ParentAuthorityID != root.ID
+	if hierarchyInvalid || ic.CheckSignatureFrom(rc) != nil {
 		return nil, errors.New("pki: invalid hierarchy")
 	}
-	if now.Before(rc.NotBefore) || !now.Before(rc.NotAfter) || now.Before(ic.NotBefore) || !now.Before(ic.NotAfter) {
+	outsideValidity := now.Before(rc.NotBefore) || !now.Before(rc.NotAfter) ||
+		now.Before(ic.NotBefore) || !now.Before(ic.NotAfter)
+	if outsideValidity {
 		return nil, errors.New("pki: hierarchy outside validity window")
 	}
 	return &cached{root: root, intermediate: intermediate, rootCert: rc, intermediateCert: ic}, nil
@@ -330,7 +398,14 @@ func (s *Signer) SignGateway(ctx context.Context, req base.SignRequest) (base.Si
 	if err != nil || issuer.CheckSignatureFrom(c.rootCert) != nil {
 		return base.SignedCertificate{}, errors.New("pki: cached issuer validation failed")
 	}
-	t, err := base.NewLeafTemplate(req.GatewayID, validated, s.cfg.Policy, now, c.intermediateCert.NotAfter, s.random)
+	t, err := base.NewLeafTemplate(
+		req.GatewayID,
+		validated,
+		s.cfg.Policy,
+		now,
+		c.intermediateCert.NotAfter,
+		s.random,
+	)
 	if err != nil {
 		return base.SignedCertificate{}, err
 	}
@@ -344,8 +419,20 @@ func (s *Signer) SignGateway(ctx context.Context, req base.SignRequest) (base.Si
 	if err != nil {
 		return base.SignedCertificate{}, err
 	}
-	chain := append(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), []byte(c.intermediate.CertificatePEM)...)
-	return base.SignedCertificate{DER: der, ChainPEM: chain, TrustBundlePEM: []byte(c.root.CertificatePEM), Fingerprint: fp[:], AuthorityID: c.intermediate.ID, Serial: leaf.SerialNumber, NotBefore: leaf.NotBefore, NotAfter: leaf.NotAfter}, nil
+	chain := append(
+		pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}),
+		[]byte(c.intermediate.CertificatePEM)...,
+	)
+	return base.SignedCertificate{
+		DER:            der,
+		ChainPEM:       chain,
+		TrustBundlePEM: []byte(c.root.CertificatePEM),
+		Fingerprint:    fp[:],
+		AuthorityID:    c.intermediate.ID,
+		Serial:         leaf.SerialNumber,
+		NotBefore:      leaf.NotBefore,
+		NotAfter:       leaf.NotAfter,
+	}, nil
 }
 
 func (s *Signer) SignAPI(ctx context.Context, req base.APISignRequest) (base.SignedCertificate, error) {
@@ -368,7 +455,9 @@ func (s *Signer) SignAPI(ctx context.Context, req base.APISignRequest) (base.Sig
 	}
 	now := s.now().UTC()
 	issuer, intermediateKey, err := s.validate(c.intermediate, now)
-	if err != nil || issuer.CheckSignatureFrom(c.rootCert) != nil || now.Before(issuer.NotBefore) || !now.Before(issuer.NotAfter) {
+	if err != nil ||
+		issuer.CheckSignatureFrom(c.rootCert) != nil ||
+		now.Before(issuer.NotBefore) || !now.Before(issuer.NotAfter) {
 		return base.SignedCertificate{}, errors.New("pki: cached issuer validation failed")
 	}
 	template, err := base.NewAPILeafTemplate(req.PublicKey, s.cfg.Policy, now, issuer.NotAfter, s.random)
@@ -384,8 +473,20 @@ func (s *Signer) SignAPI(ctx context.Context, req base.APISignRequest) (base.Sig
 		return base.SignedCertificate{}, err
 	}
 	fingerprint := sha256.Sum256(der)
-	chain := append(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), []byte(c.intermediate.CertificatePEM)...)
-	out := base.SignedCertificate{DER: der, ChainPEM: chain, TrustBundlePEM: []byte(c.root.CertificatePEM), Fingerprint: fingerprint[:], AuthorityID: c.intermediate.ID, Serial: leaf.SerialNumber, NotBefore: leaf.NotBefore, NotAfter: leaf.NotAfter}
+	chain := append(
+		pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}),
+		[]byte(c.intermediate.CertificatePEM)...,
+	)
+	out := base.SignedCertificate{
+		DER:            der,
+		ChainPEM:       chain,
+		TrustBundlePEM: []byte(c.root.CertificatePEM),
+		Fingerprint:    fingerprint[:],
+		AuthorityID:    c.intermediate.ID,
+		Serial:         leaf.SerialNumber,
+		NotBefore:      leaf.NotBefore,
+		NotAfter:       leaf.NotAfter,
+	}
 	if err = base.ValidateSignedAPI(out, req.PublicKey, now); err != nil {
 		return base.SignedCertificate{}, fmt.Errorf("pki: invalid API identity output: %w", err)
 	}
@@ -433,21 +534,55 @@ func (m mysqlAuthorityRepository) RetireActiveIntermediate(ctx context.Context, 
 	return err
 }
 
+const loadActiveQuery = "SELECT id,kind,parent_authority_id,status,certificate_pem,certificate_fingerprint,encrypted_private_key,private_key_nonce,encryption_key_id,not_before,not_after,created_at,updated_at FROM pki_authorities WHERE kind=? AND status='active' LIMIT 1 FOR UPDATE"
+
 func loadActive(ctx context.Context, tx *sql.Tx, kind string) (domain.PKIAuthority, error) {
 	var a domain.PKIAuthority
 	var parent sql.NullString
-	err := tx.QueryRowContext(ctx, "SELECT id,kind,parent_authority_id,status,certificate_pem,certificate_fingerprint,encrypted_private_key,private_key_nonce,encryption_key_id,not_before,not_after,created_at,updated_at FROM pki_authorities WHERE kind=? AND status='active' LIMIT 1 FOR UPDATE", kind).Scan(&a.ID, &a.Kind, &parent, &a.Status, &a.CertificatePEM, &a.CertificateFingerprint, &a.EncryptedPrivateKey, &a.PrivateKeyNonce, &a.EncryptionKeyID, &a.NotBefore, &a.NotAfter, &a.CreatedAt, &a.UpdatedAt)
+	err := tx.QueryRowContext(ctx, loadActiveQuery, kind).Scan(
+		&a.ID,
+		&a.Kind,
+		&parent,
+		&a.Status,
+		&a.CertificatePEM,
+		&a.CertificateFingerprint,
+		&a.EncryptedPrivateKey,
+		&a.PrivateKeyNonce,
+		&a.EncryptionKeyID,
+		&a.NotBefore,
+		&a.NotAfter,
+		&a.CreatedAt,
+		&a.UpdatedAt,
+	)
 	if parent.Valid {
 		a.ParentAuthorityID = &parent.String
 	}
 	return a, err
 }
 func insert(ctx context.Context, tx *sql.Tx, a domain.PKIAuthority) error {
+	const insertQuery = "INSERT INTO pki_authorities(id,kind,parent_authority_id,parent_kind,status,certificate_pem,certificate_fingerprint,encrypted_private_key,private_key_nonce,encryption_key_id,not_before,not_after,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
 	var pk any
 	if a.Kind == "intermediate" {
 		pk = "root"
 	}
-	_, err := tx.ExecContext(ctx, "INSERT INTO pki_authorities(id,kind,parent_authority_id,parent_kind,status,certificate_pem,certificate_fingerprint,encrypted_private_key,private_key_nonce,encryption_key_id,not_before,not_after,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)", a.ID, a.Kind, a.ParentAuthorityID, pk, "active", a.CertificatePEM, a.CertificateFingerprint, a.EncryptedPrivateKey, a.PrivateKeyNonce, a.EncryptionKeyID, a.NotBefore, a.NotAfter, a.CreatedAt, a.UpdatedAt)
+	_, err := tx.ExecContext(
+		ctx,
+		insertQuery,
+		a.ID,
+		a.Kind,
+		a.ParentAuthorityID,
+		pk,
+		"active",
+		a.CertificatePEM,
+		a.CertificateFingerprint,
+		a.EncryptedPrivateKey,
+		a.PrivateKeyNonce,
+		a.EncryptionKeyID,
+		a.NotBefore,
+		a.NotAfter,
+		a.CreatedAt,
+		a.UpdatedAt,
+	)
 	return err
 }
 func millis(t time.Time) int64 { return t.UnixMilli() }

@@ -37,7 +37,16 @@ func NewAPIKeyRepo(db storedb.DBTX) *APIKeyRepo { return &APIKeyRepo{q: storedb.
 // `expires_at`/`created_at` are MySQL TIMESTAMP(3) (DATETIME), NOT epoch-ms BIGINT,
 // so they scan as time and convert to epoch-ms for the domain. refill/rateLimit/
 // metadata columns are ignored for now (§4.2).
-func apiKeyFromFields(id string, name sql.NullString, keyHash string, refID sql.NullString, enabled sql.NullBool, expiresAt sql.NullTime, permissions sql.NullString, createdAt sql.NullTime) (domain.APIKey, error) {
+func apiKeyFromFields(
+	id string,
+	name sql.NullString,
+	keyHash string,
+	refID sql.NullString,
+	enabled sql.NullBool,
+	expiresAt sql.NullTime,
+	permissions sql.NullString,
+	createdAt sql.NullTime,
+) (domain.APIKey, error) {
 	k := domain.APIKey{
 		ID:      id,
 		Name:    name.String,
@@ -104,7 +113,16 @@ func (r *APIKeyRepo) GetByHash(ctx context.Context, keyHash string) (domain.APIK
 	if err != nil {
 		return domain.APIKey{}, notFound(err, "api key")
 	}
-	return apiKeyFromFields(row.ID, row.Name, row.Key, row.ReferenceID, row.Enabled, row.ExpiresAt, row.Permissions, row.CreatedAt)
+	return apiKeyFromFields(
+		row.ID,
+		row.Name,
+		row.Key,
+		row.ReferenceID,
+		row.Enabled,
+		row.ExpiresAt,
+		row.Permissions,
+		row.CreatedAt,
+	)
 }
 
 // GetByID fetches a key by id. Maps no-rows to not_found.
@@ -113,7 +131,16 @@ func (r *APIKeyRepo) GetByID(ctx context.Context, id string) (domain.APIKey, err
 	if err != nil {
 		return domain.APIKey{}, notFound(err, "api key")
 	}
-	return apiKeyFromFields(row.ID, row.Name, row.Key, row.ReferenceID, row.Enabled, row.ExpiresAt, row.Permissions, row.CreatedAt)
+	return apiKeyFromFields(
+		row.ID,
+		row.Name,
+		row.Key,
+		row.ReferenceID,
+		row.Enabled,
+		row.ExpiresAt,
+		row.Permissions,
+		row.CreatedAt,
+	)
 }
 
 // TouchLastRequest best-effort stamps better-auth's `last_request` column on use.

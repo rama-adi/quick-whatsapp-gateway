@@ -62,7 +62,19 @@ func (r *ChatRepo) Get(ctx context.Context, sessionID, chatJID string) (domain.C
 	if err != nil {
 		return domain.Chat{}, notFound(err, "chat")
 	}
-	return chatFromParts(row.ID, row.SessionID, row.ChatJid, row.Type, row.Name, row.LastMessageAt, row.UnreadCount, row.Archived, row.Pinned, row.MutedUntil, row.Aliases)
+	return chatFromParts(
+		row.ID,
+		row.SessionID,
+		row.ChatJid,
+		row.Type,
+		row.Name,
+		row.LastMessageAt,
+		row.UnreadCount,
+		row.Archived,
+		row.Pinned,
+		row.MutedUntil,
+		row.Aliases,
+	)
 }
 
 // ListBySession returns a page of real conversations for a session, newest
@@ -88,7 +100,19 @@ func (r *ChatRepo) ListBySession(ctx context.Context, sessionID, cursor string, 
 	}
 	out := make([]domain.Chat, 0, len(rows))
 	for _, row := range rows {
-		c, err := chatFromParts(row.ID, row.SessionID, row.ChatJid, row.Type, row.Name, row.LastMessageAt, row.UnreadCount, row.Archived, row.Pinned, row.MutedUntil, row.Aliases)
+		c, err := chatFromParts(
+			row.ID,
+			row.SessionID,
+			row.ChatJid,
+			row.Type,
+			row.Name,
+			row.LastMessageAt,
+			row.UnreadCount,
+			row.Archived,
+			row.Pinned,
+			row.MutedUntil,
+			row.Aliases,
+		)
 		if err != nil {
 			return Page[domain.Chat]{}, err
 		}
@@ -133,7 +157,13 @@ func encodeChatListCursor(ts int64, id uint64) string {
 // UpdateFlags sets the user-managed chat flags (§11 PATCH archive/pin/mute and
 // read). All four are written from the struct so the caller passes the full
 // desired state.
-func (r *ChatRepo) UpdateFlags(ctx context.Context, sessionID, chatJID string, archived, pinned bool, mutedUntil *int64, unreadCount int) error {
+func (r *ChatRepo) UpdateFlags(
+	ctx context.Context,
+	sessionID, chatJID string,
+	archived, pinned bool,
+	mutedUntil *int64,
+	unreadCount int,
+) error {
 	n, err := r.q.UpdateChatFlags(ctx, storedb.UpdateChatFlagsParams{
 		Archived:    archived,
 		Pinned:      pinned,
@@ -157,7 +187,17 @@ func (r *ChatRepo) Delete(ctx context.Context, sessionID, chatJID string) error 
 	return rowsAffectedOrNotFound(n, "chat")
 }
 
-func chatFromParts(id uint64, sessionID, chatJID string, typ storedb.ChatsType, name sql.NullString, lastMessageAt sql.NullInt64, unreadCount int32, archived, pinned bool, mutedUntil sql.NullInt64, aliases any) (domain.Chat, error) {
+func chatFromParts(
+	id uint64,
+	sessionID, chatJID string,
+	typ storedb.ChatsType,
+	name sql.NullString,
+	lastMessageAt sql.NullInt64,
+	unreadCount int32,
+	archived, pinned bool,
+	mutedUntil sql.NullInt64,
+	aliases any,
+) (domain.Chat, error) {
 	c := domain.Chat{
 		ID:            id,
 		SessionID:     sessionID,

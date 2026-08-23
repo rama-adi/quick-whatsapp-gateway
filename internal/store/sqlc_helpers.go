@@ -57,7 +57,10 @@ func journalStatePtr(s storedb.GatewaysJournalState, valid bool) *string {
 		return nil
 	}
 	switch s {
-	case storedb.GatewaysJournalStateHealthy, storedb.GatewaysJournalStateDegraded, storedb.GatewaysJournalStatePaused, storedb.GatewaysJournalStateCritical:
+	case storedb.GatewaysJournalStateHealthy,
+		storedb.GatewaysJournalStateDegraded,
+		storedb.GatewaysJournalStatePaused,
+		storedb.GatewaysJournalStateCritical:
 		v := string(s)
 		return &v
 	default:

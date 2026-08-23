@@ -76,7 +76,10 @@ func (m *Manager) Ensure(ctx context.Context) error {
 			m.active.Store(loaded)
 		}
 	}
-	if incumbent != nil && now.Before(incumbent.notAfter) && now.Add(m.cfg.RenewBefore).Before(incumbent.notAfter) {
+	incumbentUsable := incumbent != nil &&
+		now.Before(incumbent.notAfter) &&
+		now.Add(m.cfg.RenewBefore).Before(incumbent.notAfter)
+	if incumbentUsable {
 		return nil
 	}
 	issued, err := m.issue(ctx, now, incumbent)
@@ -183,7 +186,14 @@ func (m *Manager) issue(ctx context.Context, now time.Time, incumbent *loadedIde
 	if err != nil {
 		return nil, err
 	}
-	meta := metadata{Version: formatVersion, Generation: generation, Authority: signed.AuthorityID, Serial: signed.Serial.String(), NotBefore: signed.NotBefore.UnixMilli(), NotAfter: signed.NotAfter.UnixMilli()}
+	meta := metadata{
+		Version:    formatVersion,
+		Generation: generation,
+		Authority:  signed.AuthorityID,
+		Serial:     signed.Serial.String(),
+		NotBefore:  signed.NotBefore.UnixMilli(),
+		NotAfter:   signed.NotAfter.UnixMilli(),
+	}
 	metaJSON, err := json.Marshal(meta)
 	if err != nil {
 		return nil, err
@@ -195,16 +205,17 @@ func (m *Manager) issue(ctx context.Context, now time.Time, incumbent *loadedIde
 	if err = os.Mkdir(directory, 0o700); err != nil {
 		return nil, err
 	}
-	for _, file := range []struct {
+	files := []struct {
 		name string
 		data []byte
 		mode os.FileMode
 	}{
-		{"key.pk8", pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}), 0o600},
-		{"chain.pem", signed.ChainPEM, 0o644},
-		{"trust.pem", signed.TrustBundlePEM, 0o644},
-		{"metadata.json", append(metaJSON, '\n'), 0o644},
-	} {
+		{name: "key.pk8", data: pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}), mode: 0o600},
+		{name: "chain.pem", data: signed.ChainPEM, mode: 0o644},
+		{name: "trust.pem", data: signed.TrustBundlePEM, mode: 0o644},
+		{name: "metadata.json", data: append(metaJSON, '\n'), mode: 0o644},
+	}
+	for _, file := range files {
 		if err = writeSynced(filepath.Join(directory, file.name), file.data, file.mode); err != nil {
 			return nil, err
 		}
@@ -276,8 +287,20 @@ func (m *Manager) loadGeneration(generation string, now time.Time) (*loadedIdent
 		return nil, err
 	}
 	fingerprint := sha256Sum(leaf.Raw)
-	signed := pki.SignedCertificate{DER: leaf.Raw, ChainPEM: chain, TrustBundlePEM: trust, Fingerprint: fingerprint, AuthorityID: meta.Authority, Serial: leaf.SerialNumber, NotBefore: leaf.NotBefore, NotAfter: leaf.NotAfter}
-	if meta.Serial != leaf.SerialNumber.String() || meta.NotBefore != leaf.NotBefore.UnixMilli() || meta.NotAfter != leaf.NotAfter.UnixMilli() || pki.ValidateSignedAPI(signed, privateKey.Public().(ed25519.PublicKey), now) != nil {
+	signed := pki.SignedCertificate{
+		DER:            leaf.Raw,
+		ChainPEM:       chain,
+		TrustBundlePEM: trust,
+		Fingerprint:    fingerprint,
+		AuthorityID:    meta.Authority,
+		Serial:         leaf.SerialNumber,
+		NotBefore:      leaf.NotBefore,
+		NotAfter:       leaf.NotAfter,
+	}
+	metadataMismatch := meta.Serial != leaf.SerialNumber.String() ||
+		meta.NotBefore != leaf.NotBefore.UnixMilli() ||
+		meta.NotAfter != leaf.NotAfter.UnixMilli()
+	if metadataMismatch || pki.ValidateSignedAPI(signed, privateKey.Public().(ed25519.PublicKey), now) != nil {
 		return nil, errors.New("API identity: persisted identity validation failed")
 	}
 	tlsCert, err := tls.X509KeyPair(chain, keyPEM)
@@ -285,7 +308,13 @@ func (m *Manager) loadGeneration(generation string, now time.Time) (*loadedIdent
 		return nil, err
 	}
 	tlsCert.Leaf = leaf
-	return &loadedIdentity{generation: generation, key: privateKey, cert: &tlsCert, notBefore: leaf.NotBefore, notAfter: leaf.NotAfter}, nil
+	return &loadedIdentity{
+		generation: generation,
+		key:        privateKey,
+		cert:       &tlsCert,
+		notBefore:  leaf.NotBefore,
+		notAfter:   leaf.NotAfter,
+	}, nil
 }
 
 func (m *Manager) prune(current, previous string) {

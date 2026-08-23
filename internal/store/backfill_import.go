@@ -101,7 +101,9 @@ func (r *BackfillImportRepo) LatestForSession(ctx context.Context, sessionID str
 // LastSuccessAt returns the created_at of the most recent succeeded import for a
 // session, and whether one exists — the quota check (once per 24h for non-admins).
 func (r *BackfillImportRepo) LastSuccessAt(ctx context.Context, sessionID string) (int64, bool, error) {
-	at, err := r.q.LastSuccessfulBackfillImportCreatedAt(ctx, storedb.LastSuccessfulBackfillImportCreatedAtParams{SessionID: sessionID})
+	at, err := r.q.LastSuccessfulBackfillImportCreatedAt(ctx, storedb.LastSuccessfulBackfillImportCreatedAtParams{
+		SessionID: sessionID,
+	})
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return 0, false, nil

@@ -58,7 +58,12 @@ func (r *EventLogRepo) Append(ctx context.Context, e domain.EventLogEntry) (uint
 // optionally filtered to one session (sessionID == "" = all the organization's
 // sessions). Ordered by id ASC — the monotonic cursor — so the stream replays in
 // order and the next cursor is the last returned id. This backs §9 ?since=.
-func (r *EventLogRepo) ListSince(ctx context.Context, organizationID, sessionID string, afterID uint64, limit int) ([]domain.EventLogEntry, error) {
+func (r *EventLogRepo) ListSince(
+	ctx context.Context,
+	organizationID, sessionID string,
+	afterID uint64,
+	limit int,
+) ([]domain.EventLogEntry, error) {
 	limit = normLimit(limit)
 
 	var rows []storedb.EventLog
