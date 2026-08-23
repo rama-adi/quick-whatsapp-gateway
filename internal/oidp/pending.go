@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -166,7 +167,15 @@ func (s *PendingStore) Create(ctx context.Context, p PendingRequest) error {
 	if ttl <= 0 {
 		return fmt.Errorf("oidp pending create expired request")
 	}
-	ok, err := createPendingScript.Run(ctx, s.redis, []string{s.reqKey(p.BrowserCode), s.userCodeKey(p.SessionID, p.UserCode)}, string(raw), p.BrowserCode, p.ExpiresAt).Bool()
+	keys := []string{s.reqKey(p.BrowserCode), s.userCodeKey(p.SessionID, p.UserCode)}
+	ok, err := createPendingScript.Run(
+		ctx,
+		s.redis,
+		keys,
+		string(raw),
+		p.BrowserCode,
+		p.ExpiresAt,
+	).Bool()
 	if err != nil {
 		return fmt.Errorf("oidp pending create: %w", err)
 	}
@@ -230,9 +239,26 @@ func (s *PendingStore) Expire(ctx context.Context, browserCode string) (bool, er
 // reverse user-code index, and publishes the terminal state. The compare-and-set
 // prevents cancellation/expiry scans from overwriting a concurrent verification
 // or finalization.
-func (s *PendingStore) transition(ctx context.Context, browserCode, status, sessionID, clientID string, allowVerified bool, retain time.Duration) (exists, changed bool, err error) {
-	state, err := transitionScript.Run(ctx, s.redis, []string{s.reqKey(browserCode)},
-		status, sessionID, clientID, boolInt(allowVerified), retain.Milliseconds(), s.clock().UnixMilli()).Int64()
+func (s *PendingStore) transition(
+	ctx context.Context,
+	browserCode string,
+	status string,
+	sessionID string,
+	clientID string,
+	allowVerified bool,
+	retain time.Duration,
+) (exists, changed bool, err error) {
+	state, err := transitionScript.Run(
+		ctx,
+		s.redis,
+		[]string{s.reqKey(browserCode)},
+		status,
+		sessionID,
+		clientID,
+		boolInt(allowVerified),
+		retain.Milliseconds(),
+		s.clock().UnixMilli(),
+	).Int64()
 	if err != nil {
 		return false, false, err
 	}
@@ -282,10 +308,22 @@ func (s *PendingStore) ExpireBySession(ctx context.Context, sessionID string) er
 				continue
 			}
 			var p PendingRequest
-			if err := json.Unmarshal(raw, &p); err != nil || p.SessionID != sessionID || p.Status != PendingStatusPending {
+			if err := json.Unmarshal(raw, &p); err != nil {
 				continue
 			}
-			if _, _, err := s.transition(ctx, p.BrowserCode, PendingStatusExpired, sessionID, "", false, time.Minute); err != nil {
+			openForSession := p.SessionID == sessionID && p.Status == PendingStatusPending
+			if !openForSession {
+				continue
+			}
+			if _, _, err := s.transition(
+				ctx,
+				p.BrowserCode,
+				PendingStatusExpired,
+				sessionID,
+				"",
+				false,
+				time.Minute,
+			); err != nil {
 				return err
 			}
 		}
@@ -339,13 +377,33 @@ func (s *PendingStore) DenyClientPending(ctx context.Context, clientID string) (
 // single-use authorization code under a hashed key. A repeated finalization
 // returns the existing finalized request as successful, while a code collision
 // changes neither record, keeping redirect and token redemption idempotent.
-func (s *PendingStore) Finalize(ctx context.Context, browserCode string, finalized FinalizedBlock, authCode AuthCode, authTTL time.Duration) (PendingRequest, bool, error) {
+func (s *PendingStore) Finalize(
+	ctx context.Context,
+	browserCode string,
+	finalized FinalizedBlock,
+	authCode AuthCode,
+	authTTL time.Duration,
+) (PendingRequest, bool, error) {
 	authCode.ExpiresAtMS = s.clock().Add(authTTL).UnixMilli()
 	payload, err := json.Marshal(authCode)
 	if err != nil {
 		return PendingRequest{}, false, err
 	}
-	raw, err := finalizeScript.Run(ctx, s.redis, []string{s.key("oauth2:finalize:lock:" + shaKey(browserCode)), s.reqKey(browserCode), s.authCodeKey(finalized.Code)}, s.clock().UnixMilli(), finalized.Code, finalized.Redirect, string(payload), authCode.ExpiresAtMS).Text()
+	keys := []string{
+		s.key("oauth2:finalize:lock:" + shaKey(browserCode)),
+		s.reqKey(browserCode),
+		s.authCodeKey(finalized.Code),
+	}
+	raw, err := finalizeScript.Run(
+		ctx,
+		s.redis,
+		keys,
+		s.clock().UnixMilli(),
+		finalized.Code,
+		finalized.Redirect,
+		string(payload),
+		authCode.ExpiresAtMS,
+	).Text()
 	if err != nil {
 		return PendingRequest{}, false, err
 	}
@@ -381,7 +439,12 @@ func (s *PendingStore) StoreAuthCode(ctx context.Context, code string, payload A
 	if err != nil {
 		return err
 	}
-	return s.redis.Set(ctx, s.authCodeKey(code), raw, ttl).Err()
+	return s.redis.Set(
+		ctx,
+		s.authCodeKey(code),
+		raw,
+		ttl,
+	).Err()
 }
 
 var errAuthCodeExpired = errors.New("authorization code expired")
@@ -412,7 +475,12 @@ func (s *PendingStore) Subscribe(ctx context.Context, browserCode string) *redis
 	return s.redis.Subscribe(ctx, loginChannel(browserCode))
 }
 
-func (s *PendingStore) IncrementMint(ctx context.Context, sessionID string, limit int, window time.Duration) (bool, error) {
+func (s *PendingStore) IncrementMint(
+	ctx context.Context,
+	sessionID string,
+	limit int,
+	window time.Duration,
+) (bool, error) {
 	key := s.key("oauth2:rl:mint:" + sessionID)
 	n, err := s.redis.Incr(ctx, key).Result()
 	if err != nil {
@@ -429,7 +497,12 @@ func (s *PendingStore) ReserveUserCode(ctx context.Context, sessionID, userCode 
 	if ttl <= 0 {
 		return false, nil
 	}
-	return s.redis.SetNX(ctx, s.userCodeKey(sessionID, userCode), "", ttl).Result()
+	return s.redis.SetNX(
+		ctx,
+		s.userCodeKey(sessionID, userCode),
+		"",
+		ttl,
+	).Result()
 }
 
 // ClaimInput carries the normalized WhatsApp message identity and request
@@ -474,7 +547,19 @@ func (s *PendingStore) ClaimVerified(ctx context.Context, in ClaimInput) (ClaimR
 		PushName: in.PushName, GroupJID: stringPtr(in.GroupJID), VerifiedAt: in.NowMs,
 	})
 	keys := []string{s.userCodeKey(in.SessionID, in.UserCode), s.key("oauth2:rl:verify:" + shaKey(in.SenderLID))}
-	raw, err := claimScript.Run(ctx, s.redis, keys, in.SessionID, in.Mode, strings.ToLower(in.LoginCommand), string(verified), in.NowMs, int64(s.ttl/time.Millisecond), int64(300), verifiedGrace.Milliseconds()).Result()
+	raw, err := claimScript.Run(
+		ctx,
+		s.redis,
+		keys,
+		in.SessionID,
+		in.Mode,
+		strings.ToLower(in.LoginCommand),
+		string(verified),
+		in.NowMs,
+		int64(s.ttl/time.Millisecond),
+		int64(300),
+		verifiedGrace.Milliseconds(),
+	).Result()
 	if err != nil {
 		return ClaimResult{}, err
 	}
@@ -548,8 +633,20 @@ return cjson.encode({status="verified", client_id=client_id, browser_code=browse
 // ClaimWrongCode increments the per-session, per-sender abuse counter when no
 // reverse user-code match exists. Redis performs the increment and window setup
 // atomically; reaching the cap returns rate_limited without identifying requests.
-func (s *PendingStore) ClaimWrongCode(ctx context.Context, sessionID, senderLID string, nowMs int64) (ClaimResult, error) {
-	raw, err := wrongCodeScript.Run(ctx, s.redis, []string{s.key("oauth2:rl:verify:" + shaKey(senderLID))}, sessionID, nowMs, int64(300)).Result()
+func (s *PendingStore) ClaimWrongCode(
+	ctx context.Context,
+	sessionID string,
+	senderLID string,
+	nowMs int64,
+) (ClaimResult, error) {
+	raw, err := wrongCodeScript.Run(
+		ctx,
+		s.redis,
+		[]string{s.key("oauth2:rl:verify:" + shaKey(senderLID))},
+		sessionID,
+		nowMs,
+		int64(300),
+	).Result()
 	if err != nil {
 		return ClaimResult{}, err
 	}
@@ -578,7 +675,17 @@ func (s *PendingStore) DenyRecentForSender(ctx context.Context, senderLID string
 	if err != nil {
 		return ClaimResult{Status: ClaimStatusExpired}, nil
 	}
-	raw, err := stopScript.Run(ctx, s.redis, []string{s.key("oauth2:stop:block:" + shaKey(senderLID+":"+browserCode)), key}, browserCode, int64(300000)).Result()
+	keys := []string{
+		s.key("oauth2:stop:block:" + shaKey(senderLID+":"+browserCode)),
+		key,
+	}
+	raw, err := stopScript.Run(
+		ctx,
+		s.redis,
+		keys,
+		browserCode,
+		int64(300000),
+	).Result()
 	if err != nil {
 		return ClaimResult{}, err
 	}
@@ -647,7 +754,7 @@ func (s *PendingStore) key(k string) string {
 func loginChannel(browserCode string) string { return "oauth2:login:" + browserCode }
 func shaKey(v string) string {
 	sum := sha256.Sum256([]byte(v))
-	return fmt.Sprintf("%x", sum[:])
+	return hex.EncodeToString(sum[:])
 }
 func stringPtr(s string) *string {
 	if s == "" {

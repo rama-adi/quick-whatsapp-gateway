@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -65,7 +65,13 @@ type sessionApps struct {
 // NewLoginInterceptor constructs a stateless message interceptor plus an empty
 // per-session app cache. It starts no background work and is safe for concurrent
 // HandleLogin calls.
-func NewLoginInterceptor(apps ActiveAppReader, pending *PendingStore, members GroupMemberChecker, bot BotFeedback, log *slog.Logger) *LoginInterceptor {
+func NewLoginInterceptor(
+	apps ActiveAppReader,
+	pending *PendingStore,
+	members GroupMemberChecker,
+	bot BotFeedback,
+	log *slog.Logger,
+) *LoginInterceptor {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
@@ -100,7 +106,12 @@ var mentionTokenRe = regexp.MustCompile(`(^|\s)@[0-9][0-9:.]*`)
 // out as chat content; PendingStore atomically chooses the winner under duplicates.
 // Bot feedback is best effort and cannot change a successful or failed claim.
 func (l *LoginInterceptor) HandleLogin(ctx context.Context, nm *inbound.NormalizedMessage) (bool, error) {
-	if l == nil || l.apps == nil || l.pending == nil || nm == nil || nm.FromMe || nm.Kind != inbound.KindMessage {
+	if l == nil || nm == nil {
+		return false, nil
+	}
+	unwired := l.apps == nil || l.pending == nil
+	notChatMessage := nm.FromMe || nm.Kind != inbound.KindMessage
+	if unwired || notChatMessage {
 		return false, nil
 	}
 	body := strings.TrimSpace(nm.Body)
@@ -109,8 +120,17 @@ func (l *LoginInterceptor) HandleLogin(ctx context.Context, nm *inbound.Normaliz
 	}
 	if strings.EqualFold(body, "STOP") && nm.IsDM {
 		res, err := l.pending.DenyRecentForSender(ctx, nm.SenderLID)
-		if err == nil && res.Status == ClaimStatusDenied && l.bot != nil {
-			_ = l.bot.React(ctx, nm.OrganizationID, nm.SessionID, nm.ChatJID, nm.SenderJID, nm.WAMessageID, "🛑")
+		denied := err == nil && res.Status == ClaimStatusDenied
+		if denied && l.bot != nil {
+			_ = l.bot.React(
+				ctx,
+				nm.OrganizationID,
+				nm.SessionID,
+				nm.ChatJID,
+				nm.SenderJID,
+				nm.WAMessageID,
+				"🛑",
+			)
 		}
 		return res.Status == ClaimStatusDenied, err
 	}
@@ -136,15 +156,30 @@ func (l *LoginInterceptor) HandleLogin(ctx context.Context, nm *inbound.Normaliz
 	if nm.IsGroup {
 		mode = ModeGroup
 	} else if !nm.IsDM {
-		_ = l.feedback(ctx, nm, ClaimResult{Status: ClaimStatusWrong}, nil)
+		_ = l.feedback(
+			ctx,
+			nm,
+			ClaimResult{Status: ClaimStatusWrong},
+			nil,
+		)
 		return true, nil
 	}
 
 	candidates := apps.byLower[command]
 	if mode == ModeGroup {
-		candidates = filterGroupCandidates(ctx, l.members, nm, candidates)
+		candidates = filterGroupCandidates(
+			ctx,
+			l.members,
+			nm,
+			candidates,
+		)
 		if len(candidates) == 0 {
-			_ = l.feedback(ctx, nm, ClaimResult{Status: ClaimStatusWrong}, nil)
+			_ = l.feedback(
+				ctx,
+				nm,
+				ClaimResult{Status: ClaimStatusWrong},
+				nil,
+			)
 			return true, nil
 		}
 	}
@@ -162,22 +197,38 @@ func (l *LoginInterceptor) HandleLogin(ctx context.Context, nm *inbound.Normaliz
 		return true, err
 	}
 	if res.Status == ClaimStatusExpired || res.Status == ClaimStatusWrong {
-		if counted, countErr := l.pending.ClaimWrongCode(ctx, nm.SessionID, nm.SenderLID, l.now()); countErr == nil && counted.Status == ClaimStatusRateLimited {
+		counted, countErr := l.pending.ClaimWrongCode(
+			ctx,
+			nm.SessionID,
+			nm.SenderLID,
+			l.now(),
+		)
+		if countErr == nil && counted.Status == ClaimStatusRateLimited {
 			res = counted
 		}
 	}
+	matchCandidate := func(c domain.OAuthClient) bool {
+		return c.ClientID == res.ClientID || strings.EqualFold(c.LoginCommand, command)
+	}
 	var app *domain.OAuthClient
-	for i := range candidates {
-		if candidates[i].ClientID == res.ClientID || strings.EqualFold(candidates[i].LoginCommand, command) {
-			app = &candidates[i]
-			break
-		}
+	if idx := slices.IndexFunc(candidates, matchCandidate); idx >= 0 {
+		app = &candidates[idx]
 	}
 	if res.Status == ClaimStatusVerified && res.BrowserCode != "" {
 		ttl := time.Duration(maxInt64(0, int64(10*time.Minute)))
-		_ = l.pending.RememberStop(ctx, nm.SenderLID, res.BrowserCode, ttl)
+		_ = l.pending.RememberStop(
+			ctx,
+			nm.SenderLID,
+			res.BrowserCode,
+			ttl,
+		)
 	}
-	_ = l.feedback(ctx, nm, res, app)
+	_ = l.feedback(
+		ctx,
+		nm,
+		res,
+		app,
+	)
 	return true, nil
 }
 
@@ -217,21 +268,32 @@ func buildSessionApps(clients []domain.OAuthClient) sessionApps {
 	for cmd := range commands {
 		parts = append(parts, regexp.QuoteMeta(cmd))
 	}
-	sort.Strings(parts)
+	slices.Sort(parts)
 	return sessionApps{
 		apps: clients, byLower: by,
 		re: regexp.MustCompile(`(?i)^\s*(` + strings.Join(parts, "|") + `)\s+(\d{6})\s*$`),
 	}
 }
 
-func filterGroupCandidates(ctx context.Context, members GroupMemberChecker, nm *inbound.NormalizedMessage, in []domain.OAuthClient) []domain.OAuthClient {
+func filterGroupCandidates(
+	ctx context.Context,
+	members GroupMemberChecker,
+	nm *inbound.NormalizedMessage,
+	in []domain.OAuthClient,
+) []domain.OAuthClient {
 	out := make([]domain.OAuthClient, 0, len(in))
 	for _, c := range in {
-		if c.GroupJID == nil || !sameJID(*c.GroupJID, nm.ChatJID) || !mentionedBot(nm, c) {
+		inTargetGroup := c.GroupJID != nil && sameJID(*c.GroupJID, nm.ChatJID)
+		if !inTargetGroup || !mentionedBot(nm, c) {
 			continue
 		}
 		if members != nil {
-			ok, err := members.IsActiveGroupMember(ctx, nm.SessionID, nm.ChatJID, nm.SenderLID)
+			ok, err := members.IsActiveGroupMember(
+				ctx,
+				nm.SessionID,
+				nm.ChatJID,
+				nm.SenderLID,
+			)
 			if err != nil || !ok {
 				continue
 			}
@@ -317,7 +379,12 @@ func canonicalJIDKeys(raw string) []jidKey {
 	return []jidKey{{user: user, server: server}}
 }
 
-func (l *LoginInterceptor) feedback(ctx context.Context, nm *inbound.NormalizedMessage, res ClaimResult, app *domain.OAuthClient) error {
+func (l *LoginInterceptor) feedback(
+	ctx context.Context,
+	nm *inbound.NormalizedMessage,
+	res ClaimResult,
+	app *domain.OAuthClient,
+) error {
 	if l.bot == nil {
 		return nil
 	}
@@ -332,7 +399,11 @@ func (l *LoginInterceptor) feedback(ctx context.Context, nm *inbound.NormalizedM
 		if appName == "" {
 			appName = "this app"
 		}
-		text = fmt.Sprintf("You're signed in to %s. Return to your browser. Warning: this signs you in to %s. If you didn't start this, reply STOP.", appName, appName)
+		text = fmt.Sprintf(
+			"You're signed in to %s. Return to your browser. "+
+				"Warning: this signs you in to %s. If you didn't start this, reply STOP.",
+			appName, appName,
+		)
 	case ClaimStatusAlreadyUsed:
 		emoji = "⌛"
 	case ClaimStatusRateLimited:
@@ -342,10 +413,25 @@ func (l *LoginInterceptor) feedback(ctx context.Context, nm *inbound.NormalizedM
 		text = "That sign-in code is invalid or expired."
 	}
 	if emoji != "" {
-		_ = l.bot.React(ctx, nm.OrganizationID, nm.SessionID, nm.ChatJID, nm.SenderJID, nm.WAMessageID, emoji)
+		_ = l.bot.React(
+			ctx,
+			nm.OrganizationID,
+			nm.SessionID,
+			nm.ChatJID,
+			nm.SenderJID,
+			nm.WAMessageID,
+			emoji,
+		)
 	}
 	if text != "" && nm.IsDM {
-		_ = l.bot.Reply(ctx, nm.OrganizationID, nm.SessionID, nm.ChatJID, nm.WAMessageID, text)
+		_ = l.bot.Reply(
+			ctx,
+			nm.OrganizationID,
+			nm.SessionID,
+			nm.ChatJID,
+			nm.WAMessageID,
+			text,
+		)
 	}
 	return nil
 }

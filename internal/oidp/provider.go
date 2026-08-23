@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -141,7 +142,21 @@ func NewProvider(cfg ProviderConfig) *Provider {
 	if now == nil {
 		now = time.Now
 	}
-	return &Provider{clients: cfg.Clients, sessions: cfg.Sessions, groups: cfg.Groups, identities: cfg.Identities, grants: cfg.Grants, refresh: cfg.Refresh, signer: cfg.Signer, pending: cfg.Pending, webLoginURL: strings.TrimRight(cfg.WebLoginURL, "/"), issuer: strings.TrimRight(cfg.Issuer, "/"), secretPepper: cfg.SecretPepper, requestTTL: ttl, authCodeTTL: authCodeTTL, trustProxy: cfg.TrustProxy, now: now, byCode: map[string]int{}, byIP: map[string]int{}, revokedGrant: map[string]time.Time{}}
+	return &Provider{
+		clients: cfg.Clients, sessions: cfg.Sessions, groups: cfg.Groups,
+		identities: cfg.Identities, grants: cfg.Grants, refresh: cfg.Refresh,
+		signer: cfg.Signer, pending: cfg.Pending,
+		webLoginURL:  strings.TrimRight(cfg.WebLoginURL, "/"),
+		issuer:       strings.TrimRight(cfg.Issuer, "/"),
+		secretPepper: cfg.SecretPepper,
+		requestTTL:   ttl,
+		authCodeTTL:  authCodeTTL,
+		trustProxy:   cfg.TrustProxy,
+		now:          now,
+		byCode:       map[string]int{},
+		byIP:         map[string]int{},
+		revokedGrant: map[string]time.Time{},
+	}
 }
 
 // Mount registers the provider's authorization, wait/finalize, token, userinfo,
@@ -173,11 +188,21 @@ func (p *Provider) HandleAuthorize(w http.ResponseWriter, r *http.Request) {
 	clientID, redirectURI := q.Get("client_id"), q.Get("redirect_uri")
 	client, err := p.clients.GetActiveByClientID(r.Context(), clientID)
 	if clientID == "" || err != nil {
-		localOAuthError(w, http.StatusBadRequest, "invalid_client", "Unknown or disabled client.")
+		localOAuthError(
+			w,
+			http.StatusBadRequest,
+			"invalid_client",
+			"Unknown or disabled client.",
+		)
 		return
 	}
 	if !containsJSON(client.RedirectURIs, redirectURI) {
-		localOAuthError(w, http.StatusBadRequest, "invalid_request", "Invalid redirect_uri.")
+		localOAuthError(
+			w,
+			http.StatusBadRequest,
+			"invalid_request",
+			"Invalid redirect_uri.",
+		)
 		return
 	}
 	if err := validateAuthorizeBasics(q); err != nil {
@@ -186,34 +211,70 @@ func (p *Provider) HandleAuthorize(w http.ResponseWriter, r *http.Request) {
 	}
 	scopes, err := resolveScopes(client.AllowedScopes, q.Get("scope"))
 	if err != nil {
-		redirectOAuthError(w, redirectURI, "invalid_scope", q.Get("state"))
+		redirectOAuthError(
+			w,
+			redirectURI,
+			"invalid_scope",
+			q.Get("state"),
+		)
 		return
 	}
 	mode, err := resolveMode(client.Modes, q.Get("acr_values"))
 	if err != nil {
-		redirectOAuthError(w, redirectURI, "invalid_request", q.Get("state"))
+		redirectOAuthError(
+			w,
+			redirectURI,
+			"invalid_request",
+			q.Get("state"),
+		)
 		return
 	}
 	sess, err := p.sessions.Get(r.Context(), client.SessionID)
-	if err != nil || sess.OrganizationID != client.OrganizationID || sess.Status != domain.SessionWorking {
-		redirectOAuthError(w, redirectURI, "temporarily_unavailable", q.Get("state"))
+	sessionReady := err == nil && sess.OrganizationID == client.OrganizationID && sess.Status == domain.SessionWorking
+	if !sessionReady {
+		redirectOAuthError(
+			w,
+			redirectURI,
+			"temporarily_unavailable",
+			q.Get("state"),
+		)
 		return
 	}
-	allowed, err := p.pending.IncrementMint(r.Context(), client.SessionID, defaultMintLimit, p.requestTTL)
+	allowed, err := p.pending.IncrementMint(
+		r.Context(),
+		client.SessionID,
+		defaultMintLimit,
+		p.requestTTL,
+	)
 	if err != nil || !allowed {
-		redirectOAuthError(w, redirectURI, "temporarily_unavailable", q.Get("state"))
+		redirectOAuthError(
+			w,
+			redirectURI,
+			"temporarily_unavailable",
+			q.Get("state"),
+		)
 		return
 	}
 
 	browserCode, err := NewBrowserCode()
 	if err != nil {
-		redirectOAuthError(w, redirectURI, "server_error", q.Get("state"))
+		redirectOAuthError(
+			w,
+			redirectURI,
+			"server_error",
+			q.Get("state"),
+		)
 		return
 	}
 	exp := p.now().Add(p.requestTTL)
 	userCode, err := p.NewUserCode(r.Context(), client.SessionID, exp.UnixMilli())
 	if err != nil {
-		redirectOAuthError(w, redirectURI, "temporarily_unavailable", q.Get("state"))
+		redirectOAuthError(
+			w,
+			redirectURI,
+			"temporarily_unavailable",
+			q.Get("state"),
+		)
 		return
 	}
 	now := p.now()
@@ -294,7 +355,8 @@ func (p *Provider) HandleWaitStream(w http.ResponseWriter, r *http.Request) {
 			if msg == nil {
 				return
 			}
-			if msg.Payload == PendingStatusVerified || msg.Payload == PendingStatusDenied || msg.Payload == PendingStatusExpired {
+			switch msg.Payload {
+			case PendingStatusVerified, PendingStatusDenied, PendingStatusExpired:
 				writeFrame(w, map[string]string{"status": msg.Payload})
 				flusher.Flush()
 				return
@@ -315,7 +377,12 @@ func (p *Provider) HandleCancel(w http.ResponseWriter, r *http.Request) {
 func (p *Provider) HandleFinalize(w http.ResponseWriter, r *http.Request) {
 	browserCode := chi.URLParam(r, "browser_code")
 	req, err := p.pending.Load(r.Context(), browserCode)
-	if err != nil || req.Verified == nil || (req.Status != PendingStatusVerified && req.Status != PendingStatusFinalized) {
+	if err != nil || req.Verified == nil {
+		http.NotFound(w, r)
+		return
+	}
+	claimUsable := req.Status == PendingStatusVerified || req.Status == PendingStatusFinalized
+	if !claimUsable {
 		http.NotFound(w, r)
 		return
 	}
@@ -359,12 +426,29 @@ func (p *Provider) HandleFinalize(w http.ResponseWriter, r *http.Request) {
 		q.Set("iss", p.issuer)
 	}
 	u.RawQuery = q.Encode()
-	req, ok, err := p.pending.Finalize(r.Context(), browserCode, FinalizedBlock{Code: code, Redirect: u.String()}, AuthCode{GrantID: g.ID, ClientID: req.ClientID, RedirectURI: req.RedirectURI, Scopes: req.Scopes, Nonce: req.Nonce, CodeChallenge: req.CodeChallenge, CodeChallengeMethod: req.CodeChallengeMethod, ACR: "wa:" + req.Mode, AuthTime: req.Verified.VerifiedAt / 1000}, p.authCodeTTL)
-	if err != nil || !ok || req.Finalized == nil {
+	authCode := AuthCode{
+		GrantID:             g.ID,
+		ClientID:            req.ClientID,
+		RedirectURI:         req.RedirectURI,
+		Scopes:              req.Scopes,
+		Nonce:               req.Nonce,
+		CodeChallenge:       req.CodeChallenge,
+		CodeChallengeMethod: req.CodeChallengeMethod,
+		ACR:                 "wa:" + req.Mode,
+		AuthTime:            req.Verified.VerifiedAt / 1000,
+	}
+	finalized, ok, err := p.pending.Finalize(
+		r.Context(),
+		browserCode,
+		FinalizedBlock{Code: code, Redirect: u.String()},
+		authCode,
+		p.authCodeTTL,
+	)
+	if err != nil || !ok || finalized.Finalized == nil {
 		oauthJSONError(w, http.StatusInternalServerError, "server_error")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"redirect": req.Finalized.Redirect})
+	writeJSON(w, http.StatusOK, map[string]string{"redirect": finalized.Finalized.Redirect})
 }
 
 // HandleToken authenticates the OAuth client and dispatches only the authorization
@@ -393,7 +477,13 @@ func (p *Provider) HandleToken(w http.ResponseWriter, r *http.Request) {
 
 func (p *Provider) tokenFromCode(w http.ResponseWriter, r *http.Request, client domain.OAuthClient) {
 	ac, err := p.pending.RedeemAuthCode(r.Context(), r.Form.Get("code"))
-	if err != nil || ac.ClientID != client.ClientID || ac.RedirectURI != r.Form.Get("redirect_uri") || ac.CodeChallengeMethod != "S256" || !verifyPKCE(ac.CodeChallenge, r.Form.Get("code_verifier")) {
+	if err != nil {
+		oauthJSONError(w, http.StatusBadRequest, "invalid_grant")
+		return
+	}
+	redirectBound := ac.ClientID == client.ClientID && ac.RedirectURI == r.Form.Get("redirect_uri")
+	challengeOK := ac.CodeChallengeMethod == "S256" && verifyPKCE(ac.CodeChallenge, r.Form.Get("code_verifier"))
+	if !redirectBound || !challengeOK {
 		oauthJSONError(w, http.StatusBadRequest, "invalid_grant")
 		return
 	}
@@ -402,7 +492,17 @@ func (p *Provider) tokenFromCode(w http.ResponseWriter, r *http.Request, client 
 		oauthJSONError(w, http.StatusBadRequest, "invalid_grant")
 		return
 	}
-	tok, err := p.issueTokens(r.Context(), client, g, ac.Scopes, ac.Nonce, ac.ACR, ac.AuthTime, hasScope(ac.Scopes, "offline_access"), nil)
+	tok, err := p.issueTokens(
+		r.Context(),
+		client,
+		g,
+		ac.Scopes,
+		ac.Nonce,
+		ac.ACR,
+		ac.AuthTime,
+		hasScope(ac.Scopes, "offline_access"),
+		nil,
+	)
 	if err != nil {
 		oauthJSONError(w, http.StatusInternalServerError, "server_error")
 		return
@@ -438,19 +538,29 @@ func (p *Provider) tokenFromRefresh(w http.ResponseWriter, r *http.Request, clie
 		oauthJSONError(w, http.StatusBadRequest, "invalid_grant")
 		return
 	}
-	if checked, err := p.grants.GetActiveByID(r.Context(), rt.GrantID); err != nil || checked.ClientID != client.ClientID {
+	checked, err := p.grants.GetActiveByID(r.Context(), rt.GrantID)
+	if err != nil || checked.ClientID != client.ClientID {
 		_ = p.refresh.RevokeFamily(r.Context(), rt.FamilyID, now)
 		oauthJSONError(w, http.StatusBadRequest, "invalid_grant")
 		return
-	} else {
-		g = checked
 	}
+	g = checked
 	oldScopes, _ := scopesFromRaw(rt.Scopes)
 	nextScopes := oldScopes
 	if len(requestedScopes) > 0 {
 		nextScopes = requestedScopes
 	}
-	tok, err := p.issueTokens(r.Context(), client, g, nextScopes, "", g.LastACR, now/1000, false, nil)
+	tok, err := p.issueTokens(
+		r.Context(),
+		client,
+		g,
+		nextScopes,
+		"",
+		g.LastACR,
+		now/1000,
+		false,
+		nil,
+	)
 	if err != nil {
 		oauthJSONError(w, http.StatusInternalServerError, "server_error")
 		return
@@ -505,7 +615,17 @@ func (p *Provider) IsGrantRevoked(grantID string) bool {
 	return p.isGrantRevoked(grantID)
 }
 
-func (p *Provider) issueTokens(ctx context.Context, client domain.OAuthClient, g domain.OAuthGrant, scopes []string, nonce, acr string, authTime int64, withRefresh bool, parent *domain.OAuthRefreshToken) (map[string]any, error) {
+func (p *Provider) issueTokens(
+	ctx context.Context,
+	client domain.OAuthClient,
+	g domain.OAuthGrant,
+	scopes []string,
+	nonce string,
+	acr string,
+	authTime int64,
+	withRefresh bool,
+	parent *domain.OAuthRefreshToken,
+) (map[string]any, error) {
 	ident, err := p.identityByGrant(ctx, g)
 	if err != nil {
 		return nil, err
@@ -513,7 +633,8 @@ func (p *Provider) issueTokens(ctx context.Context, client domain.OAuthClient, g
 	now := p.now()
 	iat, exp := now.Unix(), now.Add(time.Duration(client.TokenTTLSeconds)*time.Second).Unix()
 	idClaims := p.identityClaims(ctx, scopes, ident, g)
-	idClaims["iss"], idClaims["aud"], idClaims["sub"], idClaims["iat"], idClaims["exp"] = p.issuer, client.ClientID, g.Sub, iat, exp
+	idClaims["iss"], idClaims["aud"], idClaims["sub"] = p.issuer, client.ClientID, g.Sub
+	idClaims["iat"], idClaims["exp"] = iat, exp
 	idClaims["acr"], idClaims["amr"], idClaims["auth_time"] = acr, []string{"whatsapp"}, authTime
 	if nonce != "" {
 		idClaims["nonce"] = nonce
@@ -523,12 +644,23 @@ func (p *Provider) issueTokens(ctx context.Context, client domain.OAuthClient, g
 		return nil, err
 	}
 	jti := domain.NewULID()
-	atClaims := map[string]any{"iss": p.issuer, "aud": client.ClientID, "sub": g.Sub, "iat": iat, "exp": exp, "scope": strings.Join(scopes, " "), "client_id": client.ClientID, "grant_id": g.ID, "jti": jti, "org_id": client.OrganizationID, "session_id": client.SessionID, "typ": "access"}
+	atClaims := map[string]any{
+		"iss": p.issuer, "aud": client.ClientID, "sub": g.Sub,
+		"iat": iat, "exp": exp, "scope": strings.Join(scopes, " "),
+		"client_id": client.ClientID, "grant_id": g.ID, "jti": jti,
+		"org_id": client.OrganizationID, "session_id": client.SessionID, "typ": "access",
+	}
 	accessToken, err := p.signer.SignJWT(ctx, atClaims)
 	if err != nil {
 		return nil, err
 	}
-	out := map[string]any{"token_type": "Bearer", "expires_in": client.TokenTTLSeconds, "id_token": idToken, "access_token": accessToken, "scope": strings.Join(scopes, " ")}
+	out := map[string]any{
+		"token_type":   "Bearer",
+		"expires_in":   client.TokenTTLSeconds,
+		"id_token":     idToken,
+		"access_token": accessToken,
+		"scope":        strings.Join(scopes, " "),
+	}
 	if withRefresh {
 		rt, err := p.createRefresh(ctx, client, g, scopes, parent)
 		if err != nil {
@@ -539,7 +671,13 @@ func (p *Provider) issueTokens(ctx context.Context, client domain.OAuthClient, g
 	return out, nil
 }
 
-func (p *Provider) createRefresh(ctx context.Context, client domain.OAuthClient, g domain.OAuthGrant, scopes []string, parent *domain.OAuthRefreshToken) (string, error) {
+func (p *Provider) createRefresh(
+	ctx context.Context,
+	client domain.OAuthClient,
+	g domain.OAuthGrant,
+	scopes []string,
+	parent *domain.OAuthRefreshToken,
+) (string, error) {
 	raw, rt, err := p.newRefreshToken(client, g, scopes, parent)
 	if err != nil {
 		return "", err
@@ -547,7 +685,12 @@ func (p *Provider) createRefresh(ctx context.Context, client domain.OAuthClient,
 	return raw, p.refresh.Create(ctx, rt)
 }
 
-func (p *Provider) newRefreshToken(client domain.OAuthClient, g domain.OAuthGrant, scopes []string, parent *domain.OAuthRefreshToken) (string, domain.OAuthRefreshToken, error) {
+func (p *Provider) newRefreshToken(
+	client domain.OAuthClient,
+	g domain.OAuthGrant,
+	scopes []string,
+	parent *domain.OAuthRefreshToken,
+) (string, domain.OAuthRefreshToken, error) {
 	id, err := randomURLToken(16)
 	if err != nil {
 		return "", domain.OAuthRefreshToken{}, err
@@ -567,7 +710,17 @@ func (p *Provider) newRefreshToken(client domain.OAuthClient, g domain.OAuthGran
 		expires = parent.ExpiresAt
 	}
 	scopesJSON, _ := json.Marshal(scopes)
-	return raw, domain.OAuthRefreshToken{ID: domain.NewULID(), GrantID: g.ID, OrganizationID: g.OrganizationID, TokenHash: shaBytes(raw), FamilyID: fam, ParentID: parentID, Scopes: scopesJSON, IssuedAt: now, ExpiresAt: expires}, nil
+	return raw, domain.OAuthRefreshToken{
+		ID:             domain.NewULID(),
+		GrantID:        g.ID,
+		OrganizationID: g.OrganizationID,
+		TokenHash:      shaBytes(raw),
+		FamilyID:       fam,
+		ParentID:       parentID,
+		Scopes:         scopesJSON,
+		IssuedAt:       now,
+		ExpiresAt:      expires,
+	}, nil
 }
 
 // HandleUserInfo accepts only a valid access token issued by this provider,
@@ -627,7 +780,15 @@ func snapshotFrame(req PendingRequest) map[string]any {
 	if req.Target.GroupName != nil {
 		target["group_name"] = *req.Target.GroupName
 	}
-	return map[string]any{"status": "pending", "app": app, "user_code": req.UserCode, "login_command": req.LoginCommand, "target": target, "scopes": req.Scopes, "expires_at": req.ExpiresAt}
+	return map[string]any{
+		"status":        "pending",
+		"app":           app,
+		"user_code":     req.UserCode,
+		"login_command": req.LoginCommand,
+		"target":        target,
+		"scopes":        req.Scopes,
+		"expires_at":    req.ExpiresAt,
+	}
 }
 
 func writeFrame(w http.ResponseWriter, v any) {
@@ -635,7 +796,12 @@ func writeFrame(w http.ResponseWriter, v any) {
 	_, _ = w.Write(append(b, '\n'))
 }
 
-func (p *Provider) target(ctx context.Context, mode string, sess domain.WASession, c domain.OAuthClient) PendingTarget {
+func (p *Provider) target(
+	ctx context.Context,
+	mode string,
+	sess domain.WASession,
+	c domain.OAuthClient,
+) PendingTarget {
 	var number, botName, groupName *string
 	if sess.PhoneNumber != nil && *sess.PhoneNumber != "" {
 		n := "+" + strings.TrimPrefix(*sess.PhoneNumber, "+")
@@ -648,7 +814,9 @@ func (p *Provider) target(ctx context.Context, mode string, sess domain.WASessio
 		botName = sess.Label
 	}
 	if mode == "group" && c.GroupJID != nil && p.groups != nil {
-		if g, err := p.groups.GetByJID(ctx, *c.GroupJID); err == nil && g.Subject != nil && *g.Subject != "" {
+		g, err := p.groups.GetByJID(ctx, *c.GroupJID)
+		hasSubject := err == nil && g.Subject != nil && *g.Subject != ""
+		if hasSubject {
 			groupName = g.Subject
 		}
 		if groupName == nil {
@@ -692,7 +860,12 @@ func (p *Provider) identityByGrant(ctx context.Context, g domain.OAuthGrant) (do
 	return p.identities.GetByID(ctx, g.WAIdentityID)
 }
 
-func (p *Provider) identityClaims(ctx context.Context, scopes []string, ident domain.Identity, g domain.OAuthGrant) map[string]any {
+func (p *Provider) identityClaims(
+	ctx context.Context,
+	scopes []string,
+	ident domain.Identity,
+	g domain.OAuthGrant,
+) map[string]any {
 	out := map[string]any{}
 	if hasScope(scopes, "profile") {
 		if ident.Name != nil && *ident.Name != "" {
@@ -712,7 +885,9 @@ func (p *Provider) identityClaims(ctx context.Context, scopes []string, ident do
 		out["wa_group_verified"] = true
 		out["wa_group_id"] = *g.LastGroupJID
 		if p.groups != nil {
-			if group, err := p.groups.GetByJID(ctx, *g.LastGroupJID); err == nil && group.Subject != nil && *group.Subject != "" {
+			group, err := p.groups.GetByJID(ctx, *g.LastGroupJID)
+			hasName := err == nil && group.Subject != nil && *group.Subject != ""
+			if hasName {
 				out["wa_group_name"] = *group.Subject
 			}
 		}
@@ -733,7 +908,13 @@ func (p *Provider) verifyAccessToken(r *http.Request) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	tok, err := jwt.Parse([]byte(raw), jwt.WithKeySet(set), jwt.WithValidate(true), jwt.WithIssuer(p.issuer), jwt.WithClock(jwt.ClockFunc(p.now)))
+	tok, err := jwt.Parse(
+		[]byte(raw),
+		jwt.WithKeySet(set),
+		jwt.WithValidate(true),
+		jwt.WithIssuer(p.issuer),
+		jwt.WithClock(jwt.ClockFunc(p.now)),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -772,12 +953,7 @@ func shaBytes(v string) []byte {
 }
 
 func hasScope(scopes []string, scope string) bool {
-	for _, s := range scopes {
-		if s == scope {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(scopes, scope)
 }
 
 func scopeSubset(next, base []string) bool {
@@ -888,7 +1064,7 @@ func NewBrowserCode() (string, error) {
 }
 
 func (p *Provider) NewUserCode(ctx context.Context, sessionID string, expiresAt int64) (string, error) {
-	for i := 0; i < 32; i++ {
+	for range 32 {
 		n, err := rand.Int(rand.Reader, big.NewInt(1000000))
 		if err != nil {
 			return "", err

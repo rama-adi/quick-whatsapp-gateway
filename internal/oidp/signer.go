@@ -96,7 +96,8 @@ func (s *Signer) JWKS(ctx context.Context) ([]byte, error) {
 	}
 	raw := make([]json.RawMessage, 0, len(keys))
 	for _, k := range keys {
-		if k.Status == KeyActive || k.Status == KeyNext || k.Status == KeyRetired {
+		publishable := k.Status == KeyActive || k.Status == KeyNext || k.Status == KeyRetired
+		if publishable {
 			raw = append(raw, k.PublicJWK)
 		}
 	}
@@ -145,14 +146,18 @@ func GenerateNextKey(ctx context.Context, repo SigningKeyRepo, encKey string, no
 	if err != nil {
 		return "", err
 	}
-	if active, err := repo.CountByStatus(ctx, KeyActive); err != nil {
+	activeCount, err := repo.CountByStatus(ctx, KeyActive)
+	if err != nil {
 		return "", err
-	} else if active > 1 {
-		return "", fmt.Errorf("oidp: expected at most one active signing key, found %d", active)
 	}
-	if next, err := repo.CountByStatus(ctx, KeyNext); err != nil {
+	if activeCount > 1 {
+		return "", fmt.Errorf("oidp: expected at most one active signing key, found %d", activeCount)
+	}
+	nextCount, err := repo.CountByStatus(ctx, KeyNext)
+	if err != nil {
 		return "", err
-	} else if next > 0 {
+	}
+	if nextCount > 0 {
 		return "", fmt.Errorf("oidp: next signing key already exists")
 	}
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
@@ -168,21 +173,28 @@ func GenerateNextKey(ctx context.Context, repo SigningKeyRepo, encKey string, no
 	if err != nil {
 		return "", err
 	}
-	status := KeyNext
-	if active, err := repo.CountByStatus(ctx, KeyActive); err != nil {
+	count, err := repo.CountByStatus(ctx, KeyActive)
+	if err != nil {
 		return "", err
-	} else if active == 0 {
+	}
+	status := KeyNext
+	if count == 0 {
 		status = KeyActive
 	}
-	if err := repo.Create(ctx, domain.OAuthSigningKey{KID: kid, Alg: SigningAlg, PublicJWK: publicJWK, PrivateEnc: privateEnc, Status: status, CreatedAt: now}); err != nil {
+	key := domain.OAuthSigningKey{
+		KID:        kid,
+		Alg:        SigningAlg,
+		PublicJWK:  publicJWK,
+		PrivateEnc: privateEnc,
+		Status:     status,
+		CreatedAt:  now,
+	}
+	if err := repo.Create(ctx, key); err != nil {
 		return "", err
 	}
 	return kid, nil
 }
 
-// PromoteNextKey delegates the transactional rotation to the repository, then
-// verifies that exactly one active key remains. Callers must invalidate live
-// Signer caches after a successful promotion.
 // PromoteNextKey atomically asks the repository to make kid active after checking
 // that exactly one active and one next key exist. Callers must invalidate live
 // Signer caches after success so new tokens use the promoted key.
@@ -200,8 +212,6 @@ func PromoteNextKey(ctx context.Context, repo SigningKeyRepo, kid string, now in
 	return nil
 }
 
-// RetireKey removes a key from signing duty while retaining its public JWK for
-// verification of unexpired tokens, then rechecks the single-active invariant.
 // RetireKey removes a non-current key from active rotation while retaining its
 // public JWK for verification. Repository constraints decide whether the requested
 // transition is legal; callers invalidate signer caches after a relevant change.
@@ -226,9 +236,14 @@ func publicJWK(kid string, pub ed25519.PublicKey) (json.RawMessage, error) {
 }
 
 func encryptPrivateJWK(aead cipher.AEAD, kid string, priv ed25519.PrivateKey) ([]byte, error) {
-	jwk, err := json.Marshal(map[string]string{
-		"kty": "OKP", "crv": "Ed25519", "kid": kid, "d": b64(priv.Seed()), "x": b64(priv.Public().(ed25519.PublicKey)),
-	})
+	claims := map[string]string{
+		"kty": "OKP",
+		"crv": "Ed25519",
+		"kid": kid,
+		"d":   b64(priv.Seed()),
+		"x":   b64(priv.Public().(ed25519.PublicKey)),
+	}
+	jwk, err := json.Marshal(claims)
 	if err != nil {
 		return nil, err
 	}
@@ -282,7 +297,14 @@ func parseKey(s string) ([]byte, error) {
 	if s == "" {
 		return nil, errors.New("oidp: OIDC_KEY_ENC_KEY is required")
 	}
-	for _, dec := range []func(string) ([]byte, error){base64.StdEncoding.DecodeString, base64.RawStdEncoding.DecodeString, base64.URLEncoding.DecodeString, base64.RawURLEncoding.DecodeString, hex.DecodeString} {
+	decoders := []func(string) ([]byte, error){
+		base64.StdEncoding.DecodeString,
+		base64.RawStdEncoding.DecodeString,
+		base64.URLEncoding.DecodeString,
+		base64.RawURLEncoding.DecodeString,
+		hex.DecodeString,
+	}
+	for _, dec := range decoders {
 		if b, err := dec(s); err == nil && len(b) == 32 {
 			return b, nil
 		}

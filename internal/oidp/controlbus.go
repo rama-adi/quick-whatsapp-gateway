@@ -43,12 +43,24 @@ type AppChangeSubscriber struct {
 
 // NewAppChangeSubscriber constructs an app-cache-only control subscriber.
 func NewAppChangeSubscriber(rdb *redis.Client, inv AppInvalidator, log *slog.Logger) *AppChangeSubscriber {
-	return NewControlSubscriber(rdb, inv, nil, nil, log)
+	return NewControlSubscriber(
+		rdb,
+		inv,
+		nil,
+		nil,
+		log,
+	)
 }
 
 // NewControlSubscriber constructs the full app-change and grant-revocation
 // subscriber. Nil consumers disable their respective side effects.
-func NewControlSubscriber(rdb *redis.Client, inv AppInvalidator, rev GrantRevocationCache, pending *PendingStore, log *slog.Logger) *AppChangeSubscriber {
+func NewControlSubscriber(
+	rdb *redis.Client,
+	inv AppInvalidator,
+	rev GrantRevocationCache,
+	pending *PendingStore,
+	log *slog.Logger,
+) *AppChangeSubscriber {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
