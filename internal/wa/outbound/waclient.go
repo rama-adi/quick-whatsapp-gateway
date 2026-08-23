@@ -66,7 +66,13 @@ func parseSenderJID(s string) (types.JID, error) {
 	return parseJID(s)
 }
 
-func (a *whatsmeowAdapter) SendText(ctx context.Context, to, text string, quote QuoteInfo, mentions []string) (string, int64, error) {
+func (a *whatsmeowAdapter) SendText(
+	ctx context.Context,
+	to string,
+	text string,
+	quote QuoteInfo,
+	mentions []string,
+) (string, int64, error) {
 	toJID, err := parseJID(to)
 	if err != nil {
 		return "", 0, err
@@ -87,7 +93,15 @@ func (a *whatsmeowAdapter) SendText(ctx context.Context, to, text string, quote 
 	})
 }
 
-func (a *whatsmeowAdapter) SendPoll(ctx context.Context, to, name string, options []string, selectableCount int, endTime int64, hideVotes bool) (string, int64, error) {
+func (a *whatsmeowAdapter) SendPoll(
+	ctx context.Context,
+	to string,
+	name string,
+	options []string,
+	selectableCount int,
+	endTime int64,
+	hideVotes bool,
+) (string, int64, error) {
 	toJID, err := parseJID(to)
 	if err != nil {
 		return "", 0, err
@@ -119,7 +133,13 @@ func (a *whatsmeowAdapter) SendPoll(ctx context.Context, to, name string, option
 	return a.send(ctx, toJID, msg)
 }
 
-func (a *whatsmeowAdapter) SendLocation(ctx context.Context, to string, lat, lon float64, name string) (string, int64, error) {
+func (a *whatsmeowAdapter) SendLocation(
+	ctx context.Context,
+	to string,
+	lat float64,
+	lon float64,
+	name string,
+) (string, int64, error) {
 	toJID, err := parseJID(to)
 	if err != nil {
 		return "", 0, err
@@ -160,7 +180,17 @@ func buildVCard(name, phone string) string {
 // (image/video/audio/document/sticker). mediaType is a domain.SendType* constant.
 // mimetype is detected from the bytes when empty; caption applies to image/video/
 // document, filename to document; replyTo/mentions become ContextInfo.
-func (a *whatsmeowAdapter) SendMedia(ctx context.Context, to, mediaType string, data []byte, mimetype, caption, filename string, quote QuoteInfo, mentions []string) (string, int64, error) {
+func (a *whatsmeowAdapter) SendMedia(
+	ctx context.Context,
+	to string,
+	mediaType string,
+	data []byte,
+	mimetype string,
+	caption string,
+	filename string,
+	quote QuoteInfo,
+	mentions []string,
+) (string, int64, error) {
 	toJID, err := parseJID(to)
 	if err != nil {
 		return "", 0, err
@@ -235,7 +265,14 @@ func (a *whatsmeowAdapter) SendMedia(ctx context.Context, to, mediaType string, 
 
 // SendAlbum uploads all children before publishing the container, then sends
 // each child with a MEDIA_ALBUM association pointing at that container.
-func (a *whatsmeowAdapter) SendAlbum(ctx context.Context, to, caption string, medias []AlbumMedia, quote QuoteInfo, mentions []string) (string, int64, error) {
+func (a *whatsmeowAdapter) SendAlbum(
+	ctx context.Context,
+	to string,
+	caption string,
+	medias []AlbumMedia,
+	quote QuoteInfo,
+	mentions []string,
+) (string, int64, error) {
 	toJID, err := parseJID(to)
 	if err != nil {
 		return "", 0, err
@@ -269,21 +306,38 @@ func (a *whatsmeowAdapter) SendAlbum(ctx context.Context, to, caption string, me
 	if err != nil {
 		return "", 0, err
 	}
-	parent := &waCommon.MessageKey{RemoteJID: proto.String(toJID.String()), FromMe: proto.Bool(true), ID: proto.String(albumID)}
+	parent := &waCommon.MessageKey{
+		RemoteJID: proto.String(toJID.String()),
+		FromMe:    proto.Bool(true),
+		ID:        proto.String(albumID),
+	}
 	for i, child := range children {
-		association := &waE2E.MessageContextInfo{MessageSecret: random.Bytes(32), MessageAssociation: &waE2E.MessageAssociation{
-			AssociationType: waE2E.MessageAssociation_MEDIA_ALBUM.Enum(), ParentMessageKey: parent, MessageIndex: proto.Int32(int32(i)),
-		}}
+		association := &waE2E.MessageContextInfo{
+			MessageSecret: random.Bytes(32),
+			MessageAssociation: &waE2E.MessageAssociation{
+				AssociationType:  waE2E.MessageAssociation_MEDIA_ALBUM.Enum(),
+				ParentMessageKey: parent,
+				MessageIndex:     proto.Int32(int32(i)),
+			},
+		}
 		up, media := child.up, child.media
 		var msg *waE2E.Message
 		if media.Type == domain.SendTypeVideo {
-			m := &waE2E.VideoMessage{URL: proto.String(up.URL), DirectPath: proto.String(up.DirectPath), Mimetype: proto.String(media.Mimetype), MediaKey: up.MediaKey, FileEncSHA256: up.FileEncSHA256, FileSHA256: up.FileSHA256, FileLength: proto.Uint64(up.FileLength)}
+			m := &waE2E.VideoMessage{
+				URL: proto.String(up.URL), DirectPath: proto.String(up.DirectPath), Mimetype: proto.String(media.Mimetype),
+				MediaKey: up.MediaKey, FileEncSHA256: up.FileEncSHA256, FileSHA256: up.FileSHA256,
+				FileLength: proto.Uint64(up.FileLength),
+			}
 			if i == 0 && caption != "" {
 				m.Caption = proto.String(caption)
 			}
 			msg = &waE2E.Message{VideoMessage: m, MessageContextInfo: association}
 		} else {
-			m := &waE2E.ImageMessage{URL: proto.String(up.URL), DirectPath: proto.String(up.DirectPath), Mimetype: proto.String(media.Mimetype), MediaKey: up.MediaKey, FileEncSHA256: up.FileEncSHA256, FileSHA256: up.FileSHA256, FileLength: proto.Uint64(up.FileLength)}
+			m := &waE2E.ImageMessage{
+				URL: proto.String(up.URL), DirectPath: proto.String(up.DirectPath), Mimetype: proto.String(media.Mimetype),
+				MediaKey: up.MediaKey, FileEncSHA256: up.FileEncSHA256, FileSHA256: up.FileSHA256,
+				FileLength: proto.Uint64(up.FileLength),
+			}
 			if width, height, thumb := imageMetadata(media.Data); width > 0 && height > 0 {
 				m.Width, m.Height, m.JPEGThumbnail = proto.Uint32(width), proto.Uint32(height), thumb
 			}
@@ -439,7 +493,13 @@ func (a *whatsmeowAdapter) Revoke(ctx context.Context, chat, sender, msgID strin
 	return a.send(ctx, chatJID, msg)
 }
 
-func (a *whatsmeowAdapter) Vote(ctx context.Context, pollChat, pollSender, pollMsgID string, options []string) (string, int64, error) {
+func (a *whatsmeowAdapter) Vote(
+	ctx context.Context,
+	pollChat string,
+	pollSender string,
+	pollMsgID string,
+	options []string,
+) (string, int64, error) {
 	chatJID, err := parseJID(pollChat)
 	if err != nil {
 		return "", 0, err
@@ -460,7 +520,13 @@ func (a *whatsmeowAdapter) Vote(ctx context.Context, pollChat, pollSender, pollM
 	return a.send(ctx, chatJID, msg)
 }
 
-func (a *whatsmeowAdapter) Forward(ctx context.Context, to, sourceChat, sourceSender, sourceMsgID string) (string, int64, error) {
+func (a *whatsmeowAdapter) Forward(
+	ctx context.Context,
+	to string,
+	sourceChat string,
+	sourceSender string,
+	sourceMsgID string,
+) (string, int64, error) {
 	toJID, err := parseJID(to)
 	if err != nil {
 		return "", 0, err

@@ -35,7 +35,11 @@ type interceptResult struct {
 // The check is intentionally narrow: outbound echoes (FromMe), receipts, poll
 // votes and non-text events are never intercepted, so an admin can still use the
 // number normally (§6: it does double duty as a regular API number).
-func (p *Pipeline) runInterceptor(ctx context.Context, isAdminSession bool, nm *NormalizedMessage) (interceptResult, error) {
+func (p *Pipeline) runInterceptor(
+	ctx context.Context,
+	isAdminSession bool,
+	nm *NormalizedMessage,
+) (interceptResult, error) {
 	if !isAdminSession || p.cmdPrefix == "" {
 		return interceptResult{}, nil
 	}

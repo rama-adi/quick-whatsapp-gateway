@@ -67,10 +67,24 @@ type SendOptions struct {
 type WAClient interface {
 	// SendText sends a plain/extended text message. replyTo is the quoted
 	// wa_message_id ("" for none); mentions are mentioned JID strings.
-	SendText(ctx context.Context, to, text string, quote QuoteInfo, mentions []string) (waMessageID string, ts int64, err error)
+	SendText(
+		ctx context.Context,
+		to string,
+		text string,
+		quote QuoteInfo,
+		mentions []string,
+	) (waMessageID string, ts int64, err error)
 	// SendPoll creates a poll. endTime is epoch-ms when non-zero; hideVotes asks
 	// WhatsApp to hide participant names in the poll vote list.
-	SendPoll(ctx context.Context, to, name string, options []string, selectableCount int, endTime int64, hideVotes bool) (waMessageID string, ts int64, err error)
+	SendPoll(
+		ctx context.Context,
+		to string,
+		name string,
+		options []string,
+		selectableCount int,
+		endTime int64,
+		hideVotes bool,
+	) (waMessageID string, ts int64, err error)
 	// SendLocation sends a location pin.
 	SendLocation(ctx context.Context, to string, lat, lon float64, name string) (waMessageID string, ts int64, err error)
 	// SendContact sends a contact card. vcard, when non-empty, is sent verbatim;
@@ -81,10 +95,27 @@ type WAClient interface {
 	// document/sticker); mimetype is detected from the bytes when ""; caption
 	// (image/video/document), filename (document), replyTo and mentions are
 	// optional (replyTo is a quoted wa_message_id).
-	SendMedia(ctx context.Context, to, mediaType string, data []byte, mimetype, caption, filename string, quote QuoteInfo, mentions []string) (waMessageID string, ts int64, err error)
+	SendMedia(
+		ctx context.Context,
+		to string,
+		mediaType string,
+		data []byte,
+		mimetype string,
+		caption string,
+		filename string,
+		quote QuoteInfo,
+		mentions []string,
+	) (waMessageID string, ts int64, err error)
 	// SendAlbum sends one WhatsApp album container followed by its associated
 	// image/video children. The returned id is the album container id.
-	SendAlbum(ctx context.Context, to, caption string, medias []AlbumMedia, quote QuoteInfo, mentions []string) (waMessageID string, ts int64, err error)
+	SendAlbum(
+		ctx context.Context,
+		to string,
+		caption string,
+		medias []AlbumMedia,
+		quote QuoteInfo,
+		mentions []string,
+	) (waMessageID string, ts int64, err error)
 
 	// React adds (or, with emoji=="", removes) a reaction to a message
 	// (BuildReaction). chat is the target chat JID; sender is the original
@@ -96,11 +127,23 @@ type WAClient interface {
 	// sender JID ("" for your own message).
 	Revoke(ctx context.Context, chat, sender, msgID string) (waMessageID string, ts int64, err error)
 	// Vote casts a poll vote on the given poll message (BuildPollVote).
-	Vote(ctx context.Context, pollChat, pollSender, pollMsgID string, options []string) (waMessageID string, ts int64, err error)
+	Vote(
+		ctx context.Context,
+		pollChat string,
+		pollSender string,
+		pollMsgID string,
+		options []string,
+	) (waMessageID string, ts int64, err error)
 	// Forward forwards an existing message to a destination chat. The adapter
 	// builds a forwarded-context message; sourceChat/sourceSender/sourceMsgID
 	// identify the original.
-	Forward(ctx context.Context, to, sourceChat, sourceSender, sourceMsgID string) (waMessageID string, ts int64, err error)
+	Forward(
+		ctx context.Context,
+		to string,
+		sourceChat string,
+		sourceSender string,
+		sourceMsgID string,
+	) (waMessageID string, ts int64, err error)
 }
 
 // AlbumMedia is one fully resolved image/video ready for upload.

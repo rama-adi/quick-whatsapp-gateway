@@ -93,12 +93,24 @@ const (
 // hint rounded to seconds; neither counter is incremented on rejection. Session
 // IDs are embedded below keyPrefix, isolating budgets, and non-positive limits
 // disable only their corresponding window.
-func (r *redisRateLimiter) Allow(ctx context.Context, sessionID string, perMin, perHour int) (bool, time.Duration, error) {
-	minKey := fmt.Sprintf("%s:%s:min", r.keyPrefix, sessionID)
-	hourKey := fmt.Sprintf("%s:%s:hour", r.keyPrefix, sessionID)
+func (r *redisRateLimiter) Allow(
+	ctx context.Context,
+	sessionID string,
+	perMin int,
+	perHour int,
+) (bool, time.Duration, error) {
+	minKey := r.keyPrefix + ":" + sessionID + ":min"
+	hourKey := r.keyPrefix + ":" + sessionID + ":hour"
 
-	res, err := allowScript.Run(ctx, r.rdb, []string{minKey, hourKey},
-		perMin, perHour, minuteWindowSeconds, hourWindowSeconds).Result()
+	res, err := allowScript.Run(
+		ctx,
+		r.rdb,
+		[]string{minKey, hourKey},
+		perMin,
+		perHour,
+		minuteWindowSeconds,
+		hourWindowSeconds,
+	).Result()
 	if err != nil {
 		return false, 0, fmt.Errorf("ratelimit: run script: %w", err)
 	}

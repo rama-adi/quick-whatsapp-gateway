@@ -97,7 +97,12 @@ func NewSender(wa WAClient, outbox OutboxRepo, limits RateLimiter, clock Clock, 
 //
 // For sync sends with an idempotency key, the result is recorded in the outbox
 // (status sent/failed) so a later replay returns it.
-func (s *Sender) Send(ctx context.Context, sess domain.WASession, req domain.SendRequest, opts SendOptions) (SendResult, error) {
+func (s *Sender) Send(
+	ctx context.Context,
+	sess domain.WASession,
+	req domain.SendRequest,
+	opts SendOptions,
+) (SendResult, error) {
 	if err := Validate(req); err != nil {
 		return SendResult{}, err
 	}
@@ -108,9 +113,11 @@ func (s *Sender) Send(ctx context.Context, sess domain.WASession, req domain.Sen
 
 	// 2. Idempotency replay (applies to both modes).
 	if opts.IdempotencyKey != "" {
-		if prior, err := s.outbox.GetByIdempotencyKey(ctx, sess.OrganizationID, opts.IdempotencyKey); err != nil {
+		prior, err := s.outbox.GetByIdempotencyKey(ctx, sess.OrganizationID, opts.IdempotencyKey)
+		if err != nil {
 			return SendResult{}, fmt.Errorf("outbound: idempotency lookup: %w", err)
-		} else if prior != nil {
+		}
+		if prior != nil {
 			return replayResult(prior), nil
 		}
 	}
@@ -123,8 +130,18 @@ func (s *Sender) Send(ctx context.Context, sess domain.WASession, req domain.Sen
 
 // sendSync enforces the rate limit, optionally paces, dispatches, and (when an
 // idempotency key is present) records the outcome to the outbox for replay.
-func (s *Sender) sendSync(ctx context.Context, sess domain.WASession, req domain.SendRequest, opts SendOptions) (SendResult, error) {
-	ok, retryAfter, err := s.limits.Allow(ctx, sess.ID, sess.RatePerMin, sess.RatePerHour)
+func (s *Sender) sendSync(
+	ctx context.Context,
+	sess domain.WASession,
+	req domain.SendRequest,
+	opts SendOptions,
+) (SendResult, error) {
+	ok, retryAfter, err := s.limits.Allow(
+		ctx,
+		sess.ID,
+		sess.RatePerMin,
+		sess.RatePerHour,
+	)
 	if err != nil {
 		return SendResult{}, fmt.Errorf("outbound: rate check: %w", err)
 	}
@@ -138,11 +155,22 @@ func (s *Sender) sendSync(ctx context.Context, sess domain.WASession, req domain
 	// with the same key sees a row (and so the result is durably recorded).
 	var outboxID string
 	if opts.IdempotencyKey != "" {
-		entry, err := s.persistOutbox(ctx, sess, req, opts.IdempotencyKey, domain.OutboxSending)
+		entry, err := s.persistOutbox(
+			ctx,
+			sess,
+			req,
+			opts.IdempotencyKey,
+			domain.OutboxSending,
+		)
 		if err != nil {
 			// A duplicate key here means another in-flight send already claimed
 			// it; fall back to replaying the stored row.
-			if prior, gerr := s.outbox.GetByIdempotencyKey(ctx, sess.OrganizationID, opts.IdempotencyKey); gerr == nil && prior != nil {
+			prior, gerr := s.outbox.GetByIdempotencyKey(
+				ctx,
+				sess.OrganizationID,
+				opts.IdempotencyKey,
+			)
+			if gerr == nil && prior != nil {
 				return replayResult(prior), nil
 			}
 			return SendResult{}, err
@@ -193,11 +221,27 @@ func (s *Sender) updateOutboxStatus(ctx context.Context, id string, status domai
 // sendAsync persists a queued outbox row and returns its id. The async worker
 // drains it later; a rate-limit breach does NOT error here — the row simply
 // stays queued to be retried (the "deferred" behavior of §8).
-func (s *Sender) sendAsync(ctx context.Context, sess domain.WASession, req domain.SendRequest, opts SendOptions) (SendResult, error) {
-	entry, err := s.persistOutbox(ctx, sess, req, opts.IdempotencyKey, domain.OutboxQueued)
+func (s *Sender) sendAsync(
+	ctx context.Context,
+	sess domain.WASession,
+	req domain.SendRequest,
+	opts SendOptions,
+) (SendResult, error) {
+	entry, err := s.persistOutbox(
+		ctx,
+		sess,
+		req,
+		opts.IdempotencyKey,
+		domain.OutboxQueued,
+	)
 	if err != nil {
 		if opts.IdempotencyKey != "" {
-			if prior, gerr := s.outbox.GetByIdempotencyKey(ctx, sess.OrganizationID, opts.IdempotencyKey); gerr == nil && prior != nil {
+			prior, gerr := s.outbox.GetByIdempotencyKey(
+				ctx,
+				sess.OrganizationID,
+				opts.IdempotencyKey,
+			)
+			if gerr == nil && prior != nil {
 				return replayResult(prior), nil
 			}
 		}
@@ -211,7 +255,13 @@ func (s *Sender) sendAsync(ctx context.Context, sess domain.WASession, req domai
 // stored here only transiently: the async worker needs them to perform the
 // upload, and the store strips them from the row once the send reaches a terminal
 // state (see store.OutboxRepo.UpdateStatus) so the file content is not retained.
-func (s *Sender) persistOutbox(ctx context.Context, sess domain.WASession, req domain.SendRequest, idemKey string, status domain.OutboxStatus) (*domain.OutboxEntry, error) {
+func (s *Sender) persistOutbox(
+	ctx context.Context,
+	sess domain.WASession,
+	req domain.SendRequest,
+	idemKey string,
+	status domain.OutboxStatus,
+) (*domain.OutboxEntry, error) {
 	payload, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("outbound: marshal payload: %w", err)
@@ -264,7 +314,15 @@ func (s *Sender) dispatch(ctx context.Context, req domain.SendRequest) (waMessag
 	case domain.SendTypeText:
 		waMessageID, ts, err = s.wa.SendText(ctx, req.To, req.Text, quote, req.Mentions)
 	case domain.SendTypePoll:
-		waMessageID, ts, err = s.wa.SendPoll(ctx, req.To, req.Name, req.Options, req.SelectableCount, req.PollEndTime, req.PollHideVotes)
+		waMessageID, ts, err = s.wa.SendPoll(
+			ctx,
+			req.To,
+			req.Name,
+			req.Options,
+			req.SelectableCount,
+			req.PollEndTime,
+			req.PollHideVotes,
+		)
 	case domain.SendTypeLocation:
 		waMessageID, ts, err = s.wa.SendLocation(ctx, req.To, req.Latitude, req.Longitude, req.Name)
 	case domain.SendTypeContact:
@@ -281,7 +339,17 @@ func (s *Sender) dispatch(ctx context.Context, req domain.SendRequest) (waMessag
 			return "", 0, err
 		}
 		caption, filename := mediaCaptionFilename(req.Media)
-		waMessageID, ts, err = s.wa.SendMedia(ctx, req.To, req.Type, data, mimetype, caption, filename, quote, req.Mentions)
+		waMessageID, ts, err = s.wa.SendMedia(
+			ctx,
+			req.To,
+			req.Type,
+			data,
+			mimetype,
+			caption,
+			filename,
+			quote,
+			req.Mentions,
+		)
 	case domain.SendTypeAlbum:
 		medias := make([]AlbumMedia, len(req.Medias))
 		total := 0
@@ -290,7 +358,8 @@ func (s *Sender) dispatch(ctx context.Context, req domain.SendRequest) (waMessag
 			if mediaType == "" {
 				mediaType = domain.SendTypeImage
 			}
-			data, mimetype, resolveErr := resolveMedia(ctx, &domain.MediaPayload{Data: item.Data, URL: item.URL, Mimetype: item.Mimetype})
+			payload := &domain.MediaPayload{Data: item.Data, URL: item.URL, Mimetype: item.Mimetype}
+			data, mimetype, resolveErr := resolveMedia(ctx, payload)
 			if resolveErr != nil {
 				return "", 0, domain.ErrValidation(fmt.Sprintf("medias[%d]: %s", i, resolveErr.Error()))
 			}
@@ -300,7 +369,14 @@ func (s *Sender) dispatch(ctx context.Context, req domain.SendRequest) (waMessag
 			}
 			medias[i] = AlbumMedia{Type: mediaType, Data: data, Mimetype: mimetype}
 		}
-		waMessageID, ts, err = s.wa.SendAlbum(ctx, req.To, req.Caption, medias, quote, req.Mentions)
+		waMessageID, ts, err = s.wa.SendAlbum(
+			ctx,
+			req.To,
+			req.Caption,
+			medias,
+			quote,
+			req.Mentions,
+		)
 	default:
 		// Unreachable for validated requests; guard anyway.
 		return "", 0, domain.ErrValidation(fmt.Sprintf("unsupported send type %q", req.Type))
@@ -335,12 +411,13 @@ func (s *Sender) resolveQuote(ctx context.Context, req domain.SendRequest) Quote
 	if msg.Body != nil {
 		quote.Body = *msg.Body
 	}
-	if msg.FromMe {
+	switch {
+	case msg.FromMe:
 		quote.FromMe = true
 		quote.SenderJID = ""
-	} else if msg.SenderJID != nil && *msg.SenderJID != "" {
+	case msg.SenderJID != nil && *msg.SenderJID != "":
 		quote.SenderJID = *msg.SenderJID
-	} else if msg.SenderLID != nil {
+	case msg.SenderLID != nil:
 		quote.SenderJID = *msg.SenderLID
 	}
 	return quote
@@ -559,7 +636,12 @@ func (s *Sender) SendOp(ctx context.Context, sess domain.WASession, req OpReques
 	// Carry the target session id for the session-routing WAClient.
 	ctx = WithSessionID(ctx, sess.ID)
 
-	ok, retryAfter, err := s.limits.Allow(ctx, sess.ID, sess.RatePerMin, sess.RatePerHour)
+	ok, retryAfter, err := s.limits.Allow(
+		ctx,
+		sess.ID,
+		sess.RatePerMin,
+		sess.RatePerHour,
+	)
 	if err != nil {
 		return SendResult{}, fmt.Errorf("outbound: rate check: %w", err)
 	}

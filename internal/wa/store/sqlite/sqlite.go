@@ -67,7 +67,9 @@ func FilePath(dsn string) (string, error) {
 		return "", fmt.Errorf("sqlite keystore must use a file: DSN")
 	}
 	target, query, _ := strings.Cut(strings.TrimPrefix(dsn, "file:"), "?")
-	if target == "" || target == ":memory:" || strings.HasPrefix(target, ":memory:") || strings.Contains(query, "mode=memory") {
+	isEmpty := target == ""
+	inMemory := strings.HasPrefix(target, ":memory:") || strings.Contains(query, "mode=memory")
+	if isEmpty || inMemory {
 		return "", fmt.Errorf("sqlite keystore must not use in-memory storage")
 	}
 	// file://host/path has SQLite URI authority semantics, not a local path.

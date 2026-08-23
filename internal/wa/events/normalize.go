@@ -153,7 +153,11 @@ func normalizePresence(e *events.Presence, sessionID, organizationID string) (do
 	return ev, PersistResult{Kind: PersistNone}, true
 }
 
-func normalizeChatPresence(e *events.ChatPresence, sessionID, organizationID string) (domain.Event, PersistResult, bool) {
+func normalizeChatPresence(
+	e *events.ChatPresence,
+	sessionID string,
+	organizationID string,
+) (domain.Event, PersistResult, bool) {
 	payload := PresencePayload{
 		ChatJID: jidString(e.Chat),
 		From:    jidString(e.Sender),

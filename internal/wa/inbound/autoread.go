@@ -36,7 +36,13 @@ func (p *Pipeline) autoRead(ctx context.Context, nm *NormalizedMessage) {
 		sender = nm.SenderLID
 	}
 
-	if err := p.wa.SendReadReceipt(ctx, nm.SessionID, nm.ChatJID, sender, []string{nm.WAMessageID}); err != nil {
+	if err := p.wa.SendReadReceipt(
+		ctx,
+		nm.SessionID,
+		nm.ChatJID,
+		sender,
+		[]string{nm.WAMessageID},
+	); err != nil {
 		p.log.WarnContext(ctx, "auto-read: send read receipt failed",
 			slog.String("session", nm.SessionID),
 			slog.String("chat", nm.ChatJID),

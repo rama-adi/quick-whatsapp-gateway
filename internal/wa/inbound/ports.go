@@ -94,7 +94,12 @@ type Repos interface {
 	UpsertGroupMember(ctx context.Context, in GroupMemberUpsert) error
 	// ResolveMentionDetails resolves display metadata for mentioned JIDs in a
 	// group message. The returned map is keyed by the original mentioned JID.
-	ResolveMentionDetails(ctx context.Context, sessionID, groupJID string, mentions []string) (map[string]MentionDetail, error)
+	ResolveMentionDetails(
+		ctx context.Context,
+		sessionID string,
+		groupJID string,
+		mentions []string,
+	) (map[string]MentionDetail, error)
 	// LookupQuotedContext resolves reply context from the locally stored quoted
 	// message (by session + its wa_message_id). ok=false when the quoted message is
 	// not in local storage — expected for quotes older than the retention window;

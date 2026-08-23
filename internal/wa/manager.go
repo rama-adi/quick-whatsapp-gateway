@@ -183,7 +183,8 @@ func (m *Manager) StartAssigned(ctx context.Context, assignment desiredstate.Ass
 	}
 	var device *store.Device
 	for _, candidate := range devices {
-		if candidate != nil && candidate.ID != nil && candidate.ID.String() == assignment.DeviceJID {
+		isAssigned := candidate != nil && candidate.ID != nil && candidate.ID.String() == assignment.DeviceJID
+		if isAssigned {
 			device = candidate
 			break
 		}
@@ -194,7 +195,12 @@ func (m *Manager) StartAssigned(ctx context.Context, assignment desiredstate.Ass
 	m.mu.Lock()
 	ms := m.sessions[assignment.SessionID]
 	if ms == nil {
-		ms = &ManagedSession{SessionID: assignment.SessionID, OrganizationID: assignment.OrganizationID, device: device, status: domain.SessionStopped}
+		ms = &ManagedSession{
+			SessionID:      assignment.SessionID,
+			OrganizationID: assignment.OrganizationID,
+			device:         device,
+			status:         domain.SessionStopped,
+		}
 		m.sessions[assignment.SessionID] = ms
 	}
 	config := assignment.Config
@@ -660,7 +666,13 @@ func (m *Manager) StartPairingCode(ctx context.Context, id, phone string) (strin
 		m.setStatus(loopCtx, ms, domain.SessionFailed)
 		return "", fmt.Errorf("connect for pairing: %w", err)
 	}
-	code, err := client.PairPhone(ctx, phone, true, whatsmeow.PairClientChrome, pairDisplayName(m.cfg.DeviceName))
+	code, err := client.PairPhone(
+		ctx,
+		phone,
+		true,
+		whatsmeow.PairClientChrome,
+		pairDisplayName(m.cfg.DeviceName),
+	)
 	if err != nil {
 		m.teardown(ms)
 		m.setStatus(loopCtx, ms, domain.SessionFailed)

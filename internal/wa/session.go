@@ -87,10 +87,23 @@ type waClient interface {
 	Logout(ctx context.Context) error
 	AddEventHandler(handler whatsmeow.EventHandler) uint32
 	GetQRChannel(ctx context.Context) (<-chan whatsmeow.QRChannelItem, error)
-	PairPhone(ctx context.Context, phone string, showPushNotification bool, clientType whatsmeow.PairClientType, clientDisplayName string) (string, error)
+	PairPhone(
+		ctx context.Context,
+		phone string,
+		showPushNotification bool,
+		clientType whatsmeow.PairClientType,
+		clientDisplayName string,
+	) (string, error)
 	SendPresence(ctx context.Context, state types.Presence) error
 	SendChatPresence(ctx context.Context, jid types.JID, state types.ChatPresence, media types.ChatPresenceMedia) error
-	MarkRead(ctx context.Context, ids []types.MessageID, timestamp time.Time, chat, sender types.JID, receiptTypeExtra ...types.ReceiptType) error
+	MarkRead(
+		ctx context.Context,
+		ids []types.MessageID,
+		timestamp time.Time,
+		chat types.JID,
+		sender types.JID,
+		receiptTypeExtra ...types.ReceiptType,
+	) error
 }
 
 // compile-time assertion that the real client satisfies the interface.
@@ -249,7 +262,7 @@ func backoffFor(cfg backoffConfig, attempt int, rng *rand.Rand) time.Duration {
 	// Compute base*factor^attempt in float to avoid intermediate overflow, then
 	// clamp to max before converting back to a Duration.
 	d := float64(cfg.base)
-	for i := 0; i < attempt; i++ {
+	for range attempt {
 		d *= cfg.factor
 		if d >= float64(cfg.max) {
 			d = float64(cfg.max)

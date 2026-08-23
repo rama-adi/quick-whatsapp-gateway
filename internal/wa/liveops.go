@@ -31,7 +31,12 @@ type liveClient interface {
 	GetJoinedGroups(ctx context.Context) ([]*types.GroupInfo, error)
 	GetGroupInfo(ctx context.Context, jid types.JID) (*types.GroupInfo, error)
 	CreateGroup(ctx context.Context, req whatsmeow.ReqCreateGroup) (*types.GroupInfo, error)
-	UpdateGroupParticipants(ctx context.Context, jid types.JID, participants []types.JID, action whatsmeow.ParticipantChange) ([]types.GroupParticipant, error)
+	UpdateGroupParticipants(
+		ctx context.Context,
+		jid types.JID,
+		participants []types.JID,
+		action whatsmeow.ParticipantChange,
+	) ([]types.GroupParticipant, error)
 	SetGroupName(ctx context.Context, jid types.JID, name string) error
 	SetGroupTopic(ctx context.Context, jid types.JID, previousID, newID, topic string) error
 	SetGroupAnnounce(ctx context.Context, jid types.JID, announce bool) error
@@ -40,17 +45,35 @@ type liveClient interface {
 	JoinGroupWithLink(ctx context.Context, code string) (types.JID, error)
 	LeaveGroup(ctx context.Context, jid types.JID) error
 	IsOnWhatsApp(ctx context.Context, phones []string) ([]types.IsOnWhatsAppResponse, error)
-	GetProfilePictureInfo(ctx context.Context, jid types.JID, params *whatsmeow.GetProfilePictureParams) (*types.ProfilePictureInfo, error)
+	GetProfilePictureInfo(
+		ctx context.Context,
+		jid types.JID,
+		params *whatsmeow.GetProfilePictureParams,
+	) (*types.ProfilePictureInfo, error)
 	GetUserInfo(ctx context.Context, jids []types.JID) (map[types.JID]types.UserInfo, error)
 	UpdateBlocklist(ctx context.Context, jid types.JID, action events.BlocklistChangeAction) (*types.Blocklist, error)
 	SendPresence(ctx context.Context, state types.Presence) error
 	SendChatPresence(ctx context.Context, jid types.JID, state types.ChatPresence, media types.ChatPresenceMedia) error
 	SubscribePresence(ctx context.Context, jid types.JID) error
-	MarkRead(ctx context.Context, ids []types.MessageID, timestamp time.Time, chat, sender types.JID, receiptTypeExtra ...types.ReceiptType) error
+	MarkRead(
+		ctx context.Context,
+		ids []types.MessageID,
+		timestamp time.Time,
+		chat types.JID,
+		sender types.JID,
+		receiptTypeExtra ...types.ReceiptType,
+	) error
 }
 
 type readReceiptClient interface {
-	MarkRead(ctx context.Context, ids []types.MessageID, timestamp time.Time, chat, sender types.JID, receiptTypeExtra ...types.ReceiptType) error
+	MarkRead(
+		ctx context.Context,
+		ids []types.MessageID,
+		timestamp time.Time,
+		chat types.JID,
+		sender types.JID,
+		receiptTypeExtra ...types.ReceiptType,
+	) error
 }
 
 // LiveOps returns a session-resolving adapter over the manager. It satisfies the
@@ -212,7 +235,11 @@ func (l *LiveOps) OwnIDs(_ context.Context, sessionID string) (string, string) {
 	return jidStr, lidStr
 }
 
-func (l *LiveOps) backfillContacts(ctx context.Context, dev *store.Device, contacts map[types.JID]types.ContactInfo) []domain.BackfillContact {
+func (l *LiveOps) backfillContacts(
+	ctx context.Context,
+	dev *store.Device,
+	contacts map[types.JID]types.ContactInfo,
+) []domain.BackfillContact {
 	out := make([]domain.BackfillContact, 0, len(contacts))
 	for jid, info := range contacts {
 		lid, phoneJID := resolveLIDAndPhone(ctx, dev, jid)
@@ -252,7 +279,12 @@ func buildNameIndex(contacts map[types.JID]types.ContactInfo) map[string]string 
 	return idx
 }
 
-func (l *LiveOps) backfillGroups(ctx context.Context, dev *store.Device, names map[string]string, groups []*types.GroupInfo) []domain.BackfillGroup {
+func (l *LiveOps) backfillGroups(
+	ctx context.Context,
+	dev *store.Device,
+	names map[string]string,
+	groups []*types.GroupInfo,
+) []domain.BackfillGroup {
 	out := make([]domain.BackfillGroup, 0, len(groups))
 	for _, g := range groups {
 		if g == nil || g.JID.IsEmpty() {
@@ -284,7 +316,12 @@ func (l *LiveOps) backfillGroups(ctx context.Context, dev *store.Device, names m
 // backfillMember projects a whatsmeow GroupParticipant into a BackfillMember,
 // resolving a canonical LID and the participant's phone. ok=false when the
 // participant carries no usable LID.
-func backfillMember(ctx context.Context, dev *store.Device, names map[string]string, p types.GroupParticipant) (domain.BackfillMember, bool) {
+func backfillMember(
+	ctx context.Context,
+	dev *store.Device,
+	names map[string]string,
+	p types.GroupParticipant,
+) (domain.BackfillMember, bool) {
 	lid := canonicalLID(p.LID)
 	phoneJID := p.PhoneNumber
 	if phoneJID.IsEmpty() && p.JID.Server == types.DefaultUserServer {
@@ -427,7 +464,12 @@ func toGroupInfo(g *types.GroupInfo) domain.GroupInfo {
 }
 
 // CreateGroup creates a group.
-func (l *LiveOps) CreateGroup(ctx context.Context, sessionID, name string, participants []string) (domain.GroupInfo, error) {
+func (l *LiveOps) CreateGroup(
+	ctx context.Context,
+	sessionID string,
+	name string,
+	participants []string,
+) (domain.GroupInfo, error) {
 	c, err := l.client(sessionID)
 	if err != nil {
 		return domain.GroupInfo{}, err
@@ -461,7 +503,13 @@ func (l *LiveOps) GetGroupInfo(ctx context.Context, sessionID, groupJID string) 
 }
 
 // UpdateParticipants applies an add/remove/promote/demote.
-func (l *LiveOps) UpdateParticipants(ctx context.Context, sessionID, groupJID string, participants []string, action domain.GroupParticipantAction) error {
+func (l *LiveOps) UpdateParticipants(
+	ctx context.Context,
+	sessionID string,
+	groupJID string,
+	participants []string,
+	action domain.GroupParticipantAction,
+) error {
 	c, err := l.client(sessionID)
 	if err != nil {
 		return err
@@ -708,14 +756,27 @@ func (l *LiveOps) GetPresence(ctx context.Context, sessionID, chatJID string) (d
 }
 
 // SendReadReceipt marks one or more incoming messages as read.
-func (l *LiveOps) SendReadReceipt(ctx context.Context, sessionID, chatJID, senderJID string, messageIDs []string) error {
+func (l *LiveOps) SendReadReceipt(
+	ctx context.Context,
+	sessionID string,
+	chatJID string,
+	senderJID string,
+	messageIDs []string,
+) error {
 	return l.SendReadReceiptAt(ctx, sessionID, chatJID, senderJID, messageIDs, time.Now())
 }
 
 // SendReadReceiptAt marks messages read with an explicit timestamp. Control
 // plane commands use this form so a retry does not invent a different event
 // time; the legacy in-process port above retains its existing time.Now behavior.
-func (l *LiveOps) SendReadReceiptAt(ctx context.Context, sessionID, chatJID, senderJID string, messageIDs []string, readAt time.Time) error {
+func (l *LiveOps) SendReadReceiptAt(
+	ctx context.Context,
+	sessionID string,
+	chatJID string,
+	senderJID string,
+	messageIDs []string,
+	readAt time.Time,
+) error {
 	c, err := l.receiptClient(sessionID)
 	if err != nil {
 		return err

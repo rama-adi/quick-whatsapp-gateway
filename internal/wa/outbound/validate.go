@@ -19,12 +19,10 @@ const (
 	MaxAlbumBytes = 64 * 1024 * 1024
 )
 
-// validate checks a SendRequest's type and the per-type required fields,
-// returning a *domain.APIError (validation_error) on failure. It is the single
-// gate before any whatsmeow call.
 // Validate checks one send request against the per-type rules and media
-// budgets. It is exported for API-side scheduling, which must reject invalid
-// commands before they become durable rows.
+// budgets. It is the single gate before any whatsmeow call and is exported for
+// API-side scheduling, which must reject invalid commands before they become
+// durable rows.
 func Validate(req domain.SendRequest) error {
 	return validateRequest(req)
 }

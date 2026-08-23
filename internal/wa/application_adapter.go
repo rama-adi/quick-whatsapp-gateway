@@ -138,12 +138,23 @@ func NewApplicationGatewayAdapter(gatewayID string, manager *Manager, fence assi
 
 var _ application.GatewayEngine = (*ApplicationGatewayAdapter)(nil)
 
-func (a *ApplicationGatewayAdapter) GetSessionState(_ context.Context, query application.SessionStateQuery) (application.SessionState, error) {
-	if err := a.validateTarget(query.OrganizationID, query.SessionID, query.GatewayID); err != nil {
+func (a *ApplicationGatewayAdapter) GetSessionState(
+	_ context.Context,
+	query application.SessionStateQuery,
+) (application.SessionState, error) {
+	if err := a.validateTarget(
+		query.OrganizationID,
+		query.SessionID,
+		query.GatewayID,
+	); err != nil {
 		return application.SessionState{}, err
 	}
-	if a.fence != nil && (query.AssignmentEpoch == 0 || !a.fence.OwnsSession(query.OrganizationID, query.SessionID, query.AssignmentEpoch)) {
-		return application.SessionState{}, domain.ErrConflict("session assignment is not live")
+	if a.fence != nil {
+		ownsAssignment := query.AssignmentEpoch != 0 &&
+			a.fence.OwnsSession(query.OrganizationID, query.SessionID, query.AssignmentEpoch)
+		if !ownsAssignment {
+			return application.SessionState{}, domain.ErrConflict("session assignment is not live")
+		}
 	}
 	status, connected, loggedIn, found := a.sessions.ConnectionState(query.SessionID)
 	if !found {
@@ -159,8 +170,16 @@ func (a *ApplicationGatewayAdapter) GetSessionState(_ context.Context, query app
 	}, nil
 }
 
-func (a *ApplicationGatewayAdapter) SetAccountPresence(ctx context.Context, command application.SetPresenceCommand) (application.MutationResult, error) {
-	if err := a.validateMutation(command.CommandID, command.OrganizationID, command.SessionID, command.GatewayID); err != nil {
+func (a *ApplicationGatewayAdapter) SetAccountPresence(
+	ctx context.Context,
+	command application.SetPresenceCommand,
+) (application.MutationResult, error) {
+	if err := a.validateMutation(
+		command.CommandID,
+		command.OrganizationID,
+		command.SessionID,
+		command.GatewayID,
+	); err != nil {
 		return application.MutationResult{}, err
 	}
 	if command.AssignmentEpoch == 0 {
@@ -175,11 +194,25 @@ func (a *ApplicationGatewayAdapter) SetAccountPresence(ctx context.Context, comm
 	if err := a.live.SetPresence(ctx, command.SessionID, string(command.State)); err != nil {
 		return application.MutationResult{}, err
 	}
-	return mutationResult(command.CommandID, command.OrganizationID, command.SessionID, command.GatewayID, command.AssignmentEpoch), nil
+	return mutationResult(
+		command.CommandID,
+		command.OrganizationID,
+		command.SessionID,
+		command.GatewayID,
+		command.AssignmentEpoch,
+	), nil
 }
 
-func (a *ApplicationGatewayAdapter) MarkRead(ctx context.Context, command application.MarkReadCommand) (application.MutationResult, error) {
-	if err := a.validateMutation(command.CommandID, command.OrganizationID, command.SessionID, command.GatewayID); err != nil {
+func (a *ApplicationGatewayAdapter) MarkRead(
+	ctx context.Context,
+	command application.MarkReadCommand,
+) (application.MutationResult, error) {
+	if err := a.validateMutation(
+		command.CommandID,
+		command.OrganizationID,
+		command.SessionID,
+		command.GatewayID,
+	); err != nil {
 		return application.MutationResult{}, err
 	}
 	if command.AssignmentEpoch == 0 {
@@ -188,7 +221,8 @@ func (a *ApplicationGatewayAdapter) MarkRead(ctx context.Context, command applic
 	if a.fence != nil && !a.fence.AllowsMutation(command.OrganizationID, command.SessionID, command.AssignmentEpoch) {
 		return application.MutationResult{}, domain.ErrConflict("session assignment epoch is stale or lease expired")
 	}
-	if command.ChatJID == "" || len(command.MessageIDs) == 0 || command.ReadAt.IsZero() {
+	missingReceipt := command.ChatJID == "" || len(command.MessageIDs) == 0 || command.ReadAt.IsZero()
+	if missingReceipt {
 		return application.MutationResult{}, domain.ErrValidation("chat_jid, message_ids, and read_at are required")
 	}
 	chatJID, err := parseJID(command.ChatJID)
@@ -211,10 +245,23 @@ func (a *ApplicationGatewayAdapter) MarkRead(ctx context.Context, command applic
 	if command.ReadAt.After(a.now().Add(a.maxFutureSkew)) {
 		return application.MutationResult{}, domain.ErrValidation("read_at exceeds allowed future clock skew")
 	}
-	if err := a.live.SendReadReceiptAt(ctx, command.SessionID, command.ChatJID, command.SenderJID, command.MessageIDs, command.ReadAt); err != nil {
+	if err := a.live.SendReadReceiptAt(
+		ctx,
+		command.SessionID,
+		command.ChatJID,
+		command.SenderJID,
+		command.MessageIDs,
+		command.ReadAt,
+	); err != nil {
 		return application.MutationResult{}, err
 	}
-	return mutationResult(command.CommandID, command.OrganizationID, command.SessionID, command.GatewayID, command.AssignmentEpoch), nil
+	return mutationResult(
+		command.CommandID,
+		command.OrganizationID,
+		command.SessionID,
+		command.GatewayID,
+		command.AssignmentEpoch,
+	), nil
 }
 
 // SendMessage executes one durable send command behind the assignment fence.
@@ -222,8 +269,16 @@ func (a *ApplicationGatewayAdapter) MarkRead(ctx context.Context, command applic
 // only definite outcomes (sent, or a pre-dispatch validation failure) are
 // recorded. Transient and post-dispatch unknowns stay unrecorded so the API's
 // retry re-issues the command and either replays or reconciles.
-func (a *ApplicationGatewayAdapter) SendMessage(ctx context.Context, command application.SendCommand) (application.SendMessageResult, error) {
-	if err := a.validateMutation(command.CommandID, command.OrganizationID, command.SessionID, command.GatewayID); err != nil {
+func (a *ApplicationGatewayAdapter) SendMessage(
+	ctx context.Context,
+	command application.SendCommand,
+) (application.SendMessageResult, error) {
+	if err := a.validateMutation(
+		command.CommandID,
+		command.OrganizationID,
+		command.SessionID,
+		command.GatewayID,
+	); err != nil {
 		return application.SendMessageResult{}, err
 	}
 	if command.AssignmentEpoch == 0 {
@@ -251,7 +306,10 @@ func (a *ApplicationGatewayAdapter) SendMessage(ctx context.Context, command app
 	return result, nil
 }
 
-func (a *ApplicationGatewayAdapter) lookupCommand(ctx context.Context, commandID string) (*application.CommandResultRecord, error) {
+func (a *ApplicationGatewayAdapter) lookupCommand(
+	ctx context.Context,
+	commandID string,
+) (*application.CommandResultRecord, error) {
 	if a.ledger == nil {
 		return nil, domain.ErrValidation("gateway send ledger is not configured")
 	}
@@ -262,7 +320,10 @@ func (a *ApplicationGatewayAdapter) lookupCommand(ctx context.Context, commandID
 	return record, nil
 }
 
-func (a *ApplicationGatewayAdapter) executeSend(ctx context.Context, command application.SendCommand) (result application.SendMessageResult, err error) {
+func (a *ApplicationGatewayAdapter) executeSend(
+	ctx context.Context,
+	command application.SendCommand,
+) (result application.SendMessageResult, err error) {
 	flight, follower := a.joinInFlight(command.CommandID)
 	if follower {
 		select {
@@ -303,9 +364,15 @@ func (a *ApplicationGatewayAdapter) executeSend(ctx context.Context, command app
 		sentAt = time.UnixMilli(ts).UTC()
 	}
 	result = application.SendMessageResult{
-		MutationResult: mutationResult(command.CommandID, command.OrganizationID, command.SessionID, command.GatewayID, command.AssignmentEpoch),
-		WAMessageID:    waMessageID,
-		SentAt:         sentAt,
+		MutationResult: mutationResult(
+			command.CommandID,
+			command.OrganizationID,
+			command.SessionID,
+			command.GatewayID,
+			command.AssignmentEpoch,
+		),
+		WAMessageID: waMessageID,
+		SentAt:      sentAt,
 	}
 	// Write-ahead response: the ledger row exists before this RPC answers, so
 	// a lost response can be resolved by replay instead of re-dispatch.
@@ -347,13 +414,22 @@ func (a *ApplicationGatewayAdapter) saveCommand(ctx context.Context, record appl
 // replayedSendResult reconstructs the original outcome from one stored record.
 // The stored UpdatedAt is the best available execution timestamp; the fence and
 // epoch in the replayed result echo the current request's routing metadata.
-func replayedSendResult(command application.SendCommand, record *application.CommandResultRecord) (application.SendMessageResult, error) {
+func replayedSendResult(
+	command application.SendCommand,
+	record *application.CommandResultRecord,
+) (application.SendMessageResult, error) {
 	switch record.Status {
 	case application.CommandSent:
 		return application.SendMessageResult{
-			MutationResult: mutationResult(record.CommandID, command.OrganizationID, command.SessionID, command.GatewayID, command.AssignmentEpoch),
-			WAMessageID:    record.WAMessageID,
-			SentAt:         record.UpdatedAt,
+			MutationResult: mutationResult(
+				record.CommandID,
+				command.OrganizationID,
+				command.SessionID,
+				command.GatewayID,
+				command.AssignmentEpoch,
+			),
+			WAMessageID: record.WAMessageID,
+			SentAt:      record.UpdatedAt,
 		}, nil
 	case application.CommandFailed:
 		return application.SendMessageResult{}, domain.ErrValidation("send previously failed: " + record.Error)
@@ -378,7 +454,12 @@ func validReceiptSenderJID(jid types.JID) bool {
 	if jid.User == "" {
 		return false
 	}
-	return jid.Server == types.DefaultUserServer || jid.Server == types.LegacyUserServer || jid.Server == types.HiddenUserServer
+	switch jid.Server {
+	case types.DefaultUserServer, types.LegacyUserServer, types.HiddenUserServer:
+		return true
+	default:
+		return false
+	}
 }
 
 func (a *ApplicationGatewayAdapter) validateMutation(commandID, organizationID, sessionID, gatewayID string) error {
@@ -389,7 +470,8 @@ func (a *ApplicationGatewayAdapter) validateMutation(commandID, organizationID, 
 }
 
 func (a *ApplicationGatewayAdapter) validateTarget(organizationID, sessionID, gatewayID string) error {
-	if organizationID == "" || sessionID == "" || gatewayID == "" {
+	missingTarget := organizationID == "" || sessionID == "" || gatewayID == ""
+	if missingTarget {
 		return domain.ErrValidation("organization_id, session_id, and gateway_id are required")
 	}
 	if gatewayID != a.gatewayID {
@@ -398,7 +480,13 @@ func (a *ApplicationGatewayAdapter) validateTarget(organizationID, sessionID, ga
 	return nil
 }
 
-func mutationResult(commandID, organizationID, sessionID, gatewayID string, assignmentEpoch uint64) application.MutationResult {
+func mutationResult(
+	commandID string,
+	organizationID string,
+	sessionID string,
+	gatewayID string,
+	assignmentEpoch uint64,
+) application.MutationResult {
 	return application.MutationResult{
 		CommandID:       commandID,
 		OrganizationID:  organizationID,
@@ -410,8 +498,16 @@ func mutationResult(commandID, organizationID, sessionID, gatewayID string, assi
 
 // ExecuteOp runs one message sub-resource command behind the assignment fence
 // with the same ledger semantics as SendMessage.
-func (a *ApplicationGatewayAdapter) ExecuteOp(ctx context.Context, command application.MessageOpCommand) (application.MessageOpResult, error) {
-	if err := a.validateMutation(command.CommandID, command.OrganizationID, command.SessionID, command.GatewayID); err != nil {
+func (a *ApplicationGatewayAdapter) ExecuteOp(
+	ctx context.Context,
+	command application.MessageOpCommand,
+) (application.MessageOpResult, error) {
+	if err := a.validateMutation(
+		command.CommandID,
+		command.OrganizationID,
+		command.SessionID,
+		command.GatewayID,
+	); err != nil {
 		return application.MessageOpResult{}, err
 	}
 	if command.AssignmentEpoch == 0 {
@@ -434,12 +530,18 @@ func (a *ApplicationGatewayAdapter) ExecuteOp(ctx context.Context, command appli
 
 // executeOp shares the send singleflight: a concurrent duplicate of either
 // command kind waits for the leader and reads its published outcome.
-func (a *ApplicationGatewayAdapter) executeOp(ctx context.Context, command application.MessageOpCommand) (opResult application.MessageOpResult, err error) {
+func (a *ApplicationGatewayAdapter) executeOp(
+	ctx context.Context,
+	command application.MessageOpCommand,
+) (opResult application.MessageOpResult, err error) {
 	flight, follower := a.joinInFlight(command.CommandID)
 	if follower {
 		select {
 		case <-flight.done:
-			return application.MessageOpResult{MutationResult: flight.result.MutationResult, WAMessageID: flight.opWAMessageID}, flight.err
+			return application.MessageOpResult{
+				MutationResult: flight.result.MutationResult,
+				WAMessageID:    flight.opWAMessageID,
+			}, flight.err
 		case <-ctx.Done():
 			return application.MessageOpResult{}, ctx.Err()
 		}
@@ -481,8 +583,14 @@ func (a *ApplicationGatewayAdapter) executeOp(ctx context.Context, command appli
 		sentAt = time.UnixMilli(waResult.Timestamp).UTC()
 	}
 	out := application.MessageOpResult{
-		MutationResult: mutationResult(command.CommandID, command.OrganizationID, command.SessionID, command.GatewayID, command.AssignmentEpoch),
-		WAMessageID:    waResult.WAMessageID,
+		MutationResult: mutationResult(
+			command.CommandID,
+			command.OrganizationID,
+			command.SessionID,
+			command.GatewayID,
+			command.AssignmentEpoch,
+		),
+		WAMessageID: waResult.WAMessageID,
 	}
 	if saveErr := a.saveCommand(ctx, application.CommandResultRecord{
 		CommandID: command.CommandID, SessionID: command.SessionID,
@@ -496,12 +604,21 @@ func (a *ApplicationGatewayAdapter) executeOp(ctx context.Context, command appli
 // replayedMutation reconstructs a stored outcome for message-op commands. A
 // stored failure replays as validation; a stored success returns routing
 // metadata only (ops carry no additional response payload).
-func replayedMutation(command application.MessageOpCommand, record *application.CommandResultRecord) (application.MessageOpResult, error) {
+func replayedMutation(
+	command application.MessageOpCommand,
+	record *application.CommandResultRecord,
+) (application.MessageOpResult, error) {
 	switch record.Status {
 	case application.CommandSent:
 		return application.MessageOpResult{
-			MutationResult: mutationResult(record.CommandID, command.OrganizationID, command.SessionID, command.GatewayID, command.AssignmentEpoch),
-			WAMessageID:    record.WAMessageID,
+			MutationResult: mutationResult(
+				record.CommandID,
+				command.OrganizationID,
+				command.SessionID,
+				command.GatewayID,
+				command.AssignmentEpoch,
+			),
+			WAMessageID: record.WAMessageID,
 		}, nil
 	case application.CommandFailed:
 		return application.MessageOpResult{}, domain.ErrValidation("op previously failed: " + record.Error)
@@ -520,18 +637,34 @@ func replayedMutation(command application.MessageOpCommand, record *application.
 // command_id returns the stored terminal outcome instead of re-executing.
 
 func (a *ApplicationGatewayAdapter) fenceQuery(query application.SessionStateQuery) error {
-	if err := a.validateTarget(query.OrganizationID, query.SessionID, query.GatewayID); err != nil {
+	if err := a.validateTarget(
+		query.OrganizationID,
+		query.SessionID,
+		query.GatewayID,
+	); err != nil {
 		return err
 	}
-	if a.fence != nil && (query.AssignmentEpoch == 0 || !a.fence.OwnsSession(query.OrganizationID, query.SessionID, query.AssignmentEpoch)) {
-		return domain.ErrConflict("session assignment is not live")
+	if a.fence != nil {
+		ownsAssignment := query.AssignmentEpoch != 0 &&
+			a.fence.OwnsSession(query.OrganizationID, query.SessionID, query.AssignmentEpoch)
+		if !ownsAssignment {
+			return domain.ErrConflict("session assignment is not live")
+		}
 	}
 	return nil
 }
 
 // LookupContact checks phone numbers against WhatsApp. Read-only: no ledger.
-func (a *ApplicationGatewayAdapter) LookupContact(ctx context.Context, command application.LookupContactCommand) ([]application.ContactLookup, error) {
-	query := sessionQueryFrom(command.OrganizationID, command.SessionID, command.GatewayID, command.AssignmentEpoch)
+func (a *ApplicationGatewayAdapter) LookupContact(
+	ctx context.Context,
+	command application.LookupContactCommand,
+) ([]application.ContactLookup, error) {
+	query := sessionQueryFrom(
+		command.OrganizationID,
+		command.SessionID,
+		command.GatewayID,
+		command.AssignmentEpoch,
+	)
 	if err := a.fenceQuery(query); err != nil {
 		return nil, err
 	}
@@ -550,7 +683,11 @@ func (a *ApplicationGatewayAdapter) LookupContact(ctx context.Context, command a
 }
 
 // GetContactPicture fetches a contact's profile picture. Read-only: no ledger.
-func (a *ApplicationGatewayAdapter) GetContactPicture(ctx context.Context, query application.SessionStateQuery, jid string) (domain.ProfilePicture, error) {
+func (a *ApplicationGatewayAdapter) GetContactPicture(
+	ctx context.Context,
+	query application.SessionStateQuery,
+	jid string,
+) (domain.ProfilePicture, error) {
 	if err := a.fenceQuery(query); err != nil {
 		return domain.ProfilePicture{}, err
 	}
@@ -561,7 +698,11 @@ func (a *ApplicationGatewayAdapter) GetContactPicture(ctx context.Context, query
 }
 
 // GetContactAbout fetches a contact's status text. Read-only: no ledger.
-func (a *ApplicationGatewayAdapter) GetContactAbout(ctx context.Context, query application.SessionStateQuery, jid string) (string, error) {
+func (a *ApplicationGatewayAdapter) GetContactAbout(
+	ctx context.Context,
+	query application.SessionStateQuery,
+	jid string,
+) (string, error) {
 	if err := a.fenceQuery(query); err != nil {
 		return "", err
 	}
@@ -574,8 +715,16 @@ func (a *ApplicationGatewayAdapter) GetContactAbout(ctx context.Context, query a
 // SetBlocked applies one block/unblock command behind the assignment fence with
 // full ledger semantics. Only CommandSent is recorded — the blocklist mutation
 // carries no WhatsApp message id — and stored failures replay as validation.
-func (a *ApplicationGatewayAdapter) SetBlocked(ctx context.Context, command application.ContactJIDCommand) (application.MutationOnlyResult, error) {
-	if err := a.validateMutation(command.CommandID, command.OrganizationID, command.SessionID, command.GatewayID); err != nil {
+func (a *ApplicationGatewayAdapter) SetBlocked(
+	ctx context.Context,
+	command application.ContactJIDCommand,
+) (application.MutationOnlyResult, error) {
+	if err := a.validateMutation(
+		command.CommandID,
+		command.OrganizationID,
+		command.SessionID,
+		command.GatewayID,
+	); err != nil {
 		return application.MutationOnlyResult{}, err
 	}
 	if command.AssignmentEpoch == 0 {
@@ -615,7 +764,15 @@ func (a *ApplicationGatewayAdapter) SetBlocked(ctx context.Context, command appl
 	if err2 != nil {
 		return application.MutationOnlyResult{}, err2
 	}
-	result = application.MutationOnlyResult{MutationResult: mutationResult(command.CommandID, command.OrganizationID, command.SessionID, command.GatewayID, command.AssignmentEpoch)}
+	result = application.MutationOnlyResult{
+		MutationResult: mutationResult(
+			command.CommandID,
+			command.OrganizationID,
+			command.SessionID,
+			command.GatewayID,
+			command.AssignmentEpoch,
+		),
+	}
 	if saveErr := a.saveCommand(ctx, application.CommandResultRecord{
 		CommandID: command.CommandID, SessionID: command.SessionID,
 		Status: application.CommandSent, UpdatedAt: a.now().UTC(),
@@ -643,8 +800,16 @@ func replayedBlockingMutation(record *application.CommandResultRecord) (applicat
 // MutateGroup executes one durable group command behind the assignment fence
 // with the same ledger semantics as SendMessage. The returned result carries
 // raw live metadata; the API persists its own projections from it.
-func (a *ApplicationGatewayAdapter) MutateGroup(ctx context.Context, command application.GroupMutationCommand) (application.GroupCreateResult, error) {
-	if err := a.validateMutation(command.CommandID, command.OrganizationID, command.SessionID, command.GatewayID); err != nil {
+func (a *ApplicationGatewayAdapter) MutateGroup(
+	ctx context.Context,
+	command application.GroupMutationCommand,
+) (application.GroupCreateResult, error) {
+	if err := a.validateMutation(
+		command.CommandID,
+		command.OrganizationID,
+		command.SessionID,
+		command.GatewayID,
+	); err != nil {
 		return application.GroupCreateResult{}, err
 	}
 	if command.AssignmentEpoch == 0 {
@@ -664,7 +829,10 @@ func (a *ApplicationGatewayAdapter) MutateGroup(ctx context.Context, command app
 	if follower {
 		select {
 		case <-flight.done:
-			return application.GroupCreateResult{MutationOnlyResult: application.MutationOnlyResult{MutationResult: flight.result.MutationResult}, CreatedGroup: flight.groupInfo}, flight.err
+			return application.GroupCreateResult{
+				MutationOnlyResult: application.MutationOnlyResult{MutationResult: flight.result.MutationResult},
+				CreatedGroup:       flight.groupInfo,
+			}, flight.err
 		case <-ctx.Done():
 			return application.GroupCreateResult{}, ctx.Err()
 		}
@@ -698,8 +866,16 @@ func (a *ApplicationGatewayAdapter) MutateGroup(ctx context.Context, command app
 	}
 	sentAt := a.now().UTC()
 	result = application.GroupCreateResult{
-		MutationOnlyResult: application.MutationOnlyResult{MutationResult: mutationResult(command.CommandID, command.OrganizationID, command.SessionID, command.GatewayID, command.AssignmentEpoch)},
-		CreatedGroup:       groupInfoResult(info),
+		MutationOnlyResult: application.MutationOnlyResult{
+			MutationResult: mutationResult(
+				command.CommandID,
+				command.OrganizationID,
+				command.SessionID,
+				command.GatewayID,
+				command.AssignmentEpoch,
+			),
+		},
+		CreatedGroup: groupInfoResult(info),
 	}
 	if saveErr := a.saveCommand(ctx, application.CommandResultRecord{
 		CommandID: command.CommandID, SessionID: command.SessionID,
@@ -713,18 +889,35 @@ func (a *ApplicationGatewayAdapter) MutateGroup(ctx context.Context, command app
 // executeGroupMutation routes one validated group command to the live client.
 // JID/action validation happens here so deterministic rejections can be
 // recorded as terminal failures.
-func (a *ApplicationGatewayAdapter) executeGroupMutation(ctx context.Context, command application.GroupMutationCommand) (domain.GroupInfo, error) {
+func (a *ApplicationGatewayAdapter) executeGroupMutation(
+	ctx context.Context,
+	command application.GroupMutationCommand,
+) (domain.GroupInfo, error) {
 	switch command.Kind {
 	case application.GroupOpCreate:
 		if len(command.Participants) == 0 {
 			return domain.GroupInfo{}, domain.ErrValidation("at least one participant is required")
 		}
-		return a.live.CreateGroup(ctx, command.SessionID, command.Name, command.Participants)
+		return a.live.CreateGroup(
+			ctx,
+			command.SessionID,
+			command.Name,
+			command.Participants,
+		)
 	case application.GroupOpUpdateSettings:
-		if command.Settings.Subject == nil && command.Settings.Description == nil && command.Settings.Announce == nil && command.Settings.Locked == nil {
+		noSettings := command.Settings.Subject == nil &&
+			command.Settings.Description == nil &&
+			command.Settings.Announce == nil &&
+			command.Settings.Locked == nil
+		if noSettings {
 			return domain.GroupInfo{}, domain.ErrValidation("no group settings to update")
 		}
-		return domain.GroupInfo{}, a.live.UpdateSettings(ctx, command.SessionID, command.GroupJID, application.ToDomainGroupSettings(command.Settings))
+		return domain.GroupInfo{}, a.live.UpdateSettings(
+			ctx,
+			command.SessionID,
+			command.GroupJID,
+			application.ToDomainGroupSettings(command.Settings),
+		)
 	case application.GroupOpUpdateParticipants:
 		if len(command.Participants) == 0 {
 			return domain.GroupInfo{}, domain.ErrValidation("at least one participant is required")
@@ -735,7 +928,13 @@ func (a *ApplicationGatewayAdapter) executeGroupMutation(ctx context.Context, co
 		default:
 			return domain.GroupInfo{}, domain.ErrValidation("invalid participant action")
 		}
-		return domain.GroupInfo{}, a.live.UpdateParticipants(ctx, command.SessionID, command.GroupJID, command.Participants, action)
+		return domain.GroupInfo{}, a.live.UpdateParticipants(
+			ctx,
+			command.SessionID,
+			command.GroupJID,
+			command.Participants,
+			action,
+		)
 	case application.GroupOpLeave:
 		return domain.GroupInfo{}, a.live.Leave(ctx, command.SessionID, command.GroupJID)
 	default:
@@ -746,11 +945,22 @@ func (a *ApplicationGatewayAdapter) executeGroupMutation(ctx context.Context, co
 // replayedGroupMutation reconstructs a stored group-command outcome. Create
 // replays carry the original group's live metadata; other kinds return routing
 // metadata only. Failures replay as validation errors.
-func replayedGroupMutation(command application.GroupMutationCommand, record *application.CommandResultRecord) (application.GroupCreateResult, error) {
-	meta := mutationResult(record.CommandID, command.OrganizationID, command.SessionID, command.GatewayID, command.AssignmentEpoch)
+func replayedGroupMutation(
+	command application.GroupMutationCommand,
+	record *application.CommandResultRecord,
+) (application.GroupCreateResult, error) {
+	meta := mutationResult(
+		record.CommandID,
+		command.OrganizationID,
+		command.SessionID,
+		command.GatewayID,
+		command.AssignmentEpoch,
+	)
 	switch record.Status {
 	case application.CommandSent:
-		result := application.GroupCreateResult{MutationOnlyResult: application.MutationOnlyResult{MutationResult: meta}}
+		result := application.GroupCreateResult{
+			MutationOnlyResult: application.MutationOnlyResult{MutationResult: meta},
+		}
 		if command.Kind == application.GroupOpCreate {
 			result.CreatedGroup = application.GroupInfoResult{GroupJID: record.WAMessageID}
 		}
@@ -764,7 +974,12 @@ func replayedGroupMutation(command application.GroupMutationCommand, record *app
 
 // GetGroupInviteLink reads (reset=false) or revokes-and-regenerates (reset=true)
 // a group's invite link. Not ledger-backed, mirroring the LiveOps surface.
-func (a *ApplicationGatewayAdapter) GetGroupInviteLink(ctx context.Context, query application.SessionStateQuery, groupJID string, reset bool) (string, error) {
+func (a *ApplicationGatewayAdapter) GetGroupInviteLink(
+	ctx context.Context,
+	query application.SessionStateQuery,
+	groupJID string,
+	reset bool,
+) (string, error) {
 	if err := a.fenceQuery(query); err != nil {
 		return "", err
 	}
@@ -776,7 +991,11 @@ func (a *ApplicationGatewayAdapter) GetGroupInviteLink(ctx context.Context, quer
 
 // JoinGroup joins a group from an invite code/link. Read-classified like its
 // LiveOps counterpart: no ledger entry.
-func (a *ApplicationGatewayAdapter) JoinGroup(ctx context.Context, query application.SessionStateQuery, invite string) (string, error) {
+func (a *ApplicationGatewayAdapter) JoinGroup(
+	ctx context.Context,
+	query application.SessionStateQuery,
+	invite string,
+) (string, error) {
 	if err := a.fenceQuery(query); err != nil {
 		return "", err
 	}
@@ -788,7 +1007,11 @@ func (a *ApplicationGatewayAdapter) JoinGroup(ctx context.Context, query applica
 
 // GetChatPresence subscribes to a contact's presence updates and returns the
 // unknown snapshot. Read-only: no ledger.
-func (a *ApplicationGatewayAdapter) GetChatPresence(ctx context.Context, query application.SessionStateQuery, chatJID string) (domain.PresenceStatus, error) {
+func (a *ApplicationGatewayAdapter) GetChatPresence(
+	ctx context.Context,
+	query application.SessionStateQuery,
+	chatJID string,
+) (domain.PresenceStatus, error) {
 	if err := a.fenceQuery(query); err != nil {
 		return domain.PresenceStatus{}, err
 	}
@@ -800,8 +1023,16 @@ func (a *ApplicationGatewayAdapter) GetChatPresence(ctx context.Context, query a
 
 // SetChatPresence sends per-chat typing state. Not ledger-backed: repeating a
 // typing state is idempotent by construction and the legacy port never deduped.
-func (a *ApplicationGatewayAdapter) SetChatPresence(ctx context.Context, command application.ChatPresenceCommand) error {
-	query := sessionQueryFrom(command.OrganizationID, command.SessionID, command.GatewayID, command.AssignmentEpoch)
+func (a *ApplicationGatewayAdapter) SetChatPresence(
+	ctx context.Context,
+	command application.ChatPresenceCommand,
+) error {
+	query := sessionQueryFrom(
+		command.OrganizationID,
+		command.SessionID,
+		command.GatewayID,
+		command.AssignmentEpoch,
+	)
 	if err := a.fenceQuery(query); err != nil {
 		return err
 	}
@@ -815,7 +1046,10 @@ func (a *ApplicationGatewayAdapter) SetChatPresence(ctx context.Context, command
 
 // BackfillSession pulls the session's direct-API snapshot. Slow read: no
 // ledger, callers apply the send deadline.
-func (a *ApplicationGatewayAdapter) BackfillSession(ctx context.Context, query application.SessionStateQuery) (domain.BackfillSnapshot, error) {
+func (a *ApplicationGatewayAdapter) BackfillSession(
+	ctx context.Context,
+	query application.SessionStateQuery,
+) (domain.BackfillSnapshot, error) {
 	if err := a.fenceQuery(query); err != nil {
 		return domain.BackfillSnapshot{}, err
 	}
@@ -846,17 +1080,25 @@ type sessionController interface {
 
 // PrepareSession materializes the keystore device + managed-session entry for
 // an API-created session row. Idempotent; not ledger-backed.
-func (a *ApplicationGatewayAdapter) PrepareSession(_ context.Context, query application.SessionStateQuery) (application.PrepareSessionResult, error) {
+func (a *ApplicationGatewayAdapter) PrepareSession(
+	_ context.Context,
+	query application.SessionStateQuery,
+) (application.PrepareSessionResult, error) {
 	if err := a.validateTarget(query.OrganizationID, query.SessionID, query.GatewayID); err != nil {
 		return application.PrepareSessionResult{}, err
 	}
 	a.controller.EnsureDevice(query.SessionID, query.OrganizationID)
-	return application.PrepareSessionResult{MutationResult: mutationResult("", query.OrganizationID, query.SessionID, query.GatewayID, query.AssignmentEpoch)}, nil
+	return application.PrepareSessionResult{
+		MutationResult: mutationResult("", query.OrganizationID, query.SessionID, query.GatewayID, query.AssignmentEpoch),
+	}, nil
 }
 
 // BeginPairing starts (or resumes) QR pairing and returns the current snapshot
 // code when one exists. Read-classified: no command_id, no ledger.
-func (a *ApplicationGatewayAdapter) BeginPairing(ctx context.Context, query application.SessionStateQuery) (application.PairingSnapshot, error) {
+func (a *ApplicationGatewayAdapter) BeginPairing(
+	ctx context.Context,
+	query application.SessionStateQuery,
+) (application.PairingSnapshot, error) {
 	if err := a.fenceQuery(query); err != nil {
 		return application.PairingSnapshot{}, err
 	}
@@ -872,7 +1114,11 @@ func (a *ApplicationGatewayAdapter) BeginPairing(ctx context.Context, query appl
 
 // PairPhone requests a phone-number pairing code. Not ledger-backed: every
 // call yields a fresh one-time secret.
-func (a *ApplicationGatewayAdapter) PairPhone(ctx context.Context, query application.SessionStateQuery, phone string) (string, error) {
+func (a *ApplicationGatewayAdapter) PairPhone(
+	ctx context.Context,
+	query application.SessionStateQuery,
+	phone string,
+) (string, error) {
 	if err := a.fenceQuery(query); err != nil {
 		return "", err
 	}
@@ -885,8 +1131,16 @@ func (a *ApplicationGatewayAdapter) PairPhone(ctx context.Context, query applica
 // LogoutSession executes one durable logout command behind the assignment
 // fence with full ledger semantics. Only CommandSent is recorded — logout has
 // no WhatsApp message id — and stored failures replay as validation errors.
-func (a *ApplicationGatewayAdapter) LogoutSession(ctx context.Context, command application.ContactJIDCommand) (application.MutationOnlyResult, error) {
-	if err := a.validateMutation(command.CommandID, command.OrganizationID, command.SessionID, command.GatewayID); err != nil {
+func (a *ApplicationGatewayAdapter) LogoutSession(
+	ctx context.Context,
+	command application.ContactJIDCommand,
+) (application.MutationOnlyResult, error) {
+	if err := a.validateMutation(
+		command.CommandID,
+		command.OrganizationID,
+		command.SessionID,
+		command.GatewayID,
+	); err != nil {
 		return application.MutationOnlyResult{}, err
 	}
 	if command.AssignmentEpoch == 0 {
@@ -926,7 +1180,15 @@ func (a *ApplicationGatewayAdapter) LogoutSession(ctx context.Context, command a
 	if err2 != nil {
 		return application.MutationOnlyResult{}, err2
 	}
-	result = application.MutationOnlyResult{MutationResult: mutationResult(command.CommandID, command.OrganizationID, command.SessionID, command.GatewayID, command.AssignmentEpoch)}
+	result = application.MutationOnlyResult{
+		MutationResult: mutationResult(
+			command.CommandID,
+			command.OrganizationID,
+			command.SessionID,
+			command.GatewayID,
+			command.AssignmentEpoch,
+		),
+	}
 	if saveErr := a.saveCommand(ctx, application.CommandResultRecord{
 		CommandID: command.CommandID, SessionID: command.SessionID,
 		Status: application.CommandSent, UpdatedAt: a.now().UTC(),
@@ -947,6 +1209,16 @@ func (a *ApplicationGatewayAdapter) ForgetSession(_ context.Context, organizatio
 	return nil
 }
 
-func sessionQueryFrom(organizationID, sessionID, gatewayID string, assignmentEpoch uint64) application.SessionStateQuery {
-	return application.SessionStateQuery{OrganizationID: organizationID, SessionID: sessionID, GatewayID: gatewayID, AssignmentEpoch: assignmentEpoch}
+func sessionQueryFrom(
+	organizationID string,
+	sessionID string,
+	gatewayID string,
+	assignmentEpoch uint64,
+) application.SessionStateQuery {
+	return application.SessionStateQuery{
+		OrganizationID:  organizationID,
+		SessionID:       sessionID,
+		GatewayID:       gatewayID,
+		AssignmentEpoch: assignmentEpoch,
+	}
 }
