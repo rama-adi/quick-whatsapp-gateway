@@ -106,6 +106,13 @@ the organization ID, nonzero durable `assignment_epoch`, absolute lease expiry, 
 auto-read, typing, and rate settings. The gateway acknowledges the applied snapshot revision; the
 API persists that acknowledgement only for the still-current connection epoch and desired revision.
 Reconciliation stops unassigned or expired sessions and carries the epoch on all commands and events.
+The reconciler publishes each candidate assignment set before invoking runtime start/stop callbacks,
+so synchronous status publication can validate the new epoch without taking the reconciler lock
+recursively. Runtime callbacks run outside the state lock and are serialized as one transaction;
+if a callback fails, the reconciler stops every prior or candidate runtime it could have touched,
+then clears ownership while retaining the previous revision for retry. Lease expiry removes each
+expired assignment first, attempts every corresponding runtime stop, and fails closed if any stop
+fails.
 
 ## Key types / interfaces
 

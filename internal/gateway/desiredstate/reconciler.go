@@ -62,6 +62,10 @@ type Reconciler struct {
 	runtime Runtime
 	now     func() time.Time
 
+	// applyMu serializes reconciliation transactions without holding mu across
+	// callbacks into Runtime. Runtime status publication can synchronously ask
+	// CurrentEpoch, so holding mu while starting or stopping a session deadlocks.
+	applyMu     sync.Mutex
 	mu          sync.RWMutex
 	revision    uint64
 	assignments map[string]Assignment
@@ -74,8 +78,10 @@ func New(runtime Runtime, now func() time.Time) *Reconciler {
 	return &Reconciler{runtime: runtime, now: now, assignments: make(map[string]Assignment)}
 }
 
-// Apply atomically advances the desired revision after all locally applicable
-// assignments have been reconciled. Stale and duplicate revisions are harmless
+// Apply advances the desired revision after all locally applicable assignments
+// have been reconciled. The provisional assignment set is published before
+// Runtime callbacks so status/event fencing can observe the new generation;
+// callbacks run without holding mu. Stale and duplicate revisions are harmless
 // no-ops, which is required for stream replay after reconnect.
 func (r *Reconciler) Apply(ctx context.Context, snapshot Snapshot) (Result, error) {
 	if r.runtime == nil {
@@ -84,11 +90,17 @@ func (r *Reconciler) Apply(ctx context.Context, snapshot Snapshot) (Result, erro
 	if err := validate(snapshot); err != nil {
 		return Result{}, err
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.applyMu.Lock()
+	defer r.applyMu.Unlock()
+	r.mu.RLock()
 	if snapshot.Revision < r.revision {
-		return Result{Revision: r.revision}, nil
+		revision := r.revision
+		r.mu.RUnlock()
+		return Result{Revision: revision}, nil
 	}
+	previousRevision := r.revision
+	previousAssignments := cloneAssignments(r.assignments)
+	r.mu.RUnlock()
 
 	inventory, err := r.runtime.Inventory(ctx)
 	if err != nil {
@@ -106,14 +118,24 @@ func (r *Reconciler) Apply(ctx context.Context, snapshot Snapshot) (Result, erro
 		CorruptJIDs:     sorted(inventory.CorruptJIDs),
 		LocalDeviceJIDs: sorted(slices.Clone(inventory.PairedJIDs)),
 	}
+	startAssignments := make([]Assignment, 0, len(snapshot.Assignments))
+	stopIDs := make([]string, 0, len(previousAssignments))
+	stopSet := make(map[string]struct{}, len(previousAssignments))
+	addStop := func(id string) {
+		if _, ok := stopSet[id]; ok {
+			return
+		}
+		stopSet[id] = struct{}{}
+		stopIDs = append(stopIDs, id)
+	}
 	now := r.now()
 	for _, assignment := range snapshot.Assignments {
 		if assignment.DeviceJID != "" {
 			wantedDevices[assignment.DeviceJID] = struct{}{}
 		}
 		if !assignment.DesiredRun || !assignment.LeaseExpiresAt.After(now) {
-			if err := r.stopIfActiveLocked(ctx, assignment.SessionID); err != nil {
-				return Result{}, err
+			if _, active := previousAssignments[assignment.SessionID]; active {
+				addStop(assignment.SessionID)
 			}
 			if assignment.DesiredRun {
 				continue // expired lease: not retained, not restarted
@@ -128,15 +150,11 @@ func (r *Reconciler) Apply(ctx context.Context, snapshot Snapshot) (Result, erro
 		}
 		// Runtime start is idempotent. Calling it every snapshot both admits a
 		// device that appeared since the previous report and refreshes config.
-		if err := r.runtime.StartAssigned(ctx, assignment); err != nil {
-			return Result{}, err
-		}
+		startAssignments = append(startAssignments, assignment)
 	}
-	for id := range r.assignments {
+	for id := range previousAssignments {
 		if _, retained := next[id]; !retained {
-			if err := r.runtime.StopAssigned(ctx, id); err != nil {
-				return Result{}, err
-			}
+			addStop(id)
 		}
 	}
 	for jid := range paired {
@@ -150,34 +168,92 @@ func (r *Reconciler) Apply(ctx context.Context, snapshot Snapshot) (Result, erro
 	noUnexpected := len(result.UnexpectedJIDs) == 0
 	noCorrupt := len(result.CorruptJIDs) == 0
 	result.Healthy = noMissing && noUnexpected && noCorrupt
-	r.assignments, r.revision = next, snapshot.Revision
+	// Publish the candidate before callbacks. StartAssigned commonly publishes
+	// status synchronously, and that callback must observe the new assignment
+	// epoch. Stop callbacks may observe either the retained terminal assignment
+	// or no assignment for a removed session.
+	r.mu.Lock()
+	r.assignments = next
+	r.mu.Unlock()
+	for _, id := range stopIDs {
+		if err := r.runtime.StopAssigned(ctx, id); err != nil {
+			return Result{}, r.rollback(ctx, previousRevision, previousAssignments, next, err)
+		}
+	}
+	for _, assignment := range startAssignments {
+		if err := r.runtime.StartAssigned(ctx, assignment); err != nil {
+			return Result{}, r.rollback(ctx, previousRevision, previousAssignments, next, err)
+		}
+	}
+	r.mu.Lock()
+	r.revision = snapshot.Revision
+	r.mu.Unlock()
 	return result, nil
 }
 
-// stopIfActiveLocked stops a session that is currently assigned. Callers must
-// hold r.mu.
-func (r *Reconciler) stopIfActiveLocked(ctx context.Context, sessionID string) error {
-	if _, active := r.assignments[sessionID]; !active {
-		return nil
+func (r *Reconciler) failClosed(previousRevision uint64) {
+	r.mu.Lock()
+	r.assignments = make(map[string]Assignment)
+	r.revision = previousRevision
+	r.mu.Unlock()
+}
+
+// rollback stops every runtime that could have been touched by a partially
+// applied transaction. The assignment map remains published while cleanup
+// runs so callbacks can still resolve the candidate generation; it is then
+// cleared regardless of cleanup errors.
+func (r *Reconciler) rollback(ctx context.Context, previousRevision uint64, previous, candidate map[string]Assignment, cause error) error {
+	ids := make(map[string]struct{}, len(previous)+len(candidate))
+	for id := range previous {
+		ids[id] = struct{}{}
 	}
-	return r.runtime.StopAssigned(ctx, sessionID)
+	for id := range candidate {
+		ids[id] = struct{}{}
+	}
+	cleanupErr := error(nil)
+	for id := range ids {
+		cleanupErr = errors.Join(cleanupErr, r.runtime.StopAssigned(ctx, id))
+	}
+	r.failClosed(previousRevision)
+	return errors.Join(cause, cleanupErr)
+}
+
+func cloneAssignments(assignments map[string]Assignment) map[string]Assignment {
+	clone := make(map[string]Assignment, len(assignments))
+	for id, assignment := range assignments {
+		clone[id] = assignment
+	}
+	return clone
 }
 
 // Expire stops assignments whose API-clock lease has elapsed. The caller owns
 // scheduling; a stale control connection must invoke this even with no frames.
 func (r *Reconciler) Expire(ctx context.Context) (bool, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.applyMu.Lock()
+	defer r.applyMu.Unlock()
 	now := r.now()
-	expired := false
+	r.mu.RLock()
+	previousRevision := r.revision
+	r.mu.RUnlock()
+	r.mu.Lock()
+	expiredAssignments := make([]string, 0)
 	for id, assignment := range r.assignments {
 		if !assignment.LeaseExpiresAt.After(now) {
-			if err := r.runtime.StopAssigned(ctx, id); err != nil {
-				return false, err
-			}
-			expired = true
+			expiredAssignments = append(expiredAssignments, id)
 			delete(r.assignments, id)
 		}
+	}
+	r.mu.Unlock()
+	expired := len(expiredAssignments) > 0
+	var stopErr error
+	for _, id := range expiredAssignments {
+		if err := r.runtime.StopAssigned(ctx, id); err != nil {
+			stopErr = errors.Join(stopErr, err)
+		}
+	}
+	if stopErr != nil {
+		r.failClosed(previousRevision)
+		return false, stopErr
 	}
 	return expired, nil
 }
