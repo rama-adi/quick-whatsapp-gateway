@@ -2,7 +2,7 @@
 
 Status: **in progress** (design locked; implementation tracked in
 [`../../oauth2-progress.md`](../../oauth2-progress.md)).
-Owner track: router (Go) + gateway inbound hook + frontend (web/).
+Owner track: API (Go) committed-event consumer + frontend (web/).
 
 ## Purpose
 
@@ -61,10 +61,11 @@ client-facing grant (we borrow its *phishing mitigations*, not its endpoint).
    the page renders "Send `login 483920` to +62xxx (BotName)" (with a `wa.me` deep-link/QR
    pre-filling the DM) or the group-mention instruction `@BotName login 483920`, plus a countdown
    and a "This isn't me / cancel" action.
-4. The end-user sends the message. The owning gateway's inbound pipeline (stage-2 interceptor)
-   matches it, validates mode/group semantics, and **atomically claims the pending request in
-   Redis (Lua)**, attaching the sender's identity. It publishes `verified` on the flow's pub/sub
-   channel and the bot replies/reacts to confirm (named app, ✅ / ❌ / ⌛).
+4. The end-user sends the message. The gateway journals and the API commits the normalized message
+   event. Before projection and fan-out, the API's committed-event consumer matches it, validates
+   mode/group semantics, and **atomically claims the pending request in Redis (Lua)**, attaching the
+   sender's identity. It publishes `verified` on the flow's pub/sub channel and the bot replies/reacts
+   to confirm (named app, ✅ / ❌ / ⌛).
 5. The stream emits `verified`; the page calls **`POST /oauth/wait/{browser_code}/finalize`**; the
    router upserts the grant, mints a **single-use authorization code** (Redis, hashed key, 60s),
    and returns the full `redirect_uri?code=…&state=…`; the browser navigates there.
@@ -286,9 +287,10 @@ Org isolation identical to sessions: `{id}` in another org → `404` (super_admi
 
 ### 5.1 Placement & matching
 
-A new `oidp.LoginInterceptor` at **stage 2 (command interceptor)** of `internal/wa/inbound` — runs
-on any session that owns ≥1 active OAuth app (cheap cached set, invalidated via
-`ctrl:oidp.app.changed`), and matched messages are **never persisted or fanned out**.
+The API runs `oidp.LoginInterceptor` as the first consumer of committed `message` events. It uses
+the same normalized message contract as the former stage-2 hook, runs on sessions that own ≥1 active
+OAuth app (cheap cached set, invalidated via `ctrl:oidp.app.changed`), and matched messages are
+**never projected, persisted, or fanned out**.
 
 Eligibility: `KindMessage`, `FromMe == false`, body matches
 `^\s*(<cmd1>|<cmd2>|…)\s+(\d{6})\s*$` (case-insensitive), where the alternation is the set of
@@ -296,8 +298,8 @@ Eligibility: `KindMessage`, `FromMe == false`, body matches
 cached per session, invalidated via control bus on app create/update/disable).
 
 **Interception is unconditional on shape match**: any message matching an active command pattern
-on that session is consumed at stage 2 — never persisted, never fanned out to webhooks or the
-event stream — *even when the code is wrong or expired*. This is deliberate: login traffic (and
+on that session is consumed by the first committed-event consumer — never projected, persisted, or
+fanned out to webhooks or the event stream — *even when the code is wrong or expired*. This is deliberate: login traffic (and
 brute-force noise) must not collide with or leak into the customer's own message handling; we
 intercept the command namespace for them. Command validation at create/update: single word,
 `[a-z0-9_-]{2,32}`, case-insensitive match, must not collide with the session's admin command
@@ -313,7 +315,7 @@ Context rules:
 
 ### 5.2 Verification transport — Redis atomic claim (decision)
 
-The gateway claims the pending request **directly in Redis via the Lua script** (§3.2), passing
+The API claims the pending request **directly in Redis via the Lua script** (§3.2), passing
 the observed command word — the claim additionally asserts it equals the pending request's
 `login_command` snapshot, so app B's command can't redeem app A's code — and publishes `verified`
 on `oauth2:login:<browser_code>`. **No gateway→router HTTP call and no new
@@ -530,17 +532,17 @@ detections. Management actions audit-logged with org/client/actor.
 
 `cmd/api`: Redis client (shared with realtime), the four `internal/store` OAuth repos, an
 `oidp.Provider` (code minters, `Signer` + JWKS cache, token issuer, wait-stream handler = `Pump`
-core + NDJSON `Sink`, finalize/cancel handlers), control-bus subscriptions for `ctrl:oidp.*`.
+core + NDJSON `Sink`, finalize/cancel handlers), the committed-event login consumer, and control-bus
+subscriptions for `ctrl:oidp.*`. Login feedback uses the API outbound scheduler over private engine
+RPC.
 
-`cmd/gateway`: `oidp.LoginInterceptor` in inbound stage 2, constructed with the cached
-active-app set per session, the Redis client (Lua claim + publish), and the outbound handler for
-bot reactions/replies.
+`cmd/gateway`: no OAuth state or interceptor wiring; it only journals normalized message events.
 
 ## 10. Bookkeeping plan
 
 - **NEW `docs/specs/oauth.md`** (this document, trimmed to the spec template) + index row in
   `_V2-STATUS.md` + milestone track & locked decisions in `docs/mvp-progress.md`.
-- **Update** `router.md` (routes), `inbound-pipeline.md` (stage-2 interceptor),
+- **Update** `router.md` (routes), `inbound-pipeline.md` (event projection boundary),
   `store.md` (four tables), `trust-model.md` (`ctrl:oidp.*`), `queue.md` (`oauth2:*` keys/channels),
   `stream.md` (NDJSON `Sink` reuse), `frontend.md` (consent page + dashboard routes).
 - **OpenAPI**: management CRUD via huma → `make gen` (openapi + typed client + fumadocs API ref).

@@ -6,24 +6,26 @@ services:
       context: ..
       dockerfile: deploy/Dockerfile.selfhost
     ports:
-      - "3000:3000"
-      - "8090:8090"
-      - "8081:8081"
+      - "8080:8080"
     environment:
       API_HTTP_ADDR: ":8090"
       API_PUBLIC_GRPC_ADDR: ":8081"
-      API_PUBLIC_URL: "${API_PUBLIC_URL:-http://localhost:8090}"
-      BETTER_AUTH_URL: "${BETTER_AUTH_URL:-http://localhost:3000}"
+      API_PUBLIC_URL: "${API_PUBLIC_URL:-http://localhost:8080}"
+      BETTER_AUTH_URL: "${BETTER_AUTH_URL:-http://localhost:8080}"
       BETTER_AUTH_JWKS_URL: "http://127.0.0.1:3000/api/auth/jwks"
-      FRONTEND_ORIGINS: "${FRONTEND_ORIGINS:-http://localhost:3000}"
+      FRONTEND_ORIGINS: "${FRONTEND_ORIGINS:-http://localhost:8080}"
+      OIDC_KEY_ENC_KEY: "${OIDC_KEY_ENC_KEY}"
+      OAUTH_CLIENT_SECRET_PEPPER: "${OAUTH_CLIENT_SECRET_PEPPER}"
+      APP_ENCRYPTION_KEY: "${APP_ENCRYPTION_KEY}"
+      WEB_LOGIN_URL: "${WEB_LOGIN_URL:-http://localhost:8080/login/whatsapp}"
       MYSQL_DSN: "gw:gwpass@tcp(mysql:3306)/gateway?parseTime=true&charset=utf8mb4&clientFoundRows=true"
       REDIS_URL: "redis://redis:6379"
       REDIS_PREFIX: "${REDIS_PREFIX:-gw}"
       # --- Gateway (control-plane mandatory; no MySQL/Redis) ---
-      GATEWAY_HTTP_ADDR: "127.0.0.1:8080"
+      GATEWAY_HTTP_ADDR: "127.0.0.1:18080"
       GATEWAY_ID: "${GATEWAY_ID:-gw-1}"
       GATEWAY_CONTROL_PLANE_ADDR: "127.0.0.1:8443"
-      GATEWAY_CREDENTIAL_DIR: "/data/gateway-credentials"
+      GATEWAY_CREDENTIAL_DIR: "/data/keystore/gateway-credentials"
       GATEWAY_BOOTSTRAP_CA_FILE: "/run/secrets/gateway-bootstrap-ca.pem"
       GATEWAY_ENROLLMENT_TOKEN: "${GATEWAY_ENROLLMENT_TOKEN:-}"
       GATEWAY_CERTIFICATE_RENEW_BEFORE: "${GATEWAY_CERTIFICATE_RENEW_BEFORE:-6h}"
@@ -32,23 +34,23 @@ services:
       GATEWAY_JOURNAL_PATH: "/data/keystore/journal.db"
       # --- API private control-plane listener ---
       API_GATEWAY_GRPC_ADDR: "127.0.0.1:8443"
-      API_GATEWAY_TLS_IDENTITY_DIR: "/data/api-tls"
+      API_GATEWAY_TLS_IDENTITY_DIR: "/data/keystore/api-tls"
       API_GATEWAY_TLS_RENEW_BEFORE: "${API_GATEWAY_TLS_RENEW_BEFORE:-6h}"
+      API_GATEWAY_ENGINE_UNARY_DEADLINE: "${API_GATEWAY_ENGINE_UNARY_DEADLINE:-2s}"
+      API_GATEWAY_ENGINE_SEND_DEADLINE: "${API_GATEWAY_ENGINE_SEND_DEADLINE:-4m}"
       PKI_ENCRYPTION_KEY: "${PKI_ENCRYPTION_KEY}"
       PKI_ENCRYPTION_KEY_ID: "${PKI_ENCRYPTION_KEY_ID:-local-v1}"
       WHATSMEOW_STORE_DSN: "file:/data/keystore/store.db?_pragma=foreign_keys(on)&_pragma=journal_mode(WAL)"
       BETTER_AUTH_SECRET: "${BETTER_AUTH_SECRET}"
       DATABASE_URL: "mysql://gw:gwpass@mysql:3306/gateway"
       GATEWAY_URL: "http://127.0.0.1:8090"
-      VITE_GATEWAY_URL: "${API_PUBLIC_URL:-http://localhost:8090}"
+      VITE_GATEWAY_URL: ""
       PUBSUB_REDIS_URL: "redis://redis:6379"
       USER_REGISTRATION_ENABLED: "${USER_REGISTRATION_ENABLED:-false}"
       ADMIN_USER_IDS: "${ADMIN_USER_IDS:-}"
       LOG_LEVEL: "${LOG_LEVEL:-info}"
     volumes:
       - keystore_data:/data/keystore
-      - api_tls_identity:/data/api-tls
-      - gateway_credentials:/data/gateway-credentials
     secrets: ["gateway_bootstrap_ca"]
     depends_on:
       mysql: { condition: service_healthy }
@@ -82,4 +84,4 @@ secrets:
   gateway_bootstrap_ca:
     file: ${GATEWAY_BOOTSTRAP_CA_FILE:?set GATEWAY_BOOTSTRAP_CA_FILE to the operator root PEM}
 
-volumes: { mysql_data: {}, redis_data: {}, keystore_data: {}, api_tls_identity: {}, gateway_credentials: {} }
+volumes: { mysql_data: {}, redis_data: {}, keystore_data: {} }

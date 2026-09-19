@@ -3,6 +3,11 @@ set -eu
 
 pids=""
 
+start_process() {
+  "$@" &
+  pids="$pids $!"
+}
+
 terminate_and_reap() {
   exit_status="$1"
   trap - INT TERM
@@ -21,8 +26,11 @@ on_term() { terminate_and_reap 143; }
 trap on_int INT
 trap on_term TERM
 
-node /web/.output/server/index.mjs &
-pids="$pids $!"
+start_process caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
+
+# Keep the frontend on its private listener. Zeabur may inject PORT for the
+# public edge; Caddy owns that public port and proxies to this fixed port.
+start_process env HOST=127.0.0.1 PORT=3000 node /web/.output/server/index.mjs
 
 api &
 api_pid=$!
@@ -32,14 +40,16 @@ pids="$pids $api_pid"
 # API readiness have succeeded; this also makes startup failure deterministic.
 attempt=0
 until wget -qO- http://127.0.0.1:8090/readyz >/dev/null 2>&1; do
-  if ! kill -0 "$api_pid" 2>/dev/null; then
-    set +e
-    wait "$api_pid"
-    status=$?
-    set -e
-    [ "$status" -ne 0 ] || status=1
-    terminate_and_reap "$status"
-  fi
+	for pid in $pids; do
+		if ! kill -0 "$pid" 2>/dev/null; then
+			set +e
+			wait "$pid"
+			status=$?
+			set -e
+			[ "$status" -ne 0 ] || status=1
+			terminate_and_reap "$status"
+		fi
+	done
   attempt=$((attempt + 1))
   if [ "$attempt" -ge 60 ]; then
     terminate_and_reap 1
@@ -47,8 +57,7 @@ until wget -qO- http://127.0.0.1:8090/readyz >/dev/null 2>&1; do
   sleep 1
 done
 
-gateway &
-pids="$pids $!"
+start_process gateway
 
 while :; do
   for pid in $pids; do

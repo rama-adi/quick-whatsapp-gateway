@@ -199,13 +199,12 @@ e2e smoke against a live WhatsApp number.
   cap, ≤25% of volume budget, 70/80/90% degraded/paused/critical thresholds, ≤256 events or 1 MiB in
   flight, 7-day command-ledger retention). Retune from observed p50/p95 event bytes and peak event
   rates on production-like traffic.
-- **OIDP login-interceptor re-homing (Increment 9 remainder).** The gateway's Redis-backed OIDP
-  pieces (`oidp.PendingStore`, `LoginInterceptor`, `AppChangeSubscriber`) were deleted with its
-  Redis dependency; the API already owns the OIDP provider, pending codes, and control subscriber.
-  The inbound-pipeline `LoginInterceptor` bridge ("Sign in with WhatsApp" claim messages arriving
-  on a gateway-connected session) needs an API-side re-home — likely as an engine-side raw-message
-  hook or a committed-event consumer — before that feature works end-to-end again. Tracked in
-  [`specs/_V2-STATUS.md`](specs/_V2-STATUS.md) (`oauth.md`).
+- **OIDP login-interceptor re-homing — IMPLEMENTED.** The API runs the existing
+  `oidp.LoginInterceptor` as the first committed-event consumer for inbound message events. It
+  claims pending requests in Redis, invalidates active-app caches through `ctrl:oidp.app.changed`,
+  and sends best-effort reactions/replies through the API outbound scheduler. Matched login
+  messages stop before projection and fan-out; live end-to-end verification remains an operational
+  test item.
 - **better-auth api-key hash replicability** — RESOLVED for the pinned version: better-auth
   1.6.22's default hash is `base64url(SHA-256(rawKey))` unpadded, replicated in
   `internal/authz` and locked by the R5 contract test. A major-version bump must re-run that

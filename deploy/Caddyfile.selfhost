@@ -1,0 +1,16 @@
+:8080 {
+	@api path /api/v1 /api/v1/*
+	@oauth path /oauth /oauth/*
+	@oidc_discovery path /.well-known/openid-configuration
+	@oauth_server path /.well-known/oauth-authorization-server
+	@oauth_jwks path /.well-known/oauth-jwks.json
+	@health path /healthz /readyz /metrics
+
+	reverse_proxy @api 127.0.0.1:8090
+	reverse_proxy @oauth 127.0.0.1:8090
+	reverse_proxy @oidc_discovery 127.0.0.1:8090
+	reverse_proxy @oauth_server 127.0.0.1:8090
+	reverse_proxy @oauth_jwks 127.0.0.1:8090
+	reverse_proxy @health 127.0.0.1:8090
+	reverse_proxy 127.0.0.1:3000
+}

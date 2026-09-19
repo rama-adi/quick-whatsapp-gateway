@@ -17,6 +17,16 @@ type recordingCommittedConsumer struct {
 	err   error
 }
 
+type handledCommittedConsumer struct {
+	recordingCommittedConsumer
+	handled bool
+}
+
+func (c *handledCommittedConsumer) HandleCommittedEvent(_ context.Context, event domain.Event) (bool, error) {
+	c.calls = append(c.calls, event.ID)
+	return c.handled, c.err
+}
+
 func (c *recordingCommittedConsumer) ConsumeCommittedEvent(_ context.Context, event domain.Event) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -161,5 +171,34 @@ func TestCommittedEventWorkerDoesNotProcessBeforeCommittedClaim(t *testing.T) {
 	defer store.mu.Unlock()
 	if publisher.count() != 0 || len(store.completed) != 0 || len(store.claims) != 1 {
 		t.Fatalf("publisher calls=%d completions=%v claims=%d", publisher.count(), store.completed, len(store.claims))
+	}
+}
+
+func TestCommittedEventDispatcherStopsFanoutForHandledEvent(t *testing.T) {
+	login := &handledCommittedConsumer{handled: true}
+	projection := &recordingCommittedConsumer{}
+	publisher := &recordingCommittedPublisher{}
+	webhooks := &recordingCommittedWebhooks{}
+	store := &durableCommittedEventStore{
+		committed: map[string]domain.Event{"evt_01": committedEvent()},
+		completed: map[string]bool{},
+	}
+	worker := newTestCommittedEventWorker(
+		store,
+		NewCommittedEventDispatcher(
+			[]application.CommittedEventConsumer{
+				NewCommittedEventConsumers(login, projection),
+			},
+			publisher,
+			webhooks,
+		),
+	)
+
+	completed, err := worker.RunOnce(context.Background(), 1)
+	if err != nil || completed != 1 {
+		t.Fatalf("completed, err = %d, %v", completed, err)
+	}
+	if projection.count() != 0 || publisher.count() != 0 || len(webhooks.calls) != 0 {
+		t.Fatalf("handled event leaked: projection=%d publisher=%d webhooks=%d", projection.count(), publisher.count(), len(webhooks.calls))
 	}
 }

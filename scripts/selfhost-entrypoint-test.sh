@@ -10,12 +10,12 @@ make_stubs() {
   case_dir="$1"
   mkdir -p "$case_dir/bin"
 
-  for command in api node; do
+  for command in api node caddy; do
     cat >"$case_dir/bin/$command" <<'EOF'
 #!/bin/sh
 name=$(basename "$0")
 echo "$$" >"$STUB_STATE/$name.pid"
-trap 'echo "$name-term" >>"$STUB_STATE/events"; exit 0' TERM
+  trap 'echo "$name-term" >>"$STUB_STATE/events"; exit 0' TERM
 while :; do sleep 1; done
 EOF
     chmod +x "$case_dir/bin/$command"
@@ -61,7 +61,7 @@ wait "$supervisor_pid"
 status=$?
 set -e
 [ "$status" -eq 143 ] || { echo "TERM status: got $status, want 143" >&2; exit 1; }
-for child in api node gateway; do
+for child in api node caddy gateway; do
   grep -q "${child}-term" "$term_case/events" || { echo "$child was not terminated" >&2; exit 1; }
 done
 
@@ -75,7 +75,7 @@ wait "$supervisor_pid"
 status=$?
 set -e
 [ "$status" -eq 7 ] || { echo "child failure status: got $status, want 7" >&2; exit 1; }
-for child in api node; do
+for child in api node caddy; do
   grep -q "${child}-term" "$failure_case/events" || { echo "$child sibling was not terminated" >&2; exit 1; }
 done
 

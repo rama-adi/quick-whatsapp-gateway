@@ -4,11 +4,77 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/application"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
 )
+
+// CommittedEventConsumers is a thread-safe fan-out list. The API starts its
+// durable worker before optional private-gateway wiring is complete; consumers
+// that depend on that wiring can be added before the first normal event flow.
+type CommittedEventConsumers struct {
+	mu        sync.RWMutex
+	consumers []application.CommittedEventConsumer
+}
+
+type handledCommittedEventConsumer interface {
+	HandleCommittedEvent(context.Context, domain.Event) (bool, error)
+}
+
+// NewCommittedEventConsumers creates a fan-out list with the supplied sinks.
+func NewCommittedEventConsumers(consumers ...application.CommittedEventConsumer) *CommittedEventConsumers {
+	out := &CommittedEventConsumers{consumers: make([]application.CommittedEventConsumer, 0, len(consumers))}
+	for _, consumer := range consumers {
+		if consumer != nil {
+			out.consumers = append(out.consumers, consumer)
+		}
+	}
+	return out
+}
+
+// Add appends a consumer for subsequent events.
+func (c *CommittedEventConsumers) Add(consumer application.CommittedEventConsumer) {
+	if c == nil || consumer == nil {
+		return
+	}
+	c.mu.Lock()
+	c.consumers = append(c.consumers, consumer)
+	c.mu.Unlock()
+}
+
+func (c *CommittedEventConsumers) ConsumeCommittedEvent(ctx context.Context, event domain.Event) error {
+	_, err := c.HandleCommittedEvent(ctx, event)
+	return err
+}
+
+// HandleCommittedEvent runs the fan-out list and reports whether a consumer
+// claimed the event exclusively (used by OAuth login messages).
+func (c *CommittedEventConsumers) HandleCommittedEvent(ctx context.Context, event domain.Event) (bool, error) {
+	if c == nil {
+		return false, nil
+	}
+	c.mu.RLock()
+	consumers := append([]application.CommittedEventConsumer(nil), c.consumers...)
+	c.mu.RUnlock()
+	for _, consumer := range consumers {
+		if handled, ok := consumer.(handledCommittedEventConsumer); ok {
+			consumed, err := handled.HandleCommittedEvent(ctx, event)
+			if err != nil {
+				return false, err
+			}
+			if consumed {
+				return true, nil
+			}
+			continue
+		}
+		if err := consumer.ConsumeCommittedEvent(ctx, event); err != nil {
+			return false, err
+		}
+	}
+	return false, nil
+}
 
 // committedEventPublisher and committedEventWebhookEnqueuer describe the two
 // existing event consumers without making application depend on Redis or the
@@ -57,6 +123,16 @@ func (d *CommittedEventDispatcher) ConsumeCommittedEvent(ctx context.Context, ev
 		return errors.New("committed event id is required")
 	}
 	for _, projection := range d.projections {
+		if handled, ok := projection.(handledCommittedEventConsumer); ok {
+			consumed, err := handled.HandleCommittedEvent(ctx, event)
+			if err != nil {
+				return fmt.Errorf("consume committed event: %w", err)
+			}
+			if consumed {
+				return nil
+			}
+			continue
+		}
 		if err := projection.ConsumeCommittedEvent(ctx, event); err != nil {
 			return fmt.Errorf("project committed event: %w", err)
 		}

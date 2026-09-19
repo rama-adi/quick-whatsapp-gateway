@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -56,6 +57,7 @@ func TestSessionServiceMeUsesEngineAfterRepositoryOwnership(t *testing.T) {
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
 	}
+
 }
 
 func TestSessionServiceMeRejectsForeignOwnerBeforeEngine(t *testing.T) {
@@ -111,6 +113,7 @@ func TestSessionServiceMePreservesFacadeError(t *testing.T) {
 // runs first from the row.
 
 type fakeLifecycleFacade struct {
+	calls                        []string
 	preparedOrg, preparedSession string
 	qrOrg, qrSession             string
 	pairSnap                     application.PairingSnapshot
@@ -122,11 +125,13 @@ type fakeLifecycleFacade struct {
 }
 
 func (f *fakeLifecycleFacade) Prepare(ctx context.Context, organizationID, sessionID string) error {
+	f.calls = append(f.calls, "prepare")
 	f.preparedOrg, f.preparedSession = organizationID, sessionID
 	return f.err
 }
 
 func (f *fakeLifecycleFacade) QR(_ context.Context, organizationID, sessionID string) (application.PairingSnapshot, error) {
+	f.calls = append(f.calls, "qr")
 	f.qrOrg, f.qrSession = organizationID, sessionID
 	return f.pairSnap, f.err
 }
@@ -137,12 +142,29 @@ func (f *fakeLifecycleFacade) PairingCode(_ context.Context, organizationID, ses
 }
 
 func (f *fakeLifecycleFacade) Logout(_ context.Context, organizationID, sessionID string) error {
+	f.calls = append(f.calls, "logout")
 	f.logoutOrg, f.logoutSession = organizationID, sessionID
 	return f.err
 }
 
 func (f *fakeLifecycleFacade) Forget(_ context.Context, organizationID, sessionID string) error {
+	f.calls = append(f.calls, "forget")
 	f.forgetOrg, f.forgetSession = organizationID, sessionID
+	return f.err
+}
+
+type fakeSessionDesiredController struct {
+	calls []bool
+	err   error
+}
+
+func isLiveUnavailable(err error) bool {
+	var apiErr *domain.APIError
+	return errors.As(err, &apiErr) && apiErr.Code == domain.CodeNotImplemented
+}
+
+func (f *fakeSessionDesiredController) SetSessionDesired(_ context.Context, _ string, run bool) error {
+	f.calls = append(f.calls, run)
 	return f.err
 }
 
@@ -171,6 +193,106 @@ func TestSessionServiceQRFavorsFacadeOverMissingManager(t *testing.T) {
 	}
 	if facade.qrOrg != "org_1" || facade.qrSession != "sess_1" {
 		t.Fatalf("facade call = %q/%q", facade.qrOrg, facade.qrSession)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSessionServiceStartPreparesBeforePairingAndDesiredRun(t *testing.T) {
+	st, mock := newStore(t)
+	mock.ExpectQuery("FROM wa_sessions").WithArgs("sess_1").WillReturnRows(unpairedSessionRow())
+	facade := &fakeLifecycleFacade{pairSnap: application.PairingSnapshot{Code: "QR-1"}}
+	desired := &fakeSessionDesiredController{}
+	svc := NewSessionService(st.Sessions, nil, nil)
+	svc.SetGatewaySessionFacade(facade)
+	svc.SetSessionDesiredController(desired)
+
+	if err := svc.Start(context.Background(), "org_1", "sess_1"); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if got, want := facade.calls, []string{"prepare", "qr"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("facade calls = %v, want %v", got, want)
+	}
+	if got, want := desired.calls, []bool{true}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("desired calls = %v, want %v", got, want)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSessionServiceRestartForgetsThenStartsWithoutDesiredStop(t *testing.T) {
+	st, mock := newStore(t)
+	mock.ExpectQuery("FROM wa_sessions").WithArgs("sess_1").WillReturnRows(unpairedSessionRow())
+	facade := &fakeLifecycleFacade{pairSnap: application.PairingSnapshot{Code: "QR-1"}}
+	desired := &fakeSessionDesiredController{}
+	svc := NewSessionService(st.Sessions, nil, nil)
+	svc.SetGatewaySessionFacade(facade)
+	svc.SetSessionDesiredController(desired)
+
+	if err := svc.Restart(context.Background(), "org_1", "sess_1"); err != nil {
+		t.Fatalf("Restart: %v", err)
+	}
+	if got, want := facade.calls, []string{"forget", "prepare", "qr"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("facade calls = %v, want %v", got, want)
+	}
+	if got, want := desired.calls, []bool{true}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("desired calls = %v, want %v", got, want)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSessionServiceRestartDoesNotSetDesiredAfterForgetFailure(t *testing.T) {
+	st, mock := newStore(t)
+	mock.ExpectQuery("FROM wa_sessions").WithArgs("sess_1").WillReturnRows(sessionRowForLiveState("sess_1", "org_1", "gw_1", "6281@s.whatsapp.net"))
+	wantErr := errors.New("gateway unavailable")
+	facade := &fakeLifecycleFacade{err: wantErr}
+	desired := &fakeSessionDesiredController{}
+	svc := NewSessionService(st.Sessions, nil, nil)
+	svc.SetGatewaySessionFacade(facade)
+	svc.SetSessionDesiredController(desired)
+
+	if err := svc.Restart(context.Background(), "org_1", "sess_1"); !errors.Is(err, wantErr) {
+		t.Fatalf("Restart error = %v, want %v", err, wantErr)
+	}
+	if len(desired.calls) != 0 {
+		t.Fatalf("desired calls = %v, want none", desired.calls)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSessionServiceLifecycleWithoutDesiredControllerReturnsUnavailable(t *testing.T) {
+	st, mock := newStore(t)
+	mock.ExpectQuery("FROM wa_sessions").WithArgs("sess_1").WillReturnRows(unpairedSessionRow())
+	svc := NewSessionService(st.Sessions, nil, nil)
+
+	if err := svc.Start(context.Background(), "org_1", "sess_1"); !isLiveUnavailable(err) {
+		t.Fatalf("Start error = %v, want live unavailable", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+
+	st, mock = newStore(t)
+	mock.ExpectQuery("FROM wa_sessions").WithArgs("sess_1").WillReturnRows(unpairedSessionRow())
+	svc = NewSessionService(st.Sessions, nil, nil)
+	if err := svc.Stop(context.Background(), "org_1", "sess_1"); !isLiveUnavailable(err) {
+		t.Fatalf("Stop error = %v, want live unavailable", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+
+	st, mock = newStore(t)
+	mock.ExpectQuery("FROM wa_sessions").WithArgs("sess_1").WillReturnRows(unpairedSessionRow())
+	svc = NewSessionService(st.Sessions, nil, nil)
+	if err := svc.Restart(context.Background(), "org_1", "sess_1"); !isLiveUnavailable(err) {
+		t.Fatalf("Restart error = %v, want live unavailable", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

@@ -147,6 +147,22 @@ func run() error {
 		service.NewWebhookDeliveryRepoAdapter(st.WebhookDeliveries),
 		nil, log,
 	)
+	var oidpPending *oidp.PendingStore
+	var oidpEvents *service.OIDPEventConsumer
+	if rdb != nil {
+		requestTTL := time.Duration(cfg.OIDCRequestTTLSeconds) * time.Second
+		oidpPending = oidp.NewPendingStore(rdb, cfg.RedisPrefix, requestTTL)
+		oidpEvents = service.NewOIDPEventConsumer(nil)
+	}
+	consumers := []application.CommittedEventConsumer{
+		service.NewEventProjectionConsumer(service.NewStoreProjections(st), nil),
+	}
+	if oidpEvents != nil {
+		// Run OAuth interception before the projection consumer so claim messages
+		// are never published as ordinary chat content.
+		consumers = append([]application.CommittedEventConsumer{oidpEvents}, consumers...)
+	}
+	committedConsumers := service.NewCommittedEventConsumers(consumers...)
 	committedWorker, err := service.NewCommittedEventWorker(
 		committedEventWorkStore{repo: st.GatewayEvents},
 		service.NewCommittedEventDispatcher(
@@ -154,9 +170,7 @@ func run() error {
 			// polls, poll votes, receipt statuses, and identity captures are
 			// derived from committed events, replacing the gateway's local
 			// inbound-pipeline writes. They run before realtime/webhook fan-out.
-			[]application.CommittedEventConsumer{
-				service.NewEventProjectionConsumer(service.NewStoreProjections(st), nil),
-			},
+			[]application.CommittedEventConsumer{committedConsumers},
 			publisher, webhookEnqueuer),
 		service.CommittedEventWorkerConfig{
 			Owner: processOwner(),
@@ -170,11 +184,6 @@ func run() error {
 	}
 	workerCtx, workerStop := context.WithCancel(ctx)
 	defer workerStop()
-	go func() {
-		if err := committedWorker.Run(workerCtx); err != nil && !errors.Is(err, context.Canceled) {
-			log.Warn("committed event worker stopped", "err", err)
-		}
-	}()
 
 	// --- Poll recap scheduling is API-owned (Increment 5): the durable MySQL
 	// sweep is the source of truth, and recap events append/publish/enqueue
@@ -229,7 +238,7 @@ func run() error {
 			Grants:       st.OAuthGrants,
 			Refresh:      st.OAuthRefresh,
 			Signer:       oidpSigner,
-			Pending:      oidp.NewPendingStore(rdb, cfg.RedisPrefix, requestTTL),
+			Pending:      oidpPending,
 			WebLoginURL:  cfg.WebLoginURL,
 			Issuer:       cfg.OIDCIssuer,
 			SecretPepper: cfg.OAuthClientSecretPepper,
@@ -239,14 +248,7 @@ func run() error {
 		})
 	}
 
-	if rdb != nil && oidpProvider != nil {
-		oidpControl := oidp.NewControlSubscriber(rdb, oidpProvider, oidpProvider, oidpProvider.PendingStore(), log)
-		if err := oidpControl.Start(ctx); err != nil {
-			log.Warn("oidp control bus subscriber disabled", "err", err)
-		} else {
-			defer oidpControl.Stop()
-		}
-	}
+	var oidpControl *oidp.AppChangeSubscriber
 
 	// --- Control bus subscriber (§4.6): the router owns the api-key cache and the
 	// live-connection registry, so it subscribes to ctrl:* and evicts the cache +
@@ -262,6 +264,7 @@ func run() error {
 	var privateGRPCServer grpcLifecycle
 	var privateReady func() error
 	var engineClient *apigateway.EngineClient
+	var oidpInterceptor *oidp.LoginInterceptor
 	defer func() {
 		if engineClient != nil {
 			_ = engineClient.Close()
@@ -374,6 +377,16 @@ func run() error {
 		}
 		services.Messages.SetGatewaySendFacade(outboundScheduler)
 		services.Messages.SetGatewayOpFacade(outboundScheduler)
+		if oidpPending != nil {
+			oidpInterceptor = oidp.NewLoginInterceptor(
+				st.OAuthClients,
+				oidpPending,
+				service.NewOIDPGroupMemberChecker(st.GroupMembers),
+				service.NewOIDPBotFeedback(outboundScheduler),
+				log,
+			)
+			oidpEvents.SetInterceptor(oidpInterceptor)
+		}
 		services.Sessions.SetSessionDesiredController(sessionDesiredController{
 			assignments: store.NewGatewayAssignmentRepo(db),
 		})
@@ -427,6 +440,29 @@ func run() error {
 		)
 		go renewAPIIdentity(ctx, identity, cfg.GatewayTLSRenewBefore, log)
 	}
+	if rdb != nil && oidpProvider != nil {
+		var oidpInvalidator oidp.AppInvalidator
+		if oidpInterceptor != nil {
+			oidpInvalidator = oidpInterceptor
+		}
+		oidpControl = oidp.NewControlSubscriber(
+			rdb,
+			oidpInvalidator,
+			oidpProvider,
+			oidpProvider.PendingStore(),
+			log,
+		)
+		if err := oidpControl.Start(ctx); err != nil {
+			log.Warn("oidp control bus subscriber disabled", "err", err)
+		} else {
+			defer oidpControl.Stop()
+		}
+	}
+	go func() {
+		if err := committedWorker.Run(workerCtx); err != nil && !errors.Is(err, context.Canceled) {
+			log.Warn("committed event worker stopped", "err", err)
+		}
+	}()
 	srv, err := router.NewServer(router.Config{
 		Tokens:           tokenVerifier,
 		Keys:             keyVerifier,

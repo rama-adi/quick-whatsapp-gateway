@@ -26,45 +26,49 @@ keeps its WhatsApp keystore in a SQLite file on a volume.
 
 | Piece | Image | Port | Owns |
 |---|---|---|---|
-| Self-host app | `deploy/Dockerfile.selfhost` (Node 22 + two Go binaries) | `3000`, `8090`, `8081` | Runs the API, gateway, and frontend in one container. Gateway port `8080` is loopback-only inside the container. |
+| Self-host app | `deploy/Dockerfile.selfhost` (Caddy + Node 22 + two Go binaries) | `8080` public | Runs Caddy, the API, gateway, and frontend in one container. API, frontend, control, and engine listeners stay loopback-only behind Caddy. |
 | API | `deploy/Dockerfile.api` (Go, no CGO) | `8090` HTTP, `8081` gRPC | Public API service: authenticates callers, routes to the owning gateway, and serves the public contracts |
 | Gateway | `deploy/Dockerfile` (Go, no CGO) | `8080` (internal) | WhatsApp sessions; writes the WA tables; stores the SQLite keystore |
 | Frontend | `deploy/Dockerfile.web` (Node 22, TanStack Start) | `3000` | better-auth and dashboard; writes auth tables; reads WA tables for display |
 | MySQL | `mysql:8.4` | `3306` | both table sets in one database |
 | Redis | `redis:7-alpine` | `6379` | the work bus and the control bus |
 
-The **API** is the only service clients reach. Publish API HTTP `8090` and gRPC
-`8081`; keep
-the gateway internal.
+The **self-host app** is the only service clients reach. Publish Caddy on
+`8080`; it routes the browser, API HTTP, OAuth, OIDC, health, and metrics paths
+to their loopback listeners. The optional public gRPC listener remains on
+`8081` only when you explicitly expose it.
 
 ## Self-host single box
 
 Use `deploy/docker-compose.selfhost.yml` when you want one host to run
-everything. It builds one app container with the API, gateway, and frontend
-together. Compose still runs MySQL and Redis as separate services so their data
-has normal volumes and backup boundaries. The app publishes the dashboard on
-`3000`, API HTTP on `8090`, and API gRPC on `8081`; the gateway listens only on loopback
-inside the app container.
+everything. It builds one app container with Caddy, the API, gateway, and
+frontend together. Compose still runs MySQL and Redis as separate services so
+their data has normal volumes and backup boundaries. The app publishes Caddy on
+`8080`; the frontend, API HTTP, API gRPC, control stream, and engine listeners
+remain private inside the container.
 
 Put the secrets in `deploy/.env`, then build and start:
 
 ```bash
 cd deploy
 cat > .env <<'EOF'
-API_ED25519_PRIVATE_KEY=...      # openssl rand 32 | base64 — signs the API's internal assertions
+OIDC_KEY_ENC_KEY=...             # openssl rand -base64 32 — encrypts OIDC signing keys
+OAUTH_CLIENT_SECRET_PEPPER=...   # random secret used to hash OAuth client secrets
 APP_ENCRYPTION_KEY=...           # openssl rand -base64 32 — encrypts webhook secrets at rest
-BETTER_AUTH_SECRET=...           # openssl rand -base64 32 — signs sessions, encrypts the JWKS private key
+PKI_ENCRYPTION_KEY=...           # openssl rand -base64 32 — encrypts the control-plane CA key
+BETTER_AUTH_SECRET=...           # openssl rand -base64 32 — signs frontend sessions
 USER_REGISTRATION_ENABLED=false  # recommended for private self-hosts
 WHATSAPP_ADMIN_NUMBER=           # optional — the number paired on boot; leave empty to skip
 EOF
 docker compose -f docker-compose.selfhost.yml up --build -d
 ```
 
-The browser uses `http://localhost:3000` (frontend) and `http://localhost:8090`
-(API); it never calls the gateway directly. Inside the app container, the
-frontend calls the API at `127.0.0.1:8090`; the API reaches the gateway at
-`127.0.0.1:8080`; and the gateway fetches assertion keys from the API at
-`127.0.0.1:8090/.well-known/router-jwks.json`.
+The browser uses `http://localhost:8080` for both the dashboard and API; Caddy
+keeps the browser same-origin and forwards API/OAuth/OIDC requests to
+`127.0.0.1:8090`. The frontend server reads the database directly for
+better-auth, while the API reaches the gateway over loopback control and engine
+listeners. The browser bundle is built with an empty `VITE_GATEWAY_URL`, which
+is intentional for this same-origin layout.
 
 <Callout type="info">
 The self-host app container is not a single process. Its entrypoint supervises
@@ -107,6 +111,46 @@ containers over your own MySQL and Redis:
 docker compose -f deploy/docker-compose.external.yml up -d
 ```
 
+## Cut over an existing gateway
+
+The control-plane release changes the gateway from a public HTTP worker into a
+private mTLS engine. Plan this as a coordinated restart. It does not provide a
+zero-downtime upgrade: pause API traffic, take a database and keystore backup,
+apply the release's one-time operator schema upgrade, upgrade the API and
+gateway together, enroll the existing gateway, then resume traffic after the
+health checks pass. Apply that schema upgrade before starting the new API; once
+it succeeds, later schema changes use the normal API migration path.
+
+Keep the existing gateway ID and its SQLite volume. The ID is the ownership key
+for `wa_sessions`, and the SQLite file contains the WhatsApp device identity;
+changing either makes existing sessions unavailable and can force pairing again.
+Keep the public API URL and its HTTP port (`8090`) unchanged. The new public
+gRPC port (`8081`) is optional for clients and should only be exposed when it is
+needed. The gateway engine (`9443`) and API control listener (`8443`) are
+private and must not be published to the Internet.
+
+For an already registered gateway, use the platform admin API in this order:
+
+1. Disable the gateway: `POST /api/v1/admin/gateways/{gatewayId}:disable`.
+2. Re-enable it: `POST /api/v1/admin/gateways/{gatewayId}:reenable`. When the
+   gateway has no enrolled certificate, this returns it to `pending_enrollment`.
+3. Replace the enrollment token: `POST
+   /api/v1/admin/gateways/{gatewayId}:replace-enrollment-token`. Store the
+   plaintext token only in the deployment secret manager.
+4. Start the upgraded gateway with the same `GATEWAY_ID`, the token, the
+   operator bootstrap CA, and persistent mounts for both
+   `/data/keystore` and `/data/gateway-credentials`.
+5. Remove `GATEWAY_ENROLLMENT_TOKEN` after the first successful enrollment and
+   wait for the gateway to report `active`, a healthy reconciliation state, and
+   the expected session assignments before sending traffic.
+
+Do not use `:reenroll` for this first migration; that operation requires an
+already enrolled gateway. If the old gateway is unreachable, preserve its
+registry row and keystore volume, complete the administrative state transition
+from the API, and bring the replacement process up with the same ID and volume.
+If the volume is missing or corrupt, stop and restore it from backup before
+enrollment; a new enrollment cannot reconstruct the WhatsApp device keys.
+
 For a SaaS product, this repo does not decide your capacity automation, tenant
 onboarding, billing, quotas, extra gateway operations, or access rules beyond
 organization roles and api-key permissions (`read`, `send`, `manage`, `events`).
@@ -139,14 +183,15 @@ first step of a deploy, or add it to your release pipeline.
 
 | Volume | Mount | Holds | If lost |
 |---|---|---|---|
-| `keystore_data` | gateway `/data/keystore` | WhatsApp device keys (SQLite) | **every number must be re-paired** |
+| `keystore_data` | `/data/keystore` | WhatsApp device keys, event journal, gateway credentials, and API TLS identity | **every number must be re-paired and the gateway must be re-enrolled** |
 | `mysql_data` | MySQL `/var/lib/mysql` | all WA + auth data | full data loss |
 | `redis_data` | Redis `/data` | queue and cache | nothing — it rebuilds |
 
 <Callout type="warn">
-Back up `keystore_data` like a database. It holds the WhatsApp device keys, so
-losing it means re-pairing every connected number. It is also what ties a
-session to a specific gateway. Always keep it on a named volume in production.
+Back up `keystore_data` like a database. It holds the WhatsApp device keys, the
+gateway mTLS credentials, and the API TLS identity, so losing it means re-pairing
+or re-enrolling. It is also what ties a session to a specific gateway. Always
+keep it on a named volume in production.
 </Callout>
 
 ## Configuration

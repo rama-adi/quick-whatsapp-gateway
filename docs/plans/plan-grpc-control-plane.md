@@ -1,5 +1,10 @@
 # Plan: gRPC Control Plane and Database-Independent Gateways
 
+> Production integration update (2026-09-19): the owner runs one Zeabur deployment.
+> Keep this clean target architecture. Upgrade that installation with a separately
+> verified one-time data cutover, preserving its gateway IDs and SQLite keystore;
+> do not introduce legacy runtime paths or compatibility migrations for it.
+
 Status: **COMPLETE (all increments landed)** — this document is the historical design
 record for the migration; living architecture detail lives in `docs/specs/`.
 Branch: `migration/grpc-control-plane`.

@@ -126,19 +126,16 @@ The gateway's golang-migrate is the **sole writer** of WA tables; the frontend o
 introspects them into read-only Drizzle models (`pnpm db:introspect`). Reshape freely **within**
 the right toolchain — never across.
 
-### Pre-release: no backward-compat burden
+### Existing deployment and clean target architecture
 
-The software has **not shipped** — there is no production data. When the contract touches the
-schema, do not preserve an awkward shape for compatibility's sake: rewrite the migration, add or
-drop/rename columns, or drop a table and rebuild it when a cleaner model exists. A wholesale
-reshape can be a single fresh migration (`0001_init` replaced the v1 migrations this way);
-truncating/rebuilding dev tables is fine. Don't accumulate compatibility shims or "v2.5"
-half-migrations — collapse them into the cleanest end state.
+The owner runs one deployment on Zeabur. Keep the clean target architecture;
+do not add legacy runtime paths or compatibility schema migrations solely for
+that installation. Handle its existing data with a separately verified one-time
+operator upgrade. Preserve its gateway IDs, paired devices, and SQLite keystore.
 
-Caveat: when in doubt whether a denormalization actually helps, prefer **read-time resolution
-from a single source of truth** over copying derived data onto rows (e.g. message sender/mention
-names are resolved from `whatsapp_identities` on read, not stored on `messages`, so a rename is
-reflected without rewrites). "Cleaner" means more normalized and correct, not more copies.
+Before pushing a runtime cutover to main, verify Zeabur's deployment trigger,
+backups, configuration, and enrollment readiness. A green build alone does not
+prove the running deployment is ready to switch.
 
 ### v1 is archived
 

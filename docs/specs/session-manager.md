@@ -52,9 +52,15 @@ The session lifecycle splits across the trust boundary:
 - **Start covers unpaired sessions.** `Manager.Start` begins QR pairing for an
   unpaired device instead of failing validation, and repeats are idempotent;
   `Restart` completes stop plus that same transition rather than partially
-  stopping. API-side, an unpaired Start/Restart kicks pairing through the
-  facade before flipping desired run state (desired run alone cannot express
-  the unpaired case — reconciliation skips assignments without a device JID).
+  stopping. API-side, an unpaired Start/Restart prepares the gateway-local
+  device and kicks pairing through the facade before flipping desired run state
+  (desired run alone cannot express the unpaired case — reconciliation skips
+  assignments without a device JID). Restart first forgets the live runtime
+  synchronously, preserving the SQLite device, then performs the same start
+  sequence; it does not rely on stop/start desired-state writes, which can
+  coalesce before reconciliation. Start, Stop, and Restart return a
+  live-unavailable error when the desired-state or live control-plane seams are
+  not configured instead of dereferencing a nil controller.
 - **The gateway executes only live parts**, through private engine RPCs served
   by `wa.ApplicationGatewayAdapter` (see [`grpc-contracts.md`](grpc-contracts.md)):
   - `PrepareSession` — creates the local keystore device + managed-session entry
@@ -70,10 +76,11 @@ The session lifecycle splits across the trust boundary:
   keeps its fail-closed `keystore_missing` policy for sessions whose expected
   device was never prepared or has vanished.
 - The API-side `SessionService` has no in-process fallback paths any more:
-  Create/Logout/Delete/QR/PairingCode always go through the engine facade, and
-  Start/Stop/Restart flip desired state (`SessionDesiredController`). Delete
-  order: OAuth cascade → engine forget → repo delete → unassign. Logout order:
-  engine logout → pairing clear → OAuth cascade.
+  Create/Logout/Delete/QR/PairingCode always go through the engine facade. Start
+  and Stop flip desired state (`SessionDesiredController`); Restart forgets the
+  runtime synchronously, then starts through the same prepare/QR path and sets
+  desired run. Delete order: OAuth cascade → engine forget → repo delete →
+  unassign. Logout order: engine logout → pairing clear → OAuth cascade.
 - **Registry writes are gone from the gateway.** There is no `joining`/`active`
   registration, no heartbeat timer, and no shutdown draining/drained write to
   `wa_gateways`: liveness is the acknowledged control-stream heartbeat itself.

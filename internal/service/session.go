@@ -183,21 +183,38 @@ func (s *SessionService) Start(ctx context.Context, organizationID, id string) e
 	if err != nil {
 		return err
 	}
+	return s.startSession(ctx, organizationID, sess)
+}
+
+func (s *SessionService) startSession(
+	ctx context.Context,
+	organizationID string,
+	sess domain.WASession,
+) error {
+	if s.desiredController == nil {
+		return errLiveUnavailable()
+	}
 	if sess.WAJID == nil {
 		if s.gatewayFacade == nil {
 			return errLiveUnavailable()
+		}
+		if err := s.gatewayFacade.Prepare(ctx, organizationID, sess.ID); err != nil {
+			return err
 		}
 		if _, err := s.gatewayFacade.QR(ctx, organizationID, sess.ID); err != nil {
 			return err
 		}
 	}
-	return s.desiredController.SetSessionDesired(ctx, id, true)
+	return s.desiredController.SetSessionDesired(ctx, sess.ID, true)
 }
 
 // Stop disconnects a session and marks it stopped.
 func (s *SessionService) Stop(ctx context.Context, organizationID, id string) error {
 	if _, err := s.Get(ctx, organizationID, id); err != nil {
 		return err
+	}
+	if s.desiredController == nil {
+		return errLiveUnavailable()
 	}
 	return s.desiredController.SetSessionDesired(ctx, id, false)
 }
@@ -206,15 +223,20 @@ func (s *SessionService) Stop(ctx context.Context, organizationID, id string) er
 // restart also begins a fresh QR pairing flow rather than partially stopping and
 // then failing validation.
 func (s *SessionService) Restart(ctx context.Context, organizationID, id string) error {
-	if _, err := s.Get(ctx, organizationID, id); err != nil {
+	sess, err := s.Get(ctx, organizationID, id)
+	if err != nil {
 		return err
 	}
-	// One stop→start cycle through desired state; the reconciler converges
-	// on the final run state.
-	if err := s.desiredController.SetSessionDesired(ctx, id, false); err != nil {
+	if s.desiredController == nil || s.gatewayFacade == nil {
+		return errLiveUnavailable()
+	}
+	// Forget synchronously disconnects the runtime while preserving its SQLite
+	// device. A stop→start desired-state pair can coalesce before reconciliation
+	// and therefore does not reliably restart the live runtime.
+	if err := s.gatewayFacade.Forget(ctx, organizationID, id); err != nil {
 		return err
 	}
-	return s.desiredController.SetSessionDesired(ctx, id, true)
+	return s.startSession(ctx, organizationID, sess)
 }
 
 // Logout unlinks the device server-side, deletes its keystore device, and
