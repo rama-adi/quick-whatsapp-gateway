@@ -28,7 +28,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 )
 
 // RedisClient is the consumer interface over go-redis we need for fan-out. The

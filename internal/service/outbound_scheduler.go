@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/application"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa/outbound"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/application"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/wa/outbound"
 )
 
 // outboundSessionSource resolves sessions for ownership checks and rate budgets.

@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package public.v1;
 
-option go_package = "github.com/ramaadi/quick-whatsapp-gateway/gen/public/v1;publicv1";
+option go_package = "github.com/rama-adi/quick-whatsapp-gateway/gen/public/v1;publicv1";
 
 // Shared resource types for the public.v1 surface. Field names mirror the REST
 // JSON contracts (camelCase); the session status enum mirrors the stored

@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	gatewayv1 "github.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	gatewayv1 "github.com/rama-adi/quick-whatsapp-gateway/gen/gateway/v1"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 )

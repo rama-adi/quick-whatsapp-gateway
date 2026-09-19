@@ -6,8 +6,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/httpx"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/httpx"
 )
 
 // Authenticate is the single auth middleware with two acceptors evaluated in

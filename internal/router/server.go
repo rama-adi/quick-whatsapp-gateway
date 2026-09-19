@@ -19,14 +19,14 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/authz"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
-	handlersapi "github.com/ramaadi/quick-whatsapp-gateway/internal/http/handlers"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/http/middleware"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/httpx"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/humax"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/oidp"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/stream"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/authz"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
+	handlersapi "github.com/rama-adi/quick-whatsapp-gateway/internal/http/handlers"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/http/middleware"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/httpx"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/humax"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/oidp"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/stream"
 )
 
 // SessionResolver is the slice of the session repository the realtime ticket

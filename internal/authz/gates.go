@@ -3,8 +3,8 @@ package authz
 import (
 	"net/http"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/httpx"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/httpx"
 )
 
 // Capability is one of the four gated actions (§4.3). For api-key callers it maps

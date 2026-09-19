@@ -14,10 +14,10 @@ import (
 	"github.com/coder/websocket"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/authz"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/httpx"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/stream"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/authz"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/httpx"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/stream"
 )
 
 // Realtime endpoints (D5/D5a). The router is the single client-facing realtime

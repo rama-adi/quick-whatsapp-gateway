@@ -5,12 +5,12 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/apitypes"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/oidp"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa/inbound"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa/outbound"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/apitypes"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/oidp"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/store"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/wa/inbound"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/wa/outbound"
 )
 
 // OIDPEventConsumer runs the WhatsApp login command interceptor after the API

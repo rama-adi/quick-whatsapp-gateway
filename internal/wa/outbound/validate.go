@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 )
 
 // MaxMediaBytes caps the decoded/fetched size of a media send. It bounds memory

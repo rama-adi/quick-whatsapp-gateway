@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 )
 
 // callOrder records the global sequence of side-effects across fakes so tests

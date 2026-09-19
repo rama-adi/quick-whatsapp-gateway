@@ -3,9 +3,9 @@ package apigrpc
 import (
 	"google.golang.org/grpc"
 
-	publicv1 "github.com/ramaadi/quick-whatsapp-gateway/gen/public/v1"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/authz"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/httpx"
+	publicv1 "github.com/rama-adi/quick-whatsapp-gateway/gen/public/v1"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/authz"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/httpx"
 )
 
 // Deps carries the application services the public gRPC surface delegates to.

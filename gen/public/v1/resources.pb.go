@@ -1491,7 +1491,7 @@ const file_v1_resources_proto_rawDesc = "" +
 	"\x0fCHAT_TYPE_GROUP\x10\x02\x12\x18\n" +
 	"\x14CHAT_TYPE_NEWSLETTER\x10\x03\x12\x17\n" +
 	"\x13CHAT_TYPE_BROADCAST\x10\x04\x12\x14\n" +
-	"\x10CHAT_TYPE_STATUS\x10\x05BBZ@github.com/ramaadi/quick-whatsapp-gateway/gen/public/v1;publicv1b\x06proto3"
+	"\x10CHAT_TYPE_STATUS\x10\x05BCZAgithub.com/rama-adi/quick-whatsapp-gateway/gen/public/v1;publicv1b\x06proto3"
 
 var (
 	file_v1_resources_proto_rawDescOnce sync.Once

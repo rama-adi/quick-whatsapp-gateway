@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 )
 
 // TestDefaultHasher documents and pins the better-auth api-key hashing

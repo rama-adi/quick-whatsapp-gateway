@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 )
 
 // capture is stage 3 (§7.3): identity/contacts capture.

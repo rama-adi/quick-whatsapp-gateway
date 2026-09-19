@@ -12,12 +12,12 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/apitypes"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/service"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/service/gatewayadmin"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa/outbound"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/apitypes"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/service"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/service/gatewayadmin"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/store"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/wa/outbound"
 )
 
 // ---------------------------------------------------------------------------

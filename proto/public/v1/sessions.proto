@@ -4,7 +4,7 @@ package public.v1;
 
 import "v1/resources.proto";
 
-option go_package = "github.com/ramaadi/quick-whatsapp-gateway/gen/public/v1;publicv1";
+option go_package = "github.com/rama-adi/quick-whatsapp-gateway/gen/public/v1;publicv1";
 
 // PublicSessionsService is the gRPC equivalent of the REST /sessions surface.
 // The acting organization always comes from the authenticated principal, never

@@ -1,8 +1,8 @@
 package events
 
 import (
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/apitypes"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/apitypes"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 )
 
 // The wire payload structs (the "payload" of a domain.Event) are defined ONCE in

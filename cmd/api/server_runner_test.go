@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	gatewayv1 "github.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1"
-	publicv1 "github.com/ramaadi/quick-whatsapp-gateway/gen/public/v1"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/apigrpc"
+	gatewayv1 "github.com/rama-adi/quick-whatsapp-gateway/gen/gateway/v1"
+	publicv1 "github.com/rama-adi/quick-whatsapp-gateway/gen/public/v1"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/apigrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )

@@ -11,9 +11,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/authz"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/oidp"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/authz"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/oidp"
 )
 
 // --- fakes -------------------------------------------------------------------

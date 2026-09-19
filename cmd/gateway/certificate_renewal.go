@@ -5,9 +5,9 @@ import (
 	"errors"
 	"time"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/gateway/controlclient"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/gateway/controlsupervisor"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/pki/gatewayidentity"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/gateway/controlclient"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/gateway/controlsupervisor"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/pki/gatewayidentity"
 )
 
 var ErrGatewayCertificateExpired = errors.New("gateway certificate expired before renewal completed")

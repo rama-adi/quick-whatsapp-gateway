@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"github.com/oklog/ulid/v2"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/pki"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/pki"
 )
 
 const version = 1

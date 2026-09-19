@@ -1,6 +1,6 @@
 package apitypes
 
-import "github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+import "github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 
 // This file is the typed event catalog — the source of truth for both the runtime
 // wire payloads (internal/wa/events aliases these types) and the generated OpenAPI

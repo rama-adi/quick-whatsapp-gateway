@@ -9,7 +9,7 @@ package gateway
 import (
 	"context"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/application"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/application"
 )
 
 // SessionLifecycleFacade implements the service package's GatewaySessionFacade

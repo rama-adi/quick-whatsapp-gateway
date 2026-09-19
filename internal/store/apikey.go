@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/store/storedb"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/store/storedb"
 )
 
 // APIKeyRepo is a READ-ONLY view of better-auth's `apikey` table (§4.2/§7). The

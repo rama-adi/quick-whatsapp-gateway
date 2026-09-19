@@ -3,7 +3,7 @@ package webhooks
 import (
 	"testing"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 )
 
 // TestBackoffSeconds_ExponentialSchedule checks attempts 1 through 6 for a two-second exponential policy.

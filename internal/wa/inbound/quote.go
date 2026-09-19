@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/apitypes"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/apitypes"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 )
 
 // enrichQuote fills the reply-context fields on a message event. The quoted

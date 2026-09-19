@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	gatewayv1 "github.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	gatewayv1 "github.com/rama-adi/quick-whatsapp-gateway/gen/gateway/v1"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 )
 
 func TestReplayRetiresRemovedAssignmentsWithoutBlockingOwnedEvents(t *testing.T) {

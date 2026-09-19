@@ -1,6 +1,6 @@
 package webhooks
 
-import "github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+import "github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 
 // DefaultDelaySeconds and DefaultAttempts back-fill a RetryPolicy that arrives
 // zero/under-specified (e.g. a webhook row written before retry tuning). They

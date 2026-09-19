@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/store/storedb"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/store/storedb"
 )
 
 func canonicalDMChatJID(ctx context.Context, db dbExecQuerier, chatJID string) (string, error) {

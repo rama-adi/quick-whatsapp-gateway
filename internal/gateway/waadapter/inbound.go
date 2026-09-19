@@ -11,10 +11,10 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/apitypes"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa/events"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa/inbound"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/apitypes"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/wa/events"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/wa/inbound"
 )
 
 // InboundPipelineHandler is the managers synchronous event callback into the

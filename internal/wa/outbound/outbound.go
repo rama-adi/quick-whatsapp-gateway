@@ -14,7 +14,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 )
 
 // SendResult is the outcome of a send. For sync sends Mode is "sync" and

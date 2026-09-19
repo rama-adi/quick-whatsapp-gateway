@@ -5,12 +5,12 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/apitypes"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/authz"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/httpx"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/humax"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/service"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/apitypes"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/authz"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/httpx"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/humax"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/service"
 )
 
 // clampLimit reproduces the same limit defaults and bounds as the chi handler.

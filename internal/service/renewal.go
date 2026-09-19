@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/oklog/ulid/v2"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/pki"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/pki"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/store"
 )
 
 // RenewalCredential is the incumbent identity already authenticated by the

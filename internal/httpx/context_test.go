@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 )
 
 // TestOrganizationIDCtx starts with a bare context, then stores and reads an organization ID.

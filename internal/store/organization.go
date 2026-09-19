@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/store/storedb"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/store/storedb"
 )
 
 // OrganizationReader is a READ-ONLY view of better-auth's `organization` table

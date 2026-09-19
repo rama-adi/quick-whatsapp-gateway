@@ -88,6 +88,6 @@ How to configure them:
 - **One instance** (dev, or a single server): leave `PUBSUB_REDIS_URL` unset. It falls back to `REDIS_URL`, so one Redis handles both jobs.
 - **Split** (production, or more than one gateway): point `PUBSUB_REDIS_URL` at a shared Redis (it can be a managed one) that the frontend and the router can both reach. Keep the high-traffic work Redis close to the gateways and router. The control bus is the frontend's **only** connection to Redis, and the frontend only ever publishes to it.
 
-More detail: [`docs/specs/store.md`](https://github.com/ramaadi/quick-whatsapp-gateway/blob/main/docs/specs/store.md),
-[`docs/specs/whatsmeow-store.md`](https://github.com/ramaadi/quick-whatsapp-gateway/blob/main/docs/specs/whatsmeow-store.md),
-[`docs/specs/queue.md`](https://github.com/ramaadi/quick-whatsapp-gateway/blob/main/docs/specs/queue.md).
+More detail: [`docs/specs/store.md`](https://github.com/rama-adi/quick-whatsapp-gateway/blob/main/docs/specs/store.md),
+[`docs/specs/whatsmeow-store.md`](https://github.com/rama-adi/quick-whatsapp-gateway/blob/main/docs/specs/whatsmeow-store.md),
+[`docs/specs/queue.md`](https://github.com/rama-adi/quick-whatsapp-gateway/blob/main/docs/specs/queue.md).

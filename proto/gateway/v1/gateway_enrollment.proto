@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package gateway.v1;
 
-option go_package = "github.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1;gatewayv1";
+option go_package = "github.com/rama-adi/quick-whatsapp-gateway/gen/gateway/v1;gatewayv1";
 
 // GatewayEnrollmentService exchanges a one-time enrollment bearer and Ed25519
 // CSR for the private API-issued gateway identity.

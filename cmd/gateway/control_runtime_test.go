@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	gatewayv1 "github.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/gateway/controlsupervisor"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/gateway/desiredstate"
+	gatewayv1 "github.com/rama-adi/quick-whatsapp-gateway/gen/gateway/v1"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/gateway/controlsupervisor"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/gateway/desiredstate"
 )
 
 type fixedControlStatus struct{ status controlsupervisor.Status }

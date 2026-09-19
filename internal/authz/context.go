@@ -3,7 +3,7 @@ package authz
 import (
 	"context"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/httpx"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/httpx"
 )
 
 // SetPrincipal returns a child context carrying the verified caller. The auth

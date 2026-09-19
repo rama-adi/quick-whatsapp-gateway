@@ -5,10 +5,10 @@ import (
 	"errors"
 	"sync"
 
-	gatewayv1 "github.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/gateway/desiredstate"
-	wastore "github.com/ramaadi/quick-whatsapp-gateway/internal/wa/store"
-	sqlitestore "github.com/ramaadi/quick-whatsapp-gateway/internal/wa/store/sqlite"
+	gatewayv1 "github.com/rama-adi/quick-whatsapp-gateway/gen/gateway/v1"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/gateway/desiredstate"
+	wastore "github.com/rama-adi/quick-whatsapp-gateway/internal/wa/store"
+	sqlitestore "github.com/rama-adi/quick-whatsapp-gateway/internal/wa/store/sqlite"
 	waStore "go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
 )

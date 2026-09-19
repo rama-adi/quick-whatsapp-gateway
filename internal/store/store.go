@@ -12,7 +12,7 @@ import (
 	"context"
 	"database/sql"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/store/storedb"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/store/storedb"
 )
 
 // dbExecQuerier is the small subset of *sql.DB / *sql.Tx that the repos need.

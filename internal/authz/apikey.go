@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 )
 
 // KeyVerifier verifies a raw api-key and resolves it to a Principal. It is the

@@ -1236,7 +1236,7 @@ const file_v1_messages_proto_rawDesc = "" +
 	"\x0eRemoveReaction\x12 .public.v1.RemoveReactionRequest\x1a!.public.v1.RemoveReactionResponse\x12U\n" +
 	"\x0eForwardMessage\x12 .public.v1.ForwardMessageRequest\x1a!.public.v1.ForwardMessageResponse\x12C\n" +
 	"\bVotePoll\x12\x1a.public.v1.VotePollRequest\x1a\x1b.public.v1.VotePollResponse\x12O\n" +
-	"\fListMessages\x12\x1e.public.v1.ListMessagesRequest\x1a\x1f.public.v1.ListMessagesResponseBBZ@github.com/ramaadi/quick-whatsapp-gateway/gen/public/v1;publicv1b\x06proto3"
+	"\fListMessages\x12\x1e.public.v1.ListMessagesRequest\x1a\x1f.public.v1.ListMessagesResponseBCZAgithub.com/rama-adi/quick-whatsapp-gateway/gen/public/v1;publicv1b\x06proto3"
 
 var (
 	file_v1_messages_proto_rawDescOnce sync.Once

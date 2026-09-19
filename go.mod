@@ -1,4 +1,4 @@
-module github.com/ramaadi/quick-whatsapp-gateway
+module github.com/rama-adi/quick-whatsapp-gateway
 
 go 1.26.4
 

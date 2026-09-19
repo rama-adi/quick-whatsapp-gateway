@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/application"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/application"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 )
 
 type recordingCommittedConsumer struct {

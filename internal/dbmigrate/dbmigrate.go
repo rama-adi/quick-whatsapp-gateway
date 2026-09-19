@@ -13,7 +13,7 @@ import (
 	migratemysql "github.com/golang-migrate/migrate/v4/database/mysql"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/migrations"
+	"github.com/rama-adi/quick-whatsapp-gateway/migrations"
 )
 
 type Direction string

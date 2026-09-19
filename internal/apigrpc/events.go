@@ -5,9 +5,9 @@ import (
 	"log/slog"
 	"time"
 
-	publicv1 "github.com/ramaadi/quick-whatsapp-gateway/gen/public/v1"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/authz"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	publicv1 "github.com/rama-adi/quick-whatsapp-gateway/gen/public/v1"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/authz"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 )
 
 // EventsReader is the committed-event source apigrpc streams from — the exact

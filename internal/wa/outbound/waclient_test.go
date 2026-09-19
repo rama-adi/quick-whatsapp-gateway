@@ -9,7 +9,7 @@ import (
 
 	"go.mau.fi/whatsmeow/types"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 )
 
 // TestBuildContextInfo_Quote builds protobuf context for a reply with message ID, participant, and

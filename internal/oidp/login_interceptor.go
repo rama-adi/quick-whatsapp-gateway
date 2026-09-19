@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa/inbound"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/wa/inbound"
 	"go.mau.fi/whatsmeow/types"
 )
 

@@ -13,8 +13,8 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/crypto"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/crypto"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/store"
 )
 
 // Deps groups everything the service layer needs from the composition root. The

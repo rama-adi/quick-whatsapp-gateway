@@ -20,9 +20,9 @@ import (
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
 	"github.com/go-chi/chi/v5"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/authz"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
-	httpmiddleware "github.com/ramaadi/quick-whatsapp-gateway/internal/http/middleware"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/authz"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
+	httpmiddleware "github.com/rama-adi/quick-whatsapp-gateway/internal/http/middleware"
 )
 
 func init() {

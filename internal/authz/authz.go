@@ -17,7 +17,7 @@
 // the middleware and main depend on abstractions, not concrete clients.
 package authz
 
-import "github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+import "github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 
 // PrincipalKind distinguishes the two caller identities (§4.3).
 type PrincipalKind string

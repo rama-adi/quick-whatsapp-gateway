@@ -3,7 +3,7 @@ package inbound
 import (
 	"context"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 )
 
 // This file declares the CONSUMER INTERFACES the inbound pipeline depends on.

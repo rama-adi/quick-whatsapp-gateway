@@ -13,13 +13,13 @@ import (
 )
 
 func forbiddenGatewayImport(path string) bool {
-	return path == "github.com/ramaadi/quick-whatsapp-gateway/internal/service" ||
-		path == "github.com/ramaadi/quick-whatsapp-gateway/internal/store" ||
-		strings.HasPrefix(path, "github.com/ramaadi/quick-whatsapp-gateway/internal/store/") ||
+	return path == "github.com/rama-adi/quick-whatsapp-gateway/internal/service" ||
+		path == "github.com/rama-adi/quick-whatsapp-gateway/internal/store" ||
+		strings.HasPrefix(path, "github.com/rama-adi/quick-whatsapp-gateway/internal/store/") ||
 		strings.HasPrefix(path, "github.com/redis/go-redis/") ||
 		path == "github.com/go-sql-driver/mysql" ||
-		path == "github.com/ramaadi/quick-whatsapp-gateway/internal/dbmigrate" ||
-		path == "github.com/ramaadi/quick-whatsapp-gateway/migrations" ||
+		path == "github.com/rama-adi/quick-whatsapp-gateway/internal/dbmigrate" ||
+		path == "github.com/rama-adi/quick-whatsapp-gateway/migrations" ||
 		strings.HasPrefix(path, "github.com/golang-migrate/migrate")
 }
 

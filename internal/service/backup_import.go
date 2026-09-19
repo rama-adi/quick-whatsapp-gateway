@@ -6,9 +6,9 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/backup"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/backup"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/store"
 )
 
 const (

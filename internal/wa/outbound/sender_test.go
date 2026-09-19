@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 	"github.com/stretchr/testify/require"
 )
 

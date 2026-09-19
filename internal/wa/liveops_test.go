@@ -6,7 +6,7 @@ import (
 
 	"go.mau.fi/whatsmeow/types"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 )
 
 func lid(user string, device uint16) types.JID {

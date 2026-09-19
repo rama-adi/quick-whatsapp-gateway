@@ -2,7 +2,7 @@ package service
 
 import (
 	"context"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa/outbound"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/wa/outbound"
 	"testing"
 	"time"
 

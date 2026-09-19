@@ -3,7 +3,7 @@ package inbound
 import (
 	"context"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 )
 
 // NoopRepos is a fully inert Repos implementation. The gateway owns no MySQL

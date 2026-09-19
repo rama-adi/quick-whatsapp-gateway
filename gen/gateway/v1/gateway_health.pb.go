@@ -164,7 +164,7 @@ const file_v1_gateway_health_proto_rawDesc = "" +
 	"\x16SERVING_STATUS_SERVING\x10\x01\x12\x1e\n" +
 	"\x1aSERVING_STATUS_NOT_SERVING\x10\x022|\n" +
 	"\x14GatewayHealthService\x12d\n" +
-	"\x05Check\x12,.gateway.v1.GatewayHealthServiceCheckRequest\x1a-.gateway.v1.GatewayHealthServiceCheckResponseBDZBgithub.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1;gatewayv1b\x06proto3"
+	"\x05Check\x12,.gateway.v1.GatewayHealthServiceCheckRequest\x1a-.gateway.v1.GatewayHealthServiceCheckResponseBEZCgithub.com/rama-adi/quick-whatsapp-gateway/gen/gateway/v1;gatewayv1b\x06proto3"
 
 var (
 	file_v1_gateway_health_proto_rawDescOnce sync.Once

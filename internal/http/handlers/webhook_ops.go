@@ -5,11 +5,11 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/apitypes"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/authz"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/humax"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/service"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/apitypes"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/authz"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/humax"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/service"
 )
 
 // webhookBody is the POST/PATCH /webhooks request body. Secret is the plaintext

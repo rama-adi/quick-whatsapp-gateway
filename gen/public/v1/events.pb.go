@@ -202,7 +202,7 @@ const file_v1_events_proto_rawDesc = "" +
 	"\x11timestamp_unix_ms\x18\x06 \x01(\x03R\x0ftimestampUnixMs\x12!\n" +
 	"\fpayload_json\x18\a \x01(\fR\vpayloadJson2h\n" +
 	"\x13PublicEventsService\x12Q\n" +
-	"\fStreamEvents\x12\x1e.public.v1.StreamEventsRequest\x1a\x1f.public.v1.StreamEventsResponse0\x01BBZ@github.com/ramaadi/quick-whatsapp-gateway/gen/public/v1;publicv1b\x06proto3"
+	"\fStreamEvents\x12\x1e.public.v1.StreamEventsRequest\x1a\x1f.public.v1.StreamEventsResponse0\x01BCZAgithub.com/rama-adi/quick-whatsapp-gateway/gen/public/v1;publicv1b\x06proto3"
 
 var (
 	file_v1_events_proto_rawDescOnce sync.Once

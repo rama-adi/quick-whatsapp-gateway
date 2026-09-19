@@ -3,7 +3,7 @@ package service
 import (
 	"testing"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 )
 
 // TestChatTypeFromJID classifies representative user, group, newsletter, broadcast, and unknown JIDs for

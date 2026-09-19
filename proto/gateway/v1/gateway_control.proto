@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package gateway.v1;
 
-option go_package = "github.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1;gatewayv1";
+option go_package = "github.com/rama-adi/quick-whatsapp-gateway/gen/gateway/v1;gatewayv1";
 
 // GatewayControlService is the long-lived private API↔gateway coordination channel.
 // Gateway identity is derived exclusively from the authenticated TLS peer; frames

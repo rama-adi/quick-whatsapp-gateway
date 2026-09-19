@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/application"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/application"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 )
 
 // Live resource operations use the shared command executor for durable mutations.

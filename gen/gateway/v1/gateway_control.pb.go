@@ -2164,7 +2164,7 @@ const file_v1_gateway_control_proto_rawDesc = "" +
 	"\x1aSESSION_DESIRED_ACTION_RUN\x10\x01\x12\x1f\n" +
 	"\x1bSESSION_DESIRED_ACTION_STOP\x10\x02\"\x04\b\x03\x10\x0f2Z\n" +
 	"\x15GatewayControlService\x12A\n" +
-	"\aConnect\x12\x18.gateway.v1.GatewayFrame\x1a\x18.gateway.v1.ControlFrame(\x010\x01BDZBgithub.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1;gatewayv1b\x06proto3"
+	"\aConnect\x12\x18.gateway.v1.GatewayFrame\x1a\x18.gateway.v1.ControlFrame(\x010\x01BEZCgithub.com/rama-adi/quick-whatsapp-gateway/gen/gateway/v1;gatewayv1b\x06proto3"
 
 var (
 	file_v1_gateway_control_proto_rawDescOnce sync.Once

@@ -6,7 +6,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 )
 
 // AccountPresence is deliberately closed so an unknown wire value cannot be

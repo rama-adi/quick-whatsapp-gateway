@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/dbmigrate"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/dbmigrate"
 )
 
 func TestRunUsageAndExecution(t *testing.T) {

@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package public.v1;
 
-option go_package = "github.com/ramaadi/quick-whatsapp-gateway/gen/public/v1;publicv1";
+option go_package = "github.com/rama-adi/quick-whatsapp-gateway/gen/public/v1;publicv1";
 
 // PublicEventsService streams committed events for the caller's organization —
 // the gRPC equivalent of the WebSocket realtime surface. Every streamed

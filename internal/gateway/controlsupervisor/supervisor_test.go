@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	gatewayv1 "github.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1"
+	gatewayv1 "github.com/rama-adi/quick-whatsapp-gateway/gen/gateway/v1"
 )
 
 type staticRuntime struct{ snapshot RuntimeSnapshot }

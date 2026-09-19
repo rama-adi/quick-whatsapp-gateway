@@ -3,10 +3,10 @@ package apigrpc
 import (
 	"context"
 
-	publicv1 "github.com/ramaadi/quick-whatsapp-gateway/gen/public/v1"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/authz"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/service"
+	publicv1 "github.com/rama-adi/quick-whatsapp-gateway/gen/public/v1"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/authz"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

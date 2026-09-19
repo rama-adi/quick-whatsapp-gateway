@@ -3,7 +3,7 @@ package apitypes
 import (
 	"encoding/json"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 )
 
 // GatewayAdmin is the complete non-secret gateway registry projection exposed to

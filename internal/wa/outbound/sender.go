@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 )
 
 // Sender is the unified outbound pipeline (§8). It validates and routes a

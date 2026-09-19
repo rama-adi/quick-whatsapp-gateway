@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/pki"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/pki"
 )
 
 type testSigner struct {

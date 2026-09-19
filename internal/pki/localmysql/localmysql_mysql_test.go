@@ -17,7 +17,7 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
-	base "github.com/ramaadi/quick-whatsapp-gateway/internal/pki"
+	base "github.com/rama-adi/quick-whatsapp-gateway/internal/pki"
 )
 
 type failingEntropy struct{}

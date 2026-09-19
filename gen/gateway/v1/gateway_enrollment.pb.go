@@ -332,7 +332,7 @@ const file_v1_gateway_enrollment_proto_rawDesc = "" +
 	"\x11not_after_unix_ms\x18\a \x01(\x03R\x0enotAfterUnixMs2\xf9\x01\n" +
 	"\x18GatewayEnrollmentService\x12o\n" +
 	"\x06Enroll\x121.gateway.v1.GatewayEnrollmentServiceEnrollRequest\x1a2.gateway.v1.GatewayEnrollmentServiceEnrollResponse\x12l\n" +
-	"\x05Renew\x120.gateway.v1.GatewayEnrollmentServiceRenewRequest\x1a1.gateway.v1.GatewayEnrollmentServiceRenewResponseBDZBgithub.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1;gatewayv1b\x06proto3"
+	"\x05Renew\x120.gateway.v1.GatewayEnrollmentServiceRenewRequest\x1a1.gateway.v1.GatewayEnrollmentServiceRenewResponseBEZCgithub.com/rama-adi/quick-whatsapp-gateway/gen/gateway/v1;gatewayv1b\x06proto3"
 
 var (
 	file_v1_gateway_enrollment_proto_rawDescOnce sync.Once

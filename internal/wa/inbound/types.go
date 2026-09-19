@@ -3,7 +3,7 @@ package inbound
 import (
 	"encoding/json"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 )
 
 // NormalizedMessage is the decoupled, transport-free view of a single inbound

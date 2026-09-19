@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/pki"
-	sqlitestore "github.com/ramaadi/quick-whatsapp-gateway/internal/wa/store/sqlite"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/pki"
+	sqlitestore "github.com/rama-adi/quick-whatsapp-gateway/internal/wa/store/sqlite"
 )
 
 // GatewayConfig is the fully-parsed gateway runtime configuration. Every field maps to an ENV

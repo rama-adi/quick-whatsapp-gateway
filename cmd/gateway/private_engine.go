@@ -5,12 +5,12 @@ import (
 	"errors"
 	"net"
 
-	gatewayv1 "github.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1"
-	apigateway "github.com/ramaadi/quick-whatsapp-gateway/internal/api/gateway"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/gateway/enginegrpc"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/pki"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/pki/gatewayidentity"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa"
+	gatewayv1 "github.com/rama-adi/quick-whatsapp-gateway/gen/gateway/v1"
+	apigateway "github.com/rama-adi/quick-whatsapp-gateway/internal/api/gateway"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/gateway/enginegrpc"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/pki"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/pki/gatewayidentity"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/wa"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )

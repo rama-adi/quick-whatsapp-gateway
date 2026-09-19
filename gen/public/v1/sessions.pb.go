@@ -1093,7 +1093,7 @@ const file_v1_sessions_proto_rawDesc = "" +
 	"\rLogoutSession\x12\x1f.public.v1.LogoutSessionRequest\x1a .public.v1.LogoutSessionResponse\x12[\n" +
 	"\x10GetSessionQrCode\x12\".public.v1.GetSessionQrCodeRequest\x1a#.public.v1.GetSessionQrCodeResponse\x12^\n" +
 	"\x11CreatePairingCode\x12#.public.v1.CreatePairingCodeRequest\x1a$.public.v1.CreatePairingCodeResponse\x12:\n" +
-	"\x05GetMe\x12\x17.public.v1.GetMeRequest\x1a\x18.public.v1.GetMeResponseBBZ@github.com/ramaadi/quick-whatsapp-gateway/gen/public/v1;publicv1b\x06proto3"
+	"\x05GetMe\x12\x17.public.v1.GetMeRequest\x1a\x18.public.v1.GetMeResponseBCZAgithub.com/rama-adi/quick-whatsapp-gateway/gen/public/v1;publicv1b\x06proto3"
 
 var (
 	file_v1_sessions_proto_rawDescOnce sync.Once

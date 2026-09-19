@@ -6,7 +6,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/pki"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/pki"
 )
 
 // PKIConfig is intentionally unwired until the local MySQL signer increment.

@@ -8,8 +8,8 @@ package gateway
 import (
 	"context"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/application"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/application"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 )
 
 // LiveOpsFacade implements every Increment 7 resource facade over one

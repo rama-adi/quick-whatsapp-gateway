@@ -163,7 +163,7 @@ const file_v1_public_health_proto_rawDesc = "" +
 	"\x16SERVING_STATUS_SERVING\x10\x01\x12\x1e\n" +
 	"\x1aSERVING_STATUS_NOT_SERVING\x10\x022w\n" +
 	"\x13PublicHealthService\x12`\n" +
-	"\x05Check\x12*.public.v1.PublicHealthServiceCheckRequest\x1a+.public.v1.PublicHealthServiceCheckResponseBBZ@github.com/ramaadi/quick-whatsapp-gateway/gen/public/v1;publicv1b\x06proto3"
+	"\x05Check\x12*.public.v1.PublicHealthServiceCheckRequest\x1a+.public.v1.PublicHealthServiceCheckResponseBCZAgithub.com/rama-adi/quick-whatsapp-gateway/gen/public/v1;publicv1b\x06proto3"
 
 var (
 	file_v1_public_health_proto_rawDescOnce sync.Once

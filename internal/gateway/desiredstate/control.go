@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	gatewayv1 "github.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1"
+	gatewayv1 "github.com/rama-adi/quick-whatsapp-gateway/gen/gateway/v1"
 )
 
 // ControlApplier translates the private protobuf into the transport-independent

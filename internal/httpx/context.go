@@ -3,7 +3,7 @@ package httpx
 import (
 	"context"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 )
 
 // ctxKey is private so values cannot collide with keys from middleware or third

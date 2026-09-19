@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/pki"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/pki/gatewayidentity"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/pki"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/pki/gatewayidentity"
 )
 
 func privateEngineTestConfig(t *testing.T) *tls.Config {

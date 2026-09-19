@@ -7,7 +7,7 @@ import (
 
 	"go.mau.fi/whatsmeow/types/events"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 )
 
 // TestClassifyEvent runs the lifecycle classifier across connected, disconnected, logged-out,

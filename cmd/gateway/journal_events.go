@@ -5,10 +5,10 @@ import (
 	"errors"
 	"log/slog"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/gateway/journal"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa/inbound"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/gateway/journal"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/wa"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/wa/inbound"
 )
 
 // controlEventSink is the control-mode event boundary. An event is accepted

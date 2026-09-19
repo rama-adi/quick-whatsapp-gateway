@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
-	coreservice "github.com/ramaadi/quick-whatsapp-gateway/internal/service"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
+	coreservice "github.com/rama-adi/quick-whatsapp-gateway/internal/service"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/store"
 )
 
 type enrollmentIssuerStub struct {

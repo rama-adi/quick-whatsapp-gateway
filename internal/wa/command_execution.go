@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/application"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/application"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 )
 
 // durableCommand keeps resource-specific results typed while sharing the

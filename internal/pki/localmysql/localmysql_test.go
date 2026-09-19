@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
-	base "github.com/ramaadi/quick-whatsapp-gateway/internal/pki"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
+	base "github.com/rama-adi/quick-whatsapp-gateway/internal/pki"
 )
 
 type memoryAuthorities struct {

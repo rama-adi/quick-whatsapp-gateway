@@ -13,10 +13,10 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/apitypes"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
-	waevents "github.com/ramaadi/quick-whatsapp-gateway/internal/wa/events"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa/inbound"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/apitypes"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
+	waevents "github.com/rama-adi/quick-whatsapp-gateway/internal/wa/events"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/wa/inbound"
 )
 
 func optionHash(opt string) string {

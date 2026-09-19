@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 )
 
 // TestPublisher_PublishFanOut subscribes to one exact organization-session Redis channel, publishes a

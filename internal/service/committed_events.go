@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/application"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/application"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 )
 
 // CommittedEventConsumers is a thread-safe fan-out list. The API starts its

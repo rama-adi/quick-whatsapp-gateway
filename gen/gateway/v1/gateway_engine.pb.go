@@ -4004,7 +4004,7 @@ const file_v1_gateway_engine_proto_rawDesc = "" +
 	"\fBeginPairing\x12\x1f.gateway.v1.BeginPairingRequest\x1a .gateway.v1.BeginPairingResponse\x12H\n" +
 	"\tPairPhone\x12\x1c.gateway.v1.PairPhoneRequest\x1a\x1d.gateway.v1.PairPhoneResponse\x12T\n" +
 	"\rLogoutSession\x12 .gateway.v1.LogoutSessionRequest\x1a!.gateway.v1.LogoutSessionResponse\x12T\n" +
-	"\rForgetSession\x12 .gateway.v1.ForgetSessionRequest\x1a!.gateway.v1.ForgetSessionResponseBDZBgithub.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1;gatewayv1b\x06proto3"
+	"\rForgetSession\x12 .gateway.v1.ForgetSessionRequest\x1a!.gateway.v1.ForgetSessionResponseBEZCgithub.com/rama-adi/quick-whatsapp-gateway/gen/gateway/v1;gatewayv1b\x06proto3"
 
 var (
 	file_v1_gateway_engine_proto_rawDescOnce sync.Once

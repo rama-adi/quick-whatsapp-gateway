@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/dbmigrate"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/dbmigrate"
 )
 
 func main() {

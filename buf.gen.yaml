@@ -5,11 +5,11 @@ plugins:
     out: gen
     opt:
       - paths=import
-      - module=github.com/ramaadi/quick-whatsapp-gateway/gen
+      - module=github.com/rama-adi/quick-whatsapp-gateway/gen
   - remote: buf.build/grpc/go:v1.5.1
     out: gen
     opt:
       - paths=import
-      - module=github.com/ramaadi/quick-whatsapp-gateway/gen
+      - module=github.com/rama-adi/quick-whatsapp-gateway/gen
 inputs:
   - directory: proto

@@ -9,8 +9,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	publicv1 "github.com/ramaadi/quick-whatsapp-gateway/gen/public/v1"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/apigrpc"
+	publicv1 "github.com/rama-adi/quick-whatsapp-gateway/gen/public/v1"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/apigrpc"
 	"google.golang.org/grpc"
 )
 

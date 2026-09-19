@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/oklog/ulid/v2"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/enrollmenttoken"
-	coreservice "github.com/ramaadi/quick-whatsapp-gateway/internal/service"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/enrollmenttoken"
+	coreservice "github.com/rama-adi/quick-whatsapp-gateway/internal/service"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/store"
 )
 
 // StateConflictError is safe to expose as a conflict response. It intentionally

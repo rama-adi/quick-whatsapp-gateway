@@ -4,7 +4,7 @@ Status: implemented. **API-only since gRPC Increment 9** — the gateway has no
 Redis client, no asynq server/client, no retention scheduler, and no rate-limit
 buckets.
 
-Package: `internal/queue` · import `github.com/ramaadi/quick-whatsapp-gateway/internal/queue`.
+Package: `internal/queue` · import `github.com/rama-adi/quick-whatsapp-gateway/internal/queue`.
 
 ## Scope
 
