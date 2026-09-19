@@ -23,7 +23,46 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/structpb"
 )
+
+func TestDecodeGatewayEventPayloadExtractsTypeSpecificJSON(t *testing.T) {
+	value, err := structpb.NewStruct(map[string]any{
+		"schema": "v1", "id": "evt_1", "event": "message", "session": "ses_1",
+		"organization": "org_1", "timestamp": float64(1234), "payload": map[string]any{"text": "hi"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := proto.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := decodeGatewayEventPayload(apigateway.GatewayEvent{
+		EventID: "evt_1", SessionID: "ses_1", OrganizationID: "org_1", Type: "message", Payload: payload,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != `{"text":"hi"}` {
+		t.Fatalf("payload = %s", got)
+	}
+}
+
+func TestDecodeGatewayEventPayloadRejectsMetadataMismatch(t *testing.T) {
+	value, err := structpb.NewStruct(map[string]any{"schema": "v1", "id": "evt_other", "payload": map[string]any{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := proto.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := decodeGatewayEventPayload(apigateway.GatewayEvent{EventID: "evt_1", Payload: payload}); err == nil {
+		t.Fatal("metadata mismatch accepted")
+	}
+}
 
 type fakeCredentialStore struct {
 	identity gatewayIdentity

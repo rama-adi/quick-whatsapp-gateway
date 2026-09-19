@@ -218,6 +218,10 @@ The journal accepts the normalized `domain.Event` JSON only while the current de
 owns its organization/session, preserving that assignment epoch with the entry. It replays entries in
 committed sequence order as protobuf `Struct` payloads over the control stream; exactly one batch is
 in flight and the API acknowledgement must equal that batch's last journal sequence before deletion.
+The API decodes each protobuf envelope, validates its identity against the control-frame metadata,
+and stores only its inner type-specific JSON payload in `event_log.payload`. Committed-event
+consumers reconstruct the envelope from the row columns; protobuf bytes or a nested envelope must
+never enter that JSON column.
 Reconnects replay the oldest unacknowledged batch. A critical journal capacity state makes the gateway
 unready, while a failed append backpressures the producing pipeline. Every heartbeat carries optional
 journal-pressure telemetry (`journal_state`/`journal_entries`/`journal_bytes`, §7): an unreadable

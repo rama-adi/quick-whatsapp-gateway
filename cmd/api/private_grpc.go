@@ -26,6 +26,9 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 const (
@@ -405,6 +408,10 @@ func (s gatewayControlStore) Heartbeat(
 		JournalEntries:    journalCount(heartbeat.JournalState, heartbeat.JournalEntries),
 		JournalBytes:      journalCount(heartbeat.JournalState, heartbeat.JournalBytes),
 	}, s.clock().UnixMilli())
+	if err != nil {
+		slog.Default().Error("gateway heartbeat persistence failed", "gateway_id", gatewayID,
+			"connection_epoch", epoch, "session_count", heartbeat.SessionCount, "err", err)
+	}
 	if err = fencedStoreResult(applied, err); err != nil {
 		return apigateway.DesiredLifecycle{}, err
 	}
@@ -526,6 +533,10 @@ func (s gatewayControlStore) IngestEvents(
 	}
 	batch := make([]store.GatewayEvent, 0, len(events))
 	for _, event := range events {
+		payload, err := decodeGatewayEventPayload(event)
+		if err != nil {
+			return fmt.Errorf("%w: %w", apigateway.ErrUnavailable, err)
+		}
 		batch = append(batch, store.GatewayEvent{
 			EventID:         event.EventID,
 			GatewayID:       gatewayID,
@@ -534,7 +545,7 @@ func (s gatewayControlStore) IngestEvents(
 			Type:            event.Type,
 			ConnectionEpoch: epoch,
 			AssignmentEpoch: event.AssignmentEpoch,
-			Payload:         event.Payload,
+			Payload:         payload,
 			OccurredAt:      event.OccurredAt.UnixMilli(),
 		})
 	}
@@ -542,6 +553,40 @@ func (s gatewayControlStore) IngestEvents(
 		return fmt.Errorf("%w: %w", apigateway.ErrUnavailable, err)
 	}
 	return nil
+}
+
+// decodeGatewayEventPayload converts the journal's protobuf Struct envelope
+// into the type-specific JSON body expected by event_log.payload. The control
+// event metadata is carried in separate protobuf fields, so retaining the
+// whole envelope here would store nested event JSON and violate the event-log
+// projection contract.
+func decodeGatewayEventPayload(event apigateway.GatewayEvent) ([]byte, error) {
+	var value structpb.Struct
+	if err := proto.Unmarshal(event.Payload, &value); err != nil {
+		return nil, fmt.Errorf("decode gateway event payload: %w", err)
+	}
+	encoded, err := protojson.Marshal(&value)
+	if err != nil {
+		return nil, fmt.Errorf("marshal gateway event payload: %w", err)
+	}
+	var envelope struct {
+		Schema       string          `json:"schema"`
+		ID           string          `json:"id"`
+		Type         string          `json:"event"`
+		Session      string          `json:"session"`
+		Organization string          `json:"organization"`
+		Payload      json.RawMessage `json:"payload"`
+	}
+	if err := json.Unmarshal(encoded, &envelope); err != nil {
+		return nil, fmt.Errorf("decode gateway event envelope: %w", err)
+	}
+	if envelope.Schema != domain.Schema || envelope.ID == "" || envelope.ID != event.EventID ||
+		envelope.Type == "" || envelope.Type != event.Type || envelope.Session != event.SessionID ||
+		envelope.Organization != event.OrganizationID || len(envelope.Payload) == 0 ||
+		!json.Valid(envelope.Payload) {
+		return nil, errors.New("gateway event envelope metadata mismatch")
+	}
+	return append([]byte(nil), envelope.Payload...), nil
 }
 
 func (s gatewayControlStore) Lifecycle(

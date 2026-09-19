@@ -683,8 +683,14 @@ type journalStatusSource interface {
 // stream heartbeat and journal capacity. MySQL and Redis no longer exist here.
 func readiness(control controlStatusSource, eventJournal journalStatusSource) func() error {
 	return func() error {
-		if control != nil && !control.Status().Ready {
-			return errors.New("control stream unavailable")
+		if control != nil {
+			status := control.Status()
+			if !status.Ready {
+				if status.LastError != nil {
+					return fmt.Errorf("control stream unavailable: %w", status.LastError)
+				}
+				return errors.New("control stream unavailable")
+			}
 		}
 		if eventJournal != nil {
 			metrics, err := eventJournal.Metrics(context.Background())
