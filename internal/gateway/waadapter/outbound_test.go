@@ -1,4 +1,4 @@
-package service
+package waadapter
 
 import (
 	"context"

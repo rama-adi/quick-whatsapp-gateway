@@ -20,7 +20,7 @@ const (
 )
 
 // SetOrganizationID returns a child context carrying the already verified
-// better-auth organization ID. Authentication or assertion middleware is the
+// better-auth organization ID. Authentication middleware is the
 // writer; handlers treat the value as an isolation key but must still handle an
 // empty read as unauthenticated rather than inventing a default organization.
 func SetOrganizationID(ctx context.Context, organizationID string) context.Context {

@@ -28,7 +28,7 @@ keeps its WhatsApp keystore in a SQLite file on a volume.
 |---|---|---|---|
 | Self-host app | `deploy/Dockerfile.selfhost` (Caddy + Node 22 + two Go binaries) | `8080` public | Runs Caddy, the API, gateway, and frontend in one container. API, frontend, control, and engine listeners stay loopback-only behind Caddy. |
 | API | `deploy/Dockerfile.api` (Go, no CGO) | `8090` HTTP, `8081` gRPC | Public API service: authenticates callers, routes to the owning gateway, and serves the public contracts |
-| Gateway | `deploy/Dockerfile` (Go, no CGO) | `8080` (internal) | WhatsApp sessions; writes the WA tables; stores the SQLite keystore |
+| Gateway | `deploy/Dockerfile` (Go, no CGO) | `8080` (internal) | WhatsApp sessions, private engine RPCs, SQLite keystore and journal |
 | Frontend | `deploy/Dockerfile.web` (Node 22, TanStack Start) | `3000` | better-auth and dashboard; writes auth tables; reads WA tables for display |
 | MySQL | `mysql:8.4` | `3306` | both table sets in one database |
 | Redis | `redis:7-alpine` | `6379` | the work bus and the control bus |
@@ -47,7 +47,12 @@ their data has normal volumes and backup boundaries. The app publishes Caddy on
 `8080`; the frontend, API HTTP, API gRPC, control stream, and engine listeners
 remain private inside the container.
 
-Put the secrets in `deploy/.env`, then build and start:
+Before starting the combined container, enroll its gateway through the API admin
+flow and configure the operator root PEM, gateway ID, and enrollment token (or
+existing persistent credentials). `GATEWAY_BOOTSTRAP_CA_FILE` must name an existing
+PEM file on the host. These are required in addition to the application secrets.
+
+Put the secrets and enrollment settings in `deploy/.env`, then build and start:
 
 ```bash
 cd deploy
@@ -57,8 +62,10 @@ OAUTH_CLIENT_SECRET_PEPPER=...   # random secret used to hash OAuth client secre
 APP_ENCRYPTION_KEY=...           # openssl rand -base64 32 — encrypts webhook secrets at rest
 PKI_ENCRYPTION_KEY=...           # openssl rand -base64 32 — encrypts the control-plane CA key
 BETTER_AUTH_SECRET=...           # openssl rand -base64 32 — signs frontend sessions
+GATEWAY_BOOTSTRAP_CA_FILE=/absolute/path/to/operator-root.pem
+GATEWAY_ID=...                   # identity created through the API admin flow
+GATEWAY_ENROLLMENT_TOKEN=...     # one-time token; omit after enrollment
 USER_REGISTRATION_ENABLED=false  # recommended for private self-hosts
-WHATSAPP_ADMIN_NUMBER=           # optional — the number paired on boot; leave empty to skip
 EOF
 docker compose -f docker-compose.selfhost.yml up --build -d
 ```
@@ -72,7 +79,7 @@ is intentional for this same-origin layout.
 
 <Callout type="info">
 The self-host app container is not a single process. Its entrypoint supervises
-three processes: `api`, `gateway`, and the TanStack Start Node server. The
+four processes: Caddy, `api`, `gateway`, and the TanStack Start Node server. The
 entrypoint waits for API readiness before starting the gateway. If any
 one exits, the container exits so Compose can restart the whole app.
 </Callout>
@@ -95,11 +102,10 @@ In this mode:
 - The **frontend** can run separately, including serverless hosting, as long as
   it can reach MySQL and publish control-bus messages to Redis.
 - The **API** is the public service. It verifies better-auth
-  JWTs and api-keys from shared MySQL, resolves session ownership, and proxies
-  to gateways with request-bound Ed25519 assertions.
+  JWTs and api-keys from shared MySQL, resolves session ownership, and calls gateways over private mTLS gRPC.
 - **Gateways** run close to their WhatsApp connections. Each gateway has a stable
-  `GATEWAY_ID`, a persistent SQLite keystore volume, and a `GATEWAY_PUBLIC_URL` reachable
-  by the API. Gateways register and heartbeat through the `gateways` table.
+  `GATEWAY_ID`, persistent SQLite keystore/journal/credential paths, and an engine
+  gRPC address reachable by the API. Heartbeats and assignments use the control stream.
 - New session creation is placed on the least-loaded active gateway. Existing
   sessions are pinned by `wa_sessions.gateway_id`; if the owning gateway is not
   active or has a stale heartbeat, the API returns `503 gateway_unavailable`.
@@ -204,9 +210,6 @@ first:
 
 | Variable | Set on | Value |
 |---|---|---|
-| `API_ED25519_PRIVATE_KEY` | API | the Ed25519 key the API signs internal assertions with (`openssl rand 32 | base64`). Required. |
-| `API_ISSUER` / `ROUTER_ASSERTION_ISSUER` | API / gateway | assertion issuer; these values must match |
-| `ROUTER_JWKS_URL` | gateway | where the gateway fetches the API's assertion keys (for example `http://api:8090/.well-known/router-jwks.json`) |
 | `BETTER_AUTH_URL` | API + frontend | the frontend's public URL and accepted JWT `iss`/`aud` |
 | `BETTER_AUTH_JWKS_URL` | API | frontend signing-key endpoint |
 | `FRONTEND_ORIGINS` | API | allowed browser origins |
@@ -217,15 +220,15 @@ A JWT (JSON Web Token) is the signed login token the frontend issues to the
 browser. JWKS (JSON Web Key Set) is the public-key document the API fetches to
 verify those tokens. `iss`/`aud` are the issuer and audience fields inside the
 token; the API only accepts tokens whose `iss`/`aud` equal `BETTER_AUTH_URL`.
-The API→gateway assertion uses a second JWKS published by the API, which
-the gateway fetches from `ROUTER_JWKS_URL`.
+API and gateway authenticate each other with enrolled mTLS certificates on their
+private gRPC listeners. See the enrollment steps above.
 
 <Callout type="info">
 `BETTER_AUTH_URL` and `BETTER_AUTH_JWKS_URL` can hold different hosts. The first
 is the public URL the token's `iss`/`aud` must match; the second is only where
 the API fetches the keys. When the API reaches the frontend by an internal
 name, set `BETTER_AUTH_JWKS_URL` to that name and leave `BETTER_AUTH_URL` as the
-public URL. The same split applies to the gateway's `ROUTER_JWKS_URL`.
+public URL.
 </Callout>
 
 ### Environment-variable reference
@@ -242,39 +245,26 @@ the API's; the rest is the gateway's.
 | `API_PUBLIC_URL` | — | External HTTP base URL used by clients. |
 | `API_HTTP_PORT` | `8090` | External-compose host port mapped to canonical container HTTP `8090`. |
 | `API_PUBLIC_GRPC_PORT` | `8081` | External-compose host port mapped to canonical container gRPC `8081`. |
-| `API_ISSUER` | `router` | Assertion issuer; must match the gateway's `ROUTER_ASSERTION_ISSUER`. |
-| `API_ED25519_PRIVATE_KEY` | — | Ed25519 key for signing internal assertions (`openssl rand 32 | base64`). Required. |
 | `BETTER_AUTH_URL` | — | Frontend base URL and accepted JWT issuer/audience. |
 | `BETTER_AUTH_JWKS_URL` | `${BETTER_AUTH_URL}/api/auth/jwks` | Frontend signing-key endpoint. |
 | `FRONTEND_ORIGINS` | — | Allowed browser origins. |
 | `PUBSUB_REDIS_URL` | falls back to `REDIS_URL` | Control-bus Redis consumed by the API. |
 
-**Gateway** (`deploy/.env.example`):
+**API persistence and gateway identity** (`deploy/.env.example`):
 
-| Variable | Default | What it does |
+| Variable | Owner | Purpose |
 |---|---|---|
-| `GATEWAY_HTTP_ADDR` | `:8080` | Address the gateway listens on (internal). |
-| `GATEWAY_ID` | `gw-1` | This gateway's id, stamped on the sessions it holds; also the assertion `aud` it requires. |
-| `GATEWAY_PUBLIC_URL` | — | Gateway's internal API-reachable base URL. |
-| `ROUTER_JWKS_URL` | — | API assertion JWKS URL. |
-| `ROUTER_ASSERTION_ISSUER` | `router` | Must match `API_ISSUER`. |
-| `APP_ENCRYPTION_KEY` | — | Base64 32-byte AES-GCM key (`openssl rand -base64 32`). Encrypts webhook secrets at rest. |
-| `MYSQL_DSN` | — | Shared database. The gateway writes WhatsApp data and reads auth data. |
-| `WHATSMEOW_STORE_DSN` | `file:store.db?...` | SQLite file holding the WhatsApp device keys. In containers, point it at `/data/keystore/store.db` on a persistent volume. |
-| `REDIS_URL` | — | Work Redis for the send queue, rate limiting, idempotency, and event fan-out. |
-| `REDIS_PREFIX` | `gw` | Namespace for application-owned keys/channels. Asynq queues are not covered; independent stacks sharing a Redis server must use separate Redis databases. |
-| `RETENTION_DAYS` | `0` | Retention window for messages, event-log replay history, and terminal webhook deliveries. `0` keeps data forever; a positive value enables the gateway-owned daily UTC prune and retains at least that many full UTC days. All gateway replicas taking part must use the same `REDIS_URL` database and `REDIS_PREFIX` so it is scheduled once. Independent stacks need separate Redis databases because `REDIS_PREFIX` does not isolate Asynq's general queue keys. Pending and retryable webhook deliveries are preserved. |
-| `WHATSAPP_ADMIN_NUMBER` | — | A number the gateway pairs automatically on boot. See [the admin number](#the-admin-number). |
-| `WHATSAPP_ADMIN_ORG_ID` | — | The organization that owns the admin session. Required when `WHATSAPP_ADMIN_NUMBER` is set. |
-| `WHATSAPP_ADMIN_CMD_PREFIX` | `am` | Command prefix on the admin session's private channel. See [the admin number](#the-admin-number). |
-| `DEFAULT_RATE_PER_MIN` / `DEFAULT_RATE_PER_HOUR` | `20` / `200` | Default send limits per session. |
-| `DEFAULT_AUTO_READ` | `true` | Mark incoming messages read before replying. |
-
-<Callout type="warn">
-The SQLite keystore at `WHATSMEOW_STORE_DSN` holds the device crypto material.
-Lose that file and every number has to be re-paired. In production, mount it on
-a named volume and back it up.
-</Callout>
+| `MYSQL_DSN` / `REDIS_URL` | API | Application persistence, queues, and event fan-out. |
+| `APP_ENCRYPTION_KEY` | API | Encryption of webhook secrets. |
+| `REDIS_PREFIX` / `RETENTION_DAYS` | API | Shared Redis namespace and optional history retention. Incomplete events and retryable webhook deliveries are retained. |
+| `API_GATEWAY_GRPC_ADDR` / `API_GATEWAY_TLS_IDENTITY_DIR` | API | Private listener and persistent certificate. |
+| `PKI_ENCRYPTION_KEY` / `PKI_ENCRYPTION_KEY_ID` | API | Encrypted CA key custody. |
+| `GATEWAY_ID` / `GATEWAY_CONTROL_PLANE_ADDR` | gateway | Enrolled identity and API control listener. |
+| `GATEWAY_ENGINE_GRPC_ADDR` / `GATEWAY_ENGINE_GRPC_ADVERTISE_ADDR` | gateway | Private engine listener and API-reachable address. |
+| `GATEWAY_CREDENTIAL_DIR` / `GATEWAY_BOOTSTRAP_CA_FILE` | gateway | Persistent identity and pinned operator root. |
+| `GATEWAY_ENROLLMENT_TOKEN` | gateway | One-time enrollment credential. |
+| `GATEWAY_JOURNAL_PATH` / `WHATSMEOW_STORE_DSN` | gateway | Durable event/command journal and device keystore. |
+| `GATEWAY_HTTP_ADDR` | gateway | Internal health/readiness/metrics listener only. |
 
 **Frontend** (`web/.env.example`):
 
@@ -282,7 +272,7 @@ a named volume and back it up.
 |---|---|
 | `BETTER_AUTH_SECRET` | Secret used to sign sessions and tokens. |
 | `BETTER_AUTH_URL` | The frontend's own base URL. |
-| `DATABASE_URL` | The shared database (the same one the gateway uses). |
+| `DATABASE_URL` | The shared database (the same one the API uses). |
 | `GATEWAY_URL` | Legacy-named server-side API base URL. |
 | `VITE_GATEWAY_URL` | Legacy-named browser API base URL. |
 | `PUBSUB_REDIS_URL` | Control-bus Redis the frontend publishes revocations to. |
@@ -291,26 +281,9 @@ a named volume and back it up.
 
 ## Create the first admin
 
-There are two separate kinds of "admin", set independently:
-
-- **Platform super-admin:** put the better-auth user id(s) in `ADMIN_USER_IDS`
-  on the frontend. A user signs up normally, then you add their id.
-- **Admin WhatsApp number:** set `WHATSAPP_ADMIN_NUMBER` on the gateway. See
-  below.
-
-### The admin number
-
-A deployment can name one number as its admin number through the gateway's
-`WHATSAPP_ADMIN_NUMBER` setting. On boot, if that number is not already linked,
-the gateway creates its session, prints a pairing code to its logs, and shows
-the same code on the admin panel — so you can pair it without a browser.
-
-The admin number is otherwise an ordinary session: it sends and receives like
-any other. It also reserves a private command channel. Messages it receives that
-start with the admin command prefix (`WHATSAPP_ADMIN_CMD_PREFIX`, default `am`)
-are handled internally — they are **not** stored, emitted as events, or counted
-against rate limits. In this release that channel is reserved but does nothing;
-commands arrive in a later version.
+Set `ADMIN_USER_IDS` on the frontend to the trusted better-auth user IDs that
+should administer gateways and sessions. WhatsApp numbers are provisioned through
+the session API/UI; the gateway does not create an admin session on boot.
 
 ## Hosting the services separately
 
@@ -318,14 +291,13 @@ The frontend can run anywhere it can reach MySQL and the API. The API and
 gateway run near WhatsApp with the keystore volume. The API verifies callers
 against the frontend's signing keys (JWKS) and the shared `apikey` table, so it
 never calls back to the frontend on a request; the gateway verifies only the
-API assertion.
+API mTLS identity.
 
 | Goal | What to do |
 |---|---|
 | Run the frontend on a separate host or serverless | Point `DATABASE_URL` at shared MySQL and legacy-named `GATEWAY_URL`/`VITE_GATEWAY_URL` at the API. |
 | Bring your own MySQL/Redis | `deploy/docker-compose.external.yml` runs the app images against services you provide. |
 | API fetches signing keys from a different host | Add the internal JWKS host to frontend `TRUSTED_ORIGINS` when required. |
-| Add more gateways | Use a unique `GATEWAY_ID`, persistent keystore, shared MySQL/Redis, and a `GATEWAY_PUBLIC_URL` reachable by the API. |
 
 ## Health checks
 

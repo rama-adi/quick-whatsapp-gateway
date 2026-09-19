@@ -29,9 +29,10 @@ export function useGroup(s: string, gid: string): UseQueryResult<Group, ApiError
   return useQuery({
     queryKey: qk.group(s, gid),
     enabled: Boolean(s && gid),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       fetchJSON<Group>(
         apiUrl(`/sessions/${encodeURIComponent(s)}/groups/${encodeURIComponent(gid)}`),
+        { signal },
       ),
   });
 }
@@ -43,11 +44,12 @@ export function useGroupMembers(
   return useQuery({
     queryKey: [...qk.group(s, gid), "members"],
     enabled: Boolean(s && gid),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       fetchJSON<GroupMember[]>(
         apiUrl(
           `/sessions/${encodeURIComponent(s)}/groups/${encodeURIComponent(gid)}/members`,
         ),
+        { signal },
       ),
   });
 }

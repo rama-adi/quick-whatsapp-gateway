@@ -53,13 +53,15 @@ import {
   DialogTrigger,
 } from "~/components/ui/dialog";
 import { toast } from "sonner";
-import { formatTimestamp, SessionStatusBadge } from "./-components/user-ui";
+import {
+  formatTimestamp,
+  SessionActionButtons,
+  SessionStatusBadge,
+} from "./-components/user-ui";
 
 export const Route = createFileRoute("/_app/user/sessions/")({
   component: SessionsList,
 });
-
-const LIFECYCLE: SessionAction[] = ["start", "stop", "restart", "logout"];
 
 function SessionsList() {
   const sessions = useSessions();
@@ -113,7 +115,9 @@ function SessionsList() {
       ) : (
         <SessionGrid
           rows={sessions.data?.pages.flatMap((p) => p.data) ?? []}
-          pending={lifecycle.isPending}
+          pendingSessionId={lifecycle.variables?.sessionId}
+          pendingAction={lifecycle.variables?.action}
+          actionsDisabled={lifecycle.isPending}
           onAction={run}
           onDelete={remove}
         />
@@ -136,12 +140,16 @@ function SessionsList() {
 
 function SessionGrid({
   rows,
-  pending,
+  pendingSessionId,
+  pendingAction,
+  actionsDisabled,
   onAction,
   onDelete,
 }: {
   rows: WASession[];
-  pending: boolean;
+  pendingSessionId?: string;
+  pendingAction?: SessionAction;
+  actionsDisabled: boolean;
   onAction: (id: string, action: SessionAction) => void;
   onDelete: (id: string) => void;
 }) {
@@ -178,17 +186,12 @@ function SessionGrid({
             <SessionStatusBadge status={s.status} />
           </CardHeader>
           <CardContent className="flex flex-wrap gap-2">
-            {LIFECYCLE.map((action) => (
-              <Button
-                key={action}
-                size="sm"
-                variant="outline"
-                disabled={pending}
-                onClick={() => onAction(s.id, action)}
-              >
-                {action}
-              </Button>
-            ))}
+            <SessionActionButtons
+              paired={Boolean(s.waJid)}
+              disabled={actionsDisabled}
+              pendingAction={pendingSessionId === s.id ? pendingAction : undefined}
+              onAction={(action) => onAction(s.id, action)}
+            />
           </CardContent>
           <CardFooter className="justify-between gap-2">
             <Button asChild size="sm" variant="ghost">

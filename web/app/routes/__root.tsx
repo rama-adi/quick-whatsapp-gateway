@@ -2,8 +2,8 @@
 // Ported from the v1 app/root.tsx (react-router) to TanStack Start idioms:
 //   - <Layout> document  -> shellComponent (HeadContent / Scripts)
 //   - links()            -> head().links (fonts) + the app.css stylesheet
-//   - QueryClientProvider -> wraps the outlet; the same queryClient instance is
-//     carried in the router context (see app/router.tsx) so loaders share it.
+//   - QueryClientProvider -> wraps the outlet with the router's request-local
+//     server cache or tab-local browser cache (see app/router.tsx).
 //   - ErrorBoundary       -> errorComponent
 
 import {
@@ -13,7 +13,6 @@ import {
   createRootRouteWithContext,
 } from "@tanstack/react-router";
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
-import { queryClient } from "~/lib/query";
 import { Toaster } from "~/components/ui/sonner";
 import appCss from "~/app.css?url";
 
@@ -47,6 +46,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 });
 
 function RootDocument({ children }: { children: React.ReactNode }) {
+  const { queryClient } = Route.useRouteContext();
   return (
     <html lang="en" suppressHydrationWarning>
       <head>

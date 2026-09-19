@@ -3,12 +3,13 @@
 // The browser talks to the gateway DIRECTLY with a Bearer JWT. That JWT is
 // short-lived (5 min) and minted from the better-auth session via the
 // mintGatewayToken server function. This module caches the current token and
-// refreshes it before expiry so both fetch actions AND the NDJSON stream attach
+// refreshes it before expiry so gateway actions and realtime ticket minting use
 // a valid Bearer without hammering the token endpoint.
 //
 // Refresh policy (§4.7): refresh proactively a bit before the 5-min TTL; on a
-// 401 from the gateway, force a refresh once. The stream consumer subscribes to
-// onRefresh so it can reconnect with the new token (resuming via since=).
+// 401 from the gateway, force a refresh once. Identity owners clear the token
+// on sign-out or org switch; the realtime owner observes that invalidation and
+// replaces the organization-scoped socket.
 
 import { mintGatewayToken } from "~/lib/auth/token";
 
@@ -19,6 +20,7 @@ const TTL_MS = 5 * 60_000;
 let current: string | null = null;
 let expiresAt = 0;
 let inflight: Promise<string | null> | null = null;
+let generation = 0;
 
 type RefreshListener = (token: string | null) => void;
 const listeners = new Set<RefreshListener>();
@@ -35,18 +37,21 @@ function emit(token: string | null): void {
 
 async function refresh(): Promise<string | null> {
   if (inflight) return inflight;
-  inflight = (async () => {
-    try {
-      const res = await mintGatewayToken();
-      current = res?.token ?? null;
-      expiresAt = current ? Date.now() + TTL_MS : 0;
-      emit(current);
-      return current;
-    } finally {
-      inflight = null;
-    }
+  const refreshGeneration = generation;
+  const request = (async () => {
+    const res = await mintGatewayToken();
+    if (refreshGeneration !== generation) return null;
+    current = res?.token ?? null;
+    expiresAt = current ? Date.now() + TTL_MS : 0;
+    emit(current);
+    return current;
   })();
-  return inflight;
+  inflight = request;
+  try {
+    return await request;
+  } finally {
+    if (inflight === request) inflight = null;
+  }
 }
 
 /**
@@ -63,7 +68,9 @@ export async function getGatewayToken(force = false): Promise<string | null> {
 
 /** Drop the cached token (e.g. on sign-out). */
 export function clearGatewayToken(): void {
+  generation += 1;
   current = null;
   expiresAt = 0;
+  inflight = null;
   emit(null);
 }

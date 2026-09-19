@@ -7,7 +7,7 @@
 //     huma.NewError, so both handler-returned errors and huma's own request
 //     validation render the envelope;
 //   - the capability gates (RequireRead/Send/Manage/Events/SuperAdmin) as huma
-//     middleware reading the assertion-resolved authz.Principal off the context;
+//     middleware reading the authenticated authz.Principal off the context;
 //   - the organization id lifted from that principal for org-scoped service calls.
 package humax
 
@@ -136,7 +136,7 @@ func config() huma.Config {
 }
 
 // RequireCap returns a huma operation middleware enforcing a capability gate on
-// the assertion-resolved principal — the huma-native equivalent of authz.Require.
+// the authenticated principal — the huma-native equivalent of authz.Require.
 func RequireCap(api huma.API, c authz.Capability) func(huma.Context, func(huma.Context)) {
 	return func(hctx huma.Context, next func(huma.Context)) {
 		p := authz.FromContext(hctx.Context())
@@ -168,7 +168,7 @@ func RequireSuperAdmin(api huma.API) func(huma.Context, func(huma.Context)) {
 	}
 }
 
-// Org returns the caller's organization id from the assertion-resolved principal,
+// Org returns the caller's organization id from the authenticated principal,
 // or an unauthorized error if none is present. Org-scoped service calls use it.
 func Org(ctx context.Context) (string, error) {
 	p := authz.FromContext(ctx)

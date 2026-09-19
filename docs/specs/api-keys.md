@@ -56,9 +56,8 @@ control bus.
 Local validation depends on better-auth's hash being deterministic and replicable in Go. The
 `Hasher` interface exists so the scheme can be swapped per pinned version. The **R5 contract
 test** creates a key in better-auth and validates it in the gateway, locking the assumption.
-**Fallback** (`internal/authz/apikey_remote.go`, `RemoteKeyVerifier`): call
-`POST {BETTER_AUTH_URL}/api/auth/api-key/verify` behind a short-TTL cache — used only if a future
-better-auth version makes the hash non-replicable. Masterplan §19 #1.
+There is no unused remote-verification fallback. A future hash change must update
+the pinned verifier and its contract fixtures before deployment.
 
 ## How it's tested
 

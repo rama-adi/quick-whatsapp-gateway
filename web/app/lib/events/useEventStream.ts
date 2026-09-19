@@ -3,7 +3,7 @@
 // useEventStream(); they never open their own connection.
 //
 // The connection is REFERENCE-COUNTED and page-scoped: the provider keeps one
-// shared NDJSON socket open only while ≥1 mounted surface holds a subscription
+// shared WebSocket open only while ≥1 mounted surface holds a subscription
 // (via useEventStreamSubscription), and tears it down when the last unmounts.
 // This keeps idle pages (keys, webhooks, dashboard, docs) off the socket while
 // staying a single connection for any surfaces that do need live events.

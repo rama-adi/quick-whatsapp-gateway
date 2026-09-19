@@ -32,9 +32,9 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/gateway/controlsupervisor"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/gateway/desiredstate"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/gateway/journal"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/gateway/waadapter"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/httpx"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/pki/gatewayidentity"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/service"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa/inbound"
 )
@@ -116,7 +116,7 @@ func run() error {
 		}
 	}()
 	controlRuntime := newGatewayControlRuntime(log)
-	controlAdapter := journal.ControlAdapter{Journal: eventJournal, GatewayID: cfg.GatewayID}
+	controlAdapter := &journal.ControlAdapter{Journal: eventJournal, GatewayID: cfg.GatewayID}
 
 	var (
 		supervisorCtx             context.Context
@@ -168,13 +168,13 @@ func run() error {
 		},
 		log: log,
 	}
-	manager := wa.NewManager(keystore, nil, managerSink, nil, nil, log, wa.Config{
+	manager := wa.NewManager(keystore, managerSink, nil, nil, log, wa.Config{
 		GatewayID:           cfg.GatewayID,
 		DeviceName:          cfg.WhatsAppDeviceName,
 		InboundEventTimeout: 0,
 	})
 	inboundPipeline := inbound.NewPipeline(
-		service.NewInboundNormalizer(manager.LiveOps(), nil),
+		waadapter.NewInboundNormalizer(manager.LiveOps(), nil),
 		inbound.NewNoopCommandRegistry(),
 		inbound.NoopRepos{},
 		inboundSink,
@@ -190,7 +190,7 @@ func run() error {
 			return inbound.SessionConfig{AutoRead: sessionConfig.AutoRead, PresenceTyping: sessionConfig.PresenceTyping}, true
 		}),
 	)
-	inboundHandler := service.NewInboundPipelineHandler(inboundPipeline, log)
+	inboundHandler := waadapter.NewInboundPipelineHandler(inboundPipeline, log)
 	manager.SetInboundHandler(inboundHandler)
 
 	desiredReconciler = desiredstate.New(manager, nil)
@@ -299,7 +299,7 @@ func run() error {
 		cfg.GatewayID,
 		manager,
 		desiredReconciler,
-		newEngineDispatcher(service.NewRoutingWAClient(manager)),
+		newEngineDispatcher(waadapter.NewRoutingWAClient(manager)),
 		journalCommandLedger{journal: eventJournal},
 	)
 	stopEngine, engineErr := startPrivateEngine(cfg.EngineGRPCAddr, cfg.GatewayID, controlIdentity, engine)
@@ -310,13 +310,6 @@ func run() error {
 
 	var managerShutdownOnce sync.Once
 	managerLifecycle := &managerLifecycleState{}
-	startManager := func(bootCtx context.Context) error {
-		if managerLifecycle.terminal() {
-			return nil
-		}
-		_, err := manager.StartAssignedBoot(bootCtx)
-		return err
-	}
 	shutdownManager := func() {
 		managerShutdownOnce.Do(func() {
 			managerLifecycle.markTerminal()
@@ -367,14 +360,7 @@ func run() error {
 		bootAllowed = false
 		welcomePending = true
 	}
-	if bootAllowed {
-		if err := startManager(ctx); err != nil {
-			// Non-fatal: the control stream stays up so assignments can be
-			// retried after reconciliation.
-			log.Error("session manager start failed", "err", err)
-			controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DEGRADED)
-		}
-	} else if !welcomePending {
+	if !bootAllowed && !welcomePending {
 		shutdownManager()
 		controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED)
 		controlSupervisor.ReportNow()
@@ -394,17 +380,12 @@ func run() error {
 			if _, desiredErr := controlSupervisor.WaitForDesiredState(supervisorCtx, status.ConnectionEpoch); desiredErr != nil {
 				return
 			}
-			if bootErr := startManager(supervisorCtx); bootErr != nil {
-				log.Error("deferred session manager start failed", "err", bootErr)
-				controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DEGRADED)
-				return
-			}
 			controlRuntime.setState(controlRuntimeStateForKeystore(controlKeystore))
 			controlSupervisor.ReportNow()
 		}()
 	}
 
-	// Lifecycle directives: RUN starts/reconciles the manager; DRAIN stops
+	// Desired-state snapshots own session startup. RUN reports readiness; DRAIN stops
 	// sessions terminally and reports each transition before DISABLE exits.
 	go func() {
 		var afterSequence uint64
@@ -421,11 +402,6 @@ func run() error {
 					runtimeState = gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED
 					failure = gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_BUSY
 				} else {
-					if bootErr := startManager(supervisorCtx); bootErr != nil {
-						log.Error("directive session manager start failed", "err", bootErr)
-						runtimeState = gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DEGRADED
-						failure = gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_INTERNAL
-					}
 					controlRuntime.setState(runtimeState)
 					controlSupervisor.ReportNow()
 				}

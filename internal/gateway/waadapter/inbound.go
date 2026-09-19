@@ -1,4 +1,6 @@
-package service
+// Package waadapter connects the WhatsApp runtime to gateway-local pipelines.
+// It intentionally has no API service, MySQL, or Redis dependencies.
+package waadapter
 
 import (
 	"context"
@@ -14,55 +16,6 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa/events"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa/inbound"
 )
-
-// This file holds the small impedance-matching adapters the composition root
-// needs to plug the concrete store/stream/queue types into the consumer
-// interfaces declared by internal/wa, internal/webhooks and internal/queue.
-// They live here (a non-main package) so they are unit-testable and so cmd/gateway
-// stays a thin wiring shim.
-
-// ---------------------------------------------------------------------------
-// wa.SessionRepo: the store.SessionRepo speaks value types + a 4-arg
-// UpdateStatus; the manager's consumer interface speaks pointer types + a 3-arg
-// UpdateStatus (stamping last_connected_at on WORKING). This adapter bridges the
-// two without changing either side.
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// wa.EventSink: stream.Publisher.Publish returns an error; the manager's sink
-// is fire-and-forget (no return). This adapter logs publish failures.
-// ---------------------------------------------------------------------------
-
-// publisher is the slice of *stream.Publisher this adapter needs.
-type publisher interface {
-	Publish(ctx context.Context, e domain.Event) error
-}
-
-// EventSinkAdapter adapts a *stream.Publisher (Publish returning error) to the
-// fire-and-forget wa.EventSink the manager expects. It is API-side only now:
-// the gateway's manager publishes through its journal-backed sink.
-type EventSinkAdapter struct {
-	pub publisher
-	log *slog.Logger
-}
-
-// NewEventSinkAdapter wraps a publisher for the wa.Manager. log may be nil.
-func NewEventSinkAdapter(pub publisher, log *slog.Logger) *EventSinkAdapter {
-	if log == nil {
-		log = slog.Default()
-	}
-	return &EventSinkAdapter{pub: pub, log: log}
-}
-
-func (a *EventSinkAdapter) Publish(ctx context.Context, evt domain.Event) {
-	if err := a.pub.Publish(ctx, evt); err != nil {
-		a.log.WarnContext(ctx, "event publish failed", "event_id", evt.ID, "type", evt.Type, "err", err)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// wa.InboundHandler: wire the real inbound pipeline into the session manager.
-// ---------------------------------------------------------------------------
 
 // InboundPipelineHandler is the managers synchronous event callback into the
 // ordered inbound pipeline. Processing errors are logged because whatsmeows
@@ -212,36 +165,6 @@ func resolveSelectedOptions(options, selectedHashes []string) []string {
 		out = append(out, name)
 	}
 	return out
-}
-
-type inboundWebhookEnqueuer interface {
-	Enqueue(ctx context.Context, evt domain.Event) (int, error)
-}
-
-// InboundWebhookEnqueuerAdapter discards the concrete enqueuers created-count
-// while preserving its error for fan-out aggregation. A nil enqueuer is an
-// explicit no-webhooks configuration and succeeds without work.
-type InboundWebhookEnqueuerAdapter struct {
-	enqueuer inboundWebhookEnqueuer
-}
-
-// NewInboundWebhookEnqueuerAdapter wraps the concrete webhook scheduler for the
-// inbound consumer interface.
-func NewInboundWebhookEnqueuerAdapter(enqueuer inboundWebhookEnqueuer) *InboundWebhookEnqueuerAdapter {
-	return &InboundWebhookEnqueuerAdapter{enqueuer: enqueuer}
-}
-
-var _ inbound.WebhookEnqueuer = (*InboundWebhookEnqueuerAdapter)(nil)
-
-func (a *InboundWebhookEnqueuerAdapter) Enqueue(
-	ctx context.Context,
-	evt domain.Event,
-) error {
-	if a == nil || a.enqueuer == nil {
-		return nil
-	}
-	_, err := a.enqueuer.Enqueue(ctx, evt)
-	return err
 }
 
 func inboundMessageFromPersistResult(
@@ -436,7 +359,9 @@ func phoneFromJID(jid string) string {
 	if !strings.HasSuffix(jid, suffix) {
 		return ""
 	}
-	return strings.TrimSuffix(jid, suffix)
+	// Device-qualified JIDs carry a :device suffix; it is not part of the phone.
+	phone, _, _ := strings.Cut(strings.TrimSuffix(jid, suffix), ":")
+	return phone
 }
 
 func eventPayloadJSON(evt domain.Event) json.RawMessage {
@@ -449,20 +374,6 @@ func mustMarshalJSON(v any) []byte {
 		return nil
 	}
 	return b
-}
-
-func stringPtr(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
-}
-
-func int64Ptr(v int64) *int64 {
-	if v == 0 {
-		return nil
-	}
-	return &v
 }
 
 func typeName(v any) string {

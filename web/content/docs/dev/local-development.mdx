@@ -29,23 +29,33 @@ Run these once, from the repo root, to set up config, start infrastructure, and
 create the database tables:
 
 ```sh
-cp deploy/.env.example deploy/.env    # API + gateway env — fill the three secrets below
+cp deploy/.env.example deploy/.env    # API + gateway env — fill the secrets below
 cp web/.env.example web/.env          # frontend env — fill BETTER_AUTH_SECRET
 make infra-up                         # start MySQL + Redis (ports bound to localhost)
 make migrate                          # create WA app-data tables (runs `cmd/migrate up`)
 cd web && pnpm install && pnpm db:migrate && cd ..   # create the auth tables (drizzle-kit)
 ```
 
-Three values have no usable default and must be filled in before the apps start:
+Supply the application secrets before starting. Generate independent 32-byte keys with
+`openssl rand -base64 32`; retain them across restarts:
 
 | Variable | File | What to set |
 |---|---|---|
-| `API_ED25519_PRIVATE_KEY` | `deploy/.env` | The Ed25519 key the API signs internal assertions with. Generate with `openssl rand 32 | base64`. Required. |
+| `PKI_ENCRYPTION_KEY` | `deploy/.env` | Encrypts the private control-plane CA key. |
+| `OIDC_KEY_ENC_KEY` | `deploy/.env` | Encrypts OAuth signing keys. |
+| `OAUTH_CLIENT_SECRET_PEPPER` | `deploy/.env` | Protects OAuth client secrets. |
 | `APP_ENCRYPTION_KEY` | `deploy/.env` | A base64-encoded 32-byte AES-GCM key. Generate with `openssl rand -base64 32`. Encrypts webhook secrets at rest. |
 | `BETTER_AUTH_SECRET` | `web/.env` | The better-auth signing secret (32+ chars). Generate with `openssl rand -base64 32`. |
 
 `deploy/.env` is one file read by **both** Go processes: the API reads the
-`ROUTER_*` keys plus the better-auth verification settings; the gateway reads the rest.
+`API_*`, database, Redis, PKI, and better-auth verification settings; the gateway
+reads its control-plane, engine, journal, and SQLite settings.
+
+Before starting the gateway, provision its identity through the API admin gateway
+flow. Configure `GATEWAY_ID`, its one-time enrollment token, the operator root PEM
+at `GATEWAY_BOOTSTRAP_CA_FILE`, and persistent credential/journal paths. Use
+loopback addresses for both private gRPC listeners when running on the host; the
+example container service names do not resolve on the host. See [deployment](/docs/dev/deploying).
 
 There are two separate migration tools, one per set of tables — don't mix them up:
 
@@ -87,10 +97,10 @@ docker compose -f deploy/docker-compose.dev.yml --profile api --profile gateway-
 make web   # frontend on the host
 ```
 
-The gateway and API talk over the compose network by service name (the gateway
-verifies assertions at `http://api:8090/...`; the API proxies to the
-gateway's registered `http://gateway-dev:8080`), both already wired in the compose
-file. The API publishes `:8090` and `:8081`, so the browser remains on `:8090`.
+The gateway and API communicate over private mTLS gRPC listeners on the Compose
+network. Use `deploy/docker-compose.grpc-control-plane.yml` for the enrollment,
+certificate, journal, and private listener configuration. The browser still uses
+the API's public HTTP listener on `:8090`.
 
 To wipe the dev database and start clean, run `make infra-reset` (this removes the
 Docker volumes), then re-run the two migrate steps from the [first run](#first-run).
@@ -108,12 +118,10 @@ frontend always stays on your host under Vite.
 | `docker compose -f deploy/docker-compose.dev.yml --profile api --profile gateway-dev up -d --build` | Runs API plus the gateway under `air`; the gateway waits for API readiness/migrations. |
 | `docker compose -f deploy/docker-compose.dev.yml --profile api up -d --build` | Runs the API from its production image (`deploy/Dockerfile.api`), publishing HTTP `:8090` and gRPC `:8081`. |
 
-The two gateway profiles both publish `:8080`, so run only one at a time. Each
-profile reaches the host-side frontend's JWKS endpoint through
-`host.docker.internal` and applies the WA migrations automatically on start. They
-read the same `deploy/.env` as the host processes; the compose file overrides only
-the values that must differ inside a container (the MySQL and Redis hostnames, the
-JWKS host, and the keystore path on a named volume).
+Run one gateway profile per identity and persistent keystore. The API owns WA
+migrations and connects to the host-side frontend JWKS through
+`host.docker.internal`; gateways do neither. The Compose files override network
+addresses and persistent paths where container values differ from host values.
 
 ## Environment variables
 
@@ -122,32 +130,24 @@ Router and gateway settings live in `deploy/.env` (template:
 `web/.env.example`). Both templates document every variable with its default. The
 ones a contributor usually cares about first:
 
-### Router + gateway (`deploy/.env`)
+### API and gateway (`deploy/.env`)
 
-One file, both processes. The first block is the API's; the rest is the
-gateway's.
-
-| Variable | Default | Read by | What it does |
-|---|---|---|---|
-| `API_HTTP_ADDR` | `:8090` | API | Public HTTP listen address. |
-| `API_PUBLIC_GRPC_ADDR` | `:8081` | API | Public gRPC listen address. |
-| `API_PUBLIC_URL` | `http://localhost:8090` | API | External HTTP base URL. |
-| `API_ISSUER` | `router` | API | The assertion `iss`; must match the gateway's `ROUTER_ASSERTION_ISSUER`. |
-| `API_ED25519_PRIVATE_KEY` | — | API | Ed25519 key for signing internal assertions. Required. `openssl rand 32 | base64`. |
-| `BETTER_AUTH_URL` | `http://localhost:3000` | API | The frontend's base URL and accepted JWT issuer/audience. |
-| `BETTER_AUTH_JWKS_URL` | `${BETTER_AUTH_URL}/api/auth/jwks` | API | Where the API fetches frontend signing keys. |
-| `FRONTEND_ORIGINS` | `http://localhost:3000` | API | Browser origins allowed by the API. |
-| `GATEWAY_HTTP_ADDR` | `:8080` | gateway | Address the gateway listens on (internal). |
-| `GATEWAY_ID` | `gw-1` | gateway | This gateway's id, stamped on the sessions it owns; also the assertion `aud` it requires. |
-| `GATEWAY_PUBLIC_URL` | `http://localhost:8080` | gateway | The gateway's internal API-reachable base URL. |
-| `ROUTER_JWKS_URL` | `http://localhost:8090/.well-known/router-jwks.json` | gateway | The API's assertion JWKS. |
-| `ROUTER_ASSERTION_ISSUER` | `router` | gateway | Must match `API_ISSUER`. |
-| `APP_ENCRYPTION_KEY` | — | gateway | Base64 32-byte AES-GCM key; encrypts webhook secrets at rest. Required. |
-| `MYSQL_DSN` | `gw:gwpass@tcp(127.0.0.1:3306)/gateway?…` | both | Shared MySQL: the WA tables (gateway writes), the `gateways` registry, and the `apikey`/`user` tables (read). |
-| `WHATSMEOW_STORE_DSN` | `file:store.db?…` | gateway | SQLite file holding the WhatsApp device keys. A local file in dev; the `/data/keystore` volume in Docker. |
-| `REDIS_URL` | `redis://127.0.0.1:6379` | both | Work Redis: the queue, rate limiting, idempotency, event fan-out, realtime tickets, and the api-key cache. |
-| `PUBSUB_REDIS_URL` | falls back to `REDIS_URL` | API | Control-bus Redis for frontend revocations. |
-| `WHATSAPP_ADMIN_NUMBER` | — | gateway | Admin number the gateway pairs on boot. Requires `WHATSAPP_ADMIN_ORG_ID`. |
+| Variable | Read by | Purpose |
+|---|---|---|
+| `API_HTTP_ADDR` / `API_PUBLIC_GRPC_ADDR` | API | Public REST and gRPC listeners. |
+| `API_GATEWAY_GRPC_ADDR` | API | Private control/enrollment listener. |
+| `API_GATEWAY_TLS_IDENTITY_DIR` | API | Persistent mTLS identity directory. |
+| `PKI_ENCRYPTION_KEY` / `PKI_ENCRYPTION_KEY_ID` | API | CA key custody; preserve across deployments. |
+| `MYSQL_DSN` / `REDIS_URL` | API | Shared application persistence and work transport. |
+| `BETTER_AUTH_URL` / `BETTER_AUTH_JWKS_URL` | API | Accepted JWT issuer and public signing keys. |
+| `FRONTEND_ORIGINS` | API | Allowed browser origins. |
+| `GATEWAY_ID` | gateway | Enrolled identity and session owner. |
+| `GATEWAY_CONTROL_PLANE_ADDR` | gateway | API private listener to dial. |
+| `GATEWAY_ENGINE_GRPC_ADDR` / `GATEWAY_ENGINE_GRPC_ADVERTISE_ADDR` | gateway | Engine listener and address the API can reach. |
+| `GATEWAY_CREDENTIAL_DIR` / `GATEWAY_BOOTSTRAP_CA_FILE` | gateway | Persistent certificate and operator trust root. |
+| `GATEWAY_ENROLLMENT_TOKEN` | gateway | One-time bootstrap credential; remove after enrollment. |
+| `GATEWAY_JOURNAL_PATH` / `WHATSMEOW_STORE_DSN` | gateway | Persistent event/command journal and device keys. |
+| `GATEWAY_HTTP_ADDR` | gateway | Internal health, readiness, and metrics only. |
 
 ### Frontend (`web/.env`)
 

@@ -131,6 +131,58 @@ func TestCommittedEventWorkerFansOutThenCompletes(t *testing.T) {
 	if !store.completed["evt_01"] || projection.count() != 1 || publisher.count() != 1 || len(webhooks.calls) != 1 {
 		t.Fatalf("completion=%v calls projection:%d publisher:%d webhooks:%d", store.completed, projection.count(), publisher.count(), len(webhooks.calls))
 	}
+	claim := store.claims[0]
+	if !claim.LeaseUntil.Equal(claim.ClaimedAt.Add(time.Minute)) {
+		t.Fatalf("claim clock and lease diverged: %+v", claim)
+	}
+}
+
+type orderedCommittedStore struct {
+	events    []domain.Event
+	completed []string
+}
+
+func (s *orderedCommittedStore) ClaimCommittedEvents(context.Context, application.CommittedEventClaim) ([]domain.Event, error) {
+	return s.events, nil
+}
+
+func (s *orderedCommittedStore) CompleteCommittedEvent(_ context.Context, _, id string) error {
+	s.completed = append(s.completed, id)
+	return nil
+}
+
+type selectiveCommittedConsumer struct {
+	seen []string
+	err  error
+}
+
+func (c *selectiveCommittedConsumer) ConsumeCommittedEvent(_ context.Context, event domain.Event) error {
+	c.seen = append(c.seen, event.ID)
+	if event.ID == "bad" {
+		return c.err
+	}
+	return nil
+}
+
+func TestCommittedEventWorkerFailureDoesNotBlockUnrelatedSession(t *testing.T) {
+	store := &orderedCommittedStore{events: []domain.Event{
+		{ID: "bad", Session: "session_a"},
+		{ID: "dependent", Session: "session_a"},
+		{ID: "independent", Session: "session_b"},
+	}}
+	cause := errors.New("malformed external payload")
+	consumer := &selectiveCommittedConsumer{err: cause}
+	worker := newTestCommittedEventWorker(store, consumer)
+	completed, err := worker.RunOnce(context.Background(), len(store.events))
+	if completed != 1 || !errors.Is(err, cause) {
+		t.Fatalf("completed=%d err=%v", completed, err)
+	}
+	if len(store.completed) != 1 || store.completed[0] != "independent" {
+		t.Fatalf("failed work was lost: completed=%v", store.completed)
+	}
+	if len(consumer.seen) != 2 || consumer.seen[1] != "independent" {
+		t.Fatalf("dependent work overtook failed event: seen=%v", consumer.seen)
+	}
 }
 
 func TestCommittedEventWorkerFailureReplaysAfterRestart(t *testing.T) {

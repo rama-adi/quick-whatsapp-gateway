@@ -5,7 +5,7 @@ The eventing subsystem has two halves that share one envelope:
 1. **Normalization** (`internal/wa/events`) — translate raw whatsmeow events into the
    versioned domain event catalog (§11), classify chats, and apply source-level ignore
    rules. Documented here.
-2. **Transport** (`internal/stream`, `internal/webhooks`) — the NDJSON stream and the
+2. **Transport** (`internal/stream`, `internal/webhooks`) — the realtime WebSocket and the
    webhook dispatcher that carry the envelope. Documented in their own specs and the
    transport section below (owned by another subsystem).
 
@@ -15,10 +15,10 @@ The envelope carries the **owning organization** (`organization`, a better-auth 
 so every transport can scope delivery by org. The catalog itself is **unchanged from
 v1**; only the ownership tag changed (`tenant` → `organization`).
 
-**Auth (per §4).** Both transports authenticate with the gateway's single two-acceptor
+**Auth (per §4).** Realtime ticket minting authenticates with the API's two-acceptor
 middleware — a JWKS-verified better-auth **JWT** (human) or a better-auth **api-key**
 (machine). There is no event-specific auth path; the resolved org scopes what a caller
-sees.
+sees. Outbound webhooks use their configured HMAC signing secret.
 
 ---
 
@@ -211,6 +211,13 @@ incomplete for the store's retry/lease path; durable consumers must still use
 `event.id` as their idempotency key because a crash can occur after a consumer
 accepts an event and before completion is recorded.
 
+Lease eligibility uses the claim's current time, never its future expiration.
+A session's later events cannot overtake a currently leased predecessor. Within
+a claimed batch, failure holds the remaining events for that session but does
+not block unrelated sessions. Worker failures are logged with the event ID and
+remain incomplete for retry; retention must not remove their event-log payloads.
+
+
 ### Increment 5/9 durable handoff
 
 Private-control gateways require an absolute `GATEWAY_JOURNAL_PATH` for a separate SQLite journal.
@@ -222,7 +229,17 @@ The API decodes each protobuf envelope, validates its identity against the contr
 and stores only its inner type-specific JSON payload in `event_log.payload`. Committed-event
 consumers reconstruct the envelope from the row columns; protobuf bytes or a nested envelope must
 never enter that JSON column.
-Reconnects replay the oldest unacknowledged batch. A critical journal capacity state makes the gateway
+Each connection waits for a fresh, successfully applied complete desired-state
+snapshot before replaying. An entry belonging to an assignment omitted from that
+snapshot, or carrying a different assignment epoch/organization, is retired:
+the API no longer authorizes that work. STOP assignments retain ownership and
+keep their events. Same-assignment events survive reconnects with a fresh
+connection epoch. A matching API ACK advances mixed batches; an entirely retired
+prefix can advance locally under snapshot authority. Transient transport errors
+never authorize deletion. Malformed journal entries remain visible errors and
+are preserved for operator repair rather than silently discarded.
+
+Reconnects then replay the oldest remaining unacknowledged batch. A critical journal capacity state makes the gateway
 unready, while a failed append backpressures the producing pipeline. Every heartbeat carries optional
 journal-pressure telemetry (`journal_state`/`journal_entries`/`journal_bytes`, §7): an unreadable
 journal omits the report instead of fabricating one, and the API persists the last reported pressure

@@ -1,19 +1,16 @@
-# Trust & auth model (`internal/authz` + `internal/controlbus` + `internal/assertion`)
+# Trust & auth model (`internal/authz` + `internal/controlbus`)
 
-> **Target migration, not current runtime (gRPC control-plane Increment 0).** Public JWT/API-key
-> authentication and all end-user authorization remain at the API front door. Gateways will receive
-> only authorized service commands and authenticate the API with per-gateway mTLS; they never receive
-> user credentials or permission claims. Development uses a persisted local root plus online
-> intermediate (the root signs only that intermediate). Production is designed behind a
-> `CertificateSigner` seam, with Vault PKI as the reference implementation rather than a locked
-> vendor. The current Ed25519 router assertion described below remains active until gRPC slices cut
-> over.
+Public JWT/API-key authentication, authorization, and organization scoping run at the
+API front door. Gateways receive authorized service commands over private mTLS gRPC,
+never end-user credentials or permission claims. They validate the API certificate,
+connection epoch, and session assignment before performing live work. The old HTTP
+assertion package and unused remote API-key verifier have been removed.
 
 > **Increment 2.0/2.1a foundation:** normalized enrollment-token, authority,
 > gateway-certificate, and audit-event records now exist. Enrollment persistence contains only a
 > SHA-256 digest and safe prefix; authority private keys are ciphertext plus nonce and key id.
 > The implemented enrollment service and private transport now consume this foundation; the
-> operator-facing administration API/UI does not.
+> operator-facing administration API/UI exposes enrollment and token replacement.
 > Pure 2.1a policy uses canonical versioned 256-bit bearer tokens, strict token-bound Ed25519
 > SPIFFE CSRs, 24-hour issuer-capped client+server-auth leaves, and AES-256-GCM CA-key envelopes
 > whose AAD binds authority id, kind, certificate fingerprint, and encryption-key id.
@@ -37,32 +34,20 @@
 > nondeleted gateway advances through joining, active, draining, or drained; disabled/deleted
 > gateways and inactive or mismatched issuance records are denied. Every other denial is
 > intentionally generic. Token replacement against a missing or non-pending gateway is a typed,
-> non-retryable state conflict for a future transport-level 409 mapping. No transport invokes this service yet.
+> non-retryable state conflict for a future transport-level 409 mapping. The private enrollment transport invokes this service.
 > The sole store aggregate fixes global lock order as gateway row then token row for begin,
 > finalize, replacement, recovery, and cleanup. A nonlocking selector read only discovers the
 > gateway and performs dummy-safe credential work; every transaction re-locks and re-verifies.
 > Signing uses the canonical validated CSR digest and a deadline capped by the lease minus a safety
 > margin. Credential failures use a bounded jitter delay and typed safe errors distinguish invalid
 > credentials, active work, rate limits, cancellation, and transient infrastructure failures. The
-> private enrollment RPC invokes this service; public administration operations and UI do not yet
-> expose creation or token replacement.
+> private enrollment RPC invokes this service; public administration operations and UI expose creation and token replacement.
 
 Status: implemented (R1/R2). Live-validated against better-auth 1.6.22.
 
-> **Central-router (Increment A) — read this first.** Authentication now **terminates at the
-> router**, not the gateway. The two-acceptor authn (`internal/authz.Authenticate` + the JWT /
-> api-key verifiers + the positive cache) and the `ctrl:*` control-bus subscriber run **only on the
-> router** ([`router.md`](router.md)). The gateway no longer verifies end-user JWTs or api-keys and
-> no longer wires `internal/controlbus`; it **trusts the router's request-bound Ed25519 internal
-> assertion** (`internal/assertion`) and rebuilds the principal from it (see "Router assertion"
-> below). The **authz split is unchanged in spirit** — *verify* at the router, *gate + scope* at the
-> gateway. The sections below describe the verifiers/cache/control-bus that the **router** now runs;
-> the gateway keeps only `gates.go` + `context.go` + the assertion-verify middleware.
-
-How a request is decided legitimate, **with no per-request callback to the frontend**. The gateway
-is a pure WhatsApp engine: it has **no human login**, no `/auth` surface, and serves no SPA. Identity
-is minted by the better-auth frontend; the **router** *verifies* it (the gateway only verifies the
-router). Masterplan §4.
+Authentication, capability gates, MySQL ownership checks, and the `ctrl:*` subscriber
+all run on the API. The gateway holds SQLite device keys and a durable event/command
+journal; it has no public HTTP API, MySQL connection, Redis connection, or user login.
 
 ## Two caller identities
 
@@ -139,10 +124,6 @@ running version:
 `Hasher` is an interface so the scheme can be swapped if a pinned better-auth version diverges;
 the **R5 verifier contract test** mints a key in better-auth and validates the Go verifier now
 consumed by the router (historically it was gateway-wired) to lock this.
-**Fallback** if the hash ever proves non-replicable: `internal/authz/apikey_remote.go`
-(`RemoteKeyVerifier`) calls `POST {BETTER_AUTH_URL}/api/auth/api-key/verify` behind a short-TTL
-cache.
-
 > **Pin the better-auth version.** The whole local-validation design rests on the hash and the
 > column layout above; a major-version bump must re-run the contract test.
 
@@ -153,7 +134,7 @@ user reaches a resource through org **membership** (role owner/admin/member). Ev
 **personal organization** auto-created on signup, so solo use is a one-member org and "sharing a
 WhatsApp connection" = inviting someone into the org. `created_by_user_id` is retained for audit.
 The router authorizes from JWT claims (`activeOrganizationId` + `orgRole`) and the API key's
-`reference_id`; the gateway receives the private assertion. (Schema: `store.md`.)
+`reference_id`; the gateway receives a fenced private engine command. (Schema: `store.md`.)
 
 ## Authorization (`internal/authz/gates.go`)
 
@@ -169,33 +150,13 @@ capability gate authorizes the action:
 - `RequireSuperAdmin` gates cross-org oversight (`/admin/sessions`, `GET /contacts/{lid}`),
   resolved from the JWT `role`.
 
-> **Authz split (central-router, Increment A).** *Verify* runs at the **router**; *gate + scope*
-> runs at the **gateway**. The router authenticates the caller, resolves the `Principal`, and
-> enforces **org isolation** on session-scoped routes (session's `organization_id` must equal the
-> caller's org, else `404`; `super_admin` bypasses). The gateway then re-applies the **capability
-> gates** above (`RequireRead/Send/Manage/Events/SuperAdmin`, `gates.go`) and its **org-scoped store
-> queries** (`WHERE organization_id = ?`), reading the principal from the verified router assertion —
-> defense in depth at the data layer. These gates and queries are **unchanged**; only the source of
-> the principal changed (assertion, not direct JWT/api-key verify).
+## API-to-gateway authorization
 
-## Router assertion (`internal/assertion`)
-
-The router → gateway trust seam. The router strips the caller's `Authorization`/`X-Api-Key` and
-attaches a **request-bound, single-use Ed25519 JWS** in the `X-Internal-Assertion` header; the
-gateway's `assertion.Middleware` (on `/api/v1`) verifies it and rebuilds the `Principal`. The router
-holds the Ed25519 **private** key (`Minter`); the gateway holds only the **public** key (`Verifier`,
-fetched from `ROUTER_JWKS_URL` via a cached `RemoteKeySet`), so a compromised gateway cannot forge an
-assertion. Full claim set + custody live in [`router.md`](router.md).
-
-**Gateway verification order:** signature (router JWKS) → `aud` == own `GATEWAY_ID` → `iss` ==
-`ROUTER_ASSERTION_ISSUER` (default `"router"`) → `exp`/`iat` within ~5s skew → `method`/`path`/
-`bodyHash` match the actual request → coherent principal kind and required identity fields →
-`jti` not seen before (in-memory `NonceCache` anti-replay).
-
-> **Note.** The gateway uses a **dedicated jwx-based verifier in `internal/assertion`** (not the
-> plain `JWTVerifier`) because it must extract the request-binding claims (`method`/`path`/
-> `bodyHash`/`session`/`jti`/principal) the plain verifier doesn't surface — reusing the same
-> JWKS-cache pattern repointed at `ROUTER_JWKS_URL`.
+The API applies capability gates and organization ownership checks before resolving
+an engine command. The gateway authenticates the API's mTLS identity and verifies
+current connection/assignment fences. HTTP assertion keys, headers, JWKS endpoints,
+and nonce caches are not part of this protocol. Certificate custody and per-RPC rules
+live in [`grpc-contracts.md`](grpc-contracts.md) and [`router.md`](router.md).
 
 ## Control bus, cache & instant revocation (`internal/controlbus` — now the router's)
 
@@ -271,14 +232,12 @@ credential**, the JWT is a short access token minted from it.
 |---|---|
 | `internal/authz/jwt.go` | `JWTVerifier`: JWKS fetch+cache, JWT verify, claim extraction |
 | `internal/authz/apikey.go` | `APIKeyVerifier`, `Hasher` (`DefaultHasher` = SHA-256→base64url), `KeyVerifier` |
-| `internal/authz/apikey_remote.go` | `RemoteKeyVerifier` fallback (`/api/auth/api-key/verify` + cache) |
 | `internal/authz/apikey_cache.go` | positive key cache (TTL backstop, evict by keyId/userId) |
 | `internal/authz/middleware.go` | `Authenticate` — two-acceptor middleware |
 | `internal/authz/gates.go` | `RequireRead/Send/Manage/Events/SuperAdmin` capability gates |
 | `internal/authz/context.go` | `Principal` + context accessors |
 | `internal/authz/cors.go` | CORS for `FRONTEND_ORIGINS` (browser → **router**; the gateway no longer mounts CORS) |
 | `internal/controlbus/controlbus.go` | `ctrl:*` subscriber → cache evict (+ stream drop in Increment B) — **consumed by the router now**, not the gateway |
-| `internal/assertion` | router → gateway Ed25519 internal assertion: `Minter` (router, private key), `Verifier` + `NonceCache` (gateway, public key from `ROUTER_JWKS_URL`) |
 
 ## How it's tested
 

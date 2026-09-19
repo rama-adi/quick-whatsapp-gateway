@@ -32,9 +32,10 @@ export function useChat(s: string, c: string): UseQueryResult<Chat, ApiError> {
   return useQuery({
     queryKey: qk.chat(s, c),
     enabled: Boolean(s && c),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       fetchJSON<Chat>(
         apiUrl(`/sessions/${encodeURIComponent(s)}/chats/${encodeURIComponent(c)}`),
+        { signal },
       ),
   });
 }
@@ -48,11 +49,12 @@ export function useChatPresence(
     queryKey: qk.presence(s, c),
     enabled: Boolean(enabled && s && c),
     staleTime: 60_000,
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       fetchJSON<PresenceStatus>(
         apiUrl(
           `/sessions/${encodeURIComponent(s)}/chats/${encodeURIComponent(c)}/presence`,
         ),
+        { signal },
       ),
   });
 }

@@ -4,7 +4,7 @@ Status: implemented (R3/R4).
 
 A fullstack **TanStack Start** app: SSR + server functions, better-auth for identity, Drizzle for
 the DB. It replaces the v1 embedded React Router SPA. The *logic* of the v1 SPA (API client,
-NDJSON consumer, event bus, Zod schemas, shadcn `components/ui`) is **reused**, but re-fitted to
+event bus, Zod schemas, shadcn `components/ui`) is **reused**, but re-fitted to
 TanStack Start idioms rather than lifted verbatim. Masterplan §12.
 
 The browser talks to the **gateway directly** (CORS + `Bearer` JWT) for both actions and the
@@ -47,12 +47,12 @@ the R6 fast-follow).
   `createServerFn` that needs the session. Route `beforeLoad` attaches `{user, activeOrg, role}`.
 - **Data** — route **loaders** + **`createServerFn`** for reads, not client-only
   `useEffect`/fetch. SSR/initial reads run **server-side** (Drizzle direct, § hybrid reads); the
-  client hydrates and uses **TanStack Query** for mutations and the NDJSON stream for realtime.
+  client hydrates and uses **TanStack Query** for mutations and a WebSocket for realtime.
 - **Token mint** — `web/app/lib/auth/token.ts` (`mintGatewayToken`, a `createServerFn`) calls
   `auth.api.getToken` with the session cookie. No refresh token: the client re-calls it (~every
-  5 min, `web/app/lib/api/token-provider.ts`) and reconnects the stream — the token endpoint
+  5 min, `web/app/lib/api/token-provider.ts`) — the token endpoint
   stops minting once the session is revoked (§4.7).
-- **Reused ~as-is** — shadcn `components/ui`, the NDJSON parser + event bus
+- **Reused ~as-is** — shadcn `components/ui`, the event bus
   (`web/app/lib/events/*`), Zod schemas, and the generated API types
   (`web/app/lib/api/schema.d.ts`).
 
@@ -60,14 +60,14 @@ the R6 fast-follow).
 
 The frontend server does **only short-lived work** — better-auth endpoints, minting JWTs, and
 **direct MySQL reads via Drizzle** for SSR/loaders. It does **not** proxy gateway traffic. The
-**browser calls the gateway directly** (`VITE_GATEWAY_URL`) with a `Bearer` JWT for both actions
-and the NDJSON stream. That is why the frontend can run on **serverless** (Vercel/Cloudflare/
+**browser calls the gateway directly** (`VITE_GATEWAY_URL`) with a `Bearer` JWT for actions and
+a short-lived bearer-authenticated ticket for the WebSocket. That is why the frontend can run on **serverless** (Vercel/Cloudflare/
 Netlify) — a function can't hold a long-lived streaming proxy open, but it doesn't need to: the
 stream lives in the gateway and the browser connects to it.
 
 - **Server** (serverless): auth, token mint, direct MySQL reads. No streaming, no proxy.
-- **Client:** TanStack Query for data; the `fetch`+`ReadableStream` NDJSON consumer for realtime
-  (`web/app/lib/events/`), both hitting the gateway with a `Bearer` JWT, refreshed per §4.7.
+- **Client:** TanStack Query for data and a ticket-authenticated WebSocket for realtime
+  (`web/app/lib/events/`), both hitting the gateway directly.
 - **CORS:** the API allows `FRONTEND_ORIGINS`; `GATEWAY_PUBLIC_URL` is private while `GATEWAY_URL`
   is what the browser targets. `GATEWAY_URL` (server) + `VITE_GATEWAY_URL` (browser).
 
@@ -82,6 +82,14 @@ The same Drizzle client (`web/app/lib/db/index.ts`) that backs better-auth also 
 dashboard/viewer/contacts rendering — modeled as read-only Drizzle definitions mirroring the
 gateway schema. The frontend **never writes** WA tables; mutations go to the gateway REST API,
 realtime comes from the gateway stream. Masterplan §6.2.
+
+TanStack Query uses a fresh `QueryClient` for every SSR request so org-scoped loader data cannot
+cross request boundaries. The browser keeps one client for the tab; sign-out and organization
+switching clear that client before the next identity loads data.
+Gateway query functions forward TanStack Query's abort signal, so obsolete reads are cancelled
+when navigation, cache clearing, or component teardown makes their result irrelevant.
+Sign-out clears the token and browser cache only after Better Auth confirms success; a transient
+auth-service failure leaves the current session usable and exposes a retryable error in the menu.
 
 ## Control bus (publish-only)
 
@@ -99,12 +107,18 @@ the work Redis. Gateways subscribe and revoke instantly ([`trust-model.md`](trus
   app top bar (`components/shell/org-switcher.tsx`); that org's sessions (create/start/stop/QR/
   pairing, each tagged with its gateway); API keys (`keys.tsx`), webhooks (`webhooks.tsx`), viewer.
   Members & invitations UI is the R6 fast-follow.
+- **Webhook editor boundary** — `user/webhooks.tsx` owns collection loading and row actions;
+  `user/-webhook-editor.tsx` owns form state, request projection, validation, and field rendering.
+  Header validation rejects duplicate names and gateway-controlled integrity headers before a
+  mutation, while blank write-only secrets remain omitted during edits.
 - **Pairing state is attachment-driven.** The session detail shows pairing controls whenever
   `waJid` is absent (including `logged_out`) and treats a stopped session with a `waJid` as still
   paired. The QR query is enabled only after status reaches `scan_qr_code`, because `GET /qr` starts
   a QR flow as a side effect; this lets users choose phone-code pairing without an automatic QR
   client racing it. A `logged_out` event clears cached identity/old codes, while `working`
   invalidates session rows so the newly persisted JID appears immediately after PairSuccess.
+  Shared lifecycle controls disable logout for unpaired sessions and confirm before unlinking a
+  paired device; list and detail views use the same labels, pending state, and destructive styling.
 - **Viewer** (read-only) — chats + message timeline; media → "not downloaded" placeholder.
 - **Contacts** — searchable found-users list; drill into DM + groups.
 
@@ -148,7 +162,7 @@ icon rail, a `Sheet` drawer below `md`, a Cmd/Ctrl+B toggle, and cookie-persiste
 
 ## Page-scoped event stream
 
-The NDJSON event stream is **one shared connection, opened only on the pages that need it** —
+The realtime WebSocket is **one shared connection, opened only on the pages that need it** —
 not a global firehose stamped across the whole dashboard. The single `EventStreamProvider`
 (`web/app/lib/events/EventStreamProvider.tsx`) is mounted once in the `AppShell` so any authed
 surface can read connection status, but it stays **idle** until a surface opts in.
@@ -171,6 +185,17 @@ surface can read connection status, but it stays **idle** until a surface opts i
 - **Fallback recovery** — after repeated stream failures switch live surfaces to polling, the
   first healthy WebSocket frame atomically restores `open` status and disables polling, so the
   temporary refetch intervals do not continue alongside the recovered stream.
+- **Malformed and reordered input** — only complete v1 event envelopes reach the cache bridge;
+  partial JSON cannot advance the replay cursor. Message delivery receipts project monotonically,
+  so a delayed `delivered` frame cannot regress a message already shown as `read`. Invalid ticket
+  responses fail into the normal reconnect path, and a failed socket cannot deliver late frames.
+- **Wire-shape projection** — realtime message payloads are explicitly projected into REST
+  `Message` rows; incomplete payloads invalidate the relevant chat instead of fabricating a row.
+  Status events apply every id in `messageIds`, replayed messages do not increment unread twice,
+  and edit/revoke/reaction events invalidate their timeline for an authoritative REST refresh.
+- **Identity changes** — sign-out and active-organization changes clear the cached gateway JWT.
+  Live surfaces also replace the organization-scoped WebSocket immediately when that token is
+  cleared, preventing the previous identity's stream from repopulating freshly cleared caches.
 - **Why not per-gateway-keyed** — the stream is org-scoped (the gateway streams all of a tenant's
   sessions on one socket); this change makes the mount page-scoped rather than app-global, which is
   the prerequisite for a future multi-gateway registry (no global singleton assuming one gateway).

@@ -24,9 +24,9 @@ type fakeProjectionStore struct {
 	upsertedPolls     []ProjectionPollUpsert
 	insertedPollVotes []ProjectionPollVoteInsert
 	upsertMembers     []ProjectionGroupMemberUpsert
-	attachedPairings []store.AttachPairingInput
-	clearedSessions  []string
-	clearedAt        []int64
+	attachedPairings  []store.AttachPairingInput
+	clearedSessions   []string
+	clearedAt         []int64
 }
 
 func (f *fakeProjectionStore) AttachPairing(_ context.Context, in store.AttachPairingInput) error {
@@ -285,7 +285,7 @@ func TestProjectionPairSuccessAttachesIdentity(t *testing.T) {
 	consumer := newTestProjectionConsumer(store)
 	event := domain.Event{Schema: domain.Schema, ID: "evt_pair", Type: domain.EventAuthCode,
 		Session: "sess_1", Organization: "org_1", Timestamp: 1000,
-		Payload: apitypes.AuthCodePayload{JID: "628111@s.whatsapp.net", LID: "777@lid"}}
+		Payload: apitypes.AuthCodePayload{JID: "628111:7@s.whatsapp.net", LID: "777@lid"}}
 
 	if err := consumer.ConsumeCommittedEvent(context.Background(), event); err != nil {
 		t.Fatal(err)
@@ -294,7 +294,7 @@ func TestProjectionPairSuccessAttachesIdentity(t *testing.T) {
 		t.Fatalf("expected 1 pairing attach, got %d", len(store.attachedPairings))
 	}
 	got := store.attachedPairings[0]
-	if got.SessionID != "sess_1" || got.WaJID != "628111@s.whatsapp.net" ||
+	if got.SessionID != "sess_1" || got.WaJID != "628111:7@s.whatsapp.net" ||
 		got.WaLID != "777@lid" || got.PhoneNumber != "628111" || got.UpdatedAt != 1234 {
 		t.Fatalf("pairing attach = %+v", got)
 	}

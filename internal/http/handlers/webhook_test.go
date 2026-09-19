@@ -21,7 +21,7 @@ func manageOrgPrincipal() *authz.Principal {
 
 // webhookRouter builds a chi router with the huma webhook ops mounted behind a
 // middleware that injects the given principal (nil = unauthenticated), mirroring
-// how the assertion middleware populates the principal in production.
+// how the authentication middleware populates the principal in production.
 func webhookRouter(svc WebhookSvc, p *authz.Principal) http.Handler {
 	r := chi.NewRouter()
 	r.Use(func(next http.Handler) http.Handler {

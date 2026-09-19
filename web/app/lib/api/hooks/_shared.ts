@@ -28,7 +28,13 @@ export function listPageFetcher<T>(
   path: string,
   extra: Record<string, string | number | boolean | undefined> = {},
 ) {
-  return ({ pageParam }: { pageParam: string | undefined }) => {
+  return ({
+    pageParam,
+    signal,
+  }: {
+    pageParam: string | undefined;
+    signal: AbortSignal;
+  }) => {
     const u = new URLSearchParams();
     u.set("limit", PAGE_LIMIT);
     for (const [k, v] of Object.entries(extra)) {
@@ -36,7 +42,7 @@ export function listPageFetcher<T>(
       u.set(k, String(v));
     }
     if (pageParam) u.set("cursor", pageParam);
-    return fetchJSON<Page<T>>(apiUrl(`${path}?${u.toString()}`));
+    return fetchJSON<Page<T>>(apiUrl(`${path}?${u.toString()}`), { signal });
   };
 }
 

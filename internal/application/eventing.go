@@ -21,10 +21,11 @@ type CommittedEventConsumer interface {
 }
 
 // CommittedEventClaim identifies one multi-replica-safe claim attempt. Owner is
-// stable for a running worker and LeaseUntil is supplied by the worker's
-// composition-owned clock and lease policy.
+// stable for a running worker. ClaimedAt is the eligibility cutoff; LeaseUntil
+// is the new lease deadline. Both come from the same composition-owned clock.
 type CommittedEventClaim struct {
 	Owner      string
+	ClaimedAt  time.Time
 	LeaseUntil time.Time
 	MaxItems   int
 }

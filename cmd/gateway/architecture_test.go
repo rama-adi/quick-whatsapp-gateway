@@ -12,13 +12,18 @@ import (
 	"time"
 )
 
-func forbiddenMigrationImport(path string) bool {
-	return path == "github.com/ramaadi/quick-whatsapp-gateway/internal/dbmigrate" ||
+func forbiddenGatewayImport(path string) bool {
+	return path == "github.com/ramaadi/quick-whatsapp-gateway/internal/service" ||
+		path == "github.com/ramaadi/quick-whatsapp-gateway/internal/store" ||
+		strings.HasPrefix(path, "github.com/ramaadi/quick-whatsapp-gateway/internal/store/") ||
+		strings.HasPrefix(path, "github.com/redis/go-redis/") ||
+		path == "github.com/go-sql-driver/mysql" ||
+		path == "github.com/ramaadi/quick-whatsapp-gateway/internal/dbmigrate" ||
 		path == "github.com/ramaadi/quick-whatsapp-gateway/migrations" ||
 		strings.HasPrefix(path, "github.com/golang-migrate/migrate")
 }
 
-func TestGatewayPackageHasNoMigrationDependencies(t *testing.T) {
+func TestGatewayPackageHasNoAPIPersistenceDependencies(t *testing.T) {
 	files, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
@@ -36,8 +41,8 @@ func TestGatewayPackageHasNoMigrationDependencies(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if forbiddenMigrationImport(path) {
-				t.Fatalf("%s directly imports forbidden migration package %q", file, path)
+			if forbiddenGatewayImport(path) {
+				t.Fatalf("%s directly imports forbidden API/persistence package %q", file, path)
 			}
 		}
 	}
@@ -49,8 +54,8 @@ func TestGatewayPackageHasNoMigrationDependencies(t *testing.T) {
 		t.Fatalf("go list gateway dependencies: %v", err)
 	}
 	for _, dependency := range strings.Fields(string(output)) {
-		if forbiddenMigrationImport(dependency) {
-			t.Fatalf("gateway transitively depends on forbidden migration package %q", dependency)
+		if forbiddenGatewayImport(dependency) {
+			t.Fatalf("gateway transitively depends on forbidden API/persistence package %q", dependency)
 		}
 	}
 }

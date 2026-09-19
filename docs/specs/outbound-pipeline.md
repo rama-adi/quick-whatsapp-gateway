@@ -183,10 +183,21 @@ atomic op.
   durable command rows, product rate limits, retry/backoff, and dispatch through the private
   engine. Each `outbox` row id **is** the stable `command_id`; the gateway's result ledger
   (`journal.db` `command_results`, seven-day retention) records definite outcomes before
-  responding, so a retried or reconciled send re-issues the same identity and cannot duplicate a
-  WhatsApp delivery within the idempotency window. The gateway executes at most once per
-  command id: replay returns the stored terminal result; concurrent duplicates join the first
-  execution.
+  responding. All durable gateway mutations share one executor: concurrent duplicates join
+  the same in-process flight, and its leader reads the ledger before checking the assignment
+  fence or executing. This prevents a delayed duplicate from missing a newly committed result.
+  A flight binds its organization, session, gateway, and operation kind; another target or
+  operation reusing the same id receives a conflict. Assignment epoch is intentionally excluded
+  so a retry after reassignment can observe an already executing command. Stored replay checks
+  the recorded session id. The existing ledger does not store organization, operation kind, or
+  payload, so those properties are not a durable payload-binding guarantee.
+  Every waiter receives the leader's actual outcome, including ledger failures. A completed
+  side effect commits its local result independently of caller cancellation, so a disconnected
+  caller can retry and replay it. The SQLite journal retains its configured busy timeout.
+  A process crash or storage failure between the WhatsApp effect and that commit remains
+  ambiguous; the ledger does not promise exactly-once delivery across that gap.
+  Resource-specific implementations live in the gateway adapter's message, resource, and
+  lifecycle modules; `command_execution.go` owns shared validation, fencing, and replay.
 - **Ambiguity policy**: only deterministic pre-dispatch rejections (domain validation errors,
   including a replayed prior ledger failure) are terminal `failed`. Unavailable gateways, stale
   assignment epochs (conflict), and lost deadlines reschedule to `queued` with exponential

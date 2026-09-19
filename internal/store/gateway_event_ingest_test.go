@@ -70,7 +70,7 @@ func TestClaimCommittedEvents_ReturnsEnvelopes(t *testing.T) {
 	rows := sqlmock.NewRows([]string{"event_log_id", "type", "organization_id", "session_id", "created_at", "payload"}).
 		AddRow("evt_1", domain.EventMessage, "org_1", "ses_1", int64(1234), []byte(`{"x":1}`))
 	mock.ExpectQuery("SELECT i[.]event_log_id.*FROM gateway_ingested_events i JOIN event_log e").
-		WithArgs(int64(2000), 8).
+		WithArgs(int64(1000), int64(1000), 8).
 		WillReturnRows(rows)
 	mock.ExpectExec("UPDATE gateway_ingested_events SET claimed_by=., lease_until=.").
 		WithArgs("api-1", int64(2000), "evt_1").
@@ -78,7 +78,7 @@ func TestClaimCommittedEvents_ReturnsEnvelopes(t *testing.T) {
 	mock.ExpectCommit()
 
 	events, err := repo.ClaimCommittedEvents(context.Background(), CommittedEventWork{
-		Owner: "api-1", LeaseUntil: time.UnixMilli(2000), MaxItems: 8,
+		Owner: "api-1", ClaimedAt: time.UnixMilli(1000), LeaseUntil: time.UnixMilli(2000), MaxItems: 8,
 	})
 	if err != nil {
 		t.Fatalf("ClaimCommittedEvents: %v", err)
@@ -116,7 +116,7 @@ func TestClaimCommittedEvents_LostLeaseAbortsBatch(t *testing.T) {
 	mock.ExpectRollback()
 
 	if _, err := repo.ClaimCommittedEvents(context.Background(), CommittedEventWork{
-		Owner: "api-1", LeaseUntil: time.UnixMilli(2000), MaxItems: 4,
+		Owner: "api-1", ClaimedAt: time.UnixMilli(1000), LeaseUntil: time.UnixMilli(2000), MaxItems: 4,
 	}); err == nil {
 		t.Fatal("want error for lost claim")
 	}

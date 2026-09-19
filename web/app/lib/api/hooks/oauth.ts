@@ -54,7 +54,8 @@ export function useOAuthApp(id: string): UseQueryResult<OAuthApp, ApiError> {
   return useQuery({
     queryKey: qk.oauthApp(id),
     enabled: Boolean(id),
-    queryFn: () => fetchJSON<OAuthApp>(apiUrl(`/oauth-apps/${encodeURIComponent(id)}`)),
+    queryFn: ({ signal }) =>
+      fetchJSON<OAuthApp>(apiUrl(`/oauth-apps/${encodeURIComponent(id)}`), { signal }),
   });
 }
 

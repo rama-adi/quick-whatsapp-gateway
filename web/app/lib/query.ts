@@ -1,6 +1,6 @@
-// TanStack Query client + the query-key factory (qk).
-// FROZEN — owned by the foundation agent. Surface agents import qk + queryClient,
-// never edit this file. A new key is a request to the foundation agent.
+// TanStack Query client factory + the query-key factory (qk).
+// The router owns client creation; surfaces consume it through React Query.
+// Query keys stay centralized so realtime updates and resource hooks agree.
 
 import { QueryClient, QueryCache, MutationCache } from "@tanstack/react-query";
 import { isApiError } from "./api/envelope";
@@ -20,39 +20,45 @@ function redirectToLogin(): void {
   window.location.assign(`${LOGIN_PATH}?next=${next}`);
 }
 
-export const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 30_000,
-      gcTime: 5 * 60_000,
-      refetchOnWindowFocus: false,
-      retry: (failureCount, error) => {
-        // Never retry deterministic 4xx; allow a couple of retries otherwise.
-        if (isApiError(error) && error.status && error.status >= 400 && error.status < 500) {
-          return false;
-        }
-        return failureCount < 2;
+function createQueryClient(): QueryClient {
+  return new QueryClient({
+    defaultOptions: {
+      queries: {
+        staleTime: 30_000,
+        gcTime: 5 * 60_000,
+        refetchOnWindowFocus: false,
+        retry: (failureCount, error) => {
+          // Never retry deterministic 4xx; allow a couple of retries otherwise.
+          if (isApiError(error) && error.status && error.status >= 400 && error.status < 500) {
+            return false;
+          }
+          return failureCount < 2;
+        },
+      },
+      mutations: {
+        retry: false,
       },
     },
-    mutations: {
-      retry: false,
-    },
-  },
-  queryCache: new QueryCache({
-    onError: (error) => {
-      if (isApiError(error) && error.isUnauthorized) {
-        redirectToLogin();
-      }
-    },
-  }),
-  mutationCache: new MutationCache({
-    onError: (error) => {
-      if (isApiError(error) && error.isUnauthorized) {
-        redirectToLogin();
-      }
-    },
-  }),
-});
+    queryCache: new QueryCache({
+      onError: (error) => {
+        if (isApiError(error) && error.isUnauthorized) redirectToLogin();
+      },
+    }),
+    mutationCache: new MutationCache({
+      onError: (error) => {
+        if (isApiError(error) && error.isUnauthorized) redirectToLogin();
+      },
+    }),
+  });
+}
+
+let browserQueryClient: QueryClient | undefined;
+
+/** A fresh cache per SSR request, and one stable cache for the browser tab. */
+export function getQueryClient(): QueryClient {
+  if (typeof window === "undefined") return createQueryClient();
+  return (browserQueryClient ??= createQueryClient());
+}
 
 /**
  * Canonical query-key factory. Every hook keys off these so the event→cache

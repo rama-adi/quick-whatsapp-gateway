@@ -8,7 +8,7 @@ import { useCallback, useState } from "react";
 import { CheckIcon, CopyIcon } from "lucide-react";
 import { Button } from "~/components/ui/button";
 import { Badge } from "~/components/ui/badge";
-import type { SessionStatus } from "~/lib/api/types";
+import type { SessionAction, SessionStatus } from "~/lib/api/types";
 import { QrCode } from "~/routes/-oauth/QrCode";
 import { cn } from "~/lib/utils";
 
@@ -97,6 +97,55 @@ export function SessionStatusBadge({
       {(status ?? "unknown").replace(/_/g, " ")}
     </Badge>
   );
+}
+
+const SESSION_ACTIONS: ReadonlyArray<{
+  action: SessionAction;
+  label: string;
+}> = [
+  { action: "start", label: "Start" },
+  { action: "stop", label: "Stop" },
+  { action: "restart", label: "Restart" },
+  { action: "logout", label: "Log out" },
+];
+
+/** Shared lifecycle controls; logout is the one action that unpairs the device. */
+export function SessionActionButtons({
+  paired,
+  disabled = false,
+  pendingAction,
+  onAction,
+}: {
+  paired: boolean;
+  disabled?: boolean;
+  pendingAction?: SessionAction;
+  onAction: (action: SessionAction) => void;
+}) {
+  const run = (action: SessionAction): void => {
+    if (
+      action === "logout" &&
+      !window.confirm("Log out this session? The WhatsApp device must be paired again.")
+    ) {
+      return;
+    }
+    onAction(action);
+  };
+
+  return SESSION_ACTIONS.map(({ action, label }) => {
+    const unavailable = disabled || Boolean(pendingAction) || (action === "logout" && !paired);
+    return (
+      <Button
+        key={action}
+        size="sm"
+        variant={action === "logout" ? "destructive" : "outline"}
+        disabled={unavailable}
+        title={action === "logout" && !paired ? "No device is paired" : undefined}
+        onClick={() => run(action)}
+      >
+        {pendingAction === action ? `${label}…` : label}
+      </Button>
+    );
+  });
 }
 
 // --- QR image ---------------------------------------------------------------

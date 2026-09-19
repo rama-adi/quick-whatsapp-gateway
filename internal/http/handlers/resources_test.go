@@ -21,7 +21,7 @@ import (
 // ---------------------------------------------------------------------------
 
 // channelRouter mounts the huma channel ops behind a middleware that injects the
-// given principal (nil = unauthenticated), mirroring the assertion middleware.
+// given principal (nil = unauthenticated), mirroring the authentication middleware.
 func channelRouter(svc ChannelSvc, p *authz.Principal) http.Handler {
 	r := chi.NewRouter()
 	r.Use(func(next http.Handler) http.Handler {

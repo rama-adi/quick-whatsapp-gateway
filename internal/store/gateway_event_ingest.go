@@ -25,6 +25,7 @@ type GatewayEvent struct {
 // ingested events whose post-commit consumers have not all accepted them yet.
 type CommittedEventWork struct {
 	Owner      string
+	ClaimedAt  time.Time
 	LeaseUntil time.Time
 	MaxItems   int
 }
@@ -77,7 +78,10 @@ func (r *GatewayEventIngestRepo) IngestBatch(ctx context.Context, events []Gatew
 			`SELECT COUNT(*) FROM gateway_session_assignments a JOIN wa_sessions s ON s.id=a.session_id JOIN gateways g ON g.id=a.gateway_id WHERE a.gateway_id=? AND a.session_id=? AND s.organization_id=? AND a.assignment_epoch=? AND g.connection_epoch=? AND g.deleted_at IS NULL`,
 			event.GatewayID, event.SessionID, event.OrganizationID, event.AssignmentEpoch, event.ConnectionEpoch,
 		).Scan(&n)
-		if err != nil || n != 1 {
+		if err != nil {
+			return fmt.Errorf("store: check gateway event ownership: %w", err)
+		}
+		if n != 1 {
 			return ErrGatewayEventStale
 		}
 		result, err := tx.ExecContext(ctx,
@@ -128,16 +132,21 @@ func (r *GatewayEventIngestRepo) ClaimCommittedEvents(ctx context.Context, work 
 	if work.MaxItems <= 0 {
 		return nil, fmt.Errorf("store: committed event max items must be positive")
 	}
+	if work.ClaimedAt.IsZero() || !work.LeaseUntil.After(work.ClaimedAt) {
+		return nil, fmt.Errorf("store: committed event lease must end after claim time")
+	}
 	tx, commit, rollback, err := r.begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("store: begin claim committed events: %w", err)
 	}
 	defer func() { _ = rollback() }()
 
+	// Eligibility uses the current claim time, not the new lease deadline.
+	// Comparing against the future deadline would steal another worker's live lease.
 	leaseUntilMs := work.LeaseUntil.UnixMilli()
 	rows, err := tx.QueryContext(ctx,
-		`SELECT i.event_log_id, e.type, e.organization_id, e.session_id, e.created_at, e.payload FROM gateway_ingested_events i JOIN event_log e ON e.event_id=i.event_log_id WHERE i.completed_at IS NULL AND (i.lease_until IS NULL OR i.lease_until<?) ORDER BY i.committed_at, i.event_log_id LIMIT ? FOR UPDATE SKIP LOCKED`,
-		leaseUntilMs, work.MaxItems,
+		`SELECT i.event_log_id, e.type, e.organization_id, e.session_id, e.created_at, e.payload FROM gateway_ingested_events i JOIN event_log e ON e.event_id=i.event_log_id WHERE i.completed_at IS NULL AND (i.lease_until IS NULL OR i.lease_until<=?) AND NOT EXISTS (SELECT 1 FROM gateway_ingested_events prior WHERE prior.session_id=i.session_id AND prior.completed_at IS NULL AND prior.lease_until>? AND (prior.committed_at, prior.event_log_id)<(i.committed_at, i.event_log_id)) ORDER BY i.committed_at, i.event_log_id LIMIT ? FOR UPDATE SKIP LOCKED`,
+		work.ClaimedAt.UnixMilli(), work.ClaimedAt.UnixMilli(), work.MaxItems,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("store: select claimable committed events: %w", err)

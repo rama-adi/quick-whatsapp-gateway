@@ -1,7 +1,5 @@
 // Event → query-cache reducer. Translates §9 event envelopes into immutable
 // updates over the TanStack Query cache keyed by qk.* and e.session.
-// FROZEN — owned by the foundation agent. Pure-ish + unit-tested (cacheBridge.test.ts).
-//
 // Also forwards every event to the eventBus (firehose). Unknown event types
 // fall through to the bus only (forward-compatible).
 
@@ -96,7 +94,12 @@ export function applyEvent(qc: QueryClient, e: EventEnvelope): void {
     }
 
     case "auth.code": {
-      if (s) qc.setQueryData(qk.sessionPairing(s), p);
+      if (s) {
+        qc.removeQueries({ queryKey: qk.sessionQR(s), exact: true });
+        qc.removeQueries({ queryKey: qk.sessionPairing(s), exact: true });
+        void qc.invalidateQueries({ queryKey: qk.session(s), exact: true });
+        void qc.invalidateQueries({ queryKey: qk.sessions(), exact: true });
+      }
       break;
     }
 
@@ -104,15 +107,22 @@ export function applyEvent(qc: QueryClient, e: EventEnvelope): void {
     case "message.from_me": {
       const chatJid = str(p.chatJid);
       if (!s || !chatJid) break;
-      const msg = p as unknown as Message;
-      // Prepend to page 0 of the chat's message list (dedup by id).
+      const msg = projectMessage(s, e.event, p);
+      if (!msg) {
+        invalidateChatData(qc, s, chatJid);
+        break;
+      }
+      let inserted = false;
+      let timelineLoaded = false;
       qc.setQueryData<Infinite<Message>>(qk.chatMessages(s, chatJid), (data) => {
         if (!data || data.pages.length === 0) return data;
+        timelineLoaded = true;
         const msgKey = messageKey(msg);
         const exists = data.pages.some((pg) =>
           pg.data.some((m) => messageKey(m) === msgKey),
         );
         if (exists) return data;
+        inserted = true;
         const [first, ...rest] = data.pages;
         if (!first) return data;
         return normalizeMessagePages({
@@ -120,18 +130,28 @@ export function applyEvent(qc: QueryClient, e: EventEnvelope): void {
           pages: [{ ...first, data: [msg, ...first.data] }, ...rest],
         });
       });
-      // Bump the chat's lastMessageAt + unread, then resort chats page 0.
-      bumpChat(qc, s, chatJid, msg, e.event === "message");
+      if (inserted) {
+        bumpChat(qc, s, chatJid, msg, e.event === "message");
+      } else if (!timelineLoaded) {
+        // Without the timeline we cannot distinguish a new event from replay.
+        // Refetch instead of risking a duplicate unread increment.
+        invalidateChatData(qc, s, chatJid);
+      }
       break;
     }
 
     case "message.status": {
-      const messageId = str(p.messageId) ?? str(p.id);
+      const messageIds = Array.isArray(p.messageIds)
+        ? p.messageIds.filter((id): id is string => typeof id === "string" && id.length > 0)
+        : [];
       const status = str(p.status) as Message["status"] | undefined;
-      if (!s || !messageId || !status) break;
-      // The message id is globally unique, so patch across every cached chat.
+      if (!s || messageIds.length === 0 || !status) break;
       const chatKeyRoot = qk.chats(s); // ["sessions", s, "chats"]
-      patchMessageEverywhere(qc, chatKeyRoot, messageId, (m) => ({ ...m, status }));
+      for (const messageId of messageIds) {
+        patchMessageEverywhere(qc, chatKeyRoot, messageId, (m) =>
+          advancesMessageStatus(m.status, status) ? { ...m, status } : m,
+        );
+      }
       break;
     }
 
@@ -139,44 +159,25 @@ export function applyEvent(qc: QueryClient, e: EventEnvelope): void {
     case "message.edited":
     case "message.revoked":
     case "poll.vote": {
-      const s2 = s;
-      const messageId = str(p.messageId) ?? str(p.id);
-      const body = str(p.body);
-      if (!s2 || !messageId) break;
-      patchMessageEverywhere(qc, qk.chats(s2), messageId, (m) =>
-        body !== undefined ? { ...m, body } : m,
-      );
+      const chatJid = str(p.chatJid);
+      if (s && chatJid) invalidateChatData(qc, s, chatJid);
+      else if (s) void qc.invalidateQueries({ queryKey: qk.chats(s) });
       break;
     }
 
     case "chat.update": {
-      const chatJid = str(p.jid) ?? str(p.chatJid);
+      const chatJid = str(p.chatJid);
       if (!s || !chatJid) break;
-      qc.setQueryData<Chat>(qk.chat(s, chatJid), (cur) =>
-        cur ? { ...cur, ...(p as Partial<Chat>) } : cur,
-      );
-      qc.setQueryData<Infinite<Chat>>(qk.chats(s), (data) =>
-        normalizeChatPages(
-          mapPages(
-            data,
-            (items) =>
-              items.map((c) =>
-                chatMatches(c, chatJid) ? { ...c, ...(p as Partial<Chat>) } : c,
-              ),
-          ),
-        ),
-      );
+      // The wire payload describes a picture change, not a REST Chat patch.
+      invalidateChatData(qc, s, chatJid);
       break;
     }
 
     case "contact.update": {
-      const lid = str(p.lid);
-      if (s && lid) {
-        qc.invalidateQueries({ queryKey: qk.contact(s, lid) });
-      }
       if (s) {
-        // Filtered contact lists are keyed by an object filter; invalidate the root.
-        qc.invalidateQueries({ queryKey: ["sessions", s, "contacts"] });
+        // The event identifies a WhatsApp JID while detail routes may be keyed
+        // by a LID alias, so invalidate the full contact subtree.
+        void qc.invalidateQueries({ queryKey: ["sessions", s, "contacts"] });
       }
       break;
     }
@@ -202,6 +203,74 @@ export function applyEvent(qc: QueryClient, e: EventEnvelope): void {
   publishEvent(e);
 }
 
+function projectMessage(
+  sessionId: string,
+  event: "message" | "message.from_me",
+  payload: Record<string, unknown>,
+): Message | null {
+  const waMessageId = str(payload.waMessageId);
+  const chatJid = str(payload.chatJid);
+  const type = str(payload.type);
+  const timestamp = payload.timestamp;
+  if (
+    !waMessageId ||
+    !chatJid ||
+    !type ||
+    typeof timestamp !== "number" ||
+    !Number.isFinite(timestamp)
+  ) {
+    return null;
+  }
+  const fromMe =
+    typeof payload.fromMe === "boolean"
+      ? payload.fromMe
+      : event === "message.from_me";
+  return {
+    id: waMessageId,
+    waMessageId,
+    sessionId,
+    chatJid,
+    direction: fromMe ? "out" : "in",
+    fromMe,
+    type,
+    body: str(payload.body),
+    senderJid: str(payload.senderJid),
+    senderLid: str(payload.senderLid),
+    quotedMessageId: str(payload.quotedMessageId),
+    hasMedia: payload.hasMedia === true,
+    timestamp,
+    createdAt: timestamp,
+    deleted: false,
+    edited: false,
+  };
+}
+
+function invalidateChatData(qc: QueryClient, sessionId: string, chatJid: string): void {
+  void qc.invalidateQueries({ queryKey: qk.chatMessages(sessionId, chatJid), exact: true });
+  void qc.invalidateQueries({ queryKey: qk.chat(sessionId, chatJid), exact: true });
+  void qc.invalidateQueries({ queryKey: qk.chats(sessionId), exact: true });
+}
+
+const MESSAGE_STATUS_ORDER: Readonly<Record<string, number>> = {
+  pending: 0,
+  sent: 1,
+  delivered: 2,
+  read: 3,
+  played: 4,
+  failed: 5,
+};
+
+/** WhatsApp receipts can arrive out of order; projected status only advances. */
+function advancesMessageStatus(
+  current: Message["status"],
+  next: Message["status"],
+): boolean {
+  const currentRank = current ? MESSAGE_STATUS_ORDER[current] : undefined;
+  const nextRank = next ? MESSAGE_STATUS_ORDER[next] : undefined;
+  if (nextRank === undefined) return false;
+  return currentRank === undefined || nextRank >= currentRank;
+}
+
 function bumpChat(
   qc: QueryClient,
   s: string,
@@ -209,12 +278,12 @@ function bumpChat(
   msg: Message,
   incoming: boolean,
 ): void {
-  const ts = typeof msg.timestamp === "number" ? msg.timestamp : Date.now();
+  const ts = msg.timestamp;
   qc.setQueryData<Chat>(qk.chat(s, chatJid), (cur) =>
     cur
       ? {
           ...cur,
-          lastMessageAt: ts,
+          lastMessageAt: Math.max(cur.lastMessageAt ?? 0, ts),
           unreadCount: incoming ? (cur.unreadCount ?? 0) + 1 : cur.unreadCount,
         }
       : cur,
@@ -228,7 +297,7 @@ function bumpChat(
         found = true;
         return {
           ...c,
-          lastMessageAt: ts,
+          lastMessageAt: Math.max(c.lastMessageAt ?? 0, ts),
           unreadCount: incoming ? (c.unreadCount ?? 0) + 1 : c.unreadCount,
         };
       }),
@@ -360,7 +429,9 @@ function patchMessageEverywhere(
     if (!isMessagesKey(key, chatsRoot)) continue;
     qc.setQueryData<Infinite<Message>>(key as readonly unknown[], (data) =>
       mapPages(data, (msgs) =>
-        msgs.map((m) => (m.id === messageId ? patch(m) : m)),
+        msgs.map((m) =>
+          m.id === messageId || m.waMessageId === messageId ? patch(m) : m,
+        ),
       ),
     );
   }

@@ -10,8 +10,8 @@
 //      authorizes the scope and returns a single-use ticket.
 //   2. Open ws(s)://{ROUTER}/api/v1/realtime?ticket=… and pump frames.
 //
-// The frame shapes are unchanged from the previous NDJSON transport
-// (connected/ping/error/data), so the EventStreamProvider above is untouched:
+// The transport classifies connected/ping/error/data messages before they reach
+// the cache bridge:
 //   - opens with {"event":"connected","heartbeatSeconds":N}
 //   - heartbeat {"event":"ping"} (~20s)
 //   - in-band {"event":"error"} signals replay/stream failure
@@ -21,6 +21,7 @@ import { apiUrl, ApiError, fetchJSON } from "../api/client";
 import type { EventEnvelope } from "../api/types";
 import {
   isConnectedFrame,
+  isDataFrame,
   isPingFrame,
   isErrorFrame,
   type StreamFrame,
@@ -79,6 +80,10 @@ export async function openEventStream(o: OpenEventStreamOptions): Promise<void> 
   }
 
   if (o.signal.aborted) return;
+  if (!ticket || typeof ticket.ticket !== "string" || ticket.ticket.length === 0) {
+    o.onError("http");
+    return;
+  }
 
   // 2) Redeem the ticket over the WebSocket. Build the ws(s):// URL from our own
   // API base (not the server-advertised url, which may use an internal hostname).
@@ -117,6 +122,7 @@ export async function openEventStream(o: OpenEventStreamOptions): Promise<void> 
     o.signal.addEventListener("abort", onAbort, { once: true });
 
     socket.onmessage = (ev: MessageEvent): void => {
+      if (settled) return;
       const frame = tryParse(typeof ev.data === "string" ? ev.data : "");
       if (!frame) return;
       if (isConnectedFrame(frame) || isPingFrame(frame)) {
@@ -132,10 +138,17 @@ export async function openEventStream(o: OpenEventStreamOptions): Promise<void> 
         finish("replay_failed");
         return;
       }
-      o.onEvent(frame);
+      // Malformed/unknown JSON must not advance the replay cursor or reach the
+      // cache reducer. A later valid frame or heartbeat keeps the socket alive.
+      if (isDataFrame(frame)) o.onEvent(frame);
     };
 
     socket.onerror = (): void => {
+      try {
+        socket.close();
+      } catch {
+        /* ignore */
+      }
       finish("network");
     };
 

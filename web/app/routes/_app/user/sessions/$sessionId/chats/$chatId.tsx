@@ -403,6 +403,7 @@ function ViewerTimeline() {
                     isLoading={messages.isLoading}
                     isError={messages.isError}
                     error={messages.error}
+                    onRetry={() => void messages.refetch()}
                     hasOlder={canLoadOlder}
                     isFetchingOlder={isFetchingOlder}
                     onLoadOlder={loadOlder}
@@ -484,6 +485,7 @@ function TimelineBody({
   isLoading,
   isError,
   error,
+  onRetry,
   hasOlder,
   isFetchingOlder,
   onLoadOlder,
@@ -495,6 +497,7 @@ function TimelineBody({
   isLoading: boolean;
   isError: boolean;
   error: unknown;
+  onRetry: () => void;
   hasOlder: boolean;
   isFetchingOlder: boolean;
   onLoadOlder: () => void;
@@ -520,6 +523,7 @@ function TimelineBody({
             {isApiError(error) ? error.message : "Something went wrong."}
           </EmptyDescription>
         </EmptyHeader>
+        <Button size="sm" variant="outline" onClick={onRetry}>Retry</Button>
       </Empty>
     );
   }

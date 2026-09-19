@@ -43,7 +43,7 @@ func (f *fakeBackupSvc) ImportStatus(_ context.Context, _, _ string, isSuperAdmi
 }
 
 // backupRouter mounts the huma backup ops behind a principal-injecting middleware,
-// mirroring how the assertion middleware populates the principal in production.
+// mirroring how the authentication middleware populates the principal in production.
 func backupRouter(svc BackupSvc, p *authz.Principal) http.Handler {
 	r := chi.NewRouter()
 	r.Use(func(next http.Handler) http.Handler {

@@ -646,3 +646,50 @@ func waitFor(t *testing.T, predicate func() bool) {
 		time.Sleep(time.Millisecond)
 	}
 }
+
+type assignmentAwareJournal struct {
+	staticEventJournal
+	reset   chan struct{}
+	applied chan uint64
+}
+
+func (j *assignmentAwareJournal) ResetDesiredAssignments() { close(j.reset) }
+func (j *assignmentAwareJournal) SetDesiredAssignments(snapshot *gatewayv1.DesiredStateSnapshot) {
+	j.applied <- snapshot.Revision
+}
+
+func TestJournalOwnershipUpdatesOnlyAfterApplyingSnapshot(t *testing.T) {
+	clock := &fakeClock{now: time.Unix(100, 0)}
+	stream := newFakeStream()
+	stream.recv <- receiveResult{frame: welcome(gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN)}
+	supervisor := testSupervisor(t, clock, &fakeOpener{streams: []*fakeStream{stream}})
+	journal := &assignmentAwareJournal{reset: make(chan struct{}), applied: make(chan uint64, 1)}
+	supervisor.cfg.EventJournal = journal
+	supervisor.cfg.DesiredState = staticDesiredState{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- supervisor.runStream(ctx) }()
+	<-stream.sent // hello
+	<-journal.reset
+	select {
+	case <-journal.applied:
+		t.Fatal("journal inherited ownership before a fresh snapshot")
+	default:
+	}
+	stream.recv <- receiveResult{frame: &gatewayv1.ControlFrame{
+		ProtocolVersion: ProtocolVersion, Sequence: 2,
+		Payload: &gatewayv1.ControlFrame_DesiredStateSnapshot{
+			DesiredStateSnapshot: &gatewayv1.DesiredStateSnapshot{Revision: 1},
+		},
+	}}
+	report := <-stream.sent
+	if report.GetDesiredStateReport() == nil {
+		t.Fatal("snapshot not acknowledged")
+	}
+	if revision := <-journal.applied; revision != 1 {
+		t.Fatalf("journal revision = %d", revision)
+	}
+	cancel()
+	<-done
+}

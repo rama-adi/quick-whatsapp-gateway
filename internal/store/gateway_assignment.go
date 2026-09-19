@@ -139,17 +139,22 @@ func (r *GatewayAssignmentRepo) Assign(ctx context.Context, sessionID, gatewayID
 		return 0, fmt.Errorf("store: begin session assignment: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	epoch, err := assignSession(ctx, tx, sessionID, gatewayID, at)
+	if err != nil {
+		return 0, err
+	}
+	return epoch, tx.Commit()
+}
+
+func assignSession(ctx context.Context, tx *sql.Tx, sessionID, gatewayID string, at int64) (uint64, error) {
 	var existing uint64
-	err = tx.QueryRowContext(ctx,
+	err := tx.QueryRowContext(ctx,
 		`SELECT assignment_epoch FROM gateway_session_assignments WHERE session_id=? FOR UPDATE`,
 		sessionID,
 	).Scan(&existing)
 	switch {
 	case err == nil:
 		// Already assigned: keep the live epoch untouched.
-		if commitErr := tx.Commit(); commitErr != nil {
-			return 0, fmt.Errorf("store: commit unchanged session assignment: %w", commitErr)
-		}
 		return existing, nil
 	case errors.Is(err, sql.ErrNoRows):
 	default:
@@ -177,9 +182,6 @@ func (r *GatewayAssignmentRepo) Assign(ctx context.Context, sessionID, gatewayID
 		at, gatewayID,
 	); err != nil {
 		return 0, fmt.Errorf("store: advance assignment revision: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return 0, fmt.Errorf("store: commit session assignment: %w", err)
 	}
 	return 1, nil
 }

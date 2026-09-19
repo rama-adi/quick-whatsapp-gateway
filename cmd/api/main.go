@@ -44,7 +44,6 @@ import (
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/service/gatewayadmin"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/store"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/stream"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa/outbound"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/webhooks"
 )
 
@@ -223,7 +222,7 @@ func run() error {
 		registry = stream.NewConnRegistry()
 		pump = stream.NewPump(stream.PumpConfig{
 			Redis:     rdb,
-			LogReader: &eventLogReader{repo: st.EventLog},
+			LogReader: service.NewEventLogReaderAdapter(st.EventLog),
 			Log:       log,
 		})
 	}
@@ -350,7 +349,7 @@ func run() error {
 			st.Sessions,
 			st.Outbox,
 			engineClient,
-			outbound.NewRedisRateLimiter(rdb),
+			service.NewRedisRateLimiter(rdb),
 			service.OutboundSchedulerConfig{
 				Lease:       cfg.GatewayEngineSendDeadline + time.Minute,
 				Batch:       32,
@@ -629,26 +628,6 @@ func startWebhookDispatchLoop(ctx context.Context, d *webhooks.Dispatcher, log *
 	return cancel
 }
 
-// eventLogReader adapts *store.EventLogRepo to stream.EventLogReader for the
-// realtime pump's ?since= replay: it resolves the opaque event-id cursor to the
-// store's monotonic id, then pages. Kept here (rather than importing the service
-// graph) so the API binary stays lean.
-type eventLogReader struct{ repo *store.EventLogRepo }
-
-func (a *eventLogReader) ListSince(
-	ctx context.Context,
-	organization, session, afterEventID string,
-	limit int,
-) ([]domain.EventLogEntry, error) {
-	var afterID uint64
-	if afterEventID != "" {
-		if entry, err := a.repo.GetByEventID(ctx, afterEventID); err == nil {
-			afterID = entry.ID
-		}
-	}
-	return a.repo.ListSince(ctx, organization, session, afterID, limit)
-}
-
 // committedEventWorkStore adapts the gateway-event ingest repo to the service
 // worker's durable work port. It stays in the composition root so
 // internal/store keeps no application-layer imports.
@@ -659,7 +638,7 @@ func (a committedEventWorkStore) ClaimCommittedEvents(
 	claim application.CommittedEventClaim,
 ) ([]domain.Event, error) {
 	return a.repo.ClaimCommittedEvents(ctx, store.CommittedEventWork{
-		Owner: claim.Owner, LeaseUntil: claim.LeaseUntil, MaxItems: claim.MaxItems,
+		Owner: claim.Owner, ClaimedAt: claim.ClaimedAt, LeaseUntil: claim.LeaseUntil, MaxItems: claim.MaxItems,
 	})
 }
 

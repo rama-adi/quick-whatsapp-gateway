@@ -5,13 +5,12 @@ description: The router, the gateway, and the frontend — what each owns, how t
 
 This repo holds two codebases: the Go backend at the root and the web frontend
 under `web/`. The Go backend runs as **two processes** — the router and the
-gateway — so at runtime there are three services, sharing one MySQL database and
-one Redis.
+gateway — so at runtime there are three services, with the API and frontend using MySQL and Redis. The gateway uses only local SQLite.
 
 | Service | Location | Stack | What it does |
 |---|---|---|---|
-| **API** | `cmd/api`, `internal/router` | Go | The public API service. It authenticates every caller, finds the gateway that owns the target session, forwards requests, and serves realtime and OpenAPI surfaces. |
-| **Gateway** | `cmd/gateway`, `internal/` | Go, whatsmeow | Holds the live WhatsApp connections and runs the private handlers during the gRPC migration. It never migrates MySQL. |
+| **API** | `cmd/api`, `internal/router` | Go | The public API service. It authenticates every caller, finds the gateway that owns the target session, dispatches private engine commands, and serves realtime and OpenAPI surfaces. |
+| **Gateway** | `cmd/gateway`, `internal/` | Go, whatsmeow | Holds the live WhatsApp connections and serves the private mTLS engine. It never migrates MySQL. |
 | **Frontend** | `web/` | TanStack Start, better-auth | The dashboard plus the identity service: login, registration, 2FA, organizations, and API-key management. Renders the dashboard, viewer, and contacts UI. |
 
 The router and gateway are separate processes so you can run several gateways
@@ -19,76 +18,33 @@ behind one router later; today a single gateway is the norm. Splitting the
 frontend off lets it run on serverless hosting while the Go backend runs close to
 WhatsApp. None of the three need to be co-located.
 
-## How the browser, frontend, router, and gateway connect
+## How requests and events flow
 
-```
-        Authorization: Bearer <JWT | api-key>
-  Browser ──────────────────────────────────►  Router  (public API)
-     │  ▲                                          │  • authenticates the caller (JWKS JWT / api-key)
-     │  │ session cookie                           │  • resolves the gateway that owns the session
-     │  │ mint JWT (/api/auth/token)               │  • mints a request-bound Ed25519 assertion
-     ▼  │                                          ▼
-  Frontend (TanStack Start + better-auth)       Gateway (Go, whatsmeow)  ──ws──► WhatsApp
-     ├─ /api/auth/* (JWKS, token, orgs, keys)      │  • verifies the router's assertion (only)
-     └─ read-only Drizzle reads ──┐                │  keystore → SQLite (gateway-local volume)
-                                   ▼                ▼
-                    MySQL  (auth tables ⇄ WA tables ⇄ gateways registry)
-                                   ▲                │
-   control bus: frontend PUBLISH ctrl:*  └── Redis ─┘  router SUBSCRIBES · work: queue / cache / fan-out
+```text
+Browser -- bearer JWT/API key --> API -- private mTLS engine command --> Gateway --> WhatsApp
+   |                              |                                     |
+   +-- session cookie --> Frontend+-- MySQL + Redis                      +-- SQLite keystore
+                                  ^                                     +-- durable journal
+                                  +---- private mTLS event/control stream ---+
 ```
 
-The browser talks to **one** base URL — the router — attaching a Bearer token.
-The router authenticates the caller and proxies to the owning gateway; the
-browser never addresses a gateway directly. The realtime feed is also on the
-router (a WebSocket, see [Event shape](/docs/guides/event-shape)). The frontend
-server does no gateway proxying. Its only server-side work is:
-
-- the better-auth endpoints under `/api/auth/*`,
-- minting short-lived gateway JWTs, and
-- reading MySQL directly for server-side rendering.
+The API owns public REST/gRPC, MySQL application data, Redis queues, realtime
+WebSockets, and webhooks. The gateway owns live WhatsApp connections, device keys,
+and journaled events/command results. It does not import the API service graph.
+`internal/gateway/waadapter` connects protocol normalization and outbound sends to
+the gateway's local runtime; API projections live in `internal/service`.
 
 ## How a request is trusted
 
-Authentication happens **once, on the router**. The gateway never sees an
-end-user credential — it trusts only a token the router mints per request.
+The API verifies better-auth JWTs against the frontend's cached JWKS, or hashes an
+API key and checks its record in shared MySQL. It then checks capability and
+organization ownership. Neither credential is forwarded to the gateway.
 
-### 1. The router authenticates the caller
-
-The frontend issues identity; the router verifies it. The router caches the JWKS
-(the frontend's public signing keys) and reads the shared database directly, so
-it never calls the frontend during a request. One middleware
-(`internal/authz`) resolves both caller kinds, trying two acceptors in order:
-
-| Caller | Credential | Router verifies by | Resolves to |
-|---|---|---|---|
-| **Human** (browser) | `Authorization: Bearer <JWT>` | JWKS signature + checking `iss` / `aud` / `exp`, all local and cached | user id, active org, org role, platform role |
-| **Machine** (programmatic) | `Bearer <api-key>` or `x-api-key`, prefix `wa_` | SHA-256 hashing the key, then looking up the row in the shared `apikey` table | org id, key id, key permissions (no user) |
-
-If neither acceptor matches, the request is rejected with `401`. The router then
-finds the gateway that owns the target session, checks the caller's organization
-owns it, and proxies on.
-
-### 2. The gateway checks the router's proof
-
-The router strips the end-user credential and attaches a request-bound
-**internal assertion** in the `X-Internal-Assertion` header. This is a single-use
-Ed25519-signed token (`internal/assertion`) that binds the caller's identity and
-capabilities to *this exact request*: it carries the method, path, and a hash of
-the body, an issuer (`iss`) and the target gateway's id (`aud`), a short expiry,
-and a one-time nonce (`jti`).
-
-The gateway holds only the router's **public** key — fetched from the router's
-JWKS endpoint (`ROUTER_JWKS_URL`, default `/.well-known/router-jwks.json`) and
-cached. Its `assertion.Middleware` verifies, in order: the signature, that `aud`
-matches its own `GATEWAY_ID` and `iss` matches `ROUTER_ASSERTION_ISSUER`, the
-expiry, that the method/path/body-hash match the request, and that the `jti` has
-not been seen before (anti-replay). It then rebuilds the same `authz.Principal`
-from the asserted claims and applies its capability gates and org-scoped queries
-**exactly as before** — only the source of the principal changed, not the
-downstream logic.
-
-So the gateway does **no** JWKS or api-key verification anymore, and it mounts no
-CORS — both moved to the router.
+For live operations the API resolves the current gateway assignment and sends a
+private gRPC command. The gateway checks the API's mTLS certificate and current
+connection/assignment epochs. Durable command IDs allow a completed operation's
+result to be replayed instead of repeating the external action. There is no HTTP
+reverse proxy or internal assertion-token layer.
 
 ### Revoking access immediately
 

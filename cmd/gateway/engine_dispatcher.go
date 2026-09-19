@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/domain"
-	"github.com/ramaadi/quick-whatsapp-gateway/internal/service"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/gateway/waadapter"
 	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa/outbound"
 )
 
@@ -14,10 +14,10 @@ import (
 // transport-independent dispatch ports. The API owns validation, idempotency,
 // rate limits, and retries; this is the raw per-session whatsmeow bridge.
 type engineDispatcher struct {
-	client *service.RoutingWAClient
+	client *waadapter.RoutingWAClient
 }
 
-func newEngineDispatcher(client *service.RoutingWAClient) *engineDispatcher {
+func newEngineDispatcher(client *waadapter.RoutingWAClient) *engineDispatcher {
 	return &engineDispatcher{client: client}
 }
 

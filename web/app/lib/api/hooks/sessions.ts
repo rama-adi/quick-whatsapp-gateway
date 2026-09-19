@@ -37,7 +37,8 @@ export function useSession(s: string): UseQueryResult<WASession, ApiError> {
   return useQuery({
     queryKey: qk.session(s),
     enabled: Boolean(s),
-    queryFn: () => fetchJSON<WASession>(apiUrl(`/sessions/${encodeURIComponent(s)}`)),
+    queryFn: ({ signal }) =>
+      fetchJSON<WASession>(apiUrl(`/sessions/${encodeURIComponent(s)}`), { signal }),
   });
 }
 
@@ -45,7 +46,8 @@ export function useSessionMe(s: string): UseQueryResult<SessionMe, ApiError> {
   return useQuery({
     queryKey: qk.sessionMe(s),
     enabled: Boolean(s),
-    queryFn: () => fetchJSON<SessionMe>(apiUrl(`/sessions/${encodeURIComponent(s)}/me`)),
+    queryFn: ({ signal }) =>
+      fetchJSON<SessionMe>(apiUrl(`/sessions/${encodeURIComponent(s)}/me`), { signal }),
   });
 }
 
@@ -57,7 +59,8 @@ export function useSessionQR(
   return useQuery({
     queryKey: qk.sessionQR(s),
     enabled: Boolean(s) && enabled,
-    queryFn: () => fetchJSON<QRCode>(apiUrl(`/sessions/${encodeURIComponent(s)}/qr`)),
+    queryFn: ({ signal }) =>
+      fetchJSON<QRCode>(apiUrl(`/sessions/${encodeURIComponent(s)}/qr`), { signal }),
     staleTime: Infinity, // events keep it fresh; don't auto-refetch
   });
 }

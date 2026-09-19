@@ -15,7 +15,7 @@ import (
 // only when the reconciler still owns its session; the durable journal then
 // replaces the legacy Redis/webhook fan-out until the API commits it.
 type controlEventSink struct {
-	adapter    journal.ControlAdapter
+	adapter    *journal.ControlAdapter
 	assignment func(organizationID, sessionID string) (uint64, bool)
 	log        *slog.Logger
 }

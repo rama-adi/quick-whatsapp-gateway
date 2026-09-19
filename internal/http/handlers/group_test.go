@@ -13,7 +13,7 @@ import (
 )
 
 // groupRouter mounts the huma group ops behind a middleware that injects the given
-// principal (nil = unauthenticated), mirroring the assertion middleware.
+// principal (nil = unauthenticated), mirroring the authentication middleware.
 func groupRouter(svc GroupSvc, p *authz.Principal) http.Handler {
 	r := chi.NewRouter()
 	r.Use(func(next http.Handler) http.Handler {

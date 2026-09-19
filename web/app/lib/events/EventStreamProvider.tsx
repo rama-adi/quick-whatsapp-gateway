@@ -1,4 +1,4 @@
-// Mounts the single NDJSON event-stream connection and drives the cache bridge.
+// Mounts the single realtime WebSocket and drives the cache bridge.
 // Owned by the foundation agent. Mounted once at the app shell, but it stays
 // IDLE until a surface opts in.
 //
@@ -18,6 +18,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { openEventStream, type StreamErrorKind } from "./stream";
 import { applyEvent } from "./cacheBridge";
+import { onTokenRefresh } from "../api/token-provider";
 import {
   EventStreamContext,
   type EventStreamState,
@@ -157,6 +158,19 @@ export function EventStreamProvider({
     attempts.current = 0;
     connect.current();
   }, []);
+
+  // Clearing the cached token means the caller identity or active organization
+  // changed. Replace any socket authorized for the previous identity at once.
+  useEffect(
+    () =>
+      onTokenRefresh((token) => {
+        if (token === null && enabled) {
+          lastEventId.current = null;
+          reconnectNow();
+        }
+      }),
+    [enabled, reconnectNow],
+  );
 
   // Start/stop the connection with `enabled`.
   useEffect(() => {

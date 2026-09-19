@@ -21,13 +21,14 @@ func TestControlEventSinkFencesAndNormalizesEvent(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = j.Close() })
 	sink := controlEventSink{
-		adapter:    journal.ControlAdapter{Journal: j, GatewayID: "gw_1"},
+		adapter:    &journal.ControlAdapter{Journal: j, GatewayID: "gw_1"},
 		assignment: func(org, session string) (uint64, bool) { return 7, org == "org_1" && session == "sess_1" },
 	}
 	event := domain.Event{Schema: domain.Schema, ID: "evt_1", Type: domain.EventMessage, Session: "sess_1", Organization: "org_1", Timestamp: time.Now().UnixMilli(), Payload: map[string]any{"body": "hi"}}
 	if err := sink.Publish(ctx, event); err != nil {
 		t.Fatal(err)
 	}
+	sink.adapter.SetDesiredAssignments(&gatewayv1.DesiredStateSnapshot{Assignments: []*gatewayv1.SessionAssignment{{SessionId: "sess_1", OrganizationId: "org_1", AssignmentEpoch: 7}}})
 	batch, err := sink.adapter.NextEventBatch(ctx, 11)
 	if err != nil || len(batch.Events) != 1 {
 		t.Fatalf("batch = %#v, %v", batch, err)

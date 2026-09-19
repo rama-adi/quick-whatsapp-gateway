@@ -13,8 +13,7 @@ import (
 
 // KeyVerifier verifies a raw api-key and resolves it to a Principal. It is the
 // consumer-defined abstraction the auth middleware depends on (§4.3); the
-// concrete implementation is *APIKeyVerifier (local hash + DB lookup), with
-// *RemoteKeyVerifier as a documented fallback.
+// APIKeyVerifier performs the local hash and database lookup.
 type KeyVerifier interface {
 	// VerifyKey resolves raw to an org-scoped api-key Principal, or an error that
 	// callers map to 401. The principal never carries a UserID (§4.2).
@@ -22,7 +21,7 @@ type KeyVerifier interface {
 }
 
 // Hasher turns a presented raw api-key into the digest stored in better-auth's
-// `apikey.key` column, so the gateway can look the row up without a callback
+// `apikey.key` column, so the API can look the row up without a callback
 // (§4.2). It is an interface so the exact scheme can be swapped if a pinned
 // better-auth version changes it — confirmed by the R5 contract test.
 type Hasher interface {
@@ -39,7 +38,7 @@ type Hasher interface {
 // i.e. `base64Url.encode(SHA-256(utf8(key)), { padding: false })`. Confirmed
 // against better-auth v1.6.x source (packages/api-key/src/index.ts). It is NOT
 // hex and NOT padded base64. If a future pinned version diverges, swap the
-// Hasher (or fall back to RemoteKeyVerifier).
+// Hasher after updating the contract fixtures.
 type betterAuthSHA256Hasher struct{}
 
 // DefaultHasher returns the better-auth default api-key Hasher (SHA-256 →

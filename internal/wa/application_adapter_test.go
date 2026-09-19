@@ -429,7 +429,7 @@ func sendTestAdapter(dispatch sendDispatcher, ledger commandLedger, allows bool)
 	adapter.dispatch = dispatch
 	adapter.ledger = ledger
 	adapter.fence = fakeAssignmentFence{owns: true, allows: allows}
-	adapter.inFlight = map[string]*inFlightSend{}
+	adapter.inFlight = map[string]*commandFlight{}
 	return adapter, live
 }
 
@@ -625,7 +625,7 @@ func lifecycleTestAdapter(controller *fakeController, ledger commandLedger, allo
 	adapter.controller = controller
 	adapter.ledger = ledger
 	adapter.fence = fakeAssignmentFence{owns: true, allows: allows}
-	adapter.inFlight = map[string]*inFlightSend{}
+	adapter.inFlight = map[string]*commandFlight{}
 	return adapter
 }
 

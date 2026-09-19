@@ -40,9 +40,10 @@ export function useContact(
   return useQuery({
     queryKey: qk.contact(s, lid),
     enabled: Boolean(s && lid),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       fetchJSON<ContactDetail>(
         apiUrl(`/sessions/${encodeURIComponent(s)}/contacts/${encodeURIComponent(lid)}`),
+        { signal },
       ),
   });
 }

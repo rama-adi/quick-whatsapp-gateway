@@ -209,6 +209,7 @@ function ViewerChats() {
             isLoading={chats.isLoading}
             isError={chats.isError}
             error={chats.error}
+            onRetry={() => void chats.refetch()}
           />
           {chats.hasNextPage ? (
             <div className="p-2">
@@ -240,6 +241,7 @@ function ChatListBody({
   isLoading,
   isError,
   error,
+  onRetry,
 }: {
   sessionId: string;
   chatId: string | undefined;
@@ -247,6 +249,7 @@ function ChatListBody({
   isLoading: boolean;
   isError: boolean;
   error: unknown;
+  onRetry: () => void;
 }) {
   const queryClient = useQueryClient();
 
@@ -268,9 +271,12 @@ function ChatListBody({
 
   if (isError) {
     return (
-      <p className="p-4 text-sm text-destructive">
-        {isApiError(error) ? error.message : "Failed to load chats."}
-      </p>
+      <div className="space-y-3 p-4 text-sm">
+        <p className="text-destructive">
+          {isApiError(error) ? error.message : "Failed to load chats."}
+        </p>
+        <Button size="sm" variant="outline" onClick={onRetry}>Retry</Button>
+      </div>
     );
   }
 
@@ -426,6 +432,7 @@ function NewChatDialog({ sessionId }: { sessionId: string }) {
               rows={rows}
               isLoading={contacts.isLoading}
               isError={contacts.isError}
+              onRetry={() => void contacts.refetch()}
               onPick={(contact) => {
                 const chatId = contact.lid;
                 qc.setQueryData<Chat>(qk.chat(sessionId, chatId), {
@@ -466,12 +473,14 @@ function NewChatRows({
   rows,
   isLoading,
   isError,
+  onRetry,
   onPick,
 }: {
   sessionId: string;
   rows: Contact[];
   isLoading: boolean;
   isError: boolean;
+  onRetry: () => void;
   onPick: (contact: Contact) => void;
 }) {
   const queryClient = useQueryClient();
@@ -489,7 +498,12 @@ function NewChatRows({
     );
   }
   if (isError) {
-    return <p className="p-3 text-sm text-destructive">Failed to load contacts.</p>;
+    return (
+      <div className="space-y-3 p-3 text-sm">
+        <p className="text-destructive">Failed to load contacts.</p>
+        <Button size="sm" variant="outline" onClick={onRetry}>Retry</Button>
+      </div>
+    );
   }
   if (rows.length === 0) {
     return (

@@ -22,7 +22,7 @@ func readOnlyPrincipal() *authz.Principal {
 }
 
 // chatRouter mounts the huma chat ops behind a middleware that injects the given
-// principal (nil = unauthenticated), mirroring the assertion middleware.
+// principal (nil = unauthenticated), mirroring the authentication middleware.
 func chatRouter(svc ChatSvc, p *authz.Principal) http.Handler {
 	r := chi.NewRouter()
 	r.Use(func(next http.Handler) http.Handler {

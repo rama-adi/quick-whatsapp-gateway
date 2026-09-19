@@ -1,8 +1,9 @@
-package outbound
+package service
 
 import (
 	"context"
 	"fmt"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa/outbound"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -34,11 +35,11 @@ func WithKeyPrefix(prefix string) RedisRateLimiterOption {
 	return func(r *redisRateLimiter) { r.keyPrefix = prefix }
 }
 
-// NewRedisRateLimiter builds a concurrency-safe RateLimiter over the given
-// go-redis client. Calls from multiple gateway processes coordinate through the
+// NewRedisRateLimiter builds a concurrency-safe outbound.RateLimiter over the given
+// go-redis client. Calls from multiple API processes coordinate through the
 // atomic script; the caller's context controls the Redis round trip and Redis
 // errors fail closed rather than admitting an unaccounted send.
-func NewRedisRateLimiter(rdb *redis.Client, opts ...RedisRateLimiterOption) RateLimiter {
+func NewRedisRateLimiter(rdb *redis.Client, opts ...RedisRateLimiterOption) outbound.RateLimiter {
 	r := &redisRateLimiter{rdb: rdb, keyPrefix: "wa:rl"}
 	for _, o := range opts {
 		o(r)

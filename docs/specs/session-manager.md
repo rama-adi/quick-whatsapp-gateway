@@ -98,6 +98,13 @@ The session lifecycle splits across the trust boundary:
   pairing kickoff, and status persistence are API operations executed over the
   same engine RPCs as any other session.
 
+## Pairing recovery
+
+QR timeout marks the session failed, cancels its reconnect loop, releases the expired client,
+and clears the cached QR. A subsequent pairing request creates a fresh flow instead of reusing
+an exhausted QR channel. Stopping a flow and successful QR pairing also clear its cache, and
+QR reads never return a code after its expiry.
+
 ## Desired-state assignment foundation
 
 After authenticated connection, the API emits a complete revisioned assignment snapshot, and emits
@@ -206,3 +213,9 @@ Core types:
 
 Verified: `CGO_ENABLED=0 go build ./internal/wa`, `go test ./internal/wa` (incl.
 `-race`), `go vet ./internal/wa` all pass.
+
+### API lifecycle persistence
+
+Creation and deletion use the store's session lifecycle transactions: the session,
+assignment, and owning gateway revision change together. Live preparation/forget
+remain explicit engine operations outside MySQL; see [`store.md`](store.md).

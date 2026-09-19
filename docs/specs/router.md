@@ -1,4 +1,4 @@
-# API front door (`cmd/api` + `internal/router` + `internal/assertion`)
+# API front door (`cmd/api` + `internal/router`)
 
 Status: implemented (Increment A + Increment B of
 [`../plans/plan-router-impl.md`](../plans/plan-router-impl.md); superseded slices removed by the

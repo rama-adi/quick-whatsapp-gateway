@@ -33,10 +33,20 @@ export function isErrorFrame(f: StreamFrame): f is ErrorFrame {
 }
 
 export function isDataFrame(f: StreamFrame): f is EventEnvelope {
+  const frame = f as EventEnvelope;
   return (
     !isConnectedFrame(f) &&
     !isPingFrame(f) &&
     !isErrorFrame(f) &&
-    typeof (f as EventEnvelope).id === "string"
+    frame.schema === "v1" &&
+    typeof frame.id === "string" &&
+    frame.id.length > 0 &&
+    typeof frame.event === "string" &&
+    typeof frame.session === "string" &&
+    typeof frame.organization === "string" &&
+    typeof frame.timestamp === "number" &&
+    Number.isFinite(frame.timestamp) &&
+    frame.payload !== null &&
+    typeof frame.payload === "object"
   );
 }

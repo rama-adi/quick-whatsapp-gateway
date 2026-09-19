@@ -22,7 +22,7 @@ func quietLogger() *slog.Logger { return slog.New(slog.DiscardHandler) }
 func TestStartAssignedUsesControlConfigWithoutSessionLookup(t *testing.T) {
 	jid := types.NewJID("6281", types.DefaultUserServer)
 	keystore := &fakeKeystore{devices: []*store.Device{{ID: &jid}}}
-	manager := NewManager(keystore, nil, nil, nil, nil, nil, Config{})
+	manager := NewManager(keystore, nil, nil, nil, nil, Config{})
 	manager.SetClientFactory(func(*store.Device) waClient { return &fakeClient{} })
 	assignment := desiredstate.Assignment{SessionID: "session", OrganizationID: "org", DeviceJID: jid.String(), AssignmentEpoch: 1, LeaseExpiresAt: time.Now().Add(time.Minute), DesiredRun: true, Config: desiredstate.Config{Revision: 4, AutoRead: true, PresenceTyping: true, RatePerMin: 12, RatePerHour: 34}}
 	if err := manager.StartAssigned(context.Background(), assignment); err != nil {
@@ -31,19 +31,6 @@ func TestStartAssignedUsesControlConfigWithoutSessionLookup(t *testing.T) {
 	config, ok := manager.AssignedConfig("session")
 	if !ok || config != assignment.Config {
 		t.Fatalf("assigned config = %#v, %v", config, ok)
-	}
-}
-
-// TestManagerTakesNoSessionRepository pins the MySQL cutover: the gateway
-// manager must not hold a session repository — wa_sessions is API-owned.
-func TestManagerTakesNoSessionRepository(t *testing.T) {
-	keystore := &fakeKeystore{}
-	m := NewManager(keystore, nil, nil, nil, nil, quietLogger(), Config{})
-	m.mu.RLock()
-	_, hasSessions := m.sessions["probe"]
-	m.mu.RUnlock()
-	if hasSessions {
-		t.Fatal("manager registry unexpectedly contains a probe session")
 	}
 }
 
@@ -441,16 +428,6 @@ func TestStop_UnknownSession(t *testing.T) {
 	}
 }
 
-// StartAssignedBoot is the assignment-driven boot: it always succeeds without
-// touching any store, because reconciliation already materialized sessions.
-func TestStartAssignedBootIsStoreFree(t *testing.T) {
-	m, _, _, _ := newTestManagerParts(t, Config{})
-	code, err := m.StartAssignedBoot(context.Background())
-	if err != nil || code != "" {
-		t.Fatalf("assignment-driven boot returned (%q, %v)", code, err)
-	}
-}
-
 // newTestManager wires a manager over fakes with a controllable client factory.
 // There is no session repository any more — the gateway owns no rows.
 func newTestManager(t *testing.T, cfg Config) (*Manager, *fakeSink) {
@@ -465,7 +442,43 @@ func newTestManagerParts(t *testing.T, cfg Config) (*Manager, *fakeSink, *fakeIn
 	sink := &fakeSink{}
 	inboundFake := &fakeInbound{}
 	fc := &fakeClient{}
-	m := NewManager(ks, nil, sink, inboundFake, fixedClock{ms: 1000}, quietLogger(), cfg)
+	m := NewManager(ks, sink, inboundFake, fixedClock{ms: 1000}, quietLogger(), cfg)
 	m.SetClientFactory(func(*store.Device) waClient { return fc })
 	return m, sink, inboundFake, fc
+}
+
+func TestQRTimeoutReleasesRuntimeAndCachedCode(t *testing.T) {
+	client := &fakeClient{}
+	manager := NewManager(&fakeKeystore{}, &fakeSink{}, nil, nil, quietLogger(), Config{})
+	manager.EnsureDevice("session", "org")
+	ms := manager.Get("session")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ms.client, ms.cancel, ms.reconnect = client, cancel, true
+	ms.lastQR, ms.lastQRExpires = "expired-code", time.Now().Add(time.Minute).UnixMilli()
+	items := make(chan whatsmeow.QRChannelItem, 1)
+	items <- whatsmeow.QRChannelItem{Event: "timeout"}
+	manager.pumpQR(ctx, ms, items)
+	if ms.client != nil || ms.reconnect || ms.lastQR != "" || ms.lastQRExpires != 0 {
+		t.Fatal("timed-out pairing retained its client, reconnect loop, or QR code")
+	}
+	if ms.Status() != domain.SessionFailed || ctx.Err() == nil {
+		t.Fatal("timeout did not fail the session and cancel its loop")
+	}
+	// A new request must attempt a fresh client, rather than reporting an
+	// idempotent success for the timed-out client (the fake rejects QR setup).
+	manager.SetClientFactory(func(*store.Device) waClient { return &fakeClient{} })
+	if err := manager.StartQR(context.Background(), "session"); err == nil {
+		t.Fatal("pairing retry did not attempt a fresh QR channel")
+	}
+}
+
+func TestManagerLatestQRDoesNotReturnExpiredCode(t *testing.T) {
+	manager := NewManager(&fakeKeystore{}, nil, nil, nil, quietLogger(), Config{})
+	manager.EnsureDevice("session", "org")
+	ms := manager.Get("session")
+	ms.lastQR, ms.lastQRExpires = "old-code", time.Now().Add(-time.Second).UnixMilli()
+	if code, expiry := manager.LatestQR("session"); code != "" || expiry != 0 {
+		t.Fatalf("expired QR = %q, %d", code, expiry)
+	}
 }

@@ -27,11 +27,10 @@ import {
   CopyButton,
   formatTimestamp,
   QrImage,
+  SessionActionButtons,
   SessionStatusBadge,
 } from "./user-ui";
 import { BackupImportCard } from "./backup-import-card";
-
-const LIFECYCLE: SessionAction[] = ["start", "stop", "restart", "logout"];
 
 export function SessionOverview({ sessionId }: { sessionId: string }) {
   const poll = usePollingInterval();
@@ -100,7 +99,11 @@ export function SessionOverview({ sessionId }: { sessionId: string }) {
 
   return (
     <div className="space-y-4">
-      <SessionHeader session={s} pending={lifecycle.isPending} onAction={run} />
+      <SessionHeader
+        session={s}
+        pendingAction={lifecycle.variables?.action}
+        onAction={run}
+      />
 
       <div className="grid gap-4 md:grid-cols-2">
         <IdentityCard session={s} me={me} />
@@ -117,11 +120,11 @@ export function SessionOverview({ sessionId }: { sessionId: string }) {
 
 function SessionHeader({
   session,
-  pending,
+  pendingAction,
   onAction,
 }: {
   session: WASession;
-  pending: boolean;
+  pendingAction?: SessionAction;
   onAction: (action: SessionAction) => void;
 }) {
   return (
@@ -136,17 +139,11 @@ function SessionHeader({
         <SessionStatusBadge status={session.status} />
       </CardHeader>
       <CardContent className="flex flex-wrap gap-2">
-        {LIFECYCLE.map((action) => (
-          <Button
-            key={action}
-            size="sm"
-            variant="outline"
-            disabled={pending}
-            onClick={() => onAction(action)}
-          >
-            {action}
-          </Button>
-        ))}
+        <SessionActionButtons
+          paired={Boolean(session.waJid)}
+          pendingAction={pendingAction}
+          onAction={onAction}
+        />
       </CardContent>
     </Card>
   );

@@ -4,7 +4,9 @@
 // the sign-out flow ported from the old shell/UserMenu.tsx (clears the query
 // cache, then navigates to /login).
 
+import { useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Avatar,
   AvatarFallback,
@@ -26,12 +28,15 @@ import {
 } from "~/components/ui/sidebar";
 import { BookOpen, EllipsisVerticalIcon, LogOut } from "lucide-react";
 import { signOut } from "~/lib/auth/client";
-import { queryClient } from "~/lib/query";
+import { clearGatewayToken } from "~/lib/api/token-provider";
 import type { AppSession } from "~/lib/auth/session";
+import { toast } from "sonner";
 
 export function NavUser({ session }: { session: AppSession }) {
   const { isMobile } = useSidebar();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [signingOut, setSigningOut] = useState(false);
 
   const email = session.user.email || "Account";
   const roles = session.user.roles.join(", ") || "user";
@@ -40,11 +45,21 @@ export function NavUser({ session }: { session: AppSession }) {
     .toUpperCase();
 
   const onSignOut = async (): Promise<void> => {
+    if (signingOut) return;
+    setSigningOut(true);
     try {
-      await signOut();
-    } finally {
+      const { error } = await signOut();
+      if (error) {
+        toast.error(error.message ?? "Could not sign out");
+        return;
+      }
+      clearGatewayToken();
       queryClient.clear();
       void navigate({ to: "/login", replace: true });
+    } catch {
+      toast.error("Could not sign out");
+    } finally {
+      setSigningOut(false);
     }
   };
 
@@ -93,9 +108,12 @@ export function NavUser({ session }: { session: AppSession }) {
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={() => void onSignOut()}>
+            <DropdownMenuItem
+              disabled={signingOut}
+              onSelect={() => void onSignOut()}
+            >
               <LogOut className="mr-2 size-4" />
-              Sign out
+              {signingOut ? "Signing out…" : "Sign out"}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

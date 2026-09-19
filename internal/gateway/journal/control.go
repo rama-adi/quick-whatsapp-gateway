@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	gatewayv1 "github.com/ramaadi/quick-whatsapp-gateway/gen/gateway/v1"
@@ -20,15 +21,61 @@ var ErrControlEventTooLarge = errors.New("gateway journal event exceeds control 
 type ControlAdapter struct {
 	Journal   *Journal
 	GatewayID string
+
+	mu          sync.RWMutex
+	assignments map[string]eventAssignment
+	revision    uint64
 }
 
-func (a ControlAdapter) Batch(
+type eventAssignment struct {
+	organization string
+	epoch        uint64
+}
+
+// ResetDesiredAssignments pauses replay until this connection receives an
+// authoritative complete snapshot. A reconnect must not reuse stale ownership.
+func (a *ControlAdapter) ResetDesiredAssignments() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.assignments = nil
+}
+
+// SetDesiredAssignments records only successfully applied control-plane state.
+// STOP assignments still own their terminal events; omission or a new epoch is
+// the authority to retire queued events that the API can no longer accept.
+func (a *ControlAdapter) SetDesiredAssignments(snapshot *gatewayv1.DesiredStateSnapshot) {
+	assignments := make(map[string]eventAssignment, len(snapshot.Assignments))
+	for _, item := range snapshot.Assignments {
+		assignments[item.SessionId] = eventAssignment{organization: item.OrganizationId, epoch: item.AssignmentEpoch}
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if snapshot.Revision < a.revision {
+		return // delayed snapshots cannot retire events for a newer assignment
+	}
+	a.revision = snapshot.Revision
+	a.assignments = assignments
+}
+
+func (a *ControlAdapter) Batch(
 	ctx context.Context,
 	maxEntries int,
 	maxBytes int64,
 	gatewayID string,
 	connectionEpoch uint64,
 	metadata func([]byte) (*gatewayv1.GatewayEvent, error),
+) (*gatewayv1.GatewayEventBatch, error) {
+	return a.batch(ctx, maxEntries, maxBytes, gatewayID, connectionEpoch, metadata, nil)
+}
+
+func (a *ControlAdapter) batch(
+	ctx context.Context,
+	maxEntries int,
+	maxBytes int64,
+	gatewayID string,
+	connectionEpoch uint64,
+	metadata func([]byte) (*gatewayv1.GatewayEvent, error),
+	assignments map[string]eventAssignment,
 ) (*gatewayv1.GatewayEventBatch, error) {
 	entries, err := a.Journal.ReadUnacked(ctx, maxEntries, maxBytes)
 	if err != nil {
@@ -39,6 +86,12 @@ func (a ControlAdapter) Batch(
 		event, decodeErr := metadata(entry.Payload)
 		if decodeErr != nil {
 			return nil, decodeErr
+		}
+		if assignments != nil {
+			assignment, owned := assignments[event.SessionId]
+			if !owned || assignment.organization != event.OrganizationId || assignment.epoch != event.AssignmentEpoch {
+				continue
+			}
 		}
 		event.JournalSequence = entry.Seq
 		event.EventId = entry.EventID
@@ -53,19 +106,33 @@ func (a ControlAdapter) Batch(
 			break
 		}
 	}
+	// A normal API ACK removes skipped entries preceding the last sent event.
+	// When every entry is retired, advance locally under snapshot authority so
+	// deleted sessions cannot permanently block later journal entries.
+	if len(batch.Events) == 0 && len(entries) > 0 && assignments != nil {
+		if err := a.Journal.Ack(ctx, entries[len(entries)-1].Seq); err != nil {
+			return nil, err
+		}
+	}
 	return batch, nil
 }
 
-func (a ControlAdapter) Ack(ctx context.Context, sequence uint64) error {
+func (a *ControlAdapter) Ack(ctx context.Context, sequence uint64) error {
 	return a.Journal.Ack(ctx, sequence)
 }
 
-func (a ControlAdapter) AckEvents(ctx context.Context, sequence uint64) error {
+func (a *ControlAdapter) AckEvents(ctx context.Context, sequence uint64) error {
 	return a.Ack(ctx, sequence)
 }
 
-func (a ControlAdapter) NextEventBatch(ctx context.Context, epoch uint64) (*gatewayv1.GatewayEventBatch, error) {
-	return a.Batch(ctx, DefaultBatchEntries, DefaultBatchBytes, a.GatewayID, epoch, decodeJournalEvent)
+func (a *ControlAdapter) NextEventBatch(ctx context.Context, epoch uint64) (*gatewayv1.GatewayEventBatch, error) {
+	a.mu.RLock()
+	assignments := a.assignments
+	a.mu.RUnlock()
+	if assignments == nil {
+		return &gatewayv1.GatewayEventBatch{}, nil
+	}
+	return a.batch(ctx, DefaultBatchEntries, DefaultBatchBytes, a.GatewayID, epoch, decodeJournalEvent, assignments)
 }
 
 // decodeJournalEvent converts one stored journal payload into the private
@@ -75,7 +142,9 @@ func decodeJournalEvent(payload []byte) (*gatewayv1.GatewayEvent, error) {
 	if err := json.Unmarshal(payload, &persisted); err != nil {
 		return nil, fmt.Errorf("decode journal event: %w", err)
 	}
-	missingMetadata := persisted.Event.ID == "" || persisted.AssignmentEpoch == 0
+	missingIdentity := persisted.Event.ID == "" || persisted.AssignmentEpoch == 0
+	missingOwnership := persisted.Event.Session == "" || persisted.Event.Organization == ""
+	missingMetadata := missingIdentity || missingOwnership
 	if missingMetadata {
 		return nil, errors.New("journal event is missing canonical assignment metadata")
 	}
@@ -116,7 +185,7 @@ type persistedEvent struct {
 // AppendDomainEvent durably records a normalized event only while its current
 // desired-state assignment is live. The stored JSON is converted to a protobuf
 // Struct at the private control boundary.
-func (a ControlAdapter) AppendDomainEvent(
+func (a *ControlAdapter) AppendDomainEvent(
 	ctx context.Context,
 	event domain.Event,
 	assignmentEpoch uint64,
@@ -136,6 +205,6 @@ type EventPayload struct {
 	OccurredAt time.Time
 }
 
-func (a ControlAdapter) Append(ctx context.Context, event EventPayload) (Entry, bool, error) {
+func (a *ControlAdapter) Append(ctx context.Context, event EventPayload) (Entry, bool, error) {
 	return a.Journal.Append(ctx, event.EventID, event.Payload, event.OccurredAt)
 }

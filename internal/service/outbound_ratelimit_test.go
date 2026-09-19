@@ -1,7 +1,8 @@
-package outbound
+package service
 
 import (
 	"context"
+	"github.com/ramaadi/quick-whatsapp-gateway/internal/wa/outbound"
 	"testing"
 	"time"
 
@@ -12,7 +13,7 @@ import (
 
 // newTestLimiter spins up an in-memory Redis and returns a limiter plus the
 // miniredis handle (for fast-forwarding time) and a cleanup.
-func newTestLimiter(t *testing.T) (RateLimiter, *miniredis.Miniredis) {
+func newTestLimiter(t *testing.T) (outbound.RateLimiter, *miniredis.Miniredis) {
 	t.Helper()
 	mr := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})

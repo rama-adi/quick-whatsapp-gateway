@@ -49,6 +49,13 @@ type EventJournal interface {
 	AckEvents(context.Context, uint64) error
 }
 
+// AssignmentJournal needs a fresh complete snapshot before replay and uses
+// that authority to retire events belonging to removed assignment generations.
+type AssignmentJournal interface {
+	ResetDesiredAssignments()
+	SetDesiredAssignments(*gatewayv1.DesiredStateSnapshot)
+}
+
 // JournalPressure is one observation of local event-journal backpressure for
 // heartbeat telemetry. It mirrors the journal's capacity states without making
 // the supervisor import the journal package.
@@ -625,6 +632,9 @@ func (s *Supervisor) openSession(
 	cancel context.CancelFunc,
 	stream Stream,
 ) (*controlStream, error) {
+	if journal, ok := s.cfg.EventJournal.(AssignmentJournal); ok {
+		journal.ResetDesiredAssignments()
+	}
 	runtime := s.cfg.Runtime.Snapshot()
 	if !validRuntimeState(runtime.State) {
 		return nil, fmt.Errorf("%w: invalid runtime state", ErrProtocol)
@@ -804,6 +814,9 @@ func (l *controlStream) applyDesiredState(snapshot *gatewayv1.DesiredStateSnapsh
 		report.ProcessedRevision == snapshot.Revision
 	if !reportValid {
 		return fmt.Errorf("%w: invalid desired-state report", ErrProtocol)
+	}
+	if journal, ok := l.sup.cfg.EventJournal.(AssignmentJournal); ok {
+		journal.SetDesiredAssignments(snapshot)
 	}
 	ack := &gatewayv1.GatewayFrame{
 		ProtocolVersion: ProtocolVersion,

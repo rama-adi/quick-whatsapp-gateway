@@ -326,8 +326,8 @@ session: the router returns the new **`gateway_unavailable` (HTTP 503)** domain 
 hanging. After running the migration, `cd web && pnpm db:introspect` refreshes the read-only WA
 Drizzle models.
 
-Both gateway and router open the shared MySQL database through the common pool
-configuration and expose the standard process-local `database/sql` collector.
+The API opens the shared MySQL database through the common pool
+configuration and exposes the standard process-local `database/sql` collector.
 On a `503`, the canonical request event snapshots max/open/in-use/idle
 connections plus cumulative wait count/duration. This distinguishes immediate
 request cancellation from pool exhaustion without logging the DSN, SQL text, or
@@ -400,7 +400,8 @@ read queries can compile without making the API a writer or migration owner for 
   `webhook_deliveries`. It intentionally preserves `pending` and retryable
   `failed` delivery rows regardless of age because their payload, attempts, and
   retry time remain operational state, and retains their referenced event-log
-  rows until those deliveries are terminal. Event-log retention otherwise bounds
+  rows until those deliveries are terminal. Incomplete `gateway_ingested_events`
+  also retain their event-log payloads, regardless of age. Event-log retention otherwise bounds
   stream replay: a `since` cursor that is older than the retained history
   replays from the oldest remaining event.
 - **Timestamps** are caller-supplied epoch-ms `int64` (`domain.NowMs()`) — repos never call the
@@ -486,3 +487,20 @@ read queries can compile without making the API a writer or migration owner for 
 `go-sqlmock` (regexp matcher) drives every repo — generated SQL execution, arg binding, row mapping
 into `domain` (incl. `*T` nullables + typed JSON), cursor pagination, and `ErrNoRows`/zero-rows →
 `not_found` mapping. `CGO_ENABLED=0 go test ./internal/store/...`.
+
+## Session lifecycle transaction boundary
+
+`GatewayAssignmentRepo.CreateSession` commits the session row, epoch-1 assignment,
+and gateway revision together. A failed assignment cannot leave an unusable session.
+The API performs live preparation only after that commit, so preparation failure
+leaves an assigned session that can be retried.
+
+`GatewayAssignmentRepo.DeleteSession` removes session event-work records and the
+session in one transaction, retaining event-log bodies for webhook delivery and
+normal retention. The session FK cascades its assignment; the same transaction
+advances the previously owning gateway's revision so the removal is streamed.
+Deleting the row first and trying to unassign afterward is invalid: the event
+ledger restricts deletion, and the assignment would already have cascaded away.
+
+Pairing projections keep the full device JID but derive the phone from its user
+part; a `:device` suffix is never stored as part of the phone number.

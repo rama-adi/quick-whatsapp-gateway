@@ -91,6 +91,18 @@ describe("applyEvent", () => {
     expect(qc.getQueryData(qk.sessionQR(SESSION))).toEqual({ code: "2@abc" });
   });
 
+  it("auth.code clears pairing artifacts and refreshes attached identity", () => {
+    qc.setQueryData(qk.sessionQR(SESSION), { code: "stale" });
+    qc.setQueryData(qk.sessionPairing(SESSION), { code: "1234" });
+    qc.setQueryData(qk.session(SESSION), { id: SESSION });
+
+    applyEvent(qc, evt("auth.code", { jid: "6281@s.whatsapp.net", lid: "x@lid" }));
+
+    expect(qc.getQueryData(qk.sessionQR(SESSION))).toBeUndefined();
+    expect(qc.getQueryData(qk.sessionPairing(SESSION))).toBeUndefined();
+    expect(qc.getQueryState(qk.session(SESSION))?.isInvalidated).toBe(true);
+  });
+
   it("message prepends to page 0 and bumps the chat", () => {
     const chatJid = "123@s.whatsapp.net";
     qc.setQueryData(qk.chatMessages(SESSION, chatJid), infinite<Message>([]));
@@ -110,9 +122,9 @@ describe("applyEvent", () => {
     applyEvent(
       qc,
       evt("message", {
-        id: "m1",
+        waMessageId: "m1",
         chatJid,
-        direction: "in",
+        fromMe: false,
         type: "text",
         body: "hi",
         status: "delivered",
@@ -131,10 +143,19 @@ describe("applyEvent", () => {
   it("message is idempotent (no duplicate on replay)", () => {
     const chatJid = "123@s.whatsapp.net";
     qc.setQueryData(qk.chatMessages(SESSION, chatJid), infinite<Message>([]));
+    qc.setQueryData<Chat>(qk.chat(SESSION, chatJid), {
+      id: 1,
+      sessionId: SESSION,
+      jid: chatJid,
+      type: "dm",
+      unreadCount: 0,
+      archived: false,
+      pinned: false,
+    });
     const e = evt("message", {
-      id: "m1",
+      waMessageId: "m1",
       chatJid,
-      direction: "in",
+      fromMe: false,
       type: "text",
       body: "hi",
       timestamp: 2000,
@@ -145,6 +166,7 @@ describe("applyEvent", () => {
       qk.chatMessages(SESSION, chatJid),
     );
     expect(msgs?.pages[0]?.data).toHaveLength(1);
+    expect(qc.getQueryData<Chat>(qk.chat(SESSION, chatJid))?.unreadCount).toBe(1);
   });
 
   it("message creates a cached chat row when the inbox is already loaded", () => {
@@ -155,9 +177,9 @@ describe("applyEvent", () => {
     applyEvent(
       qc,
       evt("message.from_me", {
-        id: "m1",
+        waMessageId: "m1",
         chatJid,
-        direction: "out",
+        fromMe: true,
         type: "text",
         body: "hi",
         timestamp: 2000,
@@ -263,6 +285,32 @@ describe("applyEvent", () => {
     expect(msgs?.pages[0]?.data[0]?.id).toBe("tmp_1");
   });
 
+  it("does not regress message status on a reordered receipt", () => {
+    const chatJid = "123@s.whatsapp.net";
+    qc.setQueryData(
+      qk.chatMessages(SESSION, chatJid),
+      infinite<Message>([
+        {
+          id: "m1",
+          sessionId: SESSION,
+          chatJid,
+          direction: "out",
+          type: "text",
+          body: "hi",
+          status: "read",
+          timestamp: 1000,
+        } as Message,
+      ]),
+    );
+
+    applyEvent(qc, evt("message.status", { messageIds: ["m1"], status: "delivered" }));
+
+    const messages = qc.getQueryData<InfiniteData<Page<Message>>>(
+      qk.chatMessages(SESSION, chatJid),
+    );
+    expect(messages?.pages[0]?.data[0]?.status).toBe("read");
+  });
+
   it("message.status patches by messageId across chats (reconciles optimistic)", () => {
     const chatJid = "123@s.whatsapp.net";
     const m: Message = {
@@ -283,12 +331,77 @@ describe("applyEvent", () => {
     };
     qc.setQueryData(qk.chatMessages(SESSION, chatJid), infinite([m]));
 
-    applyEvent(qc, evt("message.status", { messageId: "m1", status: "read" }));
+    applyEvent(qc, evt("message.status", { messageIds: ["m1"], status: "read" }));
 
     const msgs = qc.getQueryData<InfiniteData<Page<Message>>>(
       qk.chatMessages(SESSION, chatJid),
     );
     expect(msgs?.pages[0]?.data[0]?.status).toBe("read");
+  });
+
+  it("does not regress chat activity for an older message event", () => {
+    const chatJid = "123@s.whatsapp.net";
+    const chat: Chat = {
+      id: 1,
+      sessionId: SESSION,
+      jid: chatJid,
+      type: "dm",
+      unreadCount: 2,
+      lastMessageAt: 3000,
+      archived: false,
+      pinned: false,
+    };
+    qc.setQueryData(qk.chat(SESSION, chatJid), chat);
+    qc.setQueryData(qk.chats(SESSION), infinite([chat]));
+    qc.setQueryData(qk.chatMessages(SESSION, chatJid), infinite<Message>([]));
+
+    applyEvent(
+      qc,
+      evt("message", {
+        waMessageId: "older",
+        chatJid,
+        fromMe: false,
+        type: "text",
+        timestamp: 2000,
+      }),
+    );
+
+    expect(qc.getQueryData<Chat>(qk.chat(SESSION, chatJid))).toMatchObject({
+      lastMessageAt: 3000,
+      unreadCount: 3,
+    });
+  });
+
+  it("invalidates instead of fabricating a message from a partial payload", () => {
+    const chatJid = "123@s.whatsapp.net";
+    qc.setQueryData(qk.chatMessages(SESSION, chatJid), infinite<Message>([]));
+
+    applyEvent(qc, evt("message", { chatJid, type: "text", timestamp: 2000 }));
+
+    expect(qc.getQueryState(qk.chatMessages(SESSION, chatJid))?.isInvalidated).toBe(true);
+    expect(
+      qc.getQueryData<InfiniteData<Page<Message>>>(qk.chatMessages(SESSION, chatJid))
+        ?.pages[0]?.data,
+    ).toEqual([]);
+  });
+
+  it("invalidates the target timeline for edited wire payloads", () => {
+    const chatJid = "123@s.whatsapp.net";
+    qc.setQueryData(qk.chatMessages(SESSION, chatJid), infinite<Message>([]));
+
+    applyEvent(
+      qc,
+      evt("message.edited", {
+        waMessageId: "edit-event",
+        targetId: "original-message",
+        chatJid,
+        type: "edit",
+        body: "changed",
+        timestamp: 2000,
+      }),
+    );
+
+    expect(qc.getQueryState(qk.chatMessages(SESSION, chatJid))?.isInvalidated).toBe(true);
   });
 
   it("presence.update caches typing state by chatJid", () => {

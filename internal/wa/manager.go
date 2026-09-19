@@ -23,8 +23,7 @@ import (
 
 // Config holds the manager's tunables, populated from ENV by the composition root.
 type Config struct {
-	// GatewayID is this gateway's id (GATEWAY_ID). Sessions this gateway adopts on
-	// boot are pinned to it (§4.5). Empty leaves the row's gateway_id untouched.
+	// GatewayID identifies this engine and supplies the default linked-device name.
 	GatewayID string
 	// DeviceName is the OS/app label shown in WhatsApp's Linked devices list for
 	// newly paired companion devices.
@@ -35,11 +34,6 @@ type Config struct {
 	// PresenceTimeout bounds the detached online-presence announcement. Zero uses
 	// 10 seconds.
 	PresenceTimeout time.Duration
-	// DefaultRatePerMin / DefaultRatePerHour seed new sessions' rate limits.
-	DefaultRatePerMin  int
-	DefaultRatePerHour int
-	// DefaultAutoRead seeds new sessions' auto_read flag.
-	DefaultAutoRead bool
 	// Backoff overrides the reconnect schedule; the zero value uses defaultBackoff.
 	Backoff backoffConfig
 }
@@ -59,10 +53,8 @@ type clientFactory func(device *store.Device) waClient
 // Lifecycle mutations serialize access to that index with mu, while each
 // ManagedSession separately protects status, QR data, retry counters, and its
 // cancellation handle. Event callbacks may therefore arrive concurrently with
-// Stop or Logout without transferring reconnect ownership to a second goroutine.
-// Repository and event-sink failures are handled at their documented boundaries:
-// state transitions attempt durable persistence before notification, and boot
-// reconciliation logs and skips one broken device rather than aborting all peers.
+// Stop or Logout. Runtime ownership is checked by the desired-state reconciler;
+// event persistence and API projections are handled outside this manager.
 type Manager struct {
 	keystore Keystore
 	sink     EventSink
@@ -85,14 +77,12 @@ type Manager struct {
 // rows — the API does. log/clock may be nil (sensible defaults are used).
 func NewManager(
 	keystore Keystore,
-	repo SessionRepo,
 	sink EventSink,
 	inbound InboundHandler,
 	clock Clock,
 	log *slog.Logger,
 	cfg Config,
 ) *Manager {
-	_ = repo // deprecated parameter; session persistence is API-owned
 	if clock == nil {
 		clock = realClock{}
 	}
@@ -241,27 +231,6 @@ func (m *Manager) StopAssigned(ctx context.Context, sessionID string) error {
 }
 
 // ----------------------------------------------------------------------------
-// Boot
-// ----------------------------------------------------------------------------
-
-// StartAssignedBoot materializes a runtime for every currently-owned
-// assignment that desires RUN — the control-mode replacement for the legacy
-// MySQL-reading Boot. It never touches wa_sessions or organizations: ownership,
-// config, and device mapping all come from desired-state reconciliation, which
-// has already called StartAssigned per assignment. The return value exists for
-// interface stability with the legacy pairing-code bootstrap and is always "".
-func (m *Manager) StartAssignedBoot(ctx context.Context) (string, error) {
-	return "", nil
-}
-
-// shouldResume reports whether a session in the given persisted status should be
-// reconnected on boot. STOPPED / LOGGED_OUT / FAILED stay down until the admin
-// acts; everything that was live (or mid-startup) resumes.
-func shouldResume(status domain.SessionStatus) {
-	_ = status
-}
-
-// ----------------------------------------------------------------------------
 // Public lifecycle: Start / Stop / Restart / Logout
 // ----------------------------------------------------------------------------
 
@@ -356,7 +325,11 @@ func (m *Manager) LatestQR(id string) (code string, expiresAt int64) {
 	if ms == nil {
 		return "", 0
 	}
-	return ms.LatestQR()
+	code, expiresAt = ms.LatestQR()
+	if expiresAt <= m.clock.NowMs() {
+		return "", 0
+	}
+	return code, expiresAt
 }
 
 // Start connects a paired session and begins the reconnect loop. For an
@@ -559,6 +532,8 @@ func (m *Manager) teardown(ms *ManagedSession) {
 	client := ms.client
 	ms.client = nil
 	ms.attempt = 0
+	ms.lastQR = ""
+	ms.lastQRExpires = 0
 	ms.mu.Unlock()
 
 	if client != nil {
@@ -643,11 +618,17 @@ func (m *Manager) pumpQR(ctx context.Context, ms *ManagedSession, qrChan <-chan 
 					"timeoutMs": item.Timeout.Milliseconds(),
 				}))
 			case "success":
+				ms.mu.Lock()
+				ms.lastQR, ms.lastQRExpires = "", 0
+				ms.mu.Unlock()
 				m.log.Info("qr pairing success", "session", ms.SessionID)
 				return
 			case "timeout":
 				m.log.Warn("qr pairing timed out", "session", ms.SessionID)
 				m.setStatus(ctx, ms, domain.SessionFailed)
+				// A timed-out client cannot produce another QR channel. Release it and
+				// its reconnect loop so a subsequent pairing request starts a fresh flow.
+				m.teardown(ms)
 				return
 			default:
 				if item.Error != nil {
@@ -824,6 +805,7 @@ func (m *Manager) recordPairedJID(_ context.Context, ms *ManagedSession, jid, li
 		ms.pairedLID = lid.String()
 	}
 }
+
 // setLoggedOut is the single logout-state transition. It swaps the deleted
 // whatsmeow device for a fresh unpaired one and clears the stale QR cache. The
 // durable pairing-identity clear is API-owned: the session.status event is
@@ -870,7 +852,7 @@ func (m *Manager) setStatus(ctx context.Context, ms *ManagedSession, status doma
 // ----------------------------------------------------------------------------
 
 // Shutdown disconnects every session and stops their loops. It does not change
-// persisted status (sessions resume on next boot per shouldResume).
+// persisted status; the next authoritative snapshot determines what resumes.
 func (m *Manager) Shutdown(ctx context.Context) error {
 	m.mu.RLock()
 	all := make([]*ManagedSession, 0, len(m.sessions))

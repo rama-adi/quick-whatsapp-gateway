@@ -34,7 +34,8 @@ func NewRetentionRepo(db storedb.DBTX) *RetentionRepo { return &RetentionRepo{q:
 // statements. Terminal webhook delivery history is removed first. Messages are
 // then removed by their WhatsApp timestamp. Finally, old event-log entries are
 // removed only when no pending or retryable failed delivery still needs the
-// event body for an outbound webhook attempt.
+// event body for an outbound webhook attempt, and no incomplete gateway event
+// still needs it for projection or fan-out.
 func (r *RetentionRepo) Prune(ctx context.Context, cutoffMs int64) (RetentionPruneResult, error) {
 	var out RetentionPruneResult
 

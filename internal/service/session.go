@@ -105,7 +105,7 @@ func (s *SessionService) Create(ctx context.Context, organizationID string, in C
 }
 
 // createControlled is the facade path of Create: the API picks a placement,
-// inserts the session row, records the assignment, then has the assigned
+// atomically inserts the session and its assignment, then has the assigned
 // engine materialize its keystore device. A QR-kick failure keeps the row and
 // assignment (the session is retryable via POST .../qr) but is surfaced.
 func (s *SessionService) createControlled(
@@ -137,10 +137,7 @@ func (s *SessionService) createControlled(
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}
-	if err := s.repo.Create(ctx, sess); err != nil {
-		return domain.WASession{}, err
-	}
-	if _, err := s.assignments.Assign(ctx, sess.ID, gatewayRow.ID, now); err != nil {
+	if err := s.assignments.CreateSession(ctx, sess); err != nil {
 		return domain.WASession{}, err
 	}
 	if err := s.gatewayFacade.Prepare(ctx, organizationID, sess.ID); err != nil {
@@ -280,10 +277,7 @@ func (s *SessionService) Delete(ctx context.Context, organizationID, id string) 
 	if err := s.gatewayFacade.Forget(ctx, organizationID, id); err != nil {
 		return err
 	}
-	if err := s.repo.Delete(ctx, id); err != nil {
-		return err
-	}
-	return s.assignments.Unassign(ctx, id, domain.NowMs())
+	return s.assignments.DeleteSession(ctx, id, domain.NowMs())
 }
 
 func (s *SessionService) cascadeOAuth(ctx context.Context, organizationID, id string) error {

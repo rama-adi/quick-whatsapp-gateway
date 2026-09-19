@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -191,9 +192,9 @@ func NewCommittedEventWorker(
 	return &CommittedEventWorker{store: store, dispatcher: dispatcher, config: config}, nil
 }
 
-// RunOnce claims up to maxItems entries. It stops at the first failed dispatch
-// or completion write so an unfinished claimed event remains available for the
-// durable store's retry path. It returns the number marked complete.
+// RunOnce claims up to maxItems entries. Failed work and the rest of that
+// session's batch remain leased for retry; unrelated sessions can still progress.
+// No failed event is marked complete or silently discarded.
 func (w *CommittedEventWorker) RunOnce(ctx context.Context, maxItems int) (int, error) {
 	if w == nil || w.store == nil || w.dispatcher == nil {
 		return 0, errors.New("committed event worker is not configured")
@@ -203,31 +204,40 @@ func (w *CommittedEventWorker) RunOnce(ctx context.Context, maxItems int) (int, 
 	}
 	claimedAt := w.config.Now().UTC()
 	events, err := w.store.ClaimCommittedEvents(ctx, application.CommittedEventClaim{
-		Owner: w.config.Owner, LeaseUntil: claimedAt.Add(w.config.Lease), MaxItems: maxItems,
+		Owner: w.config.Owner, ClaimedAt: claimedAt, LeaseUntil: claimedAt.Add(w.config.Lease), MaxItems: maxItems,
 	})
 	if err != nil {
 		return 0, fmt.Errorf("claim committed events: %w", err)
 	}
 	completed := 0
+	failedSessions := make(map[string]bool)
+	failures := []error{}
 	for _, event := range events {
+		if failedSessions[event.Session] {
+			continue
+		}
 		if event.ID == "" {
 			return completed, errors.New("claimed committed event id is required")
 		}
 		if err := w.dispatcher.ConsumeCommittedEvent(ctx, event); err != nil {
-			return completed, fmt.Errorf("dispatch committed event %s: %w", event.ID, err)
+			failedSessions[event.Session] = true
+			failures = append(failures, fmt.Errorf("dispatch committed event %s: %w", event.ID, err))
+			continue
 		}
 		if err := w.store.CompleteCommittedEvent(ctx, w.config.Owner, event.ID); err != nil {
-			return completed, fmt.Errorf("complete committed event %s: %w", event.ID, err)
+			failedSessions[event.Session] = true
+			failures = append(failures, fmt.Errorf("complete committed event %s: %w", event.ID, err))
+			continue
 		}
 		completed++
 	}
-	return completed, nil
+	return completed, errors.Join(failures...)
 }
 
 // Run polls durable work until ctx is cancelled. Failed attempts remain
 // incomplete and are retried on later polls after the store makes their claim
 // available again. Run returns only context cancellation; callers that need
-// per-attempt diagnostics should wrap the work store or dispatcher.
+// per-attempt diagnostics can use RunOnce; Run logs failures before retrying.
 func (w *CommittedEventWorker) Run(ctx context.Context) error {
 	if w == nil {
 		return errors.New("committed event worker is nil")
@@ -235,7 +245,9 @@ func (w *CommittedEventWorker) Run(ctx context.Context) error {
 	ticker := time.NewTicker(w.config.Poll)
 	defer ticker.Stop()
 	for {
-		_, _ = w.RunOnce(ctx, w.config.Batch)
+		if _, err := w.RunOnce(ctx, w.config.Batch); err != nil && ctx.Err() == nil {
+			slog.ErrorContext(ctx, "committed event processing failed; work retained for retry", "err", err)
+		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
