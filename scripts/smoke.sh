@@ -15,8 +15,8 @@
 #   5. fetch its pairing QR      GET  {API_URL}/api/v1/sessions/{id}/qr -> assert 200
 #
 # Steps 1-5 prove the seam end to end: a better-auth identity -> a JWKS-verified
-# JWT -> the API authenticates, mints an internal assertion, and proxies an
-# org-scoped call that mutates WA-plane state on the owning gateway.
+# JWT -> the API authenticates and sends an org-scoped engine command over
+# private mTLS gRPC to the owning gateway.
 #
 # The remaining masterplan steps (pair -> send -> stream) need a REAL phone to
 # scan the QR / link the device and are therefore MANUAL — printed as instructions
@@ -70,7 +70,7 @@ need() { command -v "$1" >/dev/null 2>&1 || die "missing required tool: $1"; }
 need curl
 
 # json_get <file> <dot.path> — extract a string/number field. Prefers jq, falls
-# back to python3. Exits non-zero (empty output) if the key is absent.
+# back to python3. Produces empty output if the key is absent.
 JSON_TOOL=""
 if command -v jq >/dev/null 2>&1; then
   JSON_TOOL="jq"
@@ -97,6 +97,18 @@ for part in sys.argv[2].split('.'):
         sys.exit(0)
 if cur is not None:
     print(cur)
+PY
+  fi
+}
+
+registration_json() {
+  if [ "$JSON_TOOL" = "jq" ]; then
+    jq -n --arg email "$SMOKE_EMAIL" --arg password "$SMOKE_PASSWORD" \
+      --arg name "$SMOKE_NAME" '{email: $email, password: $password, name: $name}'
+  else
+    python3 - "$SMOKE_EMAIL" "$SMOKE_PASSWORD" "$SMOKE_NAME" <<'PY'
+import json, sys
+print(json.dumps(dict(zip(("email", "password", "name"), sys.argv[1:]))))
 PY
   fi
 }
@@ -142,8 +154,7 @@ step "register user (POST /api/auth/sign-up/email)"
 # USER_REGISTRATION_ENABLED must be true on the frontend for this to succeed.
 request POST "$BETTER_AUTH_URL/api/auth/sign-up/email" '200' \
   -H 'Content-Type: application/json' \
-  --data "$(printf '{"email":%s,"password":%s,"name":%s}' \
-    "\"$SMOKE_EMAIL\"" "\"$SMOKE_PASSWORD\"" "\"$SMOKE_NAME\"")"
+  --data "$(registration_json)"
 ok "registered $SMOKE_EMAIL (session cookie stored)"
 
 # ---------------------------------------------------------------------------

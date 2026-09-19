@@ -172,6 +172,9 @@ short-lived, single-use ticket (`internal/router/realtime.go`, `internal/stream`
   capability for `session`/`organization` scopes, `super_admin` for the admin `firehose`. The
   *resolved* scope (org/session/events/since/principal) is stored in Redis `{prefix}:rt:ticket:{id}`
   with a ~30s TTL. Returns `{ticket, expiresInSeconds, url}`.
+  Missing or cross-organization sessions return 404; session lookup failures return 500.
+  Redis ticket storage or redemption failures return 500; only missing, expired, or
+  already-redeemed tickets return 401 at redemption.
 - `GET /api/v1/realtime?ticket=…` — WS upgrade that **atomically `GETDEL`s** the ticket (single-use
   even across replicas → a second connect gets nothing), subscribes per scope
   (`evt:{org}:{session}` / `evt:{org}:*` / `evt:*`), applies the event-type filter, registers the

@@ -168,6 +168,9 @@ surface can read connection status, but it stays **idle** until a surface opts i
   chats header's polling/reconnect button), not a global top-bar pill. `ConnectionPill`
   (`components/shell/ConnectionPill.tsx`) remains a reusable drop-in: it reads `active` from the
   context and renders nothing when no surface on the page has requested the stream.
+- **Fallback recovery** — after repeated stream failures switch live surfaces to polling, the
+  first healthy WebSocket frame atomically restores `open` status and disables polling, so the
+  temporary refetch intervals do not continue alongside the recovered stream.
 - **Why not per-gateway-keyed** — the stream is org-scoped (the gateway streams all of a tenant's
   sessions on one socket); this change makes the mount page-scoped rather than app-global, which is
   the prerequisite for a future multi-gateway registry (no global singleton assuming one gateway).

@@ -3,6 +3,8 @@ package router
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -172,5 +174,47 @@ func TestRealtime_EndToEnd_WS(t *testing.T) {
 	if c2, _, err := websocket.Dial(ctx, wsURL, nil); err == nil {
 		_ = c2.CloseNow()
 		t.Fatal("expected single-use ticket to reject the second connection")
+	}
+}
+
+type failingSessionResolver struct{ err error }
+
+func (f failingSessionResolver) Get(context.Context, string) (domain.WASession, error) {
+	return domain.WASession{}, f.err
+}
+
+func TestTicketMint_SessionLookupFailure(t *testing.T) {
+	srv, _ := newRealtimeServer(t, ownerPrincipal(), fakeSessions{})
+	srv.sessions = failingSessionResolver{err: errors.New("database connection lost")}
+	rec := mint(t, srv, `{"scope":"session","session":"wa_1"}`)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status=%d body=%q", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "database connection lost") {
+		t.Fatal("response exposes internal database error")
+	}
+
+	srv.sessions = failingSessionResolver{err: fmt.Errorf("lookup: %w", domain.ErrNotFound("session not found"))}
+	rec = mint(t, srv, `{"scope":"session","session":"wa_1"}`)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing session status=%d, want 404", rec.Code)
+	}
+}
+
+func TestRealtime_TicketRedemptionFailure(t *testing.T) {
+	srv, rdb := newRealtimeServer(t, ownerPrincipal(), fakeSessions{})
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/realtime?ticket=missing", nil))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("missing ticket status=%d, want 401", rec.Code)
+	}
+
+	if err := rdb.Close(); err != nil {
+		t.Fatal(err)
+	}
+	rec = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/realtime?ticket=valid", nil))
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("redis failure status=%d body=%q", rec.Code, rec.Body.String())
 	}
 }

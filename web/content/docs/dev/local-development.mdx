@@ -176,6 +176,9 @@ pairing QR code. It stops with an error on any unexpected HTTP status. The steps
 that need a real phone (pair, send, subscribe) are printed as manual instructions
 at the end.
 
+Override `SMOKE_EMAIL`, `SMOKE_PASSWORD`, and `SMOKE_NAME` as needed; the script
+JSON-encodes these values, including quotes, backslashes, and Unicode.
+
 ```sh
 BETTER_AUTH_URL=http://localhost:3000 API_URL=http://localhost:8090 scripts/smoke.sh
 ```

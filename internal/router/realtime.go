@@ -159,7 +159,12 @@ func (s *Server) authorizeTicket(ctx context.Context, p *authz.Principal, req ti
 		}
 		sess, err := s.sessions.Get(ctx, req.Session)
 		if err != nil {
-			return ticket{}, domain.ErrNotFound("session not found")
+			var apiErr *domain.APIError
+			if errors.As(err, &apiErr) && apiErr.Code == domain.CodeNotFound {
+				return ticket{}, domain.ErrNotFound("session not found")
+			}
+			s.log.Error("resolve realtime session failed", "err", err)
+			return ticket{}, domain.ErrInternal("failed to resolve session")
 		}
 		if !p.IsSuperAdmin() && sess.OrganizationID != p.OrganizationID {
 			return ticket{}, domain.ErrNotFound("session not found")
@@ -191,7 +196,12 @@ func (s *Server) handleRealtimeWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	raw, err := s.redis.GetDel(r.Context(), s.ticketKey(id)).Result()
-	if err != nil || raw == "" {
+	if err != nil && !errors.Is(err, redis.Nil) {
+		s.log.Error("redeem realtime ticket failed", "err", err)
+		httpx.WriteError(w, domain.ErrInternal("failed to redeem ticket"))
+		return
+	}
+	if errors.Is(err, redis.Nil) || raw == "" {
 		// Either never existed, expired, or already redeemed (single-use).
 		httpx.WriteError(w, domain.ErrUnauthorized("invalid or expired ticket"))
 		return

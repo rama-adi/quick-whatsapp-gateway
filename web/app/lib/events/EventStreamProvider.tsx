@@ -98,7 +98,7 @@ export function EventStreamProvider({
     abortRef.current?.abort();
     const ac = new AbortController();
     abortRef.current = ac;
-    setStatus((s) => (s === "polling" ? "polling" : "connecting"));
+    setStatus((current) => (current === "polling" ? "polling" : "connecting"));
 
     const resetWatchdog = () =>
       armWatchdog(() => {
@@ -115,17 +115,17 @@ export function EventStreamProvider({
       signal: ac.signal,
       onEvent: (ev) => {
         // First successful frame = healthy connection.
-        if (status !== "open") setStatus("open");
+        setStatus("open");
+        setPolling(false);
         attempts.current = 0;
-        if (polling) setPolling(false);
         lastEventId.current = ev.id;
         resetWatchdog();
         applyEvent(qc, ev);
       },
       onPing: () => {
-        if (status !== "open") setStatus("open");
+        setStatus("open");
+        setPolling(false);
         attempts.current = 0;
-        if (polling) setPolling(false);
         resetWatchdog();
       },
       onError: (kind: StreamErrorKind, statusCode?: number) => {
@@ -149,8 +149,6 @@ export function EventStreamProvider({
         scheduleReconnect();
       },
     });
-    // status/polling are read fresh via closure each connect; deps kept minimal.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [armWatchdog, clearWatchdog, qc, scheduleReconnect]);
 
   const reconnectNow = useCallback(() => {
@@ -168,6 +166,7 @@ export function EventStreamProvider({
       clearWatchdog();
       if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
       setStatus("idle");
+      setPolling(false);
       return;
     }
     stopped.current = false;
