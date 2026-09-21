@@ -93,7 +93,9 @@ The session lifecycle splits across the trust boundary:
   via `Manager.Shutdown` and reports DRAINING/DRAINED; a later RUN after terminal
   drain reports BUSY instead of rebooting sessions. A transient pre-Welcome
   outage brings diagnostics up unready, then performs the deferred start after a
-  RUN Welcome. On SIGTERM the supervisor flushes acknowledged DRAINING/DRAINED
+  RUN Welcome. Startup accepts an applied snapshot from a newer connection after
+  reconnect and returns terminal control errors instead of waiting indefinitely.
+  On SIGTERM the supervisor flushes acknowledged DRAINING/DRAINED
   heartbeats before its stream is cancelled. Those are observed states and do
   not change the separate desired lifecycle.
 - **No orphan-guard and no admin bootstrap on the gateway.** Assignment

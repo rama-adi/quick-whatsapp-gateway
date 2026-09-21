@@ -304,7 +304,12 @@ Gateway certificate rollover is enabled only with an explicit
 attempt from the active identity certificate's actual `NotAfter` minus that
 operator-configured window. It uses the generated `GatewayEnrollmentService.Renew`
 RPC over its incumbent mTLS connection, stages a replacement gRPC connection,
-and opens an overlapping replacement control stream. The old connection is
+and opens an overlapping replacement control stream. Its proof accepts the API’s
+initial assignment snapshot before requiring the matching heartbeat acknowledgement,
+within the same advertised lease deadline. Control handshakes are serialized during
+proof so the incumbent cannot reconnect and fence the replacement; once the proof
+closes, an incumbent fenced by the newer epoch reconnects. Other protocol and
+authorization failures remain terminal. The old connection is
 retired only after that stream has completed Welcome and a durable heartbeat
 acknowledgement; `grpc.NewClient` construction alone is not authentication or
 availability proof. Any failed proof restores the incumbent. Transient renewal

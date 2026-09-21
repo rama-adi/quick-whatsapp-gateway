@@ -3,6 +3,9 @@ package controlsupervisor
 import (
 	"context"
 	"errors"
+	"fmt"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"runtime"
 	"sync"
 	"testing"
@@ -273,7 +276,11 @@ func TestProveCurrentConnectionCompletesOverlappingWelcomeAndHeartbeat(t *testin
 	clock := &fakeClock{now: time.Unix(100, 0)}
 	replacement := newFakeStream()
 	replacement.recv <- receiveResult{frame: welcome(gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN)}
-	replacement.recv <- receiveResult{frame: heartbeatAck(2, 2, 7)}
+	replacement.recv <- receiveResult{frame: &gatewayv1.ControlFrame{
+		ProtocolVersion: ProtocolVersion, Sequence: 2,
+		Payload: &gatewayv1.ControlFrame_DesiredStateSnapshot{DesiredStateSnapshot: &gatewayv1.DesiredStateSnapshot{Revision: 3}},
+	}}
+	replacement.recv <- receiveResult{frame: heartbeatAck(3, 2, 7)}
 	supervisor := testSupervisor(t, clock, &fakeOpener{streams: []*fakeStream{replacement}})
 
 	// The proof opens the second stream without touching the incumbent stream or
@@ -692,4 +699,50 @@ func TestJournalOwnershipUpdatesOnlyAfterApplyingSnapshot(t *testing.T) {
 	}
 	cancel()
 	<-done
+}
+
+func TestBootWaitsReturnTerminalControlFailure(t *testing.T) {
+	supervisor := testSupervisor(t, &fakeClock{now: time.Unix(100, 0)}, &fakeOpener{})
+	failure := fmt.Errorf("receive control frame: %w", ErrProtocol)
+	supervisor.disconnected(failure)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	// A canceled context keeps the broken implementation from hanging the test;
+	// the durable terminal failure must win and retain the actual diagnosis.
+	for name, wait := range map[string]func(context.Context) (Status, error){
+		"welcome":       supervisor.WaitForWelcome,
+		"desired state": func(ctx context.Context) (Status, error) { return supervisor.WaitForDesiredState(ctx, 13) },
+	} {
+		_, err := wait(ctx)
+		if !errors.Is(err, ErrProtocol) {
+			t.Fatalf("%s: got %v", name, err)
+		}
+	}
+}
+
+func TestBootAcceptsDesiredStateAfterConnectionReplacement(t *testing.T) {
+	supervisor := testSupervisor(t, &fakeClock{now: time.Unix(100, 0)}, &fakeOpener{})
+	supervisor.status = Status{Connected: true, ConnectionEpoch: 14, DesiredStateApplied: true}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	got, err := supervisor.WaitForDesiredState(ctx, 13)
+	if err != nil || got.ConnectionEpoch != 14 {
+		t.Fatalf("replacement state: %+v, %v", got, err)
+	}
+	supervisor.status.DesiredStateApplied = false
+	if _, err := supervisor.WaitForDesiredState(ctx, 13); !errors.Is(err, context.Canceled) {
+		t.Fatalf("unapplied state admitted: %v", err)
+	}
+}
+
+func TestRenewalFencingReconnectsButProtocolViolationsRemainTerminal(t *testing.T) {
+	fenced := fmt.Errorf("receive control frame: %w", status.Error(codes.FailedPrecondition, "stale gateway connection epoch"))
+	if terminal(fenced) {
+		t.Fatal("renewal fencing must reconnect")
+	}
+	for _, err := range []error{ErrProtocol, status.Error(codes.FailedPrecondition, "gateway frame sequence mismatch"), status.Error(codes.PermissionDenied, "revoked")} {
+		if !terminal(err) {
+			t.Fatalf("accepted terminal failure: %v", err)
+		}
+	}
 }

@@ -141,6 +141,7 @@ type Supervisor struct {
 	cfg              Config
 	opener           StreamOpener
 	mu               sync.RWMutex
+	handshakeMu      sync.Mutex
 	status           Status
 	running          atomic.Bool
 	report           chan struct{}
@@ -194,6 +195,11 @@ func (s *Supervisor) WaitForWelcome(ctx context.Context) (Status, error) {
 			s.mu.RUnlock()
 			return status, nil
 		}
+		if terminal(s.status.LastError) {
+			err := s.status.LastError
+			s.mu.RUnlock()
+			return Status{}, err
+		}
 		changed := s.changed
 		s.mu.RUnlock()
 		select {
@@ -214,18 +220,23 @@ func (s *Supervisor) SetDesiredState(applier DesiredStateApplier) {
 }
 
 // WaitForDesiredState waits for an authoritative snapshot to be successfully
-// applied on the current connection. A Welcome alone never authorizes engine
-// work, because it contains no session ownership information.
+// applied on the requested or a newer connection after reconnect. A Welcome
+// alone never authorizes engine work: it contains no session ownership.
 func (s *Supervisor) WaitForDesiredState(ctx context.Context, epoch uint64) (Status, error) {
 	for {
 		s.mu.RLock()
 		applied := s.status.Connected &&
-			s.status.ConnectionEpoch == epoch &&
+			s.status.ConnectionEpoch >= epoch &&
 			s.status.DesiredStateApplied
 		if applied {
 			status := copyStatus(s.status)
 			s.mu.RUnlock()
 			return status, nil
+		}
+		if terminal(s.status.LastError) {
+			err := s.status.LastError
+			s.mu.RUnlock()
+			return Status{}, err
 		}
 		changed := s.changed
 		s.mu.RUnlock()
@@ -252,15 +263,27 @@ func (s *Supervisor) MarkDesiredStateUnhealthy() {
 // It intentionally does not mutate the incumbent stream's status: callers use
 // it to decide whether retiring that incumbent connection is safe.
 func (s *Supervisor) ProveCurrentConnection(ctx context.Context) (func(), error) {
-	stream, err := s.opener.Open(ctx)
+	// Serialize handshakes so reconnect cannot fence the replacement proof.
+	s.handshakeMu.Lock()
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(s.handshakeMu.Unlock) }
+	proved := false
+	defer func() {
+		if !proved {
+			release()
+		}
+	}()
+	probeCtx, cancel := context.WithCancel(ctx)
+	stream, err := s.opener.Open(probeCtx)
 	if err != nil {
+		cancel()
 		return nil, fmt.Errorf("open replacement control stream: %w", err)
 	}
 	runtime := s.cfg.Runtime.Snapshot()
 	if !validRuntimeState(runtime.State) {
+		cancel()
 		return nil, fmt.Errorf("%w: invalid runtime state", ErrProtocol)
 	}
-	probeCtx, cancel := context.WithCancel(ctx)
 	if err := s.sendHandshake(probeCtx, cancel, stream, s.newHelloFrame(runtime)); err != nil {
 		cancel()
 		return nil, fmt.Errorf("send replacement hello: %w", err)
@@ -274,7 +297,11 @@ func (s *Supervisor) ProveCurrentConnection(ctx context.Context) (func(), error)
 		cancel()
 		return nil, err
 	}
-	return cancel, nil
+	proved = true
+	return func() {
+		cancel()
+		release()
+	}, nil
 }
 
 // newHelloFrame builds the sequence-1 Hello advertising the given runtime.
@@ -366,14 +393,27 @@ func (s *Supervisor) awaitReplacementAck(
 	leaseTimeout time.Duration,
 ) error {
 	acked := make(chan receiveResult, 1)
-	go receive(stream, acked)
-	select {
-	case <-probeCtx.Done():
-		return probeCtx.Err()
-	case <-s.cfg.Clock.After(leaseTimeout):
-		return errors.New("control supervisor: replacement heartbeat acknowledgement timeout")
-	case result := <-acked:
-		return validateReplacementAck(result, first, welcome, s.cfg.Clock.Now())
+	deadline := s.cfg.Clock.After(leaseTimeout)
+	previous := first
+	for {
+		go receive(stream, acked)
+		select {
+		case <-probeCtx.Done():
+			return probeCtx.Err()
+		case <-deadline:
+			return errors.New("control supervisor: replacement heartbeat acknowledgement timeout")
+		case result := <-acked:
+			if result.err == nil && result.frame.GetDesiredStateSnapshot() != nil {
+				if err := validateControl(
+					result.frame, previous.frame.Sequence+1, welcome.ConnectionEpoch, 2, s.cfg.Clock.Now(),
+				); err != nil {
+					return err
+				}
+				previous = result
+				continue
+			}
+			return validateReplacementAck(result, previous, welcome, s.cfg.Clock.Now())
+		}
 	}
 }
 
@@ -612,11 +652,14 @@ type controlStream struct {
 func (s *Supervisor) runStream(ctx context.Context) error {
 	streamCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	s.handshakeMu.Lock()
 	stream, err := s.opener.Open(streamCtx)
 	if err != nil {
+		s.handshakeMu.Unlock()
 		return fmt.Errorf("open control stream: %w", err)
 	}
 	session, err := s.openSession(ctx, streamCtx, cancel, stream)
+	s.handshakeMu.Unlock()
 	if err != nil || session == nil {
 		return err // nil session with nil error: shutdown requested mid-handshake
 	}
@@ -1303,6 +1346,12 @@ func copyStatus(status Status) Status {
 }
 
 func terminal(err error) bool {
+	// A renewal proof allocates a newer epoch and fences the incumbent.
+	var grpcError interface{ GRPCStatus() *status.Status }
+	if errors.As(err, &grpcError) && grpcError.GRPCStatus().Code() == codes.FailedPrecondition &&
+		grpcError.GRPCStatus().Message() == "stale gateway connection epoch" {
+		return false
+	}
 	if errors.Is(err, ErrProtocol) {
 		return true
 	}
