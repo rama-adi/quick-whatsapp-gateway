@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"testing"
 
@@ -28,6 +29,7 @@ type fakeProjectionStore struct {
 	clearedSessions   []string
 	clearedAt         []int64
 	sessionStatuses   []domain.SessionStatus
+	deleteErr         error
 }
 
 func (f *fakeProjectionStore) AttachPairing(_ context.Context, in store.AttachPairingInput) error {
@@ -77,7 +79,7 @@ func (f *fakeProjectionStore) MarkMessageEdited(_ context.Context, sessionID, wa
 
 func (f *fakeProjectionStore) MarkMessageDeleted(_ context.Context, sessionID, waMessageID string) error {
 	f.markDeleted = append(f.markDeleted, [2]string{sessionID, waMessageID})
-	return nil
+	return f.deleteErr
 }
 
 func (f *fakeProjectionStore) UpdateMessageStatus(_ context.Context, in ProjectionMessageStatusUpdate) error {
@@ -365,4 +367,41 @@ func TestProjectionLoggedOutClearsPairing(t *testing.T) {
 func (f *fakeProjectionStore) UpdateSessionStatus(_ context.Context, sessionID string, status domain.SessionStatus, updatedAt int64) error {
 	f.sessionStatuses = append(f.sessionStatuses, status)
 	return nil
+}
+
+// A missing revoke target must not block later session lifecycle projections;
+// genuine storage failures must retain the event for retry.
+func TestProjectionRevokeMissingMessageAllowsSessionProgress(t *testing.T) {
+	dbErr := errors.New("database unavailable")
+	for _, test := range []struct {
+		name    string
+		err     error
+		wantErr bool
+	}{
+		{name: "missing target", err: domain.ErrNotFound("message not found")},
+		{name: "storage error", err: dbErr, wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			st := &fakeProjectionStore{deleteErr: test.err}
+			consumer := newTestProjectionConsumer(st)
+			revoke := domain.Event{ID: "revoke", Type: domain.EventMessageRevoked, Session: "session", Payload: apitypes.MessagePayload{TargetID: "missing"}}
+			err := consumer.ConsumeCommittedEvent(context.Background(), revoke)
+			if test.wantErr {
+				if !errors.Is(err, dbErr) {
+					t.Fatalf("storage error lost: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			status := domain.Event{ID: "connected", Type: domain.EventSessionStatus, Session: "session", Payload: apitypes.SessionStatusPayload{Status: "working"}}
+			if err := consumer.ConsumeCommittedEvent(context.Background(), status); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(st.sessionStatuses, []domain.SessionStatus{domain.SessionWorking}) {
+				t.Fatalf("status not projected: %v", st.sessionStatuses)
+			}
+		})
+	}
 }

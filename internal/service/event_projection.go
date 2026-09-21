@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/apitypes"
@@ -365,7 +366,14 @@ func (c *EventProjectionConsumer) projectRevoke(ctx context.Context, event domai
 	if p.TargetID == "" {
 		return nil
 	}
-	return c.store.MarkMessageDeleted(ctx, event.Session, p.TargetID)
+	err := c.store.MarkMessageDeleted(ctx, event.Session, p.TargetID)
+	var apiErr *domain.APIError
+	if errors.As(err, &apiErr) && apiErr.Code == domain.CodeNotFound {
+		// Revocations can target history or linked-device messages absent locally.
+		// There is no row to mark; still let the event fan out and the session progress.
+		return nil
+	}
+	return err
 }
 
 func (c *EventProjectionConsumer) projectPollVote(ctx context.Context, event domain.Event) error {

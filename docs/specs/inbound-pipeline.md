@@ -48,7 +48,9 @@ fan-out).
    `member`).
 4. **Persist** (§9) — upsert `chats`; insert `messages` (incl. `raw_json`); a poll
    creation also upserts `polls` (its options, so later votes can be resolved);
-   `edit`/`revoke` flip flags on the target; receipts monotonically advance
+   `edit`/`revoke` flip flags on the target. A revoke for a message absent from local
+   history is a successful projection no-op; the event still fans out, and later session
+   events are not blocked. Storage errors remain retryable. Receipts monotonically advance
    `status`/`ack_level` for every locally known target. Unknown IDs (history or
    messages sent from another linked device) and duplicate/stale receipts are
    harmless no-ops, so they neither abort grouped receipt processing nor block
