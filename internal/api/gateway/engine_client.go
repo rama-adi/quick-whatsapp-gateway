@@ -13,6 +13,7 @@ import (
 	gatewayv1 "github.com/rama-adi/quick-whatsapp-gateway/gen/gateway/v1"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/application"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/wa/outbound"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -273,7 +274,11 @@ func (c *EngineClient) SendMessage(
 	if err != nil {
 		return application.SendMessageResult{}, err
 	}
-	payload, err := json.Marshal(command.Payload)
+	prepared, err := outbound.PrepareEngineMedia(ctx, command.Payload)
+	if err != nil {
+		return application.SendMessageResult{}, err
+	}
+	payload, err := json.Marshal(prepared)
 	if err != nil {
 		return application.SendMessageResult{}, fmt.Errorf("encode send payload: %w", err)
 	}

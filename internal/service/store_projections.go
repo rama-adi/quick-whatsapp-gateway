@@ -157,3 +157,8 @@ func (p *StoreProjections) InsertPollVote(ctx context.Context, in ProjectionPoll
 	})
 	return err
 }
+
+// UpdateSessionStatus projects observed lifecycle state without changing pairing.
+func (p *StoreProjections) UpdateSessionStatus(ctx context.Context, sessionID string, status domain.SessionStatus, updatedAt int64) error {
+	return p.st.Sessions.UpdateStatus(ctx, sessionID, status, updatedAt)
+}

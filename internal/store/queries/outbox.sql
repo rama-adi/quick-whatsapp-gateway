@@ -44,6 +44,7 @@ WHERE id = ?;
 UPDATE outbox
 SET status = sqlc.arg(claimed_status), attempts = attempts + 1, updated_at = sqlc.arg(updated_at)
 WHERE id = sqlc.arg(id)
+  AND terminal_at IS NULL
   AND (
     status IN (sqlc.arg(queued_status), sqlc.arg(failed_status))
     OR (status = sqlc.arg(sending_status) AND updated_at <= sqlc.arg(stale_before))
@@ -54,6 +55,7 @@ SELECT id, organization_id, session_id, idempotency_key, payload, status,
 	attempts, next_attempt_at, wa_message_id, error, terminal_at, created_at, updated_at
 FROM outbox
 WHERE status = sqlc.arg(queued_status)
+  AND terminal_at IS NULL
   AND (sqlc.arg(session_filter) = '' OR session_id = sqlc.arg(session_filter))
 ORDER BY created_at ASC, id ASC
 LIMIT ?
@@ -66,11 +68,13 @@ FOR UPDATE SKIP LOCKED;
 SELECT id, organization_id, session_id, idempotency_key, payload, status,
 	attempts, next_attempt_at, wa_message_id, error, terminal_at, created_at, updated_at
 FROM outbox
-WHERE (
+WHERE terminal_at IS NULL AND (
+  (
     (status = sqlc.arg(queued_status) OR status = sqlc.arg(failed_status))
     AND next_attempt_at <= sqlc.arg(due_before)
   )
   OR (status = sqlc.arg(sending_status) AND updated_at <= sqlc.arg(stale_before))
+)
 ORDER BY next_attempt_at ASC, created_at ASC, id ASC
 LIMIT ?
 FOR UPDATE SKIP LOCKED;

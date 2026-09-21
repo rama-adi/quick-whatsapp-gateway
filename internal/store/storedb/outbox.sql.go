@@ -15,6 +15,7 @@ const claimOutboxByID = `-- name: ClaimOutboxByID :execrows
 UPDATE outbox
 SET status = ?, attempts = attempts + 1, updated_at = ?
 WHERE id = ?
+  AND terminal_at IS NULL
   AND (
     status IN (?, ?)
     OR (status = ? AND updated_at <= ?)
@@ -254,11 +255,13 @@ const selectDueOutboxForClaim = `-- name: SelectDueOutboxForClaim :many
 SELECT id, organization_id, session_id, idempotency_key, payload, status,
 	attempts, next_attempt_at, wa_message_id, error, terminal_at, created_at, updated_at
 FROM outbox
-WHERE (
+WHERE terminal_at IS NULL AND (
+  (
     (status = ? OR status = ?)
     AND next_attempt_at <= ?
   )
   OR (status = ? AND updated_at <= ?)
+)
 ORDER BY next_attempt_at ASC, created_at ASC, id ASC
 LIMIT ?
 FOR UPDATE SKIP LOCKED
@@ -341,6 +344,7 @@ SELECT id, organization_id, session_id, idempotency_key, payload, status,
 	attempts, next_attempt_at, wa_message_id, error, terminal_at, created_at, updated_at
 FROM outbox
 WHERE status = ?
+  AND terminal_at IS NULL
   AND (? = '' OR session_id = ?)
 ORDER BY created_at ASC, id ASC
 LIMIT ?

@@ -213,7 +213,7 @@ atomic op.
   race falls back to replaying the stored row. Every sync send now persists a
   command row (keyless included) so ambiguity is always reconcilable.
 - **Async worker ownership is leased and at-least-once**: a database CAS admits
-  one scheduler for `queued|failed → sending`; a fresh `sending` row is left to its
+  one scheduler for nonterminal `queued|failed → sending`; a fresh `sending` row is left to its
   owner, while a claim older than the lease (exceeding the engine send deadline) is
   recoverable after a scheduler crash. The gateway result ledger closes the
   acknowledgement gap the note below describes:
@@ -226,10 +226,15 @@ atomic op.
   lease-expired `sending` row to `sending`, increments attempts, and reports whether it won.
   The worker supplies a stale cutoff based on a lease longer than the maximum dispatch timeout:
   duplicate tasks see a fresh lease and skip, while a crash-stranded row eventually becomes
-  reclaimable; `sent` is terminal. Batch recovery uses
+  reclaimable. All claim selectors and the CAS exclude rows with `terminal_at` set, including
+  deterministic `failed` outcomes, so completed commands never re-enter the retry loop. Batch recovery uses
   `FOR UPDATE SKIP LOCKED` plus the same CAS inside one transaction, so replicas receive disjoint
   pages and a failure rolls back the whole claim.
-- **Media is data-or-URL and never retained as bytes**: `validate` requires
+- **Media is data-or-URL and never retained as bytes**: the API engine client resolves URLs
+  and data URIs into canonical base64 before issuing the private byte-only gateway RPC. It preserves
+  media metadata and applies the existing per-item and album aggregate limits without modifying
+  the stored request.
+  `validate` requires
   exactly one of `media.data` or `media.url` and enforces `MaxMediaBytes`.
   `dispatch` decodes base64 (a data: URI is accepted) or downloads the HTTP(S)
   URL, then hands the bytes to `SendMedia`. Inline bytes ride the `outbox`

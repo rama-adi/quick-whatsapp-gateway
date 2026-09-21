@@ -35,6 +35,10 @@ The session lifecycle splits across the trust boundary:
   revision; an existing assignment is kept so retries never re-epoch a live
   session), and deletes both on teardown (`repo.Delete`, then
   `Unassign`, which advances the revision so the gateway stops reconciling).
+- **Observed status is API-projected.** Every committed `session.status` event updates
+  `wa_sessions.status`, including `working` after connection. Non-logout transitions preserve
+  pairing identity; logout also clears it. REST reads therefore reflect the gateway lifecycle
+  rather than remaining at the API's initial `starting` state.
 - **Pairing identity is API-projected.** The gateway records the paired JIDs
   only in memory; the committed `auth.code` event (PairSuccess) is what the API
   projects onto `wa_sessions` (`SessionRepo.AttachPairing`: `wa_jid`, `wa_lid`,

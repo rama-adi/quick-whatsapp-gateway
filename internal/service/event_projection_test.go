@@ -27,6 +27,7 @@ type fakeProjectionStore struct {
 	attachedPairings  []store.AttachPairingInput
 	clearedSessions   []string
 	clearedAt         []int64
+	sessionStatuses   []domain.SessionStatus
 }
 
 func (f *fakeProjectionStore) AttachPairing(_ context.Context, in store.AttachPairingInput) error {
@@ -319,7 +320,7 @@ func TestProjectionPairSuccessWithoutJIDIsNoOp(t *testing.T) {
 
 // TestProjectionLoggedOutClearsPairing consumes the terminal logged_out status
 // event. The row's WhatsApp identity is cleared so QR/pairing-code preconditions
-// immediately see an unpaired session; other statuses write nothing.
+// immediately see an unpaired session; other statuses update state without clearing identity.
 func TestProjectionLoggedOutClearsPairing(t *testing.T) {
 	store := &fakeProjectionStore{}
 	consumer := newTestProjectionConsumer(store)
@@ -331,6 +332,12 @@ func TestProjectionLoggedOutClearsPairing(t *testing.T) {
 		if err := consumer.ConsumeCommittedEvent(context.Background(), event); err != nil {
 			t.Fatalf("%s: %v", status, err)
 		}
+	}
+	if len(store.sessionStatuses) != 5 {
+		t.Fatalf("observed statuses not persisted: %v", store.sessionStatuses)
+	}
+	if !reflect.DeepEqual(store.sessionStatuses, []domain.SessionStatus{domain.SessionWorking, domain.SessionStarting, domain.SessionScanQR, domain.SessionFailed, domain.SessionStopped}) {
+		t.Fatalf("wrong observed statuses: %v", store.sessionStatuses)
 	}
 	if len(store.clearedSessions) != 0 {
 		t.Fatalf("non-terminal statuses cleared pairing: %v", store.clearedSessions)
@@ -353,4 +360,9 @@ func TestProjectionLoggedOutClearsPairing(t *testing.T) {
 	if len(store.clearedSessions) != 2 {
 		t.Fatalf("repeat clear did not run: %v", store.clearedSessions)
 	}
+}
+
+func (f *fakeProjectionStore) UpdateSessionStatus(_ context.Context, sessionID string, status domain.SessionStatus, updatedAt int64) error {
+	f.sessionStatuses = append(f.sessionStatuses, status)
+	return nil
 }

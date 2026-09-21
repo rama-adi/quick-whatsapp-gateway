@@ -37,6 +37,7 @@ type projectionStore interface {
 	// and logout events are the durable signals that attach or clear identity.
 	AttachPairing(ctx context.Context, in store.AttachPairingInput) error
 	ClearPairing(ctx context.Context, sessionID string, updatedAt int64) error
+	UpdateSessionStatus(ctx context.Context, sessionID string, status domain.SessionStatus, updatedAt int64) error
 }
 
 // The Projection* structs mirror the argument structs the gateway's inbound
@@ -435,20 +436,22 @@ func (c *EventProjectionConsumer) projectPairSuccess(ctx context.Context, event 
 	})
 }
 
-// projectSessionStatus applies the durable pairing reset when a session is
-// force-logged-out by WhatsApp (terminal LoggedOut event): the row is marked
-// logged_out with its WhatsApp identity cleared. Explicit logouts already wrote
-// the clear synchronously in SessionService.Logout; repeating it here is
-// idempotent and repairs any row the synchronous write missed.
+// projectSessionStatus persists the observed gateway lifecycle for REST reads.
+// Logout also clears pairing identity; other states preserve it.
 func (c *EventProjectionConsumer) projectSessionStatus(ctx context.Context, event domain.Event) error {
 	var p apitypes.SessionStatusPayload
 	if err := decodePayload(event, &p); err != nil {
 		return err
 	}
-	if domain.SessionStatus(p.Status) != domain.SessionLoggedOut {
-		return nil
+	status := domain.SessionStatus(p.Status)
+	switch status {
+	case domain.SessionLoggedOut:
+		return c.store.ClearPairing(ctx, event.Session, c.clock())
+	case domain.SessionStarting, domain.SessionWorking, domain.SessionScanQR, domain.SessionFailed, domain.SessionStopped:
+		return c.store.UpdateSessionStatus(ctx, event.Session, status, c.clock())
+	default:
+		return domain.ErrValidation("unknown session status")
 	}
-	return c.store.ClearPairing(ctx, event.Session, c.clock())
 }
 
 // captureSenderOnly runs the identity half of capture for message-family
