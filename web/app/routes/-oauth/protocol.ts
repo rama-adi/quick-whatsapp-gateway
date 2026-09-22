@@ -1,6 +1,6 @@
 // Wire types + transport for the public "Sign in with WhatsApp" consent page.
 //
-// This is the END-USER facing side of the OIDC provider (docs/specs/oauth.md
+// This is the END-USER facing side of the OIDC provider (site-marketing/content/docs/architecture/oauth.mdx
 // §6.1). It is deliberately independent of the authenticated gateway API client
 // (app/lib/api/*): the /oauth/wait/* endpoints are PUBLIC and capability-scoped
 // by the 160-bit browser code carried in the URL fragment — NO Bearer JWT, no

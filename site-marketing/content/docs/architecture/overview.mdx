@@ -1,0 +1,163 @@
+---
+title: "Architecture overview"
+description: "The current API, gateway, dashboard, and documentation boundaries."
+---
+
+The platform runs WhatsApp accounts through a public API and an authenticated web dashboard.
+The API owns application state and public access; gateways own live WhatsApp connections and
+persistent device credentials. Organizations own sessions, keys, webhooks, and OAuth applications.
+
+## Runtime map
+
+```text
+Browser and integrations
+  ├── web: dashboard, better-auth, read-only WA views
+  └── API: REST, public gRPC, realtime WebSocket, OAuth/OIDC
+        ├── MySQL: WA data, registry, assignments, committed events, OAuth state
+        ├── Redis: queues, realtime, control notifications, pending OAuth flows
+        └── private mTLS gRPC
+              └── gateways: WhatsApp engines
+                    ├── whatsmeow SQLite keystore
+                    └── SQLite event journal and command-result ledger
+
+site-marketing: landing page, hosting, administration, architecture, project records
+```
+
+| Workspace / process | Responsibility | Persistent state |
+| --- | --- | --- |
+| `backend/cmd/api` | Public REST and gRPC; JWT/API-key verification; organization authorization; gateway placement; private enrollment/control listener; projections; jobs; webhooks; OAuth/OIDC | MySQL and Redis; local API TLS identity directory |
+| `backend/cmd/gateway` | Assigned WhatsApp sessions, pairing, live engine RPCs, normalization, reliable event handoff | Local SQLite keystore, journal, and credential directory |
+| `backend/cmd/migrate` | Explicit WA schema upgrade and rollback | API-owned MySQL schema |
+| `web/` | TanStack Start dashboard, better-auth identity, auth schema migrations, organization-scoped read views, user guides and API reference | Auth tables; read-only WA models |
+| `site-marketing/` | TanStack Start and Fumadocs marketing, operator, developer, architecture, and historical documentation | MDX source in the repository |
+
+The API HTTP listener defaults to `:8090`; its public gRPC listener defaults to `:8081`.
+The public gRPC listener uses a trusted local/ingress hop, so internet exposure requires TLS at
+that ingress. Private API and gateway engine listeners use separately configured mTLS endpoints.
+Gateway HTTP (`:8080` by default) serves health, readiness, and metrics probes.
+
+## Identity and authorization
+
+The dashboard authenticates people with better-auth. Its JWT plugin issues short-lived tokens
+containing the active organization, organization role, and platform role. The API verifies
+signature, issuer, audience, and expiry against the frontend JWKS.
+
+Integrations use organization-scoped better-auth API keys. The API hashes each presented key
+with the pinned better-auth scheme and validates the shared auth-table row. Capabilities gate
+read, send, manage, and event access. Resource ownership checks run before live gateway dispatch.
+The frontend publishes revocation notifications on Redis `ctrl:*`; the API evicts caches,
+updates its short-lived deny lists, and closes affected realtime connections.
+
+The API authenticates gateways through an operator-controlled PKI. Enrollment tokens are shown
+once, stored as a digest, and redeemed for a gateway identity. Private engine operations carry
+connection and assignment fences; public user credentials stop at the API boundary.
+
+Read [trust and authorization](/docs/architecture/trust-model),
+[API keys](/docs/architecture/api-keys), and [gRPC contracts](/docs/architecture/grpc-contracts).
+
+## Placement, pairing, and lifecycle
+
+The API selects an eligible gateway and records the session and its assignment. A revisioned
+control-stream snapshot carries organization identity, device mapping, configuration, assignment
+epoch, and lease expiry. A gateway runs only the sessions authorized by that snapshot.
+An acknowledged READY/RUN heartbeat opens engine admission. Expired assignments, terminal drain,
+and authorization failures close admission and stop the affected work.
+
+Pairing uses QR or phone codes through the assigned engine. Successful pairing enters the
+gateway event journal; committed API projection records the device JIDs. Start, stop, restart,
+logout, and delete preserve this ownership boundary. Logout clears pairing identity. Restart
+forgets the live runtime while retaining the device keystore, then uses the regular start path.
+
+The keystore physically pins paired devices to a gateway volume. Restore requires preserving
+that cryptographic state and fencing the old assignment. Automated keystore rehydration and
+portable session failover remain deferred.
+
+Read [session management](/docs/architecture/session-manager),
+[device storage](/docs/architecture/whatsmeow-store), and
+[backup and restore](/docs/operations/keystore-backup).
+
+## Storage and migrations
+
+The API is the sole writer of WA-domain MySQL tables. It applies embedded golang-migrate
+upgrades before opening normal database pools and public listeners. `make migrate` provides
+an explicit operator entrypoint; the dedicated migration binary also supports rollback.
+The frontend owns better-auth tables through drizzle-kit and introspects WA tables into
+read-only Drizzle models. Keep these two migration toolchains separate.
+
+Gateways persist whatsmeow device state in local SQLite through its upstream SQL store and the
+pure-Go modernc driver. Reliable normalized-event handoff and durable command results live in a
+separate SQLite journal. Persistent paths and integrity checks are validated before adoption.
+API projections maintain chats, messages, identities, groups, polls, receipts, and lifecycle state.
+
+Read [schema and repositories](/docs/architecture/store) for tables, retention, projection
+semantics, encryption custody, and read-only frontend access.
+
+## Inbound events and delivery
+
+The gateway normalizes WhatsApp events, performs local WhatsApp actions such as configured
+auto-read, and appends normalized events to its journal. The private control stream sends ordered
+batches to the API. The API acknowledges durable ingest, then a leased committed-event worker
+runs consumers and projections before external fan-out. OAuth login messages are consumed before
+message-table projection and external publication.
+
+Consumers receive versioned event envelopes through the API realtime WebSocket or HMAC-signed
+webhooks. WebSocket clients mint a single-use ticket using their public credentials and reconnect
+with a replay cursor. The API owns Redis fan-out, webhook retry jobs, delivery records, and
+retention. Message edits and revocations update stored lifecycle flags and the dashboard timeline;
+interactive selections carry their selection ID and original message context.
+
+Read [event catalog](/docs/architecture/eventing), [inbound pipeline](/docs/architecture/inbound-pipeline),
+[realtime transport](/docs/architecture/stream), [webhooks](/docs/architecture/webhooks),
+and [background queues](/docs/architecture/queue).
+
+## Outbound operations and resources
+
+The API validates and schedules sends, applies organization/session ownership and idempotency,
+and dispatches live work to the assigned engine. Durable gateway command results support replay
+across ambiguous network outcomes. Sends include text, media, polls, contacts, locations,
+quick-reply buttons, and selection lists; interactive WhatsApp rendering remains client-dependent.
+The API exposes message editing and deletion, chats, contacts, groups, channels, status, presence,
+and backup-import operations through the generated public contract.
+
+Read [outbound processing](/docs/architecture/outbound-pipeline),
+[resource operations](/docs/architecture/resources), [contacts](/docs/architecture/contacts),
+and [backup import](/docs/architecture/backfill-import). Public endpoint shapes come from
+Go Huma operations and shared DTOs in `backend/internal/apitypes`; `docs/openapi.yaml` is generated.
+
+## Sign in with WhatsApp
+
+The implemented OAuth/OIDC provider runs at the API. It supports authorization code with PKCE,
+DM or group verification, a browser consent/waiting page, rotating refresh tokens, grants,
+and revocation cascades. The pending-login HTTP stream uses NDJSON; WhatsApp event realtime uses
+WebSocket. The API owns OAuth Redis claims, signing keys, and durable grants; feedback travels
+through the outbound scheduler and private engine.
+
+Read the complete [OAuth/OIDC contract](/docs/architecture/oauth) for protocol endpoints,
+claims, state machines, threat controls, defaults, and operational constraints.
+
+## Configuration and deployment
+
+Use the checked-in `deploy/.env.example`, `web/.env.example`, and
+`backend/internal/config` as the runtime configuration sources. `GATEWAY_URL` and
+`VITE_GATEWAY_URL` are the frontend's established names for the public API origin.
+Gateway setup requires a control-plane address, pinned bootstrap CA, persistent credentials,
+explicit certificate-renewal window, private engine listen/advertise addresses, persistent
+journal path, and an absolute SQLite keystore DSN.
+
+Build containers from the WhatsApp Gateway checkout directory (the directory containing `Makefile`) using `deploy/Dockerfile.api`, `deploy/Dockerfile`,
+and `deploy/Dockerfile.web`. Compose topologies cover integrated self-hosting, modular services,
+and development infrastructure. Existing installations need a verified one-time upgrade with
+backups, gateway identity preservation, and enrollment readiness before a runtime cutover.
+
+## Working in the repository
+
+Run Go commands with `go -C backend …`. Root Make targets coordinate the backend, web app, and
+contract generation. A REST contract change updates Go operations/DTOs, then `make gen`
+regenerates the shared OpenAPI, web types, and reference pages. A subsystem behavior change
+updates its corresponding MDX architecture page in the same change.
+
+Before committing, build, vet, and test the backend; build, typecheck, and test the web app;
+and build/typecheck the marketing app when it changes. Detailed subsystem validation belongs
+with each subsystem. Root `AGENTS.md` and `CLAUDE.md` carry repository collaboration rules.
+
+The archived v1 implementation remains at git tag `mvp-v1`.

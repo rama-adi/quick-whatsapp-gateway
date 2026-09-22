@@ -113,6 +113,7 @@ optional or nullable.
 | [`message.from_me`](#messagefrom_me) | A message is sent from this number, including from another device linked to it. |
 | [`message.status`](#messagestatus) | WhatsApp reports a receipt for one or more messages. |
 | [`message.reaction`](#messagereaction) | Someone reacts to a message. |
+| [`message.interactive_reply`](#interactive-replies) | A button or list option is selected. |
 | [`message.edited`](#messageedited) | A message is edited. |
 | [`message.revoked`](#messagerevoked) | A message is deleted for everyone. |
 | [`poll.vote`](#pollvote) | Someone votes on a poll. |
@@ -946,10 +947,11 @@ labels.
 ### `poll.vote`
 
 Someone voted on a poll. `targetId` is the original poll message they voted on.
-`selectedOptions` holds the chosen option **labels**: WhatsApp transmits a vote as
-SHA-256 hashes of the options, and the gateway resolves them back to text using the
-options it recorded when the poll was created. If a vote arrives for a poll the gateway
-never saw (so it can't resolve a hash), that entry falls back to the raw hash string.
+The production normalizer currently emits an empty `selectedOptions` array:
+poll-vote decryption and stored-option lookup are not wired into its runtime.
+The event identifies the poll and voter; selected labels remain unavailable.
+The adapter supports resolving decrypted SHA-256 hashes to stored labels when
+those dependencies are supplied, with unresolved hashes retained as strings.
 
 ```json
 {
@@ -966,7 +968,7 @@ never saw (so it can't resolve a hash), that entry falls back to the raw hash st
     "fromMe": false,
     "type": "poll_vote",
     "targetId": "3EB0A1B2C3D4E5F6A7BC",
-    "selectedOptions": ["Sushi"],
+    "selectedOptions": [],
     "hasMedia": false,
     "media": null,
     "timestamp": 1719400024000,
@@ -978,7 +980,7 @@ never saw (so it can't resolve a hash), that entry falls back to the raw hash st
 **Fields**
 
 - `targetId` (string) — the poll-creation message's `waMessageId`.
-- `selectedOptions` (string[]) — the chosen option labels (falls back to the raw SHA-256 hash for any option the gateway can't resolve).
+- `selectedOptions` (string[]) — empty in the current production runtime; populated by adapters configured with vote decryption and option lookup.
 - Plus the common message fields (`waMessageId`, `chatJid`, `senderJid`, `fromMe`, `timestamp`, `pushName`).
 
 ## Presence, chats & contacts
@@ -1594,3 +1596,13 @@ carries `groupJid`.
 
 For the endpoints that produce and receive these events, see the
 [API reference](/docs/api).
+
+## Interactive replies
+
+`message.interactive_reply` carries the normal message payload with
+`type: "interactive_reply"`. Its `interactiveReply` object contains `kind`
+(`button` or `list`), the selected `id`, and `title`. `quotedMessageId` identifies
+the original message when WhatsApp provides it. The chat and sender identify who
+selected the option, including in a group chat. Selections use this event instead
+of the ordinary `message` event. See [sending interactive messages](/docs/guides/sending#quick-replies-and-selection-lists-experimental)
+for a payload example and compatibility limitations.

@@ -4,13 +4,8 @@
 // One MDX page per operation, foldered by tag. Commit the result so the docs
 // site builds on a fresh checkout without a generate step.
 import { generateFiles } from "fumadocs-openapi";
-import { createOpenAPI } from "fumadocs-openapi/server";
+import { openapi } from "../app/lib/openapi.ts";
 import { rm } from "node:fs/promises";
-
-// Same spec + server config as app/lib/openapi.ts. Kept inline so this script
-// runs under `node --experimental-strip-types` without a cross-module
-// extension-resolution step (the runtime <APIPage> uses app/lib/openapi.ts).
-const openapi = createOpenAPI({ input: ["../docs/openapi.yaml"] });
 
 const OUT = "./content/docs/api";
 
@@ -33,11 +28,12 @@ await generateFiles({
       path: "index.mdx",
       content: `---
 title: API reference
-description: Every gateway endpoint, generated from the OpenAPI contract.
+description: Organization-scoped gateway endpoints, generated from the OpenAPI contract.
 ---
 
 These pages are generated from the gateway's OpenAPI contract, so they always
-match the deployed API. Each endpoint shows its request and response shapes and
+match the checked-in API contract. Platform administration endpoints are documented
+on the marketing and developer site. Each endpoint shows its request and response shapes and
 an interactive request panel.
 
 New here? The [guides](/docs/guides) walk through pairing and sending first.

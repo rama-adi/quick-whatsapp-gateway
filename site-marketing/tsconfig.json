@@ -1,0 +1,24 @@
+{
+  "include": ["**/*.ts", "**/*.tsx", "app/routeTree.gen.ts"],
+  "exclude": ["node_modules", ".output", ".nitro", "dist", "app/_v1-surfaces"],
+  "compilerOptions": {
+    "lib": ["DOM", "DOM.Iterable", "ES2022"],
+    "types": ["node", "vite/client"],
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "paths": {
+      "~/*": ["./app/*"],
+      "collections/*": ["./.source/*"]
+    },
+    "esModuleInterop": true,
+    "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true
+  }
+}

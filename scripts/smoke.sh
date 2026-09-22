@@ -23,7 +23,7 @@
 # at the end, not executed here.
 #
 # The script is strict: ANY unexpected HTTP status aborts with a non-zero exit and
-# a dumped response body. Referenced from README.md ("Smoke test").
+# a dumped response body. Referenced from site-marketing/content/docs/project/repository-overview.mdx ("Smoke test").
 #
 # Usage:
 #   BETTER_AUTH_URL=http://localhost:3000 API_URL=http://localhost:8090 \

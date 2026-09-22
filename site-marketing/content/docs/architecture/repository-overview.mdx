@@ -1,0 +1,109 @@
+---
+title: "Repository and contributor workflow"
+description: "Workspaces, local development, generated contracts, migrations, and validation."
+---
+
+The [WhatsApp Gateway source repository](https://github.com/rama-adi/quick-whatsapp-gateway) contains the Go backend, authenticated dashboard, and marketing/documentation app.
+Run workspace commands from their own directory; root Make targets coordinate shared tasks.
+
+## Layout
+
+```text
+backend/       Go module, tooling, protobufs, and generated bindings
+  cmd/api/     Public API and private gateway control plane
+  cmd/gateway/ WhatsApp engine runtime
+  cmd/migrate/ Explicit WA database migrations
+  internal/    Application, protocol, storage, and transport packages
+  migrations/ Embedded golang-migrate WA schema files
+  proto/       Public and private gRPC contracts
+  gen/         Generated Go protobuf bindings
+web/           Dashboard, better-auth identity, user guides, API reference
+site-marketing/ Marketing landing page, operator and developer MDX documentation
+deploy/        Dockerfiles, Compose topologies, and environment examples
+docs/          Generated shared OpenAPI contract
+internal-docs/ Internal project plans, milestone history, and handoff records
+```
+
+`AGENTS.md` and `CLAUDE.md` carry collaboration instructions. The v1 single-binary
+implementation is preserved at git tag `mvp-v1`.
+
+## Local development
+
+Use the Go version declared by `backend/go.mod`, Node with the repository's pnpm version,
+Docker for local infrastructure, and `air` for gateway reloads. The backend uses pure-Go SQLite
+and supports `CGO_ENABLED=0`.
+
+Copy `deploy/.env.example` into the chosen environment file and configure the API, frontend,
+private PKI, and persistent gateway paths. The gateway requires enrollment or an installed
+identity before it can join the control plane. The full operator setup lives in the
+[hosting guides](/docs/operators).
+
+```sh
+make infra-up
+make migrate
+cd web
+pnpm install
+pnpm db:migrate
+```
+
+Run `make api`, `make dev`, and `make web` from the WhatsApp Gateway checkout directory in separate terminals after configuring
+their prerequisites. Run `pnpm install` and `pnpm dev` in `site-marketing/` for the documentation
+app. Root API/gateway/migration launch targets preserve the root working directory so `.env`,
+`deploy/.env`, and relative data paths retain their meaning. `make infra-reset` deletes local
+infrastructure data; use it only for a disposable development database.
+
+## Schema ownership
+
+WA schema changes belong in `backend/migrations/` with up/down counterparts. Apply them with
+`make migrate`; refresh the frontend read-only model with `cd web && pnpm db:introspect`.
+Auth schema changes belong to the frontend better-auth/Drizzle toolchain. Regenerate with
+`pnpm auth:generate`, then apply using `pnpm db:migrate` from `web/`.
+
+## Generated contracts
+
+Edit REST operations in `backend/internal/http/handlers/*_ops.go` and shared DTOs/events in
+`backend/internal/apitypes`. Run `make gen` to regenerate `docs/openapi.yaml`, frontend API
+types, and Fumadocs API pages. Run `make openapi-check` to detect OpenAPI drift.
+Private and public protobuf definitions live under `backend/proto/`; `make proto`,
+`make proto-lint`, `make proto-check`, and `make proto-breaking` maintain their generated bindings
+and compatibility checks.
+
+## Validation
+
+```sh
+go -C backend build ./...
+go -C backend vet ./...
+go -C backend test ./...
+cd web
+pnpm build
+pnpm typecheck
+pnpm test
+```
+
+For marketing/docs changes, run `pnpm build` and `pnpm typecheck` from `site-marketing/`.
+Gateway lint runs through `make lint`. The better-auth JWT and API-key contract fixtures live
+in `backend/internal/authz`; update them alongside a change to the pinned auth behavior.
+`scripts/smoke.sh` exercises account/JWT/session integration against a configured running stack.
+Pairing and actual WhatsApp delivery require a linked device.
+
+## Deployment artifacts
+
+Container builds use the WhatsApp Gateway checkout directory as the build context:
+
+```sh
+docker build -f deploy/Dockerfile.api -t whatsmeow-api .
+docker build -f deploy/Dockerfile -t whatsmeow-gateway .
+docker build -f deploy/Dockerfile.web -t whatsmeow-frontend .
+```
+
+The self-host Compose topology packages the application roles with MySQL and Redis;
+the modular topology separates the application containers, and the development topology provides
+local infrastructure. Preserve gateway IDs, credentials, and the full SQLite volume during an
+upgrade. Verify deployment triggers, configuration, backups, and enrollment before a runtime cutover.
+
+## Documentation ownership
+
+User workflows and endpoint reference pages live with `web/`. Hosting, platform administration,
+implementation contracts, and developer workflows live here in `site-marketing/`. Internal plans,
+status logs, and handoffs live in `internal-docs/`. Update the appropriate living MDX reference
+when behavior changes; keep generated contracts reproducible from code.

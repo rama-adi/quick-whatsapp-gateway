@@ -6,7 +6,7 @@ BUF = go run github.com/bufbuild/buf/cmd/buf@$(BUF_VERSION)
 PROTO_BREAKING_BRANCH ?= origin/main
 PROTO_BREAKING_REF ?= refs/remotes/$(PROTO_BREAKING_BRANCH)
 
-.PHONY: infra-up infra-down infra-reset up up-logs down dev api web migrate build build-api lint test tidy sqlc gen openapi openapi-check proto proto-lint proto-breaking proto-check
+.PHONY: infra-up infra-down infra-reset up up-logs down dev api web marketing migrate build build-api lint test tidy sqlc gen openapi openapi-check proto proto-lint proto-breaking proto-check
 
 infra-up:    ## start mysql + redis only (run the gateway on the host with `make dev`)
 	$(COMPOSE_DEV) up -d
@@ -29,6 +29,9 @@ api:         ## run the API (the public front door) on the HOST (run infra-up fi
 	./.dev/api
 web:         ## frontend dev server (HMR)
 	cd web && pnpm dev
+
+marketing:   ## marketing + operator/developer docs dev server
+	cd site-marketing && pnpm dev
 
 migrate:     ## apply API-owned WA schema migrations
 	go -C backend build -o ../.dev/migrate ./cmd/migrate
@@ -71,3 +74,4 @@ openapi-check: openapi ## CI drift guard: fail if docs/openapi.yaml is stale vs 
 	git diff --exit-code docs/openapi.yaml
 gen: openapi ## regen the contract + typed API client + docs pages (run after changing API Go types)
 	cd web && pnpm gen:api && pnpm docs:openapi
+	cd site-marketing && pnpm docs:openapi

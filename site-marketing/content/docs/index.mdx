@@ -1,0 +1,36 @@
+---
+title: Run and build with WhatsApp Gateway
+description: Hosting, platform administration, API contracts, and the technical details behind the gateway.
+---
+
+WhatsApp Gateway connects linked WhatsApp devices to applications through an API,
+a dashboard, webhooks, and realtime events. The WhatsApp Gateway documentation website explains how to host a gateway
+installation and how its services work. People using an existing installation can find
+pairing, messaging, organization, and integration guides under **Docs** in their
+dashboard.
+
+## Choose your starting point
+
+| You want to… | Start here |
+| --- | --- |
+| Run a local development environment | [Local development](/docs/operators/local-development) |
+| Host your own installation | [Deployment](/docs/operators/deploying) |
+| Manage platform users and gateways | [Platform administration](/docs/operators/platform-administration) |
+| Protect paired-device data | [Keystore backup and restore](/docs/operations/keystore-backup) |
+| Integrate with the API | [Complete API reference](/docs/api) |
+| Understand service boundaries and storage | [Architecture](/docs/architecture) |
+| Change the code and regenerate contracts | [Regenerating code](/docs/operators/regenerating-code) |
+
+## What runs where
+
+The **API** authenticates callers, owns shared WhatsApp application data in MySQL,
+and coordinates gateways. The **gateway** owns live WhatsApp connections and
+local SQLite device and journal state. The **web app** provides identity and the
+dashboard. This **marketing and documentation site** runs independently with its own content and server bundle.
+
+Read the subsystem pages for concrete contracts, failure behavior, known
+limitations, and operational tradeoffs. The operator guides provide current deployment instructions.
+
+## Compatibility and account risk
+
+The gateway uses whatsmeow, an unofficial WhatsApp client library. WhatsApp controls protocol changes and account restrictions. The [outbound pipeline](/docs/architecture/outbound-pipeline) describes the supported send types and production dispatch behavior.

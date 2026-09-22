@@ -1,0 +1,32 @@
+---
+title: "Architecture"
+description: "Runtime responsibilities, trust boundaries, data ownership, and detailed subsystem contracts."
+---
+
+Runtime responsibilities, trust boundaries, data ownership, and detailed subsystem contracts.
+
+
+Start with the [architecture overview](/docs/architecture/overview), then open the subsystem you need. The detailed references retain implementation constraints, failure modes, and known limitations.
+
+- [whatsmeow Gateway — Implementation Spec (v2)](/docs/architecture/overview)
+- [API keys](/docs/architecture/api-keys)
+- [Backfill Import — user-uploaded WhatsApp backup (crypt15)](/docs/architecture/backfill-import)
+- [Contacts](/docs/architecture/contacts)
+- [Eventing](/docs/architecture/eventing)
+- [Frontend (web/ — TanStack Start + better-auth)](/docs/architecture/frontend)
+- [gRPC contract tooling and compatibility](/docs/architecture/grpc-contracts)
+- [HTTP foundation](/docs/architecture/http-foundation)
+- [Inbound Pipeline](/docs/architecture/inbound-pipeline)
+- [Sign in with WhatsApp — OAuth 2.1 / OIDC provider (backend/internal/oidp)](/docs/architecture/oauth)
+- [Outbound Pipeline](/docs/architecture/outbound-pipeline)
+- [Queue (asynq background jobs)](/docs/architecture/queue)
+- [Resource handlers (chats · groups · channels · status · presence · admin)](/docs/architecture/resources)
+- [API front door (backend/cmd/api + backend/internal/router)](/docs/architecture/router)
+- [Session Manager](/docs/architecture/session-manager)
+- [Store — MySQL app-data repositories (backend/internal/store)](/docs/architecture/store)
+- [Stream (event fan-out + transport-agnostic Pump)](/docs/architecture/stream)
+- [Trust & auth model (backend/internal/authz + backend/internal/controlbus)](/docs/architecture/trust-model)
+- [Webhooks](/docs/architecture/webhooks)
+- [whatsmeow store](/docs/architecture/whatsmeow-store)
+
+- [Repository and contributor workflow](/docs/architecture/repository-overview)

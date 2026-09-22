@@ -1,0 +1,121 @@
+---
+title: How the services fit together
+description: The router, the gateway, and the frontend — what each owns, how they talk, and how a request is proven legitimate. Read this before changing code.
+---
+
+The [WhatsApp Gateway source repository](https://github.com/rama-adi/quick-whatsapp-gateway) contains the Go backend under `backend/` and the web frontend
+under `web/`, plus the independent `site-marketing/` marketing and documentation website.
+The messaging application runs as three services: the **API** (also called the router),
+the **gateway** (the WhatsApp engine), and the **frontend** (the dashboard and identity service).
+The API and frontend use MySQL and Redis; the gateway stores its state in local SQLite.
+The documentation website runs as a separate service. All source paths on this page
+are relative to the checkout directory containing `Makefile`.
+
+| Service | Location | Stack | What it does |
+|---|---|---|---|
+| **API** | `backend/cmd/api`, `backend/internal/router` | Go | The public API service. It authenticates every caller, finds the gateway that owns the target session, dispatches private engine commands, and serves realtime and OpenAPI surfaces. |
+| **Gateway** | `backend/cmd/gateway`, `backend/internal/` | Go, whatsmeow | Holds the live WhatsApp connections and serves the private mTLS engine. It never migrates MySQL. |
+| **Frontend** | `web/` | TanStack Start, better-auth | The dashboard plus the identity service: login, registration, 2FA, organizations, and API-key management. Renders the dashboard, viewer, and contacts UI. |
+
+The API coordinates one or more gateways. Each gateway maintains the WhatsApp
+connections assigned to it. The frontend supports serverless hosting, while the
+Go API and gateway run as persistent processes. Each service can run on a
+separate host.
+
+## How requests and events flow
+
+```text
+Browser -- bearer JWT/API key --> API -- private mTLS engine command --> Gateway --> WhatsApp
+   |                              |                                     |
+   +-- session cookie --> Frontend+-- MySQL + Redis                      +-- SQLite keystore
+                                  ^                                     +-- durable journal
+                                  +---- private mTLS event/control stream ---+
+```
+
+The API owns public REST/gRPC, MySQL application data, background work, realtime
+WebSockets, and webhooks. The gateway owns live WhatsApp connections, device keys,
+and journaled events/command results. It does not import the API service graph.
+`backend/internal/gateway/waadapter` connects protocol normalization and outbound sends to
+the gateway's local runtime; API projections live in `backend/internal/service`.
+
+## How a request is trusted
+
+The API verifies better-auth JWTs against the frontend's cached JWKS, or hashes an
+API key and checks its record in shared MySQL. It then checks capability and
+organization ownership. Neither credential is forwarded to the gateway.
+
+For live operations the API resolves the current gateway assignment and sends a
+private gRPC command. The gateway checks the API's mTLS certificate and current
+connection/assignment epochs. Durable command IDs allow a completed operation's
+result to be replayed instead of repeating the external action. There is no HTTP
+reverse proxy or internal assertion-token layer.
+
+### Revoking access immediately
+
+The short JWT TTL and a ~60 s cache TTL on validated keys bound how long stale
+access can last on their own. To cut access off sooner, the frontend publishes on
+a Redis **control bus** and the **router** subscribes:
+
+| Channel | Router action |
+|---|---|
+| `ctrl:apikey.revoked` | Drop the cached key so the next request re-validates and fails closed. |
+| `ctrl:user.banned` | Drop the user's cached keys and deny their in-flight JWTs until the JWT TTL ages out. |
+| `ctrl:member.removed` | Deny the `(user, org)` pair until the JWT TTL ages out. |
+
+Redis pub/sub is fire-and-forget: a router that is down when a message is
+published misses it. Two backstops cover that gap — the ~60 s cache TTL (the
+revoked row is gone, so the next lookup fails closed) and a one-time
+reconciliation sweep on boot. Full detail: the
+[trust model spec](/docs/architecture/trust-model)
+and the [router spec](/docs/architecture/router).
+
+## How the router finds the right gateway
+
+Every session is pinned to the gateway that holds its WhatsApp keys, recorded in
+`wa_sessions.gateway_id`. Gateways register themselves in a `gateways` table on
+boot and heartbeat into it; the router reads that registry to route. A gateway
+row moves through a lifecycle — `joining` → `active` → `draining` → `drained`,
+plus `unreachable`, which the router derives when a heartbeat goes stale.
+
+- **Routing an existing session:** the router looks up its `gateway_id` and
+  dispatches a private engine command there. If that gateway is missing, not `active`, or stale, the request
+  fails with `503 gateway_unavailable`.
+- **Creating a session:** the router places it on the least-loaded `active`
+  gateway.
+
+Gateways enroll through the private control plane. Placement and routing use
+the enrolled gateway registry and its current availability.
+
+## Organizations own resources
+
+Every resource is owned by a better-auth `organization_id`, never by a user id.
+Each user gets a personal organization on signup, so solo use is just a
+one-member org, and "sharing a WhatsApp connection" means inviting someone into
+the org. A user reaches a resource through org membership.
+
+The router authorizes from the JWT's `activeOrganizationId` and `orgRole` claims
+(or, for an API key, its organization reference). The API scopes persistence
+queries and authorizes commands before dispatching them over private mTLS.
+
+Capabilities map to roles and permissions as follows:
+
+- **api-keys** carry explicit permission flags (`read` / `send` / `manage` /
+  `events`); the flag is checked for the action.
+- **JWT callers** map from org role: `owner` and `admin` get all four
+  capabilities; `member` gets everything except `manage`.
+- The platform `super_admin` role (from the JWT `role` claim) is allowed
+  everything, across organizations.
+
+## Where to read next
+
+- [Data planes and the single-writer rule](/docs/operators/data-planes) — who writes which tables, and why cross-writes are banned.
+- [Local development](/docs/operators/local-development) — infra in Docker, the three apps on the host.
+- [Build and test gates](/docs/operators/build-and-test) — the commands each half must pass.
+- [Source repository layout](/docs/operators/repo-layout) — the router/gateway packages and the `web/app` tree.
+- [Regenerating code](/docs/operators/regenerating-code) — the typed client, auth schema, WA read-models, and these API docs.
+- Event shape (dashboard path `/docs/guides/event-shape`) — the versioned envelope and event catalog the realtime WebSocket and webhooks both emit.
+
+The [architecture overview](/docs/architecture/overview) is the full design;
+[router](/docs/architecture/router) and [trust model](/docs/architecture/trust-model)
+explain the boundaries in detail. `docs/openapi.yaml` remains the generated public
+API contract of record.

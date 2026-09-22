@@ -1,38 +1,22 @@
 ---
 title: Getting started
-description: Reach a running gateway and dashboard, then create your account.
+description: Sign in to your gateway dashboard and find your organization.
 ---
 
 This guide gets you to a running system and a signed-in account. The gateway is
 the service that holds the WhatsApp connection and serves the API; the dashboard
 is the web app where you sign in and manage things.
 
-## 1. Get the gateway and dashboard running
+## Open your dashboard
 
-You need both services up before you can sign in. Pick the path that matches what
-you're doing:
+Use the dashboard URL provided by the person hosting your gateway. You also need
+the public API URL when calling the gateway from your own code.
 
-| Your situation | Follow |
-|---|---|
-| Running it on your own machine to develop or try it out | [Local development](/docs/dev/local-development) |
-| Deploying it to a server | [Deploying](/docs/dev/deploying) |
+## Create your account
 
-Either path leaves you with the dashboard on `http://localhost:3000` (locally) or
-your own URL, and the gateway reachable from it. Come back here once it loads.
-
-## 2. Create your account
-
-Open the dashboard and sign up with an email and password.
-
-Every new account is a normal user. You don't get any platform-wide admin powers
-just by being the first to sign up — that's granted separately by an operator
-(see [Create the first admin](/docs/dev/deploying#create-the-first-admin)).
-
-<Callout type="info">
-If sign-up is turned off, an operator has disabled self-registration and must
-create your account for you. See
-[Deploying](/docs/dev/deploying).
-</Callout>
+Open the dashboard and sign up with an email and password. If registration is
+closed, ask your gateway operator to create an account for you. New accounts
+receive ordinary user access and a personal organization.
 
 ## Your personal organization
 

@@ -1,5 +1,5 @@
 // Package router implements the API's public HTTP surface: the single front
-// door and trust boundary in front of the WhatsApp gateways (docs/specs/router.md).
+// door and trust boundary in front of the WhatsApp gateways (site-marketing/content/docs/architecture/router.mdx).
 // Callers use one base URL + their better-auth credential; the API authenticates
 // them and serves every operation locally — REST handlers mount directly, live
 // work executes through private engine gRPC, and no reverse proxy remains. The

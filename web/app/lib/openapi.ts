@@ -1,11 +1,24 @@
-// OpenAPI server for fumadocs-openapi. It reads the gateway's contract of
-// record (../docs/openapi.yaml, same file the gen:api script consumes) and
-// drives two things:
-//   - the docs:openapi script (generateFiles) that writes the reference MDX
-//     under content/docs/api, and
-//   - the runtime <APIPage> render via openapi.loaderPlugin() in lib/source.ts.
+// Both the generated reference and its runtime payload use the user audience.
+// The full API contract remains in docs/openapi.yaml for developer documentation.
 import { createOpenAPI } from "fumadocs-openapi/server";
 
+const full = createOpenAPI({ input: ["../docs/openapi.yaml"] });
+
 export const openapi = createOpenAPI({
-  input: ["../docs/openapi.yaml"],
+  input: {
+    "../docs/openapi.yaml": async () => {
+      const { bundled } = await full.getSchema("../docs/openapi.yaml");
+      return {
+        ...bundled,
+        paths: Object.fromEntries(
+          Object.entries(bundled.paths ?? {}).filter(
+            ([path]) => !/^\/(?:api\/v1\/)?admin(?:\/|$)/.test(path),
+          ),
+        ),
+        tags: bundled.tags?.filter(
+          (tag) => !["Admin", "Gateway Administration"].includes(tag.name ?? ""),
+        ),
+      };
+    },
+  },
 });

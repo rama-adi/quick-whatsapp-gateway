@@ -1,0 +1,28 @@
+@import "tailwindcss";
+
+:root { font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+body { margin: 0; }
+.marketing-shell { color: #172e26; background: #f8faf6; min-height: 100vh; }
+.marketing-shell a { text-decoration: none; color: inherit; }
+.marketing-nav, .marketing-footer { max-width: 1120px; margin: auto; padding: 28px 32px; display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.marketing-nav { border-bottom: 1px solid #dfe6dc; }
+.marketing-nav a, .marketing-footer a { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; }
+.marketing-nav .brand { font-size: 16px; font-weight: 650; letter-spacing: -.4px; gap: 10px; }
+.brand-mark { display: inline-flex; background: #174b36; color: #fff; padding: 9px; border-radius: 10px; }
+.landing { max-width: 1120px; margin: auto; padding: 0 32px; }
+.hero { padding: 96px 0 76px; }
+.eyebrow { display: flex; align-items: center; gap: 10px; font-size: 11px; font-weight: 650; letter-spacing: 1.6px; margin-bottom: 26px; color: #507b62; }
+.eyebrow span { width: 7px; height: 7px; background: #48865c; border-radius: 50%; }
+.hero h1 { font-size: clamp(40px, 5.3vw, 68px); line-height: 1.1; font-weight: 580; letter-spacing: -.055em; margin: 0 0 28px; }
+.hero h1 span { color: #4e795e; }
+.hero-copy { max-width: 570px; font-size: 18px; line-height: 1.7; color: #5b6a60; margin-bottom: 30px; }
+.marketing-shell .primary-link { display: inline-flex; align-items: center; gap: 20px; background: #174b36; color: white; padding: 15px 20px; border-radius: 7px; font-size: 14px; font-weight: 550; }
+.primary-link:hover { background: #236044; }
+.features { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid #dfe6dc; border-bottom: 1px solid #dfe6dc; gap: 44px; padding: 36px 0; }
+.features svg { color: #507b62; }
+.features h2 { font-weight: 600; font-size: 17px; letter-spacing: -.3px; margin: 16px 0 10px; }
+.features p { font-size: 14px; line-height: 1.8; color: #627166; margin: 0; }
+.project-note { font-size: 12px; line-height: 1.8; color: #6d796e; max-width: 760px; padding: 28px 0 50px; }
+.marketing-footer { border-top: 1px solid #dfe6dc; color: #68766b; font-size: 12px; }
+.marketing-footer a { font-size: 12px; }
+@media (max-width: 640px) { .hero { padding: 60px 0; } .features { grid-template-columns: 1fr; gap: 30px; } .marketing-nav, .marketing-footer { padding: 22px; } .landing { padding: 0 22px; } .marketing-nav { align-items: flex-start; } .marketing-nav .brand { font-size: 14px; } .marketing-footer { flex-wrap: wrap; } .hero-copy { font-size: 16px; } }

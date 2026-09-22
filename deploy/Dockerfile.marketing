@@ -1,0 +1,18 @@
+# Build from the repository root: docker build -f deploy/Dockerfile.marketing .
+FROM node:22-alpine AS build
+WORKDIR /site-marketing
+RUN corepack enable
+COPY site-marketing/package.json site-marketing/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+COPY site-marketing/ ./
+COPY docs/openapi.yaml /docs/openapi.yaml
+ENV NITRO_PRESET=node-server SERVER_PRESET=node-server
+RUN pnpm build
+
+FROM node:22-alpine
+WORKDIR /site-marketing
+ENV NODE_ENV=production
+COPY --from=build /site-marketing/.output ./.output
+COPY docs/openapi.yaml /docs/openapi.yaml
+EXPOSE 3000
+CMD ["node", ".output/server/index.mjs"]

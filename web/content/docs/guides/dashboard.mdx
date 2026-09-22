@@ -1,16 +1,11 @@
 ---
 title: The dashboard
-description: What you can do in the dashboard, the extra pages a super admin sees, the read-only viewer, and contacts.
+description: Manage your organization’s sessions, API keys, webhooks, chats, and contacts.
 ---
 
 The dashboard is the web app where you sign in to pair WhatsApp numbers, create
-API keys and webhooks, and watch messages arrive. What you see depends on your
-role:
-
-- A **user** works inside their own **organizations** — the groups that own
-  numbers, keys, and webhooks.
-- A **super admin** (the platform-wide role) sees everything a user sees, plus
-  extra pages that look across every organization.
+API keys and webhooks, and watch messages arrive. You work inside your active organization — the shared
+workspace that owns your numbers, keys, and webhooks.
 
 ## What a user can do
 
@@ -25,23 +20,13 @@ which one is active with the org switcher.
 | **Viewer** | Read-only window into a session's chats. | [Below](#the-viewer) |
 | **Contacts** | Searchable list of people and groups a session has seen. | [Below](#contacts) |
 
-## Extra pages a super admin sees
-
-The super admin role spans the whole platform, not one organization. On top of
-the user pages above, a super admin gets:
-
-| Page | What you do there |
-|---|---|
-| **Users** | List every account, change a person's role, ban or unban them, and impersonate one to help with support. |
-| **All sessions** | Every WhatsApp session across **all** organizations, with its live status. Each row shows which gateway (the Go service running the connection) the session lives on. |
-| **Admin number** | The pairing code for the deployment's [admin number](/docs/dev/deploying#create-the-first-admin), so it can be linked without console access. |
-| **Event monitor** | A live feed of events flowing through the platform. |
-
 ## The viewer
 
 The viewer is a **read-only** window into one session's WhatsApp. It shows the
 session's chats and the message timeline, and updates live as new messages
-arrive.
+arrive. Edits replace the displayed text and show an **edited** label, including
+after reload. A message deleted for everyone displays **“This message was deleted”**
+and hides its original content and actions.
 
 It is for watching, not replying — you send messages through the
 [API](/docs/guides/sending), not here. A message with an attachment shows a

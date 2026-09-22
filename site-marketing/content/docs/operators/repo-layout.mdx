@@ -1,0 +1,92 @@
+---
+title: Source repository layout
+description: Where the gateway packages and the frontend app live, and what each directory is responsible for.
+---
+
+The [WhatsApp Gateway source repository](https://github.com/rama-adi/quick-whatsapp-gateway) contains three application workspaces: `backend/` for the Go API and WhatsApp engine, `web/` for the dashboard and identity service, and `site-marketing/` for the public marketing and documentation website. Paths on this page are relative to the directory containing the repository’s `Makefile`.
+
+```
+.
+├── backend/cmd/api/main.go        API entrypoint — migrates WA schema before serving
+├── backend/cmd/gateway/main.go    gateway runtime — never migrates MySQL
+├── backend/cmd/migrate/main.go    dedicated WA schema up/down command
+├── backend/internal/              backend packages (Go), shared by the router and gateway
+├── backend/migrations/            golang-migrate — WA app-data schema only
+├── web/                   frontend — TanStack Start + better-auth
+├── deploy/                Dockerfile · Dockerfile.api · Dockerfile.web · Dockerfile.marketing · compose files · .env.example
+├── docs/                  generated openapi.yaml contract
+├── internal-docs/         internal project plans, decisions, and progress records
+└── site-marketing/        marketing app and operator/developer MDX documentation
+```
+
+## Backend packages (`backend/internal/`)
+
+These are shared by both Go processes. Some run only on the router, some only on
+the gateway; the "Runs on" column says which.
+
+| Package | Runs on | What it does |
+|---|---|---|
+| `config/` | both | Reads configuration from environment variables and applies defaults. |
+| `domain/` | both | Core entities, enums, IDs, and errors. No I/O. |
+| `router/` | router | Public API routing: finds the session's gateway, enforces org isolation, forwards requests, places new sessions, serves realtime WebSockets, and reads the gateway registry. |
+| `authz/` | router | Verifies who is calling — better-auth JWTs against the JWKS, and better-auth api-keys — and resolves the caller's permissions. A JWT is a signed token proving identity; JWKS is the public-key set used to verify its signature. |
+| `gateway/` | gateway | Private mTLS engine and control-plane runtime, enrollment, durable journal, and WhatsApp adapter. |
+| `controlbus/` | router | Subscribes to the Redis `ctrl:*` channels. On a revocation message, evicts the api-key from the router's cache. |
+| `http/` | API | Public HTTP handlers and Huma operation definitions. No embedded frontend. |
+| `httpx/` | both | HTTP helpers: request decoding, JSON responses, pagination, error mapping. |
+| `wa/` | gateway | The WhatsApp engine. Holds the `manager` and `session` lifecycle, the SQLite keystore (`store/`), and the `inbound/`, `outbound/`, and `events/` pipelines. |
+| `store/` | API | MySQL repositories (sessions, gateways registry, messages, …). Every query is keyed by `organization_id`. |
+| `stream/` | both | The realtime event stream: the durable replay log, filtering, and the transport-agnostic pump the router's WebSocket drives. (The old NDJSON wire framing was removed.) |
+| `queue/` | library components | Asynq task, worker, and retention components. The current API runs dedicated outbound-command, event, webhook, and poll-recap loops; its Asynq worker and retention scheduler are unwired. See [Queue](/docs/architecture/queue). |
+| `webhooks/` | API | Outbound webhooks: matches events to configured endpoints, persists a pending delivery, then POSTs it with HMAC-signed headers, retries, and dead-letters exhausted deliveries. |
+| `crypto/` | both | AES-GCM encryption for webhook secrets at rest, plus api-key hashing. |
+| `service/` | API | The layer between handlers and stores. Wires the pieces together and holds the application logic. |
+
+What was removed from v1: the embedded auth package, the embedded React SPA, and the custom MySQL whatsmeow keystore. `backend/internal/authz` and the gateway-local SQLite keystore replaced them.
+
+## Frontend (`web/app/`)
+
+```
+web/app/
+├── routes/                file-based route tree
+│   ├── __root.tsx         root document + providers
+│   ├── index.tsx          entry route; redirects by role (login / admin / user)
+│   ├── _auth.tsx + _auth/*    public auth pages (login, register, 2fa)
+│   ├── _app.tsx + _app/*      authenticated shell; resolves the session in beforeLoad
+│   │   ├── admin/*         super_admin pages (sessions, tenants, monitor, pairing)
+│   │   └── user/*          user workspace (sessions, keys, webhooks, org switcher,
+│   │                        chat viewer, contacts)
+│   ├── api/auth.$.ts       better-auth catch-all (mounts /api/auth/*)
+│   ├── api/search.ts       docs search endpoint
+│   └── docs/$.tsx          Fumadocs catch-all that renders the docs pages
+├── components/
+│   ├── ui/                 ported shadcn primitives
+│   └── shell/              app chrome
+└── lib/
+    ├── auth/               better-auth client + server config, session, token, middleware
+    ├── api/                gateway client, generated OpenAPI types, React Query hooks, query keys
+    ├── db/                 Drizzle: auth-schema.ts (generated) + wa.ts (read-only WA mirror)
+    ├── events/             realtime WebSocket client, eventBus, cacheBridge reducer
+    ├── server/             control-bus publisher (publishes ctrl:* only)
+    ├── source.ts           Fumadocs content loader
+    └── openapi.ts          OpenAPI page config for the reference docs
+```
+
+How the route tree works:
+
+- A `-` prefix marks a colocated helper that is **excluded** from the route tree (for example `-contacts-data.ts`, `-message-bubble.tsx`).
+- `_auth` and `_app` are pathless layout routes — they add no URL segment. `_app.tsx` resolves the session on the server in `beforeLoad` and puts it on the route context.
+- `app/lib/**` and `app/components/{ui,shell}/**` are the shared code reused across routes.
+
+## Documentation ownership
+
+`web/content/docs/` contains app-user guides and the generated organization-scoped
+API reference. The dashboard serves these at `/docs`.
+
+`site-marketing/content/docs/` contains hosting and contributor guides, architecture,
+and the complete generated API reference. Update these MDX sources with relevant
+code changes. Internal project plans, decisions, handoffs, and progress records
+live in `internal-docs/*.md`, outside the published documentation.
+
+See [regenerating code](/docs/operators/regenerating-code) for generated references
+and [architecture overview](/docs/architecture/overview) for the full design.

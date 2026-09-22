@@ -1,0 +1,102 @@
+---
+title: Databases and who writes them
+description: The three places data is stored, which service is allowed to write each one, and the two jobs Redis does.
+---
+
+The system stores data in three places. Two of them share one MySQL instance; the
+third is a SQLite file that lives next to the gateway.
+
+| Storage | What's in it | Backend | Allowed to write | Reads |
+|---|---|---|---|---|
+| **Auth tables** | `user`, `session`, `account`, `verification`, `jwks`, `apikey`, `organization`, `member`, `invitation`, 2FA + admin tables | MySQL | Frontend (via better-auth) | Frontend reads and writes; API reads `apikey` to verify API keys |
+| **WhatsApp data** | `wa_sessions`, `gateways`, `messages`, `chats`, contacts, identities, groups, `webhooks`, `webhook_deliveries`, `outbox`, `event_log` | MySQL | API | API reads and writes; frontend reads only, for dashboards |
+| **whatsmeow keystore** | device identities, Signal sessions, prekeys, sender keys, app-state, LID map | SQLite (a file on a persistent volume next to the gateway) | Gateway | Gateway only |
+
+## Each set of tables has exactly one writer
+
+The frontend writes the auth tables. The API writes the WhatsApp data tables.
+Either service may **read** the other's tables, but neither service **writes** the
+other's tables.
+
+```
+  Frontend ──write──► auth tables ◄──read── API   (API reads `apikey` only)
+  API      ──write──► WA tables   ◄──read── Frontend   (frontend reads for dashboards)
+```
+
+A single owner keeps migration and persistence responsibilities explicit.
+Concurrent requests still need transactions and cache invalidation. When you add a column or a table,
+it belongs to whichever service writes it; the other service only reads it.
+
+## The frontend reads WhatsApp data directly, but never writes it
+
+For fast rendering, the frontend reads the WhatsApp data tables straight from MySQL
+through Drizzle (TanStack Start loaders run the queries). It only reads them. To
+change anything, it calls the API. So:
+
+- **Showing data** (dashboards, the message viewer, contacts) → the frontend queries MySQL directly, no extra network hop.
+- **Doing something** (send a message, start or stop a session, fetch a QR code, register a webhook) → the frontend calls the REST API on the **router**, which authenticates the caller and dispatches private mTLS commands to the owning gateway.
+- **Live updates** → the frontend opens the **router's realtime WebSocket** (mint a single-use ticket, then connect; events arrive as discrete JSON frames). See Receive events (dashboard path `/docs/guides/receiving`).
+
+The frontend describes the WhatsApp tables as **read-only** Drizzle definitions in
+`web/app/lib/db/wa.ts`. These definitions mirror the schema the API owns. Generate
+them with `drizzle-kit introspect` against the API-migrated database so they can't
+drift out of sync — see [regenerating code](/docs/operators/regenerating-code).
+
+## Migrations: two sets of tables, two tools
+
+Each set of tables is migrated by its own tool. Use the right one for the table you're
+changing.
+
+| Tables | Migrated by | Command |
+|---|---|---|
+| WhatsApp data (API schema-owned) | golang-migrate | API startup, or `go -C backend run ./cmd/migrate up` (`make migrate`) |
+| Auth (frontend-owned) | drizzle-kit | `cd web && pnpm db:migrate` |
+
+The gateway never runs schema migrations. Use API startup or the dedicated `backend/cmd/migrate up|down`.
+On the frontend side, `drizzle.config.ts` points only at `app/lib/db/auth-schema.ts`
+and is filtered to the auth tables, so a drizzle migration can't generate a statement
+against a gateway-owned table. Keep it that way, and review the generated diff before
+applying it.
+
+## The keystore is a SQLite file next to the gateway
+
+The SQLite keystore holds the device crypto material WhatsApp needs to stay paired.
+If you lose the file, every number has to scan a QR code and pair again. So it lives
+on a persistent volume (`/data/keystore` in containers) — back it up.
+
+It uses the pure-Go SQLite driver `modernc.org/sqlite`. Because that driver needs no
+C compiler, the whole gateway builds with `CGO_ENABLED=0` and ships as a small static
+image.
+
+Each WhatsApp session's keys live in exactly one gateway's keystore file. That is what
+ties a session to a specific gateway: `wa_sessions.gateway_id` records which gateway in
+the `gateways` registry holds that session. Gateways enroll through the private control plane; each keeps its own persistent
+keystore.
+
+## The two jobs Redis does
+
+v2 gives Redis two separate jobs. In development both jobs run on a single Redis
+instance; in production they can be split.
+
+| Job | Env var | What it carries | Who connects |
+|---|---|---|---|
+| **Work** | `REDIS_URL` | rate-limit counters, OIDC state, committed-event publication, and realtime fan-out | the API |
+| **Control bus** | `PUBSUB_REDIS_URL` (falls back to `REDIS_URL`) | low-volume `ctrl:*` pub/sub messages for revoking access | frontend (publishes) and the router (subscribes) |
+
+How to configure them:
+
+- **One instance** (dev, or a single server): leave `PUBSUB_REDIS_URL` unset. It falls back to `REDIS_URL`, so one Redis handles both jobs.
+- **Split** (production, or more than one gateway): point `PUBSUB_REDIS_URL` at a shared Redis (it can be a managed one) that the frontend and the router can both reach. Keep the high-traffic work Redis close to the API. The control bus is the frontend's **only** connection to Redis, and the frontend only ever publishes to it.
+
+More detail: [`docs/specs/store.md`](/docs/architecture/store),
+[`docs/specs/whatsmeow-store.md`](/docs/architecture/whatsmeow-store),
+[`docs/specs/queue.md`](/docs/architecture/queue).
+
+The gateway also keeps a durable SQLite event/command journal. Preserve it with
+the keystore and enrolled identity; it supports recovery and replay across
+connection interruptions. See [the control-plane contract](/docs/architecture/grpc-contracts).
+
+The current API runs dedicated loops for outbound commands, committed events,
+webhook delivery, and poll recaps. Asynq worker and retention-scheduler components
+exist in the library but are unwired in production; `RETENTION_DAYS` alone does
+not activate pruning. See [Queue](/docs/architecture/queue).

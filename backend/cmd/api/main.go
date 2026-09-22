@@ -3,7 +3,7 @@
 // API configuration, opens the shared MySQL tables and Redis, builds the
 // two-acceptor authenticator (better-auth JWKS + api-key table), serves every
 // REST operation locally, and runs the public/private gRPC servers with graceful
-// shutdown. See docs/specs/router.md.
+// shutdown. See site-marketing/content/docs/architecture/router.mdx.
 package main
 
 import (

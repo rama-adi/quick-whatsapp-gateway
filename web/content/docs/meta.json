@@ -1,3 +1,7 @@
 {
-  "pages": ["index", "guides", "api", "dev"]
+  "pages": [
+    "index",
+    "guides",
+    "api"
+  ]
 }

@@ -1,0 +1,13 @@
+{
+  "title": "Messages",
+  "description": "Send text, individual media, grouped image/video albums, polls, locations, and contacts. You can also edit, delete for everyone, react, forward, and vote on polls.",
+  "pages": [
+    "sendMessage",
+    "editMessage",
+    "revokeMessage",
+    "forwardMessage",
+    "addReaction",
+    "removeReaction",
+    "voteMessage"
+  ]
+}

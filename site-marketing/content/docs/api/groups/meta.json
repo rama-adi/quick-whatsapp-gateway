@@ -1,0 +1,20 @@
+{
+  "title": "Groups",
+  "description": "List groups and members, read invites, create groups, add or remove members, promote or demote members, edit group info, join or leave groups, and approve join requests.",
+  "pages": [
+    "listGroups",
+    "createGroup",
+    "getGroup",
+    "updateGroup",
+    "getGroupInvite",
+    "revokeGroupInvite",
+    "listGroupMembers",
+    "addGroupMembers",
+    "removeGroupMember",
+    "demoteGroupMember",
+    "promoteGroupMember",
+    "approveGroupMembers",
+    "leaveGroup",
+    "joinGroup"
+  ]
+}

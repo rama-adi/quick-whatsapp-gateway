@@ -2,8 +2,6 @@
   "title": "API reference",
   "pages": [
     "index",
-    "gateway-administration",
-    "admin",
     "sessions",
     "channels",
     "chats",

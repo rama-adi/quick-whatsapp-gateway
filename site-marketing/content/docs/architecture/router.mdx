@@ -1,0 +1,200 @@
+---
+title: "API front door (backend/cmd/api + backend/internal/router)"
+description: "Internal architecture and implementation reference."
+---
+
+Status: implemented. Live: API-local REST + public gRPC, auth termination, gateway
+registry lifecycle via the private control stream, and the realtime **WebSocket** endpoint
+(`POST /api/v1/realtime/ticket` + `GET /api/v1/realtime`, single-use Redis tickets, Redis `evt:*`
+fan-out, control-bus stream-drop). Realtime is **WebSocket-only**. See "Realtime" below.
+
+> **Increment 9: the proxy and the internal assertion are gone.** Every supported operation is
+> served API-locally; live WhatsApp work executes over **private mTLS gRPC engine RPCs**, not HTTP
+> proxying. The reverse proxy (`net/http/httputil.ReverseProxy`), placement/session resolution for
+> proxying, the Ed25519 request-bound assertion (minter/verifier/JWKS endpoint/nonce cache), and
+> `API_ED25519_PRIVATE_KEY` are deleted. The trust seam for end-user callers (better-auth JWKS JWT +
+> shared api-key table) is unchanged and runs only here.
+
+The private gRPC listener is enabled only by `API_GATEWAY_GRPC_ADDR` plus a persistent
+`API_GATEWAY_TLS_IDENTITY_DIR` and PKI configuration. It uses an atomically rotated API certificate,
+TLS 1.3, a pinned gateway root, and `VerifyClientCertIfGiven` solely so first enrollment can be
+anonymous at the TLS layer. It is a distinct acceptor from public HTTP and public gRPC and is not
+host-published by the first-party deployment overlay.
+
+## Purpose
+
+The API is the system's **single front door** and **single trust boundary**. Callers use *one* base
+URL + their token; the API authenticates, authorizes, resolves ownership, and executes every
+operation against its own MySQL state — calling the assigned gateway's private engine only for live
+WhatsApp work. This solves three problems the
+direct-to-gateway design had once there is (or might be) more than one gateway: host discovery is no
+longer the caller's problem, the version-pinned trust seam (better-auth api-key hash + JWKS verify)
+lives in exactly **one** place instead of N copies, and revocation/realtime have a single owner.
+
+The API owns all shared state (MySQL repositories, Redis work queues, realtime fan-out, event
+ingest). The gateway is a lean internal WhatsApp engine: SQLite keystore + journal + whatsmeow +
+mTLS control stream, with no MySQL or Redis dependency (see [`trust-model.md`](/docs/architecture/trust-model),
+[`http-foundation.md`](/docs/architecture/http-foundation)).
+
+## Request lifecycle
+
+Every `/api/v1` request flows through three steps:
+
+1. **Authenticate** the end-user caller. The two-acceptor authn (`backend/internal/authz.Authenticate`
+   with `JWTVerifier` + `APIKeyVerifier`, the latter behind `CachingKeyVerifier`) runs **only on
+   the API** — a `Bearer` JWT verified against the better-auth JWKS, or a better-auth api-key
+   verified against the shared `apikey` table. Neither → `401`. This resolves the full
+   `authz.Principal` (org, principal kind, userId, orgRole, platform role, keyId, permissions).
+2. **Enforce org isolation.** For a request naming a specific session, the owning session row is
+   loaded from MySQL. **Org isolation (load-bearing):** the session's `organization_id` must equal
+   the caller's org, else `404` (a `super_admin` platform role bypasses this for cross-org
+   oversight).
+3. **Serve API-locally.** Repository reads/writes execute in-process; live operations
+   (pairing, logout, sends, group/contact mutations) dispatch through the private engine facade to
+   the session's assigned gateway over mTLS gRPC with durable command ids and epoch fencing
+   ([`grpc-contracts.md`](/docs/architecture/grpc-contracts), [`outbound-pipeline.md`](/docs/architecture/outbound-pipeline)).
+
+## Routing rules
+
+| Request | Execution |
+|---|---|
+| `POST /api/v1/sessions` (create) | **placement** — least-loaded eligible gateway via `GatewayRepo.PickForPlacement`; the API inserts the row + epoch-1 assignment and prepares the engine's keystore device over private gRPC |
+| any path naming a specific session (`.../sessions/{id}...`) | served API-locally from MySQL; live parts dispatch to the session's **owning** gateway (`wa_sessions.gateway_id` → assignment) over the private engine |
+| everything else — webhooks, `GET /sessions` list, admin list | **API-local only** (shared MySQL; no gateway involvement) |
+
+### API-local gateway administration
+
+`/api/v1/admin/gateways` is served directly by `backend/cmd/api` from the shared
+registry/enrollment store and never touches a gateway's data plane. Every
+operation requires a login JWT whose platform role is exactly
+`super_admin`; API keys and organization roles receive `forbidden` before the
+gateway-administration service runs. The API provides create/list/detail,
+replacement enrollment tokens, drain/resume, disable/re-enable, explicit
+re-enrollment, and soft deletion.
+
+Creation, token replacement, and re-enrollment return the plaintext single-use
+enrollment bearer once. Read models, audit entries, and every other response
+exclude bearer, token hash, CSR, PEM, private-key, and trust-bundle material.
+The detail read model additionally exposes the API-persisted desired/applied
+revision, reconciliation status, safe keystore health (presence, byte count,
+integrity state, and check time), and the latest per-device reconciliation
+outcomes. An `unexpected_local_device` outcome intentionally carries neither a
+session ID nor an inferred organization: it is observed local inventory, not an
+API-owned assignment. Lifecycle state conflicts—including unsafe/missing gateway mutations—map to the
+stable `conflict` envelope. Deletion additionally requires
+`consequencesAcknowledged=true`; durable checks require a drained or disabled
+gateway with no assigned sessions, active enrollment token, or usable
+certificate.
+
+**Stranded session.** If the owning gateway is missing, disabled, drained, or its control-stream
+liveness is stale or implausibly far in the future, the API returns **`503 gateway_unavailable`**
+with a clear message rather than a silent hang (the `gateway_unavailable` domain error code → HTTP 503).
+Rows registered through the control stream use a 15-second freshness window matching the
+advertised heartbeat lease; `connection_mode=legacy` remains only as stored history for
+pre-migration rows — the control stream is the only registration writer. A current-epoch stream disconnect clears
+its liveness immediately; the epoch predicate prevents an old stream from making its replacement
+unreachable.
+
+New-session placement requires both observed `status=active` and
+`desired_lifecycle=run`, in addition to capacity and freshness. Observed shutdown
+DRAINING/DRAINED reports do not mutate desired lifecycle, so they do not latch a drain across
+restart; conversely, an operator-desired drain remains ineligible even if the last observed runtime
+status was active.
+
+After Welcome, the API may issue a sequence- and epoch-fenced lifecycle directive. The gateway
+reports one terminal result bound to that directive; DRAIN stops sessions terminally and
+DISABLE additionally terminates the gateway process. These observed reports still do not rewrite
+the authoritative desired lifecycle.
+
+## Internal assertion — removed
+
+The former router→gateway Ed25519 request-bound assertion (minter, verifier,
+`ROUTER_JWKS_URL`, nonce cache, `API_ED25519_PRIVATE_KEY`) was deleted with the
+reverse proxy in Increment 9: no HTTP hop between the processes remains to
+protect. The remaining trust seam is **per-gateway mTLS identities** on the
+private gRPC control/engine listeners, enforced with strict per-RPC certificate
+authorization (`backend/internal/pki`, `backend/internal/gateway/controlclient`,
+[`grpc-contracts.md`](/docs/architecture/grpc-contracts)). The pinned better-auth trust-seam
+contract tests in `backend/internal/authz` are unaffected.
+
+## Control-bus ownership
+
+The control-bus (`ctrl:*`) subscriber lives on the **API** (see
+[`queue.md`](/docs/architecture/queue), [`trust-model.md`](/docs/architecture/trust-model)). On `ctrl:apikey.revoked` the API
+**evicts the api-key positive cache** so a revoked key stops working within the window.
+Live WebSocket stream-drop on `ctrl:user.banned` / `ctrl:member.removed` is also implemented here.
+
+## Other surfaces
+
+- Serves the **generated Huma OpenAPI spec** at `GET /api/v1/openapi.yaml`; Go DTOs and Huma
+  operations are the source and `make openapi-check` guards drift. The gateway never serves it.
+  The API owns the public route surface + CORS (`FRONTEND_ORIGINS`); browsers hit the API.
+- Health probes: `GET /healthz`, `GET /readyz`, plus public gRPC
+  `public.v1.PublicHealthService/Check`. HTTP readiness and gRPC serving status share one predicate.
+- `backend/internal/dbconn` — the shared MySQL connection helper the **API** uses to reach the
+  shared app-data DB. The gateway imports none of it.
+
+## Config / env (`config.LoadAPI` → `config.APIConfig`)
+
+| Var | Default | Purpose |
+|---|---|---|
+| `API_HTTP_ADDR` | `:8090` | public HTTP listen address |
+| `API_PUBLIC_GRPC_ADDR` | `:8081` | plaintext public gRPC for local/trusted ingress-hop use; must differ from HTTP |
+| `API_GATEWAY_GRPC_ADDR` | empty (disabled) | opt-in private TLS 1.3 listener serving anonymous-token `Enroll` plus mTLS-authenticated engine/control streams; empty disables the listener |
+| `API_GATEWAY_TLS_IDENTITY_DIR` | — | versioned persistent API TLS identity directory; required with the private address |
+| `API_GATEWAY_TLS_RENEW_BEFORE` | `6h` | validated renewal threshold, shorter than the configured PKI leaf TTL |
+| `API_PUBLIC_URL` | — | external API base URL |
+| `MYSQL_DSN` | — | shared app-data DSN (all WA tables + registry + `apikey` read) |
+| `REDIS_URL` | — | work Redis |
+| `PUBSUB_REDIS_URL` | `${REDIS_URL}` | control-bus `ctrl:*` pub/sub |
+| `BETTER_AUTH_URL` | — (**required**) | the JWT `iss`/`aud` to enforce |
+| `BETTER_AUTH_JWKS_URL` | `${BETTER_AUTH_URL}/api/auth/jwks` | JWKS to fetch/cache (derived from `BETTER_AUTH_URL` if unset) |
+| `FRONTEND_ORIGINS` | — | comma-list of allowed CORS origins (browser → API) |
+| `REDIS_PREFIX` | — | key/channel namespace |
+| `LOG_LEVEL` | — | structured logging |
+
+The two public listen addresses may use an IP literal, `localhost`, or a wildcard host. On the same
+port, wildcard binds overlap every host; `localhost` is normalized to both loopback families; and
+IPv4-mapped/expanded IPv6 literals are normalized before collision checking. Other hostnames on a
+shared port are rejected rather than resolved through nondeterministic external DNS.
+
+Before opening its normal MySQL pool or binding either public listener, `backend/cmd/api` applies all
+pending WA schema migrations through `backend/internal/dbmigrate`. Migration failure is an attributed
+startup failure, so the API cannot advertise readiness against an old schema. Explicit rollback is
+available only through `backend/cmd/migrate down`; the gateway runtime has no migration command or import.
+
+## Realtime (Increment B — implemented)
+
+The API is the single client-facing realtime endpoint. A browser cannot set an `Authorization`
+header on a WebSocket, so authz happens once at **ticket mint** and the WS handshake merely redeems a
+short-lived, single-use ticket (`backend/internal/router/realtime.go`, `backend/internal/stream` `Pump`):
+
+- `POST /api/v1/realtime/ticket` — bearer-authenticated, scope-bearing, **authz-at-mint**: events
+  capability for `session`/`organization` scopes, `super_admin` for the admin `firehose`. The
+  *resolved* scope (org/session/events/since/principal) is stored in Redis `{prefix}:rt:ticket:{id}`
+  with a ~30s TTL. Returns `{ticket, expiresInSeconds, url}`.
+  Missing or cross-organization sessions return 404; session lookup failures return 500.
+  Redis ticket storage or redemption failures return 500; only missing, expired, or
+  already-redeemed tickets return 401 at redemption.
+- `GET /api/v1/realtime?ticket=…` — WS upgrade that **atomically `GETDEL`s** the ticket (single-use
+  even across replicas → a second connect gets nothing), subscribes per scope
+  (`evt:{org}:{session}` / `evt:{org}:*` / `evt:*`), applies the event-type filter, registers the
+  live connection so `ctrl:*` can drop it on revocation, and replays from `event_log` via the
+  ticket's `since` for org/session scopes (firehose is live-tail only).
+
+Events reach the fan-out only after the API **commits** a gateway event: the
+leased committed-event worker publishes each committed envelope to Redis
+`evt:*` after projections succeed ([`eventing.md`](/docs/architecture/eventing)). The
+transport-agnostic `stream.Pump` runs the subscribe → connected → replay →
+tail loop and writes WebSocket text frames via a `Sink`.
+
+The frontend WS client (`web/app/lib/events/stream.ts`) mints a ticket then opens the WebSocket.
+
+## Layer 2 keystore portability (deferred)
+
+The whatsmeow keystore is gateway-local SQLite, so
+a session's crypto material lives on exactly one box; this is what makes *removing* a gateway
+non-trivial. True drain/rebalance/failover needs a **shared keystore** (whatsmeow `sqlstore` on
+Postgres — separate infra). Layer 1 (this increment) makes accounting clean *within* the
+local-keystore constraint; portability is a later implementation swap behind the keystore consumer
+interface. See [`whatsmeow-store.md`](/docs/architecture/whatsmeow-store).

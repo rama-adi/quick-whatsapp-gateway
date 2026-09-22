@@ -1,0 +1,78 @@
+---
+title: Build and test gates
+description: Build, vet, and test commands for the WhatsApp Gateway backend, dashboard, and documentation website.
+---
+
+The [WhatsApp Gateway source repository](https://github.com/rama-adi/quick-whatsapp-gateway) has a Go backend (API and gateway processes), the `web/` dashboard,
+and the `site-marketing/` marketing and documentation app. Each has its own set
+of commands that must succeed before a change lands. The backend and dashboard must pass at every commit,
+not just at the end of a branch.
+
+## Gateway (Go)
+
+Run all three from the WhatsApp Gateway checkout directory (the directory containing `Makefile`):
+
+```sh
+go -C backend build ./...
+go -C backend vet ./...
+go -C backend test ./...
+```
+
+| Command | What it checks |
+|---|---|
+| `go -C backend build ./...` | Everything compiles. |
+| `go -C backend vet ./...` | Static checks for common mistakes (bad format strings, unreachable code, and similar). |
+| `go -C backend test ./...` | The full test suite. |
+
+The build and tests run with `CGO_ENABLED=0` because the gateway uses a pure-Go SQLite
+driver (no C compiler needed).
+
+### Contract tests for auth formats
+
+The router accepts two better-auth formats: api-keys and EdDSA JWTs (signed JSON
+tokens that carry the caller's identity). If better-auth changes how it stores an
+api-key hash or shapes a JWT, callers could stop working. Tests in
+`backend/internal/authz/` pin those formats so drift fails a test.
+
+Run just those packages with:
+
+```sh
+CGO_ENABLED=0 go -C backend test ./internal/authz/... ./internal/controlbus/...
+```
+
+If you bump the pinned better-auth version, regenerate the fixtures these tests assert
+against (see `contract_test.go` and `jwt_test.go` in `backend/internal/authz/`).
+
+### Lint
+
+```sh
+make lint   # runs golangci-lint run
+```
+
+## Frontend (`web/`)
+
+Run all three from `web/`:
+
+```sh
+pnpm build
+pnpm typecheck
+pnpm test
+```
+
+| Command | What it does |
+|---|---|
+| `pnpm build` | Vite build into `.output` (the Nitro server bundle). This also runs the TanStack Router code generator, which writes `app/routeTree.gen.ts`. |
+| `pnpm typecheck` | `tsc --noEmit`. It reads the generated `app/routeTree.gen.ts`, so the route tree must exist first (see below). |
+| `pnpm test` | Vitest. Covers the realtime frame parser (`app/lib/events/frames.test.ts`) and the `cacheBridge` event reducer (`app/lib/events/cacheBridge.test.ts`). |
+
+<Callout type="warn">
+On a fresh checkout, run `pnpm build` (or start `pnpm dev`) **before** `pnpm typecheck`.
+The typecheck reads the generated `app/routeTree.gen.ts`; without it, the typecheck fails
+because the route tree is missing. The build (and the dev server)
+both generate that file.
+</Callout>
+
+## Marketing and documentation (`site-marketing/`)
+
+Run `pnpm build` and `pnpm typecheck` from `site-marketing/` after changing its
+MDX or application code. Build first so the generated route tree is available.

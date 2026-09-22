@@ -194,7 +194,7 @@ func (r *apiServerRunner) run(ctx context.Context) error {
 // application surface (sessions/messages/events) over the same service graph
 // the REST handlers use, plus the unauthenticated health service. gRPC
 // reflection is deliberately NOT enabled — the public API is served from the
-// committed public/v1 contracts only (docs/specs/grpc-contracts.md).
+// committed public/v1 contracts only (site-marketing/content/docs/architecture/grpc-contracts.mdx).
 func newPublicGRPCServer(readiness func() error, deps apigrpc.Deps) *grpc.Server {
 	server := apigrpc.RegisterServer(deps)
 	publicv1.RegisterPublicHealthServiceServer(server, publicHealthService{readiness: readiness})

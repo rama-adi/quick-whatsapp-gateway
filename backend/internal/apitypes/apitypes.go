@@ -1,5 +1,5 @@
 // Package apitypes holds the shared API DTOs that are the source of truth for the
-// generated OpenAPI spec (docs/plans/plan-router-impl.md D11). The gateway defines
+// generated OpenAPI spec (internal-docs/plan-router-impl.md D11). The gateway defines
 // the resource request/response shapes here (and in the per-resource huma
 // operation files); huma generates docs/openapi.yaml from them via cmd/genopenapi.
 package apitypes

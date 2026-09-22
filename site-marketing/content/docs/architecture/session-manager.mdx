@@ -1,0 +1,230 @@
+---
+title: "Session Manager"
+description: "Internal architecture and implementation reference."
+---
+
+> **Increment 9: the gateway runs without MySQL or Redis.** The manager holds
+> no session repository: `wa_sessions` rows, placement, assignments, status
+> history, and admin bootstrap are all API-owned. Control-plane desired-state
+> assignments are the only thing that starts a session locally, and every
+> lifecycle event (status changes, pairing) flows to the API through the event
+> journal for post-commit projection. The former MySQL-reading `Boot`, the boot
+> orphan-guard, admin-number self-bootstrap, and `CreateSession` are removed.
+
+Status: implemented. Package `backend/internal/wa`, files `manager.go`, `session.go`.
+
+## Scope
+
+Owns the in-process WhatsApp connection layer (§3, §5, §6): a `*whatsmeow.Client`
+per assigned session, each holding a live WebSocket. Responsibilities:
+
+- Materialize runtimes from **control-plane assignments** only: ownership,
+  configuration, and device mapping all arrive in the revisioned assignment
+  snapshot; the manager never reads `wa_sessions` or organizations.
+- Drive pairing (QR and phone-number codes), reconnect with backoff + full
+  jitter, and run the status state machine, emitting `session.status`,
+  `auth.qr`, and `auth.code` through the event sink (the gateway journal).
+- Forward every raw whatsmeow event to the injected inbound handler under a detached callback context. Production sets `InboundEventTimeout: 0` so
+  journal backpressure can retain a critical event until it is durably recorded.
+
+## gRPC control plane: API-owned lifecycle
+
+The session lifecycle splits across the trust boundary:
+
+- **The API owns durable state**: it picks the placement
+  (`GatewayRepo.PickForPlacement`), inserts the `wa_sessions` row
+  (`status=stopped`, rates left unset), inserts the assignment at epoch 1
+  (`GatewayAssignmentRepo.Assign`, which advances the owning gateway's desired
+  revision; an existing assignment is kept so retries never re-epoch a live
+  session), and deletes both on teardown (`repo.Delete`, then
+  `Unassign`, which advances the revision so the gateway stops reconciling).
+- **Observed status is API-projected.** Every committed `session.status` event updates
+  `wa_sessions.status`, including `working` after connection. Non-logout transitions preserve
+  pairing identity; logout also clears it. REST reads therefore reflect the gateway lifecycle
+  rather than remaining at the API's initial `starting` state.
+- **Pairing identity is API-projected.** The gateway records the paired JIDs
+  only in memory; the committed `auth.code` event (PairSuccess) is what the API
+  projects onto `wa_sessions` (`SessionRepo.AttachPairing`: `wa_jid`, `wa_lid`,
+  phone derived from the JID). Desired-state reconciliation derives each
+  assignment's `DeviceJID` from `wa_jid`, so this projection — not a gateway
+  write — is what lets a freshly paired session start.
+- **Logout is a full pairing reset across the boundary.** The engine unlink runs
+  as a durable command; then the row is atomically marked `logged_out` with
+  `wa_jid`, `wa_lid`, and `phone_number` cleared (`SessionRepo.ClearPairing`)
+  — synchronously in `SessionService.Logout`, and again from the terminal
+  `session.status` projection when WhatsApp force-logs-out a session or when a
+  repeated logout replays, which repairs stale rows idempotently. The managed
+  session swaps its deleted device for a fresh unpaired one and clears its QR
+  cache, so re-pairing starts immediately.
+- **Start covers unpaired sessions.** `Manager.Start` begins QR pairing for an
+  unpaired device instead of failing validation, and repeats are idempotent;
+  `Restart` completes stop plus that same transition rather than partially
+  stopping. API-side, an unpaired Start/Restart prepares the gateway-local
+  device and kicks pairing through the facade before flipping desired run state
+  (desired run alone cannot express the unpaired case — reconciliation skips
+  assignments without a device JID). Restart first forgets the live runtime
+  synchronously, preserving the SQLite device, then performs the same start
+  sequence; it does not rely on stop/start desired-state writes, which can
+  coalesce before reconciliation. Start, Stop, and Restart return a
+  live-unavailable error when the desired-state or live control-plane seams are
+  not configured instead of dereferencing a nil controller.
+- **The gateway executes only live parts**, through private engine RPCs served
+  by `wa.ApplicationGatewayAdapter` (see [`grpc-contracts.md`](/docs/architecture/grpc-contracts)):
+  - `PrepareSession` — creates the local keystore device + managed-session entry
+    for an API-created row (`Manager.EnsureDevice`). Idempotent; not ledger-backed.
+  - `BeginPairing` / `PairPhone` — QR snapshot-with-kick and phone-number
+    pairing behind the ownership fence; not ledger-backed.
+  - `LogoutSession` — destructive unlink as a durable command with full send-style
+    ledger replay (records `CommandSent` only).
+  - `ForgetSession` — in-memory runtime drop during delete; idempotent, no epoch
+    requirement (the row may already be deleted API-side).
+- **Keystore device creation is an explicit PrepareSession step.** The device is
+  minted only when the API asks the assigned engine to prepare; reconciliation
+  keeps its fail-closed `keystore_missing` policy for sessions whose expected
+  device was never prepared or has vanished.
+- The API-side `SessionService` has no in-process fallback paths any more:
+  Create/Logout/Delete/QR/PairingCode always go through the engine facade. Start
+  and Stop flip desired state (`SessionDesiredController`); Restart forgets the
+  runtime synchronously, then starts through the same prepare/QR path and sets
+  desired run. Delete order: OAuth cascade → engine forget → repo delete →
+  unassign. Logout order: engine logout → pairing clear → OAuth cascade.
+- **Registry writes are gone from the gateway.** There is no `joining`/`active`
+  registration, no heartbeat timer, and no shutdown draining/drained write to
+  `wa_gateways`: liveness is the acknowledged control-stream heartbeat itself.
+- **Boot and drain.** All engine admission stays closed until a RUN+READY
+  heartbeat is durably acknowledged. A DRAIN directive stops sessions terminally
+  via `Manager.Shutdown` and reports DRAINING/DRAINED; a later RUN after terminal
+  drain reports BUSY instead of rebooting sessions. A transient pre-Welcome
+  outage brings diagnostics up unready, then performs the deferred start after a
+  RUN Welcome. Startup accepts an applied snapshot from a newer connection after
+  reconnect and returns terminal control errors instead of waiting indefinitely.
+  On SIGTERM the supervisor flushes acknowledged DRAINING/DRAINED
+  heartbeats before its stream is cancelled. Those are observed states and do
+  not change the separate desired lifecycle.
+- **No orphan-guard and no admin bootstrap on the gateway.** Assignment
+  reconciliation replaces the org-existence guard: an org deletion removes the
+  session's assignment, and reconciliation stops it. Admin session creation,
+  pairing kickoff, and status persistence are API operations executed over the
+  same engine RPCs as any other session.
+
+## Pairing recovery
+
+QR timeout marks the session failed, cancels its reconnect loop, releases the expired client,
+and clears the cached QR. A subsequent pairing request creates a fresh flow instead of reusing
+an exhausted QR channel. Stopping a flow and successful QR pairing also clear its cache, and
+QR reads never return a code after its expiry.
+
+## Desired-state assignment foundation
+
+After authenticated connection, the API emits a complete revisioned assignment snapshot, and emits
+a fresh snapshot after every durably persisted heartbeat to renew leases. Each assignment includes
+the organization ID, nonzero durable `assignment_epoch`, absolute lease expiry, and the session's
+auto-read, typing, and rate settings. The gateway acknowledges the applied snapshot revision; the
+API persists that acknowledgement only for the still-current connection epoch and desired revision.
+Reconciliation stops unassigned or expired sessions and carries the epoch on all commands and events.
+The reconciler publishes each candidate assignment set before invoking runtime start/stop callbacks,
+so synchronous status publication can validate the new epoch without taking the reconciler lock
+recursively. Runtime callbacks run outside the state lock and are serialized as one transaction;
+if a callback fails, the reconciler stops every prior or candidate runtime it could have touched,
+then clears ownership while retaining the previous revision for retry. Lease expiry removes each
+expired assignment first, attempts every corresponding runtime stop, and fails closed if any stop
+fails.
+
+## Key types / interfaces
+
+Consumer interfaces (defined here; the composition root wires concrete types — no
+sibling internal imports):
+
+- `Keystore` — slice of the whatsmeow device container
+  (`GetAllDevices/GetFirstDevice/GetDevice/NewDevice/DeleteDevice`). Satisfied by
+  the gateway-local SQLite keystore (`modernc.org/sqlite`, §6.1). Uses the external
+  `store.Device` type, which is allowed.
+- `EventSink` — `Publish(ctx, domain.Event)`; the manager only emits
+  `session.status`, `auth.qr`, `auth.code`.
+- `InboundHandler` — `Handle(ctx, sessionID, organizationID, isAdmin, evt any)`;
+  every whatsmeow event is forwarded with the configured callback context.
+- `Clock` — `NowMs()`; defaults to `domain.NowMs()`.
+- `waClient` (unexported) — the narrow slice of `*whatsmeow.Client` the session
+  drives (`Connect/Disconnect/IsConnected/IsLoggedIn/Logout/AddEventHandler/
+  GetQRChannel/PairPhone`). The real client satisfies it (compile-time assert);
+  tests inject a fake, so the full lifecycle is exercised without a WebSocket.
+  Built via a swappable `clientFactory` (`SetClientFactory`).
+
+Core types:
+
+- `Manager` — `map[sessionID]*ManagedSession` under `sync.RWMutex`; constructor
+  `NewManager(keystore, repo, sink, inbound, clock, log, cfg)` where `repo` is
+  deprecated plumbing that must be nil (the gateway owns no rows). `StartAssigned`
+  materializes one assignment; `StartAssignedBoot` is the store-free boot hook;
+  `StopAssigned` stops a locally materialized assignment.
+- `ManagedSession` — wraps the device + client + status + reconnect bookkeeping +
+  per-session `context.CancelFunc`, plus the JID/LID observed at `PairSuccess`.
+  All mutable state guarded by its own mutex.
+- `Config` — `GatewayID`, device display name, rate/auto-read defaults, optional
+  backoff.
+
+## Decisions
+
+- **Pure cores for testability.** Three pure functions carry the load-bearing
+  logic and are unit-tested directly:
+  - `classifyEvent(evt any) transition` — maps a whatsmeow event to
+    `(status, changed, terminal, keepReconnect)`. `Connected→WORKING`,
+    `PairSuccess→STARTING`, terminal events→`FAILED`/`LOGGED_OUT` with reconnect
+    stopped; `Disconnected` and transient `ConnectFailure` cause no status change
+    (the reconnect loop retries).
+  - `isFatalConnectFailure(reason)` — distinguishes permanent
+    (logged-out/banned/locked/outdated/bad-UA) from transient connect failures.
+  - `backoffFor(cfg, attempt, *rand.Rand)` — exponential `base*factor^n` clamped
+    to `max`, then **full jitter** (`uniform[0, ceiling]`). Deterministic given a
+    seeded `*rand.Rand`. Production default: 1s base, ×2, cap 2m.
+- **Status ownership is single-writer.** `teardown` clears runtime state but does
+  NOT touch status; `setStatus` is the sole owner of the status field and its
+  `session.status` emission, and it **dedups** (no event when the status is
+  unchanged). Persistence is derived API-side from committed events. Logout is
+  the intentional specialized path: `setLoggedOut` swaps in a fresh unpaired
+  device, clears the QR cache, and **always emits** `session.status=logged_out`
+  — even when the in-memory status was already logged_out — because that event
+  is the durable signal the API projection uses to repeat its row clear.
+- **Goroutine lifecycle.** Each running session gets a context derived via
+  `context.WithoutCancel(parent)` + a `CancelFunc`. Stop/Logout/Shutdown cancel
+  it; the reconnect loop and QR pump select on `ctx.Done()` and exit cleanly. The
+  loop polls connection state on a 500ms ticker rather than threading extra
+  channels through whatsmeow's event model.
+- **Pairing / linked-device display name** defaults to `"Chrome (Linux - <GATEWAY_ID>)"` and can
+  override the OS/app portion with `WHATSAPP_DEVICE_NAME`. The phone-code pairing string is still
+  formatted as `"Chrome (<device name>)"` because whatsmeow validates the `"Browser (OS)"` format.
+- **whatsmeow is imported directly** (external module): `whatsmeow`, `/store`,
+  `/types`, `/types/events`, `/util/log`. No sibling internal packages.
+
+## How it's tested
+
+`session_test.go` + `manager_test.go`, table-driven, all boundaries faked:
+
+- `classifyEvent` across every relevant event incl. fatal vs transient
+  `ConnectFailure`; `isFatalConnectFailure` matrix.
+- `backoffFor`: determinism (same seed → same schedule), full-jitter bounds
+  per attempt, cap never exceeded, negative attempt clamped.
+- `setStatus` dedup; event handler terminal-stops-reconnect + tears down + emits
+  + still forwards to inbound; `Connected` resets backoff; `PairSuccess` records
+  the JID/LID onto the managed session.
+- Online presence: the manager announces `PresenceAvailable` on `Connected`, but
+  whatsmeow's `SendPresence` requires a push name that only arrives via app-state
+  sync (after `Connected`) — so it re-announces on `AppStateSyncComplete`, which is
+  when presence actually sticks on a freshly-paired session. A missing push name is
+  benign (debug-logged, retried), not a warning.
+- Lifecycle: `StartAssigned` uses control config without any session lookup;
+  `Start` connects paired sessions, starts QR for unpaired ones, and repeats are
+  idempotent; `Stop` tears down + emits STOPPED; `Logout` calls `client.Logout`,
+  deletes the keystore device, installs a fresh unpaired device, re-emits
+  `logged_out` on repeat, and can immediately begin a new pairing-code flow;
+  external `LoggedOut` performs the same reset; not-found errors;
+  `StartAssignedBoot` is store-free; the manager accepts no session repository.
+
+Verified: `CGO_ENABLED=0 go -C backend build ./internal/wa`, `go -C backend test ./internal/wa` (incl.
+`-race`), `go -C backend vet ./internal/wa` all pass.
+
+### API lifecycle persistence
+
+Creation and deletion use the store's session lifecycle transactions: the session,
+assignment, and owning gateway revision change together. Live preparation/forget
+remain explicit engine operations outside MySQL; see [`store.md`](/docs/architecture/store).

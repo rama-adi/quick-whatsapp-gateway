@@ -1,0 +1,14 @@
+{
+  "title": "Hosting and development",
+  "pages": [
+    "index",
+    "data-planes",
+    "local-development",
+    "build-and-test",
+    "repo-layout",
+    "regenerating-code",
+    "deploying",
+    "platform-administration",
+    "frontend-workspace"
+  ]
+}

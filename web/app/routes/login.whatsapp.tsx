@@ -1,5 +1,5 @@
 // Public "Sign in with WhatsApp" consent / waiting page — the END-USER face of
-// the OIDC provider (docs/specs/oauth.md §6.1).
+// the OIDC provider (site-marketing/content/docs/architecture/oauth.mdx §6.1).
 //
 // PUBLIC route: NO beforeLoad, NO better-auth session — end-users are not our
 // users. The 160-bit browser code arrives in the URL FRAGMENT (#c=…) so it never

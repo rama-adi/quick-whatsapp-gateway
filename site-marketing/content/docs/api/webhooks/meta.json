@@ -1,0 +1,11 @@
+{
+  "title": "Webhooks",
+  "description": "Create webhook endpoints that receive events over HTTP. Optional HMAC signing lets receivers verify the request body.",
+  "pages": [
+    "listWebhooks",
+    "createWebhook",
+    "getWebhook",
+    "updateWebhook",
+    "deleteWebhook"
+  ]
+}

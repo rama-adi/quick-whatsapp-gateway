@@ -1,0 +1,15 @@
+{
+  "pages": [
+    "index",
+    "gateway-administration",
+    "admin",
+    "sessions",
+    "channels",
+    "chats",
+    "contacts",
+    "groups",
+    "messages",
+    "webhooks"
+  ],
+  "title": "API reference"
+}

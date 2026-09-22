@@ -1,0 +1,14 @@
+{
+  "title": "Chats",
+  "description": "List chats, read messages, mark chats read, update chat flags, delete chats, and set typing or recording presence.",
+  "pages": [
+    "listChats",
+    "getChat",
+    "updateChat",
+    "deleteChat",
+    "listChatMessages",
+    "getChatPresence",
+    "setChatPresence",
+    "readChat"
+  ]
+}

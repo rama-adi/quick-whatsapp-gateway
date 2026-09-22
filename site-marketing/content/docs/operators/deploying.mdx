@@ -1,0 +1,374 @@
+---
+title: Deploying
+description: Choose a one-server self-host install or a split production install. Covers Docker Compose, migrations, sign-up lockdown, backups, and the environment variables that must match.
+---
+
+There are two supported deployment stories:
+
+| Mode | Use it when | Deploy shape |
+|---|---|---|
+| **Self-host single box** | You want one private WhatsApp gateway for yourself, a team, or a small internal app. | One server runs one app container (API + gateway + frontend), MySQL, Redis, and the gateway keystore volume. |
+| **Split production** | You are operating this as a product or a larger platform. | The frontend, API, database, Redis, and one or more gateways are hosted and scaled separately. |
+
+Both modes use the same runtime pieces. The difference is packaging and who owns
+the operational work. The self-host path stitches the API, gateway, and
+frontend into one app image, includes MySQL and Redis in Compose, and defaults
+self-registration off. The scaler path gives you the foundations: a modular
+frontend/identity service, an API server, gateway processes that register
+and heartbeat into MySQL, organization-scoped data ownership, better-auth
+api-keys, and role/capability checks. You still own capacity automation, billing,
+tenant onboarding policy, and any ACL finer than the built-in org roles and
+api-key permissions.
+
+The system runs as three app services — the API, the gateway, and the
+frontend — plus one MySQL database and one Redis they share. The gateway also
+keeps its WhatsApp keystore in a SQLite file on a volume.
+
+| Piece | Image | Port | Owns |
+|---|---|---|---|
+| Self-host app | `deploy/Dockerfile.selfhost` (Caddy + Node 22 + two Go binaries) | `8080` public | Runs Caddy, the API, gateway, and frontend in one container. API, frontend, control, and engine listeners stay loopback-only behind Caddy. |
+| API | `deploy/Dockerfile.api` (Go, no CGO) | `8090` HTTP, `8081` gRPC | Public API service: authenticates callers, routes to the owning gateway, and serves the public contracts |
+| Gateway | `deploy/Dockerfile` (Go, no CGO) | `8080` (internal) | WhatsApp sessions, private engine RPCs, SQLite keystore and journal |
+| Frontend | `deploy/Dockerfile.web` (Node 22, TanStack Start) | `3000` | better-auth and dashboard; writes auth tables; reads WA tables for display |
+| MySQL | `mysql:8.4` | `3306` | both table sets in one database |
+| Redis | `redis:7-alpine` | `6379` | the work bus and the control bus |
+
+The **self-host app** is the only service clients reach. Publish Caddy on
+`8080`; it routes the browser, API HTTP, OAuth, OIDC, health, and metrics paths
+to their loopback listeners. The optional public gRPC listener remains on
+`8081` only when you explicitly expose it.
+
+## Self-host single box
+
+Use `deploy/docker-compose.selfhost.yml` when you want one host to run
+everything. It builds one app container with Caddy, the API, gateway, and
+frontend together. Compose still runs MySQL and Redis as separate services so
+their data has normal volumes and backup boundaries. The app publishes Caddy on
+`8080`; the frontend, API HTTP, API gRPC, control stream, and engine listeners
+remain private inside the container.
+
+Before starting the combined container, enroll its gateway through the API admin
+flow and configure the operator root PEM, gateway ID, and enrollment token (or
+existing persistent credentials). `GATEWAY_BOOTSTRAP_CA_FILE` must name an existing
+PEM file on the host. These are required in addition to the application secrets.
+
+Put the secrets and enrollment settings in `deploy/.env`, then build and start:
+
+```bash
+cd deploy
+cat > .env <<'EOF'
+OIDC_KEY_ENC_KEY=...             # openssl rand -base64 32 — encrypts OIDC signing keys
+OAUTH_CLIENT_SECRET_PEPPER=...   # random secret used to hash OAuth client secrets
+APP_ENCRYPTION_KEY=...           # openssl rand -base64 32 — encrypts webhook secrets at rest
+PKI_ENCRYPTION_KEY=...           # openssl rand -base64 32 — encrypts the control-plane CA key
+BETTER_AUTH_SECRET=...           # openssl rand -base64 32 — signs frontend sessions
+GATEWAY_BOOTSTRAP_CA_FILE=/absolute/path/to/operator-root.pem
+GATEWAY_ID=...                   # identity created through the API admin flow
+GATEWAY_ENROLLMENT_TOKEN=...     # one-time token; omit after enrollment
+USER_REGISTRATION_ENABLED=false  # recommended for private self-hosts
+EOF
+docker compose -f docker-compose.selfhost.yml up --build -d
+```
+
+The browser uses `http://localhost:8080` for both the dashboard and API; Caddy
+keeps the browser same-origin and forwards API/OAuth/OIDC requests to
+`127.0.0.1:8090`. The frontend server reads the database directly for
+better-auth, while the API reaches the gateway over loopback control and engine
+listeners. The browser bundle is built with an empty `VITE_GATEWAY_URL`, which
+is intentional for this same-origin layout.
+
+<Callout type="info">
+The self-host app container’s entrypoint supervises
+four processes: Caddy, `api`, `gateway`, and the TanStack Start Node server. The
+entrypoint waits for API readiness before starting the gateway. If any
+one exits, the container exits so Compose can restart the whole app.
+</Callout>
+
+### Lock down self-registration
+
+Self-registration is off by default in `docker-compose.selfhost.yml`. Keep
+`USER_REGISTRATION_ENABLED=false` if this is a private gateway and you do not
+want random people creating accounts or pairing WhatsApp numbers. Turn it on
+only when open sign-up is part of your operating model.
+
+After the first trusted user signs up, put their better-auth user id in
+`ADMIN_USER_IDS` and restart the frontend to grant platform super-admin rights.
+
+## Split production topology
+
+Use the split topology to host the platform services independently.
+In this mode:
+
+- The **frontend** can run separately, including serverless hosting, as long as
+  it can reach MySQL and publish control-bus messages to Redis.
+- The **API** is the public service. It verifies better-auth
+  JWTs and api-keys from shared MySQL, resolves session ownership, and calls gateways over private mTLS gRPC.
+- **Gateways** run close to their WhatsApp connections. Each gateway has a stable
+  `GATEWAY_ID`, persistent SQLite keystore/journal/credential paths, and an engine
+  gRPC address reachable by the API. Heartbeats and assignments use the control stream.
+- New session creation is placed on the least-loaded active gateway. Existing
+  sessions are pinned by `wa_sessions.gateway_id`; if the owning gateway is not
+  active or has a stale heartbeat, the API returns `503 gateway_unavailable`.
+
+`deploy/docker-compose.external.yml` shows the split-hosting shape for app
+containers over your own MySQL and Redis:
+
+```bash
+docker compose -f deploy/docker-compose.external.yml up -d
+```
+
+## Cut over an existing gateway
+
+The control-plane release changes the gateway from a public HTTP worker into a
+private mTLS engine. Plan this as a coordinated restart. It does not provide a
+zero-downtime upgrade: pause API traffic, take a database and keystore backup,
+apply the release's one-time operator schema upgrade, upgrade the API and
+gateway together, enroll the existing gateway, then resume traffic after the
+health checks pass. Apply that schema upgrade before starting the new API; once
+it succeeds, later schema changes use the normal API migration path.
+
+Keep the existing gateway ID and its SQLite volume. The ID is the ownership key
+for `wa_sessions`, and the SQLite file contains the WhatsApp device identity;
+changing either makes existing sessions unavailable and can force pairing again.
+Keep the public API URL and its HTTP port (`8090`) unchanged. The new public
+gRPC port (`8081`) is optional for clients and should only be exposed when it is
+needed. The gateway engine (`9443`) and API control listener (`8443`) are
+private and must not be published to the Internet.
+
+For an already registered gateway, use the platform admin API in this order:
+
+1. Disable the gateway: `POST /api/v1/admin/gateways/{gatewayId}:disable`.
+2. Re-enable it: `POST /api/v1/admin/gateways/{gatewayId}:reenable`. When the
+   gateway has no enrolled certificate, this returns it to `pending_enrollment`.
+3. Replace the enrollment token: `POST
+   /api/v1/admin/gateways/{gatewayId}:replace-enrollment-token`. Store the
+   plaintext token only in the deployment secret manager.
+4. Start the upgraded gateway with the same `GATEWAY_ID`, the token, the
+   operator bootstrap CA, and persistent mounts for both
+   `/data/keystore` and `/data/gateway-credentials`.
+5. Remove `GATEWAY_ENROLLMENT_TOKEN` after the first successful enrollment and
+   wait for the gateway to report `active`, a healthy reconciliation state, and
+   the expected session assignments before sending traffic.
+
+Do not use `:reenroll` for this first migration; that operation requires an
+already enrolled gateway. If the old gateway is unreachable, preserve its
+registry row and keystore volume, complete the administrative state transition
+from the API, and bring the replacement process up with the same ID and volume.
+If the volume is missing or corrupt, stop and restore it from backup before
+enrollment; a new enrollment cannot reconstruct the WhatsApp device keys.
+
+SaaS operators define capacity automation, tenant onboarding, billing, quotas,
+and additional gateway operations. WhatsApp Gateway provides organization roles
+and API-key permissions (`read`, `send`, `manage`, `events`) for access control.
+
+## Migrations
+
+There are two sets of tables, created by two different tools. Only one runs on
+its own.
+
+| Tables | Created by | When |
+|---|---|---|
+| WA tables (API control plane) | API startup or `go -C backend run ./cmd/migrate up` | automatically when the API starts, or explicitly with the migration CLI |
+| Auth tables (frontend) | `pnpm db:migrate` (drizzle-kit) | you run it once, before first use |
+
+The runtime frontend image does not include `drizzle-kit`, so apply the auth
+tables against the database yourself:
+
+```bash
+cd web
+DATABASE_URL='mysql://gw:gwpass@<db-host>:3306/gateway' pnpm db:migrate
+```
+
+<Callout type="warn">
+A fresh stack boots with the WA tables present but the auth tables missing.
+Sign-up and login return 500 until you run `pnpm db:migrate`. Run it as the
+first step of a deploy, or add it to your release pipeline.
+</Callout>
+
+## Volumes and backups
+
+| Volume | Mount | Holds | If lost |
+|---|---|---|---|
+| `keystore_data` | `/data/keystore` | WhatsApp device keys, event journal, gateway credentials, and API TLS identity | **every number must be re-paired and the gateway must be re-enrolled** |
+| `mysql_data` | MySQL `/var/lib/mysql` | all WA + auth data | full data loss |
+| `redis_data` | Redis `/data` | pending jobs, replay/event transport, cache, and tickets | pending work and transient state may be lost; restore or reconcile before resuming traffic |
+
+<Callout type="warn">
+Back up `keystore_data` like a database. It holds the WhatsApp device keys, the
+gateway mTLS credentials, and the API TLS identity, so losing it means re-pairing
+or re-enrolling. It is also what ties a session to a specific gateway. Always
+keep it on a named volume in production.
+</Callout>
+
+For the verified SQLite snapshot procedure, read [Keystore backups](/docs/operations/keystore-backup).
+
+## Configuration
+
+Every gateway variable is listed in `deploy/.env.example`; every frontend
+variable in `web/.env.example`. The full tables are [below](#environment-variable-reference).
+
+A few variables must hold matching values across the services. Get these right
+first:
+
+| Variable | Set on | Value |
+|---|---|---|
+| `BETTER_AUTH_URL` | API + frontend | the frontend's public URL and accepted JWT `iss`/`aud` |
+| `BETTER_AUTH_JWKS_URL` | API | frontend signing-key endpoint |
+| `FRONTEND_ORIGINS` | API | allowed browser origins |
+| `GATEWAY_URL` / `VITE_GATEWAY_URL` | frontend | legacy-named API URLs for server/browser use |
+| `PUBSUB_REDIS_URL` | API + frontend | control-bus Redis for revocations |
+
+A JWT (JSON Web Token) is the signed login token the frontend issues to the
+browser. JWKS (JSON Web Key Set) is the public-key document the API fetches to
+verify those tokens. `iss`/`aud` are the issuer and audience fields inside the
+token; the API only accepts tokens whose `iss`/`aud` equal `BETTER_AUTH_URL`.
+API and gateway authenticate each other with enrolled mTLS certificates on their
+private gRPC listeners. See the enrollment steps above.
+
+<Callout type="info">
+`BETTER_AUTH_URL` and `BETTER_AUTH_JWKS_URL` can hold different hosts. The first
+is the public URL the token's `iss`/`aud` must match; the second is only where
+the API fetches the keys. When the API reaches the frontend by an internal
+name, set `BETTER_AUTH_JWKS_URL` to that name and leave `BETTER_AUTH_URL` as the
+public URL.
+</Callout>
+
+### Environment-variable reference
+
+`deploy/.env.example` is one file read by both Go processes. The first block is
+the API's; the rest is the gateway's.
+
+**API** (`deploy/.env.example`):
+
+| Variable | Default | What it does |
+|---|---|---|
+| `API_HTTP_ADDR` | `:8090` | Public HTTP listen address. |
+| `API_PUBLIC_GRPC_ADDR` | `:8081` | Public gRPC listen address. |
+| `API_PUBLIC_URL` | — | External HTTP base URL used by clients. |
+| `API_HTTP_PORT` | `8090` | External-compose host port mapped to canonical container HTTP `8090`. |
+| `API_PUBLIC_GRPC_PORT` | `8081` | External-compose host port mapped to canonical container gRPC `8081`. |
+| `BETTER_AUTH_URL` | — | Frontend base URL and accepted JWT issuer/audience. |
+| `BETTER_AUTH_JWKS_URL` | `${BETTER_AUTH_URL}/api/auth/jwks` | Frontend signing-key endpoint. |
+| `FRONTEND_ORIGINS` | — | Allowed browser origins. |
+| `PUBSUB_REDIS_URL` | falls back to `REDIS_URL` | Control-bus Redis consumed by the API. |
+
+**API persistence and gateway identity** (`deploy/.env.example`):
+
+| Variable | Owner | Purpose |
+|---|---|---|
+| `MYSQL_DSN` / `REDIS_URL` | API | Application persistence, rate limits, and event fan-out. |
+| `APP_ENCRYPTION_KEY` | API | Encryption of webhook secrets. |
+| `REDIS_PREFIX` / `RETENTION_DAYS` | API | Shared Redis namespace and retention-component configuration. The production retention scheduler is unwired; setting `RETENTION_DAYS` alone does not prune history. |
+| `API_GATEWAY_GRPC_ADDR` / `API_GATEWAY_TLS_IDENTITY_DIR` | API | Private listener and persistent certificate. |
+| `PKI_ENCRYPTION_KEY` / `PKI_ENCRYPTION_KEY_ID` | API | Encrypted CA key custody. |
+| `GATEWAY_ID` / `GATEWAY_CONTROL_PLANE_ADDR` | gateway | Enrolled identity and API control listener. |
+| `GATEWAY_ENGINE_GRPC_ADDR` / `GATEWAY_ENGINE_GRPC_ADVERTISE_ADDR` | gateway | Private engine listener and API-reachable address. |
+| `GATEWAY_CREDENTIAL_DIR` / `GATEWAY_BOOTSTRAP_CA_FILE` | gateway | Persistent identity and pinned operator root. |
+| `GATEWAY_ENROLLMENT_TOKEN` | gateway | One-time enrollment credential. |
+| `GATEWAY_JOURNAL_PATH` / `WHATSMEOW_STORE_DSN` | gateway | Durable event/command journal and device keystore. |
+| `GATEWAY_HTTP_ADDR` | gateway | Internal health/readiness/metrics listener only. |
+
+**Frontend** (`web/.env.example`):
+
+| Variable | What it does |
+|---|---|
+| `BETTER_AUTH_SECRET` | Secret used to sign sessions and tokens. |
+| `BETTER_AUTH_URL` | The frontend's own base URL. |
+| `DATABASE_URL` | The shared database (the same one the API uses). |
+| `GATEWAY_URL` | Legacy-named server-side API base URL. |
+| `VITE_GATEWAY_URL` | Legacy-named browser API base URL. |
+| `PUBSUB_REDIS_URL` | Control-bus Redis the frontend publishes revocations to. |
+| `USER_REGISTRATION_ENABLED` | Whether people can sign themselves up. See [Lock down self-registration](#lock-down-self-registration). |
+| `ADMIN_USER_IDS` | Comma-separated better-auth user ids granted platform super-admin. See [Create the first admin](#create-the-first-admin). |
+
+## Create the first admin
+
+Set `ADMIN_USER_IDS` on the frontend to the trusted better-auth user IDs that
+should administer gateways and sessions. WhatsApp numbers are provisioned through
+the session API/UI; the gateway does not create an admin session on boot.
+
+## Hosting the services separately
+
+The frontend can run anywhere it can reach MySQL and the API. The API and
+gateway run near WhatsApp with the keystore volume. The API verifies callers
+against the frontend's signing keys (JWKS) and the shared `apikey` table, so it
+never calls back to the frontend on a request; the gateway verifies only the
+API mTLS identity.
+
+| Goal | What to do |
+|---|---|
+| Run the frontend on a separate host or serverless | Point `DATABASE_URL` at shared MySQL and legacy-named `GATEWAY_URL`/`VITE_GATEWAY_URL` at the API. |
+| Bring your own MySQL/Redis | `deploy/docker-compose.external.yml` runs the app images against services you provide. |
+| API fetches signing keys from a different host | Add the internal JWKS host to frontend `TRUSTED_ORIGINS` when required. |
+
+## Health checks
+
+Both Go services expose health endpoints:
+
+| Service | Endpoint | Purpose |
+|---|---|---|
+| API | `GET /healthz` | Liveness. |
+| API | `GET /readyz` | Readiness — checks MySQL and Redis. |
+| API | `GET /metrics` | Prometheus request-failure and MySQL pool metrics. |
+| Gateway | `GET /healthz` | Liveness. |
+| Gateway | `GET /readyz` | Readiness — checks MySQL and Redis. Use this for the gateway's container healthcheck. |
+| Gateway | `GET /metrics` | Prometheus request-failure and MySQL pool metrics. |
+
+Scrape the API and every gateway independently. Their canonical request logs
+share `X-Request-Id`, while metrics deliberately avoid high-cardinality request,
+session, user, and organization labels.
+
+## Running the gateway or API in Docker for development
+
+Day to day you run the Go processes on the host (see
+[Local development](/docs/operators/local-development)). To run one in a container
+instead — same OS and toolchain as production, with the frontend still on the
+host under Vite — use one of these compose profiles:
+
+```bash
+# Gateway, hot reload: air watches the mounted source and rebuilds in the container.
+docker compose -f deploy/docker-compose.dev.yml --profile api --profile gateway-dev up -d --build
+
+# Gateway, production image (rebuild to pick up code changes):
+docker compose -f deploy/docker-compose.dev.yml --profile api --profile gateway up -d --build
+
+# API, production image (publishes HTTP :8090 and gRPC :8081):
+docker compose -f deploy/docker-compose.dev.yml --profile api up -d --build
+```
+
+Each profile reaches the host frontend's signing keys through
+`host.docker.internal` (already allowed in `vite.config.ts`). The API applies WA
+migrations before opening its database pool; gateway processes never migrate
+the schema. The two gateway profiles both bind port 8080 — run only one at a
+time.
+
+Every profile reads the **same** `deploy/.env` the host processes use (copy it
+from `deploy/.env.example`), so there is one place to set config. The compose
+`environment:` block overrides only the variables that must differ inside a
+container: `MYSQL_DSN` and `REDIS_URL` (the service hostnames),
+`BETTER_AUTH_JWKS_URL` (the frontend is on the host), and `WHATSMEOW_STORE_DSN`
+(a named volume). Change anything else in `deploy/.env`.
+
+## Pairing a WhatsApp number
+
+Pairing is the one step a deploy cannot script. Create a session (or set
+`WHATSAPP_ADMIN_NUMBER`), open the QR or pairing code in the dashboard, and link
+it from the phone's WhatsApp app. This uses an unofficial client — automated use
+may violate WhatsApp's terms and risks a ban.
+
+## Marketing and documentation site
+
+`site-marketing/` deploys independently from the dashboard, API, and gateway. It
+serves the landing page and operator/developer documentation with TanStack Start
+and Fumadocs. Build its image from the WhatsApp Gateway checkout directory (the directory containing `Makefile`) so the generated OpenAPI
+contract is included:
+
+```sh
+docker build -t whatsapp-gateway-marketing -f deploy/Dockerfile.marketing .
+docker run --rm -p 3000:3000 whatsapp-gateway-marketing
+```
+
+The container serves HTTP on port `3000`. Point your marketing hostname's reverse
+proxy or hosting service at that listener. The site reads its bundled MDX and
+OpenAPI contract; it requires no dashboard database or gateway credentials.
+Regenerate API reference pages before building after a contract change (`make gen`).

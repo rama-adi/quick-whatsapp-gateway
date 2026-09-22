@@ -27,7 +27,7 @@ type Deps struct {
 //
 // NOTE: gRPC reflection is deliberately NOT enabled — the public surface is
 // served from the committed public/v1 contracts only (policy: unsupported
-// publicly; see docs/specs/grpc-contracts.md). The private gateway.v1 services
+// publicly; see site-marketing/content/docs/architecture/grpc-contracts.mdx). The private gateway.v1 services
 // must never be registered here either.
 func RegisterServer(deps Deps) *grpc.Server {
 	unary, stream := Interceptors(deps.Tokens, deps.Keys)

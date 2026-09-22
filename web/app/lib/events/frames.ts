@@ -1,5 +1,5 @@
 // Realtime frame types + type-guards. Realtime is a single WebSocket on the
-// central router (docs/specs/router.md), which delivers discrete JSON messages —
+// central router (site-marketing/content/docs/architecture/router.mdx), which delivers discrete JSON messages —
 // there is no byte-stream framing to parse. These are the shapes the WS client
 // classifies each parsed message into.
 

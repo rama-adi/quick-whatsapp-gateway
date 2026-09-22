@@ -1,5 +1,5 @@
 // Event-stream transport: the realtime channel is a single WebSocket on the
-// CENTRAL ROUTER (docs/specs/router.md, plan D5). A browser WebSocket cannot set
+// CENTRAL ROUTER (site-marketing/content/docs/architecture/router.mdx, plan D5). A browser WebSocket cannot set
 // an Authorization header, so authorization happens once at ticket mint (a normal
 // bearer-authenticated POST) and the WS handshake merely redeems a short-lived,
 // single-use ticket carried in the URL.

@@ -29,3 +29,11 @@ store.db
 /backend/gateway
 /backend/api
 /backend/migrate
+
+# Marketing and operator documentation app
+site-marketing/node_modules/
+site-marketing/.output/
+site-marketing/.nitro/
+site-marketing/.tanstack/
+site-marketing/.source/
+site-marketing/dist/

@@ -1,0 +1,27 @@
+{
+  "title": "Architecture",
+  "pages": [
+    "index",
+    "overview",
+    "repository-overview",
+    "api-keys",
+    "backfill-import",
+    "contacts",
+    "eventing",
+    "frontend",
+    "grpc-contracts",
+    "http-foundation",
+    "inbound-pipeline",
+    "oauth",
+    "outbound-pipeline",
+    "queue",
+    "resources",
+    "router",
+    "session-manager",
+    "store",
+    "stream",
+    "trust-model",
+    "webhooks",
+    "whatsmeow-store"
+  ]
+}

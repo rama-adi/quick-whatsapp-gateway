@@ -1,5 +1,5 @@
 // Command genopenapi generates the OpenAPI contract from the shared Go types
-// (docs/plans/plan-router-impl.md D11): it builds one huma API from every resource
+// (internal-docs/plan-router-impl.md D11): it builds one huma API from every resource
 // registrar (without running a server), serializes the spec to YAML, and writes it
 // to the output path (default docs/openapi.yaml). `make openapi` runs this;
 // `make openapi-check` adds `git diff --exit-code` so the committed contract can
