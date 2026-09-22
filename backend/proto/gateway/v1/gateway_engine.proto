@@ -7,6 +7,7 @@ option go_package = "github.com/rama-adi/quick-whatsapp-gateway/gen/gateway/v1;g
 // GatewayEngineService is the gateway-local private unary engine surface. It
 // is served only by the gateway's private TLS listener.
 service GatewayEngineService {
+  rpc DownloadMedia(DownloadMediaRequest) returns (DownloadMediaResponse);
   rpc GetSessionState(GetSessionStateRequest) returns (GetSessionStateResponse);
   rpc SetAccountPresence(SetAccountPresenceRequest) returns (SetAccountPresenceResponse);
   rpc MarkRead(MarkReadRequest) returns (MarkReadResponse);
@@ -383,3 +384,11 @@ message LogoutSessionResponse {
 // unknown session is a success.
 message ForgetSessionRequest { SessionTarget target = 1; reserved 2 to 15; }
 message ForgetSessionResponse { SessionTarget target = 1; reserved 2 to 15; }
+
+// Private attachment descriptor captured from a WhatsApp message.
+message DownloadMediaRequest {
+ SessionTarget target = 1;
+ uint64 assignment_epoch = 2;
+ bytes source = 3;
+}
+message DownloadMediaResponse { bytes data = 1; }

@@ -30,7 +30,10 @@ type CommittedEventWork struct {
 	MaxItems   int
 }
 
-type GatewayEventIngestRepo struct{ db storedb.DBTX }
+type GatewayEventIngestRepo struct {
+	db           storedb.DBTX
+	MediaCapture func(context.Context, storedb.DBTX, GatewayEvent) ([]byte, error)
+}
 
 func NewGatewayEventIngestRepo(db storedb.DBTX) *GatewayEventIngestRepo {
 	return &GatewayEventIngestRepo{db: db}
@@ -101,6 +104,22 @@ func (r *GatewayEventIngestRepo) IngestBatch(ctx context.Context, events []Gatew
 		affected, _ := result.RowsAffected()
 		if affected == 0 {
 			continue
+		}
+		if r.MediaCapture != nil {
+			event.Payload, err = r.MediaCapture(ctx, tx, event)
+			if err != nil {
+				return err
+			}
+		} else {
+			// Strip private descriptors even when attachment storage is disabled.
+			var payload map[string]json.RawMessage
+			if json.Unmarshal(event.Payload, &payload) == nil && payload["_mediaSource"] != nil {
+				delete(payload, "_mediaSource")
+				event.Payload, err = json.Marshal(payload)
+				if err != nil {
+					return err
+				}
+			}
 		}
 		if _, err = tx.ExecContext(ctx,
 			`INSERT INTO event_log (event_id,organization_id,session_id,type,payload,created_at) VALUES (?,?,?,?,?,?)`,

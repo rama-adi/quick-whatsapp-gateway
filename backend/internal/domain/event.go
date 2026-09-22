@@ -13,6 +13,7 @@ const Schema = "v1"
 //	{ "schema":"v1","id":"evt_…","event":"message","session":"sess_…",
 //	  "organization":"org_abc","timestamp":1719400000000,"payload":{} }
 type Event struct {
+	MediaSource  string `json:"-"` // Private gateway-to-API attachment descriptor; excluded from public envelopes.
 	Schema       string `json:"schema"`
 	ID           string `json:"id"` // evt_<ulid>, exposed to clients
 	Type         string `json:"event"`
@@ -37,6 +38,8 @@ const (
 	EventMessageInteractiveReply = "message.interactive_reply"
 	EventPollVote                = "poll.vote"
 	EventPollRecap               = "poll.recap"
+	EventMediaReady              = "media.ready"
+	EventMediaExpired            = "media.expired"
 	EventPresenceUpdate          = "presence.update"
 	EventGroupUpdate             = "group.update"
 	EventGroupParticipant        = "group.participant"

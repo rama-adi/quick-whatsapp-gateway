@@ -173,7 +173,5 @@ all of them, or list just the ones you want.
 | `newsletter.update` | A followed channel updates. |
 
 <Callout type="info">
-**Media is metadata only.** A message with an attachment arrives with `hasMedia: true`
-and `media: null` — you see that it has media and what type it is, but this release
-does not download the file.
+**Attachment storage is configured per session.** Media messages carry `hasMedia: true`. Linked sessions receive a tracked `media.id`; `media.ready` supplies the URL after upload. See [attachment storage](/docs/guides/attachment-storage).
 </Callout>

@@ -382,9 +382,6 @@ function MessageBody({
       );
 
     case "media":
-      // Media isn't downloadable in v1 (the API returns 501), so render an
-      // Attachment in its unavailable/placeholder state (state="idle" → dashed
-      // border) rather than an actual media tile.
       return (
         <div className="space-y-1">
           <Attachment
@@ -399,7 +396,7 @@ function MessageBody({
                 {parsed.mediaType}
               </AttachmentTitle>
               <AttachmentDescription className="text-current/70">
-                Media not downloaded — not available in v1.
+                {(message.media?.items?.length ? message.media.items : [message.media]).map((item, index) => <span className="block" key={item?.id ?? index}>{item?.url && (!item.expiresAt || item.expiresAt > Date.now()) ? <a href={item.url} target="_blank" rel="noreferrer" className="underline">{item.filename || `Download attachment${message.media?.items?.length ? ` ${index + 1}` : ""}`}</a> : item?.expiresAt && item.expiresAt <= Date.now() ? "Attachment retention expired" : "Attachment storage pending or disabled"}</span>)}
               </AttachmentDescription>
             </AttachmentContent>
           </Attachment>

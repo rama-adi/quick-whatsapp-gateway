@@ -16,9 +16,10 @@ import (
 // GatewayChatFacade is set (API composition), presence calls execute through
 // the private engine RPCs instead of an in-process manager.
 type ChatService struct {
-	store    *store.Store
-	presence PresenceController
-	log      *slog.Logger
+	EnrichMedia func(context.Context, string, []domain.Message) error
+	store       *store.Store
+	presence    PresenceController
+	log         *slog.Logger
 	// gatewayFacade is the control-plane chat-presence boundary (Increment 7).
 	// When set it is preferred over the legacy in-process controller.
 	gatewayFacade GatewayChatFacade
@@ -87,6 +88,11 @@ func (s *ChatService) ListMessages(
 	page, err := s.store.Messages.ListByChat(ctx, sessionID, chatJID, cursor, limit)
 	if err != nil {
 		return store.Page[domain.Message]{}, err
+	}
+	if s.EnrichMedia != nil {
+		if err := s.EnrichMedia(ctx, organizationID, page.Items); err != nil {
+			return store.Page[domain.Message]{}, err
+		}
 	}
 	resolveMentionNames(ctx, s.store.Identities, s.log, page.Items)
 	return page, nil

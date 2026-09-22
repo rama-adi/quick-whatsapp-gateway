@@ -6,6 +6,7 @@ package handlers
 
 import (
 	"context"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/media"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -257,6 +258,7 @@ var (
 // method per §11 endpoint. Realtime is no longer served here — the router owns
 // the WebSocket transport; the gateway only publishes events to Redis.
 type Handlers struct {
+	Media        *media.Service
 	Sessions     SessionSvc
 	Messages     MessageSvc
 	Webhooks     WebhookSvc

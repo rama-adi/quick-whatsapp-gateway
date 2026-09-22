@@ -11,6 +11,7 @@
     "api-keys",
     "organizations",
     "sign-in-with-whatsapp",
-    "dashboard"
+    "dashboard",
+    "attachment-storage"
   ]
 }

@@ -179,3 +179,7 @@ assertions. Cases:
   events skip identity/contact but still fan out; capture-error aborts;
   fan-out errors joined while `event_log` still appended; auto-read error
   non-fatal.
+
+## Attachment persistence
+
+Sessions can link to an organization S3 connection. The API tracks upload jobs, immutable object identities, and retention independently of message dispatch. See [attachment storage](/docs/architecture/media-storage).

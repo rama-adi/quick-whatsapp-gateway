@@ -43,6 +43,7 @@ export const NAV: NavItem[] = [
   { to: "/user/sessions", label: "My Sessions", icon: Smartphone, group: "Workspace", show: isUserPanel },
   { to: "/user/keys", label: "API Keys", icon: KeyRound, group: "Workspace", show: isUserPanel },
   { to: "/user/oauth-apps", label: "Sign in with WhatsApp", icon: Fingerprint, group: "Workspace", show: isUserPanel },
+  { to: "/user/storage", label: "Attachment storage", icon: ServerCog, group: "Workspace", show: isUserPanel },
   { to: "/user/webhooks", label: "Webhooks", icon: Webhook, group: "Workspace", show: isUserPanel },
 ];
 

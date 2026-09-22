@@ -138,6 +138,10 @@ message Chat {
 
 // MediaMeta is metadata-only media information on a stored message.
 message MediaMeta {
+  repeated MediaMeta items = 7;
+  string id = 4;
+  string url = 5;
+  optional int64 expires_at = 6;
   string mimetype = 1;
   int64 size = 2;
   string filename = 3;

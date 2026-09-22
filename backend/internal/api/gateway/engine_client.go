@@ -96,6 +96,7 @@ func engineTLSConfig(
 // EngineClient implements the API-facing resolved live facade. Calls reuse one
 // grpc-go ClientConn per advertised endpoint; grpc-go owns reconnects.
 type EngineClient struct {
+	CaptureMedia func(context.Context, string, string, string, domain.SendRequest) error
 	resolver     EngineTargetResolver
 	dial         EngineDial
 	mu           sync.Mutex
@@ -291,6 +292,11 @@ func (c *EngineClient) SendMessage(
 	c.record(target.GatewayID, target.GRPCEndpoint, err)
 	if err != nil {
 		return application.SendMessageResult{}, mapEngineError(err)
+	}
+	if c.CaptureMedia != nil {
+		if err := c.CaptureMedia(ctx, target.OrganizationID, target.SessionID, response.WaMessageId, prepared); err != nil {
+			return application.SendMessageResult{}, err
+		}
 	}
 	return application.SendMessageResult{
 		MutationResult: application.MutationResult{

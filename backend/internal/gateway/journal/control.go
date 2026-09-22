@@ -156,6 +156,11 @@ func decodeJournalEvent(payload []byte) (*gatewayv1.GatewayEvent, error) {
 	if err := json.Unmarshal(jsonPayload, &value); err != nil {
 		return nil, fmt.Errorf("decode normalized event JSON: %w", err)
 	}
+	if persisted.MediaSource != "" {
+		if payload, ok := value["payload"].(map[string]any); ok {
+			payload["_mediaSource"] = persisted.MediaSource
+		}
+	}
 	payloadStruct, err := structpb.NewStruct(value)
 	if err != nil {
 		return nil, fmt.Errorf("build normalized event payload: %w", err)
@@ -178,6 +183,7 @@ func decodeJournalEvent(payload []byte) (*gatewayv1.GatewayEvent, error) {
 // accepted. Replay therefore cannot accidentally relabel a historical event
 // with a later assignment.
 type persistedEvent struct {
+	MediaSource     string       `json:"media_source,omitempty"`
 	Event           domain.Event `json:"event"`
 	AssignmentEpoch uint64       `json:"assignment_epoch"`
 }
@@ -190,7 +196,7 @@ func (a *ControlAdapter) AppendDomainEvent(
 	event domain.Event,
 	assignmentEpoch uint64,
 ) (Entry, bool, error) {
-	payload, err := json.Marshal(persistedEvent{Event: event, AssignmentEpoch: assignmentEpoch})
+	payload, err := json.Marshal(persistedEvent{Event: event, AssignmentEpoch: assignmentEpoch, MediaSource: event.MediaSource})
 	if err != nil {
 		return Entry{}, false, fmt.Errorf("marshal normalized event: %w", err)
 	}

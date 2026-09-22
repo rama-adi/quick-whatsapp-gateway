@@ -988,6 +988,10 @@ func (x *Chat) GetMutedUntilUnixMs() int64 {
 // MediaMeta is metadata-only media information on a stored message.
 type MediaMeta struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
+	Items         []*MediaMeta           `protobuf:"bytes,7,rep,name=items,proto3" json:"items,omitempty"`
+	Id            string                 `protobuf:"bytes,4,opt,name=id,proto3" json:"id,omitempty"`
+	Url           string                 `protobuf:"bytes,5,opt,name=url,proto3" json:"url,omitempty"`
+	ExpiresAt     *int64                 `protobuf:"varint,6,opt,name=expires_at,json=expiresAt,proto3,oneof" json:"expires_at,omitempty"`
 	Mimetype      string                 `protobuf:"bytes,1,opt,name=mimetype,proto3" json:"mimetype,omitempty"`
 	Size          int64                  `protobuf:"varint,2,opt,name=size,proto3" json:"size,omitempty"`
 	Filename      string                 `protobuf:"bytes,3,opt,name=filename,proto3" json:"filename,omitempty"`
@@ -1023,6 +1027,34 @@ func (x *MediaMeta) ProtoReflect() protoreflect.Message {
 // Deprecated: Use MediaMeta.ProtoReflect.Descriptor instead.
 func (*MediaMeta) Descriptor() ([]byte, []int) {
 	return file_v1_resources_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *MediaMeta) GetItems() []*MediaMeta {
+	if x != nil {
+		return x.Items
+	}
+	return nil
+}
+
+func (x *MediaMeta) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *MediaMeta) GetUrl() string {
+	if x != nil {
+		return x.Url
+	}
+	return ""
+}
+
+func (x *MediaMeta) GetExpiresAt() int64 {
+	if x != nil && x.ExpiresAt != nil {
+		return *x.ExpiresAt
+	}
+	return 0
 }
 
 func (x *MediaMeta) GetMimetype() string {
@@ -1415,11 +1447,17 @@ const file_v1_resources_proto_rawDesc = "" +
 	"\x13muted_until_unix_ms\x18\v \x01(\x03H\x02R\x10mutedUntilUnixMs\x88\x01\x01B\a\n" +
 	"\x05_nameB\x1a\n" +
 	"\x18_last_message_at_unix_msB\x16\n" +
-	"\x14_muted_until_unix_ms\"W\n" +
-	"\tMediaMeta\x12\x1a\n" +
+	"\x14_muted_until_unix_ms\"\xd8\x01\n" +
+	"\tMediaMeta\x12*\n" +
+	"\x05items\x18\a \x03(\v2\x14.public.v1.MediaMetaR\x05items\x12\x0e\n" +
+	"\x02id\x18\x04 \x01(\tR\x02id\x12\x10\n" +
+	"\x03url\x18\x05 \x01(\tR\x03url\x12\"\n" +
+	"\n" +
+	"expires_at\x18\x06 \x01(\x03H\x00R\texpiresAt\x88\x01\x01\x12\x1a\n" +
 	"\bmimetype\x18\x01 \x01(\tR\bmimetype\x12\x12\n" +
 	"\x04size\x18\x02 \x01(\x03R\x04size\x12\x1a\n" +
-	"\bfilename\x18\x03 \x01(\tR\bfilename\"\x92\b\n" +
+	"\bfilename\x18\x03 \x01(\tR\bfilenameB\r\n" +
+	"\v_expires_at\"\x92\b\n" +
 	"\rStoredMessage\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
 	"\n" +
@@ -1530,15 +1568,16 @@ var file_v1_resources_proto_depIdxs = []int32{
 	0,  // 1: public.v1.Me.status:type_name -> public.v1.SessionStatus
 	2,  // 2: public.v1.SendResult.status:type_name -> public.v1.MessageStatus
 	3,  // 3: public.v1.Chat.type:type_name -> public.v1.ChatType
-	1,  // 4: public.v1.StoredMessage.direction:type_name -> public.v1.MessageDirection
-	15, // 5: public.v1.StoredMessage.mention_names:type_name -> public.v1.StoredMessage.MentionNamesEntry
-	12, // 6: public.v1.StoredMessage.media:type_name -> public.v1.MediaMeta
-	2,  // 7: public.v1.StoredMessage.status:type_name -> public.v1.MessageStatus
-	8,  // [8:8] is the sub-list for method output_type
-	8,  // [8:8] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	12, // 4: public.v1.MediaMeta.items:type_name -> public.v1.MediaMeta
+	1,  // 5: public.v1.StoredMessage.direction:type_name -> public.v1.MessageDirection
+	15, // 6: public.v1.StoredMessage.mention_names:type_name -> public.v1.StoredMessage.MentionNamesEntry
+	12, // 7: public.v1.StoredMessage.media:type_name -> public.v1.MediaMeta
+	2,  // 8: public.v1.StoredMessage.status:type_name -> public.v1.MessageStatus
+	9,  // [9:9] is the sub-list for method output_type
+	9,  // [9:9] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_v1_resources_proto_init() }
@@ -1554,6 +1593,7 @@ func file_v1_resources_proto_init() {
 	file_v1_resources_proto_msgTypes[5].OneofWrappers = []any{}
 	file_v1_resources_proto_msgTypes[6].OneofWrappers = []any{}
 	file_v1_resources_proto_msgTypes[7].OneofWrappers = []any{}
+	file_v1_resources_proto_msgTypes[8].OneofWrappers = []any{}
 	file_v1_resources_proto_msgTypes[9].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{

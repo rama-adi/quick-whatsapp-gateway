@@ -181,6 +181,7 @@ location, and contact message types do work.`)
 			Description: "Post text status updates and set whether the WhatsApp session is available, unavailable, typing, " +
 				"recording, or paused. Image status returns 501 in v1.",
 		},
+		{Name: "Media storage", Description: "Organization S3 connections, session attachment storage, retention and private file access."},
 		{
 			Name: "Webhooks",
 			Description: "Create webhook endpoints that receive events over HTTP. " +

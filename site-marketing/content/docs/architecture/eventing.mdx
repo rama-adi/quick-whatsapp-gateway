@@ -95,7 +95,7 @@ Ephemeral/ViewOnce/DeviceSent/Edited). Detection order (control messages first):
    and are not handled.)
 7. `GetLocationMessage()` → location (lat/long/name/address).
 8. `GetContactMessage()` → contact (displayName + vCard verbatim).
-9. Any media message (image/video/audio/document/sticker) → media **metadata only**.
+9. Any media message (image/video/audio/document/sticker) → media metadata plus a private attachment descriptor for API-side capture.
 10. `Conversation` or `ExtendedTextMessage` → text.
 11. otherwise → `system` / `SubtypeUnknown` (still emitted as a `message`).
 
@@ -132,9 +132,7 @@ All quoted-* fields are `omitempty` and set only when `quotedMessageId` is prese
 
 ### Media policy (§11)
 
-Inbound media is **not downloaded** by normalization. For media messages `HasMedia=true` and `MediaInfo`
-carries the metadata for the `messages.media_meta` column, but the **wire** `payload.media`
-field is **always null** — `messagePayload` deliberately sets `Media: nil`.
+Normalization extracts media metadata. The gateway adapter attaches a private descriptor for the API ingest transaction, which creates a capture job for linked sessions and removes the descriptor before public delivery. Upload completion emits `media.ready`; retention cleanup emits `media.expired`. See [attachment storage](/docs/architecture/media-storage).
 
 ### Ignore rules
 
@@ -195,7 +193,7 @@ unclassifiable data is worse than persisting an odd JID downstream can still rec
 Table-driven unit tests synthesize `*events.Message` values for each sub-type (text, text
 from-me, group text, quoted+mentions, reaction, edit, revoke, location, contact, poll,
 poll-vote, image/document media) and assert the mapped catalog `event`, `PersistKind`,
-sub-type, persisted `type` string, and extracted fields (incl. the §11 media-null
+sub-type, persisted `type` string, and extracted fields (incl. the media
 invariant). Separate tables cover receipts→status, session-status events, QR/pair, presence
 + chat-presence, group update vs participant, push-name/contact, call offer, newsletter, the
 sender-LID-vs-PN rule, and the unknown-event drop. Ignore rules and `ClassifyChat` have

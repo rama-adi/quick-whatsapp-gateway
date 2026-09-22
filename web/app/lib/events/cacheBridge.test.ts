@@ -462,3 +462,16 @@ describe("message lifecycle cache", () => {
     ]);
   });
 });
+
+describe("attachment lifecycle events", () => {
+  it.each(["media.ready", "media.expired"])("%s refreshes message URLs for the session", (name) => {
+    const qc = new QueryClient();
+    const key = qk.chatMessages(SESSION, "chat");
+    const other = qk.chatMessages("other_session", "chat");
+    qc.setQueryData(key, infinite([]));
+    qc.setQueryData(other, infinite([]));
+    applyEvent(qc, evt(name, { id: "asset", waMessageId: "message" }));
+    expect(qc.getQueryState(key)?.isInvalidated).toBe(true);
+    expect(qc.getQueryState(other)?.isInvalidated).toBe(false);
+  });
+});

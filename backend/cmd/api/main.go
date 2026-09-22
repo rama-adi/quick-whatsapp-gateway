@@ -12,6 +12,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/media"
 	"log/slog"
 	"net"
 	"net/http"
@@ -124,6 +125,12 @@ func run() error {
 		Log:                        log,
 	})
 	apiHandlers := handlers.New(services, log)
+	mediaStorage := &media.Service{DB: db, Cipher: aes, BaseURL: cfg.PublicURL,
+		Poll: 2 * time.Second, Deadline: cfg.GatewayEngineSendDeadline + time.Minute,
+		BackoffBase: 5 * time.Second, BackoffCap: 10 * time.Minute}
+	apiHandlers.Media = mediaStorage
+	services.Chats.EnrichMedia = mediaStorage.Enrich
+	st.GatewayEvents.MediaCapture = mediaStorage.Capture
 
 	// --- Committed-event fan-out (Increment 5). Control-mode gateway events are
 	// durable once the ingest transaction commits; this worker then claims each
@@ -146,6 +153,15 @@ func run() error {
 		service.NewWebhookDeliveryRepoAdapter(st.WebhookDeliveries),
 		nil, log,
 	)
+	mediaStorage.Publish = func(ctx context.Context, event domain.Event) error {
+		if publisher != nil {
+			if err := publisher.Publish(ctx, event); err != nil {
+				return err
+			}
+		}
+		_, err := webhookEnqueuer.Enqueue(ctx, event)
+		return err
+	}
 	var oidpPending *oidp.PendingStore
 	var oidpEvents *service.OIDPEventConsumer
 	if rdb != nil {
@@ -318,6 +334,8 @@ func run() error {
 		if identityErr != nil {
 			return fmt.Errorf("build gateway engine client: %w", identityErr)
 		}
+		mediaStorage.Downloader = engineClient
+		engineClient.CaptureMedia = mediaStorage.CaptureOutbound
 		services.Sessions.SetGatewayLiveFacade(engineClient)
 		services.Presence.SetGatewayLiveFacade(engineClient)
 
@@ -422,7 +440,7 @@ func run() error {
 			Store: gatewayControlStore{
 				repo:           st.Gateways,
 				reconciliation: store.NewGatewayReconciliationRepo(db),
-				eventIngest:    store.NewGatewayEventIngestRepo(db),
+				eventIngest:    st.GatewayEvents,
 			},
 			ResolveGatewayID: func(ctx context.Context) (string, bool) {
 				identity, ok := gatewayIdentityFromContext(ctx)
@@ -496,6 +514,11 @@ func run() error {
 		Chats:    services.Chats,
 		Events:   st.EventLog,
 	})
+	go func() {
+		if err := mediaStorage.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			log.Error("media worker stopped", "err", err)
+		}
+	}()
 	runner := &apiServerRunner{
 		httpAddr:          cfg.HTTPAddr,
 		grpcAddr:          cfg.PublicGRPCAddr,

@@ -309,9 +309,13 @@ type Chat struct {
 // MediaMeta is the typed shape of messages.media_meta JSON. Media is never
 // downloaded in v1 — this is metadata only.
 type MediaMeta struct {
-	Mimetype string `json:"mimetype,omitempty" doc:"Media MIME type, e.g. image/jpeg. Optional." example:"image/jpeg"`
-	Size     int64  `json:"size,omitempty" doc:"Media size in bytes. Optional." example:"204800"`
-	Filename string `json:"filename,omitempty" doc:"Original filename, for document messages. Optional." example:"invoice.pdf"`
+	Items     []MediaMeta `json:"items,omitempty" doc:"Individual stored attachments for an album, ordered by their source position."`
+	ID        string      `json:"id,omitempty" doc:"Stored attachment id, available when S3 capture is configured."`
+	URL       string      `json:"url,omitempty" doc:"Private attachment access URL. Present after upload and before retention expiry. Treat as a bearer credential."`
+	ExpiresAt *int64      `json:"expiresAt,omitempty" doc:"Retention deadline in epoch milliseconds. Omitted for indefinite retention."`
+	Mimetype  string      `json:"mimetype,omitempty" doc:"Media MIME type, e.g. image/jpeg. Optional." example:"image/jpeg"`
+	Size      int64       `json:"size,omitempty" doc:"Media size in bytes. Optional." example:"204800"`
+	Filename  string      `json:"filename,omitempty" doc:"Original filename, for document messages. Optional." example:"invoice.pdf"`
 }
 
 // Message mirrors the messages table.
@@ -340,7 +344,7 @@ type Message struct {
 	// identity appear; lets a client render "@<name>" instead of the raw number.
 	MentionNames map[string]string `json:"mentionNames,omitempty" doc:"Resolved display names for the @-mentions, keyed by the mention's user-part — the token after '@' as it appears in 'body' (e.g. '205227043110953') → name. Read-only: populated from whatsapp_identities at read time, never stored. Only mentions resolvable to a known identity are included; lets a client render '@<name>' instead of the raw number. Optional." example:"{\"205227043110953\":\"Alice\"}"`
 	HasMedia     bool              `json:"hasMedia" doc:"True if the message carries media (image/video/audio/document/sticker)." example:"false"`
-	MediaMeta    *MediaMeta        `json:"media,omitempty" doc:"Media metadata (mimetype, size, filename) when the message has media. Metadata only — media is not downloaded in this build, so this is null even when hasMedia is true." `
+	MediaMeta    *MediaMeta        `json:"media,omitempty" doc:"Attachment metadata, storage id, available access URL, and retention deadline. Albums include individual files in items." `
 	Status       *MessageStatus    `json:"status,omitempty" enum:"pending,sent,delivered,read,played,failed" doc:"Delivery state, mainly meaningful for outgoing messages. Progression: **pending** (queued, not yet confirmed) → **sent** (handed to WhatsApp) → **delivered** (reached the recipient's device) → **read** (opened) → **played** (voice/video note played). **failed** = could not be sent. Optional; null for inbound messages with no tracked status." example:"delivered"`
 	AckLevel     *int              `json:"ackLevel,omitempty" doc:"Raw WhatsApp acknowledgement level underlying status (0=pending … up to played). Optional; null when not tracked." example:"3"`
 	Error        *string           `json:"error,omitempty" doc:"Failure reason when status is failed. Optional; null otherwise." example:"recipient not on WhatsApp"`

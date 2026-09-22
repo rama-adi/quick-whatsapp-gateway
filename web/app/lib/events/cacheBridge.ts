@@ -141,6 +141,11 @@ export function applyEvent(qc: QueryClient, e: EventEnvelope): void {
       break;
     }
 
+    case "media.ready":
+    case "media.expired": {
+      if (s) void qc.invalidateQueries({ queryKey: qk.chats(s) });
+      break;
+    }
     case "message.status": {
       const messageIds = Array.isArray(p.messageIds)
         ? p.messageIds.filter((id): id is string => typeof id === "string" && id.length > 0)

@@ -306,3 +306,7 @@ Table-driven, all boundaries faked through the consumer interfaces:
     reusable.
 
 Build/test gate: `CGO_ENABLED=0 go -C backend build|test ./internal/wa/outbound/...`.
+
+## Attachment persistence
+
+Sessions can link to an organization S3 connection. The API tracks upload jobs, immutable object identities, and retention independently of message dispatch. See [attachment storage](/docs/architecture/media-storage).

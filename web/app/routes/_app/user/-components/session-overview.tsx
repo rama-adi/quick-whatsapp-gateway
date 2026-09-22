@@ -30,6 +30,7 @@ import {
   SessionActionButtons,
   SessionStatusBadge,
 } from "./user-ui";
+import { SessionStorageCard } from "./session-storage-card";
 import { BackupImportCard } from "./backup-import-card";
 
 export function SessionOverview({ sessionId }: { sessionId: string }) {
@@ -112,6 +113,7 @@ export function SessionOverview({ sessionId }: { sessionId: string }) {
         ) : (
           <ConnectedCard session={s} />
         )}
+        <SessionStorageCard sessionId={sessionId} />
         <BackupImportCard sessionId={sessionId} />
       </div>
     </div>

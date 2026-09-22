@@ -5,9 +5,12 @@ package waadapter
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	waevents "go.mau.fi/whatsmeow/types/events"
+	"google.golang.org/protobuf/proto"
 	"log/slog"
 	"strings"
 
@@ -101,6 +104,18 @@ func (n *InboundNormalizer) Normalize(
 	}
 	if nm.Kind == inbound.KindPollVote && nm.PollVote != nil {
 		n.resolvePollVote(ctx, sessionID, evt, &ev, nm)
+	}
+	// The private descriptor travels only through the durable gateway handoff.
+	// API ingest removes it before the public event log and encrypts it for the upload worker.
+	if raw, ok := evt.(*waevents.Message); ok && nm.HasMedia && raw.Message != nil {
+		source, err := proto.Marshal(raw.Message)
+		if err == nil {
+			ev.MediaSource = base64.StdEncoding.EncodeToString(source)
+			if payload, ok := ev.Payload.(apitypes.MessagePayload); ok {
+				payload.Media = nm.MediaMeta
+				ev.Payload = payload
+			}
+		}
 	}
 	return ev, nm, true
 }

@@ -1,0 +1,105 @@
+---
+title: Attachment storage
+description: Organization S3 connections, session bindings, private media delivery, and durable retention cleanup.
+---
+
+The API owns attachment storage configuration, encrypted credentials, upload
+jobs, retention deadlines, and S3 operations. The gateway supplies WhatsApp
+attachment bytes over its private mTLS engine RPC.
+
+## Ownership and tables
+
+Migration `backend/migrations/0015_media_storage.up.sql` adds:
+
+- `media_buckets`: organization-owned connection settings and AES-GCM encrypted
+  access/secret keys. `retention_days = NULL` represents indefinite retention.
+- `session_media_storage`: one connection per session. Linking validates both
+  the session and connection against the caller's organization in a transaction.
+- `media_assets`: stable object key, original connection, message identity and
+  album index, encrypted source, upload state, saved S3 version, bearer token,
+  retention deadline, due time, retries, and pending event notification.
+
+The frontend uses the public API for these tables. Its read-only database
+introspection excludes all three tables, keeping credentials and media tokens
+inside the API data plane.
+
+Bucket destination fields are immutable. Credentials, name, and retention for
+future captures can be updated. Existing assets retain their bucket and expiry
+when a session switches storage. Unlinking stops subsequent captures.
+
+## Capture and transfer
+
+The gateway normalizer attaches a private protobuf media descriptor to the
+durable handoff envelope. API ingest removes that descriptor before writing the
+public event log and atomically creates an encrypted upload job when the
+session has a storage binding. The public message payload receives the asset id.
+
+API-originated sends capture the resolved media bytes after the engine reports
+success. The callback runs before the API finalizes the send result; capture
+failure lets the existing command retry against the gateway's idempotency ledger.
+Album items use the parent message id with a separate item index. WhatsApp
+messages observed independently use their own message ids.
+
+The unique organization/session/message/index key prevents duplicate jobs.
+Each asset receives one object key under `whatsapp-gateway/<connection-id>/`.
+Upload uses a conditional `PutObject` and records the returned version id.
+A retry first checks the same object key, recovering a successful upload whose
+response or database commit was lost. Completed uploads clear the encrypted
+source from the active row.
+
+Incoming file downloads reuse the existing `outbound.MaxMediaBytes` policy
+(16 MiB per file). Private `DownloadMedia` RPCs validate the organization,
+session assignment epoch, and gateway identity before using the live WhatsApp
+client. Source descriptors stay on the private control/engine paths.
+
+## Scheduling and cleanup
+
+An index on `(next_attempt_at, id)` drives work selection. API replicas claim
+one due row with `FOR UPDATE SKIP LOCKED` and hold its lock during a bounded
+transfer or notification attempt. Other replicas can work on other assets.
+The worker reuses the outbound worker's configured timing: polling every two
+seconds, a transfer deadline based on the engine send deadline plus one minute,
+and retry delays starting at five seconds and doubling to ten minutes.
+
+After notification succeeds, the next due time becomes the retention deadline;
+indefinite or fully expired records leave the runnable schedule. The worker
+uses recorded keys, with no bucket listing or full-bucket scan. A failed delete
+keeps its record due for retry. Versioned objects are deleted by saved version
+id. The gateway never deletes unrelated objects or changes bucket lifecycle
+rules. S3 Object Lock and storage-provider permissions can postpone deletion;
+operators restore delete access and let the queued cleanup complete.
+
+`media.ready` and `media.expired` are inserted into the event log in the same
+transaction as the asset state change. Their notifications remain pending until
+realtime publication and webhook enqueueing succeed. Consumers deduplicate by
+event id. The stored notification reuses its id on retry.
+
+## URLs and access
+
+The authenticated media metadata endpoint and message history add URLs only
+for ready, unexpired assets. REST and public gRPC history use the same service
+enrichment. Albums expose their files through `media.items`.
+
+URLs point to `API_PUBLIC_URL/api/v1/media/{id}/content` and carry a random
+256-bit bearer token. The content handler compares the token in constant time,
+checks status and expiry, reads the saved object version, and streams it with
+`Cache-Control: private, no-store`, attachment disposition, and `nosniff`.
+Downloads end at the earlier of their request deadline and retention expiry.
+Previously delivered event payloads retain their historical URL; the content
+endpoint enforces its expiry. Current metadata responses omit expired URLs.
+
+S3 endpoints require HTTPS. DNS addresses are checked at dial time against
+private, loopback, link-local, and shared-address ranges; redirects and HTTP
+proxies are disabled. HTTP connections are pooled across transfers.
+
+## Operating the feature
+
+Credentials require `s3:PutObject`, `s3:GetObject`, `s3:DeleteObject`, and
+prefix-scoped `s3:ListBucket` for missing-key recovery. Versioned buckets also
+require `s3:GetObjectVersion` and `s3:DeleteObjectVersion`. The API uses the
+SDK's endpoint and path-style settings to support compatible providers.
+
+Retain `APP_ENCRYPTION_KEY` with the API backups. Monitor `media_assets.status`,
+`attempts`, `next_attempt_at`, and `last_error` for failed transfers or cleanup.
+Connection removal waits for session unlinking and completed asset cleanup.
+Indefinite retention keeps files and their connection available.

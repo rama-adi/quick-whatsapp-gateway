@@ -158,6 +158,7 @@ fenced by target gateway, organization, and assignment epoch:
 | `GetChatPresence` | read | subscribes to presence updates; snapshot is `unknown` until an event arrives |
 | `SetChatPresence` | un-ledgered write | repeating a typing state is idempotent by construction |
 | `BackfillSession` | slow read | callers apply the send deadline; response is the full contact/group/member snapshot within `MaxEngineMessageBytes` |
+| `DownloadMedia` | slow read | downloads a captured WhatsApp attachment through its owning session; validates organization and assignment epoch, and applies the existing 16 MiB media policy |
 | `PrepareSession` | un-ledgered write | creates the keystore device + managed-session entry for an API-created row; idempotent (an existing entry returns success) |
 | `BeginPairing` | read | starts-or-resumes QR pairing; both response fields are unset when no code is ready yet (caller polls or subscribes to `auth.qr`) |
 | `PairPhone` | read-classified | phone-number pairing code; each call yields a fresh one-time secret, nothing to replay |

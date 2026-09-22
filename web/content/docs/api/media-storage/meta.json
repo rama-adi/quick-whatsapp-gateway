@@ -1,0 +1,14 @@
+{
+  "title": "Media storage",
+  "description": "Organization S3 connections, session attachment storage, retention and private file access.",
+  "pages": [
+    "getMedia",
+    "downloadMedia",
+    "getSessionStorage",
+    "setSessionStorage",
+    "listStorageBuckets",
+    "createStorageBucket",
+    "deleteStorageBucket",
+    "updateStorageBucket"
+  ]
+}

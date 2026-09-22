@@ -168,7 +168,7 @@ export function parseMessage(m: Message): ParsedMessage {
     return { kind: "system" };
   }
 
-  if (MEDIA_TYPES.has(type)) {
+  if (MEDIA_TYPES.has(type) || type === "album") {
     const caption =
       (struct && typeof struct.caption === "string" && struct.caption) ||
       (body && !struct ? body : undefined);

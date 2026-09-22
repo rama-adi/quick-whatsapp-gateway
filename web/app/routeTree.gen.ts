@@ -24,6 +24,7 @@ import { Route as AppAdminRouteRouteImport } from './routes/_app/admin/route'
 import { Route as AppAdminIndexRouteImport } from './routes/_app/admin/index'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth.$'
 import { Route as AppUserWebhooksRouteImport } from './routes/_app/user/webhooks'
+import { Route as AppUserStorageRouteImport } from './routes/_app/user/storage'
 import { Route as AppUserSessionsRouteImport } from './routes/_app/user/sessions'
 import { Route as AppUserOauthAppsRouteImport } from './routes/_app/user/oauth-apps'
 import { Route as AppUserKeysRouteImport } from './routes/_app/user/keys'
@@ -116,6 +117,11 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
 const AppUserWebhooksRoute = AppUserWebhooksRouteImport.update({
   id: '/webhooks',
   path: '/webhooks',
+  getParentRoute: () => AppUserRoute,
+} as any)
+const AppUserStorageRoute = AppUserStorageRouteImport.update({
+  id: '/storage',
+  path: '/storage',
   getParentRoute: () => AppUserRoute,
 } as any)
 const AppUserSessionsRoute = AppUserSessionsRouteImport.update({
@@ -246,6 +252,7 @@ export interface FileRoutesByFullPath {
   '/user/keys': typeof AppUserKeysRoute
   '/user/oauth-apps': typeof AppUserOauthAppsRouteWithChildren
   '/user/sessions': typeof AppUserSessionsRouteWithChildren
+  '/user/storage': typeof AppUserStorageRoute
   '/user/webhooks': typeof AppUserWebhooksRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/admin/': typeof AppAdminIndexRoute
@@ -278,6 +285,7 @@ export interface FileRoutesByTo {
   '/admin/sessions': typeof AppAdminSessionsRoute
   '/admin/tenants': typeof AppAdminTenantsRoute
   '/user/keys': typeof AppUserKeysRoute
+  '/user/storage': typeof AppUserStorageRoute
   '/user/webhooks': typeof AppUserWebhooksRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/admin': typeof AppAdminIndexRoute
@@ -314,6 +322,7 @@ export interface FileRoutesById {
   '/_app/user/keys': typeof AppUserKeysRoute
   '/_app/user/oauth-apps': typeof AppUserOauthAppsRouteWithChildren
   '/_app/user/sessions': typeof AppUserSessionsRouteWithChildren
+  '/_app/user/storage': typeof AppUserStorageRoute
   '/_app/user/webhooks': typeof AppUserWebhooksRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/_app/admin/': typeof AppAdminIndexRoute
@@ -351,6 +360,7 @@ export interface FileRouteTypes {
     | '/user/keys'
     | '/user/oauth-apps'
     | '/user/sessions'
+    | '/user/storage'
     | '/user/webhooks'
     | '/api/auth/$'
     | '/admin/'
@@ -383,6 +393,7 @@ export interface FileRouteTypes {
     | '/admin/sessions'
     | '/admin/tenants'
     | '/user/keys'
+    | '/user/storage'
     | '/user/webhooks'
     | '/api/auth/$'
     | '/admin'
@@ -418,6 +429,7 @@ export interface FileRouteTypes {
     | '/_app/user/keys'
     | '/_app/user/oauth-apps'
     | '/_app/user/sessions'
+    | '/_app/user/storage'
     | '/_app/user/webhooks'
     | '/api/auth/$'
     | '/_app/admin/'
@@ -550,6 +562,13 @@ declare module '@tanstack/react-router' {
       path: '/webhooks'
       fullPath: '/user/webhooks'
       preLoaderRoute: typeof AppUserWebhooksRouteImport
+      parentRoute: typeof AppUserRoute
+    }
+    '/_app/user/storage': {
+      id: '/_app/user/storage'
+      path: '/storage'
+      fullPath: '/user/storage'
+      preLoaderRoute: typeof AppUserStorageRouteImport
       parentRoute: typeof AppUserRoute
     }
     '/_app/user/sessions': {
@@ -814,6 +833,7 @@ interface AppUserRouteChildren {
   AppUserKeysRoute: typeof AppUserKeysRoute
   AppUserOauthAppsRoute: typeof AppUserOauthAppsRouteWithChildren
   AppUserSessionsRoute: typeof AppUserSessionsRouteWithChildren
+  AppUserStorageRoute: typeof AppUserStorageRoute
   AppUserWebhooksRoute: typeof AppUserWebhooksRoute
 }
 
@@ -821,6 +841,7 @@ const AppUserRouteChildren: AppUserRouteChildren = {
   AppUserKeysRoute: AppUserKeysRoute,
   AppUserOauthAppsRoute: AppUserOauthAppsRouteWithChildren,
   AppUserSessionsRoute: AppUserSessionsRouteWithChildren,
+  AppUserStorageRoute: AppUserStorageRoute,
   AppUserWebhooksRoute: AppUserWebhooksRoute,
 }
 

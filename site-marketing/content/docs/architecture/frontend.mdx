@@ -123,7 +123,7 @@ the work Redis. API processes subscribe and revoke cached authorization and live
   invalidates session rows so the newly persisted JID appears immediately after PairSuccess.
   Shared lifecycle controls disable logout for unpaired sessions and confirm before unlinking a
   paired device; list and detail views use the same labels, pending state, and destructive styling.
-- **Viewer** (read-only) — chats + message timeline; media → "not downloaded" placeholder.
+- **Viewer** (read-only) — chats + message timeline; stored attachments provide download links after `media.ready`.
 - **Contacts** — searchable found-users list; drill into DM + groups.
 
 ## App shell
@@ -223,3 +223,5 @@ Realtime `message.edited` updates the cached target's body and edited flag;
 chat, and original message ID and also invalidate data for reconciliation.
 Deleted bubbles hide their original body, quote, reactions, and reply/vote controls
 and show “This message was deleted”. The edited marker survives a history reload.
+
+Organization S3 connections are managed under `/user/storage`. Session overview includes a bucket selector. [Attachment storage](/docs/architecture/media-storage) defines retention and access behavior.

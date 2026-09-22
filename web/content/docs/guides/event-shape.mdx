@@ -126,9 +126,7 @@ optional or nullable.
 | [`newsletter.update`](#newsletterupdate) | A followed channel updates. |
 
 <Callout type="info">
-**Attachments are never downloaded.** When a message has an attachment, you get
-`hasMedia: true` and `media: null`. So you know an attachment exists and what kind it is
-(from `type`), but this release never downloads the file itself.
+**Attachment storage is configured per session.** Linked sessions receive a tracked `media.id`; `media.ready` supplies the URL after upload. See [attachment storage](/docs/guides/attachment-storage).
 </Callout>
 
 ## Session & Auth
@@ -332,8 +330,7 @@ example `6281234567890@s.whatsapp.net` for a phone number or `…@g.us` for a gr
 ## Messages
 
 The `message` and `message.from_me` events use the same payload fields; the `type`
-field tells you what kind of content it holds. `media` is **always `null`**; use
-`hasMedia` to tell whether an attachment exists.
+field tells you what kind of content it holds. `hasMedia` identifies attachments. `media` contains available metadata, a tracked id, and the URL once stored.
 
 ### `message`
 
@@ -389,7 +386,7 @@ with mentions carries a JID-keyed `mentions` object with the mentioned user's
 <Tab value="media">
 
 An image, video, audio clip, document, or sticker. `type` says which one, `hasMedia` is
-`true`, and `media` is still `null` (the file is not downloaded). If the message has a
+`true`. Stored attachments receive `media.id` and a URL after upload. If the message has a
 caption, it is in `body`.
 
 ```json
@@ -416,8 +413,7 @@ caption, it is in `body`.
 ```
 
 <Callout type="info">
-`type` is one of `image`, `video`, `audio`, `document`, `sticker`. The file is never
-downloaded — `media` stays `null` even though `hasMedia` is `true`.
+`type` is one of `image`, `video`, `audio`, `document`, `sticker`. Link the session to a bucket to capture files. `media.ready` reports completed uploads.
 </Callout>
 
 </Tab>
@@ -546,8 +542,8 @@ separately as [`poll.vote`](#pollvote).
 - `quotedSenderJid` / `quotedSenderLid` (string, optional) — the quoted message's author. Guaranteed from the reply's context for a genuine reply; else resolved from local storage.
 - `quotedBody` (string, optional) — the quoted message's text/caption (truncated to 4096 bytes). Guaranteed from the reply's context for text/caption replies; else the locally stored body.
 - `mentions` (object, optional) — mentioned JIDs keyed to `{ pushName, tag }` metadata.
-- `hasMedia` (boolean, required) — `true` when an attachment exists; `media` is still `null`.
-- `media` (object|null) — always `null` in v1.
+- `hasMedia` (boolean, required) — `true` when an attachment exists.
+- `media` (object|null) — available attachment metadata, storage id, URL, and optional retention deadline.
 - `timestamp` (integer, required) — epoch-ms.
 - `pushName` (string, optional) — the sender's display name.
 
@@ -1606,3 +1602,7 @@ the original message when WhatsApp provides it. The chat and sender identify who
 selected the option, including in a group chat. Selections use this event instead
 of the ordinary `message` event. See [sending interactive messages](/docs/guides/sending#quick-replies-and-selection-lists-experimental)
 for a payload example and compatibility limitations.
+
+## Media storage events
+
+`media.ready` reports a stored attachment and its access URL. `media.expired` reports completed retention cleanup. Both include the session, WhatsApp message id, attachment id, connection id, and album item index. Read [attachment storage](/docs/guides/attachment-storage) for their fields and expiry behavior.

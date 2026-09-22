@@ -95,8 +95,8 @@ type MessagePayload struct {
 	QuotedSenderLID string                 `json:"quotedSenderLid,omitempty" doc:"For a reply: the LID identity of the quoted message's author, when available from the reply context or the locally stored quoted message."`
 	QuotedBody      string                 `json:"quotedBody,omitempty" doc:"For a reply: the text/caption of the quoted message, carried inline in the reply's context info (guaranteed for genuine text/caption replies), else the locally stored body. Truncated to 4096 bytes on a UTF-8 boundary."`
 	Mentions        map[string]MentionData `json:"mentions,omitempty" doc:"Mentions in the message body, keyed by mentioned JID. Values contain the user's known pushName and per-group tag when available."`
-	HasMedia        bool                   `json:"hasMedia" doc:"True if the message carried media. The media itself is metadata-only in v1 (no download)."`
-	Media           *domain.MediaMeta      `json:"media" doc:"Media descriptor. Always null in v1 (metadata-only); see hasMedia."`
+	HasMedia        bool                   `json:"hasMedia" doc:"True if the message carried media. Storage capture is configured per session."`
+	Media           *domain.MediaMeta      `json:"media" doc:"Media metadata and stored attachment id when capture is enabled. URL is present when ready; media.ready announces asynchronous upload completion."`
 	Timestamp       int64                  `json:"timestamp" doc:"When WhatsApp timestamped the message, in epoch milliseconds."`
 	PushName        string                 `json:"pushName,omitempty" doc:"The sender's WhatsApp display (push) name at send time."`
 	Reaction        string                 `json:"reaction,omitempty" doc:"For message.reaction: the emoji reacted with; empty string means the reaction was removed."`
@@ -274,8 +274,27 @@ type NewsletterEvent struct {
 // OpenAPI 3.1 `webhooks` section (a oneOf over them, discriminated by `event`).
 func EventTypeSchemas() []any {
 	return []any{
-		MessageEvent{}, PollRecapEvent{}, MessageStatusEvent{}, SessionStatusEvent{},
+		MediaEvent{}, MessageEvent{}, PollRecapEvent{}, MessageStatusEvent{}, SessionStatusEvent{},
 		AuthQREvent{}, AuthCodeEvent{}, PresenceEvent{}, GroupEvent{},
 		ChatUpdateEvent{}, ContactUpdateEvent{}, CallEvent{}, NewsletterEvent{},
 	}
+}
+
+// MediaEvent announces durable upload completion or completed retention cleanup.
+type MediaEvent struct {
+	EventMeta
+	Event   string `json:"event" enum:"media.ready,media.expired"`
+	Payload struct {
+		ID          string `json:"id"`
+		SessionID   string `json:"sessionId"`
+		WAMessageID string `json:"waMessageId"`
+		Index       int    `json:"index"`
+		BucketID    string `json:"bucketId"`
+		Status      string `json:"status" enum:"ready,expired"`
+		URL         string `json:"url,omitempty" doc:"Bearer access URL, present while the attachment is available."`
+		ExpiresAt   *int64 `json:"expiresAt,omitempty" doc:"Retention deadline in epoch milliseconds; omitted for indefinite retention."`
+		Mimetype    string `json:"mimetype"`
+		Filename    string `json:"filename"`
+		Size        int64  `json:"size"`
+	} `json:"payload"`
 }

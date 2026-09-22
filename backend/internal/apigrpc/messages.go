@@ -467,9 +467,13 @@ func messageToProto(m domain.Message) *publicv1.StoredMessage {
 	}
 	if m.MediaMeta != nil {
 		msg.Media = &publicv1.MediaMeta{
+			Id: m.MediaMeta.ID, Url: m.MediaMeta.URL, ExpiresAt: m.MediaMeta.ExpiresAt,
 			Mimetype: m.MediaMeta.Mimetype,
 			Size:     m.MediaMeta.Size,
 			Filename: m.MediaMeta.Filename,
+		}
+		for _, item := range m.MediaMeta.Items {
+			msg.Media.Items = append(msg.Media.Items, &publicv1.MediaMeta{Id: item.ID, Url: item.URL, ExpiresAt: item.ExpiresAt, Mimetype: item.Mimetype, Filename: item.Filename, Size: item.Size})
 		}
 	}
 	return msg

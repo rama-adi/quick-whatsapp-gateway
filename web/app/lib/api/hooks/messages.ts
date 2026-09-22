@@ -31,6 +31,8 @@ export function useChatMessages(
 > {
   return useInfiniteQuery({
     queryKey: qk.chatMessages(s, c),
+    // SSR reads message rows; the API adds current storage URLs and expiry.
+    refetchOnMount: "always",
     enabled: Boolean(s && c),
     initialPageParam: undefined as string | undefined,
     queryFn: listPageFetcher<Message>(

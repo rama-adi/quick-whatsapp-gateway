@@ -507,3 +507,7 @@ ledger restricts deletion, and the assignment would already have cascaded away.
 
 Pairing projections keep the full device JID but derive the phone from its user
 part; a `:device` suffix is never stored as part of the phone number.
+
+## Attachment storage tables
+
+`media_buckets`, `session_media_storage`, and `media_assets` are API-owned MySQL tables for S3 connections, session bindings, and durable uploads/retention cleanup. Credentials and download sources are encrypted. The frontend accesses them through the API. See [attachment storage](/docs/architecture/media-storage).

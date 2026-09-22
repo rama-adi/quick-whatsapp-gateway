@@ -19,6 +19,7 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
+	GatewayEngineService_DownloadMedia_FullMethodName           = "/gateway.v1.GatewayEngineService/DownloadMedia"
 	GatewayEngineService_GetSessionState_FullMethodName         = "/gateway.v1.GatewayEngineService/GetSessionState"
 	GatewayEngineService_SetAccountPresence_FullMethodName      = "/gateway.v1.GatewayEngineService/SetAccountPresence"
 	GatewayEngineService_MarkRead_FullMethodName                = "/gateway.v1.GatewayEngineService/MarkRead"
@@ -51,6 +52,7 @@ const (
 // GatewayEngineService is the gateway-local private unary engine surface. It
 // is served only by the gateway's private TLS listener.
 type GatewayEngineServiceClient interface {
+	DownloadMedia(ctx context.Context, in *DownloadMediaRequest, opts ...grpc.CallOption) (*DownloadMediaResponse, error)
 	GetSessionState(ctx context.Context, in *GetSessionStateRequest, opts ...grpc.CallOption) (*GetSessionStateResponse, error)
 	SetAccountPresence(ctx context.Context, in *SetAccountPresenceRequest, opts ...grpc.CallOption) (*SetAccountPresenceResponse, error)
 	MarkRead(ctx context.Context, in *MarkReadRequest, opts ...grpc.CallOption) (*MarkReadResponse, error)
@@ -82,6 +84,16 @@ type gatewayEngineServiceClient struct {
 
 func NewGatewayEngineServiceClient(cc grpc.ClientConnInterface) GatewayEngineServiceClient {
 	return &gatewayEngineServiceClient{cc}
+}
+
+func (c *gatewayEngineServiceClient) DownloadMedia(ctx context.Context, in *DownloadMediaRequest, opts ...grpc.CallOption) (*DownloadMediaResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DownloadMediaResponse)
+	err := c.cc.Invoke(ctx, GatewayEngineService_DownloadMedia_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *gatewayEngineServiceClient) GetSessionState(ctx context.Context, in *GetSessionStateRequest, opts ...grpc.CallOption) (*GetSessionStateResponse, error) {
@@ -321,6 +333,7 @@ func (c *gatewayEngineServiceClient) ForgetSession(ctx context.Context, in *Forg
 // GatewayEngineService is the gateway-local private unary engine surface. It
 // is served only by the gateway's private TLS listener.
 type GatewayEngineServiceServer interface {
+	DownloadMedia(context.Context, *DownloadMediaRequest) (*DownloadMediaResponse, error)
 	GetSessionState(context.Context, *GetSessionStateRequest) (*GetSessionStateResponse, error)
 	SetAccountPresence(context.Context, *SetAccountPresenceRequest) (*SetAccountPresenceResponse, error)
 	MarkRead(context.Context, *MarkReadRequest) (*MarkReadResponse, error)
@@ -354,6 +367,9 @@ type GatewayEngineServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedGatewayEngineServiceServer struct{}
 
+func (UnimplementedGatewayEngineServiceServer) DownloadMedia(context.Context, *DownloadMediaRequest) (*DownloadMediaResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DownloadMedia not implemented")
+}
 func (UnimplementedGatewayEngineServiceServer) GetSessionState(context.Context, *GetSessionStateRequest) (*GetSessionStateResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetSessionState not implemented")
 }
@@ -442,6 +458,24 @@ func RegisterGatewayEngineServiceServer(s grpc.ServiceRegistrar, srv GatewayEngi
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&GatewayEngineService_ServiceDesc, srv)
+}
+
+func _GatewayEngineService_DownloadMedia_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DownloadMediaRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayEngineServiceServer).DownloadMedia(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GatewayEngineService_DownloadMedia_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayEngineServiceServer).DownloadMedia(ctx, req.(*DownloadMediaRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _GatewayEngineService_GetSessionState_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -865,6 +899,10 @@ var GatewayEngineService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "gateway.v1.GatewayEngineService",
 	HandlerType: (*GatewayEngineServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "DownloadMedia",
+			Handler:    _GatewayEngineService_DownloadMedia_Handler,
+		},
 		{
 			MethodName: "GetSessionState",
 			Handler:    _GatewayEngineService_GetSessionState_Handler,

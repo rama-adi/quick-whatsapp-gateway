@@ -183,6 +183,9 @@ func (s *Server) Handler() http.Handler {
 		r.Use(authzCORS(s.corsOrigins))
 	}
 
+	if s.resourceHandlers != nil && s.resourceHandlers.Media != nil {
+		handlersapi.RegisterMediaContentOps(humax.NewAPI(r), s.resourceHandlers)
+	}
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
@@ -217,6 +220,7 @@ func (s *Server) Handler() http.Handler {
 		r.Group(func(authed chi.Router) {
 			authed.Use(authzAuthenticate(s.tokens, s.keys))
 			hapi := humax.NewAPI(authed)
+			handlersapi.RegisterMediaOps(hapi, s.resourceHandlers)
 			handlersapi.RegisterWebhookOps(hapi, s.resourceHandlers)
 			handlersapi.RegisterChatOps(hapi, s.resourceHandlers)
 			handlersapi.RegisterContactOps(hapi, s.resourceHandlers)

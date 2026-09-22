@@ -60,6 +60,46 @@ components:
             - array
             - "null"
       type: object
+    Asset:
+      additionalProperties: false
+      properties:
+        bucketId:
+          type: string
+        expiresAt:
+          format: int64
+          type: integer
+        filename:
+          type: string
+        id:
+          type: string
+        index:
+          description: Zero-based position within an album; zero for a single attachment.
+          format: int64
+          type: integer
+        mimetype:
+          type: string
+        sessionId:
+          type: string
+        size:
+          format: int64
+          type: integer
+        status:
+          type: string
+        url:
+          type: string
+        waMessageId:
+          type: string
+      required:
+        - index
+        - id
+        - sessionId
+        - waMessageId
+        - bucketId
+        - status
+        - mimetype
+        - filename
+        - size
+      type: object
     AuthCodeEvent:
       additionalProperties: false
       properties:
@@ -353,6 +393,103 @@ components:
         - groups
         - groupMembers
         - startedAt
+      type: object
+    BindingOutputBody:
+      additionalProperties: false
+      properties:
+        bucketId:
+          type:
+            - string
+            - "null"
+      required:
+        - bucketId
+      type: object
+    BindingUpdateInputBody:
+      additionalProperties: false
+      properties:
+        bucketId:
+          description: Storage connection id, or null to stop capturing new attachments.
+          type:
+            - string
+            - "null"
+      required:
+        - bucketId
+      type: object
+    Bucket:
+      additionalProperties: false
+      properties:
+        bucket:
+          type: string
+        endpoint:
+          type: string
+        id:
+          type: string
+        name:
+          type: string
+        pathStyle:
+          type: boolean
+        region:
+          type: string
+        retentionDays:
+          description: Retention in days, at least 1. Null keeps attachments indefinitely. Changes apply to new attachments.
+          format: int64
+          type:
+            - integer
+            - "null"
+      required:
+        - id
+        - name
+        - endpoint
+        - region
+        - bucket
+        - pathStyle
+        - retentionDays
+      type: object
+    BucketInput:
+      additionalProperties: false
+      properties:
+        accessKey:
+          type: string
+        bucket:
+          type: string
+        endpoint:
+          description: HTTPS endpoint for the S3-compatible service.
+          type: string
+        name:
+          type: string
+        pathStyle:
+          type: boolean
+        region:
+          type: string
+        retentionDays:
+          format: int64
+          minimum: 1
+          type:
+            - integer
+            - "null"
+        secretKey:
+          type: string
+      required:
+        - name
+        - endpoint
+        - region
+        - bucket
+        - pathStyle
+        - retentionDays
+        - accessKey
+        - secretKey
+      type: object
+    BucketListOutputBody:
+      additionalProperties: false
+      properties:
+        items:
+          items:
+            $ref: "#/components/schemas/Bucket"
+          type:
+            - array
+            - "null"
+      required:
+        - items
       type: object
     CallEvent:
       additionalProperties: false
@@ -1911,14 +2048,119 @@ components:
         - status
         - connected
       type: object
+    MediaEvent:
+      additionalProperties: false
+      properties:
+        event:
+          enum:
+            - media.ready
+            - media.expired
+          type: string
+        id:
+          description: Unique event id. Webhook deliveries repeat it in the X-Webhook-Request-Id header so receivers can drop duplicate redeliveries; the realtime client uses it as the ?since resume cursor.
+          examples:
+            - evt_01J9ZX...
+          type: string
+        organization:
+          description: Id of the organization that owns the session.
+          examples:
+            - org_01J9...
+          type: string
+        payload:
+          $ref: "#/components/schemas/MediaEventPayloadStruct"
+        schema:
+          description: Envelope schema version, so consumers can adapt if the shape changes.
+          enum:
+            - v1
+          examples:
+            - v1
+          type: string
+        session:
+          description: Id of the WhatsApp session the event came from.
+          examples:
+            - wa_sess_01J9...
+          type: string
+        timestamp:
+          description: When the event happened, in epoch milliseconds.
+          examples:
+            - 1719400000000
+          format: int64
+          type: integer
+      required:
+        - event
+        - payload
+        - schema
+        - id
+        - session
+        - organization
+        - timestamp
+      type: object
+    MediaEventPayloadStruct:
+      additionalProperties: false
+      properties:
+        bucketId:
+          type: string
+        expiresAt:
+          description: Retention deadline in epoch milliseconds; omitted for indefinite retention.
+          format: int64
+          type: integer
+        filename:
+          type: string
+        id:
+          type: string
+        index:
+          format: int64
+          type: integer
+        mimetype:
+          type: string
+        sessionId:
+          type: string
+        size:
+          format: int64
+          type: integer
+        status:
+          enum:
+            - ready
+            - expired
+          type: string
+        url:
+          description: Bearer access URL, present while the attachment is available.
+          type: string
+        waMessageId:
+          type: string
+      required:
+        - id
+        - sessionId
+        - waMessageId
+        - index
+        - bucketId
+        - status
+        - mimetype
+        - filename
+        - size
+      type: object
     MediaMeta:
       additionalProperties: false
       properties:
+        expiresAt:
+          description: Retention deadline in epoch milliseconds. Omitted for indefinite retention.
+          format: int64
+          type: integer
         filename:
           description: Original filename, for document messages. Optional.
           examples:
             - invoice.pdf
           type: string
+        id:
+          description: Stored attachment id, available when S3 capture is configured.
+          type: string
+        items:
+          description: Individual stored attachments for an album, ordered by their source position.
+          items:
+            $ref: "#/components/schemas/MediaMeta"
+          type:
+            - array
+            - "null"
         mimetype:
           description: Media MIME type, e.g. image/jpeg. Optional.
           examples:
@@ -1930,6 +2172,9 @@ components:
             - 204800
           format: int64
           type: integer
+        url:
+          description: Private attachment access URL. Present after upload and before retention expiry. Treat as a bearer credential.
+          type: string
       type: object
     MediaPayload:
       additionalProperties: false
@@ -2039,7 +2284,7 @@ components:
           type: string
         media:
           $ref: "#/components/schemas/MediaMeta"
-          description: Media metadata (mimetype, size, filename) when the message has media. Metadata only — media is not downloaded in this build, so this is null even when hasMedia is true.
+          description: Attachment metadata, storage id, available access URL, and retention deadline. Albums include individual files in items.
         mentionNames:
           additionalProperties:
             type: string
@@ -2193,7 +2438,7 @@ components:
           description: True if this account authored the message (the message.from_me event).
           type: boolean
         hasMedia:
-          description: True if the message carried media. The media itself is metadata-only in v1 (no download).
+          description: True if the message carried media. Storage capture is configured per session.
           type: boolean
         interactiveReply:
           $ref: "#/components/schemas/InteractiveReplyData"
@@ -2203,7 +2448,7 @@ components:
           description: Set when type is location.
         media:
           $ref: "#/components/schemas/MediaMeta"
-          description: Media descriptor. Always null in v1 (metadata-only); see hasMedia.
+          description: Media metadata and stored attachment id when capture is enabled. URL is present when ready; media.ready announces asynchronous upload completion.
         mentions:
           additionalProperties:
             $ref: "#/components/schemas/MentionData"
@@ -4409,6 +4654,61 @@ paths:
       summary: Start a session data backfill (super_admin)
       tags:
         - Admin
+  /api/v1/media/{id}:
+    get:
+      operationId: getMedia
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Asset"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Get attachment status and available download URL
+      tags:
+        - Media storage
+  /api/v1/media/{id}/content:
+    get:
+      description: The URL token grants access until retention expires. Keep the URL private. Every request checks the attachment state before reading its private S3 object.
+      operationId: downloadMedia
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - description: Attachment bearer token supplied in the media URL.
+          explode: false
+          in: query
+          name: token
+          schema:
+            description: Attachment bearer token supplied in the media URL.
+            type: string
+      responses:
+        "200":
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      security: []
+      summary: Download an attachment using its access URL
+      tags:
+        - Media storage
   /api/v1/oauth-apps:
     get:
       description: |-
@@ -7149,6 +7449,61 @@ paths:
       summary: Post a status update
       tags:
         - Status
+  /api/v1/sessions/{session}/storage:
+    get:
+      operationId: getSessionStorage
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BindingOutputBody"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Get the session attachment bucket
+      tags:
+        - Media storage
+    put:
+      operationId: setSessionStorage
+      parameters:
+        - in: path
+          name: session
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BindingUpdateInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BindingOutputBody"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Link or unlink the session attachment bucket
+      tags:
+        - Media storage
   /api/v1/sessions/{session}:logout:
     post:
       description: |-
@@ -7297,6 +7652,100 @@ paths:
       summary: Stop a session
       tags:
         - Sessions
+  /api/v1/storage/buckets:
+    get:
+      operationId: listStorageBuckets
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BucketListOutputBody"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: List organization S3 connections
+      tags:
+        - Media storage
+    post:
+      operationId: createStorageBucket
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BucketInput"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Bucket"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Connect an S3-compatible bucket
+      tags:
+        - Media storage
+  /api/v1/storage/buckets/{id}:
+    delete:
+      operationId: deleteStorageBucket
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Remove an unused S3 connection
+      tags:
+        - Media storage
+    put:
+      operationId: updateStorageBucket
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BucketInput"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Bucket"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Update bucket credentials and future attachment retention
+      tags:
+        - Media storage
   /api/v1/webhooks:
     get:
       description: |-
@@ -7482,6 +7931,8 @@ tags:
     name: Channels
   - description: Post text status updates and set whether the WhatsApp session is available, unavailable, typing, recording, or paused. Image status returns 501 in v1.
     name: Status & Presence
+  - description: Organization S3 connections, session attachment storage, retention and private file access.
+    name: Media storage
   - description: Create webhook endpoints that receive events over HTTP. Optional HMAC signing lets receivers verify the request body.
     name: Webhooks
   - description: Platform super-admin endpoints for listing all sessions and starting or checking history backfills.
@@ -7506,6 +7957,8 @@ webhooks:
                   contact.update: "#/components/schemas/ContactUpdateEvent"
                   group.participant: "#/components/schemas/GroupEvent"
                   group.update: "#/components/schemas/GroupEvent"
+                  media.expired: "#/components/schemas/MediaEvent"
+                  media.ready: "#/components/schemas/MediaEvent"
                   message: "#/components/schemas/MessageEvent"
                   message.edited: "#/components/schemas/MessageEvent"
                   message.from_me: "#/components/schemas/MessageEvent"
@@ -7520,6 +7973,7 @@ webhooks:
                   session.status: "#/components/schemas/SessionStatusEvent"
                 propertyName: event
               oneOf:
+                - $ref: "#/components/schemas/MediaEvent"
                 - $ref: "#/components/schemas/MessageEvent"
                 - $ref: "#/components/schemas/PollRecapEvent"
                 - $ref: "#/components/schemas/MessageStatusEvent"

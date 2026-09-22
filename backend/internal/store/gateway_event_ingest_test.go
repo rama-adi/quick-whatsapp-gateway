@@ -160,3 +160,21 @@ func TestCompleteCommittedEvent_FencedByOwner(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestGatewayEventIngestStripsPrivateMediaDescriptor(t *testing.T) {
+	db, mock := newMock(t)
+	repo := NewGatewayEventIngestRepo(db)
+	event := ingestEvent("evt_private")
+	event.Payload = []byte(`{"_mediaSource":"secret","x":1}`)
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT COUNT").WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(1))
+	mock.ExpectExec("INSERT IGNORE INTO gateway_ingested_events").WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("INSERT INTO event_log").WithArgs(event.EventID, event.OrganizationID, event.SessionID, event.Type, []byte(`{"x":1}`), event.OccurredAt).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+	if err := repo.Ingest(context.Background(), event, 999); err != nil {
+		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}

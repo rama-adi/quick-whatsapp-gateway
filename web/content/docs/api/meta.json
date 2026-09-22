@@ -2,6 +2,7 @@
   "title": "API reference",
   "pages": [
     "index",
+    "media-storage",
     "sessions",
     "channels",
     "chats",

@@ -39,6 +39,7 @@ export type RetryPolicy = components["schemas"]["RetryPolicy"];
 // type, generated from the gateway's Go event catalog (the OpenAPI `webhooks`
 // section). Consumers switch on `event` and get the matching `payload` shape.
 export type EventEnvelope =
+  | components["schemas"]["MediaEvent"]
   | components["schemas"]["MessageEvent"]
   | components["schemas"]["MessageStatusEvent"]
   | components["schemas"]["SessionStatusEvent"]

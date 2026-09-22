@@ -2,6 +2,10 @@ package journal
 
 import (
 	"context"
+	"encoding/json"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/structpb"
+	"strings"
 	"testing"
 	"time"
 
@@ -110,5 +114,36 @@ func TestReplayPreservesEntriesMissingOwnershipMetadata(t *testing.T) {
 				t.Fatalf("malformed ownership entry lost: %+v %v", metrics, err)
 			}
 		})
+	}
+}
+
+func TestMediaDescriptorStaysPrivateAcrossDurableHandoff(t *testing.T) {
+	ctx := context.Background()
+	j, _ := openTestJournal(t, DefaultConfig())
+	adapter := &ControlAdapter{Journal: j, GatewayID: "gateway"}
+	event := domain.NewEvent(domain.EventMessage, "session", "org", map[string]any{"waMessageId": "message"})
+	event.MediaSource = "private-source"
+	public, err := json.Marshal(event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(public), "private-source") {
+		t.Fatal("public envelope exposed descriptor")
+	}
+	entry, _, err := adapter.AppendDomainEvent(ctx, event, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire, err := decodeJournalEvent(entry.Payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envelope structpb.Struct
+	if err = proto.Unmarshal(wire.Payload, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	payload := envelope.AsMap()["payload"].(map[string]any)
+	if payload["_mediaSource"] != "private-source" {
+		t.Fatal("durable handoff lost descriptor")
 	}
 }

@@ -1,0 +1,79 @@
+---
+title: Attachment storage
+description: Connect organization S3 buckets, choose session storage, and control attachment retention.
+---
+
+Open **Attachment storage** in the dashboard to manage buckets for the active
+organization. Organization members with the `manage` capability can create and
+update connections. Each organization can have multiple connections, and each
+session can use one connection at a time.
+
+## Connect a bucket
+
+Enter a connection name, the S3 service's HTTPS endpoint, region, bucket name,
+access key, and secret key. Enable **path-style requests** when your S3 provider
+requires them. The endpoint must resolve to public IP addresses.
+
+Choose a whole number of retention days starting at **1**, or select **Keep
+attachments indefinitely**. Saving stores the configuration and encrypted
+credentials. Transfers use the credentials when new attachments arrive.
+
+The bucket stays private. The gateway creates object keys under
+`whatsapp-gateway/<connection-id>/`. The storage credentials need object read,
+write, and delete access to that prefix, plus prefix-scoped bucket listing so
+missing objects can be distinguished during retry recovery. Versioned buckets
+also need permission to read and delete the stored object version.
+
+To rotate credentials, edit the connection and supply both keys. Leave both key
+fields blank to keep the saved credentials. To change the endpoint, region,
+bucket name, or addressing style, create a new connection.
+
+## Link a session
+
+Open the session overview and choose a connection in **Attachment storage**.
+Choose **Capture disabled** to unlink it. You can switch or unlink at any time.
+
+The selected connection applies when the API captures a new attachment. Files
+already captured keep their original connection and expiry date. A retention
+change applies to subsequent captures. Linking starts capture for new messages;
+existing message history keeps its current storage state.
+
+Capture covers images, videos, audio, documents, and stickers observed through
+WhatsApp, plus media and album sends through the API. The gateway's existing
+per-file media limit is **16 MiB**. Files over that limit keep their message
+metadata and remain unavailable for download.
+
+## Read media URLs
+
+The message API returns `media.id` for tracked attachments and `media.url` when
+an upload has completed. `media.expiresAt` is the retention deadline in epoch
+milliseconds; indefinite attachments omit it. Albums expose individual files
+in `media.items`.
+
+Uploads run asynchronously. Subscribe to **`media.ready`** to receive the URL
+when a file becomes available. The event includes `id`, `sessionId`,
+`waMessageId`, `bucketId`, zero-based `index`, `url`, `mimetype`, `filename`,
+`size`, and optional `expiresAt`.
+
+Use `GET /api/v1/media/{id}` to read the current status and available URL.
+The chat viewer also offers **Download attachment** after an upload completes.
+
+A media URL grants access to its attachment. Share it with the intended recipients
+and keep it out of public logs. The API checks retention on every download and
+streams the private object from S3.
+
+## Expiry and cleanup
+
+Retention starts when the API creates the attachment record. At the deadline,
+the current message and media APIs omit the URL, and previous access URLs stop
+serving content. A background worker removes the object and publishes
+**`media.expired`** after deletion succeeds.
+
+Storage outages or revoked credentials delay physical deletion. Access remains
+expired while cleanup retries. Keep the connection credentials valid until
+cleanup finishes. You can remove a connection after unlinking its sessions and
+finishing cleanup of its retained files. Indefinite files remain stored.
+
+The worker tracks object keys in MySQL, reuses keys during retries, and targets
+the recorded version in versioned buckets. Cleanup operates on gateway-owned
+objects without scanning the bucket.

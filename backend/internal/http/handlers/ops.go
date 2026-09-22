@@ -9,6 +9,8 @@ import "github.com/danielgtaylor/huma/v2"
 // never diverge. As each resource is converted, its RegisterXOps is added here and
 // removed from mountAPIRoutes.
 func RegisterAllOps(api huma.API, h *Handlers) {
+	RegisterMediaOps(api, h)
+	RegisterMediaContentOps(api, h)
 	RegisterWebhookOps(api, h)
 	RegisterSessionOps(api, h)
 	RegisterMessageOps(api, h)

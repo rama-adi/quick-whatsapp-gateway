@@ -256,6 +256,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/media/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get attachment status and available download URL */
+        get: operations["getMedia"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/media/{id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download an attachment using its access URL
+         * @description The URL token grants access until retention expires. Keep the URL private. Every request checks the attachment state before reading its private S3 object.
+         */
+        get: operations["downloadMedia"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/oauth-apps": {
         parameters: {
             query?: never;
@@ -1537,6 +1574,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sessions/{session}/storage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the session attachment bucket */
+        get: operations["getSessionStorage"];
+        /** Link or unlink the session attachment bucket */
+        put: operations["setSessionStorage"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sessions/{session}:logout": {
         parameters: {
             query?: never;
@@ -1636,6 +1691,42 @@ export interface paths {
          */
         post: operations["stopSession"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/storage/buckets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List organization S3 connections */
+        get: operations["listStorageBuckets"];
+        put?: never;
+        /** Connect an S3-compatible bucket */
+        post: operations["createStorageBucket"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/storage/buckets/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update bucket credentials and future attachment retention */
+        put: operations["updateStorageBucket"];
+        post?: never;
+        /** Remove an unused S3 connection */
+        delete: operations["deleteStorageBucket"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1783,6 +1874,25 @@ export interface components {
              *     ]
              */
             participants?: string[] | null;
+        };
+        Asset: {
+            bucketId: string;
+            /** Format: int64 */
+            expiresAt?: number;
+            filename: string;
+            id: string;
+            /**
+             * Format: int64
+             * @description Zero-based position within an album; zero for a single attachment.
+             */
+            index: number;
+            mimetype: string;
+            sessionId: string;
+            /** Format: int64 */
+            size: number;
+            status: string;
+            url?: string;
+            waMessageId: string;
         };
         AuthCodeEvent: {
             /**
@@ -2011,6 +2121,41 @@ export interface components {
              * @enum {string}
              */
             status: "running" | "succeeded" | "failed";
+        };
+        BindingOutputBody: {
+            bucketId: string | null;
+        };
+        BindingUpdateInputBody: {
+            /** @description Storage connection id, or null to stop capturing new attachments. */
+            bucketId: string | null;
+        };
+        Bucket: {
+            bucket: string;
+            endpoint: string;
+            id: string;
+            name: string;
+            pathStyle: boolean;
+            region: string;
+            /**
+             * Format: int64
+             * @description Retention in days, at least 1. Null keeps attachments indefinitely. Changes apply to new attachments.
+             */
+            retentionDays: number | null;
+        };
+        BucketInput: {
+            accessKey: string;
+            bucket: string;
+            /** @description HTTPS endpoint for the S3-compatible service. */
+            endpoint: string;
+            name: string;
+            pathStyle: boolean;
+            region: string;
+            /** Format: int64 */
+            retentionDays: number | null;
+            secretKey: string;
+        };
+        BucketListOutputBody: {
+            items: components["schemas"]["Bucket"][] | null;
         };
         CallEvent: {
             /**
@@ -2992,12 +3137,77 @@ export interface components {
             waJid?: string;
             waLid?: string;
         };
+        MediaEvent: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            event: "media.expired" | "media.ready";
+            /**
+             * @description Unique event id. Webhook deliveries repeat it in the X-Webhook-Request-Id header so receivers can drop duplicate redeliveries; the realtime client uses it as the ?since resume cursor.
+             * @example evt_01J9ZX...
+             */
+            id: string;
+            /**
+             * @description Id of the organization that owns the session.
+             * @example org_01J9...
+             */
+            organization: string;
+            payload: components["schemas"]["MediaEventPayloadStruct"];
+            /**
+             * @description Envelope schema version, so consumers can adapt if the shape changes.
+             * @example v1
+             * @enum {string}
+             */
+            schema: "v1";
+            /**
+             * @description Id of the WhatsApp session the event came from.
+             * @example wa_sess_01J9...
+             */
+            session: string;
+            /**
+             * Format: int64
+             * @description When the event happened, in epoch milliseconds.
+             * @example 1719400000000
+             */
+            timestamp: number;
+        };
+        MediaEventPayloadStruct: {
+            bucketId: string;
+            /**
+             * Format: int64
+             * @description Retention deadline in epoch milliseconds; omitted for indefinite retention.
+             */
+            expiresAt?: number;
+            filename: string;
+            id: string;
+            /** Format: int64 */
+            index: number;
+            mimetype: string;
+            sessionId: string;
+            /** Format: int64 */
+            size: number;
+            /** @enum {string} */
+            status: "ready" | "expired";
+            /** @description Bearer access URL, present while the attachment is available. */
+            url?: string;
+            waMessageId: string;
+        };
         MediaMeta: {
+            /**
+             * Format: int64
+             * @description Retention deadline in epoch milliseconds. Omitted for indefinite retention.
+             */
+            expiresAt?: number;
             /**
              * @description Original filename, for document messages. Optional.
              * @example invoice.pdf
              */
             filename?: string;
+            /** @description Stored attachment id, available when S3 capture is configured. */
+            id?: string;
+            /** @description Individual stored attachments for an album, ordered by their source position. */
+            items?: components["schemas"]["MediaMeta"][] | null;
             /**
              * @description Media MIME type, e.g. image/jpeg. Optional.
              * @example image/jpeg
@@ -3009,6 +3219,8 @@ export interface components {
              * @example 204800
              */
             size?: number;
+            /** @description Private attachment access URL. Present after upload and before retention expiry. Treat as a bearer credential. */
+            url?: string;
         };
         MediaPayload: {
             /**
@@ -3108,7 +3320,7 @@ export interface components {
              * @example 3EB0C431C26A1916E07A
              */
             id: string;
-            /** @description Media metadata (mimetype, size, filename) when the message has media. Metadata only — media is not downloaded in this build, so this is null even when hasMedia is true. */
+            /** @description Attachment metadata, storage id, available access URL, and retention deadline. Albums include individual files in items. */
             media?: components["schemas"]["MediaMeta"];
             /**
              * @description Resolved display names for the @-mentions, keyed by the mention's user-part — the token after '@' as it appears in 'body' (e.g. '205227043110953') → name. Read-only: populated from whatsapp_identities at read time, never stored. Only mentions resolvable to a known identity are included; lets a client render '@<name>' instead of the raw number. Optional.
@@ -3224,13 +3436,13 @@ export interface components {
             contact?: components["schemas"]["ContactData"];
             /** @description True if this account authored the message (the message.from_me event). */
             fromMe: boolean;
-            /** @description True if the message carried media. The media itself is metadata-only in v1 (no download). */
+            /** @description True if the message carried media. Storage capture is configured per session. */
             hasMedia: boolean;
             /** @description Selected choice for message.interactive_reply; original message is quotedMessageId. */
             interactiveReply?: components["schemas"]["InteractiveReplyData"];
             /** @description Set when type is location. */
             location?: components["schemas"]["LocationData"];
-            /** @description Media descriptor. Always null in v1 (metadata-only); see hasMedia. */
+            /** @description Media metadata and stored attachment id when capture is enabled. URL is present when ready; media.ready announces asynchronous upload completion. */
             media: components["schemas"]["MediaMeta"];
             /** @description Mentions in the message body, keyed by mentioned JID. Values contain the user's known pushName and per-group tag when available. */
             mentions?: {
@@ -4946,6 +5158,69 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["BackfillJob"];
                 };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getMedia: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Asset"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    downloadMedia: {
+        parameters: {
+            query?: {
+                /** @description Attachment bearer token supplied in the media URL. */
+                token?: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Error */
             default: {
@@ -7146,6 +7421,72 @@ export interface operations {
             };
         };
     };
+    getSessionStorage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BindingOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    setSessionStorage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BindingUpdateInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BindingOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
     logoutSession: {
         parameters: {
             query?: never;
@@ -7262,6 +7603,132 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["WASession"];
                 };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listStorageBuckets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BucketListOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    createStorageBucket: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BucketInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Bucket"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    updateStorageBucket: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BucketInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Bucket"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    deleteStorageBucket: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Error */
             default: {
@@ -7444,7 +7911,7 @@ export interface operations {
         /** @description The event envelope. Exactly one of the listed event shapes, selected by `event`. */
         requestBody: {
             content: {
-                "application/json": components["schemas"]["MessageEvent"] | components["schemas"]["PollRecapEvent"] | components["schemas"]["MessageStatusEvent"] | components["schemas"]["SessionStatusEvent"] | components["schemas"]["AuthQREvent"] | components["schemas"]["AuthCodeEvent"] | components["schemas"]["PresenceEvent"] | components["schemas"]["GroupEvent"] | components["schemas"]["ChatUpdateEvent"] | components["schemas"]["ContactUpdateEvent"] | components["schemas"]["CallEvent"] | components["schemas"]["NewsletterEvent"];
+                "application/json": components["schemas"]["MediaEvent"] | components["schemas"]["MessageEvent"] | components["schemas"]["PollRecapEvent"] | components["schemas"]["MessageStatusEvent"] | components["schemas"]["SessionStatusEvent"] | components["schemas"]["AuthQREvent"] | components["schemas"]["AuthCodeEvent"] | components["schemas"]["PresenceEvent"] | components["schemas"]["GroupEvent"] | components["schemas"]["ChatUpdateEvent"] | components["schemas"]["ContactUpdateEvent"] | components["schemas"]["CallEvent"] | components["schemas"]["NewsletterEvent"];
             };
         };
         responses: {
