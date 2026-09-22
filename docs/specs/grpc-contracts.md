@@ -18,16 +18,16 @@ gateway SPIFFE identity; request credentials never select an endpoint or identit
 
 The root Buf v2 workspace contains two deliberately separate modules and compatibility domains:
 
-- the module rooted at `proto/public` defines the future API-facing gRPC surface under `v1`. Only
+- the module rooted at `backend/proto/public` defines the future API-facing gRPC surface under `v1`. Only
   this tree may be used to
   generate public SDKs or public API documentation.
-- the module rooted at `proto/gateway` defines the private API-to-gateway engine surface under
+- the module rooted at `backend/proto/gateway` defines the private API-to-gateway engine surface under
   `v1`. It is an internal protocol
   and must never be published as a public SDK.
 
 Both packages start with a health contract so generation and compatibility checks exist before
 the engine migration begins. Generated Go and gRPC bindings are committed under matching
-`gen/public/v1` and `gen/gateway/v1` directories.
+`backend/gen/public/v1` and `backend/gen/gateway/v1` directories.
 
 The private module also defines unary `GatewayEnrollmentService.Enroll`. Its request carries only
 the one-time enrollment token and DER CSR. Its response returns the resolved gateway id, issued
@@ -45,8 +45,8 @@ details. Exact canonical-CSR retries return the stored issuance material.
 ## Generation and checks
 
 Buf CLI `v1.47.2` is invoked through `go run`, so contributors do not need a separately installed
-binary. `buf.yaml` declares the two module roots independently; lint and breaking analysis load the
-workspace while preserving those boundaries. `buf.gen.yaml` pins the remote `protoc-gen-go` and
+binary. `backend/buf.yaml` declares the two module roots independently; lint and breaking analysis load the
+workspace while preserving those boundaries. `backend/buf.gen.yaml` pins the remote `protoc-gen-go` and
 `protoc-gen-go-grpc` plugin versions.
 
 ```sh
@@ -60,7 +60,7 @@ make proto-breaking  # compare with origin/main once it contains the initial bas
 `PROTO_BREAKING_REF` can override its full Git ref when necessary. The breaking check resolves the
 actual remote-tracking ref and intentionally reports a skip while it has no protobuf files. After
 this scaffold lands there, one workspace comparison enforces Buf's `FILE` policy across both
-modules. `proto-check` does not modify `gen/` or rely on a clean Git worktree: it generates into a
+modules. `proto-check` does not modify `backend/gen/` or rely on a clean Git worktree: it generates into a
 fresh temporary directory and recursively compares that output with the committed bindings.
 
 The GitHub Actions `Protobuf contracts` workflow runs lint, breaking, drift, and generated-package
@@ -118,9 +118,9 @@ The private listener remains completely disabled while `API_GATEWAY_GRPC_ADDR` i
 
 ## Transport-independent engine boundary
 
-Increment 0 also establishes a small consumer-owned boundary in `internal/application`. It contains
+Increment 0 also establishes a small consumer-owned boundary in `backend/internal/application`. It contains
 only three capabilities already backed by the local WhatsApp runtime: a session-state snapshot,
-account presence, and read receipts. `internal/wa.ApplicationGatewayAdapter` satisfies that
+account presence, and read receipts. `backend/internal/wa.ApplicationGatewayAdapter` satisfies that
 boundary over `Manager.ConnectionState` and `LiveOps`, but no composition root constructs it and no
 HTTP or gRPC call path uses it yet.
 
@@ -317,3 +317,11 @@ and revisioned auto-read, typing, and rate settings. `GatewayFrame.desired_state
 the complete local device inventory, and reconciliation outcomes. The API accepts and persists its
 processed revision only when both fences and the gateway's current desired revision match. Lifecycle
 directives and their reports remain independent of desired-state acknowledgement semantics.
+
+### Monorepo layout
+
+The Go module, protobuf source, Buf config, and generated bindings live under
+`backend/`. Go module/import names and protobuf wire/package names are unchanged.
+Run the root `make proto`, `make proto-lint`, `make proto-check`, and
+`make proto-breaking` targets. The breaking check selects the baseline's layout:
+`backend/` after this move, or the repository root for pre-move commits.

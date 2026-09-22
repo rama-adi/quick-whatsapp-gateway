@@ -104,7 +104,8 @@ export function applyEvent(qc: QueryClient, e: EventEnvelope): void {
     }
 
     case "message":
-    case "message.from_me": {
+    case "message.from_me":
+    case "message.interactive_reply": {
       const chatJid = str(p.chatJid);
       if (!s || !chatJid) break;
       const msg = projectMessage(s, e.event, p);
@@ -155,9 +156,26 @@ export function applyEvent(qc: QueryClient, e: EventEnvelope): void {
       break;
     }
 
-    case "message.reaction":
     case "message.edited":
-    case "message.revoked":
+    case "message.revoked": {
+      const chatJid = str(p.chatJid);
+      const targetId = str(p.targetId);
+      if (s && chatJid && targetId) {
+        qc.setQueryData<Infinite<Message>>(qk.chatMessages(s, chatJid), (data) =>
+          mapPages(data, (messages) => messages.map((message) => {
+            if (message.waMessageId !== targetId && message.id !== targetId) return message;
+            if (e.event === "message.revoked") return { ...message, deleted: true };
+            if (typeof p.body !== "string" || message.deleted) return message;
+            return { ...message, body: p.body, edited: true };
+          })),
+        );
+      }
+      if (s && chatJid) invalidateChatData(qc, s, chatJid);
+      else if (s) void qc.invalidateQueries({ queryKey: qk.chats(s) });
+      break;
+    }
+
+    case "message.reaction":
     case "poll.vote": {
       const chatJid = str(p.chatJid);
       if (s && chatJid) invalidateChatData(qc, s, chatJid);
@@ -205,7 +223,7 @@ export function applyEvent(qc: QueryClient, e: EventEnvelope): void {
 
 function projectMessage(
   sessionId: string,
-  event: "message" | "message.from_me",
+  event: "message" | "message.from_me" | "message.interactive_reply",
   payload: Record<string, unknown>,
 ): Message | null {
   const waMessageId = str(payload.waMessageId);

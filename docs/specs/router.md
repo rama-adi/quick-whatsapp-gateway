@@ -1,4 +1,4 @@
-# API front door (`cmd/api` + `internal/router`)
+# API front door (`backend/cmd/api` + `backend/internal/router`)
 
 Status: implemented (Increment A + Increment B of
 [`../plans/plan-router-impl.md`](../plans/plan-router-impl.md); superseded slices removed by the
@@ -39,7 +39,7 @@ mTLS control stream, with no MySQL or Redis dependency (see [`trust-model.md`](t
 
 Every `/api/v1` request flows through three steps:
 
-1. **Authenticate** the end-user caller. The two-acceptor authn (`internal/authz.Authenticate`
+1. **Authenticate** the end-user caller. The two-acceptor authn (`backend/internal/authz.Authenticate`
    with `JWTVerifier` + `APIKeyVerifier`, the latter behind `CachingKeyVerifier`) runs **only on
    the API** — a `Bearer` JWT verified against the better-auth JWKS, or a better-auth api-key
    verified against the shared `apikey` table. Neither → `401`. This resolves the full
@@ -63,7 +63,7 @@ Every `/api/v1` request flows through three steps:
 
 ### API-local gateway administration
 
-`/api/v1/admin/gateways` is served directly by `cmd/api` from the shared
+`/api/v1/admin/gateways` is served directly by `backend/cmd/api` from the shared
 registry/enrollment store and never touches a gateway's data plane. Every
 operation requires a login JWT whose platform role is exactly
 `super_admin`; API keys and organization roles receive `forbidden` before the
@@ -112,9 +112,9 @@ The former router→gateway Ed25519 request-bound assertion (minter, verifier,
 reverse proxy in Increment 9: no HTTP hop between the processes remains to
 protect. The remaining trust seam is **per-gateway mTLS identities** on the
 private gRPC control/engine listeners, enforced with strict per-RPC certificate
-authorization (`internal/pki`, `internal/gateway/controlclient`,
+authorization (`backend/internal/pki`, `backend/internal/gateway/controlclient`,
 [`grpc-contracts.md`](grpc-contracts.md)). The pinned better-auth trust-seam
-contract tests in `internal/authz` are unaffected.
+contract tests in `backend/internal/authz` are unaffected.
 
 ## Control-bus ownership
 
@@ -130,7 +130,7 @@ Live WebSocket stream-drop on `ctrl:user.banned` / `ctrl:member.removed` is also
   The API owns the public route surface + CORS (`FRONTEND_ORIGINS`); browsers hit the API.
 - Health probes: `GET /healthz`, `GET /readyz`, plus public gRPC
   `public.v1.PublicHealthService/Check`. HTTP readiness and gRPC serving status share one predicate.
-- `internal/dbconn` — the shared MySQL connection helper the **API** uses to reach the
+- `backend/internal/dbconn` — the shared MySQL connection helper the **API** uses to reach the
   shared app-data DB. The gateway imports none of it.
 
 ## Config / env (`config.LoadAPI` → `config.APIConfig`)
@@ -157,16 +157,16 @@ port, wildcard binds overlap every host; `localhost` is normalized to both loopb
 IPv4-mapped/expanded IPv6 literals are normalized before collision checking. Other hostnames on a
 shared port are rejected rather than resolved through nondeterministic external DNS.
 
-Before opening its normal MySQL pool or binding either public listener, `cmd/api` applies all
-pending WA schema migrations through `internal/dbmigrate`. Migration failure is an attributed
+Before opening its normal MySQL pool or binding either public listener, `backend/cmd/api` applies all
+pending WA schema migrations through `backend/internal/dbmigrate`. Migration failure is an attributed
 startup failure, so the API cannot advertise readiness against an old schema. Explicit rollback is
-available only through `cmd/migrate down`; the gateway runtime has no migration command or import.
+available only through `backend/cmd/migrate down`; the gateway runtime has no migration command or import.
 
 ## Realtime (Increment B — implemented)
 
 The API is the single client-facing realtime endpoint. A browser cannot set an `Authorization`
 header on a WebSocket, so authz happens once at **ticket mint** and the WS handshake merely redeems a
-short-lived, single-use ticket (`internal/router/realtime.go`, `internal/stream` `Pump`):
+short-lived, single-use ticket (`backend/internal/router/realtime.go`, `backend/internal/stream` `Pump`):
 
 - `POST /api/v1/realtime/ticket` — bearer-authenticated, scope-bearing, **authz-at-mint**: events
   capability for `session`/`organization` scopes, `super_admin` for the admin `firehose`. The

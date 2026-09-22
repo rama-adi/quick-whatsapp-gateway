@@ -15,7 +15,12 @@ _openapi:
 
 
           Use `type` in the body to select a supported payload (`text`, `poll`,
-          `location`, `contact`).
+          `location`, `contact`, `buttons`, `list`).
+
+
+          Buttons and lists use experimental native-flow controls, including for
+          group JIDs. A send acknowledgement does not guarantee client
+          rendering.
 
 
           Default mode is synchronous and returns 200. Set `async=true` for

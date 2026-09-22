@@ -2,18 +2,17 @@
 
 The eventing subsystem has two halves that share one envelope:
 
-1. **Normalization** (`internal/wa/events`) — translate raw whatsmeow events into the
+1. **Normalization** (`backend/internal/wa/events`) — translate raw whatsmeow events into the
    versioned domain event catalog (§11), classify chats, and apply source-level ignore
    rules. Documented here.
-2. **Transport** (`internal/stream`, `internal/webhooks`) — the realtime WebSocket and the
+2. **Transport** (`backend/internal/stream`, `backend/internal/webhooks`) — the realtime WebSocket and the
    webhook dispatcher that carry the envelope. Documented in their own specs and the
    transport section below (owned by another subsystem).
 
 The shared envelope is `domain.Event` (schema `v1`): `{schema, id (evt_<ulid>), event,
-session, organization, timestamp (epoch-ms), payload}` — see `internal/domain/event.go`.
+session, organization, timestamp (epoch-ms), payload}` — see `backend/internal/domain/event.go`.
 The envelope carries the **owning organization** (`organization`, a better-auth org id)
-so every transport can scope delivery by org. The catalog itself is **unchanged from
-v1**; only the ownership tag changed (`tenant` → `organization`).
+so every transport can scope delivery by org. The catalog includes interactive selections as `message.interactive_reply`.
 
 **Auth (per §4).** Realtime ticket minting authenticates with the API's two-acceptor
 middleware — a JWKS-verified better-auth **JWT** (human) or a better-auth **api-key**
@@ -22,12 +21,12 @@ sees. Outbound webhooks use their configured HMAC signing secret.
 
 ---
 
-## Normalization (`internal/wa/events`)
+## Normalization (`backend/internal/wa/events`)
 
 ### Scope
 
 Pure, dependency-light translation. The package imports only the Go stdlib, whatsmeow
-(`types`, `types/events`, `proto/waE2E`, `proto/waCommon`) and `internal/domain`. It holds
+(`types`, `types/events`, `backend/proto/waE2E`, `backend/proto/waCommon`) and `backend/internal/domain`. It holds
 no IO and no live client, so it is trivially unit-testable and parallel-safe. Collaborators
 (config) are consumer-defined here (`IgnoreConfig`); Phase 3 wires the real config in.
 
@@ -53,6 +52,7 @@ func Normalize(evt any, sessionID, organizationID string) (domain.Event, Persist
 | `*events.Message` edit (`IsEdit` / `ProtocolMessage{MESSAGE_EDIT}`) | `message.edited` | `PersistMessageEdit` |
 | `*events.Message` revoke (`ProtocolMessage{REVOKE}`) | `message.revoked` | `PersistMessageRevoke` |
 | `*events.Message` poll vote (`GetPollUpdateMessage`) | `poll.vote` | `PersistPollVote` |
+| `*events.Message` native-flow / button / list selection | `message.interactive_reply` | `PersistMessage` |
 | timed poll close (`PollRecapWorker`) | `poll.recap` | synthetic / no inbound persist |
 | `*events.Receipt` (delivered/read/played) | `message.status` | `PersistMessageStatus` |
 | `*events.Connected` | `session.status` (working) | `PersistSessionStatus` |
@@ -193,7 +193,7 @@ their own JID-classification tables. ~85% statement coverage; `go test` and `go 
 
 ## Transport (realtime + webhooks) — owned by another subsystem
 
-Status: see `internal/stream` and `internal/webhooks` specs. Both carry the same
+Status: see `backend/internal/stream` and `backend/internal/webhooks` specs. Both carry the same
 `domain.Event` envelope produced here. Since Increment 9 the **only** gateway-side
 transport is the event journal: the gateway appends each envelope to its local
 journal (no `event_log`, no Redis publication, no webhook enqueue — those
@@ -252,3 +252,22 @@ event-log transaction and post-commit fan-out.
 Poll-recap emission is API-owned in every mode: the durable MySQL sweep and its event append,
 realtime publish, and webhook enqueue run beside the committed-event worker on the API; the Redis
 sorted set is only a low-latency wake-up index and gateways no longer write it.
+
+## Interactive selections
+
+`message.interactive_reply` uses the message envelope with
+`payload.interactiveReply: {kind: "button"|"list", id, title?}` and
+`type: "interactive_reply"`. `quotedMessageId` identifies the original message
+when supplied by WhatsApp. `chatJid`, `senderJid`/`senderLid`, and `fromMe` retain
+normal message semantics, including group participants and linked-device echoes.
+The event replaces the generic `message`/`message.from_me` event for that selection;
+subscribe to it explicitly or use `*`. It travels through the existing webhook
+and realtime transports and persists as a message with its normalized raw JSON.
+
+Normalization accepts native-flow `quick_reply`/`single_select` responses and
+legacy `ButtonsResponseMessage`/`ListResponseMessage`. Malformed JSON, missing IDs,
+and unknown native flows remain unknown messages rather than fabricated selections.
+IDs and display text are untrusted sender input. Applications correlate session,
+chat, original message, and sender, then validate the ID against their own choices.
+Typed numeric replies remain ordinary text messages; no selection state is held
+by the gateway.

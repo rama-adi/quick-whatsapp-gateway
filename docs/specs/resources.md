@@ -4,9 +4,9 @@ Status: implemented (Phase 3, stage "resource handlers").
 
 Covers the §13 resource groups beyond sessions/messages/webhooks (api-key management
 lives in the frontend's better-auth api-key plugin — the gateway has no `/keys`
-routes). Thin handlers (`internal/http/handlers/{chat,contact,group,resources}.go`)
+routes). Thin handlers (`backend/internal/http/handlers/{chat,contact,group,resources}.go`)
 validate + decode, call a service, and encode; services
-(`internal/service/{chat,contact,group,misc_resources}.go`) hold the logic; repos hold
+(`backend/internal/service/{chat,contact,group,misc_resources}.go`) hold the logic; repos hold
 SQL. Resources are **org-owned**: every service method verifies the session belongs to
 the caller's **active organization** first (foreign org => `not_found`). The caller's
 org comes from the §4 principal — the active org on a JWT, or the key's org on an
@@ -22,9 +22,9 @@ the dashboard can show **where** a session runs once there is more than one gate
 Operations that must hit a connected `*whatsmeow.Client` (group management,
 on-WhatsApp checks, picture/about/block, presence, channels, status) are
 delegated to narrow **ports defined in the service package**
-(`internal/service/liveops.go`): `GroupOps`, `ContactDirectory`,
+(`backend/internal/service/liveops.go`): `GroupOps`, `ContactDirectory`,
 `PresenceController`, `ChannelOps`, `StatusPoster`. The exchanged value types live
-in `internal/domain/liveops.go` (`GroupInfo`, `GroupSettings`, `OnWhatsApp`,
+in `backend/internal/domain/liveops.go` (`GroupInfo`, `GroupSettings`, `OnWhatsApp`,
 `ProfilePicture`, `GroupParticipantAction`) so both the ports and the adapter use
 identical types without an import cycle.
 
@@ -56,7 +56,7 @@ transport errors. The gateway side executes them through
 Live operations execute through the engine facade; when neither seam is configured, services keep
 returning the `not_implemented` envelope.
 
-The production adapter is `wa.LiveOps` (`internal/wa/liveops.go`), a
+The production adapter is `wa.LiveOps` (`backend/internal/wa/liveops.go`), a
 manager-backed value returned by `Manager.LiveOps()`. It resolves the per-session
 live client via `Manager.Get(id)` → `ManagedSession.client` (type-asserted to a
 narrow `liveClient` interface that the real `*whatsmeow.Client` satisfies) and
@@ -187,10 +187,10 @@ helper for unsupported resource operations: `domain.ErrNotImplemented`.
 
 ## Tests
 
-- Handlers: `internal/http/handlers/resources_test.go` — httptest + fake services
+- Handlers: `backend/internal/http/handlers/resources_test.go` — httptest + fake services
   per group: happy path, validation propagation, auth (401) failures, and the 501
   media/not-implemented cases.
-- Services: `internal/service/resources_test.go` — sqlmock-backed store + fake
+- Services: `backend/internal/service/resources_test.go` — sqlmock-backed store + fake
   live ports: org-ownership rejection, validation, live delegation, and the
   nil-port / image-status `not_implemented` fallbacks.
-- Store: `GroupRepo.ListBySession` covered in `internal/store/repos_more_test.go`.
+- Store: `GroupRepo.ListBySession` covered in `backend/internal/store/repos_more_test.go`.

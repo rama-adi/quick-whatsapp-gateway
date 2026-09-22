@@ -1,6 +1,6 @@
 # Webhooks
 
-Status: implemented (`internal/webhooks`).
+Status: implemented (`backend/internal/webhooks`).
 
 The webhook dispatcher (masterplan §11, webhooks half). It turns a normalized
 `domain.Event` into HMAC-signed, retried HTTP POSTs to each configured endpoint,
@@ -122,7 +122,7 @@ interfaces (`fakes_test.go`):
 - **DeliverDue** — processes all claimed deliveries; claim errors propagate.
 
 Coverage: ~87% of statements. Build/test gate:
-`CGO_ENABLED=0 go build ./internal/webhooks/... && CGO_ENABLED=0 go test ./internal/webhooks/...`.
+`CGO_ENABLED=0 go -C backend build ./internal/webhooks/... && CGO_ENABLED=0 go -C backend test ./internal/webhooks/...`.
 
 ## What Phase 3 must wire
 

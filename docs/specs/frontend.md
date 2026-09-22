@@ -208,3 +208,14 @@ surface can read connection status, but it stays **idle** until a surface opts i
   `web/app/lib/events/*`, `web/app/lib/server/control-bus.ts`, `web/drizzle.config.ts`.
 
 Run: `pnpm test` (frontend gate).
+
+Interactive replies (`message.interactive_reply`) update the realtime chat cache as
+message rows, using the payload sender and `fromMe` flag. The webhook editor exposes
+this event for explicit subscriptions; see `eventing.md` for its payload contract.
+
+Message lifecycle rendering uses the API's `edited` and `deleted` flags.
+Realtime `message.edited` updates the cached target's body and edited flag;
+`message.revoked` marks the target deleted. Both target the supplied session,
+chat, and original message ID and also invalidate data for reconciliation.
+Deleted bubbles hide their original body, quote, reactions, and reply/vote controls
+and show “This message was deleted”. The edited marker survives a history reload.

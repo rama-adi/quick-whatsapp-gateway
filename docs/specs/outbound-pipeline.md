@@ -1,6 +1,6 @@
 # Outbound Pipeline
 
-Package: `internal/wa/outbound` · Masterplan §10 + §13 send bodies.
+Package: `backend/internal/wa/outbound` · Masterplan §10 + §13 send bodies.
 
 The unified send pipeline. Translates a `domain.SendRequest` (the single
 discriminated send body) into WhatsApp sends, with idempotency, per-session rate
@@ -8,7 +8,7 @@ limiting, optional jittered pacing, and a sync/async split.
 
 ## Scope
 
-- Unified typed send: `text`, `poll`, `location`, `contact`. Poll sends support
+- Unified typed send: `text`, `poll`, `location`, `contact`, `buttons`, `list`. Poll sends support
   `selectableCount`, optional `pollEndTime` (epoch-ms close time), and
   `pollHideVotes`.
 - Message sub-resource ops (§13): `reaction`, `edit`, `revoke`, `vote`, `forward`.
@@ -56,6 +56,25 @@ limiting, optional jittered pacing, and a sync/async split.
   schedule the optional close time into Redis. MySQL remains the durable source:
   the recap worker claims `polls.recap_emitted_at` before emitting `poll.recap`.
 
+## Interactive sends
+
+The existing `POST /api/v1/sessions/{session}/messages` accepts `type: buttons`
+with `text` and `buttons: [{id, title}]`, or `type: list` with `text` and
+`list: {title, sections: [{title, rows: [{id, title, description?}]}]}`.
+Both support `footer`, `replyTo`, `mentions`, sync/async sends, and idempotency.
+Choices require nonblank IDs/titles; IDs are unique within the message. Menus
+require a title, sections, and rows. No speculative protocol size limits are imposed.
+The existing HTTP request-body bound still applies.
+
+The adapter builds native-flow `quick_reply` or `single_select` controls and adds
+native-flow `biz` metadata (not automatically supplied by the pinned whatsmeow).
+Both accept group JIDs through normal session routing. This is experimental
+client rendering: an acknowledgement proves send acceptance, not that recipients
+see controls. Upstream reports show working quick replies and incompatible
+single-select menus ([discussion #1145](https://github.com/tulir/whatsmeow/discussions/1145)).
+Live group/client compatibility is unverified. Images remain separate media sends;
+carousels and automatic text fallback are outside this endpoint's contract.
+
 ## Key types
 
 - `Sender` (sender.go) — the pipeline. `NewSender(wa, outbox, limits, clock,
@@ -75,10 +94,10 @@ limiting, optional jittered pacing, and a sync/async split.
 ## Consumer interfaces (defined here; wired by Phase 3)
 
 All collaborators are small interfaces owned by this package — no sibling
-`internal/*` imports.
+`backend/internal/*` imports.
 
 - `WAClient` — narrow slice of whatsmeow: `SendText`, `SendPoll`, `SendLocation`,
-  `SendContact`, `SendMedia` (image/video/audio/document/sticker via `Upload` +
+  `SendContact`, `SendInteractive`, `SendMedia` (image/video/audio/document/sticker via `Upload` +
   the matching protobuf message), `SendAlbum` (album container + associated
   children), `React`, `Edit`, `Revoke`, `Vote`, `Forward`. Each
   returns `(waMessageID string, ts int64, err error)`, `ts` in epoch-ms.
@@ -268,4 +287,4 @@ Table-driven, all boundaries faked through the consumer interfaces:
   - pacing applied and cancelled requests stop before dispatch; `Dispatch`
     reusable.
 
-Build/test gate: `CGO_ENABLED=0 go build|test ./internal/wa/outbound/...`.
+Build/test gate: `CGO_ENABLED=0 go -C backend build|test ./internal/wa/outbound/...`.

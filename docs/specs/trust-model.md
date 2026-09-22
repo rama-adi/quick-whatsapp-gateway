@@ -1,4 +1,4 @@
-# Trust & auth model (`internal/authz` + `internal/controlbus`)
+# Trust & auth model (`backend/internal/authz` + `backend/internal/controlbus`)
 
 Public JWT/API-key authentication, authorization, and organization scoping run at the
 API front door. Gateways receive authorized service commands over private mTLS gRPC,
@@ -52,14 +52,14 @@ journal; it has no public HTTP API, MySQL connection, Redis connection, or user 
 ## Two caller identities
 
 There are exactly two, both resolved by one middleware (`authz.Authenticate`, two acceptors,
-evaluated in order — `internal/authz/middleware.go`):
+evaluated in order — `backend/internal/authz/middleware.go`):
 
 | Caller | Credential | Verified by | Resolves to |
 |---|---|---|---|
 | **Human** (dashboard/browser) | `Authorization: Bearer <JWT>` | JWKS signature + `iss`/`aud`/`exp` (local, cached) | `{UserID, OrganizationID(active), OrgRole, PlatformRole}` |
 | **Machine** (programmatic) | `Authorization: Bearer <api-key>` or `x-api-key` | SHA-256 hash → lookup in the shared `apikey` table | `{OrganizationID, KeyID, KeyPermissions}` (no user) |
 
-Neither acceptor matches → `401`. The resolved `authz.Principal` (`internal/authz/context.go`)
+Neither acceptor matches → `401`. The resolved `authz.Principal` (`backend/internal/authz/context.go`)
 rides the request context; handlers authorize **per-resource by `organization_id`**, then gate
 the action by capability (§ Authorization below).
 
@@ -69,7 +69,7 @@ The frontend runs the better-auth **jwt** plugin: a JWKS at `GET {BETTER_AUTH_UR
 and short-lived (**~5 min**) **EdDSA/Ed25519** JWTs at `GET /api/auth/token`. The private key
 lives in better-auth's `jwks` table (encrypted at rest); the router fetches only public keys.
 
-`internal/authz/jwt.go` (`JWTVerifier`, `github.com/lestrrat-go/jwx/v3`):
+`backend/internal/authz/jwt.go` (`JWTVerifier`, `github.com/lestrrat-go/jwx/v3`):
 
 - On first use it fetches and **caches** the whole JWK set. It refreshes (a) when a token's
   `kid` is not in the cache (rate-limited by `minRefresh`, default 1m, so a flood of bad kids
@@ -102,7 +102,7 @@ Programmatic clients present a better-auth **api-key** plugin key (prefix `wa_`)
 UI creates/lists/revokes keys; the router **validates locally against the shared `apikey`
 table** — consistent with the hybrid-read model — so it never depends on the frontend being up.
 
-`internal/authz/apikey.go` (`APIKeyVerifier`):
+`backend/internal/authz/apikey.go` (`APIKeyVerifier`):
 
 1. Hash the presented raw key with better-auth's **default** scheme and look up the row by hash.
 2. Check `enabled`, `expires_at`, and that the key has an owning org.
@@ -136,7 +136,7 @@ WhatsApp connection" = inviting someone into the org. `created_by_user_id` is re
 The router authorizes from JWT claims (`activeOrganizationId` + `orgRole`) and the API key's
 `reference_id`; the gateway receives a fenced private engine command. (Schema: `store.md`.)
 
-## Authorization (`internal/authz/gates.go`)
+## Authorization (`backend/internal/authz/gates.go`)
 
 After authentication, handlers scope every query to the principal's `organization_id`, then a
 capability gate authorizes the action:
@@ -158,15 +158,15 @@ current connection/assignment fences. HTTP assertion keys, headers, JWKS endpoin
 and nonce caches are not part of this protocol. Certificate custody and per-RPC rules
 live in [`grpc-contracts.md`](grpc-contracts.md) and [`router.md`](router.md).
 
-## Control bus, cache & instant revocation (`internal/controlbus` — now the router's)
+## Control bus, cache & instant revocation (`backend/internal/controlbus` — now the router's)
 
 > **Central-router (Increment A):** the `ctrl:*` subscriber + the api-key positive cache moved to
-> the **router**; the **gateway no longer wires `internal/controlbus`** or keeps a key cache (it
+> the **router**; the **gateway no longer wires `backend/internal/controlbus`** or keeps a key cache (it
 > authenticates nothing). On `ctrl:apikey.revoked` the router evicts its positive cache. The live
 > **stream-drop** on `ctrl:user.banned`/`ctrl:member.removed` is implemented for router WebSockets.
 > The description below is the behavior, now owned by the router.
 
-The router keeps a small **positive cache** of validated keys (`internal/authz/apikey_cache.go`,
+The router keeps a small **positive cache** of validated keys (`backend/internal/authz/apikey_cache.go`,
 TTL ~60 s, fail-closed) so a busy client isn't a DB lookup per request. The TTL is the
 **backstop**: even a missed notification stops a revoked key within the window (the `apikey` row
 is gone, so the next refresh fails closed).
@@ -180,7 +180,7 @@ unrelated hits and evictions remain responsive.
 
 **Instant revocation** rides a cross-service **Redis control bus** (`PUBSUB_REDIS_URL`, defaults
 to `REDIS_URL`). The frontend publishes; the router subscribes (`Subscriber`,
-`internal/controlbus/controlbus.go`). The channels are **global literals**:
+`backend/internal/controlbus/controlbus.go`). The channels are **global literals**:
 
 | Channel | Payload | Router action |
 |---|---|---|
@@ -202,7 +202,7 @@ to `REDIS_URL`). The frontend publishes; the router subscribes (`Subscriber`,
 
 Two separate restart safeguards apply; there is no persisted deny-list/known-key reconciliation:
 
-- Before the Session Manager (`internal/wa/manager.go`) resumes each WhatsApp session from the
+- Before the Session Manager (`backend/internal/wa/manager.go`) resumes each WhatsApp session from the
    SQLite keystore, the gateway checks the session's **owning org still exists and is enabled** in
    MySQL and **skips + marks `STOPPED`** any whose org was deleted/disabled while it was down
    (**orphan-guard**, see `store.go`/`organization.go`).
@@ -230,14 +230,14 @@ credential**, the JWT is a short access token minted from it.
 
 | File | Responsibility |
 |---|---|
-| `internal/authz/jwt.go` | `JWTVerifier`: JWKS fetch+cache, JWT verify, claim extraction |
-| `internal/authz/apikey.go` | `APIKeyVerifier`, `Hasher` (`DefaultHasher` = SHA-256→base64url), `KeyVerifier` |
-| `internal/authz/apikey_cache.go` | positive key cache (TTL backstop, evict by keyId/userId) |
-| `internal/authz/middleware.go` | `Authenticate` — two-acceptor middleware |
-| `internal/authz/gates.go` | `RequireRead/Send/Manage/Events/SuperAdmin` capability gates |
-| `internal/authz/context.go` | `Principal` + context accessors |
-| `internal/authz/cors.go` | CORS for `FRONTEND_ORIGINS` (browser → **router**; the gateway no longer mounts CORS) |
-| `internal/controlbus/controlbus.go` | `ctrl:*` subscriber → cache evict (+ stream drop in Increment B) — **consumed by the router now**, not the gateway |
+| `backend/internal/authz/jwt.go` | `JWTVerifier`: JWKS fetch+cache, JWT verify, claim extraction |
+| `backend/internal/authz/apikey.go` | `APIKeyVerifier`, `Hasher` (`DefaultHasher` = SHA-256→base64url), `KeyVerifier` |
+| `backend/internal/authz/apikey_cache.go` | positive key cache (TTL backstop, evict by keyId/userId) |
+| `backend/internal/authz/middleware.go` | `Authenticate` — two-acceptor middleware |
+| `backend/internal/authz/gates.go` | `RequireRead/Send/Manage/Events/SuperAdmin` capability gates |
+| `backend/internal/authz/context.go` | `Principal` + context accessors |
+| `backend/internal/authz/cors.go` | CORS for `FRONTEND_ORIGINS` (browser → **router**; the gateway no longer mounts CORS) |
+| `backend/internal/controlbus/controlbus.go` | `ctrl:*` subscriber → cache evict (+ stream drop in Increment B) — **consumed by the router now**, not the gateway |
 
 ## How it's tested
 
@@ -248,7 +248,7 @@ R5 contract tests: one mints a better-auth JWT and one creates a better-auth API
 validated by the Go verifier now consumed by the router (historically gateway-wired). Both are CI
 gates.
 
-Run: `CGO_ENABLED=0 go test ./internal/authz/... ./internal/controlbus/...`.
+Run: `CGO_ENABLED=0 go -C backend test ./internal/authz/... ./internal/controlbus/...`.
 
 > **Private transport splits A+B:** the local CA has a distinct API server-leaf policy for
 > exactly `spiffe://quick-wa/api`: Ed25519, non-CA, digital-signature-only, ServerAuth-only. The API

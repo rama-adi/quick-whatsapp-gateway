@@ -5,7 +5,7 @@ making a change, so the code, the specs, the API contract, and the docs site sta
 
 The system is two independently deployable services in one repo:
 
-- **Gateway** (Go, `cmd/` + `internal/` + `migrations/`) — the whatsmeow engine. Verifies
+- **Gateway** (Go, `backend/cmd/` + `backend/internal/` + `backend/migrations/`) — the whatsmeow engine. Verifies
   caller identity minted by the frontend (better-auth JWTs via JWKS, better-auth api-keys),
   owns WA-domain MySQL tables, keeps the whatsmeow keystore in gateway-local SQLite.
 - **Frontend** (`web/`) — a TanStack Start app with better-auth for identity. Serverless-hostable;
@@ -105,15 +105,15 @@ Using gpt-5.5 inside workflows and subagents:
 |---|---|
 | `masterplan-mvp.md` | The v2 design spec — the overview every other doc drills into. |
 | `docs/specs/*.md` | One living spec per subsystem (detail). Start at `_V2-STATUS.md` (index of all specs + their state). |
-| `docs/openapi.yaml` | The **public API contract of record, served by the router** at `/api/v1/openapi.yaml`. **GENERATED, not hand-written** (code-first via huma, D11): the Go input/output structs (`internal/apitypes` + the per-resource `*_ops.go` registrars) are the source of truth; `make openapi` regenerates this file. Stays at repo root (shared system contract). |
+| `docs/openapi.yaml` | The **public API contract of record, served by the router** at `/api/v1/openapi.yaml`. **GENERATED, not hand-written** (code-first via huma, D11): the Go input/output structs (`backend/internal/apitypes` + the per-resource `*_ops.go` registrars) are the source of truth; `make openapi` regenerates this file. Stays at repo root (shared system contract). |
 | `docs/mvp-progress.md` | Milestone tracker (R0–R6) and the log of locked decisions. |
 | `web/content/docs/*` | The fumadocs site: hand-written user/dev guides (`guides/`) + generated API reference (`api/`). |
 | `web/` | Frontend — TanStack Start, better-auth, Drizzle, ported shadcn. |
-| `cmd/gateway/` | Gateway runtime entrypoint; never executes MySQL schema migrations. |
-| `cmd/api/` | API front door; applies WA schema migrations before serving. |
-| `cmd/migrate/` | Dedicated WA schema migration command (`up\|down`). |
-| `internal/` | Shared packages: `router/` (REST broker: authn, session→gateway resolve + org isolation, reverse proxy, placement), `assertion/` (router→gateway request-bound Ed25519 internal assertion: minter/verifier/nonce-cache), `authz/` (JWKS+JWT+api-key verify — **now consumed by the router**), `controlbus/` (`ctrl:*` subscriber — **now consumed by the router**), `dbconn/` (shared MySQL connection helper), `http/`, `wa/` (manager, session, SQLite store), `store/` (MySQL repos, org-keyed), `webhooks/`, `stream/`, `queue/`. |
-| `migrations/` | API-owned golang-migrate files for WA app-data tables. |
+| `backend/cmd/gateway/` | Gateway runtime entrypoint; never executes MySQL schema migrations. |
+| `backend/cmd/api/` | API front door; applies WA schema migrations before serving. |
+| `backend/cmd/migrate/` | Dedicated WA schema migration command (`up\|down`). |
+| `backend/internal/` | Shared packages: `router/` (REST broker: authn, session→gateway resolve + org isolation, reverse proxy, placement), `assertion/` (router→gateway request-bound Ed25519 internal assertion: minter/verifier/nonce-cache), `authz/` (JWKS+JWT+api-key verify — **now consumed by the router**), `controlbus/` (`ctrl:*` subscriber — **now consumed by the router**), `dbconn/` (shared MySQL connection helper), `http/`, `wa/` (manager, session, SQLite store), `store/` (MySQL repos, org-keyed), `webhooks/`, `stream/`, `queue/`. |
+| `backend/migrations/` | API-owned golang-migrate files for WA app-data tables. |
 | `deploy/` | Gateway, API, frontend, dev, and self-host Dockerfiles; compose topologies; `.env.example`. |
 
 ### The subsystem specs (`docs/specs/`)
@@ -150,9 +150,9 @@ Follow-on steps depend on what you touched. Run them in the same change as the b
 
 | You changed… | Then also run / write |
 |---|---|
-| The public REST API (paths, request/response shapes) | Edit the **Go types**, not the yaml: the per-resource huma ops in `internal/http/handlers/*_ops.go` (operations + request/response structs with `doc:`/`enum:`/`example:` tags) and shared DTOs/events in `internal/apitypes`. Then `make openapi` (regenerates `docs/openapi.yaml` from the Go types — the contract of record the router serves), then `cd web && pnpm gen:api` (regen typed client `app/lib/api/schema.d.ts`) **and** `pnpm docs:openapi` (regen the fumadocs API reference pages). `make gen` runs all three. CI guards drift with `make openapi-check`. Webhook/realtime **event** shapes live in `internal/apitypes/events.go` (the generated OpenAPI `webhooks` section). |
+| The public REST API (paths, request/response shapes) | Edit the **Go types**, not the yaml: the per-resource huma ops in `backend/internal/http/handlers/*_ops.go` (operations + request/response structs with `doc:`/`enum:`/`example:` tags) and shared DTOs/events in `backend/internal/apitypes`. Then `make openapi` (regenerates `docs/openapi.yaml` from the Go types — the contract of record the router serves), then `cd web && pnpm gen:api` (regen typed client `app/lib/api/schema.d.ts`) **and** `pnpm docs:openapi` (regen the fumadocs API reference pages). `make gen` runs all three. CI guards drift with `make openapi-check`. Webhook/realtime **event** shapes live in `backend/internal/apitypes/events.go` (the generated OpenAPI `webhooks` section). |
 | better-auth config (`web/app/lib/auth/server.ts`) | `cd web && pnpm auth:generate` (regen `app/lib/db/auth-schema.ts`), then `pnpm db:migrate` (drizzle-kit) to apply the auth tables. |
-| The WA app-data MySQL schema | Author a new `migrations/NNNN_*.{up,down}.sql` (golang-migrate), then `cd web && pnpm db:introspect`. |
+| The WA app-data MySQL schema | Author a new `backend/migrations/NNNN_*.{up,down}.sql` (golang-migrate), then `cd web && pnpm db:introspect`. |
 
 ### Two migration toolchains — don't cross them
 
@@ -161,7 +161,7 @@ changing:
 
 | Tables | Owner | Tool | Command |
 |---|---|---|---|
-| WA app-data (gateways, sessions, contacts, …) | API/control plane | golang-migrate | API startup `up`; `make migrate` → `go run ./cmd/migrate up` (`down` rolls back one) |
+| WA app-data (gateways, sessions, contacts, …) | API/control plane | golang-migrate | API startup `up`; `make migrate` builds `backend/cmd/migrate` and runs it from repo root; `.dev/migrate down` rolls back one |
 | Auth (better-auth: user, session, apikey, organization, …) | Frontend | drizzle-kit | `cd web && pnpm db:migrate` |
 
 The API/control plane's golang-migrate is the **sole schema writer** of WA tables. The frontend only ever
@@ -202,12 +202,12 @@ resurrect v1 code — check out the tag if you need to read it.
 
 Both halves must build and pass tests at every committed step.
 
-**Gateway** (from repo root):
+**Backend** (from repo root; module lives in `backend/`):
 
 ```sh
-go build ./...
-go vet ./...
-go test ./...
+go -C backend build ./...
+go -C backend vet ./...
+go -C backend test ./...
 ```
 
 **Frontend** (from `web/`):
@@ -219,7 +219,7 @@ pnpm test
 ```
 
 `golangci-lint run` (or `make lint`) is the gateway linter. The trust seam — better-auth's api-key
-hash and the EdDSA JWT shape — is pinned by contract tests in `internal/authz/`
+hash and the EdDSA JWT shape — is pinned by contract tests in `backend/internal/authz/`
 (`contract_test.go`, `jwt_test.go`); regenerate their fixtures if the pinned better-auth version
 changes.
 

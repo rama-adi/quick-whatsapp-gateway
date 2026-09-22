@@ -1,4 +1,4 @@
-# Store — MySQL app-data repositories (`internal/store`)
+# Store — MySQL app-data repositories (`backend/internal/store`)
 
 Status: implemented (R1).
 
@@ -6,13 +6,13 @@ Status: implemented (R1).
 > repositories and performs application-data writes — including the WhatsApp-data
 > projections (chats, messages, polls, votes, receipts, identities, group members)
 > that are now derived from committed gateway events by the API's projection
-> consumers. The gateway imports no `internal/store`, `internal/dbconn`, or MySQL
+> consumers. The gateway imports no `backend/internal/store`, `backend/internal/dbconn`, or MySQL
 > driver; its only durable stores are the gateway-local SQLite keystore and the
 > event journal. Schema migration ownership: the API applies `up` before opening
 > its pool/listeners, and explicit `up|down` remains available for operations.
 
 The app-data persistence layer for the WA-domain plane, owned and written **only
-by the API**. Repositories expose `internal/domain`
+by the API**. Repositories expose `backend/internal/domain`
 types and mostly use generated `sqlc` query bindings over `database/sql` internally; OAuth/OIDC
 repos use the same plain `database/sql` repo boundary directly because their migration was added
 after the sqlc baseline. There is still no ORM and no ORM-owned migrations. The frontend reads
@@ -52,21 +52,21 @@ api-key `reference_id`, never by joining `member` on the hot path ([`trust-model
 | `oauth_signing_keys` | `OAuthSigningKeyRepo` | global OIDC keyset |
 
 `apikey` and the other better-auth tables are **not** in this repo set — they are frontend-owned
-(Drizzle). `APIKeyRepo` here is **read-only** (`GetByHash`) and used solely by `internal/authz`
+(Drizzle). `APIKeyRepo` here is **read-only** (`GetByHash`) and used solely by `backend/internal/authz`
 to verify keys ([`api-keys.md`](api-keys.md)); it is not a key-management repo.
 
 `Store` (`store.go`) aggregates the repos; `New(db *sql.DB)` builds the set. The generated sqlc
-package lives under `internal/store/storedb` and is kept behind the repo boundary; callers should
+package lives under `backend/internal/store/storedb` and is kept behind the repo boundary; callers should
 not import generated DB-shaped rows directly. Org-scoped lists are
 `ListByOrg(ctx, organizationID)` (sessions, webhooks); session-scoped tables resolve their owning
 org via `wa_sessions`.
 
-OAuth/OIDC provider state is added by `migrations/0007_oidc_provider`: org-owned clients, durable
+OAuth/OIDC provider state is added by `backend/migrations/0007_oidc_provider`: org-owned clients, durable
 grants, rotating refresh-token rows, and the shared OIDC signing keyset. The public key material is
-listed from `oauth_signing_keys`; private JWKs are AES-GCM encrypted by `internal/oidp` before the
+listed from `oauth_signing_keys`; private JWKs are AES-GCM encrypted by `backend/internal/oidp` before the
 repo persists them.
 
-## v2 DDL highlights (`migrations/0001_init.up.sql`)
+## v2 DDL highlights (`backend/migrations/0001_init.up.sql`)
 
 The v1 `0001_init` + `0002_wmstore` migrations were **dropped** and replaced by a single fresh v2
 `0001_init` (pre-release DB reset, no backfill). Conventions: `utf8mb4`/`utf8mb4_unicode_ci`,
@@ -335,14 +335,14 @@ credentials.
 
 ## Migrations tooling — API/control-plane ownership
 
-`internal/dbmigrate` owns WA-data schema execution via **golang-migrate** embedded over
-`migrations/` (`source/iofs`, `database/mysql`). `cmd/api` applies `up` before opening its normal
-MySQL pool or any listener; a failure aborts startup. Operations use `cmd/migrate up|down`, and
-`make migrate` invokes `cmd/migrate up`. `cmd/gateway` imports no migration package and exposes no
+`backend/internal/dbmigrate` owns WA-data schema execution via **golang-migrate** embedded over
+`backend/migrations/` (`source/iofs`, `database/mysql`). `backend/cmd/api` applies `up` before opening its normal
+MySQL pool or any listener; a failure aborts startup. Operations use `backend/cmd/migrate up|down`, and
+`make migrate` invokes `backend/cmd/migrate up`. `backend/cmd/gateway` imports no migration package and exposes no
 migration subcommand. The auth plane is migrated separately by drizzle-kit in the frontend.
 
 `sqlc` consumes the same migration SQL as schema input plus named queries in
-`internal/store/queries/`; it generates typed query methods in `internal/store/storedb/`.
+`backend/internal/store/queries/`; it generates typed query methods in `backend/internal/store/storedb/`.
 Regenerate with `make sqlc` after changing store query files or WA migrations. The generated types
 are DB-shaped by design; repo methods map nullable values, JSON blobs, generated enums, and
 `RowsAffected` / `LastInsertId` results back to the stable `domain` API.
@@ -350,7 +350,7 @@ are DB-shaped by design; repo methods map nullable values, JSON blobs, generated
 The gateway has **no MySQL access at all**: the former read-only hot-path checks
 against frontend-owned Better Auth tables (`apikey`, `organization`) moved to the
 API with the trust boundary. Those tables are still migrated only by the frontend
-Drizzle toolchain; `internal/store/sqlc_schema/auth.sql` is a sqlc-only schema stub so the API's typed
+Drizzle toolchain; `backend/internal/store/sqlc_schema/auth.sql` is a sqlc-only schema stub so the API's typed
 read queries can compile without making the API a writer or migration owner for auth tables.
 
 ## Decisions (carried from v1, still apply)
@@ -486,7 +486,7 @@ read queries can compile without making the API a writer or migration owner for 
 
 `go-sqlmock` (regexp matcher) drives every repo — generated SQL execution, arg binding, row mapping
 into `domain` (incl. `*T` nullables + typed JSON), cursor pagination, and `ErrNoRows`/zero-rows →
-`not_found` mapping. `CGO_ENABLED=0 go test ./internal/store/...`.
+`not_found` mapping. `CGO_ENABLED=0 go -C backend test ./internal/store/...`.
 
 ## Session lifecycle transaction boundary
 

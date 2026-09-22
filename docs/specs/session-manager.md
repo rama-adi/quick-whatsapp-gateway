@@ -8,7 +8,7 @@
 > journal for post-commit projection. The former MySQL-reading `Boot`, the boot
 > orphan-guard, admin-number self-bootstrap, and `CreateSession` are removed.
 
-Status: implemented. Package `internal/wa`, files `manager.go`, `session.go`.
+Status: implemented. Package `backend/internal/wa`, files `manager.go`, `session.go`.
 
 ## Scope
 
@@ -217,8 +217,8 @@ Core types:
   external `LoggedOut` performs the same reset; not-found errors;
   `StartAssignedBoot` is store-free; the manager accepts no session repository.
 
-Verified: `CGO_ENABLED=0 go build ./internal/wa`, `go test ./internal/wa` (incl.
-`-race`), `go vet ./internal/wa` all pass.
+Verified: `CGO_ENABLED=0 go -C backend build ./internal/wa`, `go -C backend test ./internal/wa` (incl.
+`-race`), `go -C backend vet ./internal/wa` all pass.
 
 ### API lifecycle persistence
 

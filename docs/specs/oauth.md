@@ -1,4 +1,4 @@
-# Sign in with WhatsApp — OAuth 2.1 / OIDC provider (`internal/oidp`)
+# Sign in with WhatsApp — OAuth 2.1 / OIDC provider (`backend/internal/oidp`)
 
 Status: **in progress** (design locked; implementation tracked in
 [`../../oauth2-progress.md`](../../oauth2-progress.md)).
@@ -78,10 +78,10 @@ stream, and issuance is bound to the holder of the browser code at that moment.
 
 ## 3. Data model
 
-### 3.1 MySQL (API-owned golang-migrate; migration `migrations/0007_oidc_provider.{up,down}.sql`)
+### 3.1 MySQL (API-owned golang-migrate; migration `backend/migrations/0007_oidc_provider.{up,down}.sql`)
 
 Four tables, all matching `store.md` conventions (org-keyed, epoch-ms BIGINT timestamps, ULID
-`VARCHAR(64)` ids, plain-SQL repos in `internal/store/oauth.go`).
+`VARCHAR(64)` ids, plain-SQL repos in `backend/internal/store/oauth.go`).
 
 ```sql
 -- The org-owned OAuth application (client). Bound to one WA session.
@@ -206,7 +206,7 @@ pending request:  pending → verified → finalized        auth code:  exists �
 
 ## 4. Endpoints
 
-All OIDC-facing endpoints are **router-local** (hand-mounted in `internal/router`, like
+All OIDC-facing endpoints are **router-local** (hand-mounted in `backend/internal/router`, like
 `/.well-known/*` — not proxied, not huma-registered since they follow RFC shapes). The management
 CRUD is huma-registered inside the authenticated `/api/v1` group.
 
@@ -266,7 +266,7 @@ honor it):
 - The `acr` actually met is echoed in the id_token, so a relying app can *require*
   `acr == "wa:group"` before trusting membership.
 
-### 4.4 Management CRUD (huma, org-scoped: `internal/http/handlers/oauth_app_ops.go` + `internal/apitypes/oauth.go`)
+### 4.4 Management CRUD (huma, org-scoped: `backend/internal/http/handlers/oauth_app_ops.go` + `backend/internal/apitypes/oauth.go`)
 
 | OperationID | Method | Path | Cap |
 |---|---|---|---|
@@ -438,7 +438,7 @@ Dedicated EdDSA/Ed25519 keypair(s) in `oauth_signing_keys` — **not** the route
 (different rotation cadence, public federation vs internal seam) and not env-vars (replicas must
 share one JWKS). Rotation: pre-publish `next` → promote → keep `retired` in JWKS until its tokens
 expire. Private key AES-GCM-encrypted at rest (`OIDC_KEY_ENC_KEY`). Minting/rotation via a
-`cmd/api oidp rotate-key` subcommand.
+`backend/cmd/api oidp rotate-key` subcommand.
 
 ### 7.5 Subjects — WhatsApp LID
 
@@ -530,13 +530,13 @@ detections. Management actions audit-logged with org/client/actor.
 
 ## 9. Composition root
 
-`cmd/api`: Redis client (shared with realtime), the four `internal/store` OAuth repos, an
+`backend/cmd/api`: Redis client (shared with realtime), the four `backend/internal/store` OAuth repos, an
 `oidp.Provider` (code minters, `Signer` + JWKS cache, token issuer, wait-stream handler = `Pump`
 core + NDJSON `Sink`, finalize/cancel handlers), the committed-event login consumer, and control-bus
 subscriptions for `ctrl:oidp.*`. Login feedback uses the API outbound scheduler over private engine
 RPC.
 
-`cmd/gateway`: no OAuth state or interceptor wiring; it only journals normalized message events.
+`backend/cmd/gateway`: no OAuth state or interceptor wiring; it only journals normalized message events.
 
 ## 10. Bookkeeping plan
 
@@ -563,7 +563,7 @@ Each increment independently green (gateway `go build/vet/test`; web `build/type
 
 | # | Increment | Owner | Green deliverable |
 |---|---|---|---|
-| 1 | Migration `0007` + `internal/store/oauth.go` repos + `db:introspect` | B | Tables migrate up/down; repos unit-tested |
+| 1 | Migration `0007` + `backend/internal/store/oauth.go` repos + `db:introspect` | B | Tables migrate up/down; repos unit-tested |
 | 2 | Signing keys + `oidp.Signer` + rotate subcommand + discovery + JWKS | B | Signed JWT verifies against published JWKS |
 | 3 | Management CRUD (huma) + org isolation + secret hashing + `make gen` | B | Contract tests pass; typed client regenerated |
 | 4 | Dashboard OAuth-apps UI (list/editor/consent-preview/secret-once/guide tab) | F | Owner creates an app end-to-end against real API |
@@ -587,7 +587,7 @@ Where the two source designs disagreed, this document picks:
 2. **Auth-code minting**: at browser-driven `finalize` (gpt-5.5) — the code never transits
    pub/sub — combined with opus's URL-fragment browser code and richer stream payload.
 3. **Naming/taste**: opus throughout — `wa:dm`/`wa:group` acr values, `wa:group` scope, `wa_*`
-   claims, `internal/oidp` package, consent-card preview, integration-guide tab, `wa.me`
+   claims, `backend/internal/oidp` package, consent-card preview, integration-guide tab, `wa.me`
    deep-link, STOP command.
 4. **Secret hashing**: SHA-256 + pepper (gpt-5.5) over Argon2id — secrets are 256-bit random, KDF
    hardening adds hot-path cost without security benefit; matches better-auth's api-key posture.

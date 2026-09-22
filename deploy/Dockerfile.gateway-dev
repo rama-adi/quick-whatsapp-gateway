@@ -1,7 +1,7 @@
 # Dev-only gateway image: full Go toolchain + air for hot reload INSIDE Docker.
 # Used by the docker-compose.dev.yml "gateway-dev" profile, which mounts the
 # repo at /src so edits on the host trigger an in-container rebuild via air
-# (see .air.toml). This keeps the dev gateway on the same OS/toolchain as prod
+# (see backend/.air.toml). This keeps the dev gateway on the same OS/toolchain as prod
 # while keeping the fast edit→reload loop.
 #
 # NOT for production — prod uses deploy/Dockerfile, which ships a tiny static
@@ -12,4 +12,4 @@ RUN apk add --no-cache git ca-certificates tzdata \
 WORKDIR /src
 ENV CGO_ENABLED=0
 EXPOSE 8080
-CMD ["air"]
+CMD ["air", "-c", "backend/.air.toml"]

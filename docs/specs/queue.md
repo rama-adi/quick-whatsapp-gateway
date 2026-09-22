@@ -4,12 +4,12 @@ Status: implemented. **API-only since gRPC Increment 9** — the gateway has no
 Redis client, no asynq server/client, no retention scheduler, and no rate-limit
 buckets.
 
-Package: `internal/queue` · import `github.com/rama-adi/quick-whatsapp-gateway/internal/queue`.
+Package: `backend/internal/queue` · import `github.com/rama-adi/quick-whatsapp-gateway/internal/queue`.
 
 ## Scope
 
 Redis-backed background jobs on [hibiken/asynq], owned and run by the **API**
-composition root (`cmd/api`). The gateway process contains none of this code
+composition root (`backend/cmd/api`). The gateway process contains none of this code
 path any more: its only durable dependencies are the SQLite whatsmeow keystore
 and the local event journal.
 
@@ -53,9 +53,9 @@ collapsible to one instance:
   retention claim, but not Asynq's fixed queue keys. Independent stacks need
   separate Redis databases.
 
-> The control-bus **subscriber** lives in `internal/controlbus`, not this package
+> The control-bus **subscriber** lives in `backend/internal/controlbus`, not this package
 > (asynq is work-queue only). It runs **on the API**: it evicts the api-key cache
-> (`internal/authz`) on revocation and drops live WebSockets on user/org
+> (`backend/internal/authz`) on revocation and drops live WebSockets on user/org
 > revocation. Redis pub/sub is fire-and-forget; the cache TTL covers any `ctrl:*`
 > message missed while the API was down.
 
@@ -112,7 +112,7 @@ returned plain so asynq retries per the task's MaxRetry.
 outbox (6) and webhooks (3) over the once-a-day retention prune (1). Lifecycle:
 `Run()` (blocking), `Start()`/`Shutdown()` (graceful).
 
-At API boot, `cmd/api` builds the worker set and starts the daily retention
+At API boot, `backend/cmd/api` builds the worker set and starts the daily retention
 scheduler when `RETENTION_DAYS > 0`. All API replicas that participate in this
 maintenance job must use the same work `REDIS_URL` database **and** `REDIS_PREFIX`.
 The scheduled task uses Redis-backed singleton/dedup admission, so a shared
@@ -143,7 +143,7 @@ the path (`redis://h/2`) or `?db=` query. Invalid scheme/host/db → error.
 - **Id-only payloads.** Handlers reload the authoritative row; the queue is a
   trigger, not a data store.
 - **Consumer interfaces, no sibling imports.** Imports are limited to stdlib,
-  asynq, and `internal/domain` (only for shared conventions). Concrete
+  asynq, and `backend/internal/domain` (only for shared conventions). Concrete
   store/webhook types are injected at composition.
 - **SkipRetry vs retry.** Payload-shape errors skip retry; runtime/consumer
   errors retry. This keeps poison messages out of the retry loop while still
@@ -166,7 +166,7 @@ the path (`redis://h/2`) or `?db=` query. Invalid scheme/host/db → error.
 
 ## How it's tested
 
-`CGO_ENABLED=0 go test ./internal/queue/...` (no Redis required):
+`CGO_ENABLED=0 go -C backend test ./internal/queue/...` (no Redis required):
 
 - Payload marshal/unmarshal round-trips + stable JSON field names; validation
   (empty/zero/negative ids and cutoff) — `tasks_test.go`.
@@ -185,7 +185,7 @@ the path (`redis://h/2`) or `?db=` query. Invalid scheme/host/db → error.
 
 ## Production wiring
 
-`cmd/api` provides the consumers, builds the handler set from
+`backend/cmd/api` provides the consumers, builds the handler set from
 `ParseRedisURL(cfg.RedisURL)`, and owns the retention scheduler, stopping it on
 graceful shutdown. The gateway binary has no queue wiring at all. Outbound sends
 are drained by the API's durable command scheduler over the private engine

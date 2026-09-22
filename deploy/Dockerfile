@@ -8,10 +8,10 @@
 # binary with no gcc/musl-dev needed. The gateway no longer embeds the SPA —
 # the frontend ships as a separate image (deploy/Dockerfile.web).
 FROM golang:1.26-alpine AS build
-WORKDIR /src
-COPY go.mod go.sum ./
+WORKDIR /src/backend
+COPY backend/go.mod backend/go.sum ./
 RUN go mod download
-COPY . .
+COPY backend/ ./
 RUN CGO_ENABLED=0 go build -o /out/gateway ./cmd/gateway
 
 # --- Stage 2: minimal runtime ---

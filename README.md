@@ -135,15 +135,24 @@ lives in `deploy/.env.example` and `web/.env.example`.
 ## Repo layout
 
 ```
-cmd/api/       API entrypoint (applies WA schema migrations before serving)
-cmd/gateway/   gateway runtime entrypoint (never migrates MySQL)
-cmd/migrate/   dedicated WA schema up/down command
-internal/      router/ · assertion/ · authz/ · http/ · wa/ · store/ · webhooks/ · stream/ · queue/
-migrations/    WhatsApp data tables (golang-migrate)
-web/           frontend: TanStack Start + better-auth + Drizzle + shadcn; docs site under /docs
-deploy/        Dockerfiles · compose files · .env.example
-docs/          openapi.yaml (the API contract) · specs/*.md (per-subsystem design)
+backend/       Go module (API, gateway, migrations, protobufs, generated code)
+  cmd/api/     API entrypoint
+  cmd/gateway/ gateway runtime entrypoint
+  cmd/migrate/ WA schema migration command
+  internal/    shared Go packages
+  migrations/  embedded WA schema migrations
+  proto/       public and private gRPC contracts
+  gen/         generated Go protobuf bindings
+web/           frontend: TanStack Start + better-auth + Drizzle; docs site
+deploy/        Dockerfiles, Compose topologies, environment examples
+docs/          shared OpenAPI contract and subsystem specifications
 ```
+
+Root `make` targets coordinate both workspaces. Run Go commands with
+`go -C backend …`, or from inside `backend/`. `make api`, `make dev`, and
+`make migrate` keep the repository root as the runtime working directory so
+existing `.env`, `deploy/.env`, and relative data paths retain their meaning.
+Docker builds still use the repository root as their context.
 
 ## For contributors
 
@@ -154,7 +163,7 @@ out. The API contract of record is [`docs/openapi.yaml`](./docs/openapi.yaml).
 Keep both halves green:
 
 ```sh
-go build ./... && go test ./...                    # gateway
+go -C backend build ./... && go -C backend test ./...                    # gateway
 cd web && pnpm build && pnpm typecheck && pnpm test # frontend
 ```
 

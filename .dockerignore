@@ -1,4 +1,4 @@
-# Build context hygiene for deploy/Dockerfile (gateway) — it does `COPY . .`.
+# Build context hygiene for the repo-root Docker build contexts.
 # Keep host-built artifacts, deps, and the SQLite keystore out of the image.
 .git
 .gitignore
@@ -24,3 +24,12 @@ data/
 !.env.example
 .DS_Store
 *.log
+
+# Host Go builds and scratch caches
+.dev/
+.gocache/
+tmp/
+gateway
+backend/gateway
+backend/api
+backend/migrate

@@ -4,7 +4,7 @@
 // the Bubble/BubbleContent body (text/poll/location/contact, or an Attachment
 // placeholder for media — download is 501 in v1), a footer (timestamp + ack
 // ticks), and BubbleReactions. Reply previews, reactions and the "edited" mark
-// come from the body JSON via parseExtras — all optional.
+// use parseExtras; edited/deleted state comes from the API message flags.
 
 import {
   CheckCheck,
@@ -233,7 +233,7 @@ export function MessageBubble({
       : undefined);
   const sender = !outgoing && showSender ? senderLabel(message) : undefined;
   const align = outgoing ? "end" : "start";
-  const hasReactions = extras.reactions.length > 0;
+  const hasReactions = !message.deleted && extras.reactions.length > 0;
 
   return (
     <MessageRow align={align}>
@@ -250,7 +250,7 @@ export function MessageBubble({
           className={cn(hasReactions && "mb-3")}
         >
           <BubbleContent>
-            {quoted ? (
+            {quoted && !message.deleted ? (
               <QuotedPreview quoted={quoted} outgoing={outgoing} />
             ) : null}
 
@@ -275,7 +275,7 @@ export function MessageBubble({
         </Bubble>
 
         <MessageFooter className="gap-1">
-          {onReply ? (
+          {onReply && !message.deleted ? (
             <button
               type="button"
               className="inline-flex items-center gap-1 rounded-sm px-1 outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
@@ -285,7 +285,7 @@ export function MessageBubble({
               Reply
             </button>
           ) : null}
-          {extras.edited ? <span className="italic">edited</span> : null}
+          {extras.edited && !message.deleted ? <span className="italic">edited</span> : null}
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -322,6 +322,7 @@ export function MessageBubble({
 }
 
 function messagePreview(message: Message): string {
+  if (message.deleted) return "This message was deleted";
   const body = message.body?.trim();
   if (body) return body.length > 160 ? `${body.slice(0, 160)}...` : body;
   return message.type ? `${message.type} message` : "Message";
@@ -368,6 +369,9 @@ function MessageBody({
   onVote?: (message: Message, options: string[]) => void;
 }) {
   switch (parsed.kind) {
+    case "deleted":
+      return <p className="italic opacity-60">This message was deleted</p>;
+
     case "text":
       return parsed.text ? (
         <p className="whitespace-pre-wrap break-words">

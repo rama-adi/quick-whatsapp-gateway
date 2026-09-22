@@ -1,6 +1,6 @@
 # Stream (event fan-out + transport-agnostic Pump)
 
-Status: implemented (`internal/stream`).
+Status: implemented (`backend/internal/stream`).
 
 Transport half of eventing (masterplan §11). The event **envelope + catalog + ignore
 rules** are shared and documented in [`eventing.md`](./eventing.md); this file covers
@@ -126,7 +126,7 @@ re-validates and fails closed if access is gone.
 
 ## How it's tested
 
-`go test ./internal/stream/...` (also clean under `-race`), miniredis for real pub/sub
+`go -C backend test ./internal/stream/...` (also clean under `-race`), miniredis for real pub/sub
 behind a real `*redis.Client`, fake `Clock`/`Ticker` and fake `EventLogReader`:
 
 - **Publisher** — events publish to the correct `(organization, session)` channel with
@@ -137,7 +137,7 @@ behind a real `*redis.Client`, fake `Clock`/`Ticker` and fake `EventLogReader`:
   the registry lock so callback re-entry cannot deadlock revocation.
 
 (The Pump's replay/tail/heartbeat behavior is exercised end-to-end through the router's
-realtime tests in `internal/router`.)
+realtime tests in `backend/internal/router`.)
 
 ## What the composition root wires
 

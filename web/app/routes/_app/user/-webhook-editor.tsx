@@ -13,6 +13,7 @@ const EVENT_CATALOG = [
   "message.from_me",
   "message.status",
   "message.reaction",
+  "message.interactive_reply",
   "message.edited",
   "message.revoked",
   "poll.vote",

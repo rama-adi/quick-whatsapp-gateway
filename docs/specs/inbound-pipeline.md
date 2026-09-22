@@ -1,8 +1,8 @@
 # Inbound Pipeline
 
-Status: implemented. Package `internal/wa/inbound`.
+Status: implemented. Package `backend/internal/wa/inbound`.
 
-Production wiring lives in `cmd/gateway`: the `wa.Manager` forwards raw
+Production wiring lives in `backend/cmd/gateway`: the `wa.Manager` forwards raw
 whatsmeow events into `service.InboundPipelineHandler`, backed by the real
 pipeline, the gateway MySQL repos, Redis stream publisher, webhook enqueuer,
 event-log appender, and manager-backed WA live ops. This is what populates
@@ -46,7 +46,9 @@ fan-out).
    status is derived later from `chats`. For groups upsert `whatsapp_groups` + the
    `whatsapp_group_members` pivot (per-group `tag` + role, role defaults to
    `member`).
-4. **Persist** (§9) — upsert `chats`; insert `messages` (incl. `raw_json`); a poll
+4. **Persist** (§9) — upsert `chats`; insert `messages` (incl. `raw_json`);
+   interactive replies follow the same message persistence path, retaining selection
+   metadata in raw JSON (see `eventing.md`); a poll
    creation also upserts `polls` (its options, so later votes can be resolved);
    `edit`/`revoke` flip flags on the target. A revoke for a message absent from local
    history is a successful projection no-op; the event still fans out, and later session
@@ -78,7 +80,7 @@ fan-out).
   globals. Stateless and safe to share across sessions. `Process(ctx, sessionID,
   organizationID, isAdminSession, evt any) error` runs all stages.
 - `NormalizedMessage` — the decoupled working view (in `types.go`). Owned by
-  this package, NOT `internal/wa/events`, per "interfaces defined by the
+  this package, NOT `backend/internal/wa/events`, per "interfaces defined by the
   consumer". `Kind` (`message`/`receipt`/`poll_vote`/`edit`/`revoke`/`other`)
   selects the capture/persist path. Carries sender/identity, message body,
   optional `Group`+`Members`, `Poll` (poll-creation options), `Receipt`,
@@ -88,7 +90,7 @@ fan-out).
 
 ### Consumer interfaces (ports.go)
 
-The package imports only stdlib + `internal/domain`. Every collaborator is a
+The package imports only stdlib + `backend/internal/domain`. Every collaborator is a
 small consumer interface that Phase 3 satisfies with concrete types:
 
 - `Normalizer.Normalize(ctx, evt any, sessionID, organizationID string) (domain.Event, *NormalizedMessage, bool)`

@@ -22,46 +22,51 @@ up-logs:     ## follow the dockerized gateway logs (e.g. to read the admin pairi
 down:        ## stop the full dockerized dev stack (keep data; add `-v` target to wipe)
 	$(COMPOSE_GW) down
 
-dev:         ## gateway hot-reload on the HOST under air (run infra-up first; air builds ./cmd/gateway)
-	air
+dev:         ## gateway hot-reload on the HOST under air (run infra-up first; air builds backend/cmd/gateway)
+	air -c backend/.air.toml
 api:         ## run the API (the public front door) on the HOST (run infra-up first)
-	go run ./cmd/api
+	go -C backend build -o ../.dev/api ./cmd/api
+	./.dev/api
 web:         ## frontend dev server (HMR)
 	cd web && pnpm dev
 
 migrate:     ## apply API-owned WA schema migrations
-	go run ./cmd/migrate up
+	go -C backend build -o ../.dev/migrate ./cmd/migrate
+	./.dev/migrate up
 
 build:       ## production gateway image
 	docker build -t whatsmeow-gateway -f deploy/Dockerfile .
 build-api:   ## production API/control-plane image
 	docker build -t whatsmeow-api -f deploy/Dockerfile.api .
 lint:
-	golangci-lint run
+	cd backend && golangci-lint run
 test:
-	go test ./...
+	go -C backend test ./...
 	sh scripts/selfhost-entrypoint-test.sh
 tidy:
-	go mod tidy && cd web && pnpm install
-sqlc:        ## generate typed MySQL store queries from migrations + internal/store/queries
-	go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate
+	go -C backend mod tidy
+	cd web && pnpm install
+sqlc:        ## generate typed MySQL store queries from backend migrations + store queries
+	cd backend && go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate
 proto:       ## generate committed public and private gRPC Go code with pinned Buf plugins
-	$(BUF) generate
+	cd backend && $(BUF) generate
 proto-lint:  ## lint protobuf contracts
-	$(BUF) lint
+	cd backend && $(BUF) lint
 proto-breaking: ## check compatibility against PROTO_BREAKING_BRANCH once it has a protobuf baseline
-	@if git ls-tree -r --name-only '$(PROTO_BREAKING_BRANCH)' -- proto | grep -q '\.proto$$'; then \
-		$(BUF) breaking --against '.git\#ref=$(PROTO_BREAKING_REF)'; \
+	@if git ls-tree -r --name-only '$(PROTO_BREAKING_BRANCH)' -- backend/proto | grep -q '\.proto$$'; then \
+		cd backend && $(BUF) breaking --against '../.git#ref=$(PROTO_BREAKING_REF),subdir=backend'; \
+	elif git ls-tree -r --name-only '$(PROTO_BREAKING_BRANCH)' -- proto | grep -q '\.proto$$'; then \
+		cd backend && $(BUF) breaking --against '../.git#ref=$(PROTO_BREAKING_REF)'; \
 	else \
 		echo "No protobuf baseline on $(PROTO_BREAKING_BRANCH); skipping breaking check until this scaffold lands."; \
 	fi
 proto-check: proto-lint ## regenerate in a temporary directory and compare committed Go bindings
 	@tmp_dir=$$(mktemp -d); \
 	trap 'rm -r "$$tmp_dir"' EXIT; \
-	$(BUF) generate --output "$$tmp_dir"; \
-	diff -ru gen "$$tmp_dir/gen"
+	(cd backend && $(BUF) generate --output "$$tmp_dir") && \
+	diff -ru backend/gen "$$tmp_dir/gen"
 openapi:     ## generate the OpenAPI contract from the shared Go types (code-first, D11)
-	go run ./cmd/genopenapi docs/openapi.yaml
+	go -C backend run ./cmd/genopenapi ../docs/openapi.yaml
 openapi-check: openapi ## CI drift guard: fail if docs/openapi.yaml is stale vs the Go types
 	git diff --exit-code docs/openapi.yaml
 gen: openapi ## regen the contract + typed API client + docs pages (run after changing API Go types)

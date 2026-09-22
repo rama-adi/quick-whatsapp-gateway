@@ -143,6 +143,7 @@ export type ParsedMessage =
     }
   | { kind: "location"; latitude?: number; longitude?: number; name?: string }
   | { kind: "contact"; name?: string; phone?: string }
+  | { kind: "deleted" }
   | { kind: "system" }
   | { kind: "unknown"; type?: string; text?: string };
 
@@ -152,6 +153,7 @@ export type ParsedMessage =
  * a tolerant parse and fall back to the raw text.
  */
 export function parseMessage(m: Message): ParsedMessage {
+  if (m.deleted) return { kind: "deleted" };
   const type = (m.type ?? "text").toLowerCase();
   const body = m.body ?? "";
   const struct = tryParseJson(body);
@@ -221,9 +223,8 @@ export function parseMessage(m: Message): ParsedMessage {
 
 /**
  * Cross-kind extras carried in the message body JSON: a quoted/reply preview
- * and reaction emoji. The realtime path patches `body` on reaction/edit events
- * (cacheBridge), so these surface from the same tolerant parse. All optional —
- * absent fields render nothing.
+ * and reaction emoji. Edit state comes from the API row, not body JSON.
+ * Absent optional extras render nothing.
  */
 export type MessageExtras = {
   quoted?: { author?: string; preview: string };
@@ -255,7 +256,7 @@ export function parseExtras(m: Message): MessageExtras {
         (r): r is string => typeof r === "string",
       )
     : [];
-  return { quoted, reactions, edited: struct?.edited === true };
+  return { quoted, reactions, edited: m.edited };
 }
 
 function tryParseJson(s: string): Record<string, unknown> | null {

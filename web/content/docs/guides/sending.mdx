@@ -30,6 +30,8 @@ The reply is a `SendResult`: the WhatsApp message id (`messageId`), the delivery
 | `type` | Required fields | Optional fields |
 |---|---|---|
 | `text` | `text` | `mentions` (a list of JIDs to tag), `replyTo` (a message id to quote) |
+| `buttons` | `text`, `buttons: [{id, title}]` | `footer`, `replyTo`, `mentions` |
+| `list` | `text`, `list: {title, sections: [{title, rows: [{id, title}]}]}` | row `description`, `footer`, `replyTo`, `mentions` |
 | `poll` | `name`, `options` | `selectableCount` — how many options one voter may pick. Votes come back as `poll.vote` [events](/docs/guides/receiving). |
 | `location` | `latitude`, `longitude` | `name` — a label for the pin |
 | `contact` | `contact` | — |
@@ -169,3 +171,68 @@ Sending fast or in bulk is exactly the behavior WhatsApp bans numbers for. The
 rate limits, plus the typing and read-receipt simulation, exist to keep traffic
 looking human. Keep volume low and pacing natural.
 </Callout>
+
+## Quick replies and selection lists (experimental)
+
+Send quick-reply buttons through the same messages endpoint:
+
+```json
+{
+  "type": "buttons",
+  "to": "120363021234567890@g.us",
+  "text": "Which product did you mean?",
+  "buttons": [
+    {"id": "product-1", "title": "Jordan 1"},
+    {"id": "product-4", "title": "Jordan 4"}
+  ]
+}
+```
+
+For a selection list:
+
+```json
+{
+  "type": "list",
+  "to": "120363021234567890@g.us",
+  "text": "Choose a product",
+  "list": {
+    "title": "View products",
+    "sections": [{
+      "title": "Matches",
+      "rows": [
+        {"id": "product-1", "title": "Jordan 1", "description": "Red/black"},
+        {"id": "product-4", "title": "Jordan 4"}
+      ]
+    }]
+  }
+}
+```
+
+IDs must be unique within each message and labels must be nonblank. Send product
+images separately using `type: image` or `album`.
+
+Both types accept group JIDs, but WhatsApp client rendering is **experimental**.
+Upstream users report working quick replies and compatibility failures for lists;
+a successful API response does not guarantee visible controls. Test with your
+recipient devices and groups before relying on them. If you need a numeric-text
+fallback, send it as a separate ordinary text message and handle it in your app.
+
+Subscribe to `message.interactive_reply` (or `*`) for selections over webhooks or
+realtime. Its payload includes:
+
+```json
+{
+  "type": "interactive_reply",
+  "chatJid": "120363021234567890@g.us",
+  "senderJid": "628123456789@s.whatsapp.net",
+  "quotedMessageId": "ORIGINAL_WHATSAPP_MESSAGE_ID",
+  "interactiveReply": {"kind": "button", "id": "product-1", "title": "Jordan 1"}
+}
+```
+
+`kind` is `list` for list selections. Original-message and sender phone metadata
+are present when WhatsApp supplies them; a participant may instead be identified
+by `senderLid`. Match the chat, sender, and original message against your own
+pending choices. Validate IDs yourself: a received selection does not prove that
+the sender was authorized to choose it. Plain numeric replies remain `message`
+events, and selections emit `message.interactive_reply` instead of `message`.

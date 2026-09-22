@@ -224,3 +224,11 @@ e2e smoke against a live WhatsApp number.
   directives/reports, renewal with overlapping-stream proof, revocation-driven termination, audited
   administration, and the one-time-token web workflow are implemented. Increment 2 is complete;
   desired-state reconciliation is the active Increment 3 boundary.
+
+### Go workspace location
+
+The Go module now lives in `backend/` beside `web/`, including `cmd`, `internal`,
+`migrations`, `proto`, `gen`, and Go tooling configuration. Module/import paths
+are unchanged. Root Make targets coordinate builds and generation; `deploy/`
+keeps repo-root Docker contexts, and `docs/openapi.yaml` remains the shared contract.
+Host runtime commands retain the root working directory for configuration/data paths.

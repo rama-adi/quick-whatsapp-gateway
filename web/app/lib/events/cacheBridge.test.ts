@@ -425,3 +425,40 @@ describe("applyEvent", () => {
     expect(() => applyEvent(qc, evt("totally.unknown", {}))).not.toThrow();
   });
 });
+
+describe("message lifecycle cache", () => {
+  const chatJid = "123@g.us";
+  const original: Message = {
+    id: "row-1", waMessageId: "original", sessionId: SESSION, chatJid,
+    type: "text", body: "old text", direction: "in", fromMe: false,
+    timestamp: 1, createdAt: 1, edited: false, deleted: false, hasMedia: false,
+  };
+
+  it("patches the original row on an older page and keeps other chats unchanged", () => {
+    const qc = new QueryClient();
+    const key = qk.chatMessages(SESSION, chatJid);
+    qc.setQueryData(key, {
+      pageParams: [undefined, "older"],
+      pages: [{ data: [], nextCursor: "older" }, { data: [original], nextCursor: null }],
+    });
+    const otherKey = qk.chatMessages(SESSION, "other@g.us");
+    qc.setQueryData(otherKey, infinite([original]));
+    applyEvent(qc, evt("message.edited", {
+      chatJid, waMessageId: "edit-command", targetId: "original", body: "new text",
+    }));
+    const data = qc.getQueryData<InfiniteData<Page<Message>>>(key);
+    expect(data?.pages[1]?.data).toEqual([{ ...original, body: "new text", edited: true }]);
+    expect(qc.getQueryData<InfiniteData<Page<Message>>>(otherKey)?.pages[0]?.data).toEqual([original]);
+  });
+
+  it("marks a revoked message deleted and does not restore it with a later edit", () => {
+    const qc = new QueryClient();
+    const key = qk.chatMessages(SESSION, chatJid);
+    qc.setQueryData(key, infinite([original]));
+    applyEvent(qc, evt("message.revoked", { chatJid, targetId: "original" }));
+    applyEvent(qc, evt("message.edited", { chatJid, targetId: "original", body: "late text" }));
+    expect(qc.getQueryData<InfiniteData<Page<Message>>>(key)?.pages[0]?.data).toEqual([
+      { ...original, deleted: true },
+    ]);
+  });
+});

@@ -6,20 +6,20 @@ Status: implemented (R1; central-router Increment A; **Increment 9: gateway HTTP
 > huma operations, no admission gate, no OpenAPI, no assertion middleware. Its
 > entire network surface is the private mTLS engine gRPC listener plus a minimal
 > `net/http` probe server (`/healthz`, `/readyz`, `/metrics`). The former
-> `internal/http` chi router (`NewRouter`, `RouterConfig`, `AdmissionGate`) is
-> deleted; `internal/http/handlers` (huma operations) and
-> `internal/http/middleware` remain because the **API** mounts them on its own
+> `backend/internal/http` chi router (`NewRouter`, `RouterConfig`, `AdmissionGate`) is
+> deleted; `backend/internal/http/handlers` (huma operations) and
+> `backend/internal/http/middleware` remain because the **API** mounts them on its own
 > public surface.
 
 The API is the single front door: it owns authn/CORS/control-bus, the Huma REST
 surface + generated OpenAPI (`docs/openapi.yaml`, served at
 `/api/v1/openapi.yaml`), ticketed WebSocket realtime, and the `public.v1` gRPC
-adapters in `internal/apigrpc` on `API_PUBLIC_GRPC_ADDR`. Public REST and gRPC
+adapters in `backend/internal/apigrpc` on `API_PUBLIC_GRPC_ADDR`. Public REST and gRPC
 share one authn stack, org scoping, and error semantics — see
 [`router.md`](router.md), [`grpc-contracts.md`](grpc-contracts.md),
 [`trust-model.md`](trust-model.md).
 
-## Gateway probes (`cmd/gateway/main.go`)
+## Gateway probes (`backend/cmd/gateway/main.go`)
 
 The composition root builds its own tiny handler instead of any framework:
 
@@ -31,7 +31,7 @@ The composition root builds its own tiny handler instead of any framework:
 
 ## API route surface (capability per group)
 
-The API mounts the shared huma operations from `internal/http/handlers`:
+The API mounts the shared huma operations from `backend/internal/http/handlers`:
 
 | Group | Gate | Routes |
 |---|---|---|
@@ -47,15 +47,15 @@ The API mounts the shared huma operations from `internal/http/handlers`:
 > plugin; the API verifies keys), `/auth/admin/*` (→ better-auth admin plugin), and the
 > embedded SPA static handler.
 
-## Authz middleware (`internal/authz`)
+## Authz middleware (`backend/internal/authz`)
 
-Auth lives in `internal/authz` and is detailed in [`trust-model.md`](trust-model.md):
+Auth lives in `backend/internal/authz` and is detailed in [`trust-model.md`](trust-model.md):
 the two-acceptor end-user middleware (JWT via JWKS / api-key via the shared
 `apikey` table) runs **only on the API**. `RequireRead/Send/Manage/Events/SuperAdmin`
 (`gates.go`) authorize from the authenticated principal.
 There is **no Authula cookie bridge** — that whole v1 path is gone.
 
-## `internal/http/middleware`
+## `backend/internal/http/middleware`
 
 Transport-only middleware (no auth):
 
@@ -92,7 +92,7 @@ Rate-limit key choice: session routes carry `:session` so they limit **per Whats
 others fall back to an **org-wide** bucket (`org:<id>`). **Fail-open**
 on a limiter backend error; a clean `(false, nil)` → `429`.
 
-## `internal/httpx`
+## `backend/internal/httpx`
 
 ```go
 // Context (org-keyed, not tenant):
@@ -117,7 +117,7 @@ func ParsePage(r) (limit int, cursor string)  ; func ListEnvelope[T any](w, item
 
 The gateway binary uses only `WriteError` for its `/readyz` failure body.
 
-## `internal/crypto`
+## `backend/internal/crypto`
 
 AES-256-GCM (random 12-byte nonce prepended) for webhook HMAC secrets / sensitive config at rest
 (`APP_ENCRYPTION_KEY`, masterplan §11):
@@ -138,4 +138,4 @@ func (*AESGCM) Decrypt(ciphertext []byte) ([]byte, error)  // ErrMalformedCipher
   allow/deny/fail-open + key-by-session/org.
 - authz: covered in [`trust-model.md`](trust-model.md).
 
-Run: `CGO_ENABLED=0 go test ./internal/http/... ./internal/httpx/... ./internal/crypto/...`.
+Run: `CGO_ENABLED=0 go -C backend test ./internal/http/... ./internal/httpx/... ./internal/crypto/...`.

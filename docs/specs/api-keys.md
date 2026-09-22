@@ -4,7 +4,7 @@ Status: implemented (R1). Live-validated against better-auth 1.6.22.
 
 There are **no custom gateway keys** in v2. Programmatic access uses better-auth's **api-key
 plugin**; the gateway only **verifies** presented keys against the shared `apikey` table. The v1
-custom Go keys (argon2id, `wak_` prefix, `internal/crypto` + an `api_keys` table) are gone.
+custom Go keys (argon2id, `wak_` prefix, `backend/internal/crypto` + an `api_keys` table) are gone.
 Masterplan §4.2. The trust seam as a whole is documented in [`trust-model.md`](trust-model.md).
 
 ## Lifecycle (frontend, better-auth)
@@ -19,9 +19,9 @@ The gateway never mints, lists, or deletes keys — `/keys*` routes do **not** e
 
 ## Verification (gateway)
 
-`internal/authz` validates a presented key locally — no callback to the frontend — so the gateway
+`backend/internal/authz` validates a presented key locally — no callback to the frontend — so the gateway
 stays self-sufficient if the frontend is down. `APIKeyVerifier.VerifyKey`
-(`internal/authz/apikey.go`):
+(`backend/internal/authz/apikey.go`):
 
 1. Hash the raw key with better-auth's default scheme (`authz.DefaultHasher`).
 2. `keyRepo.GetByHash(hash)` against the shared `apikey` table (`store.APIKeyRepo`, read-only).
@@ -44,7 +44,7 @@ middleware (`authz.Authenticate`) as the api-key acceptor when it does not parse
 
 ## Caching & revocation
 
-Validated keys sit in a per-gateway positive cache (`internal/authz/apikey_cache.go`, ~60 s TTL,
+Validated keys sit in a per-gateway positive cache (`backend/internal/authz/apikey_cache.go`, ~60 s TTL,
 fail-closed). Revocation is **instant** via the Redis control bus: the frontend publishes
 `ctrl:apikey.revoked {keyId}` (or `ctrl:user.banned`) on revoke/ban; gateways evict the cache
 entry and drop any live NDJSON streams the key authenticated. The TTL is the backstop for a missed
@@ -65,4 +65,4 @@ the pinned verifier and its contract fixtures before deployment.
 rejection, org-scoped principal shape, lookup-error → 401 mapping; `apikey_cache_test.go` — TTL
 expiry, evict-by-keyId/userId. Trust-seam contract test (R5) is the cross-service safety net.
 
-Run: `CGO_ENABLED=0 go test ./internal/authz/...`.
+Run: `CGO_ENABLED=0 go -C backend test ./internal/authz/...`.

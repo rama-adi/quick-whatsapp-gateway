@@ -1299,7 +1299,9 @@ export interface paths {
          * Send a message
          * @description Send one message or one grouped media album from the session.
          *
-         *     Use `type` in the body to select a supported payload (`text`, `poll`, `location`, `contact`).
+         *     Use `type` in the body to select a supported payload (`text`, `poll`, `location`, `contact`, `buttons`, `list`).
+         *
+         *     Buttons and lists use experimental native-flow controls, including for group JIDs. A send acknowledgement does not guarantee client rendering.
          *
          *     Default mode is synchronous and returns 200. Set `async=true` for queued async sends that return 202.
          *     Idempotency is enabled with `Idempotency-Key`.
@@ -2886,6 +2888,17 @@ export interface components {
              */
             updatedAt: number;
         };
+        InteractiveReplyData: {
+            /** @description Application-defined choice identifier; treat as untrusted sender input. */
+            id: string;
+            /**
+             * @description The selected control type.
+             * @enum {string}
+             */
+            kind: "button" | "list";
+            /** @description Display text supplied by the replying client. */
+            title?: string;
+        };
         InviteOutputBody: {
             invite: string;
         };
@@ -2930,6 +2943,20 @@ export interface components {
         ListOAuthGrant: {
             data: components["schemas"]["OAuthGrant"][] | null;
             nextCursor?: string;
+        };
+        ListRow: {
+            /** @description Optional supporting text. */
+            description?: string;
+            /** @description Opaque selection identifier returned in the reply event. */
+            id: string;
+            /** @description Visible row label. */
+            title: string;
+        };
+        ListSection: {
+            /** @description Selectable rows; IDs must be unique across all sections. */
+            rows: components["schemas"]["ListRow"][] | null;
+            /** @description Section heading. */
+            title: string;
         };
         ListWASession: {
             data: components["schemas"]["WASession"][] | null;
@@ -3152,7 +3179,7 @@ export interface components {
              * @description The event type. (enum property replaced by openapi-typescript)
              * @enum {string}
              */
-            event: "message" | "message.edited" | "message.from_me" | "message.reaction" | "message.revoked" | "poll.vote";
+            event: "message" | "message.edited" | "message.from_me" | "message.interactive_reply" | "message.reaction" | "message.revoked" | "poll.vote";
             /**
              * @description Unique event id. Webhook deliveries repeat it in the X-Webhook-Request-Id header so receivers can drop duplicate redeliveries; the realtime client uses it as the ?since resume cursor.
              * @example evt_01J9ZX...
@@ -3199,6 +3226,8 @@ export interface components {
             fromMe: boolean;
             /** @description True if the message carried media. The media itself is metadata-only in v1 (no download). */
             hasMedia: boolean;
+            /** @description Selected choice for message.interactive_reply; original message is quotedMessageId. */
+            interactiveReply?: components["schemas"]["InteractiveReplyData"];
             /** @description Set when type is location. */
             location?: components["schemas"]["LocationData"];
             /** @description Media descriptor. Always null in v1 (metadata-only); see hasMedia. */
@@ -4066,6 +4095,12 @@ export interface components {
              */
             sender?: string;
         };
+        ReplyButton: {
+            /** @description Opaque selection identifier returned in the reply event. */
+            id: string;
+            /** @description Visible button label. */
+            title: string;
+        };
         RetryPolicy: {
             /**
              * Format: int64
@@ -4097,7 +4132,15 @@ export interface components {
              */
             sender?: string;
         };
+        SelectionList: {
+            /** @description Menu sections, each containing selectable rows. */
+            sections: components["schemas"]["ListSection"][] | null;
+            /** @description Label of the button that opens the menu. */
+            title: string;
+        };
         SendRequest: {
+            /** @description Quick-reply choices for type buttons. IDs must be unique and nonempty. */
+            buttons?: components["schemas"]["ReplyButton"][] | null;
             /**
              * @description Optional single caption for an album. WhatsApp renders it with the grouped album.
              * @example Trip photos
@@ -4105,12 +4148,16 @@ export interface components {
             caption?: string;
             /** @description The contact card to share. Required for type contact. */
             contact?: components["schemas"]["ContactCard"];
+            /** @description Optional footer for buttons or list. */
+            footer?: string;
             /**
              * Format: double
              * @description Latitude of the shared location in decimal degrees. Required for type location.
              * @example -6.2
              */
             latitude?: number;
+            /** @description Selection menu for type list. Client rendering is experimental. */
+            list?: components["schemas"]["SelectionList"];
             /**
              * Format: double
              * @description Longitude of the shared location in decimal degrees. Required for type location.
@@ -4165,7 +4212,7 @@ export interface components {
              */
             selectableCount?: number;
             /**
-             * @description The message text. Required for type text; ignored otherwise.
+             * @description The message text. Required for text, buttons, and list.
              * @example Hello there!
              */
             text?: string;
@@ -4179,7 +4226,7 @@ export interface components {
              * @example text
              * @enum {string}
              */
-            type: "text" | "poll" | "location" | "contact" | "image" | "video" | "audio" | "document" | "sticker" | "album";
+            type: "buttons" | "list" | "text" | "poll" | "location" | "contact" | "image" | "video" | "audio" | "document" | "sticker" | "album";
         };
         SendResult: {
             mode: string;

@@ -18,7 +18,7 @@ Status: implemented (R2); Increment 3 keystore-safety seams implemented.
   critical/unready at 90%. Core message/receipt events are never silently discarded.
 - Stream in-flight bound: at most **256 events or 1 MiB**, whichever is reached first.
 - Command-result ledger retention: **7 days**, never shorter than the API retry/idempotency window.
-- `internal/gateway/journal` now implements the journal foundation: a separate WAL-mode
+- `backend/internal/gateway/journal` now implements the journal foundation: a separate WAL-mode
   `journal.db`, transactional stable event-ID deduplication, ordered unacknowledged replay,
   monotonic acknowledgement watermark/removal, quick-check on reopen, and WAL checkpoint on close.
   Its metrics expose unacknowledged entry/byte counts, oldest-entry time, acknowledgement watermark,
@@ -29,7 +29,7 @@ Status: implemented (R2); Increment 3 keystore-safety seams implemented.
 
 The whatsmeow **device keystore** — device identities, Signal sessions, prekeys, sender keys,
 app-state, the LID map. In v2 it is **SQLite** via whatsmeow's own `sqlstore`, gateway-local on a
-persistent volume. The v1 hand-written **MySQL** store (`internal/wa/store/mysql`, the
+persistent volume. The v1 hand-written **MySQL** store (`backend/internal/wa/store/mysql`, the
 `wmstore_*` tables, the driver selector) is **retired** — there is no longer any whatsmeow device
 state in MySQL. Masterplan §6.1.
 
@@ -46,12 +46,12 @@ shipping as a small static image — no C compiler, no `mattn/go-sqlite3`.
 
 | Path | Package | Role |
 |---|---|---|
-| `internal/wa/store/sqlite` | `sqlitestore` | Thin wrapper over `sqlstore` + modernc SQLite |
-| `internal/wa/store/store.go` | `wastore` | `Keystore` interface the session manager depends on |
-| `internal/gateway/journal` | `journal` | Separate gateway-local durable normalized-event handoff log |
+| `backend/internal/wa/store/sqlite` | `sqlitestore` | Thin wrapper over `sqlstore` + modernc SQLite |
+| `backend/internal/wa/store/store.go` | `wastore` | `Keystore` interface the session manager depends on |
+| `backend/internal/gateway/journal` | `journal` | Separate gateway-local durable normalized-event handoff log |
 
 `sqlstore` owns and auto-migrates its own schema inside the SQLite file (the `whatsmeow_*` tables)
-— there is **no** `wmstore_*` migration in `migrations/` anymore (those are golang-migrate, MySQL
+— there is **no** `wmstore_*` migration in `backend/migrations/` anymore (those are golang-migrate, MySQL
 app-data only; see [`store.md`](store.md)).
 
 ### `sqlitestore.Open`
@@ -124,7 +124,7 @@ across gateways is forward-compatible, not built — masterplan §4.5). Schema i
 ## Boot orphan-guard
 
 On boot, before resuming each device from the keystore, the Session Manager
-(`internal/wa/manager.go`) checks the session's owning organization still exists and is enabled in
+(`backend/internal/wa/manager.go`) checks the session's owning organization still exists and is enabled in
 MySQL, and **skips + marks `STOPPED`** any whose org was deleted/disabled while the gateway was
 down. The admin number is (re-)provisioned against the SQLite keystore
 on boot if no valid device exists for it. Detail: [`trust-model.md`](trust-model.md) § boot
@@ -135,4 +135,4 @@ reconciliation.
 `store_test.go` (real modernc SQLite file): `Open` upgrades and serves an unpaired device;
 a DSN without foreign keys is rejected; end-to-end open → `GetFirstDevice`.
 
-Verify: `CGO_ENABLED=0 go build ./internal/wa/store/... && CGO_ENABLED=0 go test ./internal/wa/store/...`.
+Verify: `CGO_ENABLED=0 go -C backend build ./internal/wa/store/... && CGO_ENABLED=0 go -C backend test ./internal/wa/store/...`.

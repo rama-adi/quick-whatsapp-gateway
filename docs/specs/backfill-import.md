@@ -2,8 +2,8 @@
 
 Status: implemented.
 
-Packages: `internal/backup` (decrypt + SQLite read), `internal/service` (`BackupImportService`),
-`internal/store` (`BackfillImportRepo`), `internal/http/handlers` (`backup.go`). Frontend:
+Packages: `backend/internal/backup` (decrypt + SQLite read), `backend/internal/service` (`BackupImportService`),
+`backend/internal/store` (`BackfillImportRepo`), `backend/internal/http/handlers` (`backup.go`). Frontend:
 `web/app/routes/_app/user/-components/backup-import-card.tsx` + `web/app/lib/api/hooks/import.ts`.
 
 ## Why
@@ -34,7 +34,7 @@ GET  /sessions/{session}/backfill         → latest BackfillImport (poll while 
 Both routes are in the **sessions / `manage`** group ([`http-foundation.md`](http-foundation.md));
 `super_admin` passes the capability gate as usual.
 
-## Decryption (`internal/backup/crypt15.go`)
+## Decryption (`backend/internal/backup/crypt15.go`)
 
 Pure stdlib (CGO-free): `LoadRootKey` accepts a 64-char hex key, a raw 32-byte key, or a serialized
 `encrypted_backup.key`; `DeriveAESKey` runs WhatsApp's HKDF-SHA256 chain (zero salt, info
@@ -47,7 +47,7 @@ falling back to treating the last 16 bytes as the tag (multifile). `Decompress` 
 (passing through already-raw SQLite/ZIP). `DecryptMsgstore` chains them and verifies the
 `SQLite format 3` magic. Any failure is a plain error → the service maps it to `validation_error`.
 
-## SQLite reading (`internal/backup/msgstore.go` + `readers.go`)
+## SQLite reading (`backend/internal/backup/msgstore.go` + `readers.go`)
 
 `modernc.org/sqlite` opened read-only (`?mode=ro&immutable=1`). **Capability detection, not
 version-gating** — WhatsApp has no stable schema version (`PRAGMA user_version` is always 1;
@@ -94,10 +94,10 @@ The `backfill_imports` table is both the job-status surface and the durable quot
 
 ## How it's tested
 
-- `internal/backup`: crypt15 encrypt→decrypt round-trip (no fixture file needed), key-format
+- `backend/internal/backup`: crypt15 encrypt→decrypt round-trip (no fixture file needed), key-format
   parsing, type/server classification, and a skipped-unless-present integration test that reads the
   dev `web/msgstore.db`.
-- `internal/store`: `go-sqlmock` over every `BackfillImportRepo` method.
-- `internal/service`: ownership/decrypt/concurrency/quota branches + `importAll` upsert mapping with
+- `backend/internal/store`: `go-sqlmock` over every `BackfillImportRepo` method.
+- `backend/internal/service`: ownership/decrypt/concurrency/quota branches + `importAll` upsert mapping with
   a fake reader.
-- `internal/http/handlers`: multipart upload happy-path, missing key/file, 401, 429, status.
+- `backend/internal/http/handlers`: multipart upload happy-path, missing key/file, 401, 429, status.
