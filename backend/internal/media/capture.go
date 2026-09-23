@@ -52,7 +52,7 @@ func (s *Service) Capture(ctx context.Context, tx storedb.DBTX, e store.GatewayE
 	}
 	var bucket string
 	var days *int64
-	err = tx.QueryRowContext(ctx, `SELECT b.id,b.retention_days FROM session_media_storage m JOIN media_buckets b ON b.id=m.bucket_id AND b.organization_id=m.organization_id WHERE m.session_id=? AND m.organization_id=? FOR SHARE`, e.SessionID, e.OrganizationID).Scan(&bucket, &days)
+	err = tx.QueryRowContext(ctx, `SELECT b.id,b.retention_days FROM session_media_storage m JOIN media_buckets b ON b.id=m.bucket_id AND b.organization_id=m.organization_id WHERE m.session_id=? AND m.organization_id=? LOCK IN SHARE MODE`, e.SessionID, e.OrganizationID).Scan(&bucket, &days)
 	if errors.Is(err, sql.ErrNoRows) {
 		return clean, nil
 	}

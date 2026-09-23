@@ -33,6 +33,8 @@ The gateway normalizer attaches a private protobuf media descriptor to the
 durable handoff envelope. API ingest removes that descriptor before writing the
 public event log and atomically creates an encrypted upload job when the
 session has a storage binding. The public message payload receives the asset id.
+The ingest transaction reads the session binding and bucket under MariaDB's
+`LOCK IN SHARE MODE` so configuration changes cannot race with capture.
 
 API-originated sends capture the resolved media bytes after the engine reports
 success. The callback runs before the API finalizes the send result; capture
