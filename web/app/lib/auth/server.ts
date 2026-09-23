@@ -93,6 +93,12 @@ export const auth = betterAuth({
   // secret comes from BETTER_AUTH_SECRET env (better-auth reads it automatically).
   trustedOrigins,
 
+  advanced: {
+    // The public ingress must overwrite this single-value header. Better Auth
+    // does not trust an X-Forwarded-For chain without configured proxy IPs.
+    ipAddress: { ipAddressHeaders: ["x-real-ip"] },
+  },
+
   database: drizzleAdapter(db, { provider: "mysql" }),
 
   emailAndPassword: {
