@@ -1,17 +1,11 @@
-// Viewer surface — server-side hybrid READS (§6.2). Colocated server functions
-// that read the GATEWAY-OWNED `chats` / `messages` tables directly via Drizzle
-// for SSR/loader hydration, then map rows into the SAME OpenAPI DTO shapes the
-// gateway REST API returns (Chat / Message / Page<T>) so the client hooks
-// (useChats / useChat / useChatMessages) hydrate from the seeded cache and the
-// NDJSON cacheBridge targets the identical qk.* keys.
+// Viewer data helpers for server-side reads of gateway-owned chat and message
+// tables. They map rows into the public DTO shapes used by the client hooks.
 //
 // READ-ONLY: these never write WA tables (single-writer = gateway, §6.2). The
 // frontend is gated to the active org: a session must belong to the caller's
 // active organization (wa_sessions.organization_id) before we expose its data.
 //
-// Pagination mirrors the gateway's cursor lists: limit + opaque cursor. Chats
-// use a composite recency cursor (`lastMessageAt:id`); messages use the
-// sortable message id. Page<T> = {data, nextCursor}.
+// Message pagination uses the sortable message id as its cursor.
 
 import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "~/lib/auth/middleware";
@@ -48,92 +42,6 @@ async function assertSessionInActiveOrg(
     .limit(1);
   return rows.length > 0;
 }
-
-/**
- * SSR seed for the chats list (page 0). Cursor-paginated by recency; ordered by
- * lastMessageAt desc to match the viewer's "most recent first" list.
- */
-export const fetchChatsPage = createServerFn({ method: "GET" })
-  .middleware([authMiddleware])
-  .validator((input: { sessionId: string; cursor?: string }) => input)
-  .handler(async ({ data, context }): Promise<Page<Chat>> => {
-    const { sessionId, cursor } = data;
-    const ok = await assertSessionInActiveOrg(
-      sessionId,
-      context.activeOrg?.id ?? null,
-    );
-    if (!ok) return { data: [], nextCursor: null };
-
-    const { db } = await import("~/lib/db");
-    const { chats, whatsappGroups } = await import("~/lib/db/wa");
-    const { and, eq, lt, desc, sql, or, isNotNull } = await import(
-      "drizzle-orm"
-    );
-
-    const parsedCursor = parseChatCursor(cursor);
-    const where =
-      parsedCursor !== null
-        ? and(
-            eq(chats.sessionId, sessionId),
-            isNotNull(chats.lastMessageAt),
-            or(
-              lt(chats.lastMessageAt, parsedCursor.lastMessageAt),
-              and(
-                eq(chats.lastMessageAt, parsedCursor.lastMessageAt),
-                lt(chats.id, parsedCursor.id),
-              ),
-            ),
-          )
-        : and(eq(chats.sessionId, sessionId), isNotNull(chats.lastMessageAt));
-
-    const rows = await db
-      .select({
-        id: chats.id,
-        sessionId: chats.sessionId,
-        chatJid: chats.chatJid,
-        type: chats.type,
-        // Groups display their subject; DMs resolve through identities so a LID
-        // row can show a known push/business/phone name instead of raw LID.
-        name: sql<string | null>`COALESCE(${whatsappGroups.subject}, (
-          SELECT COALESCE(i.name, i.business_name, i.phone_number)
-          FROM whatsapp_identities i
-          WHERE i.lid = ${chats.chatJid} OR i.phone_jid = ${chats.chatJid}
-          ORDER BY CASE WHEN i.lid = ${chats.chatJid} THEN 0 ELSE 1 END, i.id DESC
-          LIMIT 1
-        ), ${chats.name})`,
-        unreadCount: chats.unreadCount,
-        archived: chats.archived,
-        pinned: chats.pinned,
-        mutedUntil: chats.mutedUntil,
-        lastMessageAt: chats.lastMessageAt,
-        participantCount: whatsappGroups.participantCount,
-        isAnnounce: whatsappGroups.isAnnounce,
-        isLocked: whatsappGroups.isLocked,
-        aliases: sql<string | null>`(
-          SELECT JSON_ARRAY(i.lid, i.phone_jid)
-          FROM whatsapp_identities i
-          WHERE ${chats.type} = 'dm'
-            AND (i.lid = ${chats.chatJid} OR i.phone_jid = ${chats.chatJid})
-          ORDER BY CASE WHEN i.lid = ${chats.chatJid} THEN 0 ELSE 1 END, i.id DESC
-          LIMIT 1
-        )`,
-      })
-      .from(chats)
-      .leftJoin(whatsappGroups, eq(whatsappGroups.groupJid, chats.chatJid))
-      .where(where)
-      .orderBy(desc(chats.lastMessageAt), desc(chats.id))
-      .limit(PAGE_LIMIT + 1);
-
-    const hasMore = rows.length > PAGE_LIMIT;
-    const pageRows = hasMore ? rows.slice(0, PAGE_LIMIT) : rows;
-
-    return {
-      data: pageRows.map(rowToChat),
-      nextCursor: hasMore
-        ? chatCursor(pageRows[pageRows.length - 1] ?? null)
-        : null,
-    };
-  });
 
 /** SSR seed for a single chat (timeline header). */
 export const fetchChat = createServerFn({ method: "GET" })
@@ -385,22 +293,6 @@ type ChatRow = {
   isLocked: number | null;
   aliases: string | null;
 };
-
-function parseChatCursor(
-  cursor: string | undefined,
-): { lastMessageAt: number; id: number } | null {
-  if (!cursor) return null;
-  const [ts, id] = cursor.split(":");
-  const lastMessageAt = Number(ts);
-  const rowId = Number(id);
-  if (!Number.isFinite(lastMessageAt) || !Number.isFinite(rowId)) return null;
-  return { lastMessageAt, id: rowId };
-}
-
-function chatCursor(row: ChatRow | null): string | null {
-  if (!row?.lastMessageAt) return null;
-  return `${row.lastMessageAt}:${row.id}`;
-}
 
 function rowToChat(r: ChatRow): Chat {
   return {

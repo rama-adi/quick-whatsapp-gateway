@@ -96,6 +96,9 @@ realtime comes from the API WebSocket. Masterplan §6.2.
 TanStack Query uses a fresh `QueryClient` for every SSR request so org-scoped loader data cannot
 cross request boundaries. The browser keeps one client for the tab; sign-out and organization
 switching clear that client before the next identity loads data.
+The chats list loads through the browser API query without blocking route navigation on a
+server-side preload. Its request uses the API's 15-second deadline; a stalled request surfaces
+the list's error and Retry control.
 Gateway query functions forward TanStack Query's abort signal, so obsolete reads are cancelled
 when navigation, cache clearing, or component teardown makes their result irrelevant.
 Sign-out clears the token and browser cache only after Better Auth confirms success; a transient

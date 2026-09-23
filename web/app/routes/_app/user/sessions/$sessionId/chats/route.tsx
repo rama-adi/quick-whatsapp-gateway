@@ -2,10 +2,8 @@
 // master/detail; the timeline renders in the nested <Outlet/>.
 //
 // Ported from the v1 react-router route to TanStack Start idioms:
-//   - SSR: the route `loader` seeds page 0 of the chats list into the SAME
-//     TanStack Query cache key the client hook uses (qk.chats(sessionId)), via
-//     a Drizzle direct read (viewer.server.ts, §6.2). The client hook then
-//     hydrates from cache instead of refetching on mount.
+//   - The list loads through the client query so a slow database read cannot
+//     block navigation in this route's loader.
 //   - Realtime: the shared cacheBridge patches the same key on message/chat
 //     events; we just read the cache (useChats). Polling fallback when degraded.
 //   - useParams() -> Route.useParams(); NavLink -> @tanstack/react-router Link
@@ -53,24 +51,8 @@ import { ScrollArea } from "~/components/ui/scroll-area";
 import { Tabs, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { cn } from "~/lib/utils";
 import { ChatAvatar, formatTimestamp } from "./-viewer-ui";
-import { fetchChatsPage } from "./-viewer-data";
 
 export const Route = createFileRoute("/_app/user/sessions/$sessionId/chats")({
-  loader: async ({ params, context }) => {
-    // Seed page 0 into the cache under the canonical hook key so the client
-    // hydrates from SSR and the cacheBridge has a page to patch.
-    try {
-      await context.queryClient.ensureInfiniteQueryData({
-        queryKey: qk.chats(params.sessionId),
-        initialPageParam: undefined as string | undefined,
-        queryFn: () =>
-          fetchChatsPage({ data: { sessionId: params.sessionId } }),
-        getNextPageParam: (last: Page<Chat>) => last.nextCursor ?? undefined,
-      });
-    } catch (err) {
-      console.warn("[viewer] failed to preload chats:", err);
-    }
-  },
   component: ViewerChats,
 });
 

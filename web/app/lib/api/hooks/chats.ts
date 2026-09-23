@@ -19,11 +19,19 @@ import { apiUrl, fetchJSON, listPageFetcher, nextCursor } from "./_shared";
 export function useChats(
   s: string,
 ): UseInfiniteQueryResult<InfiniteData<Page<Chat>, string | undefined>, ApiError> {
+  const fetchPage = listPageFetcher<Chat>(`/sessions/${encodeURIComponent(s)}/chats`);
   return useInfiniteQuery({
     queryKey: qk.chats(s),
     enabled: Boolean(s),
+    retry: false,
     initialPageParam: undefined as string | undefined,
-    queryFn: listPageFetcher<Chat>(`/sessions/${encodeURIComponent(s)}/chats`),
+    queryFn: ({ pageParam, signal }) =>
+      // Match the API's 15-second request deadline, then show the query error
+      // and Retry control instead of leaving the chat list in a pending state.
+      fetchPage({
+        pageParam,
+        signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
+      }),
     getNextPageParam: nextCursor,
   });
 }
