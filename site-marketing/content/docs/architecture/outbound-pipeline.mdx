@@ -55,9 +55,12 @@ protocol adapter; the final decisions section describes current scheduler semant
 - Rate limiting: per-session token budget in Redis (`rate_per_min` /
   `rate_per_hour`); sync over-limit → `rate_limited` error; async over-limit →
   defer (the row stays queued).
-- Message recording: every **successful** dispatch (sync or async-drained) is
-  written to the `messages` table as a `from_me` / `direction='out'` /
-  `status='sent'` row, so the gateway's own sends show up in chat history.
+- Message recording: after every **successful** dispatch (sync or async-drained),
+  the API writes an idempotent row to the `messages` table as a `from_me` /
+  `direction='out'` / `status='sent'` row. After that projection succeeds, the
+  API appends a `message.from_me` event to `event_log`, publishes it to the
+  realtime stream, and enqueues matching webhooks, so the gateway's own sends
+  show up in chat history and live consumers.
   whatsmeow does not echo a self-authored send back as an `events.Message` on the
   same device, so without this the inbound pipeline never sees it and the only
   trace is the transient `outbox` row.
@@ -67,11 +70,9 @@ protocol adapter; the final decisions section describes current scheduler semant
 
 ## Interactive sends
 
-The public schema and reusable outbound adapter accept buttons and lists. Current
-`backend/cmd/gateway/engine_dispatcher.go` has no `buttons` or `list` dispatch branch;
-production engine execution returns `unsupported send type`. The request shapes
-and adapter behavior below describe implemented components awaiting that wiring.
-Incoming selection normalization remains implemented independently.
+The public schema, gateway dispatcher, and outbound adapter support buttons and
+lists. Both dispatch through `SendInteractive`, preserving quote context and
+mentions. Incoming selections use the corresponding normalization path.
 
 The existing `POST /api/v1/sessions/{session}/messages` accepts `type: buttons`
 with `text` and `buttons: [{id, title}]`, or `type: list` with `text` and
@@ -104,6 +105,9 @@ carousels and automatic text fallback are outside this endpoint's contract.
 - `SendResult` — `{Mode, WAMessageID, Status, Timestamp, OutboxID, Replayed}`.
 - `SendOptions` — `{Async bool, IdempotencyKey string}`.
 - `OpRequest` / `MessageOp` (validate.go) — `reaction|edit|revoke|vote|forward`.
+  The scheduler dispatches using the persisted operation discriminator. Private
+  engine results carry the WhatsApp acknowledgement ID and timestamp, including
+  ledger replay, so public operation responses retain the actual result.
 - `IsRateLimited(err)` — helper for the HTTP edge to map to 429.
 
 ## Reusable sender interfaces
@@ -130,23 +134,29 @@ All collaborators are small interfaces owned by this package — no sibling
 
 ## Message recording (the bot's own sends)
 
-Production `OutboundScheduler.recordDispatchedSend` calls the API-side
-`MessageRecorderAdapter` after a successful send. It persists outbound history and
-poll metadata. The reusable `Sender` offers an equivalent recorder hook described
-below, but the gateway executor does not write the shared database.
+The API composition root wires `MessageRecorderAdapter` and the sent-event
+publisher into `OutboundScheduler`. Its `recordSent` method calls the recorder
+after a successful engine send, persisting outbound history and poll metadata.
+Once recording succeeds, the publisher logs and fans out a `message.from_me`
+event. The reusable `Sender` offers an equivalent recorder hook described below,
+but the gateway executor does not write the shared database.
 
-Recording happens inside the private `dispatch()` — the single chokepoint both
-the sync front-door and the async worker (via the exported `Dispatch`) funnel
-through, so every successful send is recorded exactly once. The row carries
+Recording happens inside the scheduler's `dispatchClaimed` path for both sync
+sends and async worker drains. The row carries
 `from_me=true`, `direction='out'`, `status='sent'`, the recipient as `chat_jid`,
 and the body/quote/mentions from the request (`type` carries the rest). Sender
 identity columns are left NULL (own messages have no resolved sender name).
 
-Recording is **best-effort**: a recorder error is logged and swallowed, never
-returned. The WhatsApp send already succeeded, so surfacing the error would both
-mis-report the API result and flip the `outbox` row to `failed` (tripping a
-needless retry). It is also skipped when no recorder is wired or the session id /
-wa-message id is unknown (e.g. a unit-test dispatch with a fake client).
+The command remains retryable until recording and sent-event fan-out succeed.
+A projection failure after WhatsApp acknowledgement returns the pending outbox
+identity and reschedules using the configured base backoff. Retrying uses the
+same command ID, so the gateway replays its durable result without sending again.
+The sent event uses that command ID and acknowledgement timestamp; event-log
+append and webhook enqueue deduplicate it. Realtime delivery remains at least
+once, with a stable event ID for consumer deduplication. Projection repair does
+not consume the ambiguous-send attempt budget when the gateway returns a known
+acknowledgement. A missing recorder is permitted only for scoped compositions;
+the production API wires both recorder and publisher.
 
 ## The real adapter (waclient.go)
 
@@ -154,9 +164,14 @@ wa-message id is unknown (e.g. a unit-test dispatch with a fake client).
 whatsmeow. It maps each method to the recon §7 path:
 
 - text → `Conversation`, or `ExtendedTextMessage{ContextInfo}` when a reply or
-  mentions are present. the reusable quote resolver can enrich `replyTo` from stored history. Current
-  gateway `engineDispatcher.Dispatch` constructs `QuoteInfo{ID: req.ReplyTo}`, so `replyTo`
-  carries a stanza-only quote unless quote data is otherwise supplied to the adapter.
+  mentions are present. For a `replyTo`, the API resolves the target by session
+  and message ID from its message store and sends its chat, author, type, and
+  body on the private engine RPC. The gateway uses these fields to populate the
+  quote's stanza ID, participant, and quoted message payload. Group replies to
+  the account's own messages fill the participant from the live device identity.
+  If the target is absent from local history or its stored chat does not match
+  the requested destination, the gateway retains the previous stanza-only
+  behavior. Mention recipients come only from the outgoing request's `mentions`.
 - poll → a `PollCreationMessage` with option hashes, selectable count, optional
   end time, and hidden-vote privacy flag; location → `LocationMessage`; contact →
   `ContactMessage` (vcard verbatim, else built from name/phone).
@@ -166,7 +181,9 @@ whatsmeow. It maps each method to the recon §7 path:
   image sends include width/height, plus a small JPEG thumbnail when cheap to
   derive, so WhatsApp clients have aspect metadata for previews/replies.
 - reaction → `BuildReaction`; edit → `BuildEdit`; revoke → `BuildRevoke`;
-  vote → `BuildPollVote` (needs a synthesized poll `MessageInfo`).
+  vote → `BuildPollVote` (needs a synthesized poll `MessageInfo` with the group
+  and own-sender flags for a poll sent by this device). The resulting poll
+  creation key must identify the group, the own LID participant, and `fromMe`.
 - All dispatched via `SendMessage`; `SendResponse.Timestamp` is `.UnixMilli()`d.
 
 Empty sender JID maps to `types.EmptyJID` (whatsmeow's convention for your own
@@ -198,6 +215,15 @@ The production `WAClient` replaces the earlier `StubWAClient` placeholder; sends
 any connected session. `wa.Manager.ClientFor` type-asserts the managed session's
 `waClient` to the concrete `*whatsmeow.Client`, so test sessions (which inject a
 fake client) cleanly report "not available".
+
+The isolated API/gateway process test uses the same private-engine assembly
+(`newPrivateEngine`), command ledger, and `whatsmeowAdapter` protobuf builder.
+Its `WAClient` is supplied directly to the dispatcher, while the real Manager
+and SQLite device store run with a substituted external WhatsApp client for
+connectivity, pairing, contacts, groups, media, and sends. The test can inspect
+the actual quote and mention protobuf payload and control acknowledgements
+without opening a connection to WhatsApp. Production uses the live whatsmeow
+client for those external operations.
 
 ## Rate limiter (ratelimit.go)
 
@@ -285,7 +311,20 @@ atomic op.
 
 ## How it's tested
 
-Table-driven, all boundaries faked through the consumer interfaces:
+`cmd/api/TestOutboundE2E` runs the production API composition against disposable
+MySQL and Redis, and a real gateway private engine with a SQLite journal and
+keystore. The external WhatsApp client is substituted while the manager,
+private engine, protobuf construction, and persistence remain real. The message
+operation scenarios send an original message and poll through HTTP, then prove
+edit, reaction add/remove, forward, revoke, and encrypted vote through the
+private gRPC boundary by checking the captured WhatsApp protobuf and returned
+acknowledgement. The vote checks the poll creation key's own LID and `fromMe`
+flag. Other scenarios verify every supported send type, reply context, history,
+realtime events, idempotency under concurrent callers, lost responses and event
+acknowledgements, projection recovery across API and gateway process restarts,
+own echoes, and out-of-order receipts.
+
+Focused unit tests retain validation and rate-limiter edge cases:
 
 - `ratelimit_test.go` (miniredis): under/over limit for per-min and per-hour,
   window reset via `FastForward`, per-session isolation, unlimited-when-zero.

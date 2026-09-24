@@ -51,6 +51,9 @@ type SendRequest struct {
 	Text     string   `json:"text,omitempty" doc:"The message text. Required for text, buttons, and list." example:"Hello there!"`
 	ReplyTo  string   `json:"replyTo,omitempty" doc:"Id of the message this one quotes/replies to (a wa_message_id). Optional." example:"3EB0C431C26A1916E001"`
 	Mentions []string `json:"mentions,omitempty" doc:"JIDs to @-mention in the message. Optional." example:"[\"6289876543210@s.whatsapp.net\"]"`
+	// QuoteContext is private engine metadata resolved from the API's message
+	// store. The public request and durable outbox payload carry only ReplyTo.
+	QuoteContext *SendQuoteContext `json:"-"`
 
 	Buttons []ReplyButton  `json:"buttons,omitempty" doc:"Quick-reply choices for type buttons. IDs must be unique and nonempty."`
 	List    *SelectionList `json:"list,omitempty" doc:"Selection menu for type list. Client rendering is experimental."`
@@ -75,6 +78,16 @@ type SendRequest struct {
 	// Medias and Caption are used only by album sends. Item type defaults to image.
 	Medias  []AlbumMediaPayload `json:"medias,omitempty" doc:"The ordered album items. Required for type album; 2–10 image/video items, each with exactly one of data or url."`
 	Caption string              `json:"caption,omitempty" doc:"Optional single caption for an album. WhatsApp renders it with the grouped album." example:"Trip photos"`
+}
+
+// SendQuoteContext identifies the author and content of an outbound reply's
+// target. It travels on the private engine RPC, never in the public JSON body.
+type SendQuoteContext struct {
+	ChatJID   string
+	SenderJID string
+	Type      string
+	Body      string
+	FromMe    bool
 }
 
 // AlbumMediaPayload is one image or video in a WhatsApp media album.

@@ -205,6 +205,7 @@ func (a *ApplicationGatewayAdapter) executeOp(
 			command.AssignmentEpoch,
 		),
 		WAMessageID: waResult.WAMessageID,
+		SentAt:      sentAt,
 	}
 	if saveErr := a.saveCommand(ctx, application.CommandResultRecord{
 		CommandID: command.CommandID, SessionID: command.SessionID,
@@ -217,7 +218,7 @@ func (a *ApplicationGatewayAdapter) executeOp(
 
 // replayedMutation reconstructs a stored outcome for message-op commands. A
 // stored failure replays as validation; a stored success returns routing
-// metadata only (ops carry no additional response payload).
+// metadata and the original acknowledgement.
 func replayedMutation(
 	command application.MessageOpCommand,
 	record *application.CommandResultRecord,
@@ -233,6 +234,7 @@ func replayedMutation(
 				command.AssignmentEpoch,
 			),
 			WAMessageID: record.WAMessageID,
+			SentAt:      record.UpdatedAt,
 		}, nil
 	case application.CommandFailed:
 		return application.MessageOpResult{}, domain.ErrValidation("op previously failed: " + record.Error)

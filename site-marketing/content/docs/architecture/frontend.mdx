@@ -204,6 +204,9 @@ surface can read connection status, but it stays **idle** until a surface opts i
   responses fail into the normal reconnect path, and a failed socket cannot deliver late frames.
 - **Wire-shape projection** — realtime message payloads are explicitly projected into REST
   `Message` rows; incomplete payloads invalidate the relevant chat instead of fabricating a row.
+  `message.from_me` also invalidates the session's chats and timelines after showing the live
+  message, so API-originated sends reconcile with stored status, poll details, media metadata,
+  and any canonical LID/phone chat alias.
   Status events apply every id in `messageIds`, replayed messages do not increment unread twice,
   edit/revoke events update the target body and lifecycle flags immediately, and lifecycle/reaction
   events invalidate their timeline for an authoritative REST refresh.

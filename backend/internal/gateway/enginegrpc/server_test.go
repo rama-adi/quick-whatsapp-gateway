@@ -164,7 +164,10 @@ func TestSendMessageCarriesPayloadAndRejectsBadJSON(t *testing.T) {
 	server := &Server{GatewayID: "gw", Engine: engine}
 	response, err := server.SendMessage(context.Background(), &gatewayv1.SendMessageRequest{
 		Target:          &gatewayv1.SessionTarget{OrganizationId: "org", SessionId: "s", GatewayId: "gw"},
-		AssignmentEpoch: 3, CommandId: "cmd_1", PayloadJson: []byte(`{"type":"text","to":"628123@s.whatsapp.net","text":"hi"}`),
+		AssignmentEpoch: 3, CommandId: "cmd_1", PayloadJson: []byte(`{"type":"text","to":"628123@s.whatsapp.net","text":"hi","replyTo":"quoted-id"}`),
+		QuoteContext: &gatewayv1.QuotedMessageContext{
+			ChatJid: "628123@s.whatsapp.net", SenderJid: "628123@s.whatsapp.net", Type: "text", Body: "original",
+		},
 	})
 	if err != nil {
 		t.Fatalf("SendMessage: %v", err)
@@ -174,6 +177,10 @@ func TestSendMessageCarriesPayloadAndRejectsBadJSON(t *testing.T) {
 	}
 	if len(engine.sent) != 1 || engine.sent[0].Payload.Text != "hi" || engine.sent[0].Payload.Type != "text" {
 		t.Fatalf("payload not carried: %#v", engine.sent)
+	}
+	quote := engine.sent[0].Payload.QuoteContext
+	if quote == nil || quote.SenderJID != "628123@s.whatsapp.net" || quote.Body != "original" || len(engine.sent[0].Payload.Mentions) != 0 {
+		t.Fatalf("quote context not carried separately from mentions: %#v", engine.sent[0].Payload)
 	}
 
 	_, err = server.SendMessage(context.Background(), &gatewayv1.SendMessageRequest{

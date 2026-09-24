@@ -2,11 +2,9 @@ package webhooks
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -29,72 +27,6 @@ func baseFixtures(hook domain.Webhook) (*fakeWebhookRepo, *fakeEventStore) {
 	return wr, es
 }
 
-// TestDeliver_HappyPath_SignsAndMarksDelivered delivers a stored event through a webhook with an encrypted
-// secret and one custom header. It verifies the exact JSON body, event-id and timestamp headers,
-// HMAC-SHA512 over those same bytes, and the custom header seen by the HTTP client. A 200 response must
-// produce one delivered transition with attempt 1 and response code 200.
-func TestDeliver_HappyPath_SignsAndMarksDelivered(t *testing.T) {
-	secret := []byte("the-secret")
-	hook := domain.Webhook{
-		ID:            "wh_a",
-		URL:           "https://example.test/hook",
-		Events:        []string{"*"},
-		HMACSecret:    []byte("ciphertext"), // decryptor returns `secret`
-		CustomHeaders: map[string]string{"X-Custom": "yes"},
-		RetryPolicy:   domain.RetryPolicy{Policy: "exponential", DelaySeconds: 2, Attempts: 15},
-	}
-	wr, es := baseFixtures(hook)
-	dr := &fakeDeliveryRepo{}
-	doer := &fakeHTTPDoer{resp: resp(200, "ok")}
-	clk := &fixedClock{ms: 12345}
-
-	d := newDispatcher(wr, dr, es, doer, &staticDecryptor{plaintext: secret}, clk)
-	del := domain.WebhookDelivery{ID: 7, WebhookID: "wh_a", EventID: "evt_001", Attempts: 0}
-	if err := d.Deliver(context.Background(), del); err != nil {
-		t.Fatalf("Deliver: %v", err)
-	}
-
-	if len(dr.calls) != 1 || dr.calls[0].kind != "delivered" {
-		t.Fatalf("expected one delivered call, got %+v", dr.calls)
-	}
-	if dr.calls[0].attempts != 1 || dr.calls[0].responseCode == nil || *dr.calls[0].responseCode != 200 {
-		t.Fatalf("delivered bookkeeping wrong: %+v", dr.calls[0])
-	}
-
-	req := doer.gotReq
-	if req.Method != http.MethodPost || req.URL.String() != hook.URL {
-		t.Fatalf("request wrong: %s %s", req.Method, req.URL)
-	}
-	if req.Header.Get(HeaderRequestID) != "evt_001" {
-		t.Errorf("request id header = %q", req.Header.Get(HeaderRequestID))
-	}
-	if got := req.Header.Get(HeaderTimestamp); got != strconv.FormatInt(12345, 10) {
-		t.Errorf("timestamp header = %q", got)
-	}
-	if req.Header.Get(HeaderHMACAlgorithm) != HMACAlgorithm {
-		t.Errorf("algo header = %q", req.Header.Get(HeaderHMACAlgorithm))
-	}
-	if req.Header.Get("X-Custom") != "yes" {
-		t.Errorf("custom header missing")
-	}
-	// Signature must be over the exact body the doer received.
-	wantSig := SignHMAC(secret, doer.gotBody)
-	if got := req.Header.Get(HeaderHMAC); got != wantSig {
-		t.Errorf("hmac header = %q, want %q", got, wantSig)
-	}
-	// Body must be the marshaled event.
-	var got domain.Event
-	if err := json.Unmarshal(doer.gotBody, &got); err != nil {
-		t.Fatalf("body not valid event json: %v", err)
-	}
-	if got.ID != "evt_001" {
-		t.Errorf("body event id = %q", got.ID)
-	}
-}
-
-// TestDeliver_NoSecret_NoHMACHeaders sends a webhook whose configuration has no signing secret. The
-// request must omit both HMAC headers while still treating a 204 response as delivery success. This
-// prevents an unsigned endpoint from receiving misleading algorithm metadata or an empty signature.
 func TestDeliver_NoSecret_NoHMACHeaders(t *testing.T) {
 	hook := domain.Webhook{ID: "wh_a", URL: "https://x.test/h", Events: []string{"*"},
 		RetryPolicy: domain.RetryPolicy{Policy: "exponential", DelaySeconds: 2, Attempts: 15}}

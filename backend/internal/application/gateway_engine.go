@@ -275,6 +275,7 @@ type MessageSender interface {
 // operation's acknowledgement id when whatsmeow assigned one.
 type MessageOpResult struct {
 	MutationResult
+	SentAt      time.Time
 	WAMessageID string
 }
 

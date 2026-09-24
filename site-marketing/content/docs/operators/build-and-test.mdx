@@ -27,6 +27,37 @@ go -C backend test ./...
 The build and tests run with `CGO_ENABLED=0` because the gateway uses a pure-Go SQLite
 driver (no C compiler needed).
 
+### API and gateway process E2E
+
+Run the API/gateway E2E suite from the repository root with Docker running:
+
+```sh
+make api-e2e
+```
+
+The opt-in `TestOutboundE2E` starts disposable MySQL and Redis containers on
+loopback ports, migrates a fresh database, and launches the real API composition
+and a gateway process with its real Manager, SQLite device store, and private
+engine. The gateway substitutes the external WhatsApp client transport for
+connectivity, pairing, contacts, groups, media, and sends.
+It exercises HTTP, public gRPC, and private gateway traffic without contacting WhatsApp or an existing deployment.
+The test cleans up its containers and child processes when it finishes.
+
+The [coverage inventory](https://github.com/rama-adi/quick-whatsapp-gateway/blob/main/backend/cmd/api/e2e-coverage.json)
+lists each OpenAPI operation, direct router/OAuth route, and public gRPC RPC as
+covered by a named successful E2E scenario or verified to return its documented
+`501` response. `make api-e2e-coverage-check`
+compares that inventory with `docs/openapi.yaml`, direct route registrations, and the public protobuf services;
+it fails when a new operation or route has no entry or any operation remains untested. An inventory entry describes
+what the E2E suite asserts, rather than claiming coverage from authentication
+or package tests alone. The same check and E2E command run in CI for backend and
+API contract changes.
+
+The isolated external-service fixtures use HTTPS and replace only the S3 network
+transport; the AWS request signer, media jobs, gateway download RPC, and storage
+queries remain real. The suite rejects storage requests before recovery, verifies
+token isolation and expiry, and verifies signed webhook retries over HTTP.
+
 ### Contract tests for auth formats
 
 The router accepts two better-auth formats: api-keys and EdDSA JWTs (signed JSON

@@ -72,6 +72,7 @@ func (f *LiveOpsFacade) CreateGroup(
 	participants []string,
 ) (domain.GroupInfo, error) {
 	result, err := f.client.MutateGroup(ctx, application.GroupMutationCommand{
+		CommandID:      domain.NewULID(),
 		OrganizationID: organizationID,
 		SessionID:      sessionID,
 		Kind:           application.GroupOpCreate,
@@ -94,6 +95,7 @@ func (f *LiveOpsFacade) UpdateParticipants(
 	action domain.GroupParticipantAction,
 ) error {
 	_, err := f.client.MutateGroup(ctx, application.GroupMutationCommand{
+		CommandID:      domain.NewULID(),
 		OrganizationID: organizationID,
 		SessionID:      sessionID,
 		Kind:           application.GroupOpUpdateParticipants,
@@ -114,6 +116,7 @@ func (f *LiveOpsFacade) UpdateSettings(
 	s domain.GroupSettings,
 ) error {
 	_, err := f.client.MutateGroup(ctx, application.GroupMutationCommand{
+		CommandID:      domain.NewULID(),
 		OrganizationID: organizationID,
 		SessionID:      sessionID,
 		Kind:           application.GroupOpUpdateSettings,
@@ -147,6 +150,7 @@ func (f *LiveOpsFacade) JoinWithLink(ctx context.Context, organizationID, sessio
 // Leave leaves a group as a durable command.
 func (f *LiveOpsFacade) Leave(ctx context.Context, organizationID, sessionID, groupJID string) error {
 	_, err := f.client.MutateGroup(ctx, application.GroupMutationCommand{
+		CommandID:      domain.NewULID(),
 		OrganizationID: organizationID, SessionID: sessionID,
 		Kind: application.GroupOpLeave, GroupJID: groupJID,
 	})

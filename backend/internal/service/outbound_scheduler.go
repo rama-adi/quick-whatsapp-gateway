@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/apitypes"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/application"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/wa/outbound"
@@ -57,13 +58,14 @@ type outboundEngine interface {
 // messages-table projection for the gateway's own sends (the legacy gateway
 // MessageRecorder moved API-side with the MySQL cutover).
 type OutboundScheduler struct {
-	sessions outboundSessionSource
-	outbox   outboundCommandStore
-	engine   outboundEngine
-	limiter  outbound.RateLimiter
-	recorder *MessageRecorderAdapter
-	log      *slog.Logger
-	cfg      OutboundSchedulerConfig
+	sessions    outboundSessionSource
+	outbox      outboundCommandStore
+	engine      outboundEngine
+	limiter     outbound.RateLimiter
+	recorder    outbound.MessageRecorder
+	publishSent func(context.Context, domain.Event) error
+	log         *slog.Logger
+	cfg         OutboundSchedulerConfig
 }
 
 // OutboundSchedulerConfig is supplied by the composition root; there are no
@@ -384,11 +386,16 @@ func (s *OutboundScheduler) dispatchClaimed(
 	}
 
 	waID := result.WAMessageID
-	// The gateway's legacy Sender recorded its own successful sends into the
-	// messages table; with MySQL removed there, the API mirrors that projection
-	// here after the engine acknowledges a send. Best-effort: WhatsApp delivery
-	// has already succeeded.
-	s.recordSent(ctx, entry.SessionID, req, waID, timestamp)
+	// Keep the command retryable until its application projection and event are
+	// durable. Reusing the command ID replays the gateway ledger acknowledgement.
+	if err := s.recordSent(ctx, entry.OrganizationID, entry.SessionID, req, waID, timestamp, entry.ID); err != nil {
+		note := "acknowledged send awaiting projection: " + err.Error()
+		if _, retryErr := s.outbox.Reschedule(ctx, entry.ID, note,
+			s.now().Add(s.cfg.BackoffBase).UnixMilli(), s.now().UnixMilli()); retryErr != nil {
+			return outbound.SendResult{}, retryErr
+		}
+		return outbound.SendResult{Mode: outbound.ModeAsync, OutboxID: entry.ID}, nil
+	}
 	if uerr := s.outbox.UpdateStatus(ctx, entry.ID, domain.OutboxSent, &waID, nil, timestamp); uerr != nil {
 		return outbound.SendResult{}, uerr
 	}
@@ -458,28 +465,34 @@ func replayOutboxResult(e *domain.OutboxEntry) outbound.SendResult {
 
 // SetMessageRecorder wires the messages-table projection for the gateway's own
 // sends. Optional: without it, successful sends are tracked only in the outbox.
-func (s *OutboundScheduler) SetMessageRecorder(recorder *MessageRecorderAdapter) {
+func (s *OutboundScheduler) SetMessageRecorder(recorder outbound.MessageRecorder) {
 	if recorder != nil {
 		s.recorder = recorder
 	}
 }
 
-// recordSent best-effort persists a from_me/direction=out/status=sent row for
-// a successfully dispatched send. A recorder failure is logged and swallowed:
-// the WhatsApp send already succeeded and must not be reported as failed. The
-// upsert key matches the inbound projection so echoes and receipts reconcile.
+// SetSentEventPublisher wires durable event logging and fan-out after the
+// messages-table projection succeeds.
+func (s *OutboundScheduler) SetSentEventPublisher(publish func(context.Context, domain.Event) error) {
+	s.publishSent = publish
+}
+
+// recordSent persists the outgoing message and its event before completing the
+// command. Both identities are stable across acknowledgement replay.
 func (s *OutboundScheduler) recordSent(
 	ctx context.Context,
+	organizationID string,
 	sessionID string,
 	req domain.SendRequest,
 	waMessageID string,
 	ts int64,
-) {
+	commandID string,
+) error {
 	noRecorder := s.recorder == nil
 	missingTarget := waMessageID == "" || sessionID == ""
 	emptyRequest := req.Type == "" && req.To == ""
 	if noRecorder || missingTarget || emptyRequest {
-		return
+		return nil
 	}
 	if ts == 0 {
 		ts = domain.NowMs()
@@ -503,7 +516,54 @@ func (s *OutboundScheduler) recordSent(
 	}); err != nil {
 		s.log.WarnContext(ctx, "record sent message projection failed",
 			"session", sessionID, "waMessageId", waMessageID, "err", err)
+		return err
 	}
+	if s.publishSent == nil {
+		return nil
+	}
+	payload := apitypes.MessagePayload{
+		WAMessageID:     waMessageID,
+		ChatJID:         req.To,
+		FromMe:          true,
+		Type:            req.Type,
+		Body:            outboundBody(req),
+		QuotedMessageID: req.ReplyTo,
+		HasMedia:        hasMedia,
+		Timestamp:       ts,
+	}
+	if len(req.Mentions) > 0 {
+		payload.Mentions = make(map[string]apitypes.MentionData, len(req.Mentions))
+		for _, jid := range req.Mentions {
+			payload.Mentions[jid] = apitypes.MentionData{}
+		}
+	}
+	switch req.Type {
+	case domain.SendTypePoll:
+		payload.Poll = &apitypes.PollData{
+			Name:            req.Name,
+			Options:         req.Options,
+			SelectableCount: req.SelectableCount,
+			EndTime:         req.PollEndTime,
+			HideVotes:       req.PollHideVotes,
+		}
+	case domain.SendTypeLocation:
+		payload.Location = &apitypes.LocationData{
+			Latitude:  req.Latitude,
+			Longitude: req.Longitude,
+			Name:      req.Name,
+		}
+	case domain.SendTypeContact:
+		if req.Contact != nil {
+			payload.Contact = &apitypes.ContactData{
+				DisplayName: req.Contact.Name,
+				VCard:       req.Contact.VCard,
+			}
+		}
+	}
+	event := domain.NewEvent(domain.EventMessageFromMe, sessionID, organizationID, payload)
+	event.ID = commandID
+	event.Timestamp = ts
+	return s.publishSent(ctx, event)
 }
 
 // outboundBody is the human-readable body stored for a send: the text for a text
@@ -652,7 +712,7 @@ func (s *OutboundScheduler) ExecuteOp(
 	if err := s.outbox.Insert(ctx, entry); err != nil {
 		return outbound.SendResult{}, err
 	}
-	return s.dispatchClaimed(ctx, entry, domain.SendRequest{}, false)
+	return s.dispatchClaimed(ctx, entry, domain.SendRequest{Type: string(req.Op)}, false)
 }
 
 // dispatchOp drives one claimed op command to a terminal state.
@@ -676,6 +736,9 @@ func (s *OutboundScheduler) dispatchOp(
 		ToJID:          payload.To,
 	})
 	timestamp := now.UnixMilli()
+	if !result.SentAt.IsZero() {
+		timestamp = result.SentAt.UnixMilli()
+	}
 	if err != nil {
 		var apiErr *domain.APIError
 		if errors.As(err, &apiErr) && apiErr.Code == domain.CodeValidationError {

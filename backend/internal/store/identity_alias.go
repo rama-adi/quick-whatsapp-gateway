@@ -46,10 +46,11 @@ func mergeDMChatAlias(ctx context.Context, db dbExecQuerier, sessionID, lid, pho
 		}); err != nil {
 			return fmt.Errorf("store: delete merged chat aliases: %w", err)
 		}
+		// Existing canonical rows were merged and their aliases deleted above.
+		// A concurrent conflicting insert returns a retryable uniqueness error.
 		if err := q.RenameDMChatAliasesWithoutCanonical(ctx, storedb.RenameDMChatAliasesWithoutCanonicalParams{
 			ChatJid:   lid,
 			ChatJid_2: phoneJID,
-			ChatJid_3: lid,
 		}); err != nil {
 			return fmt.Errorf("store: rename chat aliases: %w", err)
 		}

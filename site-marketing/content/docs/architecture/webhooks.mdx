@@ -93,8 +93,9 @@ Pure helpers: `EventMatches(events, type)`, `SignHMAC(secret, body)`,
   configured decryptor is treated as a (retryable) failure so the
   misconfiguration surfaces loudly.
 - **Per-webhook isolation.** In `Enqueue`, a single webhook's dedup-check or
-  create failure is logged and skipped, never aborting fan-out to the others.
-  Only the upstream `ListMatching` failure is returned as an error.
+  create failure is logged while fan-out continues to the other hooks. Errors
+  are aggregated and returned so the durable event remains retryable. Existing
+  delivery identities prevent retries from duplicating successful inserts.
 - **Body handling.** Non-2xx response bodies are read through a 4 KiB
   `LimitReader`, bounding the diagnostic stored in `last_error`. Success bodies
   are discarded completely (without buffering) so the HTTP connection can be
@@ -114,7 +115,9 @@ interfaces (`fakes_test.go`):
 - **Enqueue** — creates pending rows for matches (with correct fields and
   scope forwarding), dedup skips terminal deliveries, the defensive event
   filter drops loose repo rows, `ListMatching` errors propagate, and a
-  per-webhook `Create` failure is skipped without erroring the call.
+  per-webhook `Create` failure keeps the event retryable. The isolated API E2E
+  suite injects a MySQL delivery-insert failure after event persistence and
+  checks recovery with one event, one delivery, and one WhatsApp send.
 - **Deliver** — happy path (asserts method/URL/headers/signature over the exact
   sent body and the marshaled-event body) and marks delivered; no-secret omits
   hmac headers; non-2xx reschedules with the right backoff and captures the

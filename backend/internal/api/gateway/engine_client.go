@@ -24,6 +24,9 @@ import (
 type EngineTargetResolver interface {
 	ResolveSessionEngineTarget(context.Context, string, string) (domain.SessionEngineTarget, error)
 }
+type QuoteResolver interface {
+	GetByWAID(context.Context, string, string) (domain.Message, error)
+}
 type EngineDial func(context.Context, string, string) (*grpc.ClientConn, error)
 
 // MaxEngineMessageBytes bounds one engine RPC message. The album aggregate cap
@@ -96,14 +99,15 @@ func engineTLSConfig(
 // EngineClient implements the API-facing resolved live facade. Calls reuse one
 // grpc-go ClientConn per advertised endpoint; grpc-go owns reconnects.
 type EngineClient struct {
-	CaptureMedia func(context.Context, string, string, string, domain.SendRequest) error
-	resolver     EngineTargetResolver
-	dial         EngineDial
-	mu           sync.Mutex
-	conns        map[string]*grpc.ClientConn
-	deadline     time.Duration
-	sendDeadline time.Duration
-	health       map[string]EngineHealth
+	CaptureMedia  func(context.Context, string, string, string, domain.SendRequest) error
+	QuoteResolver QuoteResolver
+	resolver      EngineTargetResolver
+	dial          EngineDial
+	mu            sync.Mutex
+	conns         map[string]*grpc.ClientConn
+	deadline      time.Duration
+	sendDeadline  time.Duration
+	health        map[string]EngineHealth
 }
 type EngineHealth struct {
 	GatewayID, Endpoint      string
@@ -279,6 +283,10 @@ func (c *EngineClient) SendMessage(
 	if err != nil {
 		return application.SendMessageResult{}, err
 	}
+	quote, err := c.resolveQuote(ctx, command.SessionID, prepared)
+	if err != nil {
+		return application.SendMessageResult{}, err
+	}
 	payload, err := json.Marshal(prepared)
 	if err != nil {
 		return application.SendMessageResult{}, fmt.Errorf("encode send payload: %w", err)
@@ -288,6 +296,7 @@ func (c *EngineClient) SendMessage(
 		AssignmentEpoch: target.AssignmentEpoch,
 		CommandId:       command.CommandID,
 		PayloadJson:     payload,
+		QuoteContext:    quote,
 	})
 	c.record(target.GatewayID, target.GRPCEndpoint, err)
 	if err != nil {
@@ -306,6 +315,47 @@ func (c *EngineClient) SendMessage(
 		WAMessageID: response.WaMessageId,
 		SentAt:      time.UnixMilli(response.SentAtUnixMs).UTC(),
 	}, nil
+}
+
+func (c *EngineClient) resolveQuote(
+	ctx context.Context,
+	sessionID string,
+	req domain.SendRequest,
+) (*gatewayv1.QuotedMessageContext, error) {
+	if req.ReplyTo == "" || c.QuoteResolver == nil {
+		return nil, nil
+	}
+	msg, err := c.QuoteResolver.GetByWAID(ctx, sessionID, req.ReplyTo)
+	if err != nil {
+		var apiErr *domain.APIError
+		if errors.As(err, &apiErr) && apiErr.Code == domain.CodeNotFound {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("resolve quoted message: %w", err)
+	}
+	if msg.ChatJID != req.To {
+		// Direct chats may be addressed by PN while stored with an LID (or the
+		// reverse). Without a proven chat match, send only the stanza ID as
+		// before rather than attaching another chat's quote content.
+		return nil, nil
+	}
+	quote := &gatewayv1.QuotedMessageContext{
+		ChatJid: msg.ChatJID,
+		Type:    msg.Type,
+		FromMe:  msg.FromMe,
+	}
+	if msg.Body != nil {
+		quote.Body = *msg.Body
+	}
+	if !msg.FromMe {
+		switch {
+		case msg.SenderLID != nil && *msg.SenderLID != "":
+			quote.SenderJid = *msg.SenderLID
+		case msg.SenderJID != nil:
+			quote.SenderJid = *msg.SenderJID
+		}
+	}
+	return quote, nil
 }
 
 // ExecuteOp dispatches one message sub-resource command. The caller owns the
@@ -345,6 +395,7 @@ func (c *EngineClient) ExecuteOp(
 		return application.MessageOpResult{}, mapEngineError(err)
 	}
 	return application.MessageOpResult{
+		WAMessageID: response.GetWaMessageId(), SentAt: time.UnixMilli(response.GetSentAtUnixMs()).UTC(),
 		MutationResult: application.MutationResult{
 			CommandID: response.CommandId, OrganizationID: target.OrganizationID,
 			SessionID: target.SessionID, GatewayID: target.GatewayID, AssignmentEpoch: target.AssignmentEpoch,
@@ -722,17 +773,37 @@ func (c *EngineClient) PrepareSession(
 	org string,
 	session string,
 ) error {
-	ctx, cancel := context.WithTimeout(ctx, c.deadline)
+	// The control stream publishes a new assignment on the next heartbeat;
+	// reserve one heartbeat interval for that publication, then one unary
+	// deadline for the prepare RPC.
+	ctx, cancel := context.WithTimeout(ctx, DefaultHeartbeatInterval+c.deadline)
 	defer cancel()
-	target, err := c.resolver.ResolveSessionEngineTarget(ctx, org, session)
-	if err != nil {
-		return err
+	var target domain.SessionEngineTarget
+	for {
+		var err error
+		target, err = c.resolver.ResolveSessionEngineTarget(ctx, org, session)
+		if err == nil && target.DesiredRevision == target.AppliedRevision {
+			break
+		}
+		var apiErr *domain.APIError
+		if err != nil && (!errors.As(err, &apiErr) || apiErr.Code != domain.CodeNotFound) {
+			return err
+		}
+		// A newly committed assignment becomes routable after the gateway
+		// acknowledges its desired-state revision.
+		select {
+		case <-ctx.Done():
+			return domain.ErrUnavailable("gateway did not reconcile the new session")
+		case <-time.After(100 * time.Millisecond):
+		}
 	}
 	conn, err := c.conn(ctx, target.GatewayID, target.GRPCEndpoint)
 	if err != nil {
 		return err
 	}
-	_, err = gatewayv1.NewGatewayEngineServiceClient(conn).PrepareSession(ctx, &gatewayv1.PrepareSessionRequest{
+	rpcCtx, cancelRPC := context.WithTimeout(ctx, c.deadline)
+	defer cancelRPC()
+	_, err = gatewayv1.NewGatewayEngineServiceClient(conn).PrepareSession(rpcCtx, &gatewayv1.PrepareSessionRequest{
 		Target:          sessionTargetProto(target),
 		AssignmentEpoch: target.AssignmentEpoch,
 	})

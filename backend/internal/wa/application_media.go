@@ -40,8 +40,16 @@ func (a *ApplicationGatewayAdapter) DownloadMedia(ctx context.Context, q applica
 	if size > outbound.MaxMediaBytes {
 		return nil, domain.ErrValidation("attachment exceeds the gateway media size limit")
 	}
-	client, _ := live.rawClient(q.SessionID)
-	if client == nil {
+	session := live.m.Get(q.SessionID)
+	if session == nil {
+		return nil, domain.ErrNotFound("session")
+	}
+	session.mu.Lock()
+	client, ok := session.client.(interface {
+		DownloadAny(context.Context, *waE2E.Message) ([]byte, error)
+	})
+	session.mu.Unlock()
+	if !ok {
 		return nil, domain.ErrNotFound("session")
 	}
 	data, err := client.DownloadAny(ctx, &msg)

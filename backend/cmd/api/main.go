@@ -10,6 +10,7 @@ import (
 	"context"
 	"crypto/x509"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/media"
@@ -55,7 +56,9 @@ func main() {
 	}
 }
 
-func run() error {
+func run() error { return runWithStorageTransport(nil) }
+
+func runWithStorageTransport(storageTransport http.RoundTripper) error {
 	cfg, err := config.LoadAPI()
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
@@ -125,7 +128,7 @@ func run() error {
 		Log:                        log,
 	})
 	apiHandlers := handlers.New(services, log)
-	mediaStorage := &media.Service{DB: db, Cipher: aes, BaseURL: cfg.PublicURL,
+	mediaStorage := &media.Service{Transport: storageTransport, DB: db, Cipher: aes, BaseURL: cfg.PublicURL,
 		Poll: 2 * time.Second, Deadline: cfg.GatewayEngineSendDeadline + time.Minute,
 		BackoffBase: 5 * time.Second, BackoffCap: 10 * time.Minute}
 	apiHandlers.Media = mediaStorage
@@ -336,6 +339,7 @@ func run() error {
 		}
 		mediaStorage.Downloader = engineClient
 		engineClient.CaptureMedia = mediaStorage.CaptureOutbound
+		engineClient.QuoteResolver = st.Messages
 		services.Sessions.SetGatewayLiveFacade(engineClient)
 		services.Presence.SetGatewayLiveFacade(engineClient)
 
@@ -382,6 +386,49 @@ func run() error {
 		if schedulerErr != nil {
 			return fmt.Errorf("build outbound scheduler: %w", schedulerErr)
 		}
+		outboundScheduler.SetMessageRecorder(service.NewMessageRecorderAdapter(
+			st.Messages,
+			st.Chats,
+			st.Polls,
+			pollRecaps,
+			nil,
+		))
+		outboundScheduler.SetSentEventPublisher(func(ctx context.Context, event domain.Event) error {
+			payload, err := json.Marshal(event.Payload)
+			if err != nil {
+				return fmt.Errorf("marshal sent message event: %w", err)
+			}
+			var identity struct {
+				ChatJID     string `json:"chatJid"`
+				WAMessageID string `json:"waMessageId"`
+			}
+			if err := json.Unmarshal(payload, &identity); err != nil {
+				return fmt.Errorf("decode sent message identity: %w", err)
+			}
+			apiOwnsEvent, err := st.EventLog.AppendOwnSentOnce(ctx, domain.EventLogEntry{
+				EventID:        event.ID,
+				OrganizationID: event.Organization,
+				SessionID:      event.Session,
+				Type:           event.Type,
+				Payload:        payload,
+				CreatedAt:      event.Timestamp,
+			}, identity.ChatJID, identity.WAMessageID)
+			if err != nil {
+				return err
+			}
+			if !apiOwnsEvent {
+				return nil
+			}
+			if publisher != nil {
+				if err := publisher.Publish(ctx, event); err != nil {
+					return fmt.Errorf("publish sent message: %w", err)
+				}
+			}
+			if _, err := webhookEnqueuer.Enqueue(ctx, event); err != nil {
+				return fmt.Errorf("enqueue sent message webhooks: %w", err)
+			}
+			return nil
+		})
 		schedulerCtx, schedulerStop := context.WithCancel(ctx)
 		defer schedulerStop()
 		go func() {
@@ -394,6 +441,7 @@ func run() error {
 		}
 		services.Messages.SetGatewaySendFacade(outboundScheduler)
 		services.Messages.SetGatewayOpFacade(outboundScheduler)
+		services.Status.SetGatewaySendFacade(outboundScheduler)
 		if oidpPending != nil {
 			oidpInterceptor = oidp.NewLoginInterceptor(
 				st.OAuthClients,

@@ -6,7 +6,7 @@ BUF = go run github.com/bufbuild/buf/cmd/buf@$(BUF_VERSION)
 PROTO_BREAKING_BRANCH ?= origin/main
 PROTO_BREAKING_REF ?= refs/remotes/$(PROTO_BREAKING_BRANCH)
 
-.PHONY: infra-up infra-down infra-reset up up-logs down dev api web marketing migrate build build-api lint test tidy sqlc gen openapi openapi-check proto proto-lint proto-breaking proto-check
+.PHONY: infra-up infra-down infra-reset up up-logs down dev api web marketing migrate build build-api lint test api-e2e api-e2e-coverage-check tidy sqlc gen openapi openapi-check proto proto-lint proto-breaking proto-check
 
 infra-up:    ## start mysql + redis only (run the gateway on the host with `make dev`)
 	$(COMPOSE_DEV) up -d
@@ -46,6 +46,10 @@ lint:
 test:
 	go -C backend test ./...
 	sh scripts/selfhost-entrypoint-test.sh
+api-e2e-coverage-check: ## fail when a public API operation or route lacks an E2E coverage entry
+	python3 scripts/check-api-e2e-coverage.py
+api-e2e: api-e2e-coverage-check ## run the Docker-backed API/gateway process test
+	QWG_E2E=1 go -C backend test ./cmd/api -run '^TestOutboundE2E$$' -count=1 -v
 tidy:
 	go -C backend mod tidy
 	cd web && pnpm install

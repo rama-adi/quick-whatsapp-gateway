@@ -49,7 +49,7 @@ func (a *ApplicationGatewayAdapter) BeginPairing(
 	ctx context.Context,
 	query application.SessionStateQuery,
 ) (application.PairingSnapshot, error) {
-	if err := a.fenceQuery(query); err != nil {
+	if err := a.fencePairing(query); err != nil {
 		return application.PairingSnapshot{}, err
 	}
 	if code, exp := a.controller.LatestQR(query.SessionID); code != "" {
@@ -69,13 +69,24 @@ func (a *ApplicationGatewayAdapter) PairPhone(
 	query application.SessionStateQuery,
 	phone string,
 ) (string, error) {
-	if err := a.fenceQuery(query); err != nil {
+	if err := a.fencePairing(query); err != nil {
 		return "", err
 	}
 	if phone == "" {
 		return "", domain.ErrValidation("phone is required")
 	}
 	return a.controller.StartPairingCode(ctx, query.SessionID, phone)
+}
+
+func (a *ApplicationGatewayAdapter) fencePairing(query application.SessionStateQuery) error {
+	if err := a.validateTarget(query.OrganizationID, query.SessionID, query.GatewayID); err != nil {
+		return err
+	}
+	if a.fence != nil && (query.AssignmentEpoch == 0 ||
+		!a.fence.OwnsAssignment(query.OrganizationID, query.SessionID, query.AssignmentEpoch)) {
+		return domain.ErrConflict("session assignment is not live")
+	}
+	return nil
 }
 
 // LogoutSession executes one durable logout command behind the assignment
@@ -86,7 +97,8 @@ func (a *ApplicationGatewayAdapter) LogoutSession(
 	command application.ContactJIDCommand,
 ) (application.MutationOnlyResult, error) {
 	return runDurableCommand(ctx, a, durableCommand[application.MutationOnlyResult]{
-		Operation: "logout",
+		Operation:    "logout",
+		AllowStopped: true,
 		Target: mutationResult(
 			command.CommandID,
 			command.OrganizationID,

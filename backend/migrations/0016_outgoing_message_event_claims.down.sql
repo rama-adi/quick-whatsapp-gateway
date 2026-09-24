@@ -1,0 +1,1 @@
+DROP TABLE outgoing_message_event_claims;

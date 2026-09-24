@@ -1533,7 +1533,7 @@ type Gateway struct {
 	DesiredRevision      uint64                        `db:"desired_revision" json:"desired_revision"`
 	AppliedRevision      uint64                        `db:"applied_revision" json:"applied_revision"`
 	SoftwareVersion      sql.NullString                `db:"software_version" json:"software_version"`
-	Capabilities         json.RawMessage               `db:"capabilities" json:"capabilities"`
+	Capabilities         []byte                        `db:"capabilities" json:"capabilities"`
 	ConnectionEpoch      uint64                        `db:"connection_epoch" json:"connection_epoch"`
 	EnrolledAt           sql.NullInt64                 `db:"enrolled_at" json:"enrolled_at"`
 	ConnectedAt          sql.NullInt64                 `db:"connected_at" json:"connected_at"`

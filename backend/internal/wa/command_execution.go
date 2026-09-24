@@ -11,10 +11,11 @@ import (
 // durableCommand keeps resource-specific results typed while sharing the
 // ordering that prevents duplicate side effects and publishes failures to waiters.
 type durableCommand[T any] struct {
-	Target    application.MutationResult
-	Operation string
-	Replay    func(*application.CommandResultRecord) (T, error)
-	Execute   func() (T, error)
+	Target       application.MutationResult
+	Operation    string
+	Replay       func(*application.CommandResultRecord) (T, error)
+	Execute      func() (T, error)
+	AllowStopped bool
 }
 
 type commandFlight struct {
@@ -79,8 +80,14 @@ func runDurableCommand[T any](
 		}
 		return command.Replay(record)
 	}
-	if adapter.fence != nil && !adapter.fence.AllowsMutation(target.OrganizationID, target.SessionID, target.AssignmentEpoch) {
-		return result, domain.ErrConflict("session assignment epoch is stale or lease expired")
+	if adapter.fence != nil {
+		allowed := adapter.fence.AllowsMutation(target.OrganizationID, target.SessionID, target.AssignmentEpoch)
+		if command.AllowStopped {
+			allowed = adapter.fence.OwnsAssignment(target.OrganizationID, target.SessionID, target.AssignmentEpoch)
+		}
+		if !allowed {
+			return result, domain.ErrConflict("session assignment epoch is stale or lease expired")
+		}
 	}
 	return command.Execute()
 }

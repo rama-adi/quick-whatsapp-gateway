@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
-	"github.com/rama-adi/quick-whatsapp-gateway/internal/gateway/waadapter"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/wa/outbound"
 )
 
@@ -14,19 +13,21 @@ import (
 // transport-independent dispatch ports. The API owns validation, idempotency,
 // rate limits, and retries; this is the raw per-session whatsmeow bridge.
 type engineDispatcher struct {
-	client *waadapter.RoutingWAClient
+	client outbound.WAClient
 }
 
-func newEngineDispatcher(client *waadapter.RoutingWAClient) *engineDispatcher {
+func newEngineDispatcher(client outbound.WAClient) *engineDispatcher {
 	return &engineDispatcher{client: client}
 }
 
 // Dispatch routes one validated send to whatsmeow.
 func (d *engineDispatcher) Dispatch(ctx context.Context, req domain.SendRequest) (string, int64, error) {
-	quote := outbound.QuoteInfo{ID: req.ReplyTo}
+	quote := quoteForSend(req)
 	switch req.Type {
 	case domain.SendTypeText:
 		return d.client.SendText(ctx, req.To, req.Text, quote, req.Mentions)
+	case domain.SendTypeButtons, domain.SendTypeList:
+		return d.client.SendInteractive(ctx, req, quote)
 	case domain.SendTypePoll:
 		return d.client.SendPoll(ctx, req.To, req.Name, req.Options, req.SelectableCount, req.PollEndTime, req.PollHideVotes)
 	case domain.SendTypeLocation:
@@ -64,6 +65,19 @@ func (d *engineDispatcher) Dispatch(ctx context.Context, req domain.SendRequest)
 	default:
 		return "", 0, domain.ErrValidation(fmt.Sprintf("unsupported send type %q", req.Type))
 	}
+}
+
+func quoteForSend(req domain.SendRequest) outbound.QuoteInfo {
+	quote := outbound.QuoteInfo{ID: req.ReplyTo}
+	if req.ReplyTo == "" || req.QuoteContext == nil || req.QuoteContext.ChatJID != req.To {
+		return quote
+	}
+	quote.ChatJID = req.QuoteContext.ChatJID
+	quote.SenderJID = req.QuoteContext.SenderJID
+	quote.Type = req.QuoteContext.Type
+	quote.Body = req.QuoteContext.Body
+	quote.FromMe = req.QuoteContext.FromMe
+	return quote
 }
 
 // DispatchOp routes one validated message sub-resource operation to whatsmeow.

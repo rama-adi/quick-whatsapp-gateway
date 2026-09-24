@@ -31,18 +31,33 @@ import (
 // acknowledges, send normalizes the assigned ID and server timestamp for durable
 // idempotency and history recording by Sender.
 type whatsmeowAdapter struct {
-	cli *whatsmeow.Client
+	cli       *whatsmeow.Client
+	transport WhatsAppTransport
+}
+
+// WhatsAppTransport is the external network boundary after protobuf construction.
+// Production uses whatsmeow; isolated end-to-end tests can control acknowledgements
+// and uploads without bypassing the real payload builder or local device identity.
+type WhatsAppTransport interface {
+	SendMessage(context.Context, types.JID, *waE2E.Message, ...whatsmeow.SendRequestExtra) (whatsmeow.SendResponse, error)
+	Upload(context.Context, []byte, whatsmeow.MediaType) (whatsmeow.UploadResponse, error)
+}
+
+// NewWhatsmeowClientWithTransport keeps protocol construction and device identity
+// on cli while allowing the external transport to be supplied independently.
+func NewWhatsmeowClientWithTransport(cli *whatsmeow.Client, transport WhatsAppTransport) WAClient {
+	return &whatsmeowAdapter{cli: cli, transport: transport}
 }
 
 // NewWhatsmeowClient wraps a *whatsmeow.Client as a WAClient.
 func NewWhatsmeowClient(cli *whatsmeow.Client) WAClient {
-	return &whatsmeowAdapter{cli: cli}
+	return NewWhatsmeowClientWithTransport(cli, cli)
 }
 
 // send is the shared tail: dispatch a built message and normalize the response
 // into (waMessageID, epoch-ms timestamp).
 func (a *whatsmeowAdapter) send(ctx context.Context, to types.JID, msg *waE2E.Message) (string, int64, error) {
-	resp, err := a.cli.SendMessage(ctx, to, msg)
+	resp, err := a.transport.SendMessage(ctx, to, msg)
 	if err != nil {
 		return "", 0, fmt.Errorf("whatsmeow send: %w", err)
 	}
@@ -198,7 +213,7 @@ func (a *whatsmeowAdapter) SendMedia(
 	if mimetype == "" {
 		mimetype = http.DetectContentType(data)
 	}
-	up, err := a.cli.Upload(ctx, data, uploadMediaType(mediaType))
+	up, err := a.transport.Upload(ctx, data, uploadMediaType(mediaType))
 	if err != nil {
 		return "", 0, fmt.Errorf("whatsmeow upload %s: %w", mediaType, err)
 	}
@@ -287,7 +302,7 @@ func (a *whatsmeowAdapter) SendAlbum(
 		if media.Mimetype == "" {
 			media.Mimetype = http.DetectContentType(media.Data)
 		}
-		up, uploadErr := a.cli.Upload(ctx, media.Data, uploadMediaType(media.Type))
+		up, uploadErr := a.transport.Upload(ctx, media.Data, uploadMediaType(media.Type))
 		if uploadErr != nil {
 			return "", 0, fmt.Errorf("whatsmeow upload album item %d: %w", i, uploadErr)
 		}
@@ -508,10 +523,16 @@ func (a *whatsmeowAdapter) Vote(
 	if err != nil {
 		return "", 0, err
 	}
-	// BuildPollVote needs the poll's MessageInfo to derive the encryption key.
+	// Poll keys need the same author and group flags as the original message.
+	fromMe := false
+	if a.cli.Store != nil {
+		fromMe = !senderJID.IsEmpty() && (senderJID.ToNonAD() == a.cli.Store.LID.ToNonAD() ||
+			(a.cli.Store.ID != nil && senderJID.ToNonAD() == a.cli.Store.ID.ToNonAD()))
+	}
 	pollInfo := &types.MessageInfo{
-		MessageSource: types.MessageSource{Chat: chatJID, Sender: senderJID},
-		ID:            pollMsgID,
+		MessageSource: types.MessageSource{Chat: chatJID, Sender: senderJID,
+			IsGroup: chatJID.Server == types.GroupServer, IsFromMe: fromMe},
+		ID: pollMsgID,
 	}
 	msg, err := a.cli.BuildPollVote(ctx, pollInfo, options)
 	if err != nil {

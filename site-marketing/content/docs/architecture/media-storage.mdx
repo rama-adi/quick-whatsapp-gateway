@@ -15,6 +15,8 @@ Migration `backend/migrations/0015_media_storage.up.sql` adds:
   access/secret keys. `retention_days = NULL` represents indefinite retention.
 - `session_media_storage`: one connection per session. Linking validates both
   the session and connection against the caller's organization in a transaction.
+  Binding reads verify session ownership before returning the optional bucket;
+  a session in another organization returns `not_found`.
 - `media_assets`: stable object key, original connection, message identity and
   album index, encrypted source, upload state, saved S3 version, bearer token,
   retention deadline, due time, retries, and pending event notification.

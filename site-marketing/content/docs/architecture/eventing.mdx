@@ -259,6 +259,21 @@ work; no gateway sync work is pausable yet, so the seam is reserved, not exercis
 In control mode (the only mode since Increment 9) the gateway does
 not append `event_log`, publish Redis events, or enqueue webhooks: API ingestion owns the single
 event-log transaction and post-commit fan-out.
+The API records successful API-originated sends in the outgoing message row, then appends a
+`message.from_me` event and fans it out to realtime and webhooks. WhatsApp may also echo the
+same send through the gateway, including before the API finishes its own projection. API
+publishing and gateway ingestion transactionally claim one public event owner by organization,
+session, chat, and WhatsApp message ID in `outgoing_message_event_claims`. The first committed
+claim retains its original public event ID and owns fan-out; later echoes are acknowledged in
+`gateway_ingested_events` without another event-log row. A gateway-first echo is projected and
+delivered by the committed-event worker, while the API outbox still records the send result.
+Own messages sent from another linked device have no competing API outbox claim and still flow
+through normal projection and delivery.
+An echo of an API send completed before this claim table was introduced has no claim to match;
+the one deployment needs a separately verified data upgrade before relying on deduplication
+for those historical sends.
+The event carries the send request's known content and WhatsApp acknowledgement timestamp;
+stored media capture details may arrive separately.
 Poll-recap emission is API-owned in every mode: the durable MySQL sweep and its event append,
 realtime publish, and webhook enqueue run beside the committed-event worker on the API; the Redis
 sorted set is only a low-latency wake-up index and gateways no longer write it.

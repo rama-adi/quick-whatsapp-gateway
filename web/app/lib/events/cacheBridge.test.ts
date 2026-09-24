@@ -140,6 +140,37 @@ describe("applyEvent", () => {
     expect(qc.getQueryData<Chat>(qk.chat(SESSION, chatJid))?.lastMessageAt).toBe(2000);
   });
 
+  it("refreshes a stored outbound send after showing it live", () => {
+    const chatJid = "123@s.whatsapp.net";
+    const canonicalJid = "123@lid";
+    qc.setQueryData(qk.chatMessages(SESSION, chatJid), infinite<Message>([]));
+    qc.setQueryData(qk.chatMessages(SESSION, canonicalJid), infinite<Message>([]));
+    qc.setQueryData(qk.chat(SESSION, chatJid), { id: 1, jid: chatJid });
+    qc.setQueryData(qk.chats(SESSION), infinite<Chat>([]));
+
+    applyEvent(qc, evt("message.from_me", {
+      waMessageId: "WA_1",
+      chatJid,
+      fromMe: true,
+      type: "text",
+      body: "bot reply",
+      timestamp: 2000,
+    }));
+
+    const messages = qc.getQueryData<InfiniteData<Page<Message>>>(
+      qk.chatMessages(SESSION, chatJid),
+    );
+    expect(messages?.pages[0]?.data[0]).toMatchObject({
+      waMessageId: "WA_1",
+      body: "bot reply",
+      direction: "out",
+    });
+    expect(qc.getQueryState(qk.chatMessages(SESSION, chatJid))?.isInvalidated).toBe(true);
+    expect(qc.getQueryState(qk.chatMessages(SESSION, canonicalJid))?.isInvalidated).toBe(true);
+    expect(qc.getQueryState(qk.chat(SESSION, chatJid))?.isInvalidated).toBe(true);
+    expect(qc.getQueryState(qk.chats(SESSION))?.isInvalidated).toBe(true);
+  });
+
   it("message is idempotent (no duplicate on replay)", () => {
     const chatJid = "123@s.whatsapp.net";
     qc.setQueryData(qk.chatMessages(SESSION, chatJid), infinite<Message>([]));

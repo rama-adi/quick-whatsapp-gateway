@@ -283,6 +283,16 @@ func (r *Reconciler) OwnsSession(organizationID, sessionID string, epoch uint64)
 	return ok && assignmentActive(a, organizationID, epoch, r.now())
 }
 
+// OwnsAssignment allows pairing for an assigned but not yet running session.
+// Other live operations continue to require DesiredRun via OwnsSession.
+func (r *Reconciler) OwnsAssignment(organizationID, sessionID string, epoch uint64) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	a, ok := r.assignments[sessionID]
+	return ok && a.OrganizationID == organizationID && a.AssignmentEpoch == epoch &&
+		a.LeaseExpiresAt.After(r.now())
+}
+
 func assignmentActive(a Assignment, organizationID string, epoch uint64, now time.Time) bool {
 	return a.OrganizationID == organizationID &&
 		a.DesiredRun &&

@@ -40,6 +40,22 @@ func TestBuildContextInfo_Quote(t *testing.T) {
 	}
 }
 
+func TestBuildContextInfo_ImageReplyDoesNotInheritQuotedMentions(t *testing.T) {
+	ci := buildContextInfo(QuoteInfo{
+		ID:        "incoming-id",
+		ChatJID:   "120363123456789012@g.us",
+		SenderJID: "205227043110953@lid",
+		Type:      domain.SendTypeText,
+		Body:      "@bot draw this",
+	}, nil)
+	if ci.GetStanzaID() != "incoming-id" || ci.GetParticipant() != "205227043110953@lid" || ci.GetQuotedMessage().GetConversation() != "@bot draw this" {
+		t.Fatalf("image reply context = %#v", ci)
+	}
+	if len(ci.GetMentionedJID()) != 0 {
+		t.Fatalf("image reply unexpectedly mentions %v", ci.GetMentionedJID())
+	}
+}
+
 // TestFillOwnQuoteParticipant covers direct and group replies authored by the local account, with
 // phone and LID identities. It fills the participant only where WhatsApp requires one and never
 // overwrites an explicit remote author.

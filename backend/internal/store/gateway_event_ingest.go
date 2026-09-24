@@ -105,6 +105,36 @@ func (r *GatewayEventIngestRepo) IngestBatch(ctx context.Context, events []Gatew
 		if affected == 0 {
 			continue
 		}
+		// API sends and gateway own-message echoes race for one public event
+		// identity. The first committed claim owns event_log and fan-out; every
+		// gateway journal ID still receives a durable acknowledgement.
+		if event.Type == domain.EventMessageFromMe {
+			var identity struct {
+				WAMessageID string `json:"waMessageId"`
+				ChatJID     string `json:"chatJid"`
+				FromMe      bool   `json:"fromMe"`
+			}
+			if json.Unmarshal(event.Payload, &identity) == nil && identity.FromMe &&
+				identity.WAMessageID != "" && identity.ChatJID != "" {
+				var claimedID, claimedOwner string
+				claimedID, claimedOwner, err = claimOutgoingEvent(ctx, tx, outgoingEventIdentity{
+					organizationID: event.OrganizationID, sessionID: event.SessionID,
+					chatJID: identity.ChatJID, waMessageID: identity.WAMessageID,
+				}, event.EventID, "gateway")
+				if err != nil {
+					return err
+				}
+				if claimedOwner != "gateway" || claimedID != event.EventID {
+					if _, err = tx.ExecContext(ctx,
+						`UPDATE gateway_ingested_events SET completed_at=? WHERE gateway_event_id=?`,
+						committedAt, event.EventID,
+					); err != nil {
+						return fmt.Errorf("store: complete duplicate sent echo: %w", err)
+					}
+					continue
+				}
+			}
+		}
 		if r.MediaCapture != nil {
 			event.Payload, err = r.MediaCapture(ctx, tx, event)
 			if err != nil {

@@ -7,10 +7,13 @@ import (
 
 	gatewayv1 "github.com/rama-adi/quick-whatsapp-gateway/gen/gateway/v1"
 	apigateway "github.com/rama-adi/quick-whatsapp-gateway/internal/api/gateway"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/gateway/desiredstate"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/gateway/enginegrpc"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/gateway/journal"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/pki"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/pki/gatewayidentity"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/wa"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/wa/outbound"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
@@ -48,6 +51,7 @@ func startPrivateEngine(
 	gatewayID string,
 	identity *gatewayidentity.Manager,
 	engine *wa.ApplicationGatewayAdapter,
+	options ...grpc.ServerOption,
 ) (func(), error) {
 	tlsConfig, err := privateEngineTLSConfig(identity)
 	if err != nil {
@@ -57,15 +61,22 @@ func startPrivateEngine(
 	if err != nil {
 		return nil, err
 	}
-	server := grpc.NewServer(
+	serverOptions := []grpc.ServerOption{
 		grpc.Creds(credentials.NewTLS(tlsConfig)),
 		grpc.MaxRecvMsgSize(apigateway.MaxEngineMessageBytes),
 		grpc.MaxSendMsgSize(apigateway.MaxEngineMessageBytes),
-	)
+	}
+	server := grpc.NewServer(append(serverOptions, options...)...)
 	gatewayv1.RegisterGatewayEngineServiceServer(server, &enginegrpc.Server{
 		GatewayID: gatewayID,
 		Engine:    engine,
 	})
 	go func() { _ = server.Serve(listener) }()
 	return func() { server.GracefulStop(); _ = listener.Close() }, nil
+}
+
+// newPrivateEngine shares the command fence, dispatcher, and durable ledger
+// assembly between the gateway runtime and its isolated network test process.
+func newPrivateEngine(gatewayID string, manager *wa.Manager, reconciler *desiredstate.Reconciler, client outbound.WAClient, eventJournal *journal.Journal) *wa.ApplicationGatewayAdapter {
+	return wa.NewApplicationGatewayAdapter(gatewayID, manager, reconciler, newEngineDispatcher(client), journalCommandLedger{journal: eventJournal})
 }

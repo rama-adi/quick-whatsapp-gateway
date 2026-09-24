@@ -37,6 +37,7 @@ type engineLiveOps interface {
 type assignmentFence interface {
 	AllowsMutation(string, string, uint64) bool
 	OwnsSession(string, string, uint64) bool
+	OwnsAssignment(string, string, uint64) bool
 }
 
 // sendDispatcher routes a validated request to the live WhatsApp client for

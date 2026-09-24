@@ -6,7 +6,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -39,6 +41,8 @@ type Downloader interface {
 	DownloadMedia(context.Context, string, string, []byte) ([]byte, error)
 }
 type Service struct {
+	// Transport optionally supplies the external S3 network boundary. Nil uses the public-address-only transport.
+	Transport                               http.RoundTripper
 	newClient                               func(Bucket, Credentials) *s3.Client
 	DB                                      *sql.DB
 	Cipher                                  *crypto.AESGCM
@@ -147,7 +151,7 @@ func (s *Service) connection(ctx context.Context, q queryer, org, id string) (Bu
 }
 func (s *Service) Binding(ctx context.Context, org, session string) (*string, error) {
 	var id *string
-	err := s.DB.QueryRowContext(ctx, `SELECT m.bucket_id FROM wa_sessions s LEFT JOIN session_media_storage m ON m.session_id=s.id AND m.organization_id=s.organization_id WHERE s.id=? AND s.organization_id=?`, session, org).Scan(&id)
+	err := s.DB.QueryRowContext(ctx, `SELECT (SELECT bucket_id FROM session_media_storage WHERE session_id=? AND organization_id=?) FROM wa_sessions WHERE id=? AND organization_id=?`, session, org, session, org).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, domain.ErrNotFound("session")
 	}
@@ -220,5 +224,9 @@ func (s *Service) s3Client(b Bucket, c Credentials) *s3.Client {
 	if s.newClient != nil {
 		return s.newClient(b, c)
 	}
-	return client(b, c)
+	cl := client(b, c)
+	if s.Transport != nil {
+		cl = s3.New(s3.Options{Region: b.Region, BaseEndpoint: &b.Endpoint, UsePathStyle: b.PathStyle, Credentials: credentials.NewStaticCredentialsProvider(c.AccessKey, c.SecretKey, ""), HTTPClient: &http.Client{Transport: s.Transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}})
+	}
+	return cl
 }

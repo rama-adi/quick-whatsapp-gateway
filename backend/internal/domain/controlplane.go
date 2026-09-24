@@ -74,6 +74,7 @@ type GatewayDesiredSession struct {
 type SessionEngineTarget struct {
 	SessionID, OrganizationID, GatewayID, GRPCEndpoint string
 	AssignmentEpoch, ConnectionEpoch                   uint64
+	DesiredRevision, AppliedRevision                   uint64
 }
 
 // PKIAuthority carries encrypted private-key material only.

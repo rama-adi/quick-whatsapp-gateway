@@ -8,6 +8,7 @@ import (
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/application"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/store"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/wa/outbound"
 )
 
 // ---------------------------------------------------------------------------
@@ -113,9 +114,10 @@ func (s *ChannelService) Messages(
 
 // StatusService backs the status (stories) endpoints.
 type StatusService struct {
-	store  *store.Store
-	poster StatusPoster
-	log    *slog.Logger
+	store       *store.Store
+	poster      StatusPoster
+	gatewaySend GatewayMessageSender
+	log         *slog.Logger
 }
 
 // NewStatusService constructs a StatusService.
@@ -124,6 +126,12 @@ func NewStatusService(s *store.Store, poster StatusPoster, log *slog.Logger) *St
 		log = slog.Default()
 	}
 	return &StatusService{store: s, poster: poster, log: log}
+}
+
+// SetGatewaySendFacade routes text stories through the API-owned durable send
+// scheduler and private engine, as ordinary outgoing messages are routed.
+func (s *StatusService) SetGatewaySendFacade(sender GatewayMessageSender) {
+	s.gatewaySend = sender
 }
 
 func (s *StatusService) requireSession(ctx context.Context, organizationID, sessionID string) error {
@@ -151,6 +159,18 @@ func (s *StatusService) PostText(ctx context.Context, organizationID, sessionID,
 	}
 	if text == "" {
 		return "", domain.ErrValidation("text is required")
+	}
+	if s.gatewaySend != nil {
+		result, err := s.gatewaySend.Send(ctx, organizationID, sessionID, domain.SendRequest{
+			Type: domain.SendTypeText, To: "status@broadcast", Text: text,
+		}, outbound.SendOptions{})
+		if err != nil {
+			return "", err
+		}
+		if result.Status != domain.MessageSent || result.WAMessageID == "" {
+			return "", domain.ErrUnavailable("status send was not acknowledged")
+		}
+		return result.WAMessageID, nil
 	}
 	if s.poster == nil {
 		return "", errLiveUnavailable()

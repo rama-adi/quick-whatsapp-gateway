@@ -2,6 +2,7 @@ package webhooks
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -33,10 +34,8 @@ func NewEnqueuer(webhooks WebhookRepo, deliveries WebhookDeliveryRepo, clock Clo
 }
 
 // Enqueue persists pending deliveries for every webhook matching evt. It returns
-// the number of deliveries created. A per-webhook failure is logged and skipped
-// rather than aborting the whole fan-out — one bad webhook must not stop the
-// others from being scheduled. Only an upstream lookup failure (ListMatching) is
-// returned as an error.
+// the number of deliveries created. Per-hook failures do not prevent other
+// hooks from being scheduled, but are returned so the durable event can retry.
 func (e *Enqueuer) Enqueue(ctx context.Context, evt domain.Event) (int, error) {
 	hooks, err := e.webhooks.ListMatching(ctx, evt.Organization, evt.Session, evt.Type)
 	if err != nil {
@@ -45,6 +44,7 @@ func (e *Enqueuer) Enqueue(ctx context.Context, evt domain.Event) (int, error) {
 
 	now := e.clock.NowMs()
 	created := 0
+	var failures []error
 	for _, h := range hooks {
 		// Defensive guard: the repo should already have filtered by events, but
 		// re-check so a loose repo query can't fan out to unsubscribed hooks.
@@ -58,6 +58,7 @@ func (e *Enqueuer) Enqueue(ctx context.Context, evt domain.Event) (int, error) {
 		if err != nil {
 			e.log.WarnContext(ctx, "webhook dedup check failed; skipping",
 				"webhook_id", h.ID, "event_id", evt.ID, "err", err)
+			failures = append(failures, err)
 			continue
 		}
 		if terminal {
@@ -76,9 +77,10 @@ func (e *Enqueuer) Enqueue(ctx context.Context, evt domain.Event) (int, error) {
 		if err := e.deliveries.Create(ctx, d); err != nil {
 			e.log.WarnContext(ctx, "create webhook delivery failed; skipping",
 				"webhook_id", h.ID, "event_id", evt.ID, "err", err)
+			failures = append(failures, err)
 			continue
 		}
 		created++
 	}
-	return created, nil
+	return created, errors.Join(failures...)
 }

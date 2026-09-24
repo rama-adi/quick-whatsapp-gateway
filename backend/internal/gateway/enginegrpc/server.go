@@ -122,6 +122,15 @@ func (s *Server) SendMessage(
 	if err := json.Unmarshal(req.GetPayloadJson(), &payload); err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid send payload")
 	}
+	if quote := req.GetQuoteContext(); quote != nil && payload.ReplyTo != "" {
+		payload.QuoteContext = &domain.SendQuoteContext{
+			ChatJID:   quote.GetChatJid(),
+			SenderJID: quote.GetSenderJid(),
+			Type:      quote.GetType(),
+			Body:      quote.GetBody(),
+			FromMe:    quote.GetFromMe(),
+		}
+	}
 	result, err := s.Engine.SendMessage(ctx, application.SendCommand{
 		CommandID: req.GetCommandId(), OrganizationID: target.OrganizationId, SessionID: target.SessionId,
 		GatewayID: target.GatewayId, AssignmentEpoch: req.GetAssignmentEpoch(), Payload: payload,
@@ -162,6 +171,7 @@ func (s *Server) MessageOp(
 	}
 	return &gatewayv1.MessageOpResponse{
 		CommandId: result.CommandID, Target: targetResponse(result.MutationResult), AssignmentEpoch: result.AssignmentEpoch,
+		WaMessageId: result.WAMessageID, SentAtUnixMs: result.SentAt.UnixMilli(),
 	}, nil
 }
 

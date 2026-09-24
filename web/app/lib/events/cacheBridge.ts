@@ -138,6 +138,12 @@ export function applyEvent(qc: QueryClient, e: EventEnvelope): void {
         // Refetch instead of risking a duplicate unread increment.
         invalidateChatData(qc, s, chatJid);
       }
+      if (e.event === "message.from_me") {
+        // API-originated sends are already stored before this event is emitted.
+        // Reload by session because the send JID can differ from the stored
+        // chat's canonical LID/phone alias.
+        void qc.invalidateQueries({ queryKey: qk.chats(s) });
+      }
       break;
     }
 

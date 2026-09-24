@@ -47,6 +47,7 @@ api-key `reference_id`, never by joining `member` on the hot path ([`trust-model
 | `poll_votes` | `PollVoteRepo` | via `session_id` |
 | `outbox` | `OutboxRepo` | `organization_id` (idempotency) |
 | `event_log` | `EventLogRepo` | `organization_id` |
+| `outgoing_message_event_claims` | `EventLogRepo` + `GatewayEventIngestRepo` | composite organization/session/chat/WhatsApp-message identity; first committed event owner |
 | `messages` + `event_log` + `webhook_deliveries` | `RetentionRepo` | global maintenance (bounded retention batches) |
 | `backfill_imports` | `BackfillImportRepo` | via `session_id` (import job status + once/24h quota) |
 | `oauth_clients` | `OAuthClientRepo` | `organization_id` |
@@ -385,7 +386,11 @@ read queries can compile without making the API a writer or migration owner for 
   Write paths also canonicalize phone-JID DM chats to the mapped LID when exactly
   one `whatsapp_identities.phone_jid` match exists; identity upserts merge any
   existing phone-JID chat/message/poll rows into the LID row once that mapping is
-  discovered. Ambiguous or unknown phone JIDs are left unchanged.
+  discovered. The merge first combines canonical rows, then deletes merged
+  aliases, and finally renames remaining aliases with a plain update. This
+  avoids MySQL error 1093 from selecting the update target in a correlated
+  subquery. Concurrent uniqueness conflicts leave the event retryable.
+  Ambiguous or unknown phone JIDs are left unchanged.
 - **Field ownership / no clobber.** Content upserts omit fields with dedicated mutators
   (`messages.status/edited/deleted`, `chats` user flags), so a redelivered capture can't regress a
   receipt. The receipt-specific message mutator is monotonic (`pending` → `sent` →
@@ -474,6 +479,14 @@ read queries can compile without making the API a writer or migration owner for 
   never claim another session's row and discard it after the transition.
   Duplicate queue tasks and worker replicas therefore cannot simultaneously own one outbox row;
   a sent/fresh-sending/missing row is a normal non-claim rather than an error.
+  The API's sent-event append and a gateway `message.from_me` echo claim the same
+  `outgoing_message_event_claims` row in the event-log transaction. Its composite
+  primary key makes ownership serializable across either arrival order; the
+  winning API outbox ID or gateway journal event ID remains the public ULID.
+  Duplicate gateway journal IDs are acknowledged independently and completed
+  without a second event-log row or fan-out. The row follows its session on delete.
+  Historical sends predating this table have no claim until a separately verified
+  upgrade handles that deployment's existing data.
 - **Retry scheduling lives on the row (migration 0014).** `next_attempt_at` schedules ambiguous
   attempts with backoff (`ClaimDue` selects queued/failed rows that are due plus stale
   `sending` leases, oldest-due first), and `terminal_at` records when a row reached sent/failed.

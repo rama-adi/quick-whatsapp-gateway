@@ -22,13 +22,7 @@ JOIN chats canonical ON canonical.session_id = alias.session_id
 WHERE canonical.chat_jid = ? AND alias.chat_jid = ?;
 
 -- name: RenameDMChatAliasesWithoutCanonical :exec
-UPDATE chats alias
-SET alias.chat_jid = ?
-WHERE alias.chat_jid = ?
-  AND NOT EXISTS (
-    SELECT 1 FROM chats canonical
-    WHERE canonical.session_id = alias.session_id AND canonical.chat_jid = ?
-  );
+UPDATE chats SET chat_jid = ? WHERE chat_jid = ?;
 
 -- name: UpdateMessageDMChatAliases :exec
 UPDATE messages SET chat_jid = ? WHERE chat_jid = ?;

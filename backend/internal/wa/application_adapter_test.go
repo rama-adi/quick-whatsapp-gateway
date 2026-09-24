@@ -165,6 +165,7 @@ type fakeAssignmentFence struct{ owns, allows bool }
 
 func (f fakeAssignmentFence) AllowsMutation(string, string, uint64) bool { return f.allows }
 func (f fakeAssignmentFence) OwnsSession(string, string, uint64) bool    { return f.owns }
+func (f fakeAssignmentFence) OwnsAssignment(string, string, uint64) bool { return f.owns }
 
 func TestApplicationGatewayAdapterRejectsStaleAssignmentBeforeLiveOperation(t *testing.T) {
 	live := &fakeEngineLiveOps{}

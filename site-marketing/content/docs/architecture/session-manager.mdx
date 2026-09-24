@@ -71,11 +71,18 @@ The session lifecycle splits across the trust boundary:
 - **The gateway executes only live parts**, through private engine RPCs served
   by `wa.ApplicationGatewayAdapter` (see [`grpc-contracts.md`](/docs/architecture/grpc-contracts)):
   - `PrepareSession` — creates the local keystore device + managed-session entry
-    for an API-created row (`Manager.EnsureDevice`). Idempotent; not ledger-backed.
+    for an API-created row (`Manager.EnsureDevice`). The API waits for the next
+    gateway desired-state acknowledgement before routing this call, bounded by
+    one control heartbeat interval plus the configured unary RPC deadline.
+    Idempotent; not ledger-backed.
   - `BeginPairing` / `PairPhone` — QR snapshot-with-kick and phone-number
-    pairing behind the ownership fence; not ledger-backed.
+    pairing behind the assignment fence, including stopped sessions. The fence
+    still checks organization, assignment epoch, and lease; other live operations
+    require a running assignment. Pairing calls are not ledger-backed.
   - `LogoutSession` — destructive unlink as a durable command with full send-style
-    ledger replay (records `CommandSent` only).
+    ledger replay (records `CommandSent` only). It accepts a stopped session
+    under the same organization/epoch/lease assignment fence, so stop then
+    logout remains valid.
   - `ForgetSession` — in-memory runtime drop during delete; idempotent, no epoch
     requirement (the row may already be deleted API-side).
 - **Keystore device creation is an explicit PrepareSession step.** The device is
@@ -148,7 +155,11 @@ sibling internal imports):
   drives (`Connect/Disconnect/IsConnected/IsLoggedIn/Logout/AddEventHandler/
   GetQRChannel/PairPhone`). The real client satisfies it (compile-time assert);
   tests inject a fake, so the full lifecycle is exercised without a WebSocket.
-  Built via a swappable `clientFactory` (`SetClientFactory`).
+  Built via a swappable `clientFactory` (`SetClientFactory`). The exported `Client`
+  alias lets the isolated API/gateway process test supply that lifecycle client
+  while running the actual `Manager` against a gateway-local SQLite device
+  store. This seam simulates device connectivity; it does not connect to
+  WhatsApp's network.
 
 Core types:
 

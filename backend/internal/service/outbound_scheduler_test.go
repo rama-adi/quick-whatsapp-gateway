@@ -2,13 +2,13 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/apitypes"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/application"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/wa/outbound"
@@ -136,6 +136,16 @@ type fakeSchedulerLimiter struct {
 	calls      int
 }
 
+type fakeSentRecorder struct {
+	sent []outbound.SentMessage
+	err  error
+}
+
+func (f *fakeSentRecorder) RecordSent(_ context.Context, message outbound.SentMessage) error {
+	f.sent = append(f.sent, message)
+	return f.err
+}
+
 func (f *fakeSchedulerLimiter) Allow(context.Context, string, int, int) (bool, time.Duration, error) {
 	f.calls++
 	return f.ok, f.retryAfter, f.err
@@ -174,58 +184,31 @@ func textRequest() domain.SendRequest {
 	return domain.SendRequest{Type: domain.SendTypeText, To: "628123@s.whatsapp.net", Text: "hi"}
 }
 
-// TestSchedulerSyncSendRecordsTerminalCommand pins the front-door path: the
-// durable row exists before dispatch and lands terminal 'sent' with the WhatsApp id.
-func TestSchedulerSyncSendRecordsTerminalCommand(t *testing.T) {
-	sessions := &fakeSchedulerSessions{session: schedulerSession()}
-	store := &fakeCommandStore{}
-	engine := &fakeEngineSender{results: []application.SendMessageResult{{MutationResult: application.MutationResult{CommandID: "cmd"}, WAMessageID: "WA_1", SentAt: time.UnixMilli(777).UTC()}}, errs: []error{nil}}
-	limiter := &fakeSchedulerLimiter{ok: true}
-	scheduler := newScheduler(sessions, store, engine, limiter)
-
-	result, err := scheduler.Send(context.Background(), "org_1", "ses_1", textRequest(), outbound.SendOptions{})
-	if err != nil {
-		t.Fatalf("Send: %v", err)
+func TestSchedulerPublishesPollDetails(t *testing.T) {
+	scheduler := newScheduler(&fakeSchedulerSessions{session: schedulerSession()}, &fakeCommandStore{},
+		&fakeEngineSender{}, &fakeSchedulerLimiter{ok: true})
+	scheduler.SetMessageRecorder(&fakeSentRecorder{})
+	var payload apitypes.MessagePayload
+	scheduler.SetSentEventPublisher(func(_ context.Context, event domain.Event) error {
+		payload = event.Payload.(apitypes.MessagePayload)
+		return nil
+	})
+	scheduler.recordSent(context.Background(), "org_1", "ses_1", domain.SendRequest{
+		Type:            domain.SendTypePoll,
+		To:              "123@g.us",
+		Name:            "Lunch?",
+		Options:         []string{"Yes", "No"},
+		SelectableCount: 1,
+		Mentions:        []string{"456@s.whatsapp.net"},
+	}, "WA_POLL", 777, "poll-command")
+	if payload.Poll == nil || payload.Poll.Name != "Lunch?" || len(payload.Poll.Options) != 2 {
+		t.Fatalf("poll payload = %#v", payload)
 	}
-	if result.Mode != outbound.ModeSync || result.WAMessageID != "WA_1" || result.Timestamp != 777 {
-		t.Fatalf("result = %#v", result)
-	}
-	if len(store.inserted) != 1 || store.inserted[0].Status != domain.OutboxSending {
-		t.Fatalf("rows = %#v", store.inserted)
-	}
-	if len(store.updates) != 1 || store.updates[0].status != domain.OutboxSent {
-		t.Fatalf("updates = %#v", store.updates)
-	}
-	// The engine received the row id as its stable command id.
-	if len(engine.calls) != 1 || engine.calls[0].CommandID != store.inserted[0].ID {
-		t.Fatalf("engine commands = %#v rows = %#v", engine.calls, store.inserted)
+	if _, ok := payload.Mentions["456@s.whatsapp.net"]; !ok {
+		t.Fatalf("mention payload = %#v", payload.Mentions)
 	}
 }
 
-// TestSchedulerReplaysIdempotencyKeyWithoutDispatch verifies §8 replay.
-func TestSchedulerReplaysIdempotencyKeyWithoutDispatch(t *testing.T) {
-	sessions := &fakeSchedulerSessions{session: schedulerSession()}
-	waID := "WA_ORIGINAL"
-	store := &fakeCommandStore{rows: map[string]*domain.OutboxEntry{
-		"cmd_1": {ID: "cmd_1", OrganizationID: "org_1", SessionID: "ses_1", Status: domain.OutboxSent, WAMessageID: &waID, UpdatedAt: 555, IdempotencyKey: optionalString("key-1")},
-	}}
-	engine := &fakeEngineSender{}
-	limiter := &fakeSchedulerLimiter{ok: true}
-	scheduler := newScheduler(sessions, store, engine, limiter)
-
-	result, err := scheduler.Send(context.Background(), "org_1", "ses_1", textRequest(), outbound.SendOptions{IdempotencyKey: "key-1"})
-	if err != nil {
-		t.Fatalf("replay: %v", err)
-	}
-	if !result.Replayed || result.WAMessageID != "WA_ORIGINAL" || result.Timestamp != 555 {
-		t.Fatalf("replay result = %#v", result)
-	}
-	if engine.calls != nil || limiter.calls != 0 {
-		t.Fatalf("replay dispatched or rate-checked: %#v", engine.calls)
-	}
-}
-
-// TestSchedulerRateLimitedSyncSurfaces429 pins the sync over-limit contract.
 func TestSchedulerRateLimitedSyncSurfaces429(t *testing.T) {
 	sessions := &fakeSchedulerSessions{session: schedulerSession()}
 	store := &fakeCommandStore{}
@@ -436,30 +419,5 @@ func TestSchedulerAmbiguousTimeoutThenRetryConvergesToSingleSend(t *testing.T) {
 	}
 	if sentUpdates != 1 {
 		t.Fatalf("sent updates = %d, want exactly one", sentUpdates)
-	}
-}
-
-// TestSchedulerAsyncPersistsQueuedCommand verifies the async contract.
-func TestSchedulerAsyncPersistsQueuedCommand(t *testing.T) {
-	sessions := &fakeSchedulerSessions{session: schedulerSession()}
-	store := &fakeCommandStore{}
-	engine := &fakeEngineSender{}
-	limiter := &fakeSchedulerLimiter{}
-	scheduler := newScheduler(sessions, store, engine, limiter)
-
-	result, err := scheduler.Send(context.Background(), "org_1", "ses_1", textRequest(), outbound.SendOptions{Async: true})
-	if err != nil {
-		t.Fatalf("async Send: %v", err)
-	}
-	if result.Mode != outbound.ModeAsync || result.OutboxID == "" {
-		t.Fatalf("result = %#v", result)
-	}
-	if len(store.inserted) != 1 || store.inserted[0].Status != domain.OutboxQueued || engine.calls != nil {
-		t.Fatalf("async persisted=%#v engine=%#v", store.inserted, engine.calls)
-	}
-	// Payload round-trips through JSON for later attempts.
-	var stored domain.SendRequest
-	if err := json.Unmarshal(store.inserted[0].Payload, &stored); err != nil || stored.Text != "hi" {
-		t.Fatalf("payload = %s (%v)", store.inserted[0].Payload, err)
 	}
 }

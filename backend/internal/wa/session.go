@@ -66,6 +66,10 @@ func (realClock) NowMs() int64 { return domain.NowMs() }
 // waClient is the slice of *whatsmeow.Client the session wrapper drives. The
 // concrete *whatsmeow.Client satisfies it; tests use a fake. Keeping this narrow
 // lets the per-session lifecycle be exercised without a real WebSocket.
+// Client is the lifecycle network boundary accepted by Manager.SetClientFactory.
+// A simulated device can implement it while retaining the real manager lifecycle.
+type Client = waClient
+
 type waClient interface {
 	Connect() error
 	Disconnect()

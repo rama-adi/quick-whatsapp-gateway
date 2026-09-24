@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
@@ -12,11 +13,79 @@ import (
 // event stream backing NDJSON ?since= resume. The surrogate id is the resume
 // cursor; event_id (ULID) is the value exposed to clients.
 type EventLogRepo struct {
-	q *storedb.Queries
+	q  *storedb.Queries
+	db storedb.DBTX
 }
 
 // NewEventLogRepo constructs an EventLogRepo.
-func NewEventLogRepo(db storedb.DBTX) *EventLogRepo { return &EventLogRepo{q: storedb.New(db)} }
+func NewEventLogRepo(db storedb.DBTX) *EventLogRepo { return &EventLogRepo{q: storedb.New(db), db: db} }
+
+// AppendOwnSentOnce makes the API's sent event compete atomically with a
+// gateway echo for the same WhatsApp message. Only the claim owner should fan
+// out the public event; retries by the API owner may re-run downstream delivery.
+func (r *EventLogRepo) AppendOwnSentOnce(
+	ctx context.Context,
+	e domain.EventLogEntry,
+	chatJID, waMessageID string,
+) (bool, error) {
+	if e.Type != domain.EventMessageFromMe || chatJID == "" || waMessageID == "" {
+		return false, fmt.Errorf("store: outgoing sent event identity is required")
+	}
+	var tx *sql.Tx
+	switch db := r.db.(type) {
+	case *sql.DB:
+		var err error
+		tx, err = db.BeginTx(ctx, nil)
+		if err != nil {
+			return false, fmt.Errorf("store: begin outgoing sent event: %w", err)
+		}
+	case *sql.Tx:
+		tx = db
+	default:
+		return false, fmt.Errorf("store: outgoing sent event requires SQL transaction")
+	}
+	ownedTx := tx != r.db
+	if ownedTx {
+		defer func() { _ = tx.Rollback() }()
+	}
+	claimedID, claimedOwner, err := claimOutgoingEvent(ctx, tx, outgoingEventIdentity{
+		organizationID: e.OrganizationID, sessionID: e.SessionID,
+		chatJID: chatJID, waMessageID: waMessageID,
+	}, e.EventID, "api")
+	if err != nil {
+		return false, err
+	}
+	if claimedOwner != "api" {
+		if ownedTx {
+			if err := tx.Commit(); err != nil {
+				return false, fmt.Errorf("store: commit gateway-owned sent event: %w", err)
+			}
+		}
+		return false, nil
+	}
+	if claimedID != e.EventID {
+		return false, fmt.Errorf("store: conflicting API sent event claim")
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT IGNORE INTO event_log
+		(event_id,organization_id,session_id,type,payload,created_at) VALUES (?,?,?,?,?,?)`,
+		e.EventID, e.OrganizationID, e.SessionID, e.Type, e.Payload, e.CreatedAt); err != nil {
+		return false, fmt.Errorf("store: append API sent event: %w", err)
+	}
+	var organizationID, sessionID, typ string
+	if err := tx.QueryRowContext(ctx, `SELECT organization_id,session_id,type FROM event_log WHERE event_id=?`,
+		e.EventID).Scan(&organizationID, &sessionID, &typ); err != nil {
+		return false, fmt.Errorf("store: verify API sent event: %w", err)
+	}
+	if organizationID != e.OrganizationID || sessionID != e.SessionID || typ != e.Type {
+		return false, fmt.Errorf("store: API sent event identity collision")
+	}
+	if ownedTx {
+		if err := tx.Commit(); err != nil {
+			return false, fmt.Errorf("store: commit API sent event: %w", err)
+		}
+	}
+	return true, nil
+}
 
 func eventLogFromRow(row storedb.EventLog) domain.EventLogEntry {
 	e := domain.EventLogEntry{

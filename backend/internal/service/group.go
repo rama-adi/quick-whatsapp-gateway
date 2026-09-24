@@ -88,13 +88,13 @@ func (s *GroupService) Create(
 	if err != nil {
 		return GroupInfo{}, err
 	}
-	s.persistGroupProjection(ctx, info)
+	s.persistGroupProjection(ctx, sessionID, info)
 	return info, nil
 }
 
 // persistGroupProjection best-effort upserts the stored group row from raw live
 // metadata; a projection failure never fails the live operation itself.
-func (s *GroupService) persistGroupProjection(ctx context.Context, info GroupInfo) {
+func (s *GroupService) persistGroupProjection(ctx context.Context, sessionID string, info GroupInfo) {
 	now := domain.NowMs()
 	participants := info.Participants
 	err := s.store.Groups.Upsert(ctx, domain.Group{
@@ -110,6 +110,17 @@ func (s *GroupService) persistGroupProjection(ctx context.Context, info GroupInf
 	})
 	if err != nil {
 		s.log.WarnContext(ctx, "persist group projection", "group", info.GroupJID, "err", err)
+		return
+	}
+	session, err := s.store.Sessions.Get(ctx, sessionID)
+	if err != nil || session.WALID == nil || *session.WALID == "" {
+		return
+	}
+	if err := s.store.GroupMembers.Upsert(ctx, domain.GroupMember{
+		SessionID: sessionID, GroupJID: info.GroupJID, LID: *session.WALID,
+		Role: domain.RoleSuperAdmin, FirstSeenAt: now, LastSeenAt: now,
+	}); err != nil {
+		s.log.WarnContext(ctx, "persist creator group membership", "group", info.GroupJID, "err", err)
 	}
 }
 

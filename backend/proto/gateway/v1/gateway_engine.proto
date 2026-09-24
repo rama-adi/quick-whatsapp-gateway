@@ -92,6 +92,17 @@ message SendMessageRequest {
   string command_id = 3;
   bytes payload_json = 4;
   reserved 5 to 15;
+  QuotedMessageContext quote_context = 16;
+}
+// The API resolves a reply target from its session-scoped message store before
+// dispatch. The gateway has no MySQL access and uses this to populate WhatsApp
+// ContextInfo without treating an absent author as the account itself.
+message QuotedMessageContext {
+  string chat_jid = 1;
+  string sender_jid = 2;
+  string type = 3;
+  string body = 4;
+  bool from_me = 5;
 }
 message SendMessageResponse {
   string command_id = 1;
@@ -124,6 +135,8 @@ message MessageOpResponse {
   SessionTarget target = 2;
   uint64 assignment_epoch = 3;
   reserved 4 to 15;
+  string wa_message_id = 16;
+  int64 sent_at_unix_ms = 17;
 }
 
 // LookupContactRequest checks whether phone numbers are on WhatsApp. A read:

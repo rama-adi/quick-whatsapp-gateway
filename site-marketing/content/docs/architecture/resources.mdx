@@ -46,7 +46,8 @@ transport errors. The gateway side executes them through
   ownership/epoch check (`OwnsSession`), not a mutation gate.
 - **Mutations** (block/unblock, group create/settings/participants/leave) run as
   durable commands with the same replay-then-fence-then-singleflight shape as
-  sends: a repeated `command_id` returns the stored terminal outcome instead of
+  sends. The API facade mints a command id for each group mutation; a repeated
+  `command_id` returns the stored terminal outcome instead of
   re-executing. Block records `CommandSent` with no WhatsApp message id; create
   stores the group JID so replays return it.
 - **Projections stay API-owned.** The engine RPCs return raw live results; the
@@ -75,6 +76,7 @@ produce the service's unavailable/not-implemented error.
 | Method | Path | Backed by |
 |---|---|---|
 | GET | `/chats` · `/chats/{cid}` · `/chats/{cid}/messages` | store (cursor pages) |
+| DELETE | `/chats/{cid}` | transactionally remove the local chat, its messages, and poll/vote rows; WhatsApp-side history is unaffected |
 | GET | `/chats/{cid}/presence` | live `PresenceController.GetPresence` — subscribes to WhatsApp presence updates and returns `state: unknown` until a `presence.update` event arrives |
 | POST | `/chats/{cid}/read` | store — zeroes `unread_count` (local read state; per-message WA receipts are out of scope for v2) |
 | PATCH | `/chats/{cid}` | store — `archived`/`pinned`/`mutedUntil`/`unmute` (nil = unchanged) |
@@ -102,7 +104,9 @@ then patches the same chat/contact when WhatsApp emits `available` or
 
 Reads (`list`/`get`/`members`) are store-backed; `list` joins through the
 per-session `whatsapp_group_members` pivot (`GroupRepo.ListBySession`) because
-`whatsapp_groups` is global metadata. Mutations + invite links go through
+`whatsapp_groups` is global metadata. A successful create records the creating
+session's own LID as the group's creator membership so it appears in that
+session's list immediately. Mutations + invite links go through
 `GroupOps`:
 
 - create / get-info / update-participants(add,remove,promote,demote) /
@@ -120,9 +124,11 @@ not part of the v2 live client, so all four return `not_implemented`.
 
 ## Status (§13)
 
-`POST /status` discriminates on `type`. `text` posts via `StatusPoster.PostText`
-(currently unavailable through the service's unwired status port). `image` and
-other status media return `501 not_implemented`. Ordinary message media sends are
+`POST /status` discriminates on `type`. Text stories send to
+`status@broadcast` through the API-owned outbound scheduler and return the
+acknowledged WhatsApp message ID; a queued or missing acknowledgement is not
+reported as success. `image` and other status media return
+`501 not_implemented`. Ordinary message media sends are
 implemented by the outbound pipeline.
 
 ## Presence (§13)

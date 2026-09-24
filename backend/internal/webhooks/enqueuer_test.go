@@ -102,32 +102,12 @@ func TestEnqueue_DefensiveEventFilter(t *testing.T) {
 }
 
 // TestEnqueue_ListErrorPropagates makes the initial matching-webhook lookup fail. Enqueue must return that
-// upstream error because no complete fan-out decision can be made. Unlike a single insert failure, losing
-// the whole candidate set cannot be safely treated as partial success.
+// upstream error because losing the candidate set prevents any fan-out decision.
 func TestEnqueue_ListErrorPropagates(t *testing.T) {
 	wr := &fakeWebhookRepo{listErr: errors.New("db down")}
 	dr := &fakeDeliveryRepo{terminal: map[string]bool{}}
 	enq := NewEnqueuer(wr, dr, &fixedClock{ms: 1}, nil)
 	if _, err := enq.Enqueue(context.Background(), testEvent()); err == nil {
 		t.Fatal("expected error from ListMatching failure")
-	}
-}
-
-// TestEnqueue_CreateErrorSkipsButContinues makes delivery insertion fail for an otherwise matching
-// webhook. The method logs and counts zero successful rows without failing the entire event fan-out. This
-// preserves per-endpoint isolation so one broken webhook cannot suppress live or durable event handling.
-func TestEnqueue_CreateErrorSkipsButContinues(t *testing.T) {
-	evt := testEvent()
-	wr := &fakeWebhookRepo{matching: map[string][]domain.Webhook{
-		domain.EventMessage: {{ID: "wh_a", Events: []string{"*"}}},
-	}}
-	dr := &fakeDeliveryRepo{terminal: map[string]bool{}, createErr: errors.New("insert failed")}
-	enq := NewEnqueuer(wr, dr, &fixedClock{ms: 1}, nil)
-	n, err := enq.Enqueue(context.Background(), evt)
-	if err != nil {
-		t.Fatalf("per-webhook create failure must not error the whole call: %v", err)
-	}
-	if n != 0 {
-		t.Fatalf("expected 0 successful creates, got %d", n)
 	}
 }

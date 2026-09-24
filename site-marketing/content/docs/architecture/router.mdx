@@ -62,6 +62,14 @@ Every `/api/v1` request flows through three steps:
 | any path naming a specific session (`.../sessions/{id}...`) | served API-locally from MySQL; live parts dispatch to the session's **owning** gateway (`wa_sessions.gateway_id` → assignment) over the private engine |
 | everything else — webhooks, `GET /sessions` list, admin list | **API-local only** (shared MySQL; no gateway involvement) |
 
+An engine route remains available while a new desired-state revision is in
+flight. The API selects the active, connected gateway and supplies the current
+session assignment epoch; the gateway checks that epoch and its local lease
+before each live operation. A pending revision for one session therefore does
+not hide unrelated sessions. Session creation alone waits for the new revision
+to be acknowledged before preparing its device, so an immediate pairing call
+can use the newly applied assignment.
+
 ### API-local gateway administration
 
 `/api/v1/admin/gateways` is served directly by `backend/cmd/api` from the shared
@@ -71,6 +79,8 @@ operation requires a login JWT whose platform role is exactly
 gateway-administration service runs. The API provides create/list/detail,
 replacement enrollment tokens, drain/resume, disable/re-enable, explicit
 re-enrollment, and soft deletion.
+
+Newly created gateways have no advertised capabilities until enrollment; registry reads accept that nullable value so pending gateways remain inspectable and listable.
 
 Creation, token replacement, and re-enrollment return the plaintext single-use
 enrollment bearer once. Read models, audit entries, and every other response

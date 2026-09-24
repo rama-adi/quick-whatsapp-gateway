@@ -8,7 +8,6 @@ package storedb
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 )
 
 const acknowledgeGatewayDesiredStateForEpoch = `-- name: AcknowledgeGatewayDesiredStateForEpoch :execrows
@@ -64,17 +63,17 @@ WHERE id = ?
 `
 
 type AllocateGatewayConnectionEpochParams struct {
-	ConnectedAt     sql.NullInt64   `db:"connected_at" json:"connected_at"`
-	LastSeenAt      sql.NullInt64   `db:"last_seen_at" json:"last_seen_at"`
-	BaseUrl         sql.NullString  `db:"base_url" json:"base_url"`
-	GrpcEndpoint    sql.NullString  `db:"grpc_endpoint" json:"grpc_endpoint"`
-	SoftwareVersion sql.NullString  `db:"software_version" json:"software_version"`
-	Capabilities    json.RawMessage `db:"capabilities" json:"capabilities"`
-	SessionCount    uint32          `db:"session_count" json:"session_count"`
-	ReportedStatus  GatewaysStatus  `db:"reported_status" json:"reported_status"`
-	UpdatedAt       int64           `db:"updated_at" json:"updated_at"`
-	ID              string          `db:"id" json:"id"`
-	ConnectionEpoch uint64          `db:"connection_epoch" json:"connection_epoch"`
+	ConnectedAt     sql.NullInt64  `db:"connected_at" json:"connected_at"`
+	LastSeenAt      sql.NullInt64  `db:"last_seen_at" json:"last_seen_at"`
+	BaseUrl         sql.NullString `db:"base_url" json:"base_url"`
+	GrpcEndpoint    sql.NullString `db:"grpc_endpoint" json:"grpc_endpoint"`
+	SoftwareVersion sql.NullString `db:"software_version" json:"software_version"`
+	Capabilities    []byte         `db:"capabilities" json:"capabilities"`
+	SessionCount    uint32         `db:"session_count" json:"session_count"`
+	ReportedStatus  GatewaysStatus `db:"reported_status" json:"reported_status"`
+	UpdatedAt       int64          `db:"updated_at" json:"updated_at"`
+	ID              string         `db:"id" json:"id"`
+	ConnectionEpoch uint64         `db:"connection_epoch" json:"connection_epoch"`
 }
 
 func (q *Queries) AllocateGatewayConnectionEpoch(ctx context.Context, arg AllocateGatewayConnectionEpochParams) (int64, error) {
@@ -283,7 +282,7 @@ type GetGatewayRow struct {
 	BaseUrl              sql.NullString                `db:"base_url" json:"base_url"`
 	GrpcEndpoint         sql.NullString                `db:"grpc_endpoint" json:"grpc_endpoint"`
 	SoftwareVersion      sql.NullString                `db:"software_version" json:"software_version"`
-	Capabilities         json.RawMessage               `db:"capabilities" json:"capabilities"`
+	Capabilities         []byte                        `db:"capabilities" json:"capabilities"`
 	ConnectionEpoch      uint64                        `db:"connection_epoch" json:"connection_epoch"`
 	ConnectionMode       GatewaysConnectionMode        `db:"connection_mode" json:"connection_mode"`
 	DesiredLifecycle     GatewaysDesiredLifecycle      `db:"desired_lifecycle" json:"desired_lifecycle"`
@@ -405,7 +404,7 @@ type ListActiveGatewaysRow struct {
 	BaseUrl          sql.NullString           `db:"base_url" json:"base_url"`
 	GrpcEndpoint     sql.NullString           `db:"grpc_endpoint" json:"grpc_endpoint"`
 	SoftwareVersion  sql.NullString           `db:"software_version" json:"software_version"`
-	Capabilities     json.RawMessage          `db:"capabilities" json:"capabilities"`
+	Capabilities     []byte                   `db:"capabilities" json:"capabilities"`
 	ConnectionEpoch  uint64                   `db:"connection_epoch" json:"connection_epoch"`
 	ConnectionMode   GatewaysConnectionMode   `db:"connection_mode" json:"connection_mode"`
 	DesiredLifecycle GatewaysDesiredLifecycle `db:"desired_lifecycle" json:"desired_lifecycle"`
@@ -594,7 +593,7 @@ type ListGatewaysRow struct {
 	BaseUrl              sql.NullString                `db:"base_url" json:"base_url"`
 	GrpcEndpoint         sql.NullString                `db:"grpc_endpoint" json:"grpc_endpoint"`
 	SoftwareVersion      sql.NullString                `db:"software_version" json:"software_version"`
-	Capabilities         json.RawMessage               `db:"capabilities" json:"capabilities"`
+	Capabilities         []byte                        `db:"capabilities" json:"capabilities"`
 	ConnectionEpoch      uint64                        `db:"connection_epoch" json:"connection_epoch"`
 	ConnectionMode       GatewaysConnectionMode        `db:"connection_mode" json:"connection_mode"`
 	DesiredLifecycle     GatewaysDesiredLifecycle      `db:"desired_lifecycle" json:"desired_lifecycle"`
@@ -676,7 +675,7 @@ FROM gateways
 WHERE status = ? AND (
   connection_mode = 'legacy' OR
   (connection_mode = 'control' AND desired_lifecycle = 'run'
-   AND reconciliation_status = 'healthy' AND applied_revision = desired_revision)
+   AND reconciliation_status = 'healthy')
 )
   AND deleted_at IS NULL AND (capacity IS NULL OR session_count < capacity)
 ORDER BY session_count ASC, last_seen_at DESC, id ASC
@@ -697,7 +696,7 @@ type PickGatewayForPlacementRow struct {
 	BaseUrl          sql.NullString           `db:"base_url" json:"base_url"`
 	GrpcEndpoint     sql.NullString           `db:"grpc_endpoint" json:"grpc_endpoint"`
 	SoftwareVersion  sql.NullString           `db:"software_version" json:"software_version"`
-	Capabilities     json.RawMessage          `db:"capabilities" json:"capabilities"`
+	Capabilities     []byte                   `db:"capabilities" json:"capabilities"`
 	ConnectionEpoch  uint64                   `db:"connection_epoch" json:"connection_epoch"`
 	ConnectionMode   GatewaysConnectionMode   `db:"connection_mode" json:"connection_mode"`
 	DesiredLifecycle GatewaysDesiredLifecycle `db:"desired_lifecycle" json:"desired_lifecycle"`
@@ -740,14 +739,13 @@ func (q *Queries) PickGatewayForPlacement(ctx context.Context, arg PickGatewayFo
 
 const resolveSessionEngineTarget = `-- name: ResolveSessionEngineTarget :one
 SELECT s.id AS session_id, s.organization_id, a.gateway_id, a.assignment_epoch,
-       g.grpc_endpoint, g.connection_epoch
+       g.grpc_endpoint, g.connection_epoch, g.desired_revision, g.applied_revision
 FROM wa_sessions AS s
 JOIN gateway_session_assignments AS a ON a.session_id=s.id
 JOIN gateways AS g ON g.id=a.gateway_id
 WHERE s.id=? AND s.organization_id=? AND g.deleted_at IS NULL
   AND g.connection_mode='control' AND g.status='active'
   AND g.desired_lifecycle='run' AND g.reconciliation_status='healthy'
-  AND g.desired_revision=g.applied_revision
   AND g.connected_at IS NOT NULL AND g.grpc_endpoint IS NOT NULL
 LIMIT 1
 `
@@ -764,6 +762,8 @@ type ResolveSessionEngineTargetRow struct {
 	AssignmentEpoch uint64         `db:"assignment_epoch" json:"assignment_epoch"`
 	GrpcEndpoint    sql.NullString `db:"grpc_endpoint" json:"grpc_endpoint"`
 	ConnectionEpoch uint64         `db:"connection_epoch" json:"connection_epoch"`
+	DesiredRevision uint64         `db:"desired_revision" json:"desired_revision"`
+	AppliedRevision uint64         `db:"applied_revision" json:"applied_revision"`
 }
 
 func (q *Queries) ResolveSessionEngineTarget(ctx context.Context, arg ResolveSessionEngineTargetParams) (ResolveSessionEngineTargetRow, error) {
@@ -776,6 +776,8 @@ func (q *Queries) ResolveSessionEngineTarget(ctx context.Context, arg ResolveSes
 		&i.AssignmentEpoch,
 		&i.GrpcEndpoint,
 		&i.ConnectionEpoch,
+		&i.DesiredRevision,
+		&i.AppliedRevision,
 	)
 	return i, err
 }
@@ -873,13 +875,13 @@ UPDATE gateways SET grpc_endpoint=?, software_version=?, capabilities=?, applied
 `
 
 type UpdateGatewayConnectionMetadataParams struct {
-	GrpcEndpoint    sql.NullString  `db:"grpc_endpoint" json:"grpc_endpoint"`
-	SoftwareVersion sql.NullString  `db:"software_version" json:"software_version"`
-	Capabilities    json.RawMessage `db:"capabilities" json:"capabilities"`
-	AppliedRevision uint64          `db:"applied_revision" json:"applied_revision"`
-	ConnectedAt     sql.NullInt64   `db:"connected_at" json:"connected_at"`
-	UpdatedAt       int64           `db:"updated_at" json:"updated_at"`
-	ID              string          `db:"id" json:"id"`
+	GrpcEndpoint    sql.NullString `db:"grpc_endpoint" json:"grpc_endpoint"`
+	SoftwareVersion sql.NullString `db:"software_version" json:"software_version"`
+	Capabilities    []byte         `db:"capabilities" json:"capabilities"`
+	AppliedRevision uint64         `db:"applied_revision" json:"applied_revision"`
+	ConnectedAt     sql.NullInt64  `db:"connected_at" json:"connected_at"`
+	UpdatedAt       int64          `db:"updated_at" json:"updated_at"`
+	ID              string         `db:"id" json:"id"`
 }
 
 func (q *Queries) UpdateGatewayConnectionMetadata(ctx context.Context, arg UpdateGatewayConnectionMetadataParams) (int64, error) {
@@ -907,14 +909,14 @@ WHERE id = ? AND connection_epoch = ? AND deleted_at IS NULL
 `
 
 type UpdateGatewayConnectionMetadataForEpochParams struct {
-	GrpcEndpoint    sql.NullString  `db:"grpc_endpoint" json:"grpc_endpoint"`
-	SoftwareVersion sql.NullString  `db:"software_version" json:"software_version"`
-	Capabilities    json.RawMessage `db:"capabilities" json:"capabilities"`
-	AppliedRevision uint64          `db:"applied_revision" json:"applied_revision"`
-	LastSeenAt      sql.NullInt64   `db:"last_seen_at" json:"last_seen_at"`
-	UpdatedAt       int64           `db:"updated_at" json:"updated_at"`
-	ID              string          `db:"id" json:"id"`
-	ConnectionEpoch uint64          `db:"connection_epoch" json:"connection_epoch"`
+	GrpcEndpoint    sql.NullString `db:"grpc_endpoint" json:"grpc_endpoint"`
+	SoftwareVersion sql.NullString `db:"software_version" json:"software_version"`
+	Capabilities    []byte         `db:"capabilities" json:"capabilities"`
+	AppliedRevision uint64         `db:"applied_revision" json:"applied_revision"`
+	LastSeenAt      sql.NullInt64  `db:"last_seen_at" json:"last_seen_at"`
+	UpdatedAt       int64          `db:"updated_at" json:"updated_at"`
+	ID              string         `db:"id" json:"id"`
+	ConnectionEpoch uint64         `db:"connection_epoch" json:"connection_epoch"`
 }
 
 func (q *Queries) UpdateGatewayConnectionMetadataForEpoch(ctx context.Context, arg UpdateGatewayConnectionMetadataForEpochParams) (int64, error) {

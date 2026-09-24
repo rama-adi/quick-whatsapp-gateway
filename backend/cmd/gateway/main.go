@@ -295,12 +295,12 @@ func run() error {
 	}()
 
 	// --- Private engine gRPC listener ---
-	engine := wa.NewApplicationGatewayAdapter(
+	engine := newPrivateEngine(
 		cfg.GatewayID,
 		manager,
 		desiredReconciler,
-		newEngineDispatcher(waadapter.NewRoutingWAClient(manager)),
-		journalCommandLedger{journal: eventJournal},
+		waadapter.NewRoutingWAClient(manager),
+		eventJournal,
 	)
 	stopEngine, engineErr := startPrivateEngine(cfg.EngineGRPCAddr, cfg.GatewayID, controlIdentity, engine)
 	if engineErr != nil {
@@ -387,87 +387,9 @@ func run() error {
 
 	// Desired-state snapshots own session startup. RUN reports readiness; DRAIN stops
 	// sessions terminally and reports each transition before DISABLE exits.
-	go func() {
-		var afterSequence uint64
-		for {
-			directive, waitErr := controlSupervisor.WaitForDirective(supervisorCtx, afterSequence)
-			if waitErr != nil {
-				return
-			}
-			afterSequence = directive.Sequence
-			if directive.Action == gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN {
-				runtimeState := controlRuntimeStateForKeystore(controlKeystore)
-				failure := gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_NONE
-				if managerLifecycle.terminal() {
-					runtimeState = gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED
-					failure = gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_BUSY
-				} else {
-					controlRuntime.setState(runtimeState)
-					controlSupervisor.ReportNow()
-				}
-				reportCtx, reportCancel := context.WithTimeout(context.Background(), 5*time.Second)
-				if reportErr := controlSupervisor.ReportLifecycle(reportCtx, directive, runtimeState, failure); reportErr != nil {
-					log.Warn("report lifecycle directive outcome", "directive", directive.ID, "err", reportErr)
-				}
-				reportCancel()
-				continue
-			}
-
-			if managerLifecycle.terminal() {
-				reportCtx, reportCancel := context.WithTimeout(context.Background(), 5*time.Second)
-				if reportErr := controlSupervisor.ReportLifecycle(
-					reportCtx,
-					directive,
-					gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED,
-					gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_NONE,
-				); reportErr != nil {
-					log.Warn("report lifecycle directive outcome", "directive", directive.ID, "err", reportErr)
-				}
-				reportCancel()
-				if directive.Action == gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DISABLE {
-					select {
-					case lifecycleDisabled <- struct{}{}:
-					default:
-					}
-					return
-				}
-				continue
-			}
-
-			controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINING)
-			reportControlRuntime(
-				log,
-				controlSupervisor,
-				gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINING,
-				5*time.Second,
-			)
-			shutdownManager()
-			controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED)
-			reportControlRuntime(
-				log,
-				controlSupervisor,
-				gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED,
-				5*time.Second,
-			)
-			reportCtx, reportCancel := context.WithTimeout(context.Background(), 5*time.Second)
-			if reportErr := controlSupervisor.ReportLifecycle(
-				reportCtx,
-				directive,
-				gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED,
-				gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_NONE,
-			); reportErr != nil {
-				log.Warn("report lifecycle directive outcome", "directive", directive.ID, "err", reportErr)
-			}
-			reportCancel()
-			if directive.Action == gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DISABLE {
-				select {
-				case lifecycleDisabled <- struct{}{}:
-				default:
-				}
-				return
-			}
-		}
-	}()
+	go runControlDirectives(supervisorCtx, controlSupervisor, controlRuntime, managerLifecycle,
+		shutdownManager, func() gatewayv1.GatewayRuntimeState { return controlRuntimeStateForKeystore(controlKeystore) },
+		lifecycleDisabled, log)
 
 	// The gateway serves no public API: every operation executes API-locally over
 	// private engine RPCs. Only a minimal operational probe surface remains.
@@ -533,6 +455,97 @@ func run() error {
 	}
 	log.Info("gateway stopped cleanly")
 	return nil
+}
+
+func runControlDirectives(
+	supervisorCtx context.Context,
+	controlSupervisor *controlsupervisor.Supervisor,
+	controlRuntime *gatewayControlRuntime,
+	managerLifecycle *managerLifecycleState,
+	shutdownManager func(),
+	readyState func() gatewayv1.GatewayRuntimeState,
+	lifecycleDisabled chan<- struct{},
+	log *slog.Logger,
+) {
+	var afterSequence uint64
+	for {
+		directive, waitErr := controlSupervisor.WaitForDirective(supervisorCtx, afterSequence)
+		if waitErr != nil {
+			return
+		}
+		afterSequence = directive.Sequence
+		if directive.Action == gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN {
+			runtimeState := readyState()
+			failure := gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_NONE
+			if managerLifecycle.terminal() {
+				runtimeState = gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED
+				failure = gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_BUSY
+			} else {
+				controlRuntime.setState(runtimeState)
+				controlSupervisor.ReportNow()
+			}
+			reportCtx, reportCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			if reportErr := controlSupervisor.ReportLifecycle(reportCtx, directive, runtimeState, failure); reportErr != nil {
+				log.Warn("report lifecycle directive outcome", "directive", directive.ID, "err", reportErr)
+			}
+			reportCancel()
+			continue
+		}
+
+		if managerLifecycle.terminal() {
+			reportCtx, reportCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			if reportErr := controlSupervisor.ReportLifecycle(
+				reportCtx,
+				directive,
+				gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED,
+				gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_NONE,
+			); reportErr != nil {
+				log.Warn("report lifecycle directive outcome", "directive", directive.ID, "err", reportErr)
+			}
+			reportCancel()
+			if directive.Action == gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DISABLE {
+				select {
+				case lifecycleDisabled <- struct{}{}:
+				default:
+				}
+				return
+			}
+			continue
+		}
+
+		controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINING)
+		reportControlRuntime(
+			log,
+			controlSupervisor,
+			gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINING,
+			5*time.Second,
+		)
+		shutdownManager()
+		controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED)
+		reportControlRuntime(
+			log,
+			controlSupervisor,
+			gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED,
+			5*time.Second,
+		)
+		reportCtx, reportCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if reportErr := controlSupervisor.ReportLifecycle(
+			reportCtx,
+			directive,
+			gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED,
+			gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_NONE,
+		); reportErr != nil {
+			log.Warn("report lifecycle directive outcome", "directive", directive.ID, "err", reportErr)
+		}
+		reportCancel()
+		if directive.Action == gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DISABLE {
+			select {
+			case lifecycleDisabled <- struct{}{}:
+			default:
+			}
+			return
+		}
+	}
 }
 
 // managerLifecycleState tracks whether a DRAIN/DISABLE directive has terminally

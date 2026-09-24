@@ -178,9 +178,49 @@ func (r *ChatRepo) UpdateFlags(
 	return rowsAffectedOrNotFound(n, "chat")
 }
 
-// Delete removes a chat by (session_id, chat_jid) (§11 DELETE /chats/{cid}).
+// Delete removes a chat and its locally stored messages and poll state in one
+// transaction (§11 DELETE /chats/{cid}).
 func (r *ChatRepo) Delete(ctx context.Context, sessionID, chatJID string) error {
-	n, err := r.q.DeleteChat(ctx, storedb.DeleteChatParams{SessionID: sessionID, ChatJid: chatJID})
+	if tx, ok := r.db.(*sql.Tx); ok {
+		return deleteChatContents(ctx, tx, sessionID, chatJID)
+	}
+	beginner, ok := r.db.(interface {
+		BeginTx(context.Context, *sql.TxOptions) (*sql.Tx, error)
+	})
+	if !ok {
+		return fmt.Errorf("store: delete chat requires a transaction-capable database")
+	}
+	tx, err := beginner.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("store: begin delete chat: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := deleteChatContents(ctx, tx, sessionID, chatJID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func deleteChatContents(ctx context.Context, tx *sql.Tx, sessionID, chatJID string) error {
+	_, err := tx.ExecContext(ctx,
+		`DELETE FROM poll_votes WHERE session_id=? AND poll_message_id IN
+		 (SELECT poll_message_id FROM polls WHERE session_id=? AND chat_jid=?)`,
+		sessionID, sessionID, chatJID)
+	if err != nil {
+		return fmt.Errorf("store: delete chat poll votes: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM polls WHERE session_id=? AND chat_jid=?`, sessionID, chatJID); err != nil {
+		return fmt.Errorf("store: delete chat polls: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM messages WHERE session_id=? AND chat_jid=?`, sessionID, chatJID); err != nil {
+		return fmt.Errorf("store: delete chat messages: %w", err)
+	}
+	n, err := storedb.New(tx).DeleteChat(ctx, storedb.DeleteChatParams{
+		SessionID: sessionID,
+		ChatJid:   chatJID,
+	})
 	if err != nil {
 		return fmt.Errorf("store: delete chat: %w", err)
 	}

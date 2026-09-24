@@ -102,23 +102,16 @@ func (q *Queries) MergeSessionDMChatAlias(ctx context.Context, arg MergeSessionD
 }
 
 const renameDMChatAliasesWithoutCanonical = `-- name: RenameDMChatAliasesWithoutCanonical :exec
-UPDATE chats alias
-SET alias.chat_jid = ?
-WHERE alias.chat_jid = ?
-  AND NOT EXISTS (
-    SELECT 1 FROM chats canonical
-    WHERE canonical.session_id = alias.session_id AND canonical.chat_jid = ?
-  )
+UPDATE chats SET chat_jid = ? WHERE chat_jid = ?
 `
 
 type RenameDMChatAliasesWithoutCanonicalParams struct {
 	ChatJid   string `db:"chat_jid" json:"chat_jid"`
 	ChatJid_2 string `db:"chat_jid_2" json:"chat_jid_2"`
-	ChatJid_3 string `db:"chat_jid_3" json:"chat_jid_3"`
 }
 
 func (q *Queries) RenameDMChatAliasesWithoutCanonical(ctx context.Context, arg RenameDMChatAliasesWithoutCanonicalParams) error {
-	_, err := q.db.ExecContext(ctx, renameDMChatAliasesWithoutCanonical, arg.ChatJid, arg.ChatJid_2, arg.ChatJid_3)
+	_, err := q.db.ExecContext(ctx, renameDMChatAliasesWithoutCanonical, arg.ChatJid, arg.ChatJid_2)
 	return err
 }
 

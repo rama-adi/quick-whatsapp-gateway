@@ -28,6 +28,10 @@ sql:
         emit_all_enum_values: true
         query_parameter_limit: 0
         overrides:
+          - column: "gateways.capabilities"
+            go_type:
+              type: "byte"
+              slice: true
           - column: "webhooks.hmac_secret"
             go_type:
               type: "byte"

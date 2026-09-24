@@ -645,6 +645,8 @@ func (r *GatewayRepo) ResolveSessionEngineTarget(
 		GRPCEndpoint:    row.GrpcEndpoint.String,
 		AssignmentEpoch: row.AssignmentEpoch,
 		ConnectionEpoch: row.ConnectionEpoch,
+		DesiredRevision: row.DesiredRevision,
+		AppliedRevision: row.AppliedRevision,
 	}, nil
 }
 

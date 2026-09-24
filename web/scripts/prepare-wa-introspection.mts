@@ -3,7 +3,7 @@ import mysql from "mysql2/promise";
 import { validateWAIntrospectionGrants } from "./wa-introspection-grants.mts";
 
 const allowed = new Set(["backfill_imports", "chats", "event_log", "gateways", "messages", "outbox", "poll_votes", "polls", "wa_sessions", "webhook_deliveries", "whatsapp_group_members", "whatsapp_groups", "whatsapp_identities"]);
-const excluded = new Set(["audit_events", "gateway_certificates", "gateway_enrollment_tokens", "pki_authorities", "pki_rotation_lock", "webhooks", "media_buckets", "session_media_storage", "media_assets"]);
+const excluded = new Set(["audit_events", "gateway_certificates", "gateway_enrollment_tokens", "pki_authorities", "pki_rotation_lock", "webhooks", "media_buckets", "session_media_storage", "media_assets", "outgoing_message_event_claims"]);
 const url = process.env.WA_INTROSPECTION_DATABASE_URL;
 if (!url) throw new Error("WA_INTROSPECTION_DATABASE_URL is required");
 const db = await mysql.createConnection(url);

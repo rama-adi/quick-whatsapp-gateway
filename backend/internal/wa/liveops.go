@@ -164,7 +164,7 @@ func (l *LiveOps) BackfillSessionData(ctx context.Context, sessionID string) (do
 	if err != nil {
 		return domain.BackfillSnapshot{}, err
 	}
-	wmc, dev := l.rawClient(sessionID)
+	_, dev := l.rawClient(sessionID)
 
 	// The whatsmeow contact store is the ONLY source of member push names —
 	// WhatsApp does not include them in group metadata. It accumulates them from
@@ -174,8 +174,8 @@ func (l *LiveOps) BackfillSessionData(ctx context.Context, sessionID string) (do
 		allContacts map[types.JID]types.ContactInfo
 		cErr        error
 	)
-	if wmc != nil && wmc.Store != nil && wmc.Store.Contacts != nil {
-		allContacts, cErr = wmc.Store.Contacts.GetAllContacts(ctx)
+	if dev != nil && dev.Contacts != nil {
+		allContacts, cErr = dev.Contacts.GetAllContacts(ctx)
 	} else {
 		cErr = domain.ErrNotImplemented("live WhatsApp contact store is not available for this session")
 	}
@@ -209,11 +209,11 @@ func (l *LiveOps) rawClient(sessionID string) (*whatsmeow.Client, *store.Device)
 		return nil, nil
 	}
 	ms.mu.Lock()
-	raw := ms.client
+	raw, device := ms.client, ms.device
 	ms.mu.Unlock()
 	c, ok := raw.(*whatsmeow.Client)
 	if !ok || c == nil {
-		return nil, nil
+		return nil, device
 	}
 	return c, c.Store
 }

@@ -654,6 +654,7 @@ type SendMessageRequest struct {
 	AssignmentEpoch uint64                 `protobuf:"varint,2,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
 	CommandId       string                 `protobuf:"bytes,3,opt,name=command_id,json=commandId,proto3" json:"command_id,omitempty"`
 	PayloadJson     []byte                 `protobuf:"bytes,4,opt,name=payload_json,json=payloadJson,proto3" json:"payload_json,omitempty"`
+	QuoteContext    *QuotedMessageContext  `protobuf:"bytes,16,opt,name=quote_context,json=quoteContext,proto3" json:"quote_context,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -716,6 +717,92 @@ func (x *SendMessageRequest) GetPayloadJson() []byte {
 	return nil
 }
 
+func (x *SendMessageRequest) GetQuoteContext() *QuotedMessageContext {
+	if x != nil {
+		return x.QuoteContext
+	}
+	return nil
+}
+
+// The API resolves a reply target from its session-scoped message store before
+// dispatch. The gateway has no MySQL access and uses this to populate WhatsApp
+// ContextInfo without treating an absent author as the account itself.
+type QuotedMessageContext struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ChatJid       string                 `protobuf:"bytes,1,opt,name=chat_jid,json=chatJid,proto3" json:"chat_jid,omitempty"`
+	SenderJid     string                 `protobuf:"bytes,2,opt,name=sender_jid,json=senderJid,proto3" json:"sender_jid,omitempty"`
+	Type          string                 `protobuf:"bytes,3,opt,name=type,proto3" json:"type,omitempty"`
+	Body          string                 `protobuf:"bytes,4,opt,name=body,proto3" json:"body,omitempty"`
+	FromMe        bool                   `protobuf:"varint,5,opt,name=from_me,json=fromMe,proto3" json:"from_me,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *QuotedMessageContext) Reset() {
+	*x = QuotedMessageContext{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QuotedMessageContext) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QuotedMessageContext) ProtoMessage() {}
+
+func (x *QuotedMessageContext) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QuotedMessageContext.ProtoReflect.Descriptor instead.
+func (*QuotedMessageContext) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *QuotedMessageContext) GetChatJid() string {
+	if x != nil {
+		return x.ChatJid
+	}
+	return ""
+}
+
+func (x *QuotedMessageContext) GetSenderJid() string {
+	if x != nil {
+		return x.SenderJid
+	}
+	return ""
+}
+
+func (x *QuotedMessageContext) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *QuotedMessageContext) GetBody() string {
+	if x != nil {
+		return x.Body
+	}
+	return ""
+}
+
+func (x *QuotedMessageContext) GetFromMe() bool {
+	if x != nil {
+		return x.FromMe
+	}
+	return false
+}
+
 type SendMessageResponse struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	CommandId       string                 `protobuf:"bytes,1,opt,name=command_id,json=commandId,proto3" json:"command_id,omitempty"`
@@ -729,7 +816,7 @@ type SendMessageResponse struct {
 
 func (x *SendMessageResponse) Reset() {
 	*x = SendMessageResponse{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[8]
+	mi := &file_v1_gateway_engine_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -741,7 +828,7 @@ func (x *SendMessageResponse) String() string {
 func (*SendMessageResponse) ProtoMessage() {}
 
 func (x *SendMessageResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[8]
+	mi := &file_v1_gateway_engine_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -754,7 +841,7 @@ func (x *SendMessageResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendMessageResponse.ProtoReflect.Descriptor instead.
 func (*SendMessageResponse) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{8}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *SendMessageResponse) GetCommandId() string {
@@ -814,7 +901,7 @@ type MessageOpRequest struct {
 
 func (x *MessageOpRequest) Reset() {
 	*x = MessageOpRequest{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[9]
+	mi := &file_v1_gateway_engine_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -826,7 +913,7 @@ func (x *MessageOpRequest) String() string {
 func (*MessageOpRequest) ProtoMessage() {}
 
 func (x *MessageOpRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[9]
+	mi := &file_v1_gateway_engine_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -839,7 +926,7 @@ func (x *MessageOpRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MessageOpRequest.ProtoReflect.Descriptor instead.
 func (*MessageOpRequest) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{9}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *MessageOpRequest) GetTarget() *SessionTarget {
@@ -924,13 +1011,15 @@ type MessageOpResponse struct {
 	CommandId       string                 `protobuf:"bytes,1,opt,name=command_id,json=commandId,proto3" json:"command_id,omitempty"`
 	Target          *SessionTarget         `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
 	AssignmentEpoch uint64                 `protobuf:"varint,3,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
+	WaMessageId     string                 `protobuf:"bytes,16,opt,name=wa_message_id,json=waMessageId,proto3" json:"wa_message_id,omitempty"`
+	SentAtUnixMs    int64                  `protobuf:"varint,17,opt,name=sent_at_unix_ms,json=sentAtUnixMs,proto3" json:"sent_at_unix_ms,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
 
 func (x *MessageOpResponse) Reset() {
 	*x = MessageOpResponse{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[10]
+	mi := &file_v1_gateway_engine_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -942,7 +1031,7 @@ func (x *MessageOpResponse) String() string {
 func (*MessageOpResponse) ProtoMessage() {}
 
 func (x *MessageOpResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[10]
+	mi := &file_v1_gateway_engine_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -955,7 +1044,7 @@ func (x *MessageOpResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MessageOpResponse.ProtoReflect.Descriptor instead.
 func (*MessageOpResponse) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{10}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *MessageOpResponse) GetCommandId() string {
@@ -979,6 +1068,20 @@ func (x *MessageOpResponse) GetAssignmentEpoch() uint64 {
 	return 0
 }
 
+func (x *MessageOpResponse) GetWaMessageId() string {
+	if x != nil {
+		return x.WaMessageId
+	}
+	return ""
+}
+
+func (x *MessageOpResponse) GetSentAtUnixMs() int64 {
+	if x != nil {
+		return x.SentAtUnixMs
+	}
+	return 0
+}
+
 // LookupContactRequest checks whether phone numbers are on WhatsApp. A read:
 // no command_id and no ledger entry.
 type LookupContactRequest struct {
@@ -992,7 +1095,7 @@ type LookupContactRequest struct {
 
 func (x *LookupContactRequest) Reset() {
 	*x = LookupContactRequest{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[11]
+	mi := &file_v1_gateway_engine_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1004,7 +1107,7 @@ func (x *LookupContactRequest) String() string {
 func (*LookupContactRequest) ProtoMessage() {}
 
 func (x *LookupContactRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[11]
+	mi := &file_v1_gateway_engine_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1017,7 +1120,7 @@ func (x *LookupContactRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LookupContactRequest.ProtoReflect.Descriptor instead.
 func (*LookupContactRequest) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{11}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *LookupContactRequest) GetTarget() *SessionTarget {
@@ -1050,7 +1153,7 @@ type LookupContactResponse struct {
 
 func (x *LookupContactResponse) Reset() {
 	*x = LookupContactResponse{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[12]
+	mi := &file_v1_gateway_engine_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1062,7 +1165,7 @@ func (x *LookupContactResponse) String() string {
 func (*LookupContactResponse) ProtoMessage() {}
 
 func (x *LookupContactResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[12]
+	mi := &file_v1_gateway_engine_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1075,7 +1178,7 @@ func (x *LookupContactResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LookupContactResponse.ProtoReflect.Descriptor instead.
 func (*LookupContactResponse) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{12}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *LookupContactResponse) GetResults() []*ContactLookup {
@@ -1096,7 +1199,7 @@ type ContactLookup struct {
 
 func (x *ContactLookup) Reset() {
 	*x = ContactLookup{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[13]
+	mi := &file_v1_gateway_engine_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1108,7 +1211,7 @@ func (x *ContactLookup) String() string {
 func (*ContactLookup) ProtoMessage() {}
 
 func (x *ContactLookup) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[13]
+	mi := &file_v1_gateway_engine_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1121,7 +1224,7 @@ func (x *ContactLookup) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContactLookup.ProtoReflect.Descriptor instead.
 func (*ContactLookup) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{13}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ContactLookup) GetQuery() string {
@@ -1156,7 +1259,7 @@ type GetContactPictureRequest struct {
 
 func (x *GetContactPictureRequest) Reset() {
 	*x = GetContactPictureRequest{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[14]
+	mi := &file_v1_gateway_engine_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1168,7 +1271,7 @@ func (x *GetContactPictureRequest) String() string {
 func (*GetContactPictureRequest) ProtoMessage() {}
 
 func (x *GetContactPictureRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[14]
+	mi := &file_v1_gateway_engine_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1181,7 +1284,7 @@ func (x *GetContactPictureRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetContactPictureRequest.ProtoReflect.Descriptor instead.
 func (*GetContactPictureRequest) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{14}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *GetContactPictureRequest) GetTarget() *SessionTarget {
@@ -1215,7 +1318,7 @@ type GetContactPictureResponse struct {
 
 func (x *GetContactPictureResponse) Reset() {
 	*x = GetContactPictureResponse{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[15]
+	mi := &file_v1_gateway_engine_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1227,7 +1330,7 @@ func (x *GetContactPictureResponse) String() string {
 func (*GetContactPictureResponse) ProtoMessage() {}
 
 func (x *GetContactPictureResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[15]
+	mi := &file_v1_gateway_engine_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1240,7 +1343,7 @@ func (x *GetContactPictureResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetContactPictureResponse.ProtoReflect.Descriptor instead.
 func (*GetContactPictureResponse) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{15}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *GetContactPictureResponse) GetUrl() string {
@@ -1268,7 +1371,7 @@ type GetContactAboutRequest struct {
 
 func (x *GetContactAboutRequest) Reset() {
 	*x = GetContactAboutRequest{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[16]
+	mi := &file_v1_gateway_engine_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1280,7 +1383,7 @@ func (x *GetContactAboutRequest) String() string {
 func (*GetContactAboutRequest) ProtoMessage() {}
 
 func (x *GetContactAboutRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[16]
+	mi := &file_v1_gateway_engine_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1293,7 +1396,7 @@ func (x *GetContactAboutRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetContactAboutRequest.ProtoReflect.Descriptor instead.
 func (*GetContactAboutRequest) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{16}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *GetContactAboutRequest) GetTarget() *SessionTarget {
@@ -1326,7 +1429,7 @@ type GetContactAboutResponse struct {
 
 func (x *GetContactAboutResponse) Reset() {
 	*x = GetContactAboutResponse{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[17]
+	mi := &file_v1_gateway_engine_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1338,7 +1441,7 @@ func (x *GetContactAboutResponse) String() string {
 func (*GetContactAboutResponse) ProtoMessage() {}
 
 func (x *GetContactAboutResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[17]
+	mi := &file_v1_gateway_engine_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1351,7 +1454,7 @@ func (x *GetContactAboutResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetContactAboutResponse.ProtoReflect.Descriptor instead.
 func (*GetContactAboutResponse) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{17}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *GetContactAboutResponse) GetAbout() string {
@@ -1377,7 +1480,7 @@ type SetBlockedRequest struct {
 
 func (x *SetBlockedRequest) Reset() {
 	*x = SetBlockedRequest{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[18]
+	mi := &file_v1_gateway_engine_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1389,7 +1492,7 @@ func (x *SetBlockedRequest) String() string {
 func (*SetBlockedRequest) ProtoMessage() {}
 
 func (x *SetBlockedRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[18]
+	mi := &file_v1_gateway_engine_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1402,7 +1505,7 @@ func (x *SetBlockedRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetBlockedRequest.ProtoReflect.Descriptor instead.
 func (*SetBlockedRequest) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{18}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *SetBlockedRequest) GetTarget() *SessionTarget {
@@ -1451,7 +1554,7 @@ type SetBlockedResponse struct {
 
 func (x *SetBlockedResponse) Reset() {
 	*x = SetBlockedResponse{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[19]
+	mi := &file_v1_gateway_engine_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1463,7 +1566,7 @@ func (x *SetBlockedResponse) String() string {
 func (*SetBlockedResponse) ProtoMessage() {}
 
 func (x *SetBlockedResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[19]
+	mi := &file_v1_gateway_engine_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1476,7 +1579,7 @@ func (x *SetBlockedResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetBlockedResponse.ProtoReflect.Descriptor instead.
 func (*SetBlockedResponse) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{19}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *SetBlockedResponse) GetCommandId() string {
@@ -1515,7 +1618,7 @@ type CreateGroupRequest struct {
 
 func (x *CreateGroupRequest) Reset() {
 	*x = CreateGroupRequest{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[20]
+	mi := &file_v1_gateway_engine_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1527,7 +1630,7 @@ func (x *CreateGroupRequest) String() string {
 func (*CreateGroupRequest) ProtoMessage() {}
 
 func (x *CreateGroupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[20]
+	mi := &file_v1_gateway_engine_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1540,7 +1643,7 @@ func (x *CreateGroupRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateGroupRequest.ProtoReflect.Descriptor instead.
 func (*CreateGroupRequest) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{20}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *CreateGroupRequest) GetTarget() *SessionTarget {
@@ -1593,7 +1696,7 @@ type GroupInfo struct {
 
 func (x *GroupInfo) Reset() {
 	*x = GroupInfo{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[21]
+	mi := &file_v1_gateway_engine_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1605,7 +1708,7 @@ func (x *GroupInfo) String() string {
 func (*GroupInfo) ProtoMessage() {}
 
 func (x *GroupInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[21]
+	mi := &file_v1_gateway_engine_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1618,7 +1721,7 @@ func (x *GroupInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GroupInfo.ProtoReflect.Descriptor instead.
 func (*GroupInfo) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{21}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *GroupInfo) GetGroupJid() string {
@@ -1682,7 +1785,7 @@ type CreateGroupResponse struct {
 
 func (x *CreateGroupResponse) Reset() {
 	*x = CreateGroupResponse{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[22]
+	mi := &file_v1_gateway_engine_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1694,7 +1797,7 @@ func (x *CreateGroupResponse) String() string {
 func (*CreateGroupResponse) ProtoMessage() {}
 
 func (x *CreateGroupResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[22]
+	mi := &file_v1_gateway_engine_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1707,7 +1810,7 @@ func (x *CreateGroupResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateGroupResponse.ProtoReflect.Descriptor instead.
 func (*CreateGroupResponse) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{22}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *CreateGroupResponse) GetCommandId() string {
@@ -1756,7 +1859,7 @@ type UpdateGroupSettingsRequest struct {
 
 func (x *UpdateGroupSettingsRequest) Reset() {
 	*x = UpdateGroupSettingsRequest{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[23]
+	mi := &file_v1_gateway_engine_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1768,7 +1871,7 @@ func (x *UpdateGroupSettingsRequest) String() string {
 func (*UpdateGroupSettingsRequest) ProtoMessage() {}
 
 func (x *UpdateGroupSettingsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[23]
+	mi := &file_v1_gateway_engine_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1781,7 +1884,7 @@ func (x *UpdateGroupSettingsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateGroupSettingsRequest.ProtoReflect.Descriptor instead.
 func (*UpdateGroupSettingsRequest) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{23}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *UpdateGroupSettingsRequest) GetTarget() *SessionTarget {
@@ -1851,7 +1954,7 @@ type UpdateGroupSettingsResponse struct {
 
 func (x *UpdateGroupSettingsResponse) Reset() {
 	*x = UpdateGroupSettingsResponse{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[24]
+	mi := &file_v1_gateway_engine_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1863,7 +1966,7 @@ func (x *UpdateGroupSettingsResponse) String() string {
 func (*UpdateGroupSettingsResponse) ProtoMessage() {}
 
 func (x *UpdateGroupSettingsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[24]
+	mi := &file_v1_gateway_engine_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1876,7 +1979,7 @@ func (x *UpdateGroupSettingsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateGroupSettingsResponse.ProtoReflect.Descriptor instead.
 func (*UpdateGroupSettingsResponse) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{24}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *UpdateGroupSettingsResponse) GetCommandId() string {
@@ -1914,7 +2017,7 @@ type UpdateGroupParticipantsRequest struct {
 
 func (x *UpdateGroupParticipantsRequest) Reset() {
 	*x = UpdateGroupParticipantsRequest{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[25]
+	mi := &file_v1_gateway_engine_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1926,7 +2029,7 @@ func (x *UpdateGroupParticipantsRequest) String() string {
 func (*UpdateGroupParticipantsRequest) ProtoMessage() {}
 
 func (x *UpdateGroupParticipantsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[25]
+	mi := &file_v1_gateway_engine_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1939,7 +2042,7 @@ func (x *UpdateGroupParticipantsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateGroupParticipantsRequest.ProtoReflect.Descriptor instead.
 func (*UpdateGroupParticipantsRequest) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{25}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *UpdateGroupParticipantsRequest) GetTarget() *SessionTarget {
@@ -1995,7 +2098,7 @@ type UpdateGroupParticipantsResponse struct {
 
 func (x *UpdateGroupParticipantsResponse) Reset() {
 	*x = UpdateGroupParticipantsResponse{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[26]
+	mi := &file_v1_gateway_engine_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2007,7 +2110,7 @@ func (x *UpdateGroupParticipantsResponse) String() string {
 func (*UpdateGroupParticipantsResponse) ProtoMessage() {}
 
 func (x *UpdateGroupParticipantsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[26]
+	mi := &file_v1_gateway_engine_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2020,7 +2123,7 @@ func (x *UpdateGroupParticipantsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateGroupParticipantsResponse.ProtoReflect.Descriptor instead.
 func (*UpdateGroupParticipantsResponse) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{26}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *UpdateGroupParticipantsResponse) GetCommandId() string {
@@ -2060,7 +2163,7 @@ type GetGroupInviteLinkRequest struct {
 
 func (x *GetGroupInviteLinkRequest) Reset() {
 	*x = GetGroupInviteLinkRequest{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[27]
+	mi := &file_v1_gateway_engine_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2072,7 +2175,7 @@ func (x *GetGroupInviteLinkRequest) String() string {
 func (*GetGroupInviteLinkRequest) ProtoMessage() {}
 
 func (x *GetGroupInviteLinkRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[27]
+	mi := &file_v1_gateway_engine_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2085,7 +2188,7 @@ func (x *GetGroupInviteLinkRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetGroupInviteLinkRequest.ProtoReflect.Descriptor instead.
 func (*GetGroupInviteLinkRequest) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{27}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *GetGroupInviteLinkRequest) GetTarget() *SessionTarget {
@@ -2125,7 +2228,7 @@ type GetGroupInviteLinkResponse struct {
 
 func (x *GetGroupInviteLinkResponse) Reset() {
 	*x = GetGroupInviteLinkResponse{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[28]
+	mi := &file_v1_gateway_engine_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2137,7 +2240,7 @@ func (x *GetGroupInviteLinkResponse) String() string {
 func (*GetGroupInviteLinkResponse) ProtoMessage() {}
 
 func (x *GetGroupInviteLinkResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[28]
+	mi := &file_v1_gateway_engine_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2150,7 +2253,7 @@ func (x *GetGroupInviteLinkResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetGroupInviteLinkResponse.ProtoReflect.Descriptor instead.
 func (*GetGroupInviteLinkResponse) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{28}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *GetGroupInviteLinkResponse) GetLink() string {
@@ -2171,7 +2274,7 @@ type JoinGroupRequest struct {
 
 func (x *JoinGroupRequest) Reset() {
 	*x = JoinGroupRequest{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[29]
+	mi := &file_v1_gateway_engine_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2183,7 +2286,7 @@ func (x *JoinGroupRequest) String() string {
 func (*JoinGroupRequest) ProtoMessage() {}
 
 func (x *JoinGroupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[29]
+	mi := &file_v1_gateway_engine_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2196,7 +2299,7 @@ func (x *JoinGroupRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JoinGroupRequest.ProtoReflect.Descriptor instead.
 func (*JoinGroupRequest) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{29}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *JoinGroupRequest) GetTarget() *SessionTarget {
@@ -2229,7 +2332,7 @@ type JoinGroupResponse struct {
 
 func (x *JoinGroupResponse) Reset() {
 	*x = JoinGroupResponse{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[30]
+	mi := &file_v1_gateway_engine_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2241,7 +2344,7 @@ func (x *JoinGroupResponse) String() string {
 func (*JoinGroupResponse) ProtoMessage() {}
 
 func (x *JoinGroupResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[30]
+	mi := &file_v1_gateway_engine_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2254,7 +2357,7 @@ func (x *JoinGroupResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JoinGroupResponse.ProtoReflect.Descriptor instead.
 func (*JoinGroupResponse) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{30}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *JoinGroupResponse) GetGroupJid() string {
@@ -2276,7 +2379,7 @@ type LeaveGroupRequest struct {
 
 func (x *LeaveGroupRequest) Reset() {
 	*x = LeaveGroupRequest{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[31]
+	mi := &file_v1_gateway_engine_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2288,7 +2391,7 @@ func (x *LeaveGroupRequest) String() string {
 func (*LeaveGroupRequest) ProtoMessage() {}
 
 func (x *LeaveGroupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[31]
+	mi := &file_v1_gateway_engine_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2301,7 +2404,7 @@ func (x *LeaveGroupRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LeaveGroupRequest.ProtoReflect.Descriptor instead.
 func (*LeaveGroupRequest) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{31}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *LeaveGroupRequest) GetTarget() *SessionTarget {
@@ -2343,7 +2446,7 @@ type LeaveGroupResponse struct {
 
 func (x *LeaveGroupResponse) Reset() {
 	*x = LeaveGroupResponse{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[32]
+	mi := &file_v1_gateway_engine_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2355,7 +2458,7 @@ func (x *LeaveGroupResponse) String() string {
 func (*LeaveGroupResponse) ProtoMessage() {}
 
 func (x *LeaveGroupResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[32]
+	mi := &file_v1_gateway_engine_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2368,7 +2471,7 @@ func (x *LeaveGroupResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LeaveGroupResponse.ProtoReflect.Descriptor instead.
 func (*LeaveGroupResponse) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{32}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *LeaveGroupResponse) GetCommandId() string {
@@ -2406,7 +2509,7 @@ type GetChatPresenceRequest struct {
 
 func (x *GetChatPresenceRequest) Reset() {
 	*x = GetChatPresenceRequest{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[33]
+	mi := &file_v1_gateway_engine_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2418,7 +2521,7 @@ func (x *GetChatPresenceRequest) String() string {
 func (*GetChatPresenceRequest) ProtoMessage() {}
 
 func (x *GetChatPresenceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[33]
+	mi := &file_v1_gateway_engine_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2431,7 +2534,7 @@ func (x *GetChatPresenceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetChatPresenceRequest.ProtoReflect.Descriptor instead.
 func (*GetChatPresenceRequest) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{33}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *GetChatPresenceRequest) GetTarget() *SessionTarget {
@@ -2469,7 +2572,7 @@ type ChatPresenceStatus struct {
 
 func (x *ChatPresenceStatus) Reset() {
 	*x = ChatPresenceStatus{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[34]
+	mi := &file_v1_gateway_engine_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2481,7 +2584,7 @@ func (x *ChatPresenceStatus) String() string {
 func (*ChatPresenceStatus) ProtoMessage() {}
 
 func (x *ChatPresenceStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[34]
+	mi := &file_v1_gateway_engine_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2494,7 +2597,7 @@ func (x *ChatPresenceStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChatPresenceStatus.ProtoReflect.Descriptor instead.
 func (*ChatPresenceStatus) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{34}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *ChatPresenceStatus) GetChatJid() string {
@@ -2548,7 +2651,7 @@ type GetChatPresenceResponse struct {
 
 func (x *GetChatPresenceResponse) Reset() {
 	*x = GetChatPresenceResponse{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[35]
+	mi := &file_v1_gateway_engine_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2560,7 +2663,7 @@ func (x *GetChatPresenceResponse) String() string {
 func (*GetChatPresenceResponse) ProtoMessage() {}
 
 func (x *GetChatPresenceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[35]
+	mi := &file_v1_gateway_engine_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2573,7 +2676,7 @@ func (x *GetChatPresenceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetChatPresenceResponse.ProtoReflect.Descriptor instead.
 func (*GetChatPresenceResponse) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{35}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *GetChatPresenceResponse) GetPresence() *ChatPresenceStatus {
@@ -2595,7 +2698,7 @@ type SetChatPresenceRequest struct {
 
 func (x *SetChatPresenceRequest) Reset() {
 	*x = SetChatPresenceRequest{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[36]
+	mi := &file_v1_gateway_engine_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2607,7 +2710,7 @@ func (x *SetChatPresenceRequest) String() string {
 func (*SetChatPresenceRequest) ProtoMessage() {}
 
 func (x *SetChatPresenceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[36]
+	mi := &file_v1_gateway_engine_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2620,7 +2723,7 @@ func (x *SetChatPresenceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetChatPresenceRequest.ProtoReflect.Descriptor instead.
 func (*SetChatPresenceRequest) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{36}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *SetChatPresenceRequest) GetTarget() *SessionTarget {
@@ -2659,7 +2762,7 @@ type SetChatPresenceResponse struct {
 
 func (x *SetChatPresenceResponse) Reset() {
 	*x = SetChatPresenceResponse{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[37]
+	mi := &file_v1_gateway_engine_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2671,7 +2774,7 @@ func (x *SetChatPresenceResponse) String() string {
 func (*SetChatPresenceResponse) ProtoMessage() {}
 
 func (x *SetChatPresenceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[37]
+	mi := &file_v1_gateway_engine_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2684,7 +2787,7 @@ func (x *SetChatPresenceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetChatPresenceResponse.ProtoReflect.Descriptor instead.
 func (*SetChatPresenceResponse) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{37}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{38}
 }
 
 // BackfillSessionRequest pulls the session's direct-API data (contacts plus
@@ -2700,7 +2803,7 @@ type BackfillSessionRequest struct {
 
 func (x *BackfillSessionRequest) Reset() {
 	*x = BackfillSessionRequest{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[38]
+	mi := &file_v1_gateway_engine_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2712,7 +2815,7 @@ func (x *BackfillSessionRequest) String() string {
 func (*BackfillSessionRequest) ProtoMessage() {}
 
 func (x *BackfillSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[38]
+	mi := &file_v1_gateway_engine_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2725,7 +2828,7 @@ func (x *BackfillSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BackfillSessionRequest.ProtoReflect.Descriptor instead.
 func (*BackfillSessionRequest) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{38}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *BackfillSessionRequest) GetTarget() *SessionTarget {
@@ -2752,7 +2855,7 @@ type BackfillSnapshot struct {
 
 func (x *BackfillSnapshot) Reset() {
 	*x = BackfillSnapshot{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[39]
+	mi := &file_v1_gateway_engine_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2764,7 +2867,7 @@ func (x *BackfillSnapshot) String() string {
 func (*BackfillSnapshot) ProtoMessage() {}
 
 func (x *BackfillSnapshot) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[39]
+	mi := &file_v1_gateway_engine_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2777,7 +2880,7 @@ func (x *BackfillSnapshot) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BackfillSnapshot.ProtoReflect.Descriptor instead.
 func (*BackfillSnapshot) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{39}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *BackfillSnapshot) GetContacts() []*BackfillContact {
@@ -2807,7 +2910,7 @@ type BackfillContact struct {
 
 func (x *BackfillContact) Reset() {
 	*x = BackfillContact{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[40]
+	mi := &file_v1_gateway_engine_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2819,7 +2922,7 @@ func (x *BackfillContact) String() string {
 func (*BackfillContact) ProtoMessage() {}
 
 func (x *BackfillContact) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[40]
+	mi := &file_v1_gateway_engine_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2832,7 +2935,7 @@ func (x *BackfillContact) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BackfillContact.ProtoReflect.Descriptor instead.
 func (*BackfillContact) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{40}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *BackfillContact) GetLid() string {
@@ -2887,7 +2990,7 @@ type BackfillGroup struct {
 
 func (x *BackfillGroup) Reset() {
 	*x = BackfillGroup{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[41]
+	mi := &file_v1_gateway_engine_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2899,7 +3002,7 @@ func (x *BackfillGroup) String() string {
 func (*BackfillGroup) ProtoMessage() {}
 
 func (x *BackfillGroup) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[41]
+	mi := &file_v1_gateway_engine_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2912,7 +3015,7 @@ func (x *BackfillGroup) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BackfillGroup.ProtoReflect.Descriptor instead.
 func (*BackfillGroup) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{41}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *BackfillGroup) GetGroupJid() string {
@@ -2992,7 +3095,7 @@ type BackfillMember struct {
 
 func (x *BackfillMember) Reset() {
 	*x = BackfillMember{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[42]
+	mi := &file_v1_gateway_engine_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3004,7 +3107,7 @@ func (x *BackfillMember) String() string {
 func (*BackfillMember) ProtoMessage() {}
 
 func (x *BackfillMember) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[42]
+	mi := &file_v1_gateway_engine_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3017,7 +3120,7 @@ func (x *BackfillMember) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BackfillMember.ProtoReflect.Descriptor instead.
 func (*BackfillMember) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{42}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *BackfillMember) GetLid() string {
@@ -3071,7 +3174,7 @@ type BackfillSessionResponse struct {
 
 func (x *BackfillSessionResponse) Reset() {
 	*x = BackfillSessionResponse{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[43]
+	mi := &file_v1_gateway_engine_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3083,7 +3186,7 @@ func (x *BackfillSessionResponse) String() string {
 func (*BackfillSessionResponse) ProtoMessage() {}
 
 func (x *BackfillSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[43]
+	mi := &file_v1_gateway_engine_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3096,7 +3199,7 @@ func (x *BackfillSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BackfillSessionResponse.ProtoReflect.Descriptor instead.
 func (*BackfillSessionResponse) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{43}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *BackfillSessionResponse) GetSnapshot() *BackfillSnapshot {
@@ -3120,7 +3223,7 @@ type PrepareSessionRequest struct {
 
 func (x *PrepareSessionRequest) Reset() {
 	*x = PrepareSessionRequest{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[44]
+	mi := &file_v1_gateway_engine_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3132,7 +3235,7 @@ func (x *PrepareSessionRequest) String() string {
 func (*PrepareSessionRequest) ProtoMessage() {}
 
 func (x *PrepareSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[44]
+	mi := &file_v1_gateway_engine_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3145,7 +3248,7 @@ func (x *PrepareSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PrepareSessionRequest.ProtoReflect.Descriptor instead.
 func (*PrepareSessionRequest) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{44}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *PrepareSessionRequest) GetTarget() *SessionTarget {
@@ -3172,7 +3275,7 @@ type PrepareSessionResponse struct {
 
 func (x *PrepareSessionResponse) Reset() {
 	*x = PrepareSessionResponse{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[45]
+	mi := &file_v1_gateway_engine_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3184,7 +3287,7 @@ func (x *PrepareSessionResponse) String() string {
 func (*PrepareSessionResponse) ProtoMessage() {}
 
 func (x *PrepareSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[45]
+	mi := &file_v1_gateway_engine_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3197,7 +3300,7 @@ func (x *PrepareSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PrepareSessionResponse.ProtoReflect.Descriptor instead.
 func (*PrepareSessionResponse) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{45}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *PrepareSessionResponse) GetTarget() *SessionTarget {
@@ -3228,7 +3331,7 @@ type BeginPairingRequest struct {
 
 func (x *BeginPairingRequest) Reset() {
 	*x = BeginPairingRequest{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[46]
+	mi := &file_v1_gateway_engine_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3240,7 +3343,7 @@ func (x *BeginPairingRequest) String() string {
 func (*BeginPairingRequest) ProtoMessage() {}
 
 func (x *BeginPairingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[46]
+	mi := &file_v1_gateway_engine_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3253,7 +3356,7 @@ func (x *BeginPairingRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BeginPairingRequest.ProtoReflect.Descriptor instead.
 func (*BeginPairingRequest) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{46}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *BeginPairingRequest) GetTarget() *SessionTarget {
@@ -3282,7 +3385,7 @@ type BeginPairingResponse struct {
 
 func (x *BeginPairingResponse) Reset() {
 	*x = BeginPairingResponse{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[47]
+	mi := &file_v1_gateway_engine_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3294,7 +3397,7 @@ func (x *BeginPairingResponse) String() string {
 func (*BeginPairingResponse) ProtoMessage() {}
 
 func (x *BeginPairingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[47]
+	mi := &file_v1_gateway_engine_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3307,7 +3410,7 @@ func (x *BeginPairingResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BeginPairingResponse.ProtoReflect.Descriptor instead.
 func (*BeginPairingResponse) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{47}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *BeginPairingResponse) GetTarget() *SessionTarget {
@@ -3351,7 +3454,7 @@ type PairPhoneRequest struct {
 
 func (x *PairPhoneRequest) Reset() {
 	*x = PairPhoneRequest{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[48]
+	mi := &file_v1_gateway_engine_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3363,7 +3466,7 @@ func (x *PairPhoneRequest) String() string {
 func (*PairPhoneRequest) ProtoMessage() {}
 
 func (x *PairPhoneRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[48]
+	mi := &file_v1_gateway_engine_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3376,7 +3479,7 @@ func (x *PairPhoneRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PairPhoneRequest.ProtoReflect.Descriptor instead.
 func (*PairPhoneRequest) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{48}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *PairPhoneRequest) GetTarget() *SessionTarget {
@@ -3411,7 +3514,7 @@ type PairPhoneResponse struct {
 
 func (x *PairPhoneResponse) Reset() {
 	*x = PairPhoneResponse{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[49]
+	mi := &file_v1_gateway_engine_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3423,7 +3526,7 @@ func (x *PairPhoneResponse) String() string {
 func (*PairPhoneResponse) ProtoMessage() {}
 
 func (x *PairPhoneResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[49]
+	mi := &file_v1_gateway_engine_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3436,7 +3539,7 @@ func (x *PairPhoneResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PairPhoneResponse.ProtoReflect.Descriptor instead.
 func (*PairPhoneResponse) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{49}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *PairPhoneResponse) GetTarget() *SessionTarget {
@@ -3474,7 +3577,7 @@ type LogoutSessionRequest struct {
 
 func (x *LogoutSessionRequest) Reset() {
 	*x = LogoutSessionRequest{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[50]
+	mi := &file_v1_gateway_engine_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3486,7 +3589,7 @@ func (x *LogoutSessionRequest) String() string {
 func (*LogoutSessionRequest) ProtoMessage() {}
 
 func (x *LogoutSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[50]
+	mi := &file_v1_gateway_engine_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3499,7 +3602,7 @@ func (x *LogoutSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogoutSessionRequest.ProtoReflect.Descriptor instead.
 func (*LogoutSessionRequest) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{50}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *LogoutSessionRequest) GetTarget() *SessionTarget {
@@ -3534,7 +3637,7 @@ type LogoutSessionResponse struct {
 
 func (x *LogoutSessionResponse) Reset() {
 	*x = LogoutSessionResponse{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[51]
+	mi := &file_v1_gateway_engine_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3546,7 +3649,7 @@ func (x *LogoutSessionResponse) String() string {
 func (*LogoutSessionResponse) ProtoMessage() {}
 
 func (x *LogoutSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[51]
+	mi := &file_v1_gateway_engine_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3559,7 +3662,7 @@ func (x *LogoutSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogoutSessionResponse.ProtoReflect.Descriptor instead.
 func (*LogoutSessionResponse) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{51}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *LogoutSessionResponse) GetCommandId() string {
@@ -3597,7 +3700,7 @@ type ForgetSessionRequest struct {
 
 func (x *ForgetSessionRequest) Reset() {
 	*x = ForgetSessionRequest{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[52]
+	mi := &file_v1_gateway_engine_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3609,7 +3712,7 @@ func (x *ForgetSessionRequest) String() string {
 func (*ForgetSessionRequest) ProtoMessage() {}
 
 func (x *ForgetSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[52]
+	mi := &file_v1_gateway_engine_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3622,7 +3725,7 @@ func (x *ForgetSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ForgetSessionRequest.ProtoReflect.Descriptor instead.
 func (*ForgetSessionRequest) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{52}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *ForgetSessionRequest) GetTarget() *SessionTarget {
@@ -3641,7 +3744,7 @@ type ForgetSessionResponse struct {
 
 func (x *ForgetSessionResponse) Reset() {
 	*x = ForgetSessionResponse{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[53]
+	mi := &file_v1_gateway_engine_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3653,7 +3756,7 @@ func (x *ForgetSessionResponse) String() string {
 func (*ForgetSessionResponse) ProtoMessage() {}
 
 func (x *ForgetSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[53]
+	mi := &file_v1_gateway_engine_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3666,7 +3769,7 @@ func (x *ForgetSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ForgetSessionResponse.ProtoReflect.Descriptor instead.
 func (*ForgetSessionResponse) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{53}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *ForgetSessionResponse) GetTarget() *SessionTarget {
@@ -3688,7 +3791,7 @@ type DownloadMediaRequest struct {
 
 func (x *DownloadMediaRequest) Reset() {
 	*x = DownloadMediaRequest{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[54]
+	mi := &file_v1_gateway_engine_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3700,7 +3803,7 @@ func (x *DownloadMediaRequest) String() string {
 func (*DownloadMediaRequest) ProtoMessage() {}
 
 func (x *DownloadMediaRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[54]
+	mi := &file_v1_gateway_engine_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3713,7 +3816,7 @@ func (x *DownloadMediaRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DownloadMediaRequest.ProtoReflect.Descriptor instead.
 func (*DownloadMediaRequest) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{54}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *DownloadMediaRequest) GetTarget() *SessionTarget {
@@ -3746,7 +3849,7 @@ type DownloadMediaResponse struct {
 
 func (x *DownloadMediaResponse) Reset() {
 	*x = DownloadMediaResponse{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[55]
+	mi := &file_v1_gateway_engine_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3758,7 +3861,7 @@ func (x *DownloadMediaResponse) String() string {
 func (*DownloadMediaResponse) ProtoMessage() {}
 
 func (x *DownloadMediaResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[55]
+	mi := &file_v1_gateway_engine_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3771,7 +3874,7 @@ func (x *DownloadMediaResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DownloadMediaResponse.ProtoReflect.Descriptor instead.
 func (*DownloadMediaResponse) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{55}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *DownloadMediaResponse) GetData() []byte {
@@ -3827,13 +3930,21 @@ const file_v1_gateway_engine_proto_rawDesc = "" +
 	"\n" +
 	"command_id\x18\x01 \x01(\tR\tcommandId\x121\n" +
 	"\x06target\x18\x02 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
-	"\x10assignment_epoch\x18\x03 \x01(\x04R\x0fassignmentEpochJ\x04\b\x04\x10\x10\"\xba\x01\n" +
+	"\x10assignment_epoch\x18\x03 \x01(\x04R\x0fassignmentEpochJ\x04\b\x04\x10\x10\"\x81\x02\n" +
 	"\x12SendMessageRequest\x121\n" +
 	"\x06target\x18\x01 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
 	"\x10assignment_epoch\x18\x02 \x01(\x04R\x0fassignmentEpoch\x12\x1d\n" +
 	"\n" +
 	"command_id\x18\x03 \x01(\tR\tcommandId\x12!\n" +
-	"\fpayload_json\x18\x04 \x01(\fR\vpayloadJsonJ\x04\b\x05\x10\x10\"\xe3\x01\n" +
+	"\fpayload_json\x18\x04 \x01(\fR\vpayloadJson\x12E\n" +
+	"\rquote_context\x18\x10 \x01(\v2 .gateway.v1.QuotedMessageContextR\fquoteContextJ\x04\b\x05\x10\x10\"\x91\x01\n" +
+	"\x14QuotedMessageContext\x12\x19\n" +
+	"\bchat_jid\x18\x01 \x01(\tR\achatJid\x12\x1d\n" +
+	"\n" +
+	"sender_jid\x18\x02 \x01(\tR\tsenderJid\x12\x12\n" +
+	"\x04type\x18\x03 \x01(\tR\x04type\x12\x12\n" +
+	"\x04body\x18\x04 \x01(\tR\x04body\x12\x17\n" +
+	"\afrom_me\x18\x05 \x01(\bR\x06fromMe\"\xe3\x01\n" +
 	"\x13SendMessageResponse\x12\x1d\n" +
 	"\n" +
 	"command_id\x18\x01 \x01(\tR\tcommandId\x121\n" +
@@ -3856,12 +3967,14 @@ const file_v1_gateway_engine_proto_rawDesc = "" +
 	"\bnew_text\x18\t \x01(\tR\anewText\x12\x18\n" +
 	"\aoptions\x18\n" +
 	" \x03(\tR\aoptions\x12\x15\n" +
-	"\x06to_jid\x18\v \x01(\tR\x05toJidJ\x04\b\f\x10\x10\"\x96\x01\n" +
+	"\x06to_jid\x18\v \x01(\tR\x05toJidJ\x04\b\f\x10\x10\"\xe1\x01\n" +
 	"\x11MessageOpResponse\x12\x1d\n" +
 	"\n" +
 	"command_id\x18\x01 \x01(\tR\tcommandId\x121\n" +
 	"\x06target\x18\x02 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
-	"\x10assignment_epoch\x18\x03 \x01(\x04R\x0fassignmentEpochJ\x04\b\x04\x10\x10\"\x92\x01\n" +
+	"\x10assignment_epoch\x18\x03 \x01(\x04R\x0fassignmentEpoch\x12\"\n" +
+	"\rwa_message_id\x18\x10 \x01(\tR\vwaMessageId\x12%\n" +
+	"\x0fsent_at_unix_ms\x18\x11 \x01(\x03R\fsentAtUnixMsJ\x04\b\x04\x10\x10\"\x92\x01\n" +
 	"\x14LookupContactRequest\x121\n" +
 	"\x06target\x18\x01 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
 	"\x10assignment_epoch\x18\x02 \x01(\x04R\x0fassignmentEpoch\x12\x16\n" +
@@ -4131,7 +4244,7 @@ func file_v1_gateway_engine_proto_rawDescGZIP() []byte {
 }
 
 var file_v1_gateway_engine_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_v1_gateway_engine_proto_msgTypes = make([]protoimpl.MessageInfo, 56)
+var file_v1_gateway_engine_proto_msgTypes = make([]protoimpl.MessageInfo, 57)
 var file_v1_gateway_engine_proto_goTypes = []any{
 	(GatewaySessionStatus)(0),               // 0: gateway.v1.GatewaySessionStatus
 	(AccountPresence)(0),                    // 1: gateway.v1.AccountPresence
@@ -4144,54 +4257,55 @@ var file_v1_gateway_engine_proto_goTypes = []any{
 	(*SetAccountPresenceResponse)(nil),      // 8: gateway.v1.SetAccountPresenceResponse
 	(*MarkReadResponse)(nil),                // 9: gateway.v1.MarkReadResponse
 	(*SendMessageRequest)(nil),              // 10: gateway.v1.SendMessageRequest
-	(*SendMessageResponse)(nil),             // 11: gateway.v1.SendMessageResponse
-	(*MessageOpRequest)(nil),                // 12: gateway.v1.MessageOpRequest
-	(*MessageOpResponse)(nil),               // 13: gateway.v1.MessageOpResponse
-	(*LookupContactRequest)(nil),            // 14: gateway.v1.LookupContactRequest
-	(*LookupContactResponse)(nil),           // 15: gateway.v1.LookupContactResponse
-	(*ContactLookup)(nil),                   // 16: gateway.v1.ContactLookup
-	(*GetContactPictureRequest)(nil),        // 17: gateway.v1.GetContactPictureRequest
-	(*GetContactPictureResponse)(nil),       // 18: gateway.v1.GetContactPictureResponse
-	(*GetContactAboutRequest)(nil),          // 19: gateway.v1.GetContactAboutRequest
-	(*GetContactAboutResponse)(nil),         // 20: gateway.v1.GetContactAboutResponse
-	(*SetBlockedRequest)(nil),               // 21: gateway.v1.SetBlockedRequest
-	(*SetBlockedResponse)(nil),              // 22: gateway.v1.SetBlockedResponse
-	(*CreateGroupRequest)(nil),              // 23: gateway.v1.CreateGroupRequest
-	(*GroupInfo)(nil),                       // 24: gateway.v1.GroupInfo
-	(*CreateGroupResponse)(nil),             // 25: gateway.v1.CreateGroupResponse
-	(*UpdateGroupSettingsRequest)(nil),      // 26: gateway.v1.UpdateGroupSettingsRequest
-	(*UpdateGroupSettingsResponse)(nil),     // 27: gateway.v1.UpdateGroupSettingsResponse
-	(*UpdateGroupParticipantsRequest)(nil),  // 28: gateway.v1.UpdateGroupParticipantsRequest
-	(*UpdateGroupParticipantsResponse)(nil), // 29: gateway.v1.UpdateGroupParticipantsResponse
-	(*GetGroupInviteLinkRequest)(nil),       // 30: gateway.v1.GetGroupInviteLinkRequest
-	(*GetGroupInviteLinkResponse)(nil),      // 31: gateway.v1.GetGroupInviteLinkResponse
-	(*JoinGroupRequest)(nil),                // 32: gateway.v1.JoinGroupRequest
-	(*JoinGroupResponse)(nil),               // 33: gateway.v1.JoinGroupResponse
-	(*LeaveGroupRequest)(nil),               // 34: gateway.v1.LeaveGroupRequest
-	(*LeaveGroupResponse)(nil),              // 35: gateway.v1.LeaveGroupResponse
-	(*GetChatPresenceRequest)(nil),          // 36: gateway.v1.GetChatPresenceRequest
-	(*ChatPresenceStatus)(nil),              // 37: gateway.v1.ChatPresenceStatus
-	(*GetChatPresenceResponse)(nil),         // 38: gateway.v1.GetChatPresenceResponse
-	(*SetChatPresenceRequest)(nil),          // 39: gateway.v1.SetChatPresenceRequest
-	(*SetChatPresenceResponse)(nil),         // 40: gateway.v1.SetChatPresenceResponse
-	(*BackfillSessionRequest)(nil),          // 41: gateway.v1.BackfillSessionRequest
-	(*BackfillSnapshot)(nil),                // 42: gateway.v1.BackfillSnapshot
-	(*BackfillContact)(nil),                 // 43: gateway.v1.BackfillContact
-	(*BackfillGroup)(nil),                   // 44: gateway.v1.BackfillGroup
-	(*BackfillMember)(nil),                  // 45: gateway.v1.BackfillMember
-	(*BackfillSessionResponse)(nil),         // 46: gateway.v1.BackfillSessionResponse
-	(*PrepareSessionRequest)(nil),           // 47: gateway.v1.PrepareSessionRequest
-	(*PrepareSessionResponse)(nil),          // 48: gateway.v1.PrepareSessionResponse
-	(*BeginPairingRequest)(nil),             // 49: gateway.v1.BeginPairingRequest
-	(*BeginPairingResponse)(nil),            // 50: gateway.v1.BeginPairingResponse
-	(*PairPhoneRequest)(nil),                // 51: gateway.v1.PairPhoneRequest
-	(*PairPhoneResponse)(nil),               // 52: gateway.v1.PairPhoneResponse
-	(*LogoutSessionRequest)(nil),            // 53: gateway.v1.LogoutSessionRequest
-	(*LogoutSessionResponse)(nil),           // 54: gateway.v1.LogoutSessionResponse
-	(*ForgetSessionRequest)(nil),            // 55: gateway.v1.ForgetSessionRequest
-	(*ForgetSessionResponse)(nil),           // 56: gateway.v1.ForgetSessionResponse
-	(*DownloadMediaRequest)(nil),            // 57: gateway.v1.DownloadMediaRequest
-	(*DownloadMediaResponse)(nil),           // 58: gateway.v1.DownloadMediaResponse
+	(*QuotedMessageContext)(nil),            // 11: gateway.v1.QuotedMessageContext
+	(*SendMessageResponse)(nil),             // 12: gateway.v1.SendMessageResponse
+	(*MessageOpRequest)(nil),                // 13: gateway.v1.MessageOpRequest
+	(*MessageOpResponse)(nil),               // 14: gateway.v1.MessageOpResponse
+	(*LookupContactRequest)(nil),            // 15: gateway.v1.LookupContactRequest
+	(*LookupContactResponse)(nil),           // 16: gateway.v1.LookupContactResponse
+	(*ContactLookup)(nil),                   // 17: gateway.v1.ContactLookup
+	(*GetContactPictureRequest)(nil),        // 18: gateway.v1.GetContactPictureRequest
+	(*GetContactPictureResponse)(nil),       // 19: gateway.v1.GetContactPictureResponse
+	(*GetContactAboutRequest)(nil),          // 20: gateway.v1.GetContactAboutRequest
+	(*GetContactAboutResponse)(nil),         // 21: gateway.v1.GetContactAboutResponse
+	(*SetBlockedRequest)(nil),               // 22: gateway.v1.SetBlockedRequest
+	(*SetBlockedResponse)(nil),              // 23: gateway.v1.SetBlockedResponse
+	(*CreateGroupRequest)(nil),              // 24: gateway.v1.CreateGroupRequest
+	(*GroupInfo)(nil),                       // 25: gateway.v1.GroupInfo
+	(*CreateGroupResponse)(nil),             // 26: gateway.v1.CreateGroupResponse
+	(*UpdateGroupSettingsRequest)(nil),      // 27: gateway.v1.UpdateGroupSettingsRequest
+	(*UpdateGroupSettingsResponse)(nil),     // 28: gateway.v1.UpdateGroupSettingsResponse
+	(*UpdateGroupParticipantsRequest)(nil),  // 29: gateway.v1.UpdateGroupParticipantsRequest
+	(*UpdateGroupParticipantsResponse)(nil), // 30: gateway.v1.UpdateGroupParticipantsResponse
+	(*GetGroupInviteLinkRequest)(nil),       // 31: gateway.v1.GetGroupInviteLinkRequest
+	(*GetGroupInviteLinkResponse)(nil),      // 32: gateway.v1.GetGroupInviteLinkResponse
+	(*JoinGroupRequest)(nil),                // 33: gateway.v1.JoinGroupRequest
+	(*JoinGroupResponse)(nil),               // 34: gateway.v1.JoinGroupResponse
+	(*LeaveGroupRequest)(nil),               // 35: gateway.v1.LeaveGroupRequest
+	(*LeaveGroupResponse)(nil),              // 36: gateway.v1.LeaveGroupResponse
+	(*GetChatPresenceRequest)(nil),          // 37: gateway.v1.GetChatPresenceRequest
+	(*ChatPresenceStatus)(nil),              // 38: gateway.v1.ChatPresenceStatus
+	(*GetChatPresenceResponse)(nil),         // 39: gateway.v1.GetChatPresenceResponse
+	(*SetChatPresenceRequest)(nil),          // 40: gateway.v1.SetChatPresenceRequest
+	(*SetChatPresenceResponse)(nil),         // 41: gateway.v1.SetChatPresenceResponse
+	(*BackfillSessionRequest)(nil),          // 42: gateway.v1.BackfillSessionRequest
+	(*BackfillSnapshot)(nil),                // 43: gateway.v1.BackfillSnapshot
+	(*BackfillContact)(nil),                 // 44: gateway.v1.BackfillContact
+	(*BackfillGroup)(nil),                   // 45: gateway.v1.BackfillGroup
+	(*BackfillMember)(nil),                  // 46: gateway.v1.BackfillMember
+	(*BackfillSessionResponse)(nil),         // 47: gateway.v1.BackfillSessionResponse
+	(*PrepareSessionRequest)(nil),           // 48: gateway.v1.PrepareSessionRequest
+	(*PrepareSessionResponse)(nil),          // 49: gateway.v1.PrepareSessionResponse
+	(*BeginPairingRequest)(nil),             // 50: gateway.v1.BeginPairingRequest
+	(*BeginPairingResponse)(nil),            // 51: gateway.v1.BeginPairingResponse
+	(*PairPhoneRequest)(nil),                // 52: gateway.v1.PairPhoneRequest
+	(*PairPhoneResponse)(nil),               // 53: gateway.v1.PairPhoneResponse
+	(*LogoutSessionRequest)(nil),            // 54: gateway.v1.LogoutSessionRequest
+	(*LogoutSessionResponse)(nil),           // 55: gateway.v1.LogoutSessionResponse
+	(*ForgetSessionRequest)(nil),            // 56: gateway.v1.ForgetSessionRequest
+	(*ForgetSessionResponse)(nil),           // 57: gateway.v1.ForgetSessionResponse
+	(*DownloadMediaRequest)(nil),            // 58: gateway.v1.DownloadMediaRequest
+	(*DownloadMediaResponse)(nil),           // 59: gateway.v1.DownloadMediaResponse
 }
 var file_v1_gateway_engine_proto_depIdxs = []int32{
 	3,  // 0: gateway.v1.GetSessionStateRequest.target:type_name -> gateway.v1.SessionTarget
@@ -4203,99 +4317,100 @@ var file_v1_gateway_engine_proto_depIdxs = []int32{
 	3,  // 6: gateway.v1.SetAccountPresenceResponse.target:type_name -> gateway.v1.SessionTarget
 	3,  // 7: gateway.v1.MarkReadResponse.target:type_name -> gateway.v1.SessionTarget
 	3,  // 8: gateway.v1.SendMessageRequest.target:type_name -> gateway.v1.SessionTarget
-	3,  // 9: gateway.v1.SendMessageResponse.target:type_name -> gateway.v1.SessionTarget
-	3,  // 10: gateway.v1.MessageOpRequest.target:type_name -> gateway.v1.SessionTarget
-	3,  // 11: gateway.v1.MessageOpResponse.target:type_name -> gateway.v1.SessionTarget
-	3,  // 12: gateway.v1.LookupContactRequest.target:type_name -> gateway.v1.SessionTarget
-	16, // 13: gateway.v1.LookupContactResponse.results:type_name -> gateway.v1.ContactLookup
-	3,  // 14: gateway.v1.GetContactPictureRequest.target:type_name -> gateway.v1.SessionTarget
-	3,  // 15: gateway.v1.GetContactAboutRequest.target:type_name -> gateway.v1.SessionTarget
-	3,  // 16: gateway.v1.SetBlockedRequest.target:type_name -> gateway.v1.SessionTarget
-	3,  // 17: gateway.v1.SetBlockedResponse.target:type_name -> gateway.v1.SessionTarget
-	3,  // 18: gateway.v1.CreateGroupRequest.target:type_name -> gateway.v1.SessionTarget
-	3,  // 19: gateway.v1.CreateGroupResponse.target:type_name -> gateway.v1.SessionTarget
-	24, // 20: gateway.v1.CreateGroupResponse.group:type_name -> gateway.v1.GroupInfo
-	3,  // 21: gateway.v1.UpdateGroupSettingsRequest.target:type_name -> gateway.v1.SessionTarget
-	3,  // 22: gateway.v1.UpdateGroupSettingsResponse.target:type_name -> gateway.v1.SessionTarget
-	3,  // 23: gateway.v1.UpdateGroupParticipantsRequest.target:type_name -> gateway.v1.SessionTarget
-	2,  // 24: gateway.v1.UpdateGroupParticipantsRequest.action:type_name -> gateway.v1.GroupParticipantChange
-	3,  // 25: gateway.v1.UpdateGroupParticipantsResponse.target:type_name -> gateway.v1.SessionTarget
-	3,  // 26: gateway.v1.GetGroupInviteLinkRequest.target:type_name -> gateway.v1.SessionTarget
-	3,  // 27: gateway.v1.JoinGroupRequest.target:type_name -> gateway.v1.SessionTarget
-	3,  // 28: gateway.v1.LeaveGroupRequest.target:type_name -> gateway.v1.SessionTarget
-	3,  // 29: gateway.v1.LeaveGroupResponse.target:type_name -> gateway.v1.SessionTarget
-	3,  // 30: gateway.v1.GetChatPresenceRequest.target:type_name -> gateway.v1.SessionTarget
-	37, // 31: gateway.v1.GetChatPresenceResponse.presence:type_name -> gateway.v1.ChatPresenceStatus
-	3,  // 32: gateway.v1.SetChatPresenceRequest.target:type_name -> gateway.v1.SessionTarget
-	3,  // 33: gateway.v1.BackfillSessionRequest.target:type_name -> gateway.v1.SessionTarget
-	43, // 34: gateway.v1.BackfillSnapshot.contacts:type_name -> gateway.v1.BackfillContact
-	44, // 35: gateway.v1.BackfillSnapshot.groups:type_name -> gateway.v1.BackfillGroup
-	45, // 36: gateway.v1.BackfillGroup.members:type_name -> gateway.v1.BackfillMember
-	42, // 37: gateway.v1.BackfillSessionResponse.snapshot:type_name -> gateway.v1.BackfillSnapshot
-	3,  // 38: gateway.v1.PrepareSessionRequest.target:type_name -> gateway.v1.SessionTarget
-	3,  // 39: gateway.v1.PrepareSessionResponse.target:type_name -> gateway.v1.SessionTarget
-	3,  // 40: gateway.v1.BeginPairingRequest.target:type_name -> gateway.v1.SessionTarget
-	3,  // 41: gateway.v1.BeginPairingResponse.target:type_name -> gateway.v1.SessionTarget
-	3,  // 42: gateway.v1.PairPhoneRequest.target:type_name -> gateway.v1.SessionTarget
-	3,  // 43: gateway.v1.PairPhoneResponse.target:type_name -> gateway.v1.SessionTarget
-	3,  // 44: gateway.v1.LogoutSessionRequest.target:type_name -> gateway.v1.SessionTarget
-	3,  // 45: gateway.v1.LogoutSessionResponse.target:type_name -> gateway.v1.SessionTarget
-	3,  // 46: gateway.v1.ForgetSessionRequest.target:type_name -> gateway.v1.SessionTarget
-	3,  // 47: gateway.v1.ForgetSessionResponse.target:type_name -> gateway.v1.SessionTarget
-	3,  // 48: gateway.v1.DownloadMediaRequest.target:type_name -> gateway.v1.SessionTarget
-	57, // 49: gateway.v1.GatewayEngineService.DownloadMedia:input_type -> gateway.v1.DownloadMediaRequest
-	4,  // 50: gateway.v1.GatewayEngineService.GetSessionState:input_type -> gateway.v1.GetSessionStateRequest
-	6,  // 51: gateway.v1.GatewayEngineService.SetAccountPresence:input_type -> gateway.v1.SetAccountPresenceRequest
-	7,  // 52: gateway.v1.GatewayEngineService.MarkRead:input_type -> gateway.v1.MarkReadRequest
-	10, // 53: gateway.v1.GatewayEngineService.SendMessage:input_type -> gateway.v1.SendMessageRequest
-	12, // 54: gateway.v1.GatewayEngineService.MessageOp:input_type -> gateway.v1.MessageOpRequest
-	14, // 55: gateway.v1.GatewayEngineService.LookupContact:input_type -> gateway.v1.LookupContactRequest
-	17, // 56: gateway.v1.GatewayEngineService.GetContactPicture:input_type -> gateway.v1.GetContactPictureRequest
-	19, // 57: gateway.v1.GatewayEngineService.GetContactAbout:input_type -> gateway.v1.GetContactAboutRequest
-	21, // 58: gateway.v1.GatewayEngineService.SetBlocked:input_type -> gateway.v1.SetBlockedRequest
-	23, // 59: gateway.v1.GatewayEngineService.CreateGroup:input_type -> gateway.v1.CreateGroupRequest
-	26, // 60: gateway.v1.GatewayEngineService.UpdateGroupSettings:input_type -> gateway.v1.UpdateGroupSettingsRequest
-	28, // 61: gateway.v1.GatewayEngineService.UpdateGroupParticipants:input_type -> gateway.v1.UpdateGroupParticipantsRequest
-	30, // 62: gateway.v1.GatewayEngineService.GetGroupInviteLink:input_type -> gateway.v1.GetGroupInviteLinkRequest
-	32, // 63: gateway.v1.GatewayEngineService.JoinGroup:input_type -> gateway.v1.JoinGroupRequest
-	34, // 64: gateway.v1.GatewayEngineService.LeaveGroup:input_type -> gateway.v1.LeaveGroupRequest
-	36, // 65: gateway.v1.GatewayEngineService.GetChatPresence:input_type -> gateway.v1.GetChatPresenceRequest
-	39, // 66: gateway.v1.GatewayEngineService.SetChatPresence:input_type -> gateway.v1.SetChatPresenceRequest
-	41, // 67: gateway.v1.GatewayEngineService.BackfillSession:input_type -> gateway.v1.BackfillSessionRequest
-	47, // 68: gateway.v1.GatewayEngineService.PrepareSession:input_type -> gateway.v1.PrepareSessionRequest
-	49, // 69: gateway.v1.GatewayEngineService.BeginPairing:input_type -> gateway.v1.BeginPairingRequest
-	51, // 70: gateway.v1.GatewayEngineService.PairPhone:input_type -> gateway.v1.PairPhoneRequest
-	53, // 71: gateway.v1.GatewayEngineService.LogoutSession:input_type -> gateway.v1.LogoutSessionRequest
-	55, // 72: gateway.v1.GatewayEngineService.ForgetSession:input_type -> gateway.v1.ForgetSessionRequest
-	58, // 73: gateway.v1.GatewayEngineService.DownloadMedia:output_type -> gateway.v1.DownloadMediaResponse
-	5,  // 74: gateway.v1.GatewayEngineService.GetSessionState:output_type -> gateway.v1.GetSessionStateResponse
-	8,  // 75: gateway.v1.GatewayEngineService.SetAccountPresence:output_type -> gateway.v1.SetAccountPresenceResponse
-	9,  // 76: gateway.v1.GatewayEngineService.MarkRead:output_type -> gateway.v1.MarkReadResponse
-	11, // 77: gateway.v1.GatewayEngineService.SendMessage:output_type -> gateway.v1.SendMessageResponse
-	13, // 78: gateway.v1.GatewayEngineService.MessageOp:output_type -> gateway.v1.MessageOpResponse
-	15, // 79: gateway.v1.GatewayEngineService.LookupContact:output_type -> gateway.v1.LookupContactResponse
-	18, // 80: gateway.v1.GatewayEngineService.GetContactPicture:output_type -> gateway.v1.GetContactPictureResponse
-	20, // 81: gateway.v1.GatewayEngineService.GetContactAbout:output_type -> gateway.v1.GetContactAboutResponse
-	22, // 82: gateway.v1.GatewayEngineService.SetBlocked:output_type -> gateway.v1.SetBlockedResponse
-	25, // 83: gateway.v1.GatewayEngineService.CreateGroup:output_type -> gateway.v1.CreateGroupResponse
-	27, // 84: gateway.v1.GatewayEngineService.UpdateGroupSettings:output_type -> gateway.v1.UpdateGroupSettingsResponse
-	29, // 85: gateway.v1.GatewayEngineService.UpdateGroupParticipants:output_type -> gateway.v1.UpdateGroupParticipantsResponse
-	31, // 86: gateway.v1.GatewayEngineService.GetGroupInviteLink:output_type -> gateway.v1.GetGroupInviteLinkResponse
-	33, // 87: gateway.v1.GatewayEngineService.JoinGroup:output_type -> gateway.v1.JoinGroupResponse
-	35, // 88: gateway.v1.GatewayEngineService.LeaveGroup:output_type -> gateway.v1.LeaveGroupResponse
-	38, // 89: gateway.v1.GatewayEngineService.GetChatPresence:output_type -> gateway.v1.GetChatPresenceResponse
-	40, // 90: gateway.v1.GatewayEngineService.SetChatPresence:output_type -> gateway.v1.SetChatPresenceResponse
-	46, // 91: gateway.v1.GatewayEngineService.BackfillSession:output_type -> gateway.v1.BackfillSessionResponse
-	48, // 92: gateway.v1.GatewayEngineService.PrepareSession:output_type -> gateway.v1.PrepareSessionResponse
-	50, // 93: gateway.v1.GatewayEngineService.BeginPairing:output_type -> gateway.v1.BeginPairingResponse
-	52, // 94: gateway.v1.GatewayEngineService.PairPhone:output_type -> gateway.v1.PairPhoneResponse
-	54, // 95: gateway.v1.GatewayEngineService.LogoutSession:output_type -> gateway.v1.LogoutSessionResponse
-	56, // 96: gateway.v1.GatewayEngineService.ForgetSession:output_type -> gateway.v1.ForgetSessionResponse
-	73, // [73:97] is the sub-list for method output_type
-	49, // [49:73] is the sub-list for method input_type
-	49, // [49:49] is the sub-list for extension type_name
-	49, // [49:49] is the sub-list for extension extendee
-	0,  // [0:49] is the sub-list for field type_name
+	11, // 9: gateway.v1.SendMessageRequest.quote_context:type_name -> gateway.v1.QuotedMessageContext
+	3,  // 10: gateway.v1.SendMessageResponse.target:type_name -> gateway.v1.SessionTarget
+	3,  // 11: gateway.v1.MessageOpRequest.target:type_name -> gateway.v1.SessionTarget
+	3,  // 12: gateway.v1.MessageOpResponse.target:type_name -> gateway.v1.SessionTarget
+	3,  // 13: gateway.v1.LookupContactRequest.target:type_name -> gateway.v1.SessionTarget
+	17, // 14: gateway.v1.LookupContactResponse.results:type_name -> gateway.v1.ContactLookup
+	3,  // 15: gateway.v1.GetContactPictureRequest.target:type_name -> gateway.v1.SessionTarget
+	3,  // 16: gateway.v1.GetContactAboutRequest.target:type_name -> gateway.v1.SessionTarget
+	3,  // 17: gateway.v1.SetBlockedRequest.target:type_name -> gateway.v1.SessionTarget
+	3,  // 18: gateway.v1.SetBlockedResponse.target:type_name -> gateway.v1.SessionTarget
+	3,  // 19: gateway.v1.CreateGroupRequest.target:type_name -> gateway.v1.SessionTarget
+	3,  // 20: gateway.v1.CreateGroupResponse.target:type_name -> gateway.v1.SessionTarget
+	25, // 21: gateway.v1.CreateGroupResponse.group:type_name -> gateway.v1.GroupInfo
+	3,  // 22: gateway.v1.UpdateGroupSettingsRequest.target:type_name -> gateway.v1.SessionTarget
+	3,  // 23: gateway.v1.UpdateGroupSettingsResponse.target:type_name -> gateway.v1.SessionTarget
+	3,  // 24: gateway.v1.UpdateGroupParticipantsRequest.target:type_name -> gateway.v1.SessionTarget
+	2,  // 25: gateway.v1.UpdateGroupParticipantsRequest.action:type_name -> gateway.v1.GroupParticipantChange
+	3,  // 26: gateway.v1.UpdateGroupParticipantsResponse.target:type_name -> gateway.v1.SessionTarget
+	3,  // 27: gateway.v1.GetGroupInviteLinkRequest.target:type_name -> gateway.v1.SessionTarget
+	3,  // 28: gateway.v1.JoinGroupRequest.target:type_name -> gateway.v1.SessionTarget
+	3,  // 29: gateway.v1.LeaveGroupRequest.target:type_name -> gateway.v1.SessionTarget
+	3,  // 30: gateway.v1.LeaveGroupResponse.target:type_name -> gateway.v1.SessionTarget
+	3,  // 31: gateway.v1.GetChatPresenceRequest.target:type_name -> gateway.v1.SessionTarget
+	38, // 32: gateway.v1.GetChatPresenceResponse.presence:type_name -> gateway.v1.ChatPresenceStatus
+	3,  // 33: gateway.v1.SetChatPresenceRequest.target:type_name -> gateway.v1.SessionTarget
+	3,  // 34: gateway.v1.BackfillSessionRequest.target:type_name -> gateway.v1.SessionTarget
+	44, // 35: gateway.v1.BackfillSnapshot.contacts:type_name -> gateway.v1.BackfillContact
+	45, // 36: gateway.v1.BackfillSnapshot.groups:type_name -> gateway.v1.BackfillGroup
+	46, // 37: gateway.v1.BackfillGroup.members:type_name -> gateway.v1.BackfillMember
+	43, // 38: gateway.v1.BackfillSessionResponse.snapshot:type_name -> gateway.v1.BackfillSnapshot
+	3,  // 39: gateway.v1.PrepareSessionRequest.target:type_name -> gateway.v1.SessionTarget
+	3,  // 40: gateway.v1.PrepareSessionResponse.target:type_name -> gateway.v1.SessionTarget
+	3,  // 41: gateway.v1.BeginPairingRequest.target:type_name -> gateway.v1.SessionTarget
+	3,  // 42: gateway.v1.BeginPairingResponse.target:type_name -> gateway.v1.SessionTarget
+	3,  // 43: gateway.v1.PairPhoneRequest.target:type_name -> gateway.v1.SessionTarget
+	3,  // 44: gateway.v1.PairPhoneResponse.target:type_name -> gateway.v1.SessionTarget
+	3,  // 45: gateway.v1.LogoutSessionRequest.target:type_name -> gateway.v1.SessionTarget
+	3,  // 46: gateway.v1.LogoutSessionResponse.target:type_name -> gateway.v1.SessionTarget
+	3,  // 47: gateway.v1.ForgetSessionRequest.target:type_name -> gateway.v1.SessionTarget
+	3,  // 48: gateway.v1.ForgetSessionResponse.target:type_name -> gateway.v1.SessionTarget
+	3,  // 49: gateway.v1.DownloadMediaRequest.target:type_name -> gateway.v1.SessionTarget
+	58, // 50: gateway.v1.GatewayEngineService.DownloadMedia:input_type -> gateway.v1.DownloadMediaRequest
+	4,  // 51: gateway.v1.GatewayEngineService.GetSessionState:input_type -> gateway.v1.GetSessionStateRequest
+	6,  // 52: gateway.v1.GatewayEngineService.SetAccountPresence:input_type -> gateway.v1.SetAccountPresenceRequest
+	7,  // 53: gateway.v1.GatewayEngineService.MarkRead:input_type -> gateway.v1.MarkReadRequest
+	10, // 54: gateway.v1.GatewayEngineService.SendMessage:input_type -> gateway.v1.SendMessageRequest
+	13, // 55: gateway.v1.GatewayEngineService.MessageOp:input_type -> gateway.v1.MessageOpRequest
+	15, // 56: gateway.v1.GatewayEngineService.LookupContact:input_type -> gateway.v1.LookupContactRequest
+	18, // 57: gateway.v1.GatewayEngineService.GetContactPicture:input_type -> gateway.v1.GetContactPictureRequest
+	20, // 58: gateway.v1.GatewayEngineService.GetContactAbout:input_type -> gateway.v1.GetContactAboutRequest
+	22, // 59: gateway.v1.GatewayEngineService.SetBlocked:input_type -> gateway.v1.SetBlockedRequest
+	24, // 60: gateway.v1.GatewayEngineService.CreateGroup:input_type -> gateway.v1.CreateGroupRequest
+	27, // 61: gateway.v1.GatewayEngineService.UpdateGroupSettings:input_type -> gateway.v1.UpdateGroupSettingsRequest
+	29, // 62: gateway.v1.GatewayEngineService.UpdateGroupParticipants:input_type -> gateway.v1.UpdateGroupParticipantsRequest
+	31, // 63: gateway.v1.GatewayEngineService.GetGroupInviteLink:input_type -> gateway.v1.GetGroupInviteLinkRequest
+	33, // 64: gateway.v1.GatewayEngineService.JoinGroup:input_type -> gateway.v1.JoinGroupRequest
+	35, // 65: gateway.v1.GatewayEngineService.LeaveGroup:input_type -> gateway.v1.LeaveGroupRequest
+	37, // 66: gateway.v1.GatewayEngineService.GetChatPresence:input_type -> gateway.v1.GetChatPresenceRequest
+	40, // 67: gateway.v1.GatewayEngineService.SetChatPresence:input_type -> gateway.v1.SetChatPresenceRequest
+	42, // 68: gateway.v1.GatewayEngineService.BackfillSession:input_type -> gateway.v1.BackfillSessionRequest
+	48, // 69: gateway.v1.GatewayEngineService.PrepareSession:input_type -> gateway.v1.PrepareSessionRequest
+	50, // 70: gateway.v1.GatewayEngineService.BeginPairing:input_type -> gateway.v1.BeginPairingRequest
+	52, // 71: gateway.v1.GatewayEngineService.PairPhone:input_type -> gateway.v1.PairPhoneRequest
+	54, // 72: gateway.v1.GatewayEngineService.LogoutSession:input_type -> gateway.v1.LogoutSessionRequest
+	56, // 73: gateway.v1.GatewayEngineService.ForgetSession:input_type -> gateway.v1.ForgetSessionRequest
+	59, // 74: gateway.v1.GatewayEngineService.DownloadMedia:output_type -> gateway.v1.DownloadMediaResponse
+	5,  // 75: gateway.v1.GatewayEngineService.GetSessionState:output_type -> gateway.v1.GetSessionStateResponse
+	8,  // 76: gateway.v1.GatewayEngineService.SetAccountPresence:output_type -> gateway.v1.SetAccountPresenceResponse
+	9,  // 77: gateway.v1.GatewayEngineService.MarkRead:output_type -> gateway.v1.MarkReadResponse
+	12, // 78: gateway.v1.GatewayEngineService.SendMessage:output_type -> gateway.v1.SendMessageResponse
+	14, // 79: gateway.v1.GatewayEngineService.MessageOp:output_type -> gateway.v1.MessageOpResponse
+	16, // 80: gateway.v1.GatewayEngineService.LookupContact:output_type -> gateway.v1.LookupContactResponse
+	19, // 81: gateway.v1.GatewayEngineService.GetContactPicture:output_type -> gateway.v1.GetContactPictureResponse
+	21, // 82: gateway.v1.GatewayEngineService.GetContactAbout:output_type -> gateway.v1.GetContactAboutResponse
+	23, // 83: gateway.v1.GatewayEngineService.SetBlocked:output_type -> gateway.v1.SetBlockedResponse
+	26, // 84: gateway.v1.GatewayEngineService.CreateGroup:output_type -> gateway.v1.CreateGroupResponse
+	28, // 85: gateway.v1.GatewayEngineService.UpdateGroupSettings:output_type -> gateway.v1.UpdateGroupSettingsResponse
+	30, // 86: gateway.v1.GatewayEngineService.UpdateGroupParticipants:output_type -> gateway.v1.UpdateGroupParticipantsResponse
+	32, // 87: gateway.v1.GatewayEngineService.GetGroupInviteLink:output_type -> gateway.v1.GetGroupInviteLinkResponse
+	34, // 88: gateway.v1.GatewayEngineService.JoinGroup:output_type -> gateway.v1.JoinGroupResponse
+	36, // 89: gateway.v1.GatewayEngineService.LeaveGroup:output_type -> gateway.v1.LeaveGroupResponse
+	39, // 90: gateway.v1.GatewayEngineService.GetChatPresence:output_type -> gateway.v1.GetChatPresenceResponse
+	41, // 91: gateway.v1.GatewayEngineService.SetChatPresence:output_type -> gateway.v1.SetChatPresenceResponse
+	47, // 92: gateway.v1.GatewayEngineService.BackfillSession:output_type -> gateway.v1.BackfillSessionResponse
+	49, // 93: gateway.v1.GatewayEngineService.PrepareSession:output_type -> gateway.v1.PrepareSessionResponse
+	51, // 94: gateway.v1.GatewayEngineService.BeginPairing:output_type -> gateway.v1.BeginPairingResponse
+	53, // 95: gateway.v1.GatewayEngineService.PairPhone:output_type -> gateway.v1.PairPhoneResponse
+	55, // 96: gateway.v1.GatewayEngineService.LogoutSession:output_type -> gateway.v1.LogoutSessionResponse
+	57, // 97: gateway.v1.GatewayEngineService.ForgetSession:output_type -> gateway.v1.ForgetSessionResponse
+	74, // [74:98] is the sub-list for method output_type
+	50, // [50:74] is the sub-list for method input_type
+	50, // [50:50] is the sub-list for extension type_name
+	50, // [50:50] is the sub-list for extension extendee
+	0,  // [0:50] is the sub-list for field type_name
 }
 
 func init() { file_v1_gateway_engine_proto_init() }
@@ -4303,15 +4418,15 @@ func file_v1_gateway_engine_proto_init() {
 	if File_v1_gateway_engine_proto != nil {
 		return
 	}
-	file_v1_gateway_engine_proto_msgTypes[23].OneofWrappers = []any{}
-	file_v1_gateway_engine_proto_msgTypes[47].OneofWrappers = []any{}
+	file_v1_gateway_engine_proto_msgTypes[24].OneofWrappers = []any{}
+	file_v1_gateway_engine_proto_msgTypes[48].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_v1_gateway_engine_proto_rawDesc), len(file_v1_gateway_engine_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   56,
+			NumMessages:   57,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
