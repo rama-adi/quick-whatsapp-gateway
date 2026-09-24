@@ -37,3 +37,6 @@ site-marketing/.nitro/
 site-marketing/.tanstack/
 site-marketing/.source/
 site-marketing/dist/
+
+# Repeatable local E2E evidence
+.artifacts/

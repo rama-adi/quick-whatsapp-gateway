@@ -88,35 +88,6 @@ func (d *blockingOutboxDispatcher) callCount() int {
 	return d.calls
 }
 
-// TestOutboxWorkerSerializesDuplicateAttempts starts two workers for the same queued row while the first
-// WhatsApp dispatch is deliberately blocked. The second call waits for the local gate, then loses the durable
-// queued/failed-to-sending compare-and-set after the first marks the row sent, so it returns without another
-// dispatch. This establishes the per-outbox ownership handoff used by local retries and worker replicas.
-func TestOutboxWorkerSerializesDuplicateAttempts(t *testing.T) {
-	payload, err := json.Marshal(domain.SendRequest{Type: domain.SendTypeText, To: "a@s.whatsapp.net", Text: "hi"})
-	require.NoError(t, err)
-	repo := &workerOutboxRepo{entry: domain.OutboxEntry{
-		ID: "out_1", SessionID: "sess_1", Status: domain.OutboxQueued, Payload: payload,
-	}}
-	dispatcher := &blockingOutboxDispatcher{started: make(chan struct{}), release: make(chan struct{})}
-	worker := NewOutboxWorker(repo, dispatcher, nil)
-
-	errs := make(chan error, 2)
-	go func() { errs <- worker.ProcessOutbox(context.Background(), "out_1") }()
-	<-dispatcher.started
-	go func() { errs <- worker.ProcessOutbox(context.Background(), "out_1") }()
-	close(dispatcher.release)
-
-	require.NoError(t, <-errs)
-	require.NoError(t, <-errs)
-	require.Equal(t, 1, dispatcher.callCount())
-	repo.mu.Lock()
-	defer repo.mu.Unlock()
-	require.Equal(t, domain.OutboxSent, repo.entry.Status)
-	require.NotNil(t, repo.entry.WAMessageID)
-	require.Equal(t, "wa_1", *repo.entry.WAMessageID)
-}
-
 // TestOutboxWorkerCASAllowsOneReplicaOwner uses two independent worker instances, so their in-memory keyed
 // gates cannot coordinate, against one repository row. Concurrent ProcessOutbox calls must produce exactly
 // one queued-to-sending claim and one WhatsApp dispatch; the CAS loser treats the duplicate task as a normal

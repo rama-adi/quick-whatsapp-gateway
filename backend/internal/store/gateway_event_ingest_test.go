@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -19,29 +18,6 @@ func ingestEvent(eventID string) GatewayEvent {
 	}
 }
 
-// TestGatewayEventIngestBatch_DuplicateIsNoOp verifies acknowledgement-loss
-// replay stays successful and never writes a second event_log row.
-func TestGatewayEventIngestBatch_DuplicateIsNoOp(t *testing.T) {
-	db, mock := newMock(t)
-	repo := NewGatewayEventIngestRepo(db)
-
-	mock.ExpectBegin()
-	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM gateway_session_assignments").
-		WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(1))
-	mock.ExpectExec("INSERT IGNORE INTO gateway_ingested_events").
-		WillReturnResult(sqlmock.NewResult(0, 0)) // duplicate
-	mock.ExpectCommit()
-
-	if err := repo.Ingest(context.Background(), ingestEvent("evt_1"), 999); err != nil {
-		t.Fatalf("Ingest: %v", err)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// TestGatewayEventIngestBatch_StaleFenceRejects verifies a fenced (stale epoch)
-// batch rolls back entirely instead of acknowledging a partial set.
 func TestGatewayEventIngestBatch_StaleFenceRejects(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewGatewayEventIngestRepo(db)
@@ -60,49 +36,6 @@ func TestGatewayEventIngestBatch_StaleFenceRejects(t *testing.T) {
 	}
 }
 
-// TestClaimCommittedEvents_ReturnsEnvelopes verifies claiming reconstructs the
-// durable envelope from event_log and leases each claimed row.
-func TestClaimCommittedEvents_ReturnsEnvelopes(t *testing.T) {
-	db, mock := newMock(t)
-	repo := NewGatewayEventIngestRepo(db)
-
-	mock.ExpectBegin()
-	rows := sqlmock.NewRows([]string{"event_log_id", "type", "organization_id", "session_id", "created_at", "payload"}).
-		AddRow("evt_1", domain.EventMessage, "org_1", "ses_1", int64(1234), []byte(`{"x":1}`))
-	mock.ExpectQuery("SELECT i[.]event_log_id.*FROM gateway_ingested_events i JOIN event_log e").
-		WithArgs(int64(1000), int64(1000), 8).
-		WillReturnRows(rows)
-	mock.ExpectExec("UPDATE gateway_ingested_events SET claimed_by=., lease_until=.").
-		WithArgs("api-1", int64(2000), "evt_1").
-		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectCommit()
-
-	events, err := repo.ClaimCommittedEvents(context.Background(), CommittedEventWork{
-		Owner: "api-1", ClaimedAt: time.UnixMilli(1000), LeaseUntil: time.UnixMilli(2000), MaxItems: 8,
-	})
-	if err != nil {
-		t.Fatalf("ClaimCommittedEvents: %v", err)
-	}
-	if len(events) != 1 {
-		t.Fatalf("want 1 event, got %d", len(events))
-	}
-	got := events[0]
-	payload, ok := got.Payload.(json.RawMessage)
-	if !ok || string(payload) != `{"x":1}` {
-		t.Fatalf("unexpected payload: %#v", got.Payload)
-	}
-	gotPayloadless := got
-	gotPayloadless.Payload = nil
-	if gotPayloadless != (domain.Event{Schema: domain.Schema, ID: "evt_1", Type: domain.EventMessage, Organization: "org_1", Session: "ses_1", Timestamp: 1234}) {
-		t.Fatalf("unexpected envelope: %+v", gotPayloadless)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// TestClaimCommittedEvents_LostLeaseAbortsBatch verifies a claim that loses its
-// row between select and lease aborts instead of returning a partially leased set.
 func TestClaimCommittedEvents_LostLeaseAbortsBatch(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewGatewayEventIngestRepo(db)

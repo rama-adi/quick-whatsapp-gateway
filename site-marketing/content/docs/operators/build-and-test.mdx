@@ -58,6 +58,42 @@ transport; the AWS request signer, media jobs, gateway download RPC, and storage
 queries remain real. The suite rejects storage requests before recovery, verifies
 token isolation and expiry, and verifies signed webhook retries over HTTP.
 
+### Repeatable E2E evidence
+
+`make api-e2e` writes a fresh directory under `.artifacts/api-e2e/` and prints
+the path to `result.json`. The runner preserves raw Go test events and a result manifest, including
+source hashes, tool versions, the command, scenario outcomes, and evidence checksums.
+A fresh artifact directory identifies each run. CI uploads the evidence even when
+the run fails. Re-run the recorded command against the recorded source to reproduce
+the scenarios; timing, generated IDs, and temporary ports are not expected to match.
+For an uncommitted checkout, `changes.patch` and `untracked.zip` preserve the edits
+alongside the base commit in `source.json`. To reconstruct it, check out that commit
+in a separate worktree, apply `changes.patch` if nonempty, and extract `untracked.zip`
+there. Verify the reconstructed files against the hashes in `source.json` before
+running `make api-e2e`. The image digests and tool versions are recorded in `result.json`.
+
+Verify a run's evidence checksums with its printed directory:
+
+```sh
+python3 - /absolute/path/to/.artifacts/api-e2e/run-directory <<'PY'
+import hashlib, json, pathlib, sys
+root = pathlib.Path(sys.argv[1])
+for name, expected in json.loads((root / "checksums.json").read_text()).items():
+    assert hashlib.sha256((root / name).read_bytes()).hexdigest() == expected, name
+result = json.loads((root / "result.json").read_text())
+assert result["status"] == "passed", result["errors"]
+print("Evidence checksums verified; recorded E2E result passed")
+PY
+```
+
+Before implementing this runner, its failure cases are: the coverage inventory
+fails; Go fails to compile or exits unsuccessfully; the selected suite is skipped
+or absent; a scenario fails; the process cannot start; output is not valid test
+JSON; writing evidence fails; and source changes during execution. None of these
+may produce a passing manifest. A test failure must still leave the available raw
+evidence and a failing result. Checksums verify evidence integrity, not independent
+proof that a claimed result is truthful.
+
 ### Contract tests for auth formats
 
 The router accepts two better-auth formats: api-keys and EdDSA JWTs (signed JSON

@@ -66,20 +66,6 @@ func TestStartImport_ForeignOrgNotFound(t *testing.T) {
 	}
 }
 
-// TestStartImport_DecryptFails provides an owned backup whose encrypted payload cannot be opened.
-// StartImport must surface a safe import failure and leave contacts, chats, and messages untouched.
-// Parsing or database work cannot begin from unauthenticated backup bytes.
-func TestStartImport_DecryptFails(t *testing.T) {
-	svc, mock := newBackupSvc(t)
-	svc.decrypt = func([]byte, string) ([]byte, error) { return nil, errors.New("bad key") }
-	expectGetSession(mock, "sess_1", "org_1")
-
-	_, err := svc.StartImport(context.Background(), "org_1", "sess_1", false, []byte("x"), "key")
-	if got := apiCode(t, err); got != domain.CodeValidationError {
-		t.Fatalf("want validation_error, got %v", got)
-	}
-}
-
 // TestStartImport_Concurrency starts overlapping imports for the same backup while the first operation
 // owns its in-progress state. Exactly one call may perform the import; the competitor receives the
 // conflict outcome instead of duplicating upserts and counts. This pins per-backup ownership under

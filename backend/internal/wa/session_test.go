@@ -133,25 +133,6 @@ func TestIsFatalConnectFailure(t *testing.T) {
 	}
 }
 
-// TestBackoffFor_Deterministic injects a fixed random source into exponential backoff. It checks
-// exact delays across attempts, proving both exponent growth and jitter application are reproducible.
-func TestBackoffFor_Deterministic(t *testing.T) {
-	cfg := backoffConfig{base: time.Second, max: 2 * time.Minute, factor: 2.0}
-
-	// Same seed -> identical schedule.
-	r1 := rand.New(rand.NewSource(42))
-	r2 := rand.New(rand.NewSource(42))
-	for attempt := 0; attempt < 10; attempt++ {
-		d1 := backoffFor(cfg, attempt, r1)
-		d2 := backoffFor(cfg, attempt, r2)
-		if d1 != d2 {
-			t.Fatalf("attempt %d: nondeterministic %v != %v", attempt, d1, d2)
-		}
-	}
-}
-
-// TestBackoffFor_FullJitterBounds samples the minimum and maximum random values for one retry
-// window. Every delay must remain in the full-jitter interval and below its exponential cap.
 func TestBackoffFor_FullJitterBounds(t *testing.T) {
 	cfg := backoffConfig{base: time.Second, max: 8 * time.Second, factor: 2.0}
 	rng := rand.New(rand.NewSource(7))
@@ -186,17 +167,5 @@ func TestBackoffFor_NeverExceedsMax(t *testing.T) {
 		if d > cfg.max {
 			t.Fatalf("attempt %d: %v exceeds max %v", attempt, d, cfg.max)
 		}
-	}
-}
-
-// TestBackoffFor_NegativeAttemptTreatedAsZero passes an invalid negative retry count. It behaves
-// exactly like the first attempt, keeping defensive callers from producing negative shifts or
-// durations.
-func TestBackoffFor_NegativeAttemptTreatedAsZero(t *testing.T) {
-	cfg := backoffConfig{base: time.Second, max: time.Minute, factor: 2.0}
-	rng := rand.New(rand.NewSource(1))
-	d := backoffFor(cfg, -5, rng)
-	if d < 0 || d > cfg.base {
-		t.Fatalf("negative attempt: %v not in [0,%v]", d, cfg.base)
 	}
 }

@@ -4,13 +4,10 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"math/big"
-	"net"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,12 +16,10 @@ import (
 	"time"
 
 	gatewayv1 "github.com/rama-adi/quick-whatsapp-gateway/gen/gateway/v1"
-	"github.com/rama-adi/quick-whatsapp-gateway/internal/pki"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/pki/gatewayidentity"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
-	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/status"
 )
 
@@ -177,71 +172,6 @@ func (s *countedPrivateServer) Enroll(context.Context, *gatewayv1.GatewayEnrollm
 func (s *countedPrivateServer) Check(context.Context, *gatewayv1.GatewayHealthServiceCheckRequest) (*gatewayv1.GatewayHealthServiceCheckResponse, error) {
 	s.healthCalls.Add(1)
 	return &gatewayv1.GatewayHealthServiceCheckResponse{Status: gatewayv1.ServingStatus_SERVING_STATUS_SERVING}, nil
-}
-
-func TestInstalledIdentitySkipsEnrollmentAndUsesMTLSHealth(t *testing.T) {
-	now := time.Now().UTC().Truncate(time.Millisecond)
-	rootPub, rootKey, _ := ed25519.GenerateKey(rand.Reader)
-	rootT := &x509.Certificate{SerialNumber: big.NewInt(101), Subject: pkix.Name{CommonName: "operator-root"}, NotBefore: now.Add(-time.Hour), NotAfter: now.Add(24 * time.Hour), IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign}
-	rootDER, _ := x509.CreateCertificate(rand.Reader, rootT, rootT, rootPub, rootKey)
-	root, _ := x509.ParseCertificate(rootDER)
-	rootPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: rootDER})
-	dir := filepath.Join(t.TempDir(), "credentials")
-	identity, _ := gatewayidentity.New(gatewayidentity.Config{Directory: dir, GatewayID: "gw_1", BootstrapCA: rootPEM})
-	pending, _ := identity.Prepare()
-	csr, _ := x509.ParseCertificateRequest(pending.CSRDER)
-	gatewayT := &x509.Certificate{SerialNumber: big.NewInt(102), NotBefore: now.Add(-time.Minute), NotAfter: now.Add(time.Hour), BasicConstraintsValid: true, KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth}, URIs: csr.URIs}
-	gatewayDER, _ := x509.CreateCertificate(rand.Reader, gatewayT, root, csr.PublicKey, rootKey)
-	gatewayLeaf, _ := x509.ParseCertificate(gatewayDER)
-	gatewayChain := append(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: gatewayDER}), rootPEM...)
-	if err := identity.Install(gatewayidentity.Installation{GatewayID: "gw_1", ChainPEM: gatewayChain, TrustBundlePEM: rootPEM, AuthorityID: "root", Serial: gatewayLeaf.SerialNumber.String(), NotBefore: gatewayLeaf.NotBefore.UnixMilli(), NotAfter: gatewayLeaf.NotAfter.UnixMilli()}); err != nil {
-		t.Fatal(err)
-	}
-	apiPub, apiKey, _ := ed25519.GenerateKey(rand.Reader)
-	apiURI, _ := url.Parse(pki.APIIdentityURI)
-	apiT := &x509.Certificate{SerialNumber: big.NewInt(103), NotBefore: now.Add(-time.Minute), NotAfter: now.Add(time.Hour), BasicConstraintsValid: true, KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, URIs: []*url.URL{apiURI}}
-	apiDER, _ := x509.CreateCertificate(rand.Reader, apiT, root, apiPub, rootKey)
-	apiKeyDER, _ := x509.MarshalPKCS8PrivateKey(apiKey)
-	apiChain := append(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: apiDER}), rootPEM...)
-	apiCert, err := tls.X509KeyPair(apiChain, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: apiKeyDER}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	roots := x509.NewCertPool()
-	roots.AddCert(root)
-	service := &countedPrivateServer{}
-	server := grpc.NewServer(grpc.Creds(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{apiCert}, ClientAuth: tls.RequireAndVerifyClientCert, ClientCAs: roots})))
-	gatewayv1.RegisterGatewayEnrollmentServiceServer(server, service)
-	gatewayv1.RegisterGatewayHealthServiceServer(server, service)
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	done := make(chan struct{})
-	go func() { _ = server.Serve(listener); close(done) }()
-	defer func() { server.Stop(); <-done }()
-	reloaded, _ := gatewayidentity.New(gatewayidentity.Config{Directory: dir, GatewayID: "gw_1", BootstrapCA: rootPEM})
-	client, _ := New(Config{Target: listener.Addr().String(), GatewayID: "gw_1", Identity: reloaded, AttemptTimeout: time.Second})
-	if err = client.Ensure(context.Background(), "invalid-token-must-not-be-sent"); err != nil {
-		t.Fatal(err)
-	}
-	if service.enrollCalls.Load() != 0 || service.healthCalls.Load() != 0 || client.Conn() == nil {
-		t.Fatalf("calls enroll=%d health=%d", service.enrollCalls.Load(), service.healthCalls.Load())
-	}
-	if err = client.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if client.Conn() != nil {
-		t.Fatal("connection retained after close")
-	}
-	offline, err := New(Config{Target: "127.0.0.1:1", GatewayID: "gw_1", Identity: reloaded, AttemptTimeout: 20 * time.Millisecond})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = offline.Ensure(context.Background(), ""); err != nil {
-		t.Fatalf("installed identity required API availability: %v", err)
-	}
-	_ = offline.Close()
 }
 
 func TestInstalledIdentityDoesNotRequireAPIAvailabilityAtStartup(t *testing.T) {

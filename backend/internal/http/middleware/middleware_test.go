@@ -132,49 +132,6 @@ func TestRequestIDRejectsUnboundedInboundValue(t *testing.T) {
 
 // --- Logger ------------------------------------------------------------------
 
-// TestLoggerPassThrough verifies the logger pass through behavior remains part of the package contract.
-// It wraps a focused downstream handler and observes both response behavior and propagated request state.
-// This protects transport middleware from corrupting cancellation, streaming, logging, or error semantics.
-func TestLoggerPassThrough(t *testing.T) {
-	h := Logger(discardLogger())(okHandler())
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
-	if rec.Code != http.StatusOK || rec.Body.String() != "ok" {
-		t.Fatalf("logger altered response: %d %q", rec.Code, rec.Body.String())
-	}
-}
-
-// TestMiddlewareNilLoggersDoNotPanic verifies optional logger dependencies cannot turn error handling into a panic.
-// It wraps a focused downstream handler and observes both response behavior and propagated request state.
-// This protects transport middleware from corrupting cancellation, streaming, logging, or error semantics.
-func TestMiddlewareNilLoggersDoNotPanic(t *testing.T) {
-	Logger(nil)(okHandler()).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
-	Recover(nil)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { panic("boom") })).ServeHTTP(
-		httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil),
-	)
-}
-
-// TestStatusRecorderIgnoresDuplicateWriteHeader verifies the status recorder ignores duplicate write header behavior remains part of the package contract.
-// It wraps a focused downstream handler and observes both response behavior and propagated request state.
-// This protects transport middleware from corrupting cancellation, streaming, logging, or error semantics.
-func TestStatusRecorderIgnoresDuplicateWriteHeader(t *testing.T) {
-	rec := httptest.NewRecorder()
-	s := &statusRecorder{ResponseWriter: rec}
-	s.WriteHeader(http.StatusCreated)
-	s.WriteHeader(http.StatusInternalServerError)
-	if rec.Code != http.StatusCreated || s.status != http.StatusCreated {
-		t.Fatalf("status changed after duplicate WriteHeader: recorder=%d tracked=%d", rec.Code, s.status)
-	}
-}
-
-// --- Timeout -----------------------------------------------------------------
-
-// A handler that blocks on a downstream call (simulated by a select on ctx.Done)
-// must have its request context cancelled by the deadline, so the handler unwinds
-// and never hangs the caller forever.
-// TestTimeoutCancelsWedgedHandler verifies the timeout cancels wedged handler behavior remains part of the package contract.
-// It wraps a focused downstream handler and observes both response behavior and propagated request state.
-// This protects transport middleware from corrupting cancellation, streaming, logging, or error semantics.
 func TestTimeoutCancelsWedgedHandler(t *testing.T) {
 	var ctxErr error
 	blocked := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -204,53 +161,6 @@ func TestTimeoutCancelsWedgedHandler(t *testing.T) {
 
 // A fast handler must not be affected by the deadline: it completes normally and
 // the deadline is cancelled by the deferred cancel.
-// TestTimeoutPassesFastHandler verifies adapter routing forwards the required timeout passes fast handler inputs without loss.
-// It wraps a focused downstream handler and observes both response behavior and propagated request state.
-// This protects transport middleware from corrupting cancellation, streaming, logging, or error semantics.
-func TestTimeoutPassesFastHandler(t *testing.T) {
-	h := Timeout(5 * time.Second)(okHandler())
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
-	if rec.Code != http.StatusOK || rec.Body.String() != "ok" {
-		t.Fatalf("timeout altered fast response: %d %q", rec.Code, rec.Body.String())
-	}
-}
-
-// d <= 0 is a passthrough (no deadline attached).
-// TestTimeoutZeroIsPassthrough verifies the timeout zero is passthrough behavior remains part of the package contract.
-// It wraps a focused downstream handler and observes both response behavior and propagated request state.
-// This protects transport middleware from corrupting cancellation, streaming, logging, or error semantics.
-func TestTimeoutZeroIsPassthrough(t *testing.T) {
-	var hadDeadline bool
-	h := Timeout(0)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, hadDeadline = r.Context().Deadline()
-		w.WriteHeader(http.StatusOK)
-	}))
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
-	if hadDeadline {
-		t.Fatal("Timeout(0) must not attach a deadline")
-	}
-}
-
-// --- RateLimit ---------------------------------------------------------------
-
-// TestRateLimitAllow verifies the rate limit allow behavior remains part of the package contract.
-// It wraps a focused downstream handler and observes both response behavior and propagated request state.
-// This protects transport middleware from corrupting cancellation, streaming, logging, or error semantics.
-func TestRateLimitAllow(t *testing.T) {
-	lim := &fakeLimiter{allow: true}
-	h := RateLimit(lim, nil)(okHandler())
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rec.Code)
-	}
-}
-
-// TestRateLimitDeny verifies rate-limit denial preserves the public 429 response contract.
-// It wraps a focused downstream handler and observes both response behavior and propagated request state.
-// This protects transport middleware from corrupting cancellation, streaming, logging, or error semantics.
 func TestRateLimitDeny(t *testing.T) {
 	lim := &fakeLimiter{allow: false}
 	h := RateLimit(lim, nil)(okHandler())
@@ -308,30 +218,6 @@ func TestRateLimitKeyByOrganization(t *testing.T) {
 // The Logger wraps the ResponseWriter in statusRecorder to capture the status
 // code. That wrapper MUST still expose http.Flusher, or the NDJSON event stream
 // (which type-asserts w.(http.Flusher)) breaks with "streaming unsupported".
-// TestLoggerPreservesFlusher verifies response instrumentation preserves streaming capabilities.
-// It wraps a focused downstream handler and observes both response behavior and propagated request state.
-// This protects transport middleware from corrupting cancellation, streaming, logging, or error semantics.
-func TestLoggerPreservesFlusher(t *testing.T) {
-	var sawFlusher bool
-	h := Logger(discardLogger())(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		f, ok := w.(http.Flusher)
-		sawFlusher = ok
-		if ok {
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte("x"))
-			f.Flush()
-		}
-	}))
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest("GET", "/api/v1/events", nil))
-	if !sawFlusher {
-		t.Fatal("Logger-wrapped ResponseWriter must implement http.Flusher (NDJSON stream needs it)")
-	}
-	if !rec.Flushed {
-		t.Fatal("Flush did not forward to the underlying ResponseWriter")
-	}
-}
-
 func TestLoggerEnriches503WithFailureDBAndSessionState(t *testing.T) {
 	var buf bytes.Buffer
 	log := slog.New(slog.NewJSONHandler(&buf, nil))

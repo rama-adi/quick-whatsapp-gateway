@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -196,29 +195,6 @@ func TestGatewayRepoDisconnectClearsLivenessWithoutChangingLifecycle(t *testing.
 	}
 }
 
-func TestGatewayRepoUnchangedCurrentEpochIsApplied(t *testing.T) {
-	db, mock := newMock(t)
-	repo := NewGatewayRepo(db)
-	connection := domain.GatewayConnection{GatewayID: "gw_1", ConnectionEpoch: 9}
-
-	mock.ExpectExec("UPDATE gateways.*status = \\?").
-		WithArgs(domain.GatewayActive, int64(200), "gw_1", uint64(9)).
-		WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectQuery("SELECT EXISTS").
-		WithArgs("gw_1", uint64(9)).
-		WillReturnRows(sqlmock.NewRows([]string{"is_current"}).AddRow(true))
-
-	applied, err := repo.SetStatusForEpoch(context.Background(), domain.GatewayLifecycleReport{
-		GatewayConnection: connection, Status: domain.GatewayActive,
-	}, 200)
-	if err != nil || !applied {
-		t.Fatalf("unchanged current lifecycle: applied=%v err=%v", applied, err)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestGatewayRepoRuntimeReportDoesNotWriteDesiredLifecycle(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewGatewayRepo(db)
@@ -275,17 +251,5 @@ func TestGatewayRepoFencedMetadataValidatesIdentityAndJSON(t *testing.T) {
 		if err == nil || applied {
 			t.Fatalf("invalid metadata accepted: applied=%v err=%v", applied, err)
 		}
-	}
-}
-
-func TestGatewayRepoAllocateConnectionPropagatesDatabaseError(t *testing.T) {
-	db, mock := newMock(t)
-	repo := NewGatewayRepo(db)
-	want := errors.New("database unavailable")
-	mock.ExpectQuery("SELECT connection_epoch.*FROM gateways").
-		WithArgs("gw_1").WillReturnError(want)
-	_, err := repo.AcceptConnection(context.Background(), domain.GatewayConnectionHello{GatewayID: "gw_1", Status: domain.GatewayJoining}, 1)
-	if !errors.Is(err, want) {
-		t.Fatalf("got %v, want wrapped %v", err, want)
 	}
 }

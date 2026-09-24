@@ -26,46 +26,6 @@ func openTestJournal(t *testing.T, cfg Config) (*Journal, string) {
 	return j, path
 }
 
-func TestAppendDeduplicatesAndReplaysInSequence(t *testing.T) {
-	ctx := context.Background()
-	j, path := openTestJournal(t, testConfig(1024))
-	first, inserted, err := j.Append(ctx, "evt_1", []byte("one"), time.UnixMilli(100))
-	if err != nil || !inserted || first.Seq == 0 {
-		t.Fatalf("first append = %+v inserted=%v err=%v", first, inserted, err)
-	}
-	duplicate, inserted, err := j.Append(ctx, "evt_1", []byte("changed"), time.UnixMilli(200))
-	if err != nil || inserted || duplicate.Seq != first.Seq || string(duplicate.Payload) != "one" {
-		t.Fatalf("duplicate append = %+v inserted=%v err=%v", duplicate, inserted, err)
-	}
-	second, inserted, err := j.Append(ctx, "evt_2", []byte("two"), time.UnixMilli(300))
-	if err != nil || !inserted || second.Seq <= first.Seq {
-		t.Fatalf("second append = %+v inserted=%v err=%v", second, inserted, err)
-	}
-	entries, err := j.ReadUnacked(ctx, 10, 1024)
-	if err != nil || len(entries) != 2 || entries[0].EventID != "evt_1" || entries[1].EventID != "evt_2" {
-		t.Fatalf("entries = %+v err=%v", entries, err)
-	}
-	if err := j.Ack(ctx, first.Seq); err != nil {
-		t.Fatal(err)
-	}
-	if err := j.Close(); err != nil {
-		t.Fatal(err)
-	}
-	reopened, err := Open(ctx, path, testConfig(1024))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer reopened.Close()
-	entries, err = reopened.ReadUnacked(ctx, 10, 1024)
-	if err != nil || len(entries) != 1 || entries[0].EventID != "evt_2" || entries[0].Seq != second.Seq {
-		t.Fatalf("replayed entries = %+v err=%v", entries, err)
-	}
-	metrics, err := reopened.Metrics(ctx)
-	if err != nil || metrics.AckedThrough != first.Seq || metrics.Entries != 1 || metrics.OldestUnackedAt == nil {
-		t.Fatalf("metrics = %+v err=%v", metrics, err)
-	}
-}
-
 func TestAckWatermarkIsMonotonicAndRejectsFutureSequence(t *testing.T) {
 	ctx := context.Background()
 	j, _ := openTestJournal(t, testConfig(1024))

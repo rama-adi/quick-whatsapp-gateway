@@ -106,58 +106,6 @@ func messageEvent(eventType string, payload apitypes.MessagePayload) domain.Even
 		Session: "sess_1", Organization: "org_1", Timestamp: 1000, Payload: payload}
 }
 
-func TestProjectionMessageInsertsChatBeforeMessageAndCapturesSender(t *testing.T) {
-	store := &fakeProjectionStore{}
-	consumer := newTestProjectionConsumer(store)
-	event := messageEvent(domain.EventMessage, apitypes.MessagePayload{
-		WAMessageID: "wamid_1", ChatJID: "628123@s.whatsapp.net", SenderLID: "205227043110953@lid",
-		PushName: "Alice", Type: "text", Body: "Hello!", Timestamp: 999,
-	})
-
-	if err := consumer.ConsumeCommittedEvent(context.Background(), event); err != nil {
-		t.Fatal(err)
-	}
-	if len(store.upsertChats) != 1 || len(store.insertedMessages) != 1 || len(store.upsertIdentities) != 1 {
-		t.Fatalf("chat=%d message=%d identity=%d",
-			len(store.upsertChats), len(store.insertedMessages), len(store.upsertIdentities))
-	}
-	if store.upsertChats[0].Type != domain.ChatDM || store.upsertChats[0].Name != "Alice" || store.upsertChats[0].LastMessageAt != 999 {
-		t.Fatalf("chat upsert = %+v", store.upsertChats[0])
-	}
-	msg := store.insertedMessages[0]
-	if msg.Direction != domain.DirectionIn || msg.Body != "Hello!" || msg.SenderLID != "205227043110953@lid" {
-		t.Fatalf("message insert = %+v", msg)
-	}
-	if msg.RawJSON == nil {
-		t.Fatal("raw_json not persisted")
-	}
-	if got := store.upsertIdentities[0]; got.LID != "205227043110953@lid" || got.Name != "Alice" {
-		t.Fatalf("identity upsert = %+v", got)
-	}
-}
-
-func TestProjectionFromMeMessageMarksOutboundDirection(t *testing.T) {
-	store := &fakeProjectionStore{}
-	consumer := newTestProjectionConsumer(store)
-	event := messageEvent(domain.EventMessageFromMe, apitypes.MessagePayload{
-		WAMessageID: "wamid_2", ChatJID: "120363@g.us", FromMe: true, Type: "text", Body: "hi", Timestamp: 5,
-	})
-	if err := consumer.ConsumeCommittedEvent(context.Background(), event); err != nil {
-		t.Fatal(err)
-	}
-	if len(store.insertedMessages) != 1 || store.insertedMessages[0].Direction != domain.DirectionOut {
-		t.Fatalf("inserts = %+v", store.insertedMessages)
-	}
-	// Group chats never take the sender's push name as the chat name.
-	if len(store.upsertChats) != 1 || store.upsertChats[0].Name != "" || store.upsertChats[0].Type != domain.ChatGroup {
-		t.Fatalf("group chat upsert = %+v", store.upsertChats)
-	}
-	// The from_me sender has no LID; no identity or membership rows are written.
-	if len(store.upsertIdentities) != 0 || len(store.upsertMembers) != 0 {
-		t.Fatalf("unexpected captures: %+v %+v", store.upsertIdentities, store.upsertMembers)
-	}
-}
-
 func TestProjectionPollCreationUpsertsPollMetadata(t *testing.T) {
 	store := &fakeProjectionStore{}
 	consumer := newTestProjectionConsumer(store)
@@ -197,26 +145,6 @@ func TestProjectionEditAndRevokeTargetExistingMessages(t *testing.T) {
 	}
 	if len(store.insertedMessages) != 0 {
 		t.Fatalf("edit/revoke inserted message rows: %+v", store.insertedMessages)
-	}
-}
-
-func TestProjectionReceiptAdvancesStatusPerMessage(t *testing.T) {
-	store := &fakeProjectionStore{}
-	consumer := newTestProjectionConsumer(store)
-	event := domain.Event{Schema: domain.Schema, ID: "evt_rcpt", Type: domain.EventMessageStatus,
-		Session: "sess_1", Organization: "org_1", Timestamp: 2000,
-		Payload: apitypes.MessageStatusPayload{
-			ChatJID: "628123@s.whatsapp.net", MessageIDs: []string{"m1", "m2"}, Status: "delivered", Timestamp: 1999,
-		}}
-	if err := consumer.ConsumeCommittedEvent(context.Background(), event); err != nil {
-		t.Fatal(err)
-	}
-	if len(store.statusUpdates) != 1 || len(store.statusUpdates[0].WAMessageIDs) != 2 ||
-		store.statusUpdates[0].Status != domain.MessageDelivered {
-		t.Fatalf("status update = %+v", store.statusUpdates)
-	}
-	if len(store.insertedMessages) != 0 || len(store.upsertChats) != 0 {
-		t.Fatalf("receipt must not insert rows: %+v %+v", store.insertedMessages, store.upsertChats)
 	}
 }
 
@@ -275,31 +203,6 @@ func TestProjectionIgnoresNonProjectedEvents(t *testing.T) {
 	}
 	if len(store.upsertChats)+len(store.insertedMessages)+len(store.upsertIdentities)+len(store.insertedPollVotes) != 0 {
 		t.Fatal("non-projected events wrote rows")
-	}
-}
-
-// TestProjectionPairSuccessAttachesIdentity consumes an auth.code event (the
-// PairSuccess signal) carrying the linked JIDs. The session row must gain the
-// device JID, LID, and derived phone number — desired-state reconciliation
-// derives each assignment's DeviceJID from wa_jid, so this projection is what
-// lets a freshly paired session start.
-func TestProjectionPairSuccessAttachesIdentity(t *testing.T) {
-	store := &fakeProjectionStore{}
-	consumer := newTestProjectionConsumer(store)
-	event := domain.Event{Schema: domain.Schema, ID: "evt_pair", Type: domain.EventAuthCode,
-		Session: "sess_1", Organization: "org_1", Timestamp: 1000,
-		Payload: apitypes.AuthCodePayload{JID: "628111:7@s.whatsapp.net", LID: "777@lid"}}
-
-	if err := consumer.ConsumeCommittedEvent(context.Background(), event); err != nil {
-		t.Fatal(err)
-	}
-	if len(store.attachedPairings) != 1 {
-		t.Fatalf("expected 1 pairing attach, got %d", len(store.attachedPairings))
-	}
-	got := store.attachedPairings[0]
-	if got.SessionID != "sess_1" || got.WaJID != "628111:7@s.whatsapp.net" ||
-		got.WaLID != "777@lid" || got.PhoneNumber != "628111" || got.UpdatedAt != 1234 {
-		t.Fatalf("pairing attach = %+v", got)
 	}
 }
 

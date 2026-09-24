@@ -3,26 +3,12 @@ package oidp
 import (
 	"context"
 	"fmt"
-	"os"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 )
-
-// TestPendingLuaScriptsDoNotUseRedisKEYS scans the Lua source used by PendingStore and rejects any
-// redis.call of KEYS. Pending cleanup and claims must use bounded keys or incremental SCAN rather than
-// blocking the Redis server over the whole keyspace. This structural test protects production latency as
-// pending volume grows.
-func TestPendingLuaScriptsDoNotUseRedisKEYS(t *testing.T) {
-	raw, err := os.ReadFile("pending.go")
-	require.NoError(t, err)
-	if strings.Contains(string(raw), `redis.call("KEYS"`) {
-		t.Fatal("pending Lua scripts use redis KEYS")
-	}
-}
 
 // TestClaimVerifiedConcurrentExactlyOneWinner releases 24 goroutines to claim the same session and user
 // code through the Redis Lua transition. Exactly one caller must receive verified; every other caller

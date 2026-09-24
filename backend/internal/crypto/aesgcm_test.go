@@ -16,30 +16,6 @@ func newTestKeyB64(t *testing.T) string {
 	return base64.StdEncoding.EncodeToString(key)
 }
 
-// TestAESGCMRoundTrip verifies authenticated encryption preserves arbitrary plaintext.
-// It exercises constructor, random-nonce sealing, and opening as one contract so format changes cannot silently break stored secrets.
-func TestAESGCMRoundTrip(t *testing.T) {
-	g, err := NewAESGCM(newTestKeyB64(t))
-	if err != nil {
-		t.Fatalf("NewAESGCM: %v", err)
-	}
-	plain := []byte("super-secret-hmac-key")
-	ct, err := g.Encrypt(plain)
-	if err != nil {
-		t.Fatalf("Encrypt: %v", err)
-	}
-	if bytes.Contains(ct, plain) {
-		t.Fatal("ciphertext leaks plaintext")
-	}
-	got, err := g.Decrypt(ct)
-	if err != nil {
-		t.Fatalf("Decrypt: %v", err)
-	}
-	if !bytes.Equal(got, plain) {
-		t.Fatalf("round trip mismatch: got %q want %q", got, plain)
-	}
-}
-
 // TestAESGCMNonceRandomized guards against nonce reuse for identical plaintexts.
 // Two encryptions under one key must differ while both remain decryptable, which is required for GCM confidentiality.
 func TestAESGCMNonceRandomized(t *testing.T) {

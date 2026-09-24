@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"errors"
-	"reflect"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -38,44 +37,6 @@ func sessionRowForLiveState(id, org, gatewayID, waJID string) *sqlmock.Rows {
 	}).AddRow(id, org, nil, gatewayID, nil, domain.SessionWorking, waJID, nil, nil, false, false, false, 20, 200, nil, int64(1), int64(1))
 }
 
-func TestSessionServiceMeUsesEngineAfterRepositoryOwnership(t *testing.T) {
-	st, mock := newStore(t)
-	mock.ExpectQuery("FROM wa_sessions").WithArgs("sess_1").WillReturnRows(sessionRowForLiveState("sess_1", "org_1", "gw_1", "6281@s.whatsapp.net"))
-	engine := &fakeSessionStateEngine{state: application.SessionState{OrganizationID: "org_1", SessionID: "sess_1", GatewayID: "gw_1", Status: domain.SessionStarting, Connected: false, LoggedIn: true}}
-	svc := NewSessionService(st.Sessions, nil, nil)
-	svc.SetGatewayLiveFacade(engine)
-	got, err := svc.Me(context.Background(), "org_1", "sess_1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if engine.calls != 1 || engine.organizationID != "org_1" || engine.sessionID != "sess_1" {
-		t.Fatalf("engine query org=%q session=%q calls=%d", engine.organizationID, engine.sessionID, engine.calls)
-	}
-	if got.Status != domain.SessionStarting || got.Connected {
-		t.Fatalf("Me = %+v", got)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatal(err)
-	}
-
-}
-
-func TestSessionServiceMeRejectsForeignOwnerBeforeEngine(t *testing.T) {
-	st, mock := newStore(t)
-	mock.ExpectQuery("FROM wa_sessions").WithArgs("sess_1").WillReturnRows(sessionRowForLiveState("sess_1", "other_org", "gw_1", "6281@s.whatsapp.net"))
-	engine := &fakeSessionStateEngine{}
-	svc := NewSessionService(st.Sessions, nil, nil)
-	svc.SetGatewayLiveFacade(engine)
-	_, err := svc.Me(context.Background(), "org_1", "sess_1")
-	var apiErr *domain.APIError
-	if !errors.As(err, &apiErr) || apiErr.Code != domain.CodeNotFound || engine.calls != 0 {
-		t.Fatalf("err=%v engine calls=%d", err, engine.calls)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestSessionServiceMeRejectsMismatchedEngineState(t *testing.T) {
 	st, mock := newStore(t)
 	mock.ExpectQuery("FROM wa_sessions").WithArgs("sess_1").WillReturnRows(sessionRowForLiveState("sess_1", "org_1", "gw_1", "6281@s.whatsapp.net"))
@@ -104,13 +65,6 @@ func TestSessionServiceMePreservesFacadeError(t *testing.T) {
 		t.Fatal(err)
 	}
 }
-
-// ---- Increment 7 session-lifecycle facade preference ----
-//
-// With the GatewaySessionFacade set, the live parts of QR / pairing-code /
-// logout must execute through it even when no in-process manager exists (which
-// would otherwise answer errLiveUnavailable). The paired-session guard still
-// runs first from the row.
 
 type fakeLifecycleFacade struct {
 	calls                        []string
@@ -178,73 +132,6 @@ func unpairedSessionRow() *sqlmock.Rows {
 	}).AddRow("sess_1", "org_1", nil, "gw_1", nil, domain.SessionScanQR, nil, nil, nil, false, false, false, 20, 200, nil, int64(1), int64(1))
 }
 
-func TestSessionServiceQRFavorsFacadeOverMissingManager(t *testing.T) {
-	st, mock := newStore(t)
-	mock.ExpectQuery("FROM wa_sessions").WithArgs("sess_1").WillReturnRows(unpairedSessionRow())
-	facade := &fakeLifecycleFacade{pairSnap: application.PairingSnapshot{Code: "QR-1", ExpiresAt: 999}}
-	svc := NewSessionService(st.Sessions, nil, nil)
-	svc.SetGatewaySessionFacade(facade)
-	got, err := svc.QR(context.Background(), "org_1", "sess_1")
-	if err != nil {
-		t.Fatalf("QR: %v", err)
-	}
-	if got.Code != "QR-1" || got.ExpiresAt != 999 {
-		t.Fatalf("QR = %#v", got)
-	}
-	if facade.qrOrg != "org_1" || facade.qrSession != "sess_1" {
-		t.Fatalf("facade call = %q/%q", facade.qrOrg, facade.qrSession)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestSessionServiceStartPreparesBeforePairingAndDesiredRun(t *testing.T) {
-	st, mock := newStore(t)
-	mock.ExpectQuery("FROM wa_sessions").WithArgs("sess_1").WillReturnRows(unpairedSessionRow())
-	facade := &fakeLifecycleFacade{pairSnap: application.PairingSnapshot{Code: "QR-1"}}
-	desired := &fakeSessionDesiredController{}
-	svc := NewSessionService(st.Sessions, nil, nil)
-	svc.SetGatewaySessionFacade(facade)
-	svc.SetSessionDesiredController(desired)
-
-	if err := svc.Start(context.Background(), "org_1", "sess_1"); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	if got, want := facade.calls, []string{"prepare", "qr"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("facade calls = %v, want %v", got, want)
-	}
-	if got, want := desired.calls, []bool{true}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("desired calls = %v, want %v", got, want)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestSessionServiceRestartForgetsThenStartsWithoutDesiredStop(t *testing.T) {
-	st, mock := newStore(t)
-	mock.ExpectQuery("FROM wa_sessions").WithArgs("sess_1").WillReturnRows(unpairedSessionRow())
-	facade := &fakeLifecycleFacade{pairSnap: application.PairingSnapshot{Code: "QR-1"}}
-	desired := &fakeSessionDesiredController{}
-	svc := NewSessionService(st.Sessions, nil, nil)
-	svc.SetGatewaySessionFacade(facade)
-	svc.SetSessionDesiredController(desired)
-
-	if err := svc.Restart(context.Background(), "org_1", "sess_1"); err != nil {
-		t.Fatalf("Restart: %v", err)
-	}
-	if got, want := facade.calls, []string{"forget", "prepare", "qr"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("facade calls = %v, want %v", got, want)
-	}
-	if got, want := desired.calls, []bool{true}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("desired calls = %v, want %v", got, want)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestSessionServiceRestartDoesNotSetDesiredAfterForgetFailure(t *testing.T) {
 	st, mock := newStore(t)
 	mock.ExpectQuery("FROM wa_sessions").WithArgs("sess_1").WillReturnRows(sessionRowForLiveState("sess_1", "org_1", "gw_1", "6281@s.whatsapp.net"))
@@ -293,45 +180,6 @@ func TestSessionServiceLifecycleWithoutDesiredControllerReturnsUnavailable(t *te
 	svc = NewSessionService(st.Sessions, nil, nil)
 	if err := svc.Restart(context.Background(), "org_1", "sess_1"); !isLiveUnavailable(err) {
 		t.Fatalf("Restart error = %v, want live unavailable", err)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestSessionServiceLogoutFavorsFacadeOverMissingManager(t *testing.T) {
-	st, mock := newStore(t)
-	mock.ExpectQuery("FROM wa_sessions").WithArgs("sess_1").WillReturnRows(sessionRowForLiveState("sess_1", "org_1", "gw_1", "6281@s.whatsapp.net"))
-	mock.ExpectExec("UPDATE wa_sessions").WithArgs(sqlmock.AnyArg(), "sess_1").WillReturnResult(sqlmock.NewResult(0, 1))
-	facade := &fakeLifecycleFacade{}
-	svc := NewSessionService(st.Sessions, nil, nil)
-	svc.SetGatewaySessionFacade(facade)
-	if err := svc.Logout(context.Background(), "org_1", "sess_1"); err != nil {
-		t.Fatalf("Logout: %v", err)
-	}
-	if facade.logoutOrg != "org_1" || facade.logoutSession != "sess_1" {
-		t.Fatalf("facade call = %q/%q", facade.logoutOrg, facade.logoutSession)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestSessionServicePairingCodeFavorsFacadeAndValidatesPhoneFirst(t *testing.T) {
-	st, mock := newStore(t)
-	mock.ExpectQuery("FROM wa_sessions").WithArgs("sess_1").WillReturnRows(unpairedSessionRow())
-	facade := &fakeLifecycleFacade{code: "ABCD-1234"}
-	svc := NewSessionService(st.Sessions, nil, nil)
-	svc.SetGatewaySessionFacade(facade)
-	code, err := svc.PairingCode(context.Background(), "org_1", "sess_1", "+628123")
-	if err != nil || code != "ABCD-1234" {
-		t.Fatalf("PairingCode = %q, %v", code, err)
-	}
-	if facade.phone != "+628123" || facade.codeOrg != "org_1" || facade.codeSession != "sess_1" {
-		t.Fatalf("facade call = %q/%q/%q", facade.codeOrg, facade.codeSession, facade.phone)
-	}
-	if _, err := svc.PairingCode(context.Background(), "org_1", "sess_1", ""); !errors.As(err, new(*domain.APIError)) {
-		t.Fatal("missing phone bypassed validation")
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

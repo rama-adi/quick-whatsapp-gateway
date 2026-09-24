@@ -145,6 +145,25 @@ The v1 single-binary build (Authula auth, embedded React Router SPA, MySQL keyst
 at git tag `mvp-v1`. Anything v1-shaped still in the working tree is a removable duplicate. Don't
 resurrect v1 code — check out the tag if you need to read it.
 
+## Product writing
+
+- Never use disclaimer-sounding wording or excessive prefaces when describing features, behavior, or writing product copy. They make the app sound unstable or unreliable.
+- Be fully confident in what you are writing before writing it: establish the facts, resolve uncertainty, and then state the supported behavior directly. Do not substitute a confident tone for verification.
+- Keep copy concise, concrete, and focused on what the user can do. When a real constraint affects a user's decision, state it plainly at the relevant point instead of wrapping the feature in caveats.
+
+## Testing policy
+
+- Never write unit tests after you write code.
+- Highly prefer E2E tests as the sole testing mechanism. Use them to verify complex features work through the real application boundaries. At the end of E2E tests, produce a verifiable and repeatable artifact: executed scenarios and results, raw evidence, source identity, and the exact command needed to reproduce the run. Record failures as failures; a skipped suite is not proof.
+- If you must test a system in isolation, first write down all the ways it could fail, then write the code. Record the failure analysis before implementation and explain which concrete failures E2E cannot adequately exercise. Existing isolated tests must meet the same relevance standard when reviewed.
+- Tautological tests are considered harmful. Do not restate the implementation, configure a mock to return a value and merely assert that value, or calculate the expected result with the same logic under test.
+- Change-detector tests are considered harmful. Do not pin incidental source text, internal call sequences, private structure, or snapshots just to flag edits. Verify externally meaningful behavior or a genuine interoperability contract.
+- Do not create regression tests for bug fixes without a genuine gap in behavior testing. Extend the relevant E2E scenario when a gap exists; do not add another test merely because a bug was fixed.
+- Delete tests whose meaningful coverage is already provided by E2E. Keep an isolated test only when it can catch a specific real failure that the E2E suite misses, and state that failure. Do not retain redundant tests for test counts or coverage percentages.
+
+The current audit and retained-test rationale live in `internal-docs/test-relevance-audit.md`.
+Run `make api-e2e` to produce the API/gateway E2E evidence artifact.
+
 ## Green gates before commit
 
 The backend and web app must build and pass tests at every committed step. Changes to site-marketing must also pass its build and typecheck.

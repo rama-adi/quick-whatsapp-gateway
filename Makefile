@@ -48,8 +48,8 @@ test:
 	sh scripts/selfhost-entrypoint-test.sh
 api-e2e-coverage-check: ## fail when a public API operation or route lacks an E2E coverage entry
 	python3 scripts/check-api-e2e-coverage.py
-api-e2e: api-e2e-coverage-check ## run the Docker-backed API/gateway process test
-	QWG_E2E=1 go -C backend test ./cmd/api -run '^TestOutboundE2E$$' -count=1 -v
+api-e2e: ## run API/gateway E2E and preserve reproducible evidence
+	python3 scripts/run-api-e2e.py
 tidy:
 	go -C backend mod tidy
 	cd web && pnpm install

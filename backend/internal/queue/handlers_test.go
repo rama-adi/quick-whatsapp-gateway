@@ -78,25 +78,6 @@ func TestHandlerDispatch(t *testing.T) {
 	}
 }
 
-// TestHandlerPropagatesConsumerError makes a valid outbox consumer return a transient failure. The handler
-// must preserve that error with task context and must not add SkipRetry. Asynq can therefore retry
-// operational failures while still exposing which outbox row failed.
-func TestHandlerPropagatesConsumerError(t *testing.T) {
-	sentinel := errors.New("boom")
-	fake := &fakeConsumers{failErr: sentinel}
-	mux := Handlers{Outbox: fake, Webhooks: fake, Retention: fake}.Mux()
-
-	task, _ := NewOutboxSendTask("out_1")
-	err := dispatch(mux, task)
-	if !errors.Is(err, sentinel) {
-		t.Fatalf("expected sentinel wrapped, got %v", err)
-	}
-	// A consumer failure must NOT be marked SkipRetry — asynq should retry.
-	if errors.Is(err, asynq.SkipRetry) {
-		t.Fatal("consumer error should be retryable, not SkipRetry")
-	}
-}
-
 // TestHandlerMalformedPayloadSkipsRetry dispatches malformed tasks for each registered job type. Every
 // handler must wrap the parse failure with asynq.SkipRetry and avoid invoking its consumer. Retrying
 // immutable bad JSON would waste worker capacity forever.

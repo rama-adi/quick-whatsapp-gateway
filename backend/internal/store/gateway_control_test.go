@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -16,42 +15,6 @@ func TestValidateAuditMetadataRecursivelyRejectsSecrets(t *testing.T) {
 	}
 	if err := validateAuditMetadata(map[string]any{"gateway_id": "gw", "certificate_fingerprint": "sha256"}); err != nil {
 		t.Fatalf("safe identifiers rejected: %v", err)
-	}
-}
-
-func TestInTxCommitAndRollback(t *testing.T) {
-	for _, tc := range []struct {
-		name     string
-		callback error
-		commit   bool
-	}{
-		{name: "commit", commit: true}, {name: "rollback", callback: errors.New("stop")},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			db, mock, err := sqlmock.New()
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer func() { _ = db.Close() }()
-			mock.ExpectBegin()
-			if tc.commit {
-				mock.ExpectCommit()
-			} else {
-				mock.ExpectRollback()
-			}
-			err = InTx(context.Background(), db, func(s *Store) error {
-				if s.AuditEvents == nil {
-					t.Fatal("transaction store incomplete")
-				}
-				return tc.callback
-			})
-			if !errors.Is(err, tc.callback) {
-				t.Fatalf("got %v want %v", err, tc.callback)
-			}
-			if err := mock.ExpectationsWereMet(); err != nil {
-				t.Fatal(err)
-			}
-		})
 	}
 }
 

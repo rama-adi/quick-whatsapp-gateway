@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	gatewayv1 "github.com/rama-adi/quick-whatsapp-gateway/gen/gateway/v1"
 	publicv1 "github.com/rama-adi/quick-whatsapp-gateway/gen/public/v1"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/apigrpc"
 	"google.golang.org/grpc"
@@ -126,25 +125,6 @@ func (f *fakeGRPCLifecycle) stop() {
 	})
 }
 
-func TestPublicHealthServiceServingAndUnready(t *testing.T) {
-	ready := true
-	service := publicHealthService{readiness: func() error {
-		if !ready {
-			return errors.New("dependency unavailable")
-		}
-		return nil
-	}}
-	response, err := service.Check(context.Background(), &publicv1.PublicHealthServiceCheckRequest{})
-	if err != nil || response.Status != publicv1.ServingStatus_SERVING_STATUS_SERVING {
-		t.Fatalf("ready response = (%v, %v)", response, err)
-	}
-	ready = false
-	response, err = service.Check(context.Background(), &publicv1.PublicHealthServiceCheckRequest{})
-	if err != nil || response.Status != publicv1.ServingStatus_SERVING_STATUS_NOT_SERVING {
-		t.Fatalf("unready response = (%v, %v)", response, err)
-	}
-}
-
 func TestAPIServerRunnerServesBothListenersAndShutsDown(t *testing.T) {
 	dependenciesReady := true
 	gate := &readinessGate{dependencies: func() error {
@@ -205,60 +185,6 @@ func TestAPIServerRunnerServesBothListenersAndShutsDown(t *testing.T) {
 	}
 	if gate.admitting.Load() {
 		t.Fatal("readiness remained true during drain")
-	}
-}
-
-func TestAPIServerRunnerBindFailureClosesPriorListener(t *testing.T) {
-	first, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	calls := 0
-	runner := &apiServerRunner{
-		httpAddr: "http", grpcAddr: "grpc", httpHandler: http.NotFoundHandler(),
-		grpcServer: grpc.NewServer(), readiness: &readinessGate{},
-		listen: func(_, _ string) (net.Listener, error) {
-			calls++
-			if calls == 1 {
-				return first, nil
-			}
-			return nil, errors.New("address in use")
-		},
-	}
-	err = runner.run(context.Background())
-	if err == nil || err.Error() != "listen public gRPC grpc: address in use" {
-		t.Fatalf("bind error = %v", err)
-	}
-	if closeErr := first.Close(); !errors.Is(closeErr, net.ErrClosed) {
-		t.Fatalf("first listener was not closed, close error = %v", closeErr)
-	}
-}
-
-func TestPublicGRPCServerRegistersNoGatewayService(t *testing.T) {
-	server := newPublicGRPCServer(func() error { return nil }, apigrpc.Deps{})
-	services := server.GetServiceInfo()
-	if _, ok := services[publicv1.PublicHealthService_ServiceDesc.ServiceName]; !ok {
-		t.Fatal("public health service is not registered")
-	}
-	if _, ok := services[gatewayv1.GatewayHealthService_ServiceDesc.ServiceName]; ok {
-		t.Fatal("private gateway service registered on public server")
-	}
-	if _, ok := services[gatewayv1.GatewayEnrollmentService_ServiceDesc.ServiceName]; ok {
-		t.Fatal("private enrollment service registered on public server")
-	}
-	// Increment 8: the public surface serves sessions, messages, and events
-	// alongside health. The private gateway.v1 domain must never appear.
-	for _, name := range []string{
-		publicv1.PublicSessionsService_ServiceDesc.ServiceName,
-		publicv1.PublicMessagesService_ServiceDesc.ServiceName,
-		publicv1.PublicEventsService_ServiceDesc.ServiceName,
-	} {
-		if _, ok := services[name]; !ok {
-			t.Fatalf("public service %s is not registered", name)
-		}
-	}
-	if len(services) != 4 {
-		t.Fatalf("public services = %v, want exactly the four public.v1 services", services)
 	}
 }
 

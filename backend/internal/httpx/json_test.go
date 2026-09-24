@@ -10,27 +10,6 @@ import (
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 )
 
-// TestWriteJSON writes a successful object response with a non-default status.
-// It expects the requested status, canonical JSON content type, and decodable body.
-// This pins the common response contract used by non-huma handlers and middleware.
-func TestWriteJSON(t *testing.T) {
-	rec := httptest.NewRecorder()
-	WriteJSON(rec, http.StatusCreated, map[string]string{"hi": "there"})
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("status = %d, want 201", rec.Code)
-	}
-	if ct := rec.Header().Get("Content-Type"); ct != "application/json; charset=utf-8" {
-		t.Fatalf("content-type = %q", ct)
-	}
-	var got map[string]string
-	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if got["hi"] != "there" {
-		t.Fatalf("body = %v", got)
-	}
-}
-
 // TestWriteErrorMapping table-tests every public domain error code against its HTTP status.
 // Each case must retain the code and message inside the standard error envelope.
 // This prevents refactors from changing client retry or authorization behavior through status drift.

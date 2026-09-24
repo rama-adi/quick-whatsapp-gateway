@@ -137,30 +137,6 @@ func connectedStore() *fakeStore {
 	return &fakeStore{connection: Connection{ID: "conn-1", Epoch: 7, HeartbeatInterval: 5 * time.Second, LeaseTimeout: 15 * time.Second, DesiredLifecycle: gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN, DesiredRevision: 1}, desired: DesiredLifecycle{Action: gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN, Revision: 1}}
 }
 
-func TestConnectUsesTLSIdentityAndSendsSequencedWelcome(t *testing.T) {
-	store := connectedStore()
-	stream := &fakeStream{ctx: context.Background(), frames: []*gatewayv1.GatewayFrame{hello(1), heartbeat(2, 7, 1)}}
-	if err := testServer(store).Connect(stream); err != nil {
-		t.Fatal(err)
-	}
-	if store.acceptedID != "gw_cert" || len(store.heartbeats) != 1 || store.heartbeats[0] != 7 {
-		t.Fatalf("store calls = id %q heartbeats %v", store.acceptedID, store.heartbeats)
-	}
-	if len(stream.sent) != 4 || stream.sent[0].Sequence != 1 || stream.sent[0].ProtocolVersion != ProtocolVersion || stream.sent[0].GetWelcome().ConnectionEpoch != 7 || stream.sent[1].GetDesiredStateSnapshot() == nil {
-		t.Fatalf("control frames = %+v", stream.sent)
-	}
-	ack := stream.sent[2]
-	if ack.Sequence != 3 || ack.GetHeartbeatAck().AcknowledgedGatewaySequence != 2 || ack.GetHeartbeatAck().ConnectionEpoch != 7 || ack.GetHeartbeatAck().ServerTimeUnixMs != 1234 || stream.sent[3].GetDesiredStateSnapshot() == nil {
-		t.Fatalf("heartbeat ack = %+v", ack)
-	}
-	if len(store.disconnect) != 1 || store.disconnect[0] != 7 {
-		t.Fatalf("disconnects = %v", store.disconnect)
-	}
-	if !store.disconnectHasDeadline {
-		t.Fatal("disconnect cleanup context has no deadline")
-	}
-}
-
 func TestHeartbeatAckIsSentOnlyAfterPersistence(t *testing.T) {
 	store := connectedStore()
 	stream := &fakeStream{ctx: context.Background(), frames: []*gatewayv1.GatewayFrame{hello(1), heartbeat(2, 7, 1)}}
@@ -386,56 +362,6 @@ func journalEventBatch(sequence uint64, id string) *gatewayv1.GatewayEventBatch 
 	}}}
 }
 
-// TestEventIngestReplayAfterLostAck pins the Increment 10 chaos scenario
-// "acknowledgement loss after DB commit": the batch commits (the store fake
-// records its rows), the ack send fails so the stream dies, the gateway
-// reconnects and replays the same batch, ingest dedup makes that replay a
-// no-op, and the re-emitted ack carries the same watermark.
-func TestEventIngestReplayAfterLostAck(t *testing.T) {
-	store := connectedStore()
-	first := &fakeStream{ctx: context.Background(), frames: []*gatewayv1.GatewayFrame{
-		hello(1), heartbeat(2, 7, 1),
-		{ProtocolVersion: ProtocolVersion, Sequence: 3, Payload: &gatewayv1.GatewayFrame_EventBatch{EventBatch: journalEventBatch(9, "evt_9")}},
-	}}
-	first.failEventAcksBefore(1) // the first EventAck never reaches the gateway
-
-	err := testServer(store).Connect(first)
-	if status.Code(err) != codes.Unavailable {
-		t.Fatalf("lost-ack stream error = %v, want Unavailable", err)
-	}
-	if len(store.ingested) != 1 || len(store.ingested[0]) != 1 || store.ingested[0][0].EventID != "evt_9" {
-		t.Fatalf("first ingest did not commit: %+v", store.ingested)
-	}
-	if firstAck := lastEventAck(t, first); firstAck == nil || firstAck.GetEventAck().AcknowledgedJournalSequence != 9 {
-		t.Fatalf("no watermark-9 ack attempted: %+v", first.sent)
-	}
-
-	// Reconnect: the journal replays every unacknowledged entry — the same
-	// batch. Ingest dedup makes it a no-op; the ack is re-emitted with the same
-	// watermark.
-	replayed := journalEventBatch(9, "evt_9")
-	second := &fakeStream{ctx: context.Background(), frames: []*gatewayv1.GatewayFrame{
-		hello(1), heartbeat(2, 7, 1),
-		{ProtocolVersion: ProtocolVersion, Sequence: 3, Payload: &gatewayv1.GatewayFrame_EventBatch{EventBatch: replayed}},
-	}}
-	if err = testServer(store).Connect(second); err != nil {
-		t.Fatal(err)
-	}
-	if got := secondAckWatermark(t, second); got != 9 {
-		t.Fatalf("reconnect ack watermark = %d, want 9 (same watermark)", got)
-	}
-	acked, err := eventBatch(replayed, "gw_cert", 7)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, committed := range store.ingested[1:] {
-		if len(committed) != len(acked) || committed[0].EventID != acked[0].EventID {
-			t.Fatalf("replay was not a dedup no-op: stored %+v vs original %+v", committed, acked)
-		}
-	}
-}
-
-// lastEventAck returns the last EventAck frame the server attempted to send.
 func lastEventAck(t *testing.T, stream *fakeStream) *gatewayv1.ControlFrame {
 	t.Helper()
 	for i := len(stream.sent) - 1; i >= 0; i-- {

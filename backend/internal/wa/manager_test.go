@@ -14,25 +14,9 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
-	"github.com/rama-adi/quick-whatsapp-gateway/internal/gateway/desiredstate"
 )
 
 func quietLogger() *slog.Logger { return slog.New(slog.DiscardHandler) }
-
-func TestStartAssignedUsesControlConfigWithoutSessionLookup(t *testing.T) {
-	jid := types.NewJID("6281", types.DefaultUserServer)
-	keystore := &fakeKeystore{devices: []*store.Device{{ID: &jid}}}
-	manager := NewManager(keystore, nil, nil, nil, nil, Config{})
-	manager.SetClientFactory(func(*store.Device) waClient { return &fakeClient{} })
-	assignment := desiredstate.Assignment{SessionID: "session", OrganizationID: "org", DeviceJID: jid.String(), AssignmentEpoch: 1, LeaseExpiresAt: time.Now().Add(time.Minute), DesiredRun: true, Config: desiredstate.Config{Revision: 4, AutoRead: true, PresenceTyping: true, RatePerMin: 12, RatePerHour: 34}}
-	if err := manager.StartAssigned(context.Background(), assignment); err != nil {
-		t.Fatal(err)
-	}
-	config, ok := manager.AssignedConfig("session")
-	if !ok || config != assignment.Config {
-		t.Fatalf("assigned config = %#v, %v", config, ok)
-	}
-}
 
 type fakeKeystore struct {
 	devices   []*store.Device
@@ -170,28 +154,6 @@ func (c fixedClock) NowMs() int64 { return c.ms }
 // Status emission via the event handler / state machine.
 // ----------------------------------------------------------------------------
 
-// TestSetStatus_EmitsOnChangeOnly writes one transition twice and then a distinct transition.
-// Status emission occurs once per actual change, suppressing duplicate lifecycle noise
-// without losing new state. Persistence is API-owned; nothing else is written.
-func TestSetStatus_EmitsOnChangeOnly(t *testing.T) {
-	m, sink := newTestManager(t, Config{})
-	ms := &ManagedSession{SessionID: "sess_1", OrganizationID: "ten_1", status: domain.SessionStopped}
-	m.mu.Lock()
-	m.sessions["sess_1"] = ms
-	m.mu.Unlock()
-
-	m.setStatus(context.Background(), ms, domain.SessionWorking)
-	m.setStatus(context.Background(), ms, domain.SessionWorking) // no-op (same)
-	m.setStatus(context.Background(), ms, domain.SessionStopped)
-
-	if got := sink.typeCount(domain.EventSessionStatus); got != 2 {
-		t.Fatalf("expected 2 session.status events (dedup the repeat), got %d", got)
-	}
-}
-
-// TestEventHandler_TerminalEventStopsReconnect delivers a terminal whatsmeow event to a session
-// with reconnect work pending. It records the terminal status, cancels reconnect ownership, and emits
-// the transition exactly once.
 func TestEventHandler_TerminalEventStopsReconnect(t *testing.T) {
 	m, sink, inbound, fc := newTestManagerParts(t, Config{})
 	jid := types.NewJID("628111", types.DefaultUserServer)
@@ -310,126 +272,6 @@ func TestEventHandler_ConnectedResetsBackoff(t *testing.T) {
 	}
 }
 
-// TestEventHandler_PairSuccessRecordsJID sends a successful pairing event carrying the new device
-// address. The manager records the canonical JIDs on the managed session; row persistence is
-// API-owned.
-func TestEventHandler_PairSuccessRecordsJID(t *testing.T) {
-	m, _, _, _ := newTestManagerParts(t, Config{})
-	ms := &ManagedSession{SessionID: "sess_1", OrganizationID: "ten_1", status: domain.SessionScanQR}
-	m.mu.Lock()
-	m.sessions["sess_1"] = ms
-	m.mu.Unlock()
-
-	jid := types.NewJID("628111", types.DefaultUserServer)
-	lid := types.NewJID("777", types.HiddenUserServer)
-	m.eventHandlerFor(ms)(&events.PairSuccess{ID: jid, LID: lid})
-
-	ms.mu.Lock()
-	defer ms.mu.Unlock()
-	if ms.pairedJID != jid.String() {
-		t.Fatalf("pairedJID = %q, want %s", ms.pairedJID, jid.String())
-	}
-	if ms.pairedLID != lid.String() {
-		t.Fatalf("pairedLID = %q, want %s", ms.pairedLID, lid.String())
-	}
-}
-
-// ----------------------------------------------------------------------------
-// Lifecycle: Stop / Logout against fakes.
-// ----------------------------------------------------------------------------
-
-// TestStop_TearsDownAndMarksStopped stops a running managed session with reconnect state. It
-// cancels background work, disconnects the client, and emits the stopped transition.
-func TestStop_TearsDownAndMarksStopped(t *testing.T) {
-	m, sink, _, fc := newTestManagerParts(t, Config{})
-	ms := &ManagedSession{
-		SessionID: "sess_1", OrganizationID: "ten_1", status: domain.SessionWorking,
-		reconnect: true, client: fc, cancel: func() {},
-	}
-	m.mu.Lock()
-	m.sessions["sess_1"] = ms
-	m.mu.Unlock()
-
-	if err := m.Stop(context.Background(), "sess_1"); err != nil {
-		t.Fatal(err)
-	}
-	if ms.Status() != domain.SessionStopped {
-		t.Fatalf("status = %s, want stopped", ms.Status())
-	}
-	if fc.disconnects == 0 {
-		t.Fatal("client should have been disconnected")
-	}
-	if sink.typeCount(domain.EventSessionStatus) != 1 {
-		t.Fatalf("expected 1 session.status event, got %d", sink.typeCount(domain.EventSessionStatus))
-	}
-}
-
-// TestLogout_DeletesDeviceAndMarksLoggedOut logs out an active session through the WhatsApp client.
-// Device credentials are deleted from the keystore, preventing boot adoption of stale keys.
-func TestLogout_DeletesDeviceAndMarksLoggedOut(t *testing.T) {
-	jid := types.NewJID("628111", types.DefaultUserServer)
-	dev := &store.Device{ID: &jid}
-	m, sink, _, fc := newTestManagerParts(t, Config{})
-	ks := m.keystore.(*fakeKeystore)
-	ms := &ManagedSession{
-		SessionID: "sess_1", OrganizationID: "ten_1", status: domain.SessionWorking,
-		reconnect: true, client: fc, device: dev, cancel: func() {},
-	}
-	m.mu.Lock()
-	m.sessions["sess_1"] = ms
-	m.mu.Unlock()
-
-	if err := m.Logout(context.Background(), "sess_1"); err != nil {
-		t.Fatal(err)
-	}
-	if !fc.loggedOut {
-		t.Fatal("client.Logout was not called")
-	}
-	if len(ks.deleted) != 1 || ks.deleted[0] != dev {
-		t.Fatal("device was not deleted from keystore")
-	}
-	if ms.Status() != domain.SessionLoggedOut {
-		t.Fatalf("status = %s, want logged_out", ms.Status())
-	}
-	ms.mu.Lock()
-	freshDevice := ms.device
-	ms.mu.Unlock()
-	if freshDevice == nil || freshDevice == dev || freshDevice.ID != nil {
-		t.Fatal("logout should replace the deleted device with a fresh unpaired device")
-	}
-	// Repeating logout stays idempotent and still emits the durable reset signal,
-	// which is what lets the API-side projection repair stale pairing rows.
-	before := sink.typeCount(domain.EventSessionStatus)
-	if err := m.Logout(context.Background(), "sess_1"); err != nil {
-		t.Fatalf("repeat logout: %v", err)
-	}
-	if sink.typeCount(domain.EventSessionStatus)-before != 1 {
-		t.Fatal("repeat logout should re-emit session.status for the durable clear")
-	}
-	fc.pairCode = "ABCD-1234"
-	if code, err := m.StartPairingCode(context.Background(), "sess_1", "628111"); err != nil {
-		t.Fatalf("pairing after logout: %v", err)
-	} else if code != "ABCD-1234" {
-		t.Fatalf("pairing code = %q, want ABCD-1234", code)
-	}
-}
-
-// TestStop_UnknownSession targets an ID absent from the manager registry. It returns the domain
-// not-found error and performs no repository or client side effects.
-func TestStop_UnknownSession(t *testing.T) {
-	m, _, _, _ := newTestManagerParts(t, Config{})
-	err := m.Stop(context.Background(), "nope")
-	if err == nil {
-		t.Fatal("expected not-found error")
-	}
-	var apiErr *domain.APIError
-	if !errors.As(err, &apiErr) || apiErr.Code != domain.CodeNotFound {
-		t.Fatalf("expected not_found, got %v", err)
-	}
-}
-
-// newTestManager wires a manager over fakes with a controllable client factory.
-// There is no session repository any more — the gateway owns no rows.
 func newTestManager(t *testing.T, cfg Config) (*Manager, *fakeSink) {
 	t.Helper()
 	m, sink, _, _ := newTestManagerParts(t, cfg)

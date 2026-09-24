@@ -3,7 +3,6 @@ package backup
 import (
 	"bytes"
 	"compress/zlib"
-	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"database/sql"
@@ -198,86 +197,5 @@ func TestLoadRootKey(t *testing.T) {
 	// garbage.
 	if _, err := LoadRootKey([]byte("nope")); err == nil {
 		t.Fatal("expected error for garbage key")
-	}
-}
-
-// TestCoarseType locks known WhatsApp numeric types to import-safe coarse types.
-// Unknown/system codes deliberately map to empty so the reader can skip contentless placeholders safely.
-func TestCoarseType(t *testing.T) {
-	cases := map[int]string{
-		0: "text", 1: "image", 42: "image", 3: "video", 43: "video",
-		13: "gif", 2: "audio", 9: "document", 15: "sticker", 20: "sticker",
-		4: "contact", 5: "location", 16: "location", 7: "", 99: "",
-	}
-	for code, want := range cases {
-		if got := coarseType(code); got != want {
-			t.Errorf("coarseType(%d) = %q, want %q", code, got, want)
-		}
-	}
-}
-
-// TestChatTypeForServer locks WhatsApp JID servers to gateway chat categories.
-// The table includes every special server while ordinary phone and LID servers fall back to direct messages.
-func TestChatTypeForServer(t *testing.T) {
-	cases := map[string]string{
-		"s.whatsapp.net": "dm", "lid": "dm", "g.us": "group",
-		"newsletter": "newsletter", "broadcast": "broadcast", "status_me": "status",
-	}
-	for server, want := range cases {
-		if got := chatTypeForServer(server); got != want {
-			t.Errorf("chatTypeForServer(%q) = %q, want %q", server, got, want)
-		}
-	}
-}
-
-// sampleDBPath is the dev-only decrypted msgstore used to validate the reader.
-// The test skips when it is absent (CI), so it never gates the build.
-const sampleDBPath = "../../../web/msgstore.db"
-
-// TestReadSampleMsgstore is an optional integration check against a developer backup fixture.
-// When present, it exercises schema probing and every streaming reader and requires the core import projections to be non-empty.
-func TestReadSampleMsgstore(t *testing.T) {
-	if _, err := os.Stat(sampleDBPath); err != nil {
-		t.Skipf("sample DB not present (%s); skipping", sampleDBPath)
-	}
-	db, err := Open(sampleDBPath)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	defer func() { _ = db.Close() }()
-
-	t.Logf("schema fingerprint: %s", db.Fingerprint())
-
-	ctx := context.Background()
-	var chats, msgs, ids, groups, members int
-	if err := db.EachChat(ctx, func(c Chat) error {
-		if c.JID != "" {
-			chats++
-		}
-		return nil
-	}); err != nil {
-		t.Fatalf("EachChat: %v", err)
-	}
-	if err := db.EachMessage(ctx, func(m Message) error {
-		if m.WAMessageID != "" && m.ChatJID != "" {
-			msgs++
-		}
-		return nil
-	}); err != nil {
-		t.Fatalf("EachMessage: %v", err)
-	}
-	if err := db.EachIdentity(ctx, func(Identity) error { ids++; return nil }); err != nil {
-		t.Fatalf("EachIdentity: %v", err)
-	}
-	if err := db.EachGroup(ctx, func(Group) error { groups++; return nil }); err != nil {
-		t.Fatalf("EachGroup: %v", err)
-	}
-	if err := db.EachGroupMember(ctx, func(GroupMember) error { members++; return nil }); err != nil {
-		t.Fatalf("EachGroupMember: %v", err)
-	}
-
-	t.Logf("chats=%d messages=%d identities=%d groups=%d members=%d", chats, msgs, ids, groups, members)
-	if chats == 0 || msgs == 0 || ids == 0 || groups == 0 {
-		t.Fatalf("expected non-zero imports, got chats=%d messages=%d identities=%d groups=%d", chats, msgs, ids, groups)
 	}
 }

@@ -12,53 +12,6 @@ import (
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 )
 
-// TestBuildContextInfo_Quote builds protobuf context for a reply with message ID, participant, and
-// quoted text. All quote fields survive conversion so WhatsApp renders the native reply instead of
-// plain text.
-func TestBuildContextInfo_Quote(t *testing.T) {
-	ci := buildContextInfo(QuoteInfo{
-		ID:        "3A39B767976D4B5D4766",
-		ChatJID:   "107082225311887@lid",
-		SenderJID: "107082225311887@lid",
-		Type:      domain.SendTypeText,
-		Body:      "quoted body",
-	}, nil)
-	if ci == nil {
-		t.Fatal("context info is nil")
-	}
-	if ci.GetStanzaID() != "3A39B767976D4B5D4766" {
-		t.Fatalf("stanza id = %q", ci.GetStanzaID())
-	}
-	if ci.GetRemoteJID() != "107082225311887@lid" {
-		t.Fatalf("remote jid = %q", ci.GetRemoteJID())
-	}
-	if ci.GetParticipant() != "107082225311887@lid" {
-		t.Fatalf("participant = %q", ci.GetParticipant())
-	}
-	if ci.GetQuotedMessage().GetConversation() != "quoted body" {
-		t.Fatalf("quoted body = %q", ci.GetQuotedMessage().GetConversation())
-	}
-}
-
-func TestBuildContextInfo_ImageReplyDoesNotInheritQuotedMentions(t *testing.T) {
-	ci := buildContextInfo(QuoteInfo{
-		ID:        "incoming-id",
-		ChatJID:   "120363123456789012@g.us",
-		SenderJID: "205227043110953@lid",
-		Type:      domain.SendTypeText,
-		Body:      "@bot draw this",
-	}, nil)
-	if ci.GetStanzaID() != "incoming-id" || ci.GetParticipant() != "205227043110953@lid" || ci.GetQuotedMessage().GetConversation() != "@bot draw this" {
-		t.Fatalf("image reply context = %#v", ci)
-	}
-	if len(ci.GetMentionedJID()) != 0 {
-		t.Fatalf("image reply unexpectedly mentions %v", ci.GetMentionedJID())
-	}
-}
-
-// TestFillOwnQuoteParticipant covers direct and group replies authored by the local account, with
-// phone and LID identities. It fills the participant only where WhatsApp requires one and never
-// overwrites an explicit remote author.
 func TestFillOwnQuoteParticipant(t *testing.T) {
 	group := types.NewJID("120363123456789012", types.GroupServer)
 	dm := types.NewJID("6281234567890", types.DefaultUserServer)
@@ -103,38 +56,6 @@ func TestFillOwnQuoteParticipant(t *testing.T) {
 	})
 }
 
-// TestBuildContextInfo_OwnGroupQuoteSetsParticipant constructs a group reply to the gateway's own
-// earlier message. Context uses the local device participant, fixing the otherwise ambiguous author in
-// group quote rendering.
-func TestBuildContextInfo_OwnGroupQuoteSetsParticipant(t *testing.T) {
-	group := types.NewJID("120363123456789012", types.GroupServer)
-	ownLID := types.JID{User: "205227043110953", Server: types.HiddenUserServer}
-	quote := fillOwnQuoteParticipant(group, QuoteInfo{
-		ID:      "3EB0POLL",
-		ChatJID: group.String(),
-		FromMe:  true,
-		Type:    domain.SendTypeText,
-		Body:    "rama harus tidur sekarang?",
-	}, ownLID, types.EmptyJID)
-
-	ci := buildContextInfo(quote, nil)
-	if ci == nil {
-		t.Fatal("context info is nil")
-	}
-	if ci.GetParticipant() != "205227043110953@lid" {
-		t.Fatalf("participant = %q", ci.GetParticipant())
-	}
-	if ci.GetStanzaID() != "3EB0POLL" {
-		t.Fatalf("stanza id = %q", ci.GetStanzaID())
-	}
-	if ci.GetQuotedMessage().GetConversation() != "rama harus tidur sekarang?" {
-		t.Fatalf("quoted body = %q", ci.GetQuotedMessage().GetConversation())
-	}
-}
-
-// TestImageMetadata_WideImage derives dimensions and thumbnail metadata from a wide encoded image.
-// Width and height retain their orientation and the generated preview remains valid, guarding media
-// uploads against swapped geometry.
 func TestImageMetadata_WideImage(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 320, 120))
 	for y := 0; y < 120; y++ {

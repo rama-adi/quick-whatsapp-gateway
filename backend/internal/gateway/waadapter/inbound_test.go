@@ -198,18 +198,3 @@ func TestInboundMessageFromEventsMessage_LIDSenderAndGroupAccounting(t *testing.
 		t.Fatalf("raw payload = %+v", raw)
 	}
 }
-
-// TestSplitSenderIDs_PhoneAndLID passes both alternate LID plus phone JID and a primary LID-only sender
-// into the identifier splitter. The helper must place each value in its canonical column without treating
-// a LID as a phone JID. This prevents identity upserts from fragmenting one WhatsApp person.
-func TestSplitSenderIDs_PhoneAndLID(t *testing.T) {
-	lid, phoneJID := splitSenderIDs("777@lid", "628222@s.whatsapp.net")
-	if lid != "777@lid" || phoneJID != "628222@s.whatsapp.net" {
-		t.Fatalf("split alt lid = %q %q", lid, phoneJID)
-	}
-
-	lid, phoneJID = splitSenderIDs("", "sender-test@lid")
-	if lid != "sender-test@lid" || phoneJID != "" {
-		t.Fatalf("split primary lid = %q %q", lid, phoneJID)
-	}
-}

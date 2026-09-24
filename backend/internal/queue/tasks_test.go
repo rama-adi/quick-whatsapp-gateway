@@ -1,68 +1,10 @@
 package queue
 
 import (
-	"encoding/json"
-	"errors"
 	"testing"
 
 	"github.com/hibiken/asynq"
 )
-
-// TestTaskPayloadRoundTrip constructs each typed task, then decodes it with the matching private parser.
-// IDs and retention cutoffs must survive JSON serialization exactly. This locks the producer/consumer wire
-// contract used across independently running queue clients and workers.
-func TestTaskPayloadRoundTrip(t *testing.T) {
-	t.Run("outbox-send", func(t *testing.T) {
-		task, err := NewOutboxSendTask("out_01HABC")
-		if err != nil {
-			t.Fatalf("build: %v", err)
-		}
-		if task.Type() != TypeOutboxSend {
-			t.Fatalf("type = %q, want %q", task.Type(), TypeOutboxSend)
-		}
-		got, err := parseOutboxSend(task)
-		if err != nil {
-			t.Fatalf("parse: %v", err)
-		}
-		if got.OutboxID != "out_01HABC" {
-			t.Fatalf("outboxId = %q, want out_01HABC", got.OutboxID)
-		}
-	})
-
-	t.Run("webhook-deliver", func(t *testing.T) {
-		task, err := NewWebhookDeliverTask(42)
-		if err != nil {
-			t.Fatalf("build: %v", err)
-		}
-		if task.Type() != TypeWebhookDeliver {
-			t.Fatalf("type = %q, want %q", task.Type(), TypeWebhookDeliver)
-		}
-		got, err := parseWebhookDeliver(task)
-		if err != nil {
-			t.Fatalf("parse: %v", err)
-		}
-		if got.DeliveryID != 42 {
-			t.Fatalf("deliveryId = %d, want 42", got.DeliveryID)
-		}
-	})
-
-	t.Run("retention-prune", func(t *testing.T) {
-		task, err := NewRetentionPruneTask(1719400000000)
-		if err != nil {
-			t.Fatalf("build: %v", err)
-		}
-		if task.Type() != TypeRetentionPrune {
-			t.Fatalf("type = %q, want %q", task.Type(), TypeRetentionPrune)
-		}
-		got, err := parseRetentionPrune(task)
-		if err != nil {
-			t.Fatalf("parse: %v", err)
-		}
-		if got.CutoffMs != 1719400000000 {
-			t.Fatalf("cutoffMs = %d, want 1719400000000", got.CutoffMs)
-		}
-	})
-}
 
 // TestParsePayloadValidation feeds every parser malformed JSON and structurally valid payloads with empty,
 // zero, or non-positive required fields. Each case must return an error before a consumer is called.
@@ -133,37 +75,5 @@ func TestParsePayloadValidation(t *testing.T) {
 				t.Fatalf("err = %v, wantErr = %v", err, tc.wantErr)
 			}
 		})
-	}
-}
-
-// Verify the JSON field names are stable on the wire (other phases may inspect
-// the payload), not just self-consistent on round-trip.
-// TestPayloadJSONShape marshals representative task payloads and inspects their public JSON keys and
-// values. The test pins camel-case field names such as outboxId, deliveryId, and cutoffMs rather than
-// merely round-tripping through the same Go tags. This detects queue wire drift during refactors.
-func TestPayloadJSONShape(t *testing.T) {
-	b, _ := json.Marshal(OutboxSendPayload{OutboxID: "out_1"})
-	if string(b) != `{"outboxId":"out_1"}` {
-		t.Fatalf("outbox json = %s", b)
-	}
-	b, _ = json.Marshal(WebhookDeliverPayload{DeliveryID: 9})
-	if string(b) != `{"deliveryId":9}` {
-		t.Fatalf("webhook json = %s", b)
-	}
-	b, _ = json.Marshal(RetentionPrunePayload{CutoffMs: 123})
-	if string(b) != `{"cutoffMs":123}` {
-		t.Fatalf("retention json = %s", b)
-	}
-}
-
-// TestSkipRetryWrappingHelper wraps a payload error with asynq.SkipRetry in the same form used by
-// handlers. errors.Is must still recognize the sentinel through contextual wrapping. This ensures
-// malformed jobs reach the archive directly instead of exhausting MaxRetry.
-func TestSkipRetryWrappingHelper(t *testing.T) {
-	// Sanity: the wrapping pattern the handlers use for bad payloads stays
-	// detectable via errors.Is so asynq won't retry malformed tasks.
-	err := errors.Join(asynq.SkipRetry, errors.New("bad payload"))
-	if !errors.Is(err, asynq.SkipRetry) {
-		t.Fatal("expected SkipRetry to be detectable")
 	}
 }

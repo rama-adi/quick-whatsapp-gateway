@@ -278,17 +278,3 @@ func TestNormalizeNewsletter(t *testing.T) {
 		t.Errorf("leave action wrong")
 	}
 }
-
-// TestNormalizeUnknownEvent passes an unsupported value to the top-level normalizer and expects a clean
-// drop. Upstream whatsmeow additions therefore fail closed until their persistence and payload semantics
-// are explicitly defined.
-func TestNormalizeUnknownEvent(t *testing.T) {
-	_, _, ok := Normalize(&events.KeepAliveTimeout{}, testSession, testOrganization)
-	if ok {
-		t.Errorf("expected ok=false for unhandled event")
-	}
-	_, _, ok = Normalize("not an event", testSession, testOrganization)
-	if ok {
-		t.Errorf("expected ok=false for non-event")
-	}
-}

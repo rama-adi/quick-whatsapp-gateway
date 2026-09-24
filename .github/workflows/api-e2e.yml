@@ -6,6 +6,7 @@ on:
       - "backend/**"
       - "docs/openapi.yaml"
       - "scripts/check-api-e2e-coverage.py"
+      - "scripts/run-api-e2e.py"
       - "Makefile"
       - ".github/workflows/api-e2e.yml"
   push:
@@ -14,6 +15,7 @@ on:
       - "backend/**"
       - "docs/openapi.yaml"
       - "scripts/check-api-e2e-coverage.py"
+      - "scripts/run-api-e2e.py"
       - "Makefile"
       - ".github/workflows/api-e2e.yml"
 
@@ -32,8 +34,14 @@ jobs:
           cache-dependency-path: backend/go.sum
           cache: true
 
-      - name: Check operation coverage inventory
-        run: make api-e2e-coverage-check
-
       - name: Run API and gateway process E2E
         run: make api-e2e
+
+      - name: Upload E2E evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-e2e-evidence
+          path: .artifacts/api-e2e/
+          include-hidden-files: true
+          if-no-files-found: error

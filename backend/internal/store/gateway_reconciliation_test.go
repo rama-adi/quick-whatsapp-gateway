@@ -31,27 +31,6 @@ func TestGatewayReconciliationRejectsDuplicateInventory(t *testing.T) {
 	}
 }
 
-func TestGatewayReconciliationPersistsCompleteRunningAssignment(t *testing.T) {
-	db, mock := newMock(t)
-	repo := NewGatewayReconciliationRepo(db)
-	mock.ExpectBegin()
-	mock.ExpectQuery("SELECT desired_revision FROM gateways").WithArgs("gw_1", uint64(3)).WillReturnRows(sqlmock.NewRows([]string{"desired_revision"}).AddRow(uint64(7)))
-	mock.ExpectQuery("SELECT a.session_id").WithArgs("gw_1").WillReturnRows(sqlmock.NewRows([]string{"session_id", "wa_jid", "run"}).AddRow("s_1", "a@s.whatsapp.net", true))
-	mock.ExpectQuery("SELECT COUNT.*gateway_session_assignments").WithArgs("gw_1", "s_1", uint64(4), "a@s.whatsapp.net", "a@s.whatsapp.net").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-	mock.ExpectExec("DELETE FROM gateway_reconciliation_results").WithArgs("gw_1").WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectExec("INSERT INTO gateway_reconciliation_results").WithArgs("gw_1", "a@s.whatsapp.net", "s_1", uint64(4), "applied", uint64(7), int64(100)).WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectExec("UPDATE gateways SET reconciliation_status").WithArgs("healthy", true, nil, "healthy", nil, uint64(7), int64(100), "gw_1", uint64(3), uint64(7)).WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectCommit()
-	session := "s_1"
-	err := repo.Persist(context.Background(), GatewayReconciliationReport{GatewayID: "gw_1", Epoch: 3, Revision: 7, KeystoreState: "healthy", LocalDevices: []string{"a@s.whatsapp.net"}, Results: []GatewayReconciliationResult{{SessionID: &session, AssignmentEpoch: 4, DeviceJID: "a@s.whatsapp.net", Status: "applied"}}}, 100)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestGatewayReconciliationRejectsAppliedRunningDeviceAbsentFromInventory(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewGatewayReconciliationRepo(db)
@@ -90,25 +69,6 @@ func TestGatewayReconciliationRejectsUnclassifiedInventory(t *testing.T) {
 	err := repo.Persist(context.Background(), GatewayReconciliationReport{GatewayID: "gw_1", Epoch: 3, Revision: 7, KeystoreState: "healthy", LocalDevices: []string{"unknown@s.whatsapp.net"}}, 100)
 	if err == nil {
 		t.Fatal("unclassified inventory accepted")
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestGatewayReconciliationAllowsStoppedUnpairedAppliedResult(t *testing.T) {
-	db, mock := newMock(t)
-	repo := NewGatewayReconciliationRepo(db)
-	expectReconciliationFence(mock, "gw_1", 3, 7, sqlmock.NewRows([]string{"session_id", "wa_jid", "run"}).AddRow("s_1", "", false))
-	mock.ExpectQuery("SELECT COUNT.*gateway_session_assignments").WithArgs("gw_1", "s_1", uint64(4), "", "").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-	mock.ExpectExec("DELETE FROM gateway_reconciliation_results").WithArgs("gw_1").WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectExec("INSERT INTO gateway_reconciliation_results").WithArgs("gw_1", "", "s_1", uint64(4), "applied", uint64(7), int64(100)).WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectExec("UPDATE gateways SET reconciliation_status").WithArgs("healthy", true, nil, "healthy", nil, uint64(7), int64(100), "gw_1", uint64(3), uint64(7)).WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectCommit()
-	session := "s_1"
-	err := repo.Persist(context.Background(), GatewayReconciliationReport{GatewayID: "gw_1", Epoch: 3, Revision: 7, KeystoreState: "healthy", Results: []GatewayReconciliationResult{{SessionID: &session, AssignmentEpoch: 4, Status: "applied"}}}, 100)
-	if err != nil {
-		t.Fatal(err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

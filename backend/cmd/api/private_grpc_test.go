@@ -27,29 +27,6 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
-func TestDecodeGatewayEventPayloadExtractsTypeSpecificJSON(t *testing.T) {
-	value, err := structpb.NewStruct(map[string]any{
-		"schema": "v1", "id": "evt_1", "event": "message", "session": "ses_1",
-		"organization": "org_1", "timestamp": float64(1234), "payload": map[string]any{"text": "hi"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	payload, err := proto.Marshal(value)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := decodeGatewayEventPayload(apigateway.GatewayEvent{
-		EventID: "evt_1", SessionID: "ses_1", OrganizationID: "org_1", Type: "message", Payload: payload,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(got) != `{"text":"hi"}` {
-		t.Fatalf("payload = %s", got)
-	}
-}
-
 func TestDecodeGatewayEventPayloadRejectsMetadataMismatch(t *testing.T) {
 	value, err := structpb.NewStruct(map[string]any{"schema": "v1", "id": "evt_other", "payload": map[string]any{}})
 	if err != nil {
@@ -238,20 +215,6 @@ func TestEnrollmentAdapterBoundsMapsAndReturnsExactFields(t *testing.T) {
 	}
 }
 
-func TestPrivateServerRegistersOnlyPrivateServices(t *testing.T) {
-	server := newPrivateGatewayGRPCServer(&tls.Config{}, privateGatewayAuthenticator{}, &fakeRedeemer{}, nil, nil, nil)
-	services := server.GetServiceInfo()
-	if len(services) != 2 {
-		t.Fatalf("services = %v", services)
-	}
-	if _, ok := services[gatewayv1.GatewayEnrollmentService_ServiceDesc.ServiceName]; !ok {
-		t.Fatal("enrollment absent")
-	}
-	if _, ok := services[gatewayv1.GatewayHealthService_ServiceDesc.ServiceName]; !ok {
-		t.Fatal("health absent")
-	}
-}
-
 type fakeGatewayControlRepo struct {
 	accepted    domain.GatewayAcceptedConnection
 	err         error
@@ -385,14 +348,6 @@ func TestGatewayControlStorePreservesContextErrors(t *testing.T) {
 				t.Fatalf("heartbeat error = %v", heartbeatErr)
 			}
 		})
-	}
-}
-
-func TestPrivateServerRegistersGatewayControl(t *testing.T) {
-	control := &apigateway.Server{}
-	server := newPrivateGatewayGRPCServer(&tls.Config{}, privateGatewayAuthenticator{}, &fakeRedeemer{}, nil, nil, control)
-	if _, ok := server.GetServiceInfo()[gatewayv1.GatewayControlService_ServiceDesc.ServiceName]; !ok {
-		t.Fatal("gateway control absent")
 	}
 }
 

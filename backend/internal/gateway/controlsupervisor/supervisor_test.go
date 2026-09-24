@@ -211,67 +211,6 @@ func TestEventAckMustExactlyMatchInFlightBatch(t *testing.T) {
 	}
 }
 
-func TestHelloAndHeartbeatSequenceEpochAndRuntime(t *testing.T) {
-	clock := &fakeClock{now: time.Unix(100, 0)}
-	stream := newFakeStream()
-	stream.recv <- receiveResult{frame: welcome(gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN)}
-	supervisor := testSupervisor(t, clock, &fakeOpener{streams: []*fakeStream{stream}})
-	supervisor.cfg.DesiredState = staticDesiredState{}
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- supervisor.runStream(ctx) }()
-
-	hello := <-stream.sent
-	if hello.Sequence != 1 || hello.ProtocolVersion != ProtocolVersion || hello.GetHello() == nil {
-		t.Fatalf("invalid hello: %#v", hello)
-	}
-	if hello.GetHello().SessionCount != 3 || hello.GetHello().RuntimeState != gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_READY {
-		t.Fatalf("hello runtime snapshot = %#v", hello.GetHello())
-	}
-	if len(hello.GetHello().Capabilities) != 0 || hello.GetHello().GrpcEndpoint != nil {
-		t.Fatalf("advertised unfinished capabilities: %#v", hello.GetHello())
-	}
-	waitStatus(t, supervisor, func(status Status) bool { return status.Connected })
-	if supervisor.Status().Ready {
-		t.Fatal("welcome without durable heartbeat acknowledgement reported ready")
-	}
-	stream.recv <- receiveResult{frame: &gatewayv1.ControlFrame{ProtocolVersion: ProtocolVersion, Sequence: 2, Payload: &gatewayv1.ControlFrame_DesiredStateSnapshot{DesiredStateSnapshot: &gatewayv1.DesiredStateSnapshot{Revision: 1}}}}
-	report := <-stream.sent
-	if report.Sequence != 2 || report.GetDesiredStateReport() == nil {
-		t.Fatalf("desired-state report = %#v", report)
-	}
-	if !clock.fire(time.Second) {
-		t.Fatal("heartbeat timer not registered")
-	}
-	heartbeat := <-stream.sent
-	if heartbeat.Sequence != 3 || heartbeat.GetHeartbeat().ConnectionEpoch != 7 ||
-		heartbeat.GetHeartbeat().LastControlSequence != 2 || heartbeat.GetHeartbeat().SessionCount != 3 {
-		t.Fatalf("invalid heartbeat: %#v", heartbeat)
-	}
-	stream.recv <- receiveResult{frame: heartbeatAck(3, 3, 7)}
-	waitStatus(t, supervisor, func(status Status) bool { return status.ConfirmedHeartbeat })
-	if !supervisor.Status().Ready {
-		t.Fatal("healthy desired-state snapshot and heartbeat did not report ready")
-	}
-	flushDone := make(chan error, 1)
-	go func() { flushDone <- supervisor.Flush(context.Background()) }()
-	flushedHeartbeat := <-stream.sent
-	if flushedHeartbeat.Sequence != 4 {
-		t.Fatalf("flush heartbeat sequence = %d", flushedHeartbeat.Sequence)
-	}
-	stream.recv <- receiveResult{frame: heartbeatAck(4, 4, 7)}
-	if err := <-flushDone; err != nil {
-		t.Fatal(err)
-	}
-	if !supervisor.Status().Stable {
-		t.Fatal("two acknowledged cycles did not establish stable reconnect state")
-	}
-	cancel()
-	if err := <-done; err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestProveCurrentConnectionCompletesOverlappingWelcomeAndHeartbeat(t *testing.T) {
 	clock := &fakeClock{now: time.Unix(100, 0)}
 	replacement := newFakeStream()
@@ -336,67 +275,6 @@ func TestDrainWelcomeIsConnectedButUnreadyAndSendsNoLifecycleReport(t *testing.T
 	}
 	cancel()
 	<-done
-}
-
-func TestDirectiveIsExposedAndReportEchoesItsExactIdentity(t *testing.T) {
-	clock := &fakeClock{now: time.Unix(100, 0)}
-	stream := newFakeStream()
-	stream.recv <- receiveResult{frame: welcome(gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_RUN)}
-	stream.recv <- receiveResult{frame: directive(2, gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DRAIN)}
-	supervisor := testSupervisor(t, clock, &fakeOpener{streams: []*fakeStream{stream}})
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	done := make(chan error, 1)
-	go func() { done <- supervisor.runStream(ctx) }()
-	<-stream.sent // Hello.
-
-	got, err := supervisor.WaitForDirective(context.Background(), 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.ID != "directive-1" || got.Sequence != 2 || got.ConnectionEpoch != 7 ||
-		got.Action != gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DRAIN ||
-		got.Reason != gatewayv1.LifecycleDirectiveReason_LIFECYCLE_DIRECTIVE_REASON_OPERATOR ||
-		got.DrainDeadline.UnixMilli() != 101_000 {
-		t.Fatalf("directive = %#v", got)
-	}
-	wrong := got
-	wrong.ID = "different-directive"
-	if err := supervisor.ReportLifecycle(context.Background(), wrong,
-		gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED,
-		gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_NONE); !errors.Is(err, ErrDirectiveSuperseded) {
-		t.Fatalf("mismatched report error = %v, want superseded directive", err)
-	}
-	reported := make(chan error, 1)
-	go func() {
-		reported <- supervisor.ReportLifecycle(context.Background(), got,
-			gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DRAINED,
-			gatewayv1.LifecycleFailure_LIFECYCLE_FAILURE_NONE)
-	}()
-	report := <-stream.sent
-	if report.Sequence != 2 || report.GetLifecycleReport() == nil ||
-		report.GetLifecycleReport().ConnectionEpoch != got.ConnectionEpoch ||
-		report.GetLifecycleReport().DirectiveId != got.ID {
-		t.Fatalf("lifecycle report = %#v", report)
-	}
-	if err := <-reported; err != nil {
-		t.Fatal(err)
-	}
-	if status := supervisor.Status(); status.Directive != nil {
-		t.Fatalf("reported directive remained active: %#v", status.Directive)
-	}
-	cancel()
-	if err := <-done; err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestDrainDirectiveMayOmitDeadline(t *testing.T) {
-	frame := directive(2, gatewayv1.LifecycleDirectiveAction_LIFECYCLE_DIRECTIVE_ACTION_DRAIN)
-	frame.GetLifecycleDirective().DrainDeadlineUnixMs = nil
-	if err := validateControl(frame, 2, 7, 1, time.Unix(100, 0)); err != nil {
-		t.Fatalf("deadline-less drain directive rejected: %v", err)
-	}
 }
 
 func TestRejectsInvalidDirectiveFields(t *testing.T) {

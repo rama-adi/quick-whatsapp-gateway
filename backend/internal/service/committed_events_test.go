@@ -117,26 +117,6 @@ func committedEvent() domain.Event {
 	return domain.Event{ID: "evt_01", Type: domain.EventMessage, Organization: "org_01", Session: "ses_01"}
 }
 
-func TestCommittedEventWorkerFansOutThenCompletes(t *testing.T) {
-	projection := &recordingCommittedConsumer{}
-	publisher := &recordingCommittedPublisher{}
-	webhooks := &recordingCommittedWebhooks{}
-	store := &durableCommittedEventStore{committed: map[string]domain.Event{"evt_01": committedEvent()}, completed: map[string]bool{}}
-	worker := newTestCommittedEventWorker(store, NewCommittedEventDispatcher([]application.CommittedEventConsumer{projection}, publisher, webhooks))
-
-	completed, err := worker.RunOnce(context.Background(), 1)
-	if err != nil || completed != 1 {
-		t.Fatalf("completed, err = %d, %v", completed, err)
-	}
-	if !store.completed["evt_01"] || projection.count() != 1 || publisher.count() != 1 || len(webhooks.calls) != 1 {
-		t.Fatalf("completion=%v calls projection:%d publisher:%d webhooks:%d", store.completed, projection.count(), publisher.count(), len(webhooks.calls))
-	}
-	claim := store.claims[0]
-	if !claim.LeaseUntil.Equal(claim.ClaimedAt.Add(time.Minute)) {
-		t.Fatalf("claim clock and lease diverged: %+v", claim)
-	}
-}
-
 type orderedCommittedStore struct {
 	events    []domain.Event
 	completed []string
@@ -209,20 +189,6 @@ func TestCommittedEventWorkerFailureReplaysAfterRestart(t *testing.T) {
 	defer store.mu.Unlock()
 	if !store.completed["evt_01"] || publisher.count() != 2 {
 		t.Fatalf("completion=%v publish calls=%d", store.completed, publisher.count())
-	}
-}
-
-func TestCommittedEventWorkerDoesNotProcessBeforeCommittedClaim(t *testing.T) {
-	publisher := &recordingCommittedPublisher{}
-	store := &durableCommittedEventStore{committed: map[string]domain.Event{}, completed: map[string]bool{}}
-	worker := newTestCommittedEventWorker(store, NewCommittedEventDispatcher(nil, publisher, nil))
-	if completed, err := worker.RunOnce(context.Background(), 1); err != nil || completed != 0 {
-		t.Fatalf("completed, err = %d, %v", completed, err)
-	}
-	store.mu.Lock()
-	defer store.mu.Unlock()
-	if publisher.count() != 0 || len(store.completed) != 0 || len(store.claims) != 1 {
-		t.Fatalf("publisher calls=%d completions=%v claims=%d", publisher.count(), store.completed, len(store.claims))
 	}
 }
 

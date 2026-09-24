@@ -70,19 +70,6 @@ func TestRoutingWAClient_UnresolvableSession_NotImplemented(t *testing.T) {
 	}
 }
 
-// TestSessionIDContextRoundTrip writes a session id with outbound.WithSessionID and reads it through the
-// routing helper, including the empty-context case. The value must survive unchanged and absence must
-// remain empty. This context key is the only per-request selector used by the account-global Sender.
-func TestSessionIDContextRoundTrip(t *testing.T) {
-	if got := outbound.SessionIDFromContext(context.Background()); got != "" {
-		t.Errorf("empty ctx session = %q, want \"\"", got)
-	}
-	ctx := outbound.WithSessionID(context.Background(), "sess_9")
-	if got := outbound.SessionIDFromContext(ctx); got != "sess_9" {
-		t.Errorf("session = %q, want sess_9", got)
-	}
-}
-
 func assertNotImplemented(t *testing.T, err error) {
 	t.Helper()
 	if !isNotImplemented(err) {

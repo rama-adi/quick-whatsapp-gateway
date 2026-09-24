@@ -209,57 +209,6 @@ func TestApplyStartsOnlyAssignedLocalDevicesAndReportsInventory(t *testing.T) {
 	}
 }
 
-func TestApplyStopsRemovedAndExpiresLease(t *testing.T) {
-	now := time.Unix(100, 0)
-	rt := &fakeRuntime{inventory: Inventory{PairedJIDs: []string{"a"}}}
-	r := New(rt, func() time.Time { return now })
-	if _, err := r.Apply(context.Background(), Snapshot{Revision: 1, Assignments: []Assignment{assignment("one", "a", 1, now.Add(time.Minute))}}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := r.Apply(context.Background(), Snapshot{Revision: 2}); err != nil {
-		t.Fatal(err)
-	}
-	if len(rt.stopped) != 1 || rt.stopped[0] != "one" {
-		t.Fatalf("stopped = %#v", rt.stopped)
-	}
-	if _, err := r.Apply(context.Background(), Snapshot{Revision: 3, Assignments: []Assignment{assignment("two", "a", 4, now.Add(time.Second))}}); err != nil {
-		t.Fatal(err)
-	}
-	now = now.Add(2 * time.Second)
-	if _, err := r.Expire(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if len(rt.stopped) != 2 || rt.stopped[1] != "two" {
-		t.Fatalf("stopped=%#v", rt.stopped)
-	}
-	if _, ok := r.CurrentEpoch("two"); ok {
-		t.Fatal("expired assignment retains epoch")
-	}
-}
-
-func TestAssignmentCountTracksAppliedAuthoritativeSnapshot(t *testing.T) {
-	now := time.Unix(100, 0)
-	r := New(&fakeRuntime{}, func() time.Time { return now })
-	if got := r.AssignmentCount(); got != 0 {
-		t.Fatalf("initial assignments = %d", got)
-	}
-	if _, err := r.Apply(context.Background(), Snapshot{Revision: 1, Assignments: []Assignment{
-		assignment("one", "one", 1, now.Add(time.Minute)),
-		assignment("two", "two", 2, now.Add(time.Minute)),
-	}}); err != nil {
-		t.Fatal(err)
-	}
-	if got := r.AssignmentCount(); got != 2 {
-		t.Fatalf("applied assignments = %d", got)
-	}
-	if _, err := r.Apply(context.Background(), Snapshot{Revision: 2}); err != nil {
-		t.Fatal(err)
-	}
-	if got := r.AssignmentCount(); got != 0 {
-		t.Fatalf("removed assignments = %d", got)
-	}
-}
-
 func TestEqualRevisionRenewsLeaseWithoutRestart(t *testing.T) {
 	now := time.Unix(100, 0)
 	rt := &fakeRuntime{inventory: Inventory{PairedJIDs: []string{"a"}}}

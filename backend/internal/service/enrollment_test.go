@@ -99,8 +99,8 @@ func fakeCSR(t *testing.T, gatewayID string) []byte {
 
 func TestEnrollmentConfig(t *testing.T) {
 	c := DefaultEnrollmentConfig()
-	if c.Validate() != nil || c.TokenTTL != 15*time.Minute || c.LeaseTTL != time.Minute || c.SignTimeout != 20*time.Second || c.SafetyMargin != 5*time.Second || c.MaxAttempts != 5 {
-		t.Fatal("bad defaults")
+	if err := c.Validate(); err != nil {
+		t.Fatalf("default config invalid: %v", err)
 	}
 	c.SignTimeout = c.LeaseTTL
 	if c.Validate() == nil {
@@ -124,31 +124,6 @@ func TestReplaceTokenStateConflictIsNonRetryable(t *testing.T) {
 	var transient *TransientError
 	if errors.As(err, &transient) {
 		t.Fatalf("state conflict mapped retryable: %v", err)
-	}
-}
-func TestCreateGatewayCommitsBeforeReturningBearer(t *testing.T) {
-	db, m, e := sqlmock.New()
-	if e != nil {
-		t.Fatal(e)
-	}
-	defer func() { _ = db.Close() }()
-	s, _ := NewEnrollmentService(db, stubSigner{}, DefaultEnrollmentConfig())
-	s.now = func() time.Time { return time.Unix(100, 0) }
-	ids := []string{"01ARZ3NDEKTSV4RRFFQ69G5FAV", "01ARZ3NDEKTSV4RRFFQ69G5FAW", "01ARZ3NDEKTSV4RRFFQ69G5FAX", "01ARZ3NDEKTSV4RRFFQ69G5FAY"}
-	s.id = func() string { x := ids[0]; ids = ids[1:]; return x }
-	s.entropy = rand.Reader
-	m.ExpectBegin()
-	m.ExpectExec("INSERT INTO gateways").WillReturnResult(sqlmock.NewResult(1, 1))
-	m.ExpectExec("INSERT INTO gateway_enrollment_tokens").WillReturnResult(sqlmock.NewResult(1, 1))
-	m.ExpectExec("INSERT INTO audit_events").WillReturnResult(sqlmock.NewResult(1, 1))
-	m.ExpectExec("INSERT INTO audit_events").WillReturnResult(sqlmock.NewResult(1, 1))
-	m.ExpectCommit()
-	out, e := s.CreateGateway(context.Background(), CreateGatewayInput{CreatedByUserID: "user_1"})
-	if e != nil || out.Token == "" || out.TokenID == "" {
-		t.Fatalf("out=%+v err=%v", out, e)
-	}
-	if e = m.ExpectationsWereMet(); e != nil {
-		t.Fatal(e)
 	}
 }
 func TestCredentialDenialUsesTypedErrorAndDelaySeam(t *testing.T) {

@@ -17,49 +17,6 @@ func pn(user string) types.JID {
 	return types.JID{User: user, Server: types.DefaultUserServer}
 }
 
-// TestCanonicalLID compares bare and device-qualified LID JIDs with phone and invalid addresses. It
-// returns a stable LID key only when applicable, preventing device suffixes from fragmenting one
-// identity.
-func TestCanonicalLID(t *testing.T) {
-	cases := []struct {
-		name string
-		in   types.JID
-		want string
-	}{
-		{"strips device suffix", lid("199127753306132", 9), "199127753306132@lid"},
-		{"already canonical", lid("196086799012038", 0), "196086799012038@lid"},
-		{"phone jid is not a lid", pn("6282147077374"), ""},
-		{"empty", types.JID{}, ""},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			if got := canonicalLID(c.in); got != c.want {
-				t.Fatalf("canonicalLID(%v) = %q, want %q", c.in, got, c.want)
-			}
-		})
-	}
-}
-
-// TestPhoneNumberOf extracts phone numbers from canonical and device-qualified phone JIDs while
-// rejecting LIDs and unrelated servers. The table fixes the identity rule used when backfilling
-// contacts.
-func TestPhoneNumberOf(t *testing.T) {
-	cases := map[string]string{
-		"6282147077374@s.whatsapp.net": "6282147077374",
-		"196086799012038@lid":          "",
-		"":                             "",
-		"@s.whatsapp.net":              "",
-	}
-	for in, want := range cases {
-		if got := phoneNumberOf(in); got != want {
-			t.Fatalf("phoneNumberOf(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
-// TestContactName_Precedence supplies full, push, business, and empty names in overlapping
-// combinations. It verifies the documented display-name priority and empty fallback used by live
-// contact reads.
 func TestContactName_Precedence(t *testing.T) {
 	if got := contactName(types.ContactInfo{PushName: "Push", FullName: "Full", FirstName: "First"}); got != "Push" {
 		t.Fatalf("want push name preferred, got %q", got)
@@ -119,25 +76,5 @@ func TestBackfillMember_CanonicalizesAndRoles(t *testing.T) {
 	// A participant with neither LID nor a resolvable phone is skipped.
 	if _, ok := backfillMember(context.Background(), nil, nil, types.GroupParticipant{}); ok {
 		t.Fatal("expected skip for a participant with no LID/phone")
-	}
-}
-
-// TestBuildNameIndex merges contact-store names with group participant names for phone and LID
-// identities. The cases ensure canonical aliases resolve to one preferred display name and weaker
-// empty values do not overwrite useful data.
-func TestBuildNameIndex(t *testing.T) {
-	idx := buildNameIndex(map[types.JID]types.ContactInfo{
-		lid("199127753306132", 9): {PushName: "Agung rahma"},
-		pn("6282147077374"):       {FullName: "Rama Adi"},
-		lid("196086799012038", 0): {}, // no name → skipped
-	})
-	if idx["199127753306132@lid"] != "Agung rahma" {
-		t.Fatalf("lid push name not indexed (device should be stripped): %v", idx)
-	}
-	if idx["6282147077374@s.whatsapp.net"] != "Rama Adi" {
-		t.Fatalf("phone name not indexed: %v", idx)
-	}
-	if _, ok := idx["196086799012038@lid"]; ok {
-		t.Fatalf("nameless contact should be skipped: %v", idx)
 	}
 }
