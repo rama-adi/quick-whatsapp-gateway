@@ -7200,7 +7200,10 @@ export interface operations {
     addReaction: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional idempotency token. Reusing the key returns the current durable reaction result without reacting again. */
+                "Idempotency-Key"?: string;
+            };
             path: {
                 /** @description WhatsApp session id. Must be owned and connected. */
                 session: string;
@@ -7238,7 +7241,10 @@ export interface operations {
     removeReaction: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional idempotency token. Reusing the key returns the current durable reaction result without reacting again. */
+                "Idempotency-Key"?: string;
+            };
             path: {
                 /** @description WhatsApp session id. Must be owned and connected. */
                 session: string;

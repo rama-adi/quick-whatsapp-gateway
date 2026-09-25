@@ -54,9 +54,10 @@ type revokeMessageInput struct {
 
 // reactionInput is POST/DELETE /sessions/{session}/messages/{mid}/reaction.
 type reactionInput struct {
-	Session string `path:"session" doc:"WhatsApp session id. Must be owned and connected." example:"01HZX..."`
-	MID     string `path:"mid" doc:"WhatsApp message id to react to." example:"3EB0C431C26A1916E07A"`
-	Body    struct {
+	Session        string `path:"session" doc:"WhatsApp session id. Must be owned and connected." example:"01HZX..."`
+	MID            string `path:"mid" doc:"WhatsApp message id to react to." example:"3EB0C431C26A1916E07A"`
+	IdempotencyKey string `header:"Idempotency-Key" doc:"Optional idempotency token. Reusing the key returns the current durable reaction result without reacting again." example:"2f1c9b6e-7a3d-4c2e-9f8a-1b2c3d4e5f60"`
+	Body           struct {
 		Chat   string `json:"chat,omitempty" doc:"Chat JID for the message." example:"6281234567890@s.whatsapp.net"`
 		Sender string `json:"sender,omitempty" doc:"Original sender JID. Empty means your own message." example:""`
 		Emoji  string `json:"emoji,omitempty" doc:"Single emoji. Required for add; ignored for remove." example:"👍"`
@@ -157,7 +158,7 @@ func RegisterMessageOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, err
 		}
-		res, err := h.Messages.React(
+		res, err := h.Messages.ReactWithIdempotency(
 			ctx,
 			org,
 			in.Session,
@@ -165,6 +166,7 @@ func RegisterMessageOps(api huma.API, h *Handlers) {
 			in.Body.Sender,
 			in.MID,
 			in.Body.Emoji,
+			in.IdempotencyKey,
 		)
 		if err != nil {
 			return nil, humax.ErrContext(ctx, err)

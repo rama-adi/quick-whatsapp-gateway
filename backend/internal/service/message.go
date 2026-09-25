@@ -131,12 +131,21 @@ func (s *MessageService) React(
 	ctx context.Context,
 	organizationID, sessionID, chat, sender, msgID, emoji string,
 ) (outbound.SendResult, error) {
+	return s.ReactWithIdempotency(ctx, organizationID, sessionID, chat, sender, msgID, emoji, "")
+}
+
+// ReactWithIdempotency persists one reaction under the caller's stable action ID.
+func (s *MessageService) ReactWithIdempotency(
+	ctx context.Context,
+	organizationID, sessionID, chat, sender, msgID, emoji, idempotencyKey string,
+) (outbound.SendResult, error) {
 	return s.op(ctx, organizationID, sessionID, outbound.OpRequest{
-		Op:     outbound.OpReaction,
-		Chat:   chat,
-		Sender: sender,
-		MsgID:  msgID,
-		Emoji:  emoji,
+		Op:             outbound.OpReaction,
+		IdempotencyKey: idempotencyKey,
+		Chat:           chat,
+		Sender:         sender,
+		MsgID:          msgID,
+		Emoji:          emoji,
 	})
 }
 

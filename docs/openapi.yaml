@@ -7205,6 +7205,14 @@ paths:
             examples:
               - 3EB0C431C26A1916E07A
             type: string
+        - description: Optional idempotency token. Reusing the key returns the current durable reaction result without reacting again.
+          in: header
+          name: Idempotency-Key
+          schema:
+            description: Optional idempotency token. Reusing the key returns the current durable reaction result without reacting again.
+            examples:
+              - 2f1c9b6e-7a3d-4c2e-9f8a-1b2c3d4e5f60
+            type: string
       requestBody:
         content:
           application/json:
@@ -7253,6 +7261,14 @@ paths:
             description: WhatsApp message id to react to.
             examples:
               - 3EB0C431C26A1916E07A
+            type: string
+        - description: Optional idempotency token. Reusing the key returns the current durable reaction result without reacting again.
+          in: header
+          name: Idempotency-Key
+          schema:
+            description: Optional idempotency token. Reusing the key returns the current durable reaction result without reacting again.
+            examples:
+              - 2f1c9b6e-7a3d-4c2e-9f8a-1b2c3d4e5f60
             type: string
       requestBody:
         content:

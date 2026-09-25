@@ -689,6 +689,15 @@ func (s *OutboundScheduler) ExecuteOp(
 	if err := outbound.ValidateOp(req); err != nil {
 		return outbound.SendResult{}, err
 	}
+	if req.IdempotencyKey != "" {
+		prior, found, err := s.priorByIdempotency(ctx, organizationID, req.IdempotencyKey)
+		if err != nil {
+			return outbound.SendResult{}, err
+		}
+		if found {
+			return replayOutboxResult(prior), nil
+		}
+	}
 	sess, err := s.session(ctx, organizationID, sessionID)
 	if err != nil {
 		return outbound.SendResult{}, err
@@ -702,7 +711,7 @@ func (s *OutboundScheduler) ExecuteOp(
 			WithDetails(map[string]any{"retryAfterSeconds": int(retryAfter.Seconds())})
 	}
 	now := s.now()
-	entry := s.newCommand(sess, "", domain.OutboxSending, now)
+	entry := s.newCommand(sess, req.IdempotencyKey, domain.OutboxSending, now)
 	entry.Attempts = 1
 	payload, err := json.Marshal(opRequestToPayload(req))
 	if err != nil {
@@ -710,6 +719,11 @@ func (s *OutboundScheduler) ExecuteOp(
 	}
 	entry.Payload = payload
 	if err := s.outbox.Insert(ctx, entry); err != nil {
+		if req.IdempotencyKey != "" {
+			if prior, found, lookupErr := s.priorByIdempotency(ctx, organizationID, req.IdempotencyKey); lookupErr == nil && found {
+				return replayOutboxResult(prior), nil
+			}
+		}
 		return outbound.SendResult{}, err
 	}
 	return s.dispatchClaimed(ctx, entry, domain.SendRequest{Type: string(req.Op)}, false)

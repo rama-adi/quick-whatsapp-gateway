@@ -381,7 +381,7 @@ func (s *e2eWhatsApp) load() error {
 		s.captures = append(s.captures, capture)
 	}
 }
-func (s *e2eWhatsApp) SendMessage(ctx context.Context, to types.JID, message *waE2E.Message, _ ...whatsmeow.SendRequestExtra) (whatsmeow.SendResponse, error) {
+func (s *e2eWhatsApp) SendMessage(ctx context.Context, to types.JID, message *waE2E.Message, extra ...whatsmeow.SendRequestExtra) (whatsmeow.SendResponse, error) {
 	s.mu.Lock()
 	s.attempts++
 	mode, release := s.mode, s.release
@@ -415,6 +415,9 @@ func (s *e2eWhatsApp) SendMessage(ctx context.Context, to types.JID, message *wa
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	capture := e2eCapture{ID: fmt.Sprintf("E2E_%d", len(s.captures)+1), To: to.String(), Message: raw}
+	if len(extra) == 1 && extra[0].ID != "" {
+		capture.ID = string(extra[0].ID)
+	}
 	if secret := message.GetMessageContextInfo().GetMessageSecret(); len(secret) > 0 {
 		sender := s.device.ID.ToNonAD()
 		if to.Server == types.GroupServer || to.Server == types.HiddenUserServer {
@@ -454,7 +457,7 @@ func (s *e2eWhatsApp) Upload(_ context.Context, data []byte, _ whatsmeow.MediaTy
 }
 func (s *e2eWhatsApp) interceptResponse(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 	response, err := handler(ctx, req)
-	if err != nil || !strings.HasSuffix(info.FullMethod, "/SendMessage") {
+	if err != nil || (!strings.HasSuffix(info.FullMethod, "/SendMessage") && !strings.HasSuffix(info.FullMethod, "/MessageOp")) {
 		return response, err
 	}
 	s.mu.Lock()

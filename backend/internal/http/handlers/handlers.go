@@ -60,6 +60,10 @@ type MessageSvc interface {
 		msgID string,
 		emoji string,
 	) (outbound.SendResult, error)
+	ReactWithIdempotency(
+		ctx context.Context,
+		organizationID, sessionID, chat, sender, msgID, emoji, idempotencyKey string,
+	) (outbound.SendResult, error)
 	Forward(
 		ctx context.Context,
 		organizationID string,

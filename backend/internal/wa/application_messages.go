@@ -44,7 +44,8 @@ func (a *ApplicationGatewayAdapter) executeSend(
 	ctx context.Context,
 	command application.SendCommand,
 ) (application.SendMessageResult, error) {
-	waMessageID, ts, dispatchErr := a.dispatch.Dispatch(outbound.WithSessionID(ctx, command.SessionID), command.Payload)
+	dispatchCtx := outbound.WithCommandMessageIDs(outbound.WithSessionID(ctx, command.SessionID), command.CommandID)
+	waMessageID, ts, dispatchErr := a.dispatch.Dispatch(dispatchCtx, command.Payload)
 	if dispatchErr != nil {
 		// Only deterministic pre-dispatch rejections are terminal failures.
 		// Everything else stays unrecorded for retry/reconciliation.
@@ -168,7 +169,8 @@ func (a *ApplicationGatewayAdapter) executeOp(
 	ctx context.Context,
 	command application.MessageOpCommand,
 ) (application.MessageOpResult, error) {
-	waResult, opErr := a.opDispatch.DispatchOp(outbound.WithSessionID(ctx, command.SessionID), outbound.OpRequest{
+	dispatchCtx := outbound.WithCommandMessageIDs(outbound.WithSessionID(ctx, command.SessionID), command.CommandID)
+	waResult, opErr := a.opDispatch.DispatchOp(dispatchCtx, outbound.OpRequest{
 		Op:      outbound.MessageOp(command.Op),
 		Chat:    command.ChatJID,
 		Sender:  command.SenderJID,

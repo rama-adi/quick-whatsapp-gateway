@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/wa/outbound"
 )
 
 func runE2ELostGatewayResponse(t *testing.T, infra *e2eInfra, gateway *e2eGateway) {
@@ -59,6 +60,50 @@ func runE2ELostGatewayResponse(t *testing.T, infra *e2eInfra, gateway *e2eGatewa
 		}
 		if historyCount != 1 || eventCount != 1 {
 			t.Fatalf("replayed send persisted %d history rows, %d sent events", historyCount, eventCount)
+		}
+	})
+	t.Run("lost reaction response and gateway restart replay one WhatsApp reaction", func(t *testing.T) {
+		const key = "lost-reaction-response-1"
+		const messageID = "reaction-source-1"
+		path := "/api/v1/sessions/" + e2eSessionID + "/messages/" + messageID + "/reaction"
+		body := map[string]string{"chat": e2eGroupJID, "emoji": "👍"}
+		before := len(gateway.getCaptures(t))
+		gateway.fault(t, "drop_response")
+		var first outbound.SendResult
+		status := infra.request(t, http.MethodPost, path, e2eOrgAKey, body, &first,
+			map[string]string{"Idempotency-Key": key})
+		if status == http.StatusOK {
+			t.Fatalf("lost private reaction response returned success: %+v", first)
+		}
+		captures := gateway.waitCaptureCount(t, before+1)
+		waID := captures[before].ID
+		gateway.stop()
+		gateway.run(t, infra)
+		ctx, cancel := e2eContext(t)
+		defer cancel()
+		e2eEventually(t, ctx, "replayed reaction result and API sent projection", func() bool {
+			var state string
+			var stored sql.NullString
+			err := infra.db.QueryRowContext(ctx,
+				`SELECT status, wa_message_id FROM outbox
+				 WHERE organization_id=? AND idempotency_key=?`, e2eOrgA, key,
+			).Scan(&state, &stored)
+			if err != nil {
+				return false
+			}
+			if state == "failed" {
+				t.Fatal("ambiguous reaction became terminal failure")
+			}
+			return state == "sent" && stored.String == waID
+		})
+		var replay outbound.SendResult
+		status = infra.request(t, http.MethodPost, path, e2eOrgAKey, body, &replay,
+			map[string]string{"Idempotency-Key": key})
+		if status != http.StatusOK || replay.WAMessageID != waID || !replay.Replayed {
+			t.Fatalf("reaction replay = %d %+v, want original %s", status, replay, waID)
+		}
+		if captures := gateway.getCaptures(t); len(captures) != before+1 {
+			t.Fatalf("reaction replay sent twice: before=%d after=%d", before, len(captures))
 		}
 	})
 }

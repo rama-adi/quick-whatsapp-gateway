@@ -274,7 +274,10 @@ atomic op.
   side effect commits its local result independently of caller cancellation, so a disconnected
   caller can retry and replay it. The SQLite journal retains its configured busy timeout.
   A process crash or storage failure between the WhatsApp effect and that commit remains
-  ambiguous; the ledger does not promise exactly-once delivery across that gap.
+  ambiguous. The gateway derives each native WhatsApp message ID from the durable command ID
+  and the message's ordinal within that command, so replay uses the same native ID across
+  process restarts. The ledger does not promise exactly-once delivery across a WhatsApp
+  acknowledgement gap.
   Resource-specific implementations live in the gateway adapter's message, resource, and
   lifecycle modules; `command_execution.go` owns shared validation, fencing, and replay.
 - **Ambiguity policy**: only deterministic pre-dispatch rejections (domain validation errors,
@@ -291,6 +294,10 @@ atomic op.
   so a later replay reconstructs the original `SendResult`. A duplicate-insert
   race falls back to replaying the stored row. Every sync send now persists a
   command row (keyless included) so ambiguity is always reconcilable.
+  The reaction endpoint accepts `Idempotency-Key` and uses the same outbox
+  lookup before dispatch. Repeating the key returns the row's current state;
+  a queued operation progresses through the existing worker, and a sent
+  operation returns its original WhatsApp message ID.
 - **Async worker ownership is leased and at-least-once**: a database CAS admits
   one scheduler for nonterminal `queued|failed → sending`; a fresh `sending` row is left to its
   owner, while a claim older than the lease (exceeding the engine send deadline) is
