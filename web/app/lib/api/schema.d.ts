@@ -4308,7 +4308,7 @@ export interface components {
             sender?: string;
         };
         ReplyButton: {
-            /** @description Text copied by a copy button. */
+            /** @description Text copied by a copy button, at most 32768 UTF-8 bytes. */
             code?: string;
             /** @description Opaque selection identifier returned for a reply button. */
             id?: string;
@@ -4319,7 +4319,7 @@ export interface components {
             kind?: "reply" | "url" | "copy";
             /** @description Visible button label, at most 20 Unicode characters. */
             title: string;
-            /** @description HTTPS destination for a url button. */
+            /** @description HTTPS destination for a url button, at most 32768 UTF-8 bytes. */
             url?: string;
         };
         RetryPolicy: {

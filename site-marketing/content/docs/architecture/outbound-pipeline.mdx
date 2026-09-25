@@ -81,8 +81,10 @@ Both support `footer`, `replyTo`, `mentions`, sync/async sends, and idempotency.
 Reply choices require nonblank IDs/titles; reply IDs are unique within the
 message. Button messages allow one to three actions, each with a label of at
 most 20 Unicode code points. An omitted `kind` means `reply`; `kind: url`
-requires an HTTPS `url`, and `kind: copy` requires a nonempty `code`. An
-optional `headerImage` uses the normal media source (`data` or `url`) and
+requires an HTTPS `url`, and `kind: copy` requires a nonempty `code`. URL and
+copy-code values can each contain at most 32,768 UTF-8 bytes, the largest
+payload verified in live WhatsApp tests. An optional `headerImage` uses the
+normal media source (`data` or `url`) and
 upload path. The HTTP schema and gateway engine enforce the button limits
 before sending. Menus require a title, sections, and rows. The existing HTTP
 request-body bound still applies.

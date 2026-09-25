@@ -104,8 +104,8 @@ type ReplyButton struct {
 	Kind  string `json:"kind,omitempty" enum:"reply,url,copy" doc:"Action kind; defaults to reply."`
 	ID    string `json:"id,omitempty" doc:"Opaque selection identifier returned for a reply button."`
 	Title string `json:"title" maxLength:"20" doc:"Visible button label, at most 20 Unicode characters."`
-	URL   string `json:"url,omitempty" doc:"HTTPS destination for a url button."`
-	Code  string `json:"code,omitempty" doc:"Text copied by a copy button."`
+	URL   string `json:"url,omitempty" doc:"HTTPS destination for a url button, at most 32768 UTF-8 bytes."`
+	Code  string `json:"code,omitempty" doc:"Text copied by a copy button, at most 32768 UTF-8 bytes."`
 }
 
 // SelectionList describes a legacy single-select menu.

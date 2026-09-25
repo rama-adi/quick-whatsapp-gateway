@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/base64"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
@@ -99,6 +100,12 @@ func runE2ESendFaults(t *testing.T, infra *e2eInfra, gateway *e2eGateway) {
 			}},
 			{Type: domain.SendTypeButtons, To: e2eGroupJID, Text: "Copy", Buttons: []domain.ReplyButton{
 				{Kind: "copy", Title: "Copy"},
+			}},
+			{Type: domain.SendTypeButtons, To: e2eGroupJID, Text: "Open", Buttons: []domain.ReplyButton{
+				{Kind: "url", Title: "Too long", URL: "https://example.com/" + strings.Repeat("a", 32_769)},
+			}},
+			{Type: domain.SendTypeButtons, To: e2eGroupJID, Text: "Copy", Buttons: []domain.ReplyButton{
+				{Kind: "copy", Title: "Too long", Code: strings.Repeat("é", 16_385)},
 			}},
 			{Type: domain.SendTypeButtons, To: e2eGroupJID, Text: "Image", Buttons: []domain.ReplyButton{
 				{ID: "one", Title: "One"},

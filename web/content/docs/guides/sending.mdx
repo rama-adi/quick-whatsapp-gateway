@@ -201,7 +201,9 @@ The quick-reply request shape is:
 
 For a link or a copy action, set `kind` on the button. Leave it out for a
 quick reply. A link requires an HTTPS URL; a copy action requires the text to
-copy. You can attach an image header using `headerImage.data` (base64) or
+copy. URL and copy-code values are each limited to 32,768 UTF-8 bytes, the
+largest payload verified in live WhatsApp tests. You can attach an image header
+using `headerImage.data` (base64) or
 `headerImage.url` (HTTP/S). When a footer is present, the gateway adds a
 newline after the body so the two lines have more space.
 

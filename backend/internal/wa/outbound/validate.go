@@ -20,6 +20,9 @@ const (
 	MaxAlbumBytes            = 64 * 1024 * 1024
 	MaxReplyButtons          = 3
 	MaxReplyButtonTitleRunes = 20
+	// Live WhatsApp tests rendered and copied 32,768 ASCII characters. Bound
+	// UTF-8 bytes to that verified payload size for URL and copy actions.
+	MaxInteractiveActionBytes = 32 * 1024
 )
 
 // Validate checks one send request against the per-type rules and media
@@ -247,6 +250,9 @@ func validateInteractive(req domain.SendRequest) error {
 					return err
 				}
 			case "url":
+				if len(button.URL) > MaxInteractiveActionBytes {
+					return domain.ErrValidation("url button URL must be at most 32768 UTF-8 bytes")
+				}
 				u, err := url.Parse(button.URL)
 				if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil {
 					return domain.ErrValidation("url button requires an HTTPS url")
@@ -254,6 +260,9 @@ func validateInteractive(req domain.SendRequest) error {
 			case "copy":
 				if strings.TrimSpace(button.Code) == "" {
 					return domain.ErrValidation("copy button requires code")
+				}
+				if len(button.Code) > MaxInteractiveActionBytes {
+					return domain.ErrValidation("copy button code must be at most 32768 UTF-8 bytes")
 				}
 			default:
 				return domain.ErrValidation("button kind must be reply, url, or copy")

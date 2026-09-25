@@ -3622,7 +3622,7 @@ components:
       additionalProperties: false
       properties:
         code:
-          description: Text copied by a copy button.
+          description: Text copied by a copy button, at most 32768 UTF-8 bytes.
           type: string
         id:
           description: Opaque selection identifier returned for a reply button.
@@ -3639,7 +3639,7 @@ components:
           maxLength: 20
           type: string
         url:
-          description: HTTPS destination for a url button.
+          description: HTTPS destination for a url button, at most 32768 UTF-8 bytes.
           type: string
       required:
         - title
