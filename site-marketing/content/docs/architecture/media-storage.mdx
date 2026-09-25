@@ -107,3 +107,34 @@ Retain `APP_ENCRYPTION_KEY` with the API backups. Monitor `media_assets.status`,
 `attempts`, `next_attempt_at`, and `last_error` for failed transfers or cleanup.
 Connection removal waits for session unlinking and completed asset cleanup.
 Indefinite retention keeps files and their connection available.
+
+## Shared sticker content
+
+Stickers use API-owned MySQL storage independently of S3 session bindings.
+Migration `0017_stickers` creates `sticker_blobs`, keyed only by the lowercase
+SHA-256 of the original bytes. Identical content shares one binary across all
+organizations and sessions. There is no organization ownership column or mapping
+on the blob store. `sticker_messages` maps session/chat/message identities to a
+content hash for replies whose inline context omits the sticker descriptor.
+Session deletion removes those message references; shared blobs remain available
+for later quotes and durable event delivery. Bucket retention does not delete them.
+
+For incoming stickers and inline quoted stickers, ingest checks existing message
+references and the protocol content hash before downloading through the owning
+gateway. Downloads use the existing gateway attachment size policy. Newly downloaded
+bytes are hashed locally before insertion; concurrent inserts share the hash primary
+key. API-originated sends capture the resolved bytes before recording their sent event.
+Sticker content is not also uploaded as a per-message S3 attachment.
+
+Message events include `sticker` and replies can include `quotedSticker`, each with
+`sha256`, `mimetype`, and `status`. WebSocket delivery, durable replay, and webhooks
+expand available references into `base64`. Stored events and message projections
+retain references without copied base64. A failed WhatsApp download emits
+`status: unavailable` without base64 and does not drop the message. Future messages
+or quotes can attempt capture again; older unavailable events retain their status.
+Quotes referring to content the gateway has never seen require an inline downloadable
+sticker descriptor or a content hash already in the shared store.
+
+No public endpoint looks up arbitrary hashes. Event routing continues to use the
+existing session and organization authorization. Both sticker tables are excluded
+from the frontend's read-only schema introspection.

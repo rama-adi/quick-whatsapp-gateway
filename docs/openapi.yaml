@@ -2475,6 +2475,9 @@ components:
         quotedSenderLid:
           description: "For a reply: the LID identity of the quoted message's author, when available from the reply context or the locally stored quoted message."
           type: string
+        quotedSticker:
+          $ref: "#/components/schemas/StickerData"
+          description: Content of the sticker quoted by this message, when identifiable.
         reaction:
           description: "For message.reaction: the emoji reacted with; empty string means the reaction was removed."
           type: string
@@ -2493,6 +2496,9 @@ components:
         senderLid:
           description: The sender's linked-device id, when available.
           type: string
+        sticker:
+          $ref: "#/components/schemas/StickerData"
+          description: Content of this sticker message.
         targetId:
           description: "For reaction/edit/revoke: the id of the message being reacted to, edited, or revoked."
           type: string
@@ -3925,6 +3931,28 @@ components:
           examples:
             - online
           type: string
+      type: object
+    StickerData:
+      additionalProperties: false
+      properties:
+        base64:
+          description: Base64-encoded original sticker bytes, included on event delivery when available.
+          type: string
+        mimetype:
+          description: Sticker content MIME type.
+          type: string
+        sha256:
+          description: SHA-256 of the original sticker bytes; identical content shares one global stored blob.
+          type: string
+        status:
+          description: Whether sticker content was captured. Unavailable content does not prevent message delivery.
+          enum:
+            - available
+            - unavailable
+          type: string
+      required:
+        - mimetype
+        - status
       type: object
     UpdateChatInputBody:
       additionalProperties: false

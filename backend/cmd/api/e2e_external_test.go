@@ -6,6 +6,7 @@ import (
 	"crypto/sha512"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
@@ -209,7 +210,7 @@ func runE2EExternalScenarios(t *testing.T, infra *e2eInfra, gateway *e2eGateway,
 		const secret = "isolated-webhook-secret"
 		e2eRequireStatus(t, infra.request(t, "POST", "/api/v1/webhooks", e2eOrgAKey, map[string]any{"url": f.server.URL + "/hook", "events": []string{"message.from_me"}, "secret": secret, "sessionId": e2eSessionID, "customHeaders": map[string]string{"X-E2E": "preserved"}}, &hook, nil), 201)
 		defer infra.request(t, "DELETE", "/api/v1/webhooks/"+hook.ID, e2eOrgAKey, nil, nil, nil)
-		status, sent := infra.send(t, e2eOrgAKey, "signed-webhook", domain.SendRequest{Type: domain.SendTypeText, To: e2eGroupJID, Text: "signed delivery"})
+		status, sent := infra.send(t, e2eOrgAKey, "signed-webhook", domain.SendRequest{Type: domain.SendTypeSticker, To: e2eGroupJID, Media: &domain.MediaPayload{Data: base64.StdEncoding.EncodeToString([]byte("isolated-media")), Mimetype: "image/webp"}})
 		e2eRequireStatus(t, status, 200)
 		e2eEventually(t, ctx, "successful webhook retry", func() bool {
 			var n int
@@ -231,6 +232,10 @@ func runE2EExternalScenarios(t *testing.T, infra *e2eInfra, gateway *e2eGateway,
 			payload := event.Payload.(map[string]any)
 			if payload["waMessageId"] != sent.WAMessageID {
 				t.Fatalf("wrong delivery payload: %s", body)
+			}
+			sticker, ok := payload["sticker"].(map[string]any)
+			if !ok || sticker["base64"] != base64.StdEncoding.EncodeToString([]byte("isolated-media")) {
+				t.Fatalf("webhook sticker bytes missing: %s", body)
 			}
 			mac := hmac.New(sha512.New, []byte(secret))
 			mac.Write(body)

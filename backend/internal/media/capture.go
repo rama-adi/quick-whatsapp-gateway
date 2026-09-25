@@ -18,6 +18,11 @@ import (
 // Capture shares the ingest transaction: acknowledgement follows both the public
 // event and durable upload intent. Replays cannot allocate another object key.
 func (s *Service) Capture(ctx context.Context, tx storedb.DBTX, e store.GatewayEvent) ([]byte, error) {
+	captured, captureErr := s.captureStickers(ctx, tx, e)
+	if captureErr != nil {
+		return nil, captureErr
+	}
+	e.Payload = captured
 	var payload map[string]json.RawMessage
 	if err := json.Unmarshal(e.Payload, &payload); err != nil {
 		return nil, err
@@ -35,6 +40,11 @@ func (s *Service) Capture(ctx context.Context, tx storedb.DBTX, e store.GatewayE
 		return nil, err
 	}
 	if e.Type != domain.EventMessage && e.Type != domain.EventMessageFromMe {
+		return clean, nil
+	}
+	var contentType string
+	_ = json.Unmarshal(payload["type"], &contentType)
+	if contentType == domain.SendTypeSticker || len(payload["media"]) == 0 || string(payload["media"]) == "null" {
 		return clean, nil
 	}
 	var encoded string
@@ -114,6 +124,20 @@ func (s *Service) CaptureOutbound(ctx context.Context, org, session, message str
 		return err
 	}
 	defer tx.Rollback()
+	if req.Type == domain.SendTypeSticker && req.Media != nil && req.Media.Data != "" {
+		content, err := base64.StdEncoding.DecodeString(req.Media.Data)
+		if err != nil {
+			return err
+		}
+		stickers := store.NewStickerRepo(tx)
+		hash, err := stickers.Put(ctx, content)
+		if err != nil {
+			return err
+		}
+		if err := stickers.Link(ctx, session, req.To, message, hash); err != nil {
+			return err
+		}
+	}
 	for index, item := range items {
 		if item.Data == "" {
 			continue
@@ -125,7 +149,7 @@ func (s *Service) CaptureOutbound(ctx context.Context, org, session, message str
 			return err
 		}
 		meta := domain.MediaMeta{Mimetype: item.Mimetype, Filename: item.Filename}
-		payload, err := json.Marshal(map[string]any{"waMessageId": message, "media": meta, "_mediaSource": base64.StdEncoding.EncodeToString(source), "_mediaIndex": index})
+		payload, err := json.Marshal(map[string]any{"waMessageId": message, "chatJid": req.To, "type": req.Type, "media": meta, "_mediaSource": base64.StdEncoding.EncodeToString(source), "_mediaIndex": index})
 		if err != nil {
 			return err
 		}

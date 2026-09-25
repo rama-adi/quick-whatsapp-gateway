@@ -19,8 +19,9 @@ import (
 // layer; the handler reads that log via EventLogReader. Keeping the two apart
 // means a fan-out failure never blocks the write path and vice versa.
 type Publisher struct {
-	redis RedisClient
-	log   *slog.Logger
+	ExpandPayload func(context.Context, []byte) ([]byte, error)
+	redis         RedisClient
+	log           *slog.Logger
 }
 
 // NewPublisher constructs a Publisher. log may be nil (a discarding logger is used).
@@ -40,6 +41,17 @@ func NewPublisher(rc RedisClient, log *slog.Logger) *Publisher {
 func (p *Publisher) Publish(ctx context.Context, e domain.Event) error {
 	if e.Organization == "" {
 		return fmt.Errorf("stream: cannot publish event %q with empty organization", e.ID)
+	}
+	if p.ExpandPayload != nil {
+		payload, err := json.Marshal(e.Payload)
+		if err != nil {
+			return err
+		}
+		payload, err = p.ExpandPayload(ctx, payload)
+		if err != nil {
+			return err
+		}
+		e.Payload = json.RawMessage(payload)
 	}
 	data, err := json.Marshal(e)
 	if err != nil {

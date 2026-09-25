@@ -3462,6 +3462,8 @@ export interface components {
             quotedSenderJid?: string;
             /** @description For a reply: the LID identity of the quoted message's author, when available from the reply context or the locally stored quoted message. */
             quotedSenderLid?: string;
+            /** @description Content of the sticker quoted by this message, when identifiable. */
+            quotedSticker?: components["schemas"]["StickerData"];
             /** @description For message.reaction: the emoji reacted with; empty string means the reaction was removed. */
             reaction?: string;
             /**
@@ -3475,6 +3477,8 @@ export interface components {
             senderJid?: string;
             /** @description The sender's linked-device id, when available. */
             senderLid?: string;
+            /** @description Content of this sticker message. */
+            sticker?: components["schemas"]["StickerData"];
             /** @description For reaction/edit/revoke: the id of the message being reacted to, edited, or revoked. */
             targetId?: string;
             /**
@@ -4510,6 +4514,19 @@ export interface components {
              * @enum {string}
              */
             state?: "online" | "offline";
+        };
+        StickerData: {
+            /** @description Base64-encoded original sticker bytes, included on event delivery when available. */
+            base64?: string;
+            /** @description Sticker content MIME type. */
+            mimetype: string;
+            /** @description SHA-256 of the original sticker bytes; identical content shares one global stored blob. */
+            sha256?: string;
+            /**
+             * @description Whether sticker content was captured. Unavailable content does not prevent message delivery.
+             * @enum {string}
+             */
+            status: "available" | "unavailable";
         };
         UpdateChatInputBody: {
             /**

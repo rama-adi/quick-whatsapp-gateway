@@ -107,7 +107,7 @@ func (n *InboundNormalizer) Normalize(
 	}
 	// The private descriptor travels only through the durable gateway handoff.
 	// API ingest removes it before the public event log and encrypts it for the upload worker.
-	if raw, ok := evt.(*waevents.Message); ok && nm.HasMedia && raw.Message != nil {
+	if raw, ok := evt.(*waevents.Message); ok && (nm.HasMedia || nm.QuotedMessageID != "") && raw.Message != nil {
 		source, err := proto.Marshal(raw.Message)
 		if err == nil {
 			ev.MediaSource = base64.StdEncoding.EncodeToString(source)

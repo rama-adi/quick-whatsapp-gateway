@@ -524,3 +524,12 @@ part; a `:device` suffix is never stored as part of the phone number.
 ## Attachment storage tables
 
 `media_buckets`, `session_media_storage`, and `media_assets` are API-owned MySQL tables for S3 connections, session bindings, and durable uploads/retention cleanup. Credentials and download sources are encrypted. The frontend accesses them through the API. See [attachment storage](/docs/architecture/media-storage).
+
+## Sticker content
+
+Migration `0017_stickers` adds globally content-addressed `sticker_blobs` and
+session/chat/message references in `sticker_messages`. The blob primary key is
+SHA-256, with no organization key. Bytes are stored once and expanded only at event
+delivery boundaries. Session deletion cascades message references; shared content
+is retained. See [shared sticker content](/docs/architecture/media-storage#shared-sticker-content)
+for capture, quote resolution, and delivery behavior.

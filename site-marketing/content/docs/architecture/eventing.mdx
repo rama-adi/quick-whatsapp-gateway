@@ -132,6 +132,11 @@ All quoted-* fields are `omitempty` and set only when `quotedMessageId` is prese
 
 ### Media policy (§11)
 
+Sticker events additionally carry `sticker`, and replies can carry `quotedSticker`.
+These contain the content hash, MIME type, availability status, and base64 bytes on
+WebSocket delivery, replay, and webhooks. Stored events keep only references to the
+globally deduplicated sticker store. See [shared sticker content](/docs/architecture/media-storage#shared-sticker-content).
+
 Normalization extracts media metadata. The gateway adapter attaches a private descriptor for the API ingest transaction, which creates a capture job for linked sessions and removes the descriptor before public delivery. Upload completion emits `media.ready`; retention cleanup emits `media.expired`. See [attachment storage](/docs/architecture/media-storage).
 
 ### Ignore rules

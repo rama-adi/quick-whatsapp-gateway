@@ -156,7 +156,12 @@ func (r *EventLogRepo) ListSince(
 	}
 	out := make([]domain.EventLogEntry, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, eventLogFromRow(row))
+		entry := eventLogFromRow(row)
+		entry.Payload, err = NewStickerRepo(r.db).ExpandPayload(ctx, entry.Payload)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, entry)
 	}
 	return out, nil
 }
@@ -168,7 +173,9 @@ func (r *EventLogRepo) GetByEventID(ctx context.Context, eventID string) (domain
 	if err != nil {
 		return domain.EventLogEntry{}, notFound(err, "event")
 	}
-	return eventLogFromRow(row), nil
+	entry := eventLogFromRow(row)
+	entry.Payload, err = NewStickerRepo(r.db).ExpandPayload(ctx, entry.Payload)
+	return entry, err
 }
 
 // GetEvent loads a logged event and projects it onto the wire domain.Event

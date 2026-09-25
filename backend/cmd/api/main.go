@@ -150,6 +150,7 @@ func runWithStorageTransport(storageTransport http.RoundTripper) error {
 	var publisher *stream.Publisher
 	if rdb != nil {
 		publisher = stream.NewPublisher(rdb, log)
+		publisher.ExpandPayload = store.NewStickerRepo(db).ExpandPayload
 	}
 	webhookEnqueuer := webhooks.NewEnqueuer(
 		service.NewWebhookRepoAdapter(st.Webhooks),
@@ -394,6 +395,10 @@ func runWithStorageTransport(storageTransport http.RoundTripper) error {
 			nil,
 		))
 		outboundScheduler.SetSentEventPublisher(func(ctx context.Context, event domain.Event) error {
+			event, err := mediaStorage.StickerReferences(ctx, event)
+			if err != nil {
+				return err
+			}
 			payload, err := json.Marshal(event.Payload)
 			if err != nil {
 				return fmt.Errorf("marshal sent message event: %w", err)

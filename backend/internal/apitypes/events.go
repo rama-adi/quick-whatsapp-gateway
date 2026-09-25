@@ -79,7 +79,17 @@ type InteractiveReplyData struct {
 	Title string `json:"title,omitempty" doc:"Display text supplied by the replying client."`
 }
 
+type StickerData struct {
+	SHA256   string `json:"sha256,omitempty" doc:"SHA-256 of the original sticker bytes; identical content shares one global stored blob."`
+	Mimetype string `json:"mimetype" doc:"Sticker content MIME type."`
+	Status   string `json:"status" enum:"available,unavailable" doc:"Whether sticker content was captured. Unavailable content does not prevent message delivery."`
+	Base64   string `json:"base64,omitempty" doc:"Base64-encoded original sticker bytes, included on event delivery when available."`
+}
+
 type MessagePayload struct {
+	Sticker       *StickerData `json:"sticker,omitempty" doc:"Content of this sticker message."`
+	QuotedSticker *StickerData `json:"quotedSticker,omitempty" doc:"Content of the sticker quoted by this message, when identifiable."`
+
 	InteractiveReply *InteractiveReplyData `json:"interactiveReply,omitempty" doc:"Selected choice for message.interactive_reply; original message is quotedMessageId."`
 
 	WAMessageID     string                 `json:"waMessageId" doc:"WhatsApp's message id (stanza id), unique within the chat." example:"3EB0..."`
