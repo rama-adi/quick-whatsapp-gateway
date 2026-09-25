@@ -78,12 +78,20 @@ The existing `POST /api/v1/sessions/{session}/messages` accepts `type: buttons`
 with `text` and `buttons: [{id, title}]`, or `type: list` with `text` and
 `list: {title, sections: [{title, rows: [{id, title, description?}]}]}`.
 Both support `footer`, `replyTo`, `mentions`, sync/async sends, and idempotency.
-Choices require nonblank IDs/titles; IDs are unique within the message. Menus
-require a title, sections, and rows. No speculative protocol size limits are imposed.
-The existing HTTP request-body bound still applies.
+Reply choices require nonblank IDs/titles; reply IDs are unique within the
+message. Button messages allow one to three actions, each with a label of at
+most 20 Unicode code points. An omitted `kind` means `reply`; `kind: url`
+requires an HTTPS `url`, and `kind: copy` requires a nonempty `code`. An
+optional `headerImage` uses the normal media source (`data` or `url`) and
+upload path. The HTTP schema and gateway engine enforce the button limits
+before sending. Menus require a title, sections, and rows. The existing HTTP
+request-body bound still applies.
 
-The adapter builds native-flow `quick_reply` buttons and adds the required `biz`
-metadata. Lists use legacy `ListMessage`, for which whatsmeow adds list metadata.
+The adapter builds native-flow `quick_reply`, `cta_url`, and `cta_copy` buttons
+and adds the required `biz` metadata. When a footer exists, the interactive
+builder adds a newline to the body for visual separation. Image headers upload under the image
+media key and populate `InteractiveMessage.Header`. Lists use legacy
+`ListMessage`, for which whatsmeow adds list metadata.
 Both accept group JIDs through normal session routing. A WhatsApp acknowledgement
 proves send acceptance, not that recipients see controls. Upstream reports show
 working quick replies and invisible or incompatible native `single_select`

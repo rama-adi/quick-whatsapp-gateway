@@ -87,6 +87,22 @@ func runE2ESendFaults(t *testing.T, infra *e2eInfra, gateway *e2eGateway) {
 			{Type: domain.SendTypeText, To: e2eGroupJID},
 			{Type: domain.SendTypeImage, To: e2eGroupJID},
 			{Type: "unsupported", To: e2eGroupJID, Text: "bad type"},
+			{Type: domain.SendTypeButtons, To: e2eGroupJID, Text: "Choose", Buttons: []domain.ReplyButton{
+				{ID: "one", Title: "One"}, {ID: "two", Title: "Two"},
+				{ID: "three", Title: "Three"}, {ID: "four", Title: "Four"},
+			}},
+			{Type: domain.SendTypeButtons, To: e2eGroupJID, Text: "Choose", Buttons: []domain.ReplyButton{
+				{ID: "long", Title: "123456789012345678901"},
+			}},
+			{Type: domain.SendTypeButtons, To: e2eGroupJID, Text: "Open", Buttons: []domain.ReplyButton{
+				{Kind: "url", Title: "Bad URL", URL: "javascript:alert(1)"},
+			}},
+			{Type: domain.SendTypeButtons, To: e2eGroupJID, Text: "Copy", Buttons: []domain.ReplyButton{
+				{Kind: "copy", Title: "Copy"},
+			}},
+			{Type: domain.SendTypeButtons, To: e2eGroupJID, Text: "Image", Buttons: []domain.ReplyButton{
+				{ID: "one", Title: "One"},
+			}, HeaderImage: &domain.MediaPayload{Mimetype: "image/png"}},
 		}
 		for index, request := range invalid {
 			status, _ := infra.send(t, e2eOrgAKey, "invalid-send-"+string(rune('a'+index)), request)

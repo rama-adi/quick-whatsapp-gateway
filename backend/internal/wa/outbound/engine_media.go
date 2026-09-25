@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 )
@@ -14,6 +15,24 @@ import (
 // and download deadlines apply before the private RPC is issued.
 func PrepareEngineMedia(ctx context.Context, req domain.SendRequest) (domain.SendRequest, error) {
 	switch req.Type {
+	case domain.SendTypeButtons:
+		if err := Validate(req); err != nil {
+			return domain.SendRequest{}, err
+		}
+		if req.HeaderImage != nil {
+			data, mimetype, err := resolveMedia(ctx, req.HeaderImage)
+			if err != nil {
+				return domain.SendRequest{}, err
+			}
+			if !strings.HasPrefix(mimetype, "image/") {
+				return domain.SendRequest{}, domain.ErrValidation("headerImage must be an image")
+			}
+			media := *req.HeaderImage
+			media.Data = base64.StdEncoding.EncodeToString(data)
+			media.URL = ""
+			media.Mimetype = mimetype
+			req.HeaderImage = &media
+		}
 	case domain.SendTypeImage, domain.SendTypeVideo, domain.SendTypeAudio, domain.SendTypeDocument, domain.SendTypeSticker:
 		if err := Validate(req); err != nil {
 			return domain.SendRequest{}, err

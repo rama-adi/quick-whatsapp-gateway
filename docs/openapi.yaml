@@ -3621,14 +3621,27 @@ components:
     ReplyButton:
       additionalProperties: false
       properties:
+        code:
+          description: Text copied by a copy button.
+          type: string
         id:
-          description: Opaque selection identifier returned in the reply event.
+          description: Opaque selection identifier returned for a reply button.
+          type: string
+        kind:
+          description: Action kind; defaults to reply.
+          enum:
+            - reply
+            - url
+            - copy
           type: string
         title:
-          description: Visible button label.
+          description: Visible button label, at most 20 Unicode characters.
+          maxLength: 20
+          type: string
+        url:
+          description: HTTPS destination for a url button.
           type: string
       required:
-        - id
         - title
       type: object
     RetryPolicy:
@@ -3691,9 +3704,10 @@ components:
       additionalProperties: false
       properties:
         buttons:
-          description: Quick-reply choices for type buttons. IDs must be unique and nonempty.
+          description: "Native-flow buttons (at most three): reply, url, or copy. Reply IDs must be unique."
           items:
             $ref: "#/components/schemas/ReplyButton"
+          maxItems: 3
           type:
             - array
             - "null"
@@ -3708,6 +3722,9 @@ components:
         footer:
           description: Optional footer for buttons or list.
           type: string
+        headerImage:
+          $ref: "#/components/schemas/MediaPayload"
+          description: Optional image header for type buttons. Provide exactly one of data or url.
         latitude:
           description: Latitude of the shared location in decimal degrees. Required for type location.
           examples:

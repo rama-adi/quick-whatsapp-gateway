@@ -13,6 +13,7 @@ import (
 
 func runE2ESendTypes(t *testing.T, infra *e2eInfra, gateway *e2eGateway) {
 	media := base64.StdEncoding.EncodeToString([]byte("isolated media bytes"))
+	headerImage := "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKklEQVR4nGOQL99NU8QwasGoBaMWjFowasGoBaMWjFowasGoBaMWDBULALrlREz4/hvCAAAAAElFTkSuQmCC"
 	cases := []struct {
 		name     string
 		request  domain.SendRequest
@@ -54,8 +55,40 @@ func runE2ESendTypes(t *testing.T, infra *e2eInfra, gateway *e2eGateway) {
 			}},
 			captures: 3, check: func(m *waE2E.Message) bool { return m.GetAlbumMessage() != nil }},
 		{name: "buttons", request: domain.SendRequest{Type: domain.SendTypeButtons,
-			Text: "Choose", Buttons: []domain.ReplyButton{{ID: "one", Title: "One"}}},
-			captures: 1, check: func(m *waE2E.Message) bool { return m.GetInteractiveMessage() != nil }},
+			Text: "Choose", Footer: "Only caller replies", Buttons: []domain.ReplyButton{
+				{ID: "one", Title: "12345678901234567890"},
+				{ID: "two", Title: "Two"},
+				{ID: "three", Title: "Three"},
+			}},
+			captures: 1, check: func(m *waE2E.Message) bool {
+				flow := m.GetInteractiveMessage().GetNativeFlowMessage()
+				return flow != nil && len(flow.GetButtons()) == 3 && flow.GetButtons()[0].GetButtonParamsJSON() != "" &&
+					m.GetInteractiveMessage().GetBody().GetText() == "Choose\n"
+			}},
+		{name: "buttons-url", request: domain.SendRequest{Type: domain.SendTypeButtons,
+			Text: "Open URL", Buttons: []domain.ReplyButton{{Kind: "url", Title: "Visit", URL: "https://example.com/test"}}},
+			captures: 1, check: func(m *waE2E.Message) bool {
+				buttons := m.GetInteractiveMessage().GetNativeFlowMessage().GetButtons()
+				return len(buttons) == 1 && buttons[0].GetName() == "cta_url" &&
+					buttons[0].GetButtonParamsJSON() == `{"display_text":"Visit","url":"https://example.com/test","merchant_url":"https://example.com/test"}`
+			}},
+		{name: "buttons-copy", request: domain.SendRequest{Type: domain.SendTypeButtons,
+			Text: "Copy code", Buttons: []domain.ReplyButton{{Kind: "copy", Title: "Copy", Code: "TEST-123"}}},
+			captures: 1, check: func(m *waE2E.Message) bool {
+				buttons := m.GetInteractiveMessage().GetNativeFlowMessage().GetButtons()
+				return len(buttons) == 1 && buttons[0].GetName() == "cta_copy" &&
+					buttons[0].GetButtonParamsJSON() == `{"display_text":"Copy","copy_code":"TEST-123"}`
+			}},
+		{name: "buttons-header", request: domain.SendRequest{Type: domain.SendTypeButtons,
+			Text: "Image header", HeaderImage: &domain.MediaPayload{Data: headerImage, Mimetype: "image/png"},
+			Buttons: []domain.ReplyButton{{ID: "seen", Title: "Seen"}}},
+			captures: 1, check: func(m *waE2E.Message) bool {
+				interactive := m.GetInteractiveMessage()
+				header := interactive.GetHeader()
+				return header.GetHasMediaAttachment() && header.GetImageMessage().GetURL() != "" &&
+					header.GetImageMessage().GetWidth() == 32 &&
+					interactive.GetNativeFlowMessage().GetButtons()[0].GetName() == "quick_reply"
+			}},
 		{name: "list", request: domain.SendRequest{Type: domain.SendTypeList, Text: "Pick",
 			List: &domain.SelectionList{Title: "Choices", Sections: []domain.ListSection{{
 				Title: "Section", Rows: []domain.ListRow{{ID: "item", Title: "Item"}},
@@ -94,7 +127,7 @@ func runE2ESendTypes(t *testing.T, infra *e2eInfra, gateway *e2eGateway) {
 			}
 			found := false
 			for _, record := range messages {
-				if record.WAMessageID == result.WAMessageID && record.FromMe && record.Type == tc.name {
+				if record.WAMessageID == result.WAMessageID && record.FromMe && record.Type == tc.request.Type {
 					found = true
 				}
 			}

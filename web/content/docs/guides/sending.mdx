@@ -172,14 +172,18 @@ rate limits, plus the typing and read-receipt simulation, exist to keep traffic
 looking human. Keep volume low and pacing natural.
 </Callout>
 
-## Quick replies and selection lists (experimental)
+## Interactive buttons and selection lists
 
-The gateway sends `buttons` as native quick replies and `list` as a legacy
+The gateway sends `buttons` as native actions and `list` as a legacy
 selection list. WhatsApp can accept a send without rendering its controls on
 the recipient's client. A production linked session delivered quick-reply
 buttons, but WhatsApp rejected legacy lists with server code 405. When that
 happens, the API returns `not_implemented` and stops retrying that list. Use
 buttons for interactive choices on that session.
+
+Send one to three buttons per message. Each button title can have
+up to 20 Unicode characters; longer titles and a fourth button are rejected
+before the message reaches WhatsApp. Put longer wording in the message body.
 
 The quick-reply request shape is:
 
@@ -191,6 +195,24 @@ The quick-reply request shape is:
   "buttons": [
     {"id": "product-1", "title": "Jordan 1"},
     {"id": "product-4", "title": "Jordan 4"}
+  ]
+}
+```
+
+For a link or a copy action, set `kind` on the button. Leave it out for a
+quick reply. A link requires an HTTPS URL; a copy action requires the text to
+copy. You can attach an image header using `headerImage.data` (base64) or
+`headerImage.url` (HTTP/S). When a footer is present, the gateway adds a
+newline after the body so the two lines have more space.
+
+```json
+{
+  "type": "buttons",
+  "to": "120363021234567890@g.us",
+  "text": "Try these actions",
+  "buttons": [
+    {"kind": "url", "title": "Open site", "url": "https://example.com"},
+    {"kind": "copy", "title": "Copy code", "code": "DEMO-123"}
   ]
 }
 ```

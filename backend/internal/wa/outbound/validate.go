@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 )
@@ -14,9 +15,11 @@ import (
 const MaxMediaBytes = 16 * 1024 * 1024 // 16 MiB
 
 const (
-	MinAlbumItems = 2
-	MaxAlbumItems = 10
-	MaxAlbumBytes = 64 * 1024 * 1024
+	MinAlbumItems            = 2
+	MaxAlbumItems            = 10
+	MaxAlbumBytes            = 64 * 1024 * 1024
+	MaxReplyButtons          = 3
+	MaxReplyButtonTitleRunes = 20
 )
 
 // Validate checks one send request against the per-type rules and media
@@ -228,12 +231,55 @@ func validateInteractive(req domain.SendRequest) error {
 		if len(req.Buttons) == 0 || req.List != nil {
 			return domain.ErrValidation("buttons requires choices and cannot include list")
 		}
+		if len(req.Buttons) > MaxReplyButtons {
+			return domain.ErrValidation("buttons supports at most 3 choices")
+		}
 		for _, button := range req.Buttons {
-			if err := check(button.ID, button.Title); err != nil {
-				return err
+			if strings.TrimSpace(button.Title) == "" {
+				return domain.ErrValidation("button title is required")
+			}
+			if utf8.RuneCountInString(button.Title) > MaxReplyButtonTitleRunes {
+				return domain.ErrValidation("button title must be at most 20 characters")
+			}
+			switch button.Kind {
+			case "", "reply":
+				if err := check(button.ID, button.Title); err != nil {
+					return err
+				}
+			case "url":
+				u, err := url.Parse(button.URL)
+				if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil {
+					return domain.ErrValidation("url button requires an HTTPS url")
+				}
+			case "copy":
+				if strings.TrimSpace(button.Code) == "" {
+					return domain.ErrValidation("copy button requires code")
+				}
+			default:
+				return domain.ErrValidation("button kind must be reply, url, or copy")
+			}
+		}
+		if req.HeaderImage != nil {
+			if (strings.TrimSpace(req.HeaderImage.Data) == "") == (strings.TrimSpace(req.HeaderImage.URL) == "") {
+				return domain.ErrValidation("headerImage requires exactly one of data or url")
+			}
+			if req.HeaderImage.Mimetype != "" && !strings.HasPrefix(req.HeaderImage.Mimetype, "image/") {
+				return domain.ErrValidation("headerImage mimetype must be image/*")
+			}
+			if req.HeaderImage.Data != "" && approxDecodedLen(req.HeaderImage.Data) > MaxMediaBytes {
+				return domain.ErrValidation(fmt.Sprintf("headerImage exceeds the %d byte limit", MaxMediaBytes))
+			}
+			if req.HeaderImage.URL != "" {
+				u, err := url.Parse(req.HeaderImage.URL)
+				if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+					return domain.ErrValidation("headerImage.url must be a valid http(s) URL")
+				}
 			}
 		}
 		return nil
+	}
+	if req.HeaderImage != nil {
+		return domain.ErrValidation("headerImage is only supported for buttons")
 	}
 	if req.List == nil || len(req.Buttons) != 0 {
 		return domain.ErrValidation("list requires a menu and cannot include buttons")

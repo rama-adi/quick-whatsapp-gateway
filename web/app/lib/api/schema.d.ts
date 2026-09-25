@@ -4308,10 +4308,19 @@ export interface components {
             sender?: string;
         };
         ReplyButton: {
-            /** @description Opaque selection identifier returned in the reply event. */
-            id: string;
-            /** @description Visible button label. */
+            /** @description Text copied by a copy button. */
+            code?: string;
+            /** @description Opaque selection identifier returned for a reply button. */
+            id?: string;
+            /**
+             * @description Action kind; defaults to reply.
+             * @enum {string}
+             */
+            kind?: "reply" | "url" | "copy";
+            /** @description Visible button label, at most 20 Unicode characters. */
             title: string;
+            /** @description HTTPS destination for a url button. */
+            url?: string;
         };
         RetryPolicy: {
             /**
@@ -4351,7 +4360,7 @@ export interface components {
             title: string;
         };
         SendRequest: {
-            /** @description Quick-reply choices for type buttons. IDs must be unique and nonempty. */
+            /** @description Native-flow buttons (at most three): reply, url, or copy. Reply IDs must be unique. */
             buttons?: components["schemas"]["ReplyButton"][] | null;
             /**
              * @description Optional single caption for an album. WhatsApp renders it with the grouped album.
@@ -4362,6 +4371,8 @@ export interface components {
             contact?: components["schemas"]["ContactCard"];
             /** @description Optional footer for buttons or list. */
             footer?: string;
+            /** @description Optional image header for type buttons. Provide exactly one of data or url. */
+            headerImage?: components["schemas"]["MediaPayload"];
             /**
              * Format: double
              * @description Latitude of the shared location in decimal degrees. Required for type location.

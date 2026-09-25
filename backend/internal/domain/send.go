@@ -55,9 +55,10 @@ type SendRequest struct {
 	// store. The public request and durable outbox payload carry only ReplyTo.
 	QuoteContext *SendQuoteContext `json:"-"`
 
-	Buttons []ReplyButton  `json:"buttons,omitempty" doc:"Quick-reply choices for type buttons. IDs must be unique and nonempty."`
-	List    *SelectionList `json:"list,omitempty" doc:"Selection menu for type list. Client rendering is experimental."`
-	Footer  string         `json:"footer,omitempty" doc:"Optional footer for buttons or list."`
+	Buttons     []ReplyButton  `json:"buttons,omitempty" maxItems:"3" doc:"Native-flow buttons (at most three): reply, url, or copy. Reply IDs must be unique."`
+	List        *SelectionList `json:"list,omitempty" doc:"Selection menu for type list. Client rendering is experimental."`
+	Footer      string         `json:"footer,omitempty" doc:"Optional footer for buttons or list."`
+	HeaderImage *MediaPayload  `json:"headerImage,omitempty" doc:"Optional image header for type buttons. Provide exactly one of data or url."`
 
 	// poll
 	Name            string   `json:"name,omitempty" doc:"For a poll, the poll question; for a location, the place label. Required for poll; optional for location." example:"Lunch on Friday?"`
@@ -98,13 +99,16 @@ type AlbumMediaPayload struct {
 	Mimetype string `json:"mimetype,omitempty" doc:"Media MIME type; detected when omitted." example:"image/jpeg"`
 }
 
-// ReplyButton is an application-defined quick-reply choice.
+// ReplyButton is a native-flow action. An omitted kind means reply.
 type ReplyButton struct {
-	ID    string `json:"id" doc:"Opaque selection identifier returned in the reply event."`
-	Title string `json:"title" doc:"Visible button label."`
+	Kind  string `json:"kind,omitempty" enum:"reply,url,copy" doc:"Action kind; defaults to reply."`
+	ID    string `json:"id,omitempty" doc:"Opaque selection identifier returned for a reply button."`
+	Title string `json:"title" maxLength:"20" doc:"Visible button label, at most 20 Unicode characters."`
+	URL   string `json:"url,omitempty" doc:"HTTPS destination for a url button."`
+	Code  string `json:"code,omitempty" doc:"Text copied by a copy button."`
 }
 
-// SelectionList describes a native single-select menu.
+// SelectionList describes a legacy single-select menu.
 type SelectionList struct {
 	Title    string        `json:"title" doc:"Label of the button that opens the menu."`
 	Sections []ListSection `json:"sections" doc:"Menu sections, each containing selectable rows."`
