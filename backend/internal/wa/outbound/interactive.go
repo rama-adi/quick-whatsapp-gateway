@@ -16,6 +16,30 @@ func buildInteractive(req domain.SendRequest, info *waE2E.ContextInfo) (*waE2E.M
 	if err := validateInteractive(req); err != nil {
 		return nil, err
 	}
+	if req.Type == domain.SendTypeList {
+		// Native-flow single_select can be delivered while remaining invisible
+		// to a regular linked-device recipient. ListMessage gets a dedicated
+		// <biz><list> node from whatsmeow and preserves row IDs in list replies.
+		sections := make([]*waE2E.ListMessage_Section, 0, len(req.List.Sections))
+		for _, section := range req.List.Sections {
+			rows := make([]*waE2E.ListMessage_Row, 0, len(section.Rows))
+			for _, row := range section.Rows {
+				rows = append(rows, &waE2E.ListMessage_Row{
+					RowID: proto.String(row.ID), Title: proto.String(row.Title),
+					Description: proto.String(row.Description),
+				})
+			}
+			sections = append(sections, &waE2E.ListMessage_Section{
+				Title: proto.String(section.Title), Rows: rows,
+			})
+		}
+		return &waE2E.Message{ListMessage: &waE2E.ListMessage{
+			Title: proto.String(req.List.Title), Description: proto.String(req.Text),
+			ButtonText: proto.String(req.List.Title), FooterText: proto.String(req.Footer),
+			ListType: waE2E.ListMessage_SINGLE_SELECT.Enum(), Sections: sections,
+			ContextInfo: info,
+		}}, nil
+	}
 	buttons := make([]*waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton, 0, len(req.Buttons))
 	add := func(name string, params any) error {
 		data, err := json.Marshal(params)
@@ -27,17 +51,11 @@ func buildInteractive(req domain.SendRequest, info *waE2E.ContextInfo) (*waE2E.M
 		})
 		return nil
 	}
-	if req.Type == domain.SendTypeButtons {
-		for _, button := range req.Buttons {
-			if err := add("quick_reply", struct {
-				ID          string `json:"id"`
-				DisplayText string `json:"display_text"`
-			}{ID: button.ID, DisplayText: button.Title}); err != nil {
-				return nil, err
-			}
-		}
-	} else {
-		if err := add("single_select", req.List); err != nil {
+	for _, button := range req.Buttons {
+		if err := add("quick_reply", struct {
+			ID          string `json:"id"`
+			DisplayText string `json:"display_text"`
+		}{ID: button.ID, DisplayText: button.Title}); err != nil {
 			return nil, err
 		}
 	}
@@ -65,19 +83,17 @@ func (a *whatsmeowAdapter) SendInteractive(
 	if err != nil {
 		return "", 0, err
 	}
-	// The pinned whatsmeow version does not add native-flow metadata for outgoing
-	// InteractiveMessage. Use the metadata from the working quick-reply report:
-	// https://github.com/tulir/whatsmeow/discussions/1145
-	nodes := []waBinary.Node{{Tag: "biz", Content: []waBinary.Node{{
-		Tag: "interactive", Attrs: waBinary.Attrs{"type": "native_flow", "v": "1"},
-		Content: []waBinary.Node{{Tag: "native_flow", Attrs: waBinary.Attrs{"v": "9", "name": "mixed"}}},
-	}}}}
-	resp, err := a.transport.SendMessage(
-		ctx,
-		to,
-		msg,
-		whatsmeow.SendRequestExtra{AdditionalNodes: &nodes},
-	)
+	var extra whatsmeow.SendRequestExtra
+	if req.Type == domain.SendTypeButtons {
+		// The pinned whatsmeow version does not add native-flow metadata for
+		// outgoing InteractiveMessage. Legacy ListMessage gets its own biz node.
+		nodes := []waBinary.Node{{Tag: "biz", Content: []waBinary.Node{{
+			Tag: "interactive", Attrs: waBinary.Attrs{"type": "native_flow", "v": "1"},
+			Content: []waBinary.Node{{Tag: "native_flow", Attrs: waBinary.Attrs{"v": "9", "name": "mixed"}}},
+		}}}}
+		extra.AdditionalNodes = &nodes
+	}
+	resp, err := a.transport.SendMessage(ctx, to, msg, extra)
 	if err != nil {
 		return "", 0, fmt.Errorf("whatsmeow send interactive: %w", err)
 	}

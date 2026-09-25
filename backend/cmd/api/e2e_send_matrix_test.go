@@ -60,7 +60,13 @@ func runE2ESendTypes(t *testing.T, infra *e2eInfra, gateway *e2eGateway) {
 			List: &domain.SelectionList{Title: "Choices", Sections: []domain.ListSection{{
 				Title: "Section", Rows: []domain.ListRow{{ID: "item", Title: "Item"}},
 			}}}},
-			captures: 1, check: func(m *waE2E.Message) bool { return m.GetInteractiveMessage() != nil }},
+			captures: 1, check: func(m *waE2E.Message) bool {
+				list := m.GetListMessage()
+				return list != nil && list.GetListType() == waE2E.ListMessage_SINGLE_SELECT &&
+					list.GetDescription() == "Pick" && list.GetButtonText() == "Choices" &&
+					len(list.GetSections()) == 1 && len(list.GetSections()[0].GetRows()) == 1 &&
+					list.GetSections()[0].GetRows()[0].GetRowID() == "item"
+			}},
 	}
 	for _, tc := range cases {
 		t.Run("send type "+tc.name, func(t *testing.T) {
