@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"time"
 
 	gatewayv1 "github.com/rama-adi/quick-whatsapp-gateway/gen/gateway/v1"
@@ -136,6 +137,7 @@ func (s *Server) SendMessage(
 		GatewayID: target.GatewayId, AssignmentEpoch: req.GetAssignmentEpoch(), Payload: payload,
 	})
 	if err != nil {
+		slog.Error("gateway send failed", "session", target.SessionId, "type", payload.Type, "err", err)
 		return nil, grpcError(err)
 	}
 	return &gatewayv1.SendMessageResponse{
