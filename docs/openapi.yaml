@@ -6927,7 +6927,7 @@ paths:
 
         Use `type` in the body to select a supported payload (`text`, `poll`, `location`, `contact`, `buttons`, `list`).
 
-        Buttons and lists use experimental native-flow controls, including for group JIDs. A send acknowledgement does not guarantee client rendering.
+        Buttons use native-flow quick replies; lists use legacy ListMessage. Both are experimental, including for group JIDs. A send acknowledgement does not guarantee client rendering. WhatsApp may reject a list with 405; this returns not_implemented and is not retried.
 
         Default mode is synchronous and returns 200. Set `async=true` for queued async sends that return 202.
         Idempotency is enabled with `Idempotency-Key`.

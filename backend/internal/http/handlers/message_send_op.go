@@ -26,7 +26,7 @@ func RegisterSendMessageOp(api huma.API, h *Handlers) {
 		Summary:         "Send a message",
 		Description: "Send one message or one grouped media album from the session.\n\n" +
 			"Use `type` in the body to select a supported payload (`text`, `poll`, `location`, `contact`, `buttons`, `list`).\n\n" +
-			"Buttons and lists use experimental native-flow controls, including for group JIDs. A send acknowledgement does not guarantee client rendering.\n\n" +
+			"Buttons use native-flow quick replies; lists use legacy ListMessage. Both are experimental, including for group JIDs. A send acknowledgement does not guarantee client rendering. WhatsApp may reject a list with 405; this returns not_implemented and is not retried.\n\n" +
 			"Default mode is synchronous and returns 200. Set `async=true` for queued async sends that return 202.\n" +
 			"Idempotency is enabled with `Idempotency-Key`.\n\n" +
 			"Errors: `validation_error`, `not_found`, `rate_limited`, and `not_implemented` for unsupported types.",

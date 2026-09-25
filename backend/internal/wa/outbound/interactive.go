@@ -3,7 +3,9 @@ package outbound
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 	"go.mau.fi/whatsmeow"
@@ -95,6 +97,12 @@ func (a *whatsmeowAdapter) SendInteractive(
 	}
 	resp, err := a.transport.SendMessage(ctx, to, msg, extra)
 	if err != nil {
+		// The pinned whatsmeow version exposes the server's message-ack code
+		// only in this sentinel's error text. A 405 for a list is a rejection,
+		// so retrying the same payload cannot make it visible.
+		if req.Type == domain.SendTypeList && errors.Is(err, whatsmeow.ErrServerReturnedError) && strings.HasSuffix(err.Error(), " 405") {
+			return "", 0, domain.ErrNotImplemented("WhatsApp rejected list messages for this session (405); use buttons")
+		}
 		return "", 0, fmt.Errorf("whatsmeow send interactive: %w", err)
 	}
 	return resp.ID, resp.Timestamp.UnixMilli(), nil

@@ -373,7 +373,7 @@ func (s *OutboundScheduler) dispatchClaimed(
 	}
 	if err != nil {
 		var apiErr *domain.APIError
-		if errors.As(err, &apiErr) && apiErr.Code == domain.CodeValidationError {
+		if errors.As(err, &apiErr) && (apiErr.Code == domain.CodeValidationError || apiErr.Code == domain.CodeNotImplemented) {
 			// Deterministic rejection (including a replayed prior failure from
 			// the gateway ledger): terminal.
 			message := err.Error()

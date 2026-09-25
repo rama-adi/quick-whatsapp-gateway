@@ -57,6 +57,30 @@ func runE2ESendFaults(t *testing.T, infra *e2eInfra, gateway *e2eGateway) {
 			}
 		})
 	}
+	t.Run("list rejected by WhatsApp is terminal and explains buttons fallback", func(t *testing.T) {
+		gateway.fault(t, "server_405")
+		defer gateway.fault(t, "none")
+		key := "list-server-405"
+		request := domain.SendRequest{Type: domain.SendTypeList, To: e2eGroupJID, Text: "Choose", List: &domain.SelectionList{
+			Title: "Choices", Sections: []domain.ListSection{{Title: "Options", Rows: []domain.ListRow{{ID: "one", Title: "One"}}}},
+		}}
+		var response domain.ErrorBody
+		status := infra.request(t, http.MethodPost, "/api/v1/sessions/"+e2eSessionID+"/messages", e2eOrgAKey,
+			request, &response, map[string]string{"Idempotency-Key": key})
+		if status != http.StatusNotImplemented || response.Error == nil ||
+			response.Error.Code != domain.CodeNotImplemented || response.Error.Message != "WhatsApp rejected list messages for this session (405); use buttons" {
+			t.Fatalf("list rejection = status %d response %+v", status, response)
+		}
+		var outboxStatus string
+		var terminalAt *int64
+		if err := infra.db.QueryRow(`SELECT status,terminal_at FROM outbox WHERE organization_id=? AND idempotency_key=?`,
+			e2eOrgA, key).Scan(&outboxStatus, &terminalAt); err != nil {
+			t.Fatal(err)
+		}
+		if outboxStatus != string(domain.OutboxFailed) || terminalAt == nil {
+			t.Fatalf("list outbox = status %q terminal %v", outboxStatus, terminalAt)
+		}
+	})
 	t.Run("invalid send rejected before WhatsApp", func(t *testing.T) {
 		before := len(gateway.getCaptures(t))
 		invalid := []domain.SendRequest{

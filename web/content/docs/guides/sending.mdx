@@ -30,8 +30,8 @@ The reply is a `SendResult`: the WhatsApp message id (`messageId`), the delivery
 | `type` | Required fields | Optional fields |
 |---|---|---|
 | `text` | `text` | `mentions` (a list of JIDs to tag), `replyTo` (a message id to quote) |
-| `buttons` (schema only; sending unavailable) | `text`, `buttons: [{id, title}]` | `footer`, `replyTo`, `mentions` |
-| `list` (schema only; sending unavailable) | `text`, `list: {title, sections: [{title, rows: [{id, title}]}]}` | row `description`, `footer`, `replyTo`, `mentions` |
+| `buttons` | `text`, `buttons: [{id, title}]` | `footer`, `replyTo`, `mentions` |
+| `list` (experimental) | `text`, `list: {title, sections: [{title, rows: [{id, title}]}]}` | row `description`, `footer`, `replyTo`, `mentions` |
 | `poll` | `name`, `options` | `selectableCount` — how many options one voter may pick. Votes come back as `poll.vote` [events](/docs/guides/receiving). |
 | `location` | `latitude`, `longitude` | `name` — a label for the pin |
 | `contact` | `contact` | — |
@@ -174,11 +174,12 @@ looking human. Keep volume low and pacing natural.
 
 ## Quick replies and selection lists (experimental)
 
-The REST schema defines `buttons` and `list` payloads, and the reusable sender
-can construct them. The deployed gateway engine currently rejects both with
-`unsupported send type "buttons"` or `unsupported send type "list"`. Sending
-these types is unavailable for direct chats and groups until engine dispatch is
-connected to those sender methods.
+The gateway sends `buttons` as native quick replies and `list` as a legacy
+selection list. WhatsApp can accept a send without rendering its controls on
+the recipient's client. A production linked session delivered quick-reply
+buttons, but WhatsApp rejected legacy lists with server code 405. When that
+happens, the API returns `not_implemented` and stops retrying that list. Use
+buttons for interactive choices on that session.
 
 The quick-reply request shape is:
 
@@ -217,11 +218,9 @@ The selection-list request shape is:
 IDs must be unique within each message and labels must be nonblank. Send product
 images separately using `type: image` or `album`.
 
-The schema accepts group JIDs for both types. Client rendering remains
-experimental after engine support is connected: WhatsApp clients vary in their
-support for interactive controls. Use ordinary text messages with numbered
-choices for a working selection flow today, and handle those replies in your app.
-Send product images separately as image or album messages.
+The schema accepts group JIDs for both types. Recipient rendering can vary by
+account and client even after WhatsApp acknowledges a send. Send product images
+separately as image or album messages.
 
 Subscribe to `message.interactive_reply` (or `*`) for selections over webhooks or
 realtime. Its payload includes:

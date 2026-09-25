@@ -224,7 +224,7 @@ func TestE2EGatewayProcess(t *testing.T) {
 			return
 		}
 		switch request.Mode {
-		case "none", "send_error", "upload_error", "block_send", "drop_response", "drop_event_ack":
+		case "none", "send_error", "server_405", "upload_error", "block_send", "drop_response", "drop_event_ack":
 		default:
 			http.Error(w, "unknown fault", 400)
 			return
@@ -404,6 +404,9 @@ func (s *e2eWhatsApp) SendMessage(ctx context.Context, to types.JID, message *wa
 	}
 	if mode == "send_error" {
 		return whatsmeow.SendResponse{}, errors.New("simulated WhatsApp disconnect before acknowledgement")
+	}
+	if mode == "server_405" {
+		return whatsmeow.SendResponse{}, fmt.Errorf("%w 405", whatsmeow.ErrServerReturnedError)
 	}
 	raw, err := protojson.Marshal(message)
 	if err != nil {

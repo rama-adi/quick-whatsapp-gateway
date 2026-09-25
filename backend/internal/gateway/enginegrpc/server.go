@@ -725,6 +725,8 @@ func grpcError(err error) error {
 		switch apiErr.Code {
 		case domain.CodeValidationError:
 			return status.Error(codes.InvalidArgument, "invalid request")
+		case domain.CodeNotImplemented:
+			return status.Error(codes.Unimplemented, apiErr.Message)
 		case domain.CodeNotFound:
 			return status.Error(codes.NotFound, "not found")
 		case domain.CodeConflict:

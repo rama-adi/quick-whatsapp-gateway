@@ -82,14 +82,21 @@ Choices require nonblank IDs/titles; IDs are unique within the message. Menus
 require a title, sections, and rows. No speculative protocol size limits are imposed.
 The existing HTTP request-body bound still applies.
 
-The adapter builds native-flow `quick_reply` or `single_select` controls and adds
-native-flow `biz` metadata (not automatically supplied by the pinned whatsmeow).
-Both accept group JIDs through normal session routing. This is experimental
-client rendering: an acknowledgement proves send acceptance, not that recipients
-see controls. Upstream reports show working quick replies and incompatible
-single-select menus ([discussion #1145](https://github.com/tulir/whatsmeow/discussions/1145)).
-Live group/client compatibility is unverified. Images remain separate media sends;
-carousels and automatic text fallback are outside this endpoint's contract.
+The adapter builds native-flow `quick_reply` buttons and adds the required `biz`
+metadata. Lists use legacy `ListMessage`, for which whatsmeow adds list metadata.
+Both accept group JIDs through normal session routing. A WhatsApp acknowledgement
+proves send acceptance, not that recipients see controls. Upstream reports show
+working quick replies and invisible or incompatible native `single_select`
+menus ([discussion #1145](https://github.com/tulir/whatsmeow/discussions/1145)).
+On the production linked session, a native `single_select` was acknowledged and
+delivered but invisible, while legacy lists sent to both LID and phone-number
+JIDs received WhatsApp server code 405. Quick-reply buttons to both addresses
+were acknowledged and delivered. If WhatsApp returns 405 for a legacy list,
+the gateway reports `not_implemented` with the original cause and the outbox
+marks the request terminal instead of retrying it. List availability may differ
+by account or client; do not infer rendering from a successful send. Images
+remain separate media sends; carousels and automatic text fallback are outside
+this endpoint's contract.
 
 ## Reusable sender types
 

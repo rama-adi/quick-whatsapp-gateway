@@ -990,6 +990,8 @@ func mapEngineError(err error) error {
 		return domain.ErrUnavailable("gateway unavailable")
 	case codes.InvalidArgument:
 		return domain.ErrValidation("gateway rejected request")
+	case codes.Unimplemented:
+		return domain.ErrNotImplemented(status.Convert(err).Message())
 	default:
 		return fmt.Errorf("gateway engine: %w", err)
 	}
