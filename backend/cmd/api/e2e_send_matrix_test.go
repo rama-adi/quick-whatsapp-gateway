@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/base64"
 	"net/http"
+	"slices"
 	"testing"
 
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
@@ -110,6 +111,19 @@ func runE2ESendTypes(t *testing.T, infra *e2eInfra, gateway *e2eGateway) {
 				t.Fatalf("send %s = status %d result %+v", tc.name, status, result)
 			}
 			captures := gateway.waitCaptureCount(t, before+tc.captures)
+			// Reserved IDs must name the actual wire messages, including album
+			// children. Consumers use these to restore context for any quoted image.
+			ids := make([]string, tc.captures)
+			for i := range ids {
+				ids[i] = captures[before+i].ID
+			}
+			if !slices.Equal(result.ReservedMessageIDs, ids) {
+				t.Fatalf("reserved IDs differ from recipient transcript: %+v want %+v", result.ReservedMessageIDs, ids)
+			}
+			replayStatus, replay := infra.send(t, e2eOrgAKey, "send-type-"+tc.name, tc.request)
+			if replayStatus != http.StatusOK || !slices.Equal(replay.ReservedMessageIDs, ids) || len(gateway.getCaptures(t)) != before+tc.captures {
+				t.Fatalf("replay lost aliases or sent again: %d %+v", replayStatus, replay)
+			}
 			primary := captures[before]
 			if primary.ID != result.WAMessageID || primary.To != e2eGroupJID {
 				t.Fatalf("capture/result mismatch: %+v %+v", primary, result)

@@ -39,6 +39,9 @@ func runE2EAsyncSend(t *testing.T, infra *e2eInfra, gateway *e2eGateway) {
 		if captures := gateway.waitCaptureCount(t, before+1); captures[before].ID != waID {
 			t.Fatalf("async WA capture mismatch: %+v", captures[before])
 		}
+		if len(accepted.ReservedMessageIDs) != 1 || accepted.ReservedMessageIDs[0] != waID {
+			t.Fatalf("pending reservation did not identify the eventual recipient message: %+v, actual %s", accepted, waID)
+		}
 		status, replay := infra.send(t, e2eOrgAKey, key, request)
 		if status != http.StatusOK || !replay.Replayed || replay.WAMessageID != waID ||
 			replay.OutboxID != accepted.OutboxID {

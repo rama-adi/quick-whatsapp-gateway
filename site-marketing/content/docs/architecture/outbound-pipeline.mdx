@@ -119,7 +119,18 @@ this endpoint's contract.
     rate-limited like sends.
   - `Dispatch(ctx, req)` — exported, rate-limit/idempotency-free router the async
     outbox worker reuses to drive a persisted request to whatsmeow.
-- `SendResult` — `{Mode, WAMessageID, Status, Timestamp, OutboxID, Replayed}`.
+- `SendResult` — `{Mode, WAMessageID, ReservedMessageIDs, Status, Timestamp, OutboxID, Replayed}`.
+
+The API returns `reservedMessageIds` for a durably accepted send, including async,
+pending, and idempotent replay results. These are the native IDs reserved by the
+gateway command: a single ID for ordinary messages, or the album container followed
+by all child IDs in media order. The scheduler and actual WhatsApp sender share the
+same allocator. Clients can attach application context to these IDs before delivery
+settles, including when an album has only partially arrived. Reservations are not
+delivery receipts: only the existing `mode`, `status`, and `waMessageId` fields
+establish a committed outcome. Operation requests such as reactions have no send
+reservations. The mapping survives payload media scrubbing and process restarts;
+clients must never duplicate the allocator or infer IDs from an outbox identifier.
 - `SendOptions` — `{Async bool, IdempotencyKey string}`.
 - `OpRequest` / `MessageOp` (validate.go) — `reaction|edit|revoke|vote|forward`.
   The scheduler dispatches using the persisted operation discriminator. Private

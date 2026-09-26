@@ -42,6 +42,9 @@ func runE2EAmbiguousExhaustion(t *testing.T, infra *e2eInfra, gateway *e2eGatewa
 			!replay.Replayed || replay.Status == domain.MessageFailed || replay.WAMessageID != "" {
 			t.Fatalf("unknown effect replayed as definite: %d %+v", status, replay)
 		}
+		if len(replay.ReservedMessageIDs) != 1 || replay.ReservedMessageIDs[0] != capture.ID {
+			t.Fatalf("unknown effect lost its reserved native identity: %+v actual %s", replay, capture.ID)
+		}
 		gateway.fault(t, "none")
 		infra.stopAPI()
 		infra.exhaustAmbiguous = false

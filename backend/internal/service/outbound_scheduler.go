@@ -209,7 +209,7 @@ func (s *OutboundScheduler) enqueueAsync(
 		}
 		return outbound.SendResult{}, err
 	}
-	return outbound.SendResult{Mode: outbound.ModeAsync, OutboxID: entry.ID}, nil
+	return outbound.SendResult{Mode: outbound.ModeAsync, OutboxID: entry.ID, ReservedMessageIDs: outbound.ReservedMessageIDs(entry.ID, req)}, nil
 }
 
 // sendSync blocks on the outcome. The command row always exists first, so even
@@ -241,7 +241,11 @@ func (s *OutboundScheduler) sendSync(
 		return outbound.SendResult{}, err
 	}
 	// The limit token was consumed above; dispatch must not consume another.
-	return s.dispatchClaimed(ctx, entry, req, false)
+	result, err := s.dispatchClaimed(ctx, entry, req, false)
+	if err == nil {
+		result.ReservedMessageIDs = outbound.ReservedMessageIDs(entry.ID, req)
+	}
+	return result, err
 }
 
 // newCommand builds one queued-or-sending command row identity.
@@ -445,6 +449,10 @@ func (s *OutboundScheduler) ambiguous(ctx context.Context, entry domain.OutboxEn
 // legacy sender's replay semantics.
 func replayOutboxResult(e *domain.OutboxEntry) outbound.SendResult {
 	r := outbound.SendResult{OutboxID: e.ID, Replayed: true}
+	var req domain.SendRequest
+	if json.Unmarshal(e.Payload, &req) == nil && req.Type != "" && !isOpType(req.Type) {
+		r.ReservedMessageIDs = outbound.ReservedMessageIDs(e.ID, req)
+	}
 	switch e.Status {
 	case domain.OutboxSent:
 		r.Mode = outbound.ModeSync

@@ -81,7 +81,11 @@ func e2eStartInfra(t *testing.T) *e2eInfra {
 	ctx, cancel := e2eContext(t)
 	t.Cleanup(cancel)
 	name := fmt.Sprintf("qwg-e2e-%d", os.Getpid())
-	mysqlID := e2eDockerRun(t, ctx, name+"-mysql", "mysql:8.4",
+	mysqlImage := os.Getenv("QWG_E2E_MYSQL_IMAGE")
+	if mysqlImage == "" {
+		mysqlImage = "mysql:8.4"
+	}
+	mysqlID := e2eDockerRun(t, ctx, name+"-mysql", mysqlImage,
 		"-e", "MYSQL_ROOT_PASSWORD=e2e-password",
 		"-e", "MYSQL_DATABASE=qwg_e2e_test",
 		"-p", "127.0.0.1::3306",
@@ -99,11 +103,6 @@ func e2eStartInfra(t *testing.T) *e2eInfra {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = infra.db.Close() })
-	e2eEventually(t, ctx, "MySQL ready", func() bool {
-		return exec.CommandContext(ctx, "docker", "exec", mysqlID,
-			"mysql", "--silent", "-uroot", "-pe2e-password",
-			"-D", "qwg_e2e_test", "-e", "SELECT 1").Run() == nil
-	})
 	e2eEventually(t, ctx, "MySQL TCP ready", func() bool {
 		return infra.db.PingContext(ctx) == nil
 	})

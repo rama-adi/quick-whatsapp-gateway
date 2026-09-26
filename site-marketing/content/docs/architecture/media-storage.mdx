@@ -15,6 +15,7 @@ Migration `backend/migrations/0015_media_storage.up.sql` adds:
   access/secret keys. `retention_days = NULL` represents indefinite retention.
 - `session_media_storage`: one connection per session. Linking validates both
   the session and connection against the caller's organization in a transaction.
+  The connection lock uses `LOCK IN SHARE MODE` on both MySQL and MariaDB.
   Binding reads verify session ownership before returning the optional bucket;
   a session in another organization returns `not_found`.
 - `media_assets`: stable object key, original connection, message identity and
@@ -138,3 +139,10 @@ sticker descriptor or a content hash already in the shared store.
 No public endpoint looks up arbitrary hashes. Event routing continues to use the
 existing session and organization authorization. Both sticker tables are excluded
 from the frontend's read-only schema introspection.
+
+## Database compatibility verification
+
+Run the API/gateway suite against the deployment database engine with
+`QWG_E2E_MYSQL_IMAGE=mariadb:12.3.3 make api-e2e`. The default remains MySQL 8.4.
+The storage lifecycle scenario verifies linking, reading, unlinking, and
+organization isolation through the public API.

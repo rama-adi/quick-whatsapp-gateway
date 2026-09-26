@@ -4459,6 +4459,8 @@ export interface components {
             mode: string;
             outboxId?: string;
             replayed?: boolean;
+            /** @description Reserved native WhatsApp message IDs in wire order: one ID for a single message, or the album container followed by each child. Available for pending sends and stable on replay. Reservations do not prove delivery; use mode, status, and waMessageId for the committed outcome. */
+            reservedMessageIds?: string[] | null;
             status?: string;
             /** Format: int64 */
             timestamp?: number;

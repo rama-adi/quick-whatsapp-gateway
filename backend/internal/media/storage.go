@@ -175,7 +175,7 @@ func (s *Service) Link(ctx context.Context, org, session string, id *string) err
 		_, err = tx.ExecContext(ctx, `DELETE FROM session_media_storage WHERE session_id=? AND organization_id=?`, session, org)
 	} else {
 		var bid string
-		err = tx.QueryRowContext(ctx, `SELECT id FROM media_buckets WHERE id=? AND organization_id=? FOR SHARE`, *id, org).Scan(&bid)
+		err = tx.QueryRowContext(ctx, `SELECT id FROM media_buckets WHERE id=? AND organization_id=? LOCK IN SHARE MODE`, *id, org).Scan(&bid)
 		if errors.Is(err, sql.ErrNoRows) {
 			return domain.ErrNotFound("storage connection")
 		}

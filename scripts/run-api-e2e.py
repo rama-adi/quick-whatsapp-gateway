@@ -46,9 +46,9 @@ def main():
     result = {
         "schema_version": 1,
         "started_at": datetime.now(timezone.utc).isoformat(),
-        "reproduce": "make api-e2e",
+        "reproduce": "QWG_E2E_MYSQL_IMAGE=" + os.environ.get("QWG_E2E_MYSQL_IMAGE", "mysql:8.4") + " make api-e2e",
         "command": COMMAND,
-        "environment": {"QWG_E2E": "1"},
+        "environment": {"QWG_E2E": "1", "QWG_E2E_MYSQL_IMAGE": os.environ.get("QWG_E2E_MYSQL_IMAGE", "mysql:8.4")},
         "platform": platform.platform(),
         "status": "failed",
         "errors": [],

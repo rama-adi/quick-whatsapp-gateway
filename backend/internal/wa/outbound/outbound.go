@@ -26,6 +26,10 @@ type SendResult struct {
 	Mode string `json:"mode"`
 	// WAMessageID is the WhatsApp message id assigned by whatsmeow (sync only).
 	WAMessageID string `json:"waMessageId,omitempty"`
+	// ReservedMessageIDs is the ordered native ID reservation for this send.
+	// For albums it contains the container followed by each child. It is also
+	// present while pending and does not prove that any message was delivered.
+	ReservedMessageIDs []string `json:"reservedMessageIds,omitempty" doc:"Reserved native WhatsApp message IDs in wire order: one ID for a single message, or the album container followed by each child. Available for pending sends and stable on replay. Reservations do not prove delivery; use mode, status, and waMessageId for the committed outcome."`
 	// Status is the message status after the ack (sync only). For successful
 	// sends this is domain.MessageSent.
 	Status domain.MessageStatus `json:"status,omitempty"`
