@@ -151,7 +151,7 @@ func (r *OutboxRepo) UpdateStatus(ctx context.Context, id string, status domain.
 			TerminalAt:  sql.NullInt64{Int64: updatedAt, Valid: true},
 			ID:          id,
 		})
-	case domain.OutboxFailed:
+	case domain.OutboxFailed, domain.OutboxUnknown:
 		n, err = r.q.CompleteOutbox(ctx, storedb.CompleteOutboxParams{
 			FinalStatus:   storedb.OutboxStatus(status),
 			WaMessageID:   nullString(waMessageID),
@@ -161,7 +161,7 @@ func (r *OutboxRepo) UpdateStatus(ctx context.Context, id string, status domain.
 			ID:            id,
 			SendingStatus: storedb.OutboxStatus(domain.OutboxSending),
 		})
-		if n == 0 {
+		if n == 0 && status == domain.OutboxFailed {
 			// The row may already be terminal from a concurrent path; fall back
 			// to the unconditional update so legacy callers keep their contract.
 			n, err = r.q.UpdateOutboxStatus(ctx, storedb.UpdateOutboxStatusParams{

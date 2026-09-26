@@ -1018,6 +1018,7 @@ const (
 	OutboxStatusSending OutboxStatus = "sending"
 	OutboxStatusSent    OutboxStatus = "sent"
 	OutboxStatusFailed  OutboxStatus = "failed"
+	OutboxStatusUnknown OutboxStatus = "unknown"
 )
 
 func (e *OutboxStatus) Scan(src interface{}) error {
@@ -1060,7 +1061,8 @@ func (e OutboxStatus) Valid() bool {
 	case OutboxStatusQueued,
 		OutboxStatusSending,
 		OutboxStatusSent,
-		OutboxStatusFailed:
+		OutboxStatusFailed,
+		OutboxStatusUnknown:
 		return true
 	}
 	return false
@@ -1072,6 +1074,7 @@ func AllOutboxStatusValues() []OutboxStatus {
 		OutboxStatusSending,
 		OutboxStatusSent,
 		OutboxStatusFailed,
+		OutboxStatusUnknown,
 	}
 }
 
@@ -1657,7 +1660,6 @@ type Outbox struct {
 	SessionID      string          `db:"session_id" json:"session_id"`
 	IdempotencyKey sql.NullString  `db:"idempotency_key" json:"idempotency_key"`
 	Payload        json.RawMessage `db:"payload" json:"payload"`
-	Status         OutboxStatus    `db:"status" json:"status"`
 	Attempts       int32           `db:"attempts" json:"attempts"`
 	WaMessageID    sql.NullString  `db:"wa_message_id" json:"wa_message_id"`
 	Error          sql.NullString  `db:"error" json:"error"`
@@ -1665,6 +1667,7 @@ type Outbox struct {
 	UpdatedAt      int64           `db:"updated_at" json:"updated_at"`
 	NextAttemptAt  int64           `db:"next_attempt_at" json:"next_attempt_at"`
 	TerminalAt     sql.NullInt64   `db:"terminal_at" json:"terminal_at"`
+	Status         OutboxStatus    `db:"status" json:"status"`
 }
 
 type PkiAuthority struct {

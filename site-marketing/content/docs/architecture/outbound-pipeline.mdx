@@ -283,8 +283,10 @@ atomic op.
 - **Ambiguity policy**: only deterministic pre-dispatch rejections (domain validation errors,
   including a replayed prior ledger failure) are terminal `failed`. Unavailable gateways, stale
   assignment epochs (conflict), and lost deadlines reschedule to `queued` with exponential
-  backoff (`next_attempt_at`); after the configured attempt budget the row fails honestly
-  ("no definite outcome after N attempts"). The stale-`sending` lease must exceed the engine
+  backoff (`next_attempt_at`). After the configured attempt budget, the row becomes terminal
+  `unknown`: its remote effect may have committed, so an idempotent send replay returns `202`
+  with the same outbox ID and never reports a definite failure or dispatches that command again.
+  A channel agent keeps later messages behind that unresolved action. The stale-`sending` lease must exceed the engine
   send deadline so an in-flight dispatch is never reclaimed mid-flight.
 - **Sync over-limit = error, async = defer** (open-decision #3): sync returns
   `domain.ErrRateLimited` with `details.retryAfterSeconds`; async persists a
@@ -313,7 +315,7 @@ atomic op.
   The worker supplies a stale cutoff based on a lease longer than the maximum dispatch timeout:
   duplicate tasks see a fresh lease and skip, while a crash-stranded row eventually becomes
   reclaimable. All claim selectors and the CAS exclude rows with `terminal_at` set, including
-  deterministic `failed` outcomes, so completed commands never re-enter the retry loop. Batch recovery uses
+  deterministic `failed` and unresolved `unknown` outcomes, so settled commands never re-enter the retry loop. Batch recovery uses
   `FOR UPDATE SKIP LOCKED` plus the same CAS inside one transaction, so replicas receive disjoint
   pages and a failure rolls back the whole claim.
 - **Media is data-or-URL and never retained as bytes**: the API engine client resolves URLs

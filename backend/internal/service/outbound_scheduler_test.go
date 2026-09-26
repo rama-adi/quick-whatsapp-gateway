@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
@@ -222,28 +221,6 @@ func TestSchedulerRateLimitedSyncSurfaces429(t *testing.T) {
 	}
 	if len(store.inserted) != 0 || engine.calls != nil {
 		t.Fatal("rate-limited send persisted a row or dispatched")
-	}
-}
-
-// TestSchedulerExhaustedAmbiguityFailsHonestly verifies the give-up path keeps
-// its definite-failure report honest about the missing outcome.
-func TestSchedulerExhaustedAmbiguityFailsHonestly(t *testing.T) {
-	sessions := &fakeSchedulerSessions{session: schedulerSession()}
-	store := &fakeCommandStore{}
-	engine := &fakeEngineSender{}
-	limiter := &fakeSchedulerLimiter{ok: true}
-	scheduler := newScheduler(sessions, store, engine, limiter)
-
-	entry := domain.OutboxEntry{ID: "cmd_x", OrganizationID: "org_1", SessionID: "ses_1", Status: domain.OutboxSending, Attempts: 3}
-	store.rows = map[string]*domain.OutboxEntry{"cmd_x": &entry}
-	if _, err := scheduler.dispatchClaimed(context.Background(), entry, textRequest(), true); err == nil {
-		t.Fatal("expected exhaustion error")
-	}
-	if len(store.updates) != 1 || store.updates[0].status != domain.OutboxFailed {
-		t.Fatalf("updates = %#v", store.updates)
-	}
-	if !strings.Contains(*store.rows["cmd_x"].Error, "no definite outcome") {
-		t.Fatalf("error not honest about ambiguity: %s", *store.rows["cmd_x"].Error)
 	}
 }
 

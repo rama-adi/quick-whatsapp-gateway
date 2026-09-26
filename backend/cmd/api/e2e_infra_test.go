@@ -26,6 +26,9 @@ func TestE2EAPIProcess(t *testing.T) {
 	if os.Getenv("QWG_E2E_API_PROCESS") != "1" {
 		t.Skip("API process is started by TestOutboundE2E")
 	}
+	if os.Getenv("QWG_E2E_EXHAUST_AMBIGUOUS") == "true" {
+		outboundSchedulerMaxAttempts = 1
+	}
 	if err := runWithStorageTransport(e2eStorageTransport()); err != nil {
 		t.Fatal(err)
 	}
@@ -45,6 +48,7 @@ type e2eInfra struct {
 	externalCA           string
 	apiCmd               *exec.Cmd
 	apiOutput            e2eSafeBuffer
+	exhaustAmbiguous     bool
 	root                 string
 }
 
@@ -189,6 +193,7 @@ func (infra *e2eInfra) startAPI(t *testing.T) {
 	infra.apiCmd.Dir = infra.root
 	infra.apiCmd.Env = append(os.Environ(),
 		"QWG_E2E_API_PROCESS=1",
+		fmt.Sprintf("QWG_E2E_EXHAUST_AMBIGUOUS=%t", infra.exhaustAmbiguous),
 		"SSL_CERT_FILE="+infra.externalCA,
 		"MYSQL_DSN="+infra.dsn,
 		"REDIS_URL="+infra.redisURL,

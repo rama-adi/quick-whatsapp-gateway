@@ -408,8 +408,7 @@ func (s *OutboundScheduler) dispatchClaimed(
 }
 
 // ambiguous reschedules one leased command for a later attempt under the same
-// command id, or terminally fails it once attempts are exhausted (the recorded
-// error states the ambiguity honestly rather than inventing an outcome).
+// command id. Exhaustion preserves an explicitly unknown remote outcome.
 func (s *OutboundScheduler) ambiguous(ctx context.Context, entry domain.OutboxEntry, cause string) error {
 	attempt := entry.Attempts
 	if attempt <= 0 {
@@ -421,7 +420,7 @@ func (s *OutboundScheduler) ambiguous(ctx context.Context, entry domain.OutboxEn
 		if uerr := s.outbox.UpdateStatus(
 			ctx,
 			entry.ID,
-			domain.OutboxFailed,
+			domain.OutboxUnknown,
 			nil,
 			&message,
 			s.now().UnixMilli(),
@@ -457,6 +456,8 @@ func replayOutboxResult(e *domain.OutboxEntry) outbound.SendResult {
 	case domain.OutboxFailed:
 		r.Mode = outbound.ModeSync
 		r.Status = domain.MessageFailed
+	case domain.OutboxUnknown:
+		r.Mode = outbound.ModeAsync
 	default: // queued / sending
 		r.Mode = outbound.ModeAsync
 	}

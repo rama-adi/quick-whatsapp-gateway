@@ -12,6 +12,7 @@ sql:
       - "migrations/0012_committed_event_fanout.up.sql"
       - "migrations/0013_gateway_journal_telemetry.up.sql"
       - "migrations/0014_outbound_commands.up.sql"
+      - "migrations/0018_outbox_unknown.up.sql"
       - "internal/store/sqlc_schema/auth.sql"
     queries: "internal/store/queries"
     gen:

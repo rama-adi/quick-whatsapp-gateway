@@ -137,7 +137,7 @@ export const outbox = mysqlTable("outbox", {
 	sessionId: varchar("session_id", { length: 64 }).notNull(),
 	idempotencyKey: varchar("idempotency_key", { length: 255 }),
 	payload: json().notNull(),
-	status: mysqlEnum(['queued','sending','sent','failed']).default('queued').notNull(),
+	status: mysqlEnum(['queued','sending','sent','failed','unknown']).default('queued').notNull(),
 	attempts: int().default(0).notNull(),
 	nextAttemptAt: bigint("next_attempt_at", { mode: "number" }).notNull(),
 	waMessageId: varchar("wa_message_id", { length: 255 }),

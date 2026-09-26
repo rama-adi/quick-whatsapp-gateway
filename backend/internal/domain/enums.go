@@ -123,4 +123,5 @@ const (
 	OutboxSending OutboxStatus = "sending"
 	OutboxSent    OutboxStatus = "sent"
 	OutboxFailed  OutboxStatus = "failed"
+	OutboxUnknown OutboxStatus = "unknown"
 )

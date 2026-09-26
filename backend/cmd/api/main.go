@@ -49,6 +49,10 @@ import (
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/webhooks"
 )
 
+// The process E2E overrides this through test code to exercise the configured
+// attempt boundary without waiting for the production retry schedule.
+var outboundSchedulerMaxAttempts = 10
+
 func main() {
 	if err := run(); err != nil {
 		slog.Error("api exited with error", "err", err)
@@ -377,7 +381,7 @@ func runWithStorageTransport(storageTransport http.RoundTripper) error {
 				Lease:       cfg.GatewayEngineSendDeadline + time.Minute,
 				Batch:       32,
 				Poll:        2 * time.Second,
-				MaxAttempts: 10,
+				MaxAttempts: outboundSchedulerMaxAttempts,
 				BackoffBase: 5 * time.Second,
 				BackoffCap:  10 * time.Minute,
 				Now:         time.Now,
