@@ -8,6 +8,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"mime"
+	"net/url"
+	"path"
+	"strings"
 	"time"
 
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
@@ -55,6 +59,8 @@ func (s *Service) Capture(ctx context.Context, tx storedb.DBTX, e store.GatewayE
 	if err != nil {
 		return nil, err
 	}
+	var chatID string
+	_ = json.Unmarshal(payload["chatJid"], &chatID)
 	var messageID string
 	_ = json.Unmarshal(payload["waMessageId"], &messageID)
 	if messageID == "" {
@@ -86,7 +92,7 @@ func (s *Service) Capture(ctx context.Context, tx storedb.DBTX, e store.GatewayE
 		v := now + *days*86400000
 		expires = &v
 	}
-	_, err = tx.ExecContext(ctx, `INSERT IGNORE INTO media_assets(id,organization_id,session_id,message_id,bucket_id,object_key,access_token,source,mimetype,filename,size,created_at,expires_at,next_attempt_at,attachment_index) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, e.OrganizationID, e.SessionID, messageID, bucket, "whatsapp-gateway/"+bucket+"/"+id, hex.EncodeToString(token), encrypted, meta.Mimetype, meta.Filename, meta.Size, now, expires, now, index)
+	_, err = tx.ExecContext(ctx, `INSERT IGNORE INTO media_assets(id,organization_id,session_id,message_id,bucket_id,object_key,access_token,source,mimetype,filename,size,created_at,expires_at,next_attempt_at,attachment_index) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, e.OrganizationID, e.SessionID, messageID, bucket, "qwg-medias/"+url.PathEscape(chatID)+"/"+id+mediaExtension(meta), hex.EncodeToString(token), encrypted, meta.Mimetype, meta.Filename, meta.Size, now, expires, now, index)
 	if err != nil {
 		return nil, err
 	}
@@ -159,4 +165,38 @@ func (s *Service) CaptureOutbound(ctx context.Context, org, session, message str
 		}
 	}
 	return tx.Commit()
+}
+
+// Prefer conventional extensions for WhatsApp media, then registered MIME types.
+func mediaExtension(meta domain.MediaMeta) string {
+	mediaType, _, _ := mime.ParseMediaType(meta.Mimetype)
+	switch mediaType {
+	case "image/jpeg":
+		return ".jpg"
+	case "image/png":
+		return ".png"
+	case "image/webp":
+		return ".webp"
+	case "image/gif":
+		return ".gif"
+	case "video/mp4":
+		return ".mp4"
+	case "audio/ogg":
+		return ".ogg"
+	case "audio/mpeg":
+		return ".mp3"
+	case "audio/mp4":
+		return ".m4a"
+	}
+	if extensions, _ := mime.ExtensionsByType(mediaType); len(extensions) > 0 && mediaType != "application/octet-stream" {
+		return extensions[0]
+	}
+	// Documents may have a useful suffix even when sent as generic binary data.
+	extension := strings.ToLower(path.Ext(meta.Filename))
+	if len(extension) > 1 && strings.IndexFunc(extension[1:], func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9')
+	}) == -1 {
+		return extension
+	}
+	return ".bin"
 }

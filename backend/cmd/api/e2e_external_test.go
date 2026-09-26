@@ -30,13 +30,16 @@ import (
 )
 
 type e2eExternal struct {
-	server          *httptest.Server
-	mu              sync.Mutex
-	objects         map[string][]byte
-	rejectStorage   bool
-	storageFailures int
-	hooks           [][]byte
-	hookHeaders     []http.Header
+	server             *httptest.Server
+	mu                 sync.Mutex
+	objects            map[string][]byte
+	objectTypes        map[string]string
+	objectWrites       map[string]int
+	loseUploadResponse bool
+	rejectStorage      bool
+	storageFailures    int
+	hooks              [][]byte
+	hookHeaders        []http.Header
 }
 
 // Only the external S3 HTTP boundary is replaced. AWS signing, upload/download,
@@ -59,7 +62,7 @@ func e2eStorageTransport() http.RoundTripper {
 
 func setupE2EExternalServices(t *testing.T, infra *e2eInfra) *e2eExternal {
 	t.Helper()
-	f := &e2eExternal{objects: map[string][]byte{}}
+	f := &e2eExternal{objects: map[string][]byte{}, objectTypes: map[string]string{}, objectWrites: map[string]int{}}
 	f.server = httptest.NewTLSServer(http.HandlerFunc(f.serveHTTP))
 	t.Cleanup(f.server.Close)
 	infra.externalCA = filepath.Join(t.TempDir(), "external-ca.pem")
@@ -114,6 +117,13 @@ func (f *e2eExternal) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		f.objects[r.URL.Path] = body
+		f.objectTypes[r.URL.Path] = r.Header.Get("Content-Type")
+		f.objectWrites[r.URL.Path]++
+		if f.loseUploadResponse {
+			f.loseUploadResponse = false
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
 		w.Header().Set("ETag", `"e2e-etag"`)
 	case http.MethodDelete:
 		delete(f.objects, r.URL.Path)
@@ -171,6 +181,12 @@ func runE2EExternalScenarios(t *testing.T, infra *e2eInfra, gateway *e2eGateway,
 		e2eEventually(t, ctx, "media worker recovery", func() bool {
 			return infra.request(t, "GET", "/api/v1/media/"+id, e2eOrgAKey, nil, &asset, nil) == 200 && asset.Status == "ready"
 		})
+		f.mu.Lock()
+		stored := string(f.objects["/attachments/qwg-medias/"+e2eGroupJID+"/"+id+".jpg"])
+		f.mu.Unlock()
+		if stored != "isolated-media" {
+			t.Fatalf("JPEG missing from chat folder: %q", stored)
+		}
 		e2eRequireStatus(t, infra.request(t, "GET", "/api/v1/media/"+id, e2eOrgBKey, nil, nil, nil), 404)
 		e2eRequireStatus(t, infra.request(t, "GET", "/api/v1/media/"+id+"/content?token="+strings.Repeat("0", 64), "", nil, nil, nil), 404)
 		response, err = http.Get(asset.URL)
@@ -202,6 +218,84 @@ func runE2EExternalScenarios(t *testing.T, infra *e2eInfra, gateway *e2eGateway,
 			return err == nil && status == "expired" && len(f.objects) == 0
 		})
 		e2eRequireStatus(t, infra.request(t, "PUT", "/api/v1/sessions/"+e2eSessionID+"/storage", e2eOrgAKey, map[string]any{"bucketId": nil}, nil, nil), 200)
+	})
+	t.Run("bot image echoes and API replay store once after lost upload response", func(t *testing.T) {
+		ctx, cancel := e2eContext(t)
+		defer cancel()
+		var bucket media.Bucket
+		e2eRequireStatus(t, infra.request(t, "POST", "/api/v1/storage/buckets", e2eOrgAKey, media.BucketInput{Name: "bot images", Endpoint: f.server.URL, Region: "e2e", Bucket: "attachments", PathStyle: true, AccessKey: "e2e", SecretKey: "e2e-secret"}, &bucket, nil), 200)
+		binding := "/api/v1/sessions/" + e2eSessionID + "/storage"
+		e2eRequireStatus(t, infra.request(t, "PUT", binding, e2eOrgAKey, map[string]any{"bucketId": bucket.ID}, nil, nil), 200)
+		before := len(gateway.getCaptures(t))
+		f.mu.Lock()
+		f.loseUploadResponse = true
+		f.objects["/attachments/user-data/keep.jpg"] = []byte("unrelated")
+		f.mu.Unlock()
+		request := domain.SendRequest{Type: domain.SendTypeImage, To: e2eGroupJID, Media: &domain.MediaPayload{Data: base64.StdEncoding.EncodeToString([]byte("bot-image-bytes")), Mimetype: "image/png", Caption: "bot image"}}
+		status, sent := infra.send(t, e2eOrgAKey, "bot-image-storage", request)
+		e2eRequireStatus(t, status, 200)
+		capture := gateway.waitCaptureCount(t, before+1)[before]
+		var id string
+		e2eEventually(t, ctx, "bot image stored after ambiguous S3 response", func() bool {
+			return infra.db.QueryRowContext(ctx, `SELECT id FROM media_assets WHERE message_id=? AND status='ready' AND notification IS NULL`, sent.WAMessageID).Scan(&id) == nil
+		})
+		key := "/attachments/qwg-medias/" + e2eGroupJID + "/" + id + ".png"
+		body, err := json.Marshal(map[string]any{"id": sent.WAMessageID, "chat": e2eGroupJID, "sender": e2eDeviceLID, "fromMe": true, "message": json.RawMessage(capture.Message)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Both the original own echo and its transport replay must be acknowledged.
+		for _, phase := range []string{"own echo", "replayed own echo"} {
+			var beforeEvents int
+			if err := infra.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM gateway_ingested_events WHERE session_id=? AND completed_at IS NOT NULL`, e2eSessionID).Scan(&beforeEvents); err != nil {
+				t.Fatal(err)
+			}
+			response, err := http.Post(gateway.controlURL+"/incoming", "application/json", bytes.NewReader(body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			response.Body.Close()
+			e2eRequireStatus(t, response.StatusCode, 204)
+			e2eEventually(t, ctx, phase+" processed", func() bool {
+				var completed int
+				return infra.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM gateway_ingested_events WHERE session_id=? AND completed_at IS NOT NULL`, e2eSessionID).Scan(&completed) == nil && completed > beforeEvents
+			})
+		}
+		replayStatus, replay := infra.send(t, e2eOrgAKey, "bot-image-storage", request)
+		e2eRequireStatus(t, replayStatus, 200)
+		if replay.WAMessageID != sent.WAMessageID || !replay.Replayed {
+			t.Fatalf("API replay: %+v", replay)
+		}
+		var assets, readyEvents, sentEvents int
+		if err := infra.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM media_assets WHERE message_id=?`, sent.WAMessageID).Scan(&assets); err != nil {
+			t.Fatal(err)
+		}
+		if err := infra.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM event_log WHERE type=? AND JSON_UNQUOTE(JSON_EXTRACT(payload,'$.id'))=?`, domain.EventMediaReady, id).Scan(&readyEvents); err != nil {
+			t.Fatal(err)
+		}
+		if err := infra.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM event_log WHERE type=? AND JSON_UNQUOTE(JSON_EXTRACT(payload,'$.waMessageId'))=?`, domain.EventMessageFromMe, sent.WAMessageID).Scan(&sentEvents); err != nil {
+			t.Fatal(err)
+		}
+		f.mu.Lock()
+		data, contentType, writes := string(f.objects[key]), f.objectTypes[key], f.objectWrites[key]
+		f.mu.Unlock()
+		if assets != 1 || readyEvents != 1 || sentEvents != 1 || writes != 1 || len(gateway.getCaptures(t)) != before+1 || data != "bot-image-bytes" || contentType != "image/png" {
+			t.Fatalf("bot media duplicated or changed: assets=%d ready=%d sent=%d writes=%d captures=%d data=%q type=%q", assets, readyEvents, sentEvents, writes, len(gateway.getCaptures(t))-before, data, contentType)
+		}
+		if _, err := infra.db.ExecContext(ctx, `UPDATE media_assets SET expires_at=?,next_attempt_at=0 WHERE id=?`, time.Now().Add(-time.Millisecond).UnixMilli(), id); err != nil {
+			t.Fatal(err)
+		}
+		e2eEventually(t, ctx, "bot image expiry preserves unrelated bucket data", func() bool {
+			var state string
+			if infra.db.QueryRowContext(ctx, `SELECT status FROM media_assets WHERE id=?`, id).Scan(&state) != nil || state != "expired" {
+				return false
+			}
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			_, remains := f.objects[key]
+			return !remains && string(f.objects["/attachments/user-data/keep.jpg"]) == "unrelated"
+		})
+		e2eRequireStatus(t, infra.request(t, "PUT", binding, e2eOrgAKey, map[string]any{"bucketId": nil}, nil, nil), 200)
 	})
 	t.Run("webhook retries preserve event identity and signature", func(t *testing.T) {
 		ctx, cancel := e2eContext(t)

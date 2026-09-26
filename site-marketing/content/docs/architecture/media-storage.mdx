@@ -46,7 +46,12 @@ Album items use the parent message id with a separate item index. WhatsApp
 messages observed independently use their own message ids.
 
 The unique organization/session/message/index key prevents duplicate jobs.
-Each asset receives one object key under `whatsapp-gateway/<connection-id>/`.
+Each asset receives one object key at `qwg-medias/<chat-jid>/<media-id>.<extension>`.
+The chat JID groups files by conversation, and the unique media ID prevents filename
+collisions. Extensions come from the MIME type, falling back to a safe document
+filename suffix or `.bin`. Uploads preserve the original content type. Namespace cleanup must only delete
+objects beneath `qwg-medias/` and the matching asset records; other bucket data
+and storage configuration remain untouched.
 Upload uses a conditional `PutObject` and records the returned version id.
 A retry first checks the same object key, recovering a successful upload whose
 response or database commit was lost. Completed uploads clear the encrypted
