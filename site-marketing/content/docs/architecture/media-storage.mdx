@@ -98,9 +98,21 @@ Downloads end at the earlier of their request deadline and retention expiry.
 Previously delivered event payloads retain their historical URL; the content
 endpoint enforces its expiry. Current metadata responses omit expired URLs.
 
-S3 endpoints require HTTPS. DNS addresses are checked at dial time against
-private, loopback, link-local, and shared-address ranges; redirects and HTTP
-proxies are disabled. HTTP connections are pooled across transfers.
+Public S3 endpoints require HTTPS and public DNS addresses. The API setting
+`S3_INTERNAL_DOMAINS` allows HTTP and private IPv4/IPv6 addresses for matching
+hostnames. Its default is `.internal,.local,.lan,.home.arpa,.localdomain,.svc,.cluster.local`.
+A leading dot matches a DNS suffix at a label boundary; other entries match one
+exact hostname (for example `rustfs` on a Docker network). Matching ignores case
+and a final DNS dot. An explicit value replaces the defaults; an empty value
+disables internal exceptions. Operators can add custom private DNS zones without
+changing code. Raw IP endpoints do not qualify for internal exceptions.
+
+Every resolved address is checked at dial time and the checked address is dialed
+directly. Loopback, link-local/metadata, shared-address, and non-unicast destinations
+remain blocked, including on trusted domains. Redirects and HTTP proxies are
+disabled; HTTPS still verifies certificates. Public and internal connections use
+separate shared pools. Public attachment URLs continue to use `API_PUBLIC_URL`,
+so an internal S3 endpoint is never exposed to browser clients.
 
 ## Operating the feature
 

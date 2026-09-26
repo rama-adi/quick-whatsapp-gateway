@@ -177,6 +177,18 @@ func e2eStorageLifecycle(t *testing.T, infra *e2eInfra) {
 		AccessKey: "e2e-access",
 		SecretKey: "e2e-secret",
 	}
+	for _, endpoint := range []string{"http://s3.internal:9000", "http://nas.local:9000", "http://nas.lan:9000", "http://nas.home.arpa:9000", "http://nas.localdomain:9000", "http://s3.team.svc:9000", "http://s3.team.svc.cluster.local:9000"} {
+		candidate := input
+		candidate.Endpoint = endpoint
+		var connection media.Bucket
+		e2eRequireStatus(t, infra.request(t, http.MethodPost, bucketPath, e2eOrgAKey, candidate, &connection, nil), http.StatusOK)
+		e2eRequireStatus(t, infra.request(t, http.MethodDelete, bucketPath+"/"+connection.ID, e2eOrgAKey, nil, nil, nil), http.StatusNoContent)
+	}
+	for _, endpoint := range []string{"http://s3.example.com", "http://s3.internal.example.com", "http://127.0.0.1:9000", "http://169.254.169.254", "ftp://s3.internal", "http://user:secret@s3.internal"} {
+		candidate := input
+		candidate.Endpoint = endpoint
+		e2eRequireStatus(t, infra.request(t, http.MethodPost, bucketPath, e2eOrgAKey, candidate, nil, nil), http.StatusBadRequest)
+	}
 	var created media.Bucket
 	e2eRequireStatus(t, infra.request(t, http.MethodPost, bucketPath, e2eOrgAKey,
 		input, &created, nil), http.StatusOK)

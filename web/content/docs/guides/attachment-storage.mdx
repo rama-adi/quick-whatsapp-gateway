@@ -10,9 +10,12 @@ session can use one connection at a time.
 
 ## Connect a bucket
 
-Enter a connection name, the S3 service's HTTPS endpoint, region, bucket name,
+Enter a connection name, the S3 service's endpoint, region, bucket name,
 access key, and secret key. Enable **path-style requests** when your S3 provider
-requires them. The endpoint must resolve to public IP addresses.
+requires them. Public endpoints require HTTPS and public IP addresses. Trusted internal domains
+also support HTTP and private addresses, including `.internal`, `.local`, `.lan`,
+`.home.arpa`, `.localdomain`, `.svc`, and `.cluster.local` by default. Your
+operator can configure additional suffixes or exact service names.
 
 Choose a whole number of retention days starting at **1**, or select **Keep
 attachments indefinitely**. Saving stores the configuration and encrypted

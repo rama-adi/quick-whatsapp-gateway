@@ -28,7 +28,7 @@ type Bucket struct {
 }
 type BucketInput struct {
 	Name          string `json:"name"`
-	Endpoint      string `json:"endpoint" doc:"HTTPS endpoint for the S3-compatible service."`
+	Endpoint      string `json:"endpoint" doc:"S3 service endpoint. HTTPS is required except for trusted internal domains."`
 	Region        string `json:"region"`
 	Bucket        string `json:"bucket"`
 	PathStyle     bool   `json:"pathStyle"`
@@ -41,7 +41,9 @@ type Downloader interface {
 	DownloadMedia(context.Context, string, string, []byte) ([]byte, error)
 }
 type Service struct {
-	// Transport optionally supplies the external S3 network boundary. Nil uses the public-address-only transport.
+	// InternalDomains permits HTTP and private IPs for operator-trusted DNS names.
+	InternalDomains []string
+	// Transport optionally supplies the external S3 network boundary. Nil uses the validated transport.
 	Transport                               http.RoundTripper
 	newClient                               func(Bucket, Credentials) *s3.Client
 	DB                                      *sql.DB
@@ -52,10 +54,10 @@ type Service struct {
 	Publish                                 func(context.Context, domain.Event) error
 }
 
-func validate(in BucketInput) error {
+func validate(in BucketInput, domains ...string) error {
 	u, err := url.Parse(in.Endpoint)
-	if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-		return domain.ErrValidation("endpoint must be an HTTPS S3 service URL")
+	if err != nil || (u.Scheme != "https" && !(u.Scheme == "http" && internalHost(u.Hostname(), domains))) || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return domain.ErrValidation("endpoint must use HTTPS, or HTTP on a trusted internal domain")
 	}
 	if strings.TrimSpace(in.Name) == "" || in.Bucket == "" || in.Region == "" {
 		return domain.ErrValidation("name, bucket and region are required")
@@ -85,7 +87,7 @@ func (s *Service) List(ctx context.Context, org string) ([]Bucket, error) {
 	return out, rows.Err()
 }
 func (s *Service) Save(ctx context.Context, org, id string, in BucketInput) (Bucket, error) {
-	if err := validate(in); err != nil {
+	if err := validate(in, s.InternalDomains...); err != nil {
 		return Bucket{}, err
 	}
 	if id != "" {
@@ -224,7 +226,7 @@ func (s *Service) s3Client(b Bucket, c Credentials) *s3.Client {
 	if s.newClient != nil {
 		return s.newClient(b, c)
 	}
-	cl := client(b, c)
+	cl := client(b, c, s.InternalDomains)
 	if s.Transport != nil {
 		cl = s3.New(s3.Options{Region: b.Region, BaseEndpoint: &b.Endpoint, UsePathStyle: b.PathStyle, Credentials: credentials.NewStaticCredentialsProvider(c.AccessKey, c.SecretKey, ""), HTTPClient: &http.Client{Transport: s.Transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}})
 	}

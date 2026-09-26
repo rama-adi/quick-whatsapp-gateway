@@ -132,7 +132,7 @@ func runWithStorageTransport(storageTransport http.RoundTripper) error {
 		Log:                        log,
 	})
 	apiHandlers := handlers.New(services, log)
-	mediaStorage := &media.Service{Transport: storageTransport, DB: db, Cipher: aes, BaseURL: cfg.PublicURL,
+	mediaStorage := &media.Service{InternalDomains: cfg.S3InternalDomains, Transport: storageTransport, DB: db, Cipher: aes, BaseURL: cfg.PublicURL,
 		Poll: 2 * time.Second, Deadline: cfg.GatewayEngineSendDeadline + time.Minute,
 		BackoffBase: 5 * time.Second, BackoffCap: 10 * time.Minute}
 	apiHandlers.Media = mediaStorage

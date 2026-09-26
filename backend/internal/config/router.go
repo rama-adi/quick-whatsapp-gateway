@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -33,6 +34,9 @@ type APIConfig struct {
 	BetterAuthJWKSURL string   // BETTER_AUTH_JWKS_URL: defaults to ${BETTER_AUTH_URL}/api/auth/jwks
 	FrontendOrigins   []string // FRONTEND_ORIGINS: allowed browser CORS origins
 
+	// S3_INTERNAL_DOMAINS: comma-separated suffixes (leading dot) or exact hostnames.
+	S3InternalDomains []string
+
 	// Shared data + infra.
 	MySQLDSN       string // MYSQL_DSN (the routing table: wa_sessions + gateways)
 	RedisURL       string // REDIS_URL
@@ -60,7 +64,12 @@ type APIConfig struct {
 func LoadAPI() (*APIConfig, error) {
 	_ = godotenv.Load("deploy/.env", ".env")
 
+	internalDomains, configured := os.LookupEnv("S3_INTERNAL_DOMAINS")
+	if !configured {
+		internalDomains = ".internal,.local,.lan,.home.arpa,.localdomain,.svc,.cluster.local"
+	}
 	cfg := &APIConfig{
+		S3InternalDomains:          strings.Split(internalDomains, ","),
 		HTTPAddr:                   getString("API_HTTP_ADDR", ":8090"),
 		PublicGRPCAddr:             getString("API_PUBLIC_GRPC_ADDR", ":8081"),
 		GatewayGRPCAddr:            getString("API_GATEWAY_GRPC_ADDR", ""),

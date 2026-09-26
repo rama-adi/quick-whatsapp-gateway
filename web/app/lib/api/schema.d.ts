@@ -2145,7 +2145,7 @@ export interface components {
         BucketInput: {
             accessKey: string;
             bucket: string;
-            /** @description HTTPS endpoint for the S3-compatible service. */
+            /** @description S3 service endpoint. HTTPS is required except for trusted internal domains. */
             endpoint: string;
             name: string;
             pathStyle: boolean;

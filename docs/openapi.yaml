@@ -453,7 +453,7 @@ components:
         bucket:
           type: string
         endpoint:
-          description: HTTPS endpoint for the S3-compatible service.
+          description: S3 service endpoint. HTTPS is required except for trusted internal domains.
           type: string
         name:
           type: string
