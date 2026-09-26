@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/apitypes"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/authz"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/humax"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/media"
@@ -41,6 +42,12 @@ type bindingOutput struct {
 	}
 }
 type assetOutput struct{ Body media.Asset }
+type stickerReadInput struct {
+	Session string `path:"session" doc:"Owned WhatsApp session id."`
+	CID     string `path:"cid" doc:"Exact chat JID of the original sticker message."`
+	Message string `path:"message" doc:"Original WhatsApp message id."`
+}
+type stickerReadOutput struct{ Body apitypes.StickerData }
 
 func RegisterMediaOps(api huma.API, h *Handlers) {
 	manage := huma.Middlewares{humax.RequireCap(api, authz.CapManage)}
@@ -48,6 +55,17 @@ func RegisterMediaOps(api huma.API, h *Handlers) {
 	op := func(id, method, path, summary string, m huma.Middlewares) huma.Operation {
 		return huma.Operation{OperationID: id, Method: method, Path: "/api/v1" + path, Summary: summary, Tags: []string{"Media storage"}, Middlewares: m}
 	}
+	huma.Register(api, op("getMessageSticker", "GET", "/sessions/{session}/chats/{cid}/messages/{message}/sticker", "Read sticker content in an owned chat", read), func(ctx context.Context, in *stickerReadInput) (*stickerReadOutput, error) {
+		org, err := humax.Org(ctx)
+		if err != nil {
+			return nil, err
+		}
+		sticker, err := h.Media.ReadSticker(ctx, org, in.Session, in.CID, in.Message)
+		if err != nil {
+			return nil, humax.ErrContext(ctx, err)
+		}
+		return &stickerReadOutput{Body: sticker}, nil
+	})
 	huma.Register(api, op("listStorageBuckets", "GET", "/storage/buckets", "List organization S3 connections", manage), func(ctx context.Context, _ *struct{}) (*bucketListOutput, error) {
 		org, e := humax.Org(ctx)
 		if e != nil {

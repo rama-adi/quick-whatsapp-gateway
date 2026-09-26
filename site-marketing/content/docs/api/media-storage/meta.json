@@ -4,6 +4,7 @@
   "pages": [
     "getMedia",
     "downloadMedia",
+    "getMessageSticker",
     "getSessionStorage",
     "setSessionStorage",
     "listStorageBuckets",

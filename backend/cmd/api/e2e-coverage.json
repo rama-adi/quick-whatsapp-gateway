@@ -90,7 +90,8 @@
       "updateOAuthApp": "admin and OAuth applications",
       "updateStorageBucket": "storage lifecycle",
       "updateWebhook": "webhook lifecycle",
-      "voteMessage": "message operations"
+      "voteMessage": "message operations",
+      "getMessageSticker": "stickers deduplicate and expand live quoted and replay events"
     },
     "untested": [],
     "unsupported": {

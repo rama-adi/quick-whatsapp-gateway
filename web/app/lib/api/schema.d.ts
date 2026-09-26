@@ -831,6 +831,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sessions/{session}/chats/{cid}/messages/{message}/sticker": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read sticker content in an owned chat */
+        get: operations["getMessageSticker"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sessions/{session}/chats/{cid}/presence": {
         parameters: {
             query?: never;
@@ -6168,6 +6185,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ListMessage"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getMessageSticker: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Owned WhatsApp session id. */
+                session: string;
+                /** @description Exact chat JID of the original sticker message. */
+                cid: string;
+                /** @description Original WhatsApp message id. */
+                message: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StickerData"];
                 };
             };
             /** @description Error */

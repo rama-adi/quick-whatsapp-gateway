@@ -5882,6 +5882,47 @@ paths:
       summary: List chat messages
       tags:
         - Chats
+  /api/v1/sessions/{session}/chats/{cid}/messages/{message}/sticker:
+    get:
+      operationId: getMessageSticker
+      parameters:
+        - description: Owned WhatsApp session id.
+          in: path
+          name: session
+          required: true
+          schema:
+            description: Owned WhatsApp session id.
+            type: string
+        - description: Exact chat JID of the original sticker message.
+          in: path
+          name: cid
+          required: true
+          schema:
+            description: Exact chat JID of the original sticker message.
+            type: string
+        - description: Original WhatsApp message id.
+          in: path
+          name: message
+          required: true
+          schema:
+            description: Original WhatsApp message id.
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StickerData"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Read sticker content in an owned chat
+      tags:
+        - Media storage
   /api/v1/sessions/{session}/chats/{cid}/presence:
     get:
       description: |-

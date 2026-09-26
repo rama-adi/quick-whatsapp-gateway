@@ -62,6 +62,15 @@ func runE2EStickers(t *testing.T, infra *e2eInfra, gateway *e2eGateway) {
 		inject("sticker-first", &waE2E.Message{StickerMessage: sticker})
 		first := e2eReadEvent(t, conn, domain.EventMessage)
 		check(first, "sticker")
+		var fetched map[string]any
+		stickerPath := "/api/v1/sessions/" + e2eSessionID + "/chats/" + e2eGroupJID + "/messages/sticker-first/sticker"
+		e2eRequireStatus(t, infra.request(t, "GET", stickerPath, e2eOrgAKey, nil, &fetched, nil), 200)
+		if fetched["sha256"] != hash || fetched["base64"] != base64.StdEncoding.EncodeToString(content) {
+			t.Fatalf("sticker read mismatch: %+v", fetched)
+		}
+		e2eRequireStatus(t, infra.request(t, "GET", stickerPath, e2eOrgBKey, nil, nil, nil), 404)
+		e2eRequireStatus(t, infra.request(t, "GET", "/api/v1/sessions/"+e2eSessionID+"/chats/foreign@g.us/messages/sticker-first/sticker", e2eOrgAKey, nil, nil, nil), 404)
+
 		inject("sticker-again", &waE2E.Message{StickerMessage: sticker})
 		check(e2eReadEvent(t, conn, domain.EventMessage), "sticker")
 		// Cached content must remain available when WhatsApp downloads fail.

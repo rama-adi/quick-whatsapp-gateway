@@ -301,3 +301,11 @@ IDs and display text are untrusted sender input. Applications correlate session,
 chat, original message, and sender, then validate the ID against their own choices.
 Typed numeric replies remain ordinary text messages; no selection state is held
 by the gateway.
+
+### Reading stored stickers
+
+`GET /api/v1/sessions/{session}/chats/{cid}/messages/{message}/sticker` returns
+the stored WebP descriptor and base64 content for an original message. It requires
+read capability and joins the sticker reference to the caller's owned session,
+with exact chat and message matching. The global blob hash alone grants no access.
+Consumers can apply their own message-age retention before reading this endpoint.
