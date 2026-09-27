@@ -81,6 +81,7 @@ replacement enrollment tokens, drain/resume, disable/re-enable, explicit
 re-enrollment, and soft deletion.
 
 Newly created gateways have no advertised capabilities until enrollment; registry reads accept that nullable value so pending gateways remain inspectable and listable.
+Creation starts desired-state revision at 1, allowing the API to send an authoritative empty snapshot on first connection; revision 0 is invalid on the control stream. The gateway applies that empty snapshot before it admits new sessions.
 
 Creation, token replacement, and re-enrollment return the plaintext single-use
 enrollment bearer once. Read models, audit entries, and every other response

@@ -94,7 +94,9 @@ func (s *EnrollmentStore) CreatePendingWithToken(
 	audits []domain.AuditEvent,
 ) error {
 	return s.withTx(ctx, func(t *enrollmentTx) error {
-		if err := NewGatewayRepo(t.tx).CreatePending(ctx, g, notes, &creator, 0); err != nil {
+		// Desired-state snapshots require a nonzero revision, including the
+		// authoritative empty snapshot sent on a new gateway's first connect.
+		if err := NewGatewayRepo(t.tx).CreatePending(ctx, g, notes, &creator, 1); err != nil {
 			return err
 		}
 		if err := newEnrollmentTokenRepo(t.tx).issue(ctx, token); err != nil {

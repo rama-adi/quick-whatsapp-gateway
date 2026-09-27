@@ -207,11 +207,24 @@ func (s *SessionService) startSession(
 
 // Stop disconnects a session and marks it stopped.
 func (s *SessionService) Stop(ctx context.Context, organizationID, id string) error {
-	if _, err := s.Get(ctx, organizationID, id); err != nil {
+	sess, err := s.Get(ctx, organizationID, id)
+	if err != nil {
 		return err
 	}
 	if s.desiredController == nil {
 		return errLiveUnavailable()
+	}
+	// An unpaired QR or phone-code flow is live even though its assignment
+	// remains STOP (RUN requires a paired device JID). Explicit stop must
+	// disconnect that client; a STOP snapshot alone is also used to preserve
+	// pairing across lease renewals and cannot express this transition.
+	if sess.WAJID == nil {
+		if s.gatewayFacade == nil {
+			return errLiveUnavailable()
+		}
+		if err := s.gatewayFacade.Forget(ctx, organizationID, id); err != nil {
+			return err
+		}
 	}
 	return s.desiredController.SetSessionDesired(ctx, id, false)
 }
@@ -351,6 +364,9 @@ func (s *SessionService) QR(ctx context.Context, organizationID, id string) (QR,
 	if s.gatewayFacade == nil {
 		return QR{}, errLiveUnavailable()
 	}
+	if err := s.gatewayFacade.Prepare(ctx, organizationID, sess.ID); err != nil {
+		return QR{}, err
+	}
 	snapshot, err := s.gatewayFacade.QR(ctx, organizationID, sess.ID)
 	if err != nil {
 		return QR{}, err
@@ -376,6 +392,9 @@ func (s *SessionService) PairingCode(ctx context.Context, organizationID, id, ph
 	}
 	if s.gatewayFacade == nil {
 		return "", errLiveUnavailable()
+	}
+	if err := s.gatewayFacade.Prepare(ctx, organizationID, sess.ID); err != nil {
+		return "", err
 	}
 	return s.gatewayFacade.PairingCode(ctx, organizationID, sess.ID, phone)
 }

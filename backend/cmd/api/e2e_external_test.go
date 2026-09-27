@@ -143,7 +143,26 @@ func runE2EExternalScenarios(t *testing.T, infra *e2eInfra, gateway *e2eGateway,
 		f.mu.Lock()
 		f.rejectStorage = true
 		f.mu.Unlock()
-		message, err := protojson.Marshal(&waE2E.Message{ImageMessage: &waE2E.ImageMessage{Caption: proto.String("attachment"), Mimetype: proto.String("image/jpeg"), FileLength: proto.Uint64(14), URL: proto.String("https://isolated.invalid/media"), MediaKey: make([]byte, 32), FileSHA256: make([]byte, 32), FileEncSHA256: make([]byte, 32)}})
+		mediaBody, err := json.Marshal(map[string]any{"data_base64": base64.StdEncoding.EncodeToString([]byte("isolated-media")), "mime_type": "image/jpeg", "filename": "inbound.jpg"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		mediaResponse, err := http.Post(gateway.fakeURL+"/v1/numbers/"+e2eFakeNumber+"/media", "application/json", bytes.NewReader(mediaBody))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fakeMedia struct {
+			DirectPath string `json:"direct_path"`
+			URL        string `json:"url"`
+		}
+		if mediaResponse.StatusCode != http.StatusOK {
+			t.Fatalf("register fake WhatsApp media: %d", mediaResponse.StatusCode)
+		}
+		if err := json.NewDecoder(mediaResponse.Body).Decode(&fakeMedia); err != nil {
+			t.Fatal(err)
+		}
+		mediaResponse.Body.Close()
+		message, err := protojson.Marshal(&waE2E.Message{ImageMessage: &waE2E.ImageMessage{Caption: proto.String("attachment"), Mimetype: proto.String("image/jpeg"), FileLength: proto.Uint64(14), URL: proto.String(fakeMedia.URL), DirectPath: proto.String(fakeMedia.DirectPath), MediaKey: make([]byte, 32), FileSHA256: make([]byte, 32), FileEncSHA256: make([]byte, 32)}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -151,7 +170,7 @@ func runE2EExternalScenarios(t *testing.T, infra *e2eInfra, gateway *e2eGateway,
 		if err != nil {
 			t.Fatal(err)
 		}
-		req, err := http.NewRequestWithContext(ctx, "POST", gateway.controlURL+"/incoming", bytes.NewReader(body))
+		req, err := http.NewRequestWithContext(ctx, "POST", gateway.fakeURL+"/v1/numbers/"+e2eFakeNumber+"/messages", bytes.NewReader(body))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -161,7 +180,7 @@ func runE2EExternalScenarios(t *testing.T, infra *e2eInfra, gateway *e2eGateway,
 		}
 		diagnostic, _ := io.ReadAll(response.Body)
 		response.Body.Close()
-		if response.StatusCode != 204 {
+		if response.StatusCode != http.StatusOK {
 			t.Fatalf("incoming: %d %s", response.StatusCode, diagnostic)
 		}
 		var id string
@@ -240,7 +259,7 @@ func runE2EExternalScenarios(t *testing.T, infra *e2eInfra, gateway *e2eGateway,
 			return infra.db.QueryRowContext(ctx, `SELECT id FROM media_assets WHERE message_id=? AND status='ready' AND notification IS NULL`, sent.WAMessageID).Scan(&id) == nil
 		})
 		key := "/attachments/qwg-medias/" + e2eGroupJID + "/" + id + ".png"
-		body, err := json.Marshal(map[string]any{"id": sent.WAMessageID, "chat": e2eGroupJID, "sender": e2eDeviceLID, "fromMe": true, "message": json.RawMessage(capture.Message)})
+		body, err := json.Marshal(map[string]any{"id": sent.WAMessageID, "chat": e2eGroupJID, "sender": e2eDeviceLID, "from_me": true, "message": json.RawMessage(capture.Message)})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -250,12 +269,12 @@ func runE2EExternalScenarios(t *testing.T, infra *e2eInfra, gateway *e2eGateway,
 			if err := infra.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM gateway_ingested_events WHERE session_id=? AND completed_at IS NOT NULL`, e2eSessionID).Scan(&beforeEvents); err != nil {
 				t.Fatal(err)
 			}
-			response, err := http.Post(gateway.controlURL+"/incoming", "application/json", bytes.NewReader(body))
+			response, err := http.Post(gateway.fakeURL+"/v1/numbers/"+e2eFakeNumber+"/messages", "application/json", bytes.NewReader(body))
 			if err != nil {
 				t.Fatal(err)
 			}
 			response.Body.Close()
-			e2eRequireStatus(t, response.StatusCode, 204)
+			e2eRequireStatus(t, response.StatusCode, http.StatusOK)
 			e2eEventually(t, ctx, phase+" processed", func() bool {
 				var completed int
 				return infra.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM gateway_ingested_events WHERE session_id=? AND completed_at IS NOT NULL`, e2eSessionID).Scan(&completed) == nil && completed > beforeEvents

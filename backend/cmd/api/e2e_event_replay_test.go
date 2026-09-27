@@ -12,22 +12,22 @@ func runE2ELostEventAck(t *testing.T, infra *e2eInfra, gateway *e2eGateway) {
 		const inboundID = "e2e-inbound-lost-ack"
 		gateway.fault(t, "drop_event_ack")
 		body, err := json.Marshal(map[string]any{
-			"id":        inboundID,
-			"chat":      e2eGroupJID,
-			"sender":    e2eSenderLID,
-			"senderAlt": "6282222222222@s.whatsapp.net",
-			"fromMe":    false,
-			"message":   map[string]any{"conversation": "event replay after lost ack"},
+			"id":         inboundID,
+			"chat":       e2eGroupJID,
+			"sender":     e2eSenderLID,
+			"sender_alt": "6282222222222@s.whatsapp.net",
+			"from_me":    false,
+			"message":    map[string]any{"conversation": "event replay after lost ack"},
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
-		response, err := http.Post(gateway.controlURL+"/incoming", "application/json", bytes.NewReader(body))
+		response, err := http.Post(gateway.fakeURL+"/v1/numbers/"+e2eFakeNumber+"/messages", "application/json", bytes.NewReader(body))
 		if err != nil {
 			t.Fatal(err)
 		}
 		_ = response.Body.Close()
-		if response.StatusCode != http.StatusNoContent {
+		if response.StatusCode != http.StatusOK {
 			t.Fatalf("inject inbound message: HTTP %d", response.StatusCode)
 		}
 		ctx, cancel := e2eContext(t)

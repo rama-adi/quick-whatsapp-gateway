@@ -6,7 +6,7 @@ BUF = go run github.com/bufbuild/buf/cmd/buf@$(BUF_VERSION)
 PROTO_BREAKING_BRANCH ?= origin/main
 PROTO_BREAKING_REF ?= refs/remotes/$(PROTO_BREAKING_BRANCH)
 
-.PHONY: infra-up infra-down infra-reset up up-logs down dev api web marketing migrate build build-api lint test api-e2e api-e2e-coverage-check tidy sqlc gen openapi openapi-check proto proto-lint proto-breaking proto-check
+.PHONY: infra-up infra-down infra-reset up up-logs down dev fake-whatsapp api web marketing migrate build build-api lint test api-e2e api-e2e-coverage-check tidy sqlc gen openapi openapi-check proto proto-lint proto-breaking proto-check
 
 infra-up:    ## start mysql + redis only (run the gateway on the host with `make dev`)
 	$(COMPOSE_DEV) up -d
@@ -24,6 +24,8 @@ down:        ## stop the full dockerized dev stack (keep data; add `-v` target t
 
 dev:         ## gateway hot-reload on the HOST under air (run infra-up first; air builds backend/cmd/gateway)
 	air -c backend/.air.toml
+fake-whatsapp: ## run the standalone WhatsApp simulator and development panel on localhost:8787
+	go -C backend run ./cmd/fake-whatsapp
 api:         ## run the API (the public front door) on the HOST (run infra-up first)
 	go -C backend build -o ../.dev/api ./cmd/api
 	./.dev/api

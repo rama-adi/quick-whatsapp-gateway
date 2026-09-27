@@ -48,7 +48,10 @@ func (r *GatewayReconciliationRepo) Persist(ctx context.Context, report GatewayR
 	// Lock the full authoritative assignment set before accepting a report. A
 	// healthy report may not omit an assigned session.
 	rows, err := tx.QueryContext(ctx,
-		`SELECT a.session_id, COALESCE(s.wa_jid,''), s.status IN ('starting','scan_qr_code','working') FROM gateway_session_assignments a JOIN wa_sessions s ON s.id=a.session_id WHERE a.gateway_id=? FOR UPDATE`,
+		`SELECT a.session_id, COALESCE(s.wa_jid,''),
+			s.wa_jid IS NOT NULL AND s.wa_jid<>'' AND s.status IN ('starting','scan_qr_code','working')
+		FROM gateway_session_assignments a JOIN wa_sessions s ON s.id=a.session_id
+		WHERE a.gateway_id=? FOR UPDATE`,
 		report.GatewayID,
 	)
 	if err != nil {
@@ -135,7 +138,7 @@ func (r *GatewayReconciliationRepo) Persist(ctx context.Context, report GatewayR
 		if _, err = tx.ExecContext(ctx,
 			`INSERT INTO gateway_reconciliation_results (gateway_id,device_jid,session_id,assignment_epoch,status,desired_revision,updated_at) VALUES (?,?,?,?,?,?,?)`,
 			report.GatewayID,
-			result.DeviceJID,
+			nullStringFromValue(result.DeviceJID),
 			result.SessionID,
 			result.AssignmentEpoch,
 			result.Status,

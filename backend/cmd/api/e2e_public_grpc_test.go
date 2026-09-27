@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	publicv1 "github.com/rama-adi/quick-whatsapp-gateway/gen/public/v1"
@@ -84,17 +85,35 @@ func runE2EPublicGRPCScenarios(t *testing.T, infra *e2eInfra, gateway *e2eGatewa
 		if _, err := sessions.GetMe(orgA, &publicv1.GetMeRequest{SessionId: id}); status.Code(err) != codes.NotFound {
 			t.Fatalf("unpaired gRPC GetMe = %v", err)
 		}
+		qrSession, err := sessions.CreateSession(orgA, &publicv1.CreateSessionRequest{Label: grpcString("gRPC E2E QR pairing")})
+		if err != nil || qrSession.GetSession().GetId() == "" {
+			t.Fatalf("create gRPC QR session = %v, %v", qrSession, err)
+		}
+		qrID := qrSession.GetSession().GetId()
+		if started, err := sessions.StartSession(orgA, &publicv1.StartSessionRequest{SessionId: qrID}); err != nil || started.GetSession().GetId() != qrID {
+			t.Fatalf("start gRPC QR session = %v, %v", started, err)
+		}
+		e2eEventually(t, ctx, "gRPC QR code after starting unpaired session", func() bool {
+			qr, err := sessions.GetSessionQrCode(orgA, &publicv1.GetSessionQrCodeRequest{SessionId: qrID})
+			return err == nil && strings.HasPrefix(qr.GetQrCode().GetCode(), "FAKE-")
+		})
+		if stopped, err := sessions.StopSession(orgA, &publicv1.StopSessionRequest{SessionId: qrID}); err != nil || stopped.GetSession().GetId() != qrID {
+			t.Fatalf("stop gRPC QR session = %v, %v", stopped, err)
+		}
+		freshCode, err := sessions.CreatePairingCode(orgA, &publicv1.CreatePairingCodeRequest{SessionId: qrID, Phone: "5554444444445"})
+		if err != nil || !strings.HasPrefix(freshCode.GetCode(), "FAKE-") {
+			t.Fatalf("gRPC phone pairing after stopping QR = %v, %v", freshCode, err)
+		}
+		if _, err := sessions.DeleteSession(orgA, &publicv1.DeleteSessionRequest{SessionId: qrID}); err != nil {
+			t.Fatalf("delete gRPC QR session: %v", err)
+		}
 		if _, err := sessions.CreatePairingCode(orgA, &publicv1.CreatePairingCodeRequest{SessionId: id}); status.Code(err) != codes.InvalidArgument {
 			t.Fatalf("empty gRPC pairing phone = %v", err)
 		}
-		pairing, err := sessions.CreatePairingCode(orgA, &publicv1.CreatePairingCodeRequest{SessionId: id, Phone: "628777000333"})
-		if err != nil || pairing.GetCode() != "E2E-CODE" {
+		pairing, err := sessions.CreatePairingCode(orgA, &publicv1.CreatePairingCodeRequest{SessionId: id, Phone: "5553333333333"})
+		if err != nil || !strings.HasPrefix(pairing.GetCode(), "FAKE-") {
 			t.Fatalf("gRPC pairing = %v, %v", pairing, err)
 		}
-		e2eEventually(t, ctx, "gRPC QR code", func() bool {
-			qr, err := sessions.GetSessionQrCode(orgA, &publicv1.GetSessionQrCodeRequest{SessionId: id})
-			return err == nil && qr.GetQrCode().GetCode() == "isolated-e2e-qr"
-		})
 		if started, err := sessions.StartSession(orgA, &publicv1.StartSessionRequest{SessionId: id}); err != nil || started.GetSession().GetId() != id {
 			t.Fatalf("gRPC start = %v, %v", started, err)
 		}

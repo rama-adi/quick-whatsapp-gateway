@@ -22,12 +22,15 @@ import (
 	"syscall"
 	"time"
 
+	"go.mau.fi/whatsmeow/store"
+
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	gatewayv1 "github.com/rama-adi/quick-whatsapp-gateway/gen/gateway/v1"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/application"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/config"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/fakewhatsapp"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/gateway/controlclient"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/gateway/controlsupervisor"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/gateway/desiredstate"
@@ -132,11 +135,26 @@ func run() error {
 	// --- whatsmeow keystore (gateway-local SQLite, §6.1) ---
 	// Adoption is fail-closed: a missing/corrupt volume remains observable to
 	// the control plane but cannot become a replacement device store.
-	controlKeystore, err := openControlKeystore(ctx, cfg.WhatsmeowStoreDSN)
+	storeDSN := cfg.WhatsmeowStoreDSN
+	if cfg.WhatsAppFakeServer {
+		storeDSN = cfg.WhatsAppFakeStoreDSN
+	}
+	controlKeystore, err := openControlKeystore(ctx, storeDSN)
 	if err != nil {
 		return fmt.Errorf("inspect whatsmeow keystore: %w", err)
 	}
 	keystore := controlKeystore.holder
+	if cfg.WhatsAppFakeServer {
+		devices, listErr := keystore.GetAllDevices(ctx)
+		if listErr != nil {
+			return fmt.Errorf("inspect fake WhatsApp identities: %w", listErr)
+		}
+		for _, device := range devices {
+			if device != nil && device.ID != nil && !strings.HasPrefix(device.ID.User, "555") {
+				return fmt.Errorf("fake WhatsApp keystore contains non-fake identity %q", device.ID.String())
+			}
+		}
+	}
 	if controlKeystore.Health().GetState() != gatewayv1.KeystoreHealthState_KEYSTORE_HEALTH_STATE_HEALTHY {
 		controlRuntime.setState(gatewayv1.GatewayRuntimeState_GATEWAY_RUNTIME_STATE_DEGRADED)
 	}
@@ -148,23 +166,31 @@ func run() error {
 	var desiredReconciler *desiredstate.Reconciler
 	managerSink := managedControlEventSink{controlEventSink{
 		adapter: controlAdapter,
-		assignment: func(organizationID, sessionID string) (uint64, bool) {
+		assignment: func(event domain.Event) (uint64, bool) {
 			if desiredReconciler == nil {
 				return 0, false
 			}
-			epoch, ok := desiredReconciler.CurrentEpoch(sessionID)
-			return epoch, ok && desiredReconciler.OwnsSession(organizationID, sessionID, epoch)
+			epoch, ok := desiredReconciler.CurrentEpoch(event.Session)
+			return epoch, ok && desiredReconciler.OwnsAssignment(event.Organization, event.Session, epoch)
 		},
 		log: log,
 	}}
 	inboundSink := controlEventSink{
 		adapter: controlAdapter,
-		assignment: func(organizationID, sessionID string) (uint64, bool) {
+		assignment: func(event domain.Event) (uint64, bool) {
 			if desiredReconciler == nil {
 				return 0, false
 			}
-			epoch, ok := desiredReconciler.CurrentEpoch(sessionID)
-			return epoch, ok && desiredReconciler.OwnsSession(organizationID, sessionID, epoch)
+			epoch, ok := desiredReconciler.CurrentEpoch(event.Session)
+			if !ok {
+				return 0, false
+			}
+			switch event.Type {
+			case domain.EventSessionStatus, domain.EventAuthQR, domain.EventAuthCode:
+				return epoch, desiredReconciler.OwnsAssignment(event.Organization, event.Session, epoch)
+			default:
+				return epoch, desiredReconciler.OwnsSession(event.Organization, event.Session, epoch)
+			}
 		},
 		log: log,
 	}
@@ -173,6 +199,9 @@ func run() error {
 		DeviceName:          cfg.WhatsAppDeviceName,
 		InboundEventTimeout: 0,
 	})
+	if cfg.WhatsAppFakeServer {
+		manager.SetClientFactory(func(device *store.Device) wa.Client { return fakewhatsapp.NewClient(device, cfg.WhatsAppFakeServerURL) })
+	}
 	inboundPipeline := inbound.NewPipeline(
 		waadapter.NewInboundNormalizer(manager.LiveOps(), nil),
 		inbound.NewNoopCommandRegistry(),

@@ -5,6 +5,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -36,7 +37,10 @@ type GatewayConfig struct {
 
 	// whatsmeow keystore — always SQLite in v2 (§6.1); the DSN points at the
 	// gateway-local pure-Go SQLite file. No driver selection any more.
-	WhatsmeowStoreDSN string // WHATSMEOW_STORE_DSN
+	WhatsmeowStoreDSN     string // WHATSMEOW_STORE_DSN
+	WhatsAppFakeServer    bool   // WHATSAPP_FAKE_SERVER
+	WhatsAppFakeServerURL string // WHATSAPP_FAKE_SERVER_URL
+	WhatsAppFakeStoreDSN  string // WHATSAPP_FAKE_STORE_DSN
 
 	// WhatsApp pairing inputs. Session rows and admin bootstrap are API-owned;
 	// these only label devices and seed defaults for assignments.
@@ -67,6 +71,14 @@ func LoadGateway() (*GatewayConfig, error) {
 	// does not override vars already set in the environment, so a container's
 	// injected env always wins over these files.
 	_ = godotenv.Load("deploy/.env", ".env")
+	fakeServer := false
+	if value, present := os.LookupEnv("WHATSAPP_FAKE_SERVER"); present {
+		parsed, err := strconv.ParseBool(value)
+		if err != nil {
+			return nil, fmt.Errorf("config: WHATSAPP_FAKE_SERVER must be a boolean: %w", err)
+		}
+		fakeServer = parsed
+	}
 
 	cfg := &GatewayConfig{
 		HTTPAddr:               getString("GATEWAY_HTTP_ADDR", ":8080"),
@@ -80,6 +92,9 @@ func LoadGateway() (*GatewayConfig, error) {
 		EngineGRPCAdvertise:    getString("GATEWAY_ENGINE_GRPC_ADVERTISE_ADDR", ""),
 		JournalPath:            getString("GATEWAY_JOURNAL_PATH", ""),
 		WhatsmeowStoreDSN:      getString("WHATSMEOW_STORE_DSN", "file:store.db?_foreign_keys=on"),
+		WhatsAppFakeServer:     fakeServer,
+		WhatsAppFakeServerURL:  getString("WHATSAPP_FAKE_SERVER_URL", ""),
+		WhatsAppFakeStoreDSN:   getString("WHATSAPP_FAKE_STORE_DSN", ""),
 		WhatsAppDeviceName:     getString("WHATSAPP_DEVICE_NAME", ""),
 		DefaultRatePerMin:      getInt("DEFAULT_RATE_PER_MIN", 20),
 		DefaultRatePerHour:     getInt("DEFAULT_RATE_PER_HOUR", 200),
@@ -144,8 +159,30 @@ func (c *GatewayConfig) Validate() error {
 			return fmt.Errorf("config: %s must be an absolute clean non-root path", name)
 		}
 	}
-	if _, err := sqlitestore.FilePath(c.WhatsmeowStoreDSN); err != nil {
+	realStorePath, err := sqlitestore.FilePath(c.WhatsmeowStoreDSN)
+	if err != nil {
 		return fmt.Errorf("config: WHATSMEOW_STORE_DSN must be an explicit absolute persistent SQLite file path: %w", err)
+	}
+	if c.WhatsAppFakeServer {
+		if c.WhatsAppFakeServerURL == "" || c.WhatsAppFakeStoreDSN == "" {
+			return fmt.Errorf("config: WHATSAPP_FAKE_SERVER_URL and WHATSAPP_FAKE_STORE_DSN are required in fake mode")
+		}
+		endpoint, err := url.Parse(c.WhatsAppFakeServerURL)
+		if err != nil || endpoint.Host == "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.User != nil {
+			return fmt.Errorf("config: WHATSAPP_FAKE_SERVER_URL must be an http or https origin without credentials")
+		}
+		fakeStorePath, err := sqlitestore.FilePath(c.WhatsAppFakeStoreDSN)
+		if err != nil {
+			return fmt.Errorf("config: WHATSAPP_FAKE_STORE_DSN must be an explicit absolute persistent SQLite file path: %w", err)
+		}
+		if fakeStorePath == realStorePath {
+			return fmt.Errorf("config: WHATSAPP_FAKE_STORE_DSN must differ from WHATSMEOW_STORE_DSN")
+		}
+		fakeInfo, fakeErr := os.Stat(fakeStorePath)
+		realInfo, realErr := os.Stat(realStorePath)
+		if fakeErr == nil && realErr == nil && os.SameFile(fakeInfo, realInfo) {
+			return fmt.Errorf("config: WHATSAPP_FAKE_STORE_DSN must differ from WHATSMEOW_STORE_DSN")
+		}
 	}
 
 	if c.DefaultRatePerMin < 0 || c.DefaultRatePerHour < 0 {

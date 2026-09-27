@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
 
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/fakewhatsapp"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/store"
 )
 
@@ -19,6 +21,7 @@ type e2eGateway struct {
 	done        chan error
 	output      bytes.Buffer
 	controlURL  string
+	fakeURL     string
 	engineAddr  string
 	journalPath string
 	credentials string
@@ -31,9 +34,12 @@ func (infra *e2eInfra) startGateway(t *testing.T) *e2eGateway {
 	t.Log("gateway enrollment issued")
 	seedE2ESession(t, infra.db, enrollment.id)
 	t.Log("session and quote seeded")
+	fake := httptest.NewServer(fakewhatsapp.NewServer())
+	t.Cleanup(fake.Close)
 	gateway := &e2eGateway{
 		bin:         filepath.Join(t.TempDir(), "e2e-gateway.test"),
 		controlURL:  "http://" + e2eFreeAddr(t),
+		fakeURL:     fake.URL,
 		engineAddr:  e2eFreeAddr(t),
 		journalPath: filepath.Join(t.TempDir(), "gateway-journal.sqlite"),
 		credentials: filepath.Join(t.TempDir(), "gateway-identity"),
@@ -65,6 +71,7 @@ func (gateway *e2eGateway) run(t *testing.T, infra *e2eInfra) {
 		"QWG_E2E_JOURNAL_PATH="+gateway.journalPath,
 		"QWG_E2E_ENGINE_ADDR="+gateway.engineAddr,
 		"QWG_E2E_CONTROL_ADDR="+gateway.controlURL[len("http://"):],
+		"QWG_E2E_FAKE_URL="+gateway.fakeURL,
 		"QWG_E2E_SESSION_ID="+e2eSessionID,
 		"QWG_E2E_ORG_ID="+e2eOrgA,
 		"QWG_E2E_DEVICE_JID="+e2eDeviceJID,
@@ -112,38 +119,58 @@ func (gateway *e2eGateway) stop() {
 
 func (gateway *e2eGateway) getCaptures(t *testing.T) []e2eCapture {
 	t.Helper()
-	res, err := http.Get(gateway.controlURL + "/captures") //nolint:gosec -- loopback child process
+	return gateway.fakeState(t).Captures
+}
+
+func (gateway *e2eGateway) fakeState(t *testing.T) fakewhatsapp.State {
+	t.Helper()
+	res, err := http.Get(gateway.fakeURL + "/v1/state") //nolint:gosec -- loopback fake service
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		t.Fatalf("gateway captures returned %d", res.StatusCode)
+		t.Fatalf("fake WhatsApp state returned %d", res.StatusCode)
 	}
-	captures := []e2eCapture{}
-	if err := json.NewDecoder(res.Body).Decode(&captures); err != nil {
+	var state fakewhatsapp.State
+	if err := json.NewDecoder(res.Body).Decode(&state); err != nil {
 		t.Fatal(err)
 	}
-	return captures
+	return state
 }
 
-type e2eCapture struct {
-	ID      string          `json:"id"`
-	To      string          `json:"to"`
-	Message json.RawMessage `json:"message"`
+func (gateway *e2eGateway) fakeSessionKey(t *testing.T) string {
+	t.Helper()
+	for _, session := range gateway.fakeState(t).Sessions {
+		if session.Number == e2eFakeNumber && session.Connected {
+			return session.Key
+		}
+	}
+	t.Fatal("no connected fake WhatsApp session for the E2E number")
+	return ""
 }
+
+type e2eCapture = fakewhatsapp.Capture
 
 func (gateway *e2eGateway) fault(t *testing.T, mode string) {
 	t.Helper()
+	url := gateway.fakeURL + "/v1/numbers/" + e2eFakeNumber
+	body := fmt.Sprintf(`{"scenario":%q}`, mode)
+	if mode == "none" {
+		body = `{"scenario":"healthy"}`
+	}
+	if mode == "drop_response" || mode == "drop_event_ack" {
+		url = gateway.controlURL + "/fault"
+		body = fmt.Sprintf(`{"mode":%q}`, mode)
+	}
 	response, err := http.Post(
-		gateway.controlURL+"/fault", "application/json",
-		bytes.NewBufferString(fmt.Sprintf(`{"mode":%q}`, mode)),
+		url, "application/json", bytes.NewBufferString(body),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer response.Body.Close()
-	if response.StatusCode != http.StatusNoContent {
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		t.Fatalf("set gateway fault %q: %d", mode, response.StatusCode)
 	}
 }

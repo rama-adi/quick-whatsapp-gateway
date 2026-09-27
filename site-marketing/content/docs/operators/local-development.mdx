@@ -116,6 +116,135 @@ the API's public HTTP listener on `:8090`.
 To wipe the dev database and start clean, run `make infra-reset` (this removes the
 Docker volumes), then re-run the two migrate steps from the [first run](#first-run).
 
+## Develop without a real WhatsApp number
+
+Run the standalone WhatsApp simulator in another terminal:
+
+```sh
+make fake-whatsapp
+```
+
+Open [the simulator panel](http://127.0.0.1:8787). It controls the same WhatsApp
+actor used by the API/gateway E2E suite. Fake phone numbers start with `555`;
+their remaining digits identify the phone. Choose scenarios in the panel instead
+of encoding behavior in those digits.
+
+Configure a development gateway in `deploy/.env`:
+
+```dotenv
+WHATSAPP_FAKE_SERVER=true
+WHATSAPP_FAKE_SERVER_URL=http://127.0.0.1:8787
+WHATSAPP_FAKE_STORE_DSN=file:/absolute/dev/fake-store.db?_pragma=foreign_keys(on)&_pragma=journal_mode(WAL)
+```
+
+Replace `/absolute/dev` with an existing local development directory. Use a
+development gateway identity and journal with this store, then start the API,
+gateway, and dashboard normally. The gateway still enrolls with the API and uses
+the real private gRPC control plane. Create a session in the dashboard, request
+pairing, and approve it from the simulator panel using a fake number.
+
+The simulator replaces WhatsApp connectivity, acknowledgements, and incoming
+events. The gateway still builds WhatsApp protobuf messages, maintains its
+SQLite device identity, journals events, and sends them through the API's normal
+projection, realtime, and webhook paths. This tests application behavior at the
+whatsmeow client boundary; WhatsApp's encrypted wire handshake and live service
+policy require a real connection.
+
+`WHATSAPP_FAKE_STORE_DSN` keeps simulated identities separate from the real
+device store. Fake mode never falls back to WhatsApp when the simulator is down.
+Use the panel as the other side of a conversation:
+
+1. Select the fake phone linked to your gateway session.
+2. Open a direct chat or create a group and choose its members.
+   The gateway imports group metadata through its existing admin backfill;
+   incoming group messages follow the normal message path.
+3. Choose a message type, write its content or attach a file, and send it to the
+   gateway. The panel builds the WhatsApp message for you.
+4. Inspect replies from the gateway in the conversation. Use message actions to
+   exercise receipts, reactions, edits, and deletion.
+5. Open the fault controls to reject sends, interrupt connections, pause at a
+   send barrier, or lose an acknowledgement after the peer commits the message.
+
+### Add a typed scenario
+
+Choose **Demos** beside **New chat** to load a conversation, media examples, or
+an outbound failure preset for the selected phone. Each run reports its steps
+and gateway deliveries. Fault presets stay active until you select healthy
+connection behavior.
+
+Scenario definitions live in `backend/internal/fakewhatsapp/scenarios/`.
+The reusable DSL lives separately in `fakewhatsapp/scenario/`: base types,
+configuration modes, and message/group helpers. The server owns execution.
+Declare a story in its own file; its declaration adds it to the catalog:
+
+```go
+package scenarios
+
+import "github.com/rama-adi/quick-whatsapp-gateway/internal/fakewhatsapp/scenario"
+
+var Alex = scenario.Person("555000002", "Alex")
+var Support = scenario.GroupWithUsers("support", "Support team", Alex)
+
+var support = scenario.Define(scenario.Story{
+    ID: "support", Name: "Support conversation",
+    Description: "A customer question in a support group.",
+    Steps: []scenario.Step{
+        scenario.Healthy(),
+        Support,
+        Alex.Says("Hello"),
+        Alex.SaysIn(Support.Ref(), "Can you help with my order?"),
+    },
+})
+```
+
+Restart `make fake-whatsapp` after editing. The panel discovers declared
+stories automatically; there is no central list or UI registration to edit. Go checks the step structure and helper arguments;
+startup validation checks IDs and group references. A runtime step failure stops
+the sequence and returns the completed steps without rolling back their effects.
+Use `@alias` to refer to a group created earlier in the run. Media helpers take
+fixture bytes, so fixtures can be embedded with Go's `embed` package. Each story
+contains the conversation and fault schedule; reusable plumbing stays in the DSL.
+
+Keep a reusable cast in `scenarios/users.go`. `Person` carries a fake number
+and display name into incoming WhatsApp events. User helpers include `Says`,
+`SaysIn`, `SendsImage`, `SendsDocument`, `SharesLocation`, `SharesContact`, and
+`Asks` for polls. `Replies` and `RepliesIn` create quoted messages; pass
+`scenario.LastMessage` to quote the preceding send. `GroupWithUsers` builds membership from those same users;
+`Ref()` refers to the group created in that run.
+
+The DSL separates connection settings, users, groups, messages, media, effects,
+and the catalog into their own files. `Repeat(count, steps...)` creates an
+explicit, deterministic sequence for bursts. `Read`, `Delivered`, `Played`,
+`React`, `Edit`, and `Delete` model message effects. Shared image/document
+fixtures live in `scenarios/fixtures.go`. Named fault helpers such as
+`RejectSends`, `LoseAcknowledgement`, and `PauseSends` make the intended failure
+visible in each story.
+
+
+Automation uses `GET /v1/scenarios` and
+`POST /v1/numbers/{number}/scenarios/{id}`. The ordered Go definitions run through
+the same actor controls as manual panel actions.
+
+Advanced controls accept raw message/event sequences for duplicate and ordering
+scenarios. The panel's HTTP API exposes the same actor and fault controls to
+automated scenarios.
+
+The server keeps its scenario state and transcripts in memory. Restarting the
+gateway preserves the server's transcript; restarting the simulator starts a
+new simulation. Its controls are for a trusted development network and bind to
+loopback by default. To use a gateway running in Docker, set its simulator URL
+to `http://host.docker.internal:8787` and start the simulator with
+`FAKE_WHATSAPP_ADDR=0.0.0.0:8787`.
+
+Run the shared hostile scenarios and retain their evidence with:
+
+```sh
+make api-e2e
+```
+
+The command records results, raw test output, source identity, and reproduction
+instructions under `.artifacts/api-e2e/`.
+
 ## Running the gateway or API in Docker instead
 
 By default you run the Go processes on your host. If you want one to run inside a
@@ -159,6 +288,9 @@ ones a contributor usually cares about first:
 | `GATEWAY_ENROLLMENT_TOKEN` | gateway | One-time bootstrap credential; remove after enrollment. |
 | `GATEWAY_JOURNAL_PATH` / `WHATSMEOW_STORE_DSN` | gateway | Persistent event/command journal and device keys. |
 | `GATEWAY_HTTP_ADDR` | gateway | Internal health, readiness, and metrics only. |
+| `WHATSAPP_FAKE_SERVER` | gateway | Opt into the standalone development WhatsApp simulator. |
+| `WHATSAPP_FAKE_SERVER_URL` | gateway | Simulator URL; local command listens on `http://127.0.0.1:8787`. |
+| `WHATSAPP_FAKE_STORE_DSN` | gateway | Separate absolute SQLite file used for simulated devices. Required in fake mode. |
 
 ### Frontend (`web/.env`)
 

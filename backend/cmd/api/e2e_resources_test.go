@@ -36,7 +36,23 @@ func runE2EResourceScenarios(t *testing.T, infra *e2eInfra, gateway *e2eGateway,
 	t.Run("storage lifecycle", func(t *testing.T) { e2eStorageLifecycle(t, infra) })
 	t.Run("admin and OAuth applications", func(t *testing.T) { e2eAdminOAuth(t, infra, adminToken) })
 	t.Run("live contacts and groups", func(t *testing.T) { e2eLiveContactsAndGroups(t, infra, gateway) })
-	t.Run("session lifecycle and pairing", func(t *testing.T) { e2eSessionLifecycle(t, infra) })
+	t.Run("session lifecycle and pairing", func(t *testing.T) {
+		defer func() {
+			if t.Failed() {
+				if response, err := http.Get(gateway.controlURL + "/health"); err == nil {
+					var state any
+					_ = json.NewDecoder(response.Body).Decode(&state)
+					_ = response.Body.Close()
+					t.Logf("gateway lifecycle health: status=%d state=%v", response.StatusCode, state)
+				} else {
+					t.Logf("gateway lifecycle health unavailable: %v", err)
+				}
+				t.Logf("gateway lifecycle diagnostics: %s", gateway.output.String())
+				t.Logf("API lifecycle diagnostics: %s", infra.apiOutput.String())
+			}
+		}()
+		e2eSessionLifecycle(t, infra)
+	})
 	t.Run("backup validation and status", func(t *testing.T) { e2eBackupValidation(t, infra) })
 	t.Run("channels and status", func(t *testing.T) { e2eChannelsAndStatus(t, infra, gateway) })
 }
@@ -348,18 +364,18 @@ func e2eLiveContactsAndGroups(t *testing.T, infra *e2eInfra, gateway *e2eGateway
 	}
 	inbound, err := json.Marshal(map[string]any{
 		"id": "e2e-contact-inbound", "chat": contactJID,
-		"sender": contactLID, "senderAlt": contactJID, "fromMe": false,
+		"sender": contactLID, "sender_alt": contactJID, "from_me": false,
 		"message": map[string]any{"conversation": "contact discovery"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	response, err := http.Post(gateway.controlURL+"/incoming", "application/json", bytes.NewReader(inbound))
+	response, err := http.Post(gateway.fakeURL+"/v1/numbers/"+e2eFakeNumber+"/messages", "application/json", bytes.NewReader(inbound))
 	if err != nil {
 		t.Fatal(err)
 	}
 	_ = response.Body.Close()
-	if response.StatusCode != http.StatusNoContent {
+	if response.StatusCode != http.StatusOK {
 		t.Fatalf("inject contact discovery: HTTP %d", response.StatusCode)
 	}
 	var contacts struct {
@@ -404,7 +420,7 @@ func e2eLiveContactsAndGroups(t *testing.T, infra *e2eInfra, gateway *e2eGateway
 	}
 	e2eRequireStatus(t, infra.request(t, http.MethodGet, contactPath+"/about",
 		e2eOrgAKey, nil, &about, nil), http.StatusOK)
-	if about.About != "Isolated profile" {
+	if about.About != "Fake profile" {
 		t.Fatalf("contact about = %#v", about)
 	}
 	e2eRequireStatus(t, infra.request(t, http.MethodPost, contactPath+"/block",
@@ -478,7 +494,7 @@ func e2eLiveContactsAndGroups(t *testing.T, infra *e2eInfra, gateway *e2eGateway
 	}
 	e2eRequireStatus(t, infra.request(t, http.MethodPost, groupPath+":join", e2eOrgAKey,
 		map[string]any{"invite": invite.Invite}, &joined, nil), http.StatusOK)
-	if joined.GroupJID != "120363999@g.us" {
+	if joined.GroupJID != created.GroupJID {
 		t.Fatalf("joined group = %#v", joined)
 	}
 	e2eRequireStatus(t, infra.request(t, http.MethodPost, groupIDPath+"/members:approve",
@@ -502,7 +518,7 @@ func e2eGatewayOperations(t *testing.T, gateway *e2eGateway) map[string]bool {
 	ctx, cancel := e2eContext(t)
 	defer cancel()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		gateway.controlURL+"/operations", nil)
+		gateway.fakeURL+"/v1/state", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -514,15 +530,17 @@ func e2eGatewayOperations(t *testing.T, gateway *e2eGateway) map[string]bool {
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("gateway operations HTTP status = %d", response.StatusCode)
 	}
-	var rows []struct {
-		Operation string `json:"operation"`
+	var state struct {
+		Operations []struct {
+			Kind string `json:"kind"`
+		} `json:"operations"`
 	}
-	if err := json.NewDecoder(response.Body).Decode(&rows); err != nil {
+	if err := json.NewDecoder(response.Body).Decode(&state); err != nil {
 		t.Fatal(err)
 	}
-	names := make(map[string]bool, len(rows))
-	for _, row := range rows {
-		names[row.Operation] = true
+	names := make(map[string]bool, len(state.Operations))
+	for _, row := range state.Operations {
+		names[row.Kind] = true
 	}
 	return names
 }
@@ -569,25 +587,43 @@ func e2eSessionLifecycle(t *testing.T, infra *e2eInfra) {
 		nil, nil, nil), http.StatusNotFound)
 	e2eRequireStatus(t, infra.request(t, http.MethodGet, itemPath+"/me", e2eOrgAKey,
 		nil, nil, nil), http.StatusNotFound)
+	var qrSession domain.WASession
+	e2eRequireStatus(t, infra.request(t, http.MethodPost, path, e2eOrgAKey,
+		map[string]any{"label": "E2E QR pairing", "start": false}, &qrSession, nil), http.StatusCreated)
+	qrPath := path + "/" + url.PathEscape(qrSession.ID)
+	e2eRequireStatus(t, infra.request(t, http.MethodPost, qrPath+":start", e2eOrgAKey,
+		nil, &qrSession, nil), http.StatusOK)
+	var qr struct {
+		Code string `json:"code"`
+	}
+	ctx, cancel := e2eContext(t)
+	defer cancel()
+	e2eEventually(t, ctx, "QR code after starting unpaired REST session", func() bool {
+		return infra.request(t, http.MethodGet, qrPath+"/qr", e2eOrgAKey,
+			nil, &qr, nil) == http.StatusOK && strings.HasPrefix(qr.Code, "FAKE-")
+	})
+	e2eRequireStatus(t, infra.request(t, http.MethodPost, qrPath+":stop", e2eOrgAKey,
+		nil, &qrSession, nil), http.StatusOK)
+	var codeAfterStop struct {
+		Code string `json:"code"`
+	}
+	e2eRequireStatus(t, infra.request(t, http.MethodPost, qrPath+"/pairing-code", e2eOrgAKey,
+		map[string]any{"phone": "5554444444444"}, &codeAfterStop, nil), http.StatusOK)
+	if !strings.HasPrefix(codeAfterStop.Code, "FAKE-") {
+		t.Fatalf("phone pairing after stopping QR = %#v", codeAfterStop)
+	}
+	e2eRequireStatus(t, infra.request(t, http.MethodDelete, qrPath, e2eOrgAKey,
+		nil, nil, nil), http.StatusNoContent)
 	e2eRequireStatus(t, infra.request(t, http.MethodPost, itemPath+"/pairing-code", e2eOrgAKey,
 		map[string]any{"phone": ""}, nil, nil), http.StatusBadRequest)
 	var pairing struct {
 		Code string `json:"code"`
 	}
 	e2eRequireStatus(t, infra.request(t, http.MethodPost, itemPath+"/pairing-code", e2eOrgAKey,
-		map[string]any{"phone": "628777000222"}, &pairing, nil), http.StatusOK)
-	if pairing.Code != "E2E-CODE" {
+		map[string]any{"phone": "5552222222222"}, &pairing, nil), http.StatusOK)
+	if !strings.HasPrefix(pairing.Code, "FAKE-") {
 		t.Fatalf("pairing code = %#v", pairing)
 	}
-	var qr struct {
-		Code string `json:"code"`
-	}
-	ctx, cancel := e2eContext(t)
-	defer cancel()
-	e2eEventually(t, ctx, "QR code", func() bool {
-		return infra.request(t, http.MethodGet, itemPath+"/qr", e2eOrgAKey,
-			nil, &qr, nil) == http.StatusOK && qr.Code == "isolated-e2e-qr"
-	})
 	e2eRequireStatus(t, infra.request(t, http.MethodPost, itemPath+":start", e2eOrgAKey,
 		nil, &created, nil), http.StatusOK)
 	e2eRequireStatus(t, infra.request(t, http.MethodPost, itemPath+":stop", e2eOrgAKey,

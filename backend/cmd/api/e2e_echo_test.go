@@ -25,18 +25,18 @@ func runE2EOwnEcho(t *testing.T, infra *e2eInfra, gateway *e2eGateway) {
 		}
 		body, err := json.Marshal(map[string]any{
 			"id": result.WAMessageID, "chat": e2eGroupJID,
-			"sender": e2eDeviceLID, "fromMe": true,
+			"sender": e2eDeviceLID, "from_me": true,
 			"message": map[string]any{"conversation": "echoed outgoing"},
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
-		response, err := http.Post(gateway.controlURL+"/incoming", "application/json", bytes.NewReader(body))
+		response, err := http.Post(gateway.fakeURL+"/v1/numbers/"+e2eFakeNumber+"/messages", "application/json", bytes.NewReader(body))
 		if err != nil {
 			t.Fatal(err)
 		}
 		_ = response.Body.Close()
-		if response.StatusCode != http.StatusNoContent {
+		if response.StatusCode != http.StatusOK {
 			t.Fatalf("inject own echo: %d", response.StatusCode)
 		}
 		ctx, cancel := e2eContext(t)
@@ -50,12 +50,12 @@ func runE2EOwnEcho(t *testing.T, infra *e2eInfra, gateway *e2eGateway) {
 			}
 			return ingested > ingestedBefore
 		})
-		response, err = http.Post(gateway.controlURL+"/incoming", "application/json", bytes.NewReader(body))
+		response, err = http.Post(gateway.fakeURL+"/v1/numbers/"+e2eFakeNumber+"/messages", "application/json", bytes.NewReader(body))
 		if err != nil {
 			t.Fatal(err)
 		}
 		_ = response.Body.Close()
-		if response.StatusCode != http.StatusNoContent {
+		if response.StatusCode != http.StatusOK {
 			t.Fatalf("inject replayed own echo: %d", response.StatusCode)
 		}
 		e2eEventually(t, ctx, "replayed own echo acknowledged", func() bool {
@@ -85,18 +85,18 @@ func runE2EOwnEcho(t *testing.T, infra *e2eInfra, gateway *e2eGateway) {
 		const waID = "e2e-linked-device-own-message"
 		body, err := json.Marshal(map[string]any{
 			"id": waID, "chat": e2eGroupJID,
-			"sender": e2eDeviceLID, "fromMe": true,
+			"sender": e2eDeviceLID, "from_me": true,
 			"message": map[string]any{"conversation": "from linked device"},
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
-		response, err := http.Post(gateway.controlURL+"/incoming", "application/json", bytes.NewReader(body))
+		response, err := http.Post(gateway.fakeURL+"/v1/numbers/"+e2eFakeNumber+"/messages", "application/json", bytes.NewReader(body))
 		if err != nil {
 			t.Fatal(err)
 		}
 		_ = response.Body.Close()
-		if response.StatusCode != http.StatusNoContent {
+		if response.StatusCode != http.StatusOK {
 			t.Fatalf("inject linked device message: %d", response.StatusCode)
 		}
 		ctx, cancel := e2eContext(t)

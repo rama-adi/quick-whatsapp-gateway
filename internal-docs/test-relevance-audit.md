@@ -1,5 +1,23 @@
 # Test relevance audit
 
+## Fake WhatsApp real-process E2E plan (before implementation)
+
+Boundary: public REST and realtime API → real API process, MySQL/Redis, private mTLS control/engine, real gateway process, SQLite journal and fake-mode keystore → the same standalone fake WhatsApp HTTP service used for local development. The fake service owns the remote committed-message transcript and event schedule; API reads and realtime events are independent observable results. The gateway-to-API fault controls remain in the existing private test harness.
+
+| Scenario | Initial state → trigger → exact fault → recovery → observable invariant and defect caught |
+|---|---|
+| Fake pairing and message round trip | Unpaired API-created session and configured fake number → request pairing and confirm it through the fake service, then send a message through REST and inject a reply through the fake service → no fault → none → API session reaches working, fake transcript contains the outbound message once, and API history/realtime shows the inbound reply; catches a fake adapter that bypasses lifecycle, dispatch, or inbound projection. |
+| Friendly actor group and media | Paired fake-mode session → create a fake group and have a fake actor send an image into it through the standalone service → no fault → use the existing public admin backfill for group metadata, then read image history and download a sticker through the public API after projection → group chat/message history and exact sticker bytes match the fake actor's committed effect; catches actor-control protobuf synthesis or media routing that does not reach the real inbound pipeline. |
+| Remote rejection before commit | Paired working session → REST send with a fresh idempotency key → fake service rejects before adding to its transcript → clear fault and retry through REST → no committed message before retry, then exactly one transcript entry and successful public history; catches false success or duplicate remote effect on a definite failure. |
+| Remote commit with lost acknowledgement | Paired working session → REST send → fake service commits to transcript then drops its HTTP acknowledgement at a deterministic barrier → release/retry the same public request after gateway recovery → distinguish transport attempts from remote commits, preserve the native message ID across retries, and verify eventual public completion without claiming exactly-once remote delivery; catches lost retry identity or stuck ambiguous sends. |
+| Blocked send and recovery | Paired working session → REST send → fake service holds the send before commit and exposes a blocked barrier → release it (or cancel and reconnect in a separate supported case) → later REST work succeeds and transcript shows only committed effects; catches a stuck gateway or false completion while the remote send is blocked. |
+| Duplicate and reordered inbound callbacks | Paired working session → fake service emits a message plus receipt events → duplicate the message and deliver receipt before message at controlled barriers → resume ordered delivery → API history has one message with the promised status and realtime replay does not create a second message; catches duplicate projection or receipt-order corruption. |
+| Gateway restart and connection recovery | Paired fake-mode gateway and remote group → restart the actual gateway binary, then inject a disconnected event while connection attempts are rejected → clear the fault → persisted pairing and remote group remain usable and a new public send succeeds; catches lost device persistence and stuck reconnect loops. |
+| Typed scenario presets | Paired fake-mode session → select a registered Go scenario through the same HTTP action used by the panel → run its ordered typed group/message steps → query public history and groups → each declared effect appears through real projection; catches presets that only decorate the panel or bypass the gateway. Invalid definitions must fail registration before execution; absent gateways report zero deliveries. |
+| Inbound burst | Paired working session → fake service emits a configured deterministic batch with recorded IDs → no random delay or count target beyond the batch selected for the scenario → await API projection → each committed fake event is present once in public history and later work succeeds; catches journal/control-stream backpressure loss. |
+
+For each executed scenario, log the fake service's event schedule, transport attempts, committed transcript, and public assertions as JSON into the Go test output. `make api-e2e` preserves that output with source identity and the exact reproduction command. A skipped or failed scenario remains a failed run.
+
 Audited all 190 original test files against source `81fd0710e8a7bb78a54e353e5169529c6ab61742` and the API/gateway E2E scenarios. Removed 416 named tests and deleted 43 test files; 526 named tests remain. Table-driven cases are counted with their parent test. Helper-only files have zero named tests.
 
 Shared SQL fixtures from the deleted resource test suite now live in `backend/internal/service/shared_test.go`; this helper introduces no tests.
@@ -38,7 +56,7 @@ Validation: run `make api-e2e` for the complete replacement suite and its checks
 | `backend/cmd/api/startup_test.go` | 0 | 2 | API schema migration must complete before opening the database and must abort open on migration failure; E2E starts from an already prepared schema. |
 | `backend/cmd/gateway/architecture_test.go` | 1 | 0 | Removed: assertions duplicate E2E behavior, mirror implementation, or detect incidental changes. |
 | `backend/cmd/gateway/control_runtime_test.go` | 5 | 1 | Certificate expiry can cross the renewal window even when all E2E certificates are fresh. |
-| `backend/cmd/gateway/e2e_device_test.go` | 0 | 0 | E2E WhatsApp device simulator used by the gateway process suite; contains helpers, no tests. |
+| `backend/cmd/gateway/e2e_device_test.go` | 0 | 0 | Deleted; WhatsApp simulation now lives in the shared `internal/fakewhatsapp` package used by development and E2E. |
 | `backend/cmd/gateway/e2e_process_test.go` | 0 | 1 | E2E child gateway process is required by API process integration scenarios. |
 | `backend/cmd/gateway/engine_dispatcher_test.go` | 0 | 1 | Malformed private gateway quote context can expose content from another chat; public E2E quote resolution never sends this payload. |
 | `backend/cmd/gateway/journal_events_test.go` | 0 | 1 | A stale gateway fence can silently admit an event before durable journal delivery. |

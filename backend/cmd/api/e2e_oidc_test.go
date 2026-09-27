@@ -358,14 +358,14 @@ func e2eOIDCSendInbound(t *testing.T, gateway *e2eGateway, id, body string) {
 	}
 	payload, err := json.Marshal(map[string]any{
 		"id": id, "chat": e2eOAuthPhoneJID, "sender": e2eOAuthPhoneJID,
-		"senderAlt": e2eOAuthLID, "message": json.RawMessage(message),
+		"sender_alt": e2eOAuthLID, "message": json.RawMessage(message),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := e2eContext(t)
 	defer cancel()
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, gateway.controlURL+"/incoming", bytes.NewReader(payload))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, gateway.fakeURL+"/v1/numbers/"+e2eFakeNumber+"/messages", bytes.NewReader(payload))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -375,7 +375,7 @@ func e2eOIDCSendInbound(t *testing.T, gateway *e2eGateway, id, body string) {
 		t.Fatal(err)
 	}
 	defer response.Body.Close()
-	if response.StatusCode != http.StatusNoContent {
+	if response.StatusCode != http.StatusOK {
 		t.Fatalf("gateway incoming status = %d", response.StatusCode)
 	}
 }

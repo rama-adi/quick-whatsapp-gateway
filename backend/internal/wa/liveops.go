@@ -134,7 +134,7 @@ func (l *LiveOps) DecryptPollVote(ctx context.Context, sessionID string, evt any
 	if !ok {
 		return nil, domain.ErrValidation("not a message event")
 	}
-	c, _ := l.rawClient(sessionID)
+	c := l.pollCryptoClient(sessionID)
 	if c == nil {
 		return nil, domain.ErrNotImplemented("live WhatsApp client is not available for this session")
 	}
@@ -216,6 +216,25 @@ func (l *LiveOps) rawClient(sessionID string) (*whatsmeow.Client, *store.Device)
 		return nil, device
 	}
 	return c, c.Store
+}
+
+// pollCryptoClient only exposes whatsmeow's local poll-vote decryption. Fake
+// sessions provide a local builder for this operation without using its network.
+func (l *LiveOps) pollCryptoClient(sessionID string) *whatsmeow.Client {
+	ms := l.m.Get(sessionID)
+	if ms == nil {
+		return nil
+	}
+	ms.mu.Lock()
+	raw := ms.client
+	ms.mu.Unlock()
+	if c, ok := raw.(*whatsmeow.Client); ok {
+		return c
+	}
+	if local, ok := raw.(interface{ LocalClient() *whatsmeow.Client }); ok {
+		return local.LocalClient()
+	}
+	return nil
 }
 
 // OwnIDs returns the session's own canonical phone JID and LID, when available.

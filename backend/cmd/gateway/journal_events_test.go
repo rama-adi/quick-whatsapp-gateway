@@ -21,8 +21,10 @@ func TestControlEventSinkFencesAndNormalizesEvent(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = j.Close() })
 	sink := controlEventSink{
-		adapter:    &journal.ControlAdapter{Journal: j, GatewayID: "gw_1"},
-		assignment: func(org, session string) (uint64, bool) { return 7, org == "org_1" && session == "sess_1" },
+		adapter: &journal.ControlAdapter{Journal: j, GatewayID: "gw_1"},
+		assignment: func(event domain.Event) (uint64, bool) {
+			return 7, event.Organization == "org_1" && event.Session == "sess_1"
+		},
 	}
 	event := domain.Event{Schema: domain.Schema, ID: "evt_1", Type: domain.EventMessage, Session: "sess_1", Organization: "org_1", Timestamp: time.Now().UnixMilli(), Payload: map[string]any{"body": "hi"}}
 	if err := sink.Publish(ctx, event); err != nil {

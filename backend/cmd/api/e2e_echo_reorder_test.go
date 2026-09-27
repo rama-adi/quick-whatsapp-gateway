@@ -27,18 +27,18 @@ func runE2EEchoBeforeProjection(t *testing.T, infra *e2eInfra, gateway *e2eGatew
 		capture := gateway.waitCaptureCount(t, before+1)[before]
 		body, err := json.Marshal(map[string]any{
 			"id": capture.ID, "chat": e2eGroupJID,
-			"sender": e2eDeviceLID, "fromMe": true,
+			"sender": e2eDeviceLID, "from_me": true,
 			"message": map[string]any{"conversation": "early own echo"},
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
-		response, err := http.Post(gateway.controlURL+"/incoming", "application/json", bytes.NewReader(body))
+		response, err := http.Post(gateway.fakeURL+"/v1/numbers/"+e2eFakeNumber+"/messages", "application/json", bytes.NewReader(body))
 		if err != nil {
 			t.Fatal(err)
 		}
 		_ = response.Body.Close()
-		if response.StatusCode != http.StatusNoContent {
+		if response.StatusCode != http.StatusOK {
 			t.Fatalf("inject early own echo: %d", response.StatusCode)
 		}
 		ctx, cancel := e2eContext(t)
@@ -74,12 +74,12 @@ func runE2EEchoBeforeProjection(t *testing.T, infra *e2eInfra, gateway *e2eGatew
 			e2eOrgA, e2eSessionID).Scan(&ingestedBefore); err != nil {
 			t.Fatal(err)
 		}
-		response, err = http.Post(gateway.controlURL+"/incoming", "application/json", bytes.NewReader(body))
+		response, err = http.Post(gateway.fakeURL+"/v1/numbers/"+e2eFakeNumber+"/messages", "application/json", bytes.NewReader(body))
 		if err != nil {
 			t.Fatal(err)
 		}
 		_ = response.Body.Close()
-		if response.StatusCode != http.StatusNoContent {
+		if response.StatusCode != http.StatusOK {
 			t.Fatalf("inject replayed early echo: %d", response.StatusCode)
 		}
 		e2eEventually(t, ctx, "replayed early echo acknowledged", func() bool {

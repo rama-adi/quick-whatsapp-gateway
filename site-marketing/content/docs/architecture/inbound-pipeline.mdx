@@ -19,6 +19,14 @@ The API durably ingests journal events from the private control stream. Its
 WebSockets, not NDJSON. A failed projection leaves durable work incomplete for retry
 and prevents later events for that session from overtaking it.
 
+Development and hostile E2E scenarios inject WhatsApp events through the standalone
+`internal/fakewhatsapp` service. Its remote client translates them to raw whatsmeow
+events and delivers them to the manager's normal handler. Message duplicates,
+own echoes, reordered receipts, and event bursts therefore cross normalization,
+the gateway journal, private event ingestion, and API projections before tests
+inspect history or realtime output. The simulator does not write domain events
+directly into those application stores.
+
 The stage and port details below describe the reusable pipeline. Capture/persist
 ports are deliberately no-ops on the gateway; equivalent database projections run
 on the API after ingest. The optional pipeline OAuth interceptor is not installed

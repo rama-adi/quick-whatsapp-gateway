@@ -47,7 +47,9 @@ The session lifecycle splits across the trust boundary:
   projects onto `wa_sessions` (`SessionRepo.AttachPairing`: `wa_jid`, `wa_lid`,
   phone derived from the JID). Desired-state reconciliation derives each
   assignment's `DeviceJID` from `wa_jid`, so this projection — not a gateway
-  write — is what lets a freshly paired session start.
+  write — is what lets a freshly paired session start. Until `wa_jid` exists,
+  pairing statuses still produce a STOP assignment; RUN requires both an
+  active status and the paired device JID.
 - **Logout is a full pairing reset across the boundary.** The engine unlink runs
   as a durable command; then the row is atomically marked `logged_out` with
   `wa_jid`, `wa_lid`, and `phone_number` cleared (`SessionRepo.ClearPairing`)
@@ -129,6 +131,19 @@ the organization ID, nonzero durable `assignment_epoch`, absolute lease expiry, 
 auto-read, typing, and rate settings. The gateway acknowledges the applied snapshot revision; the
 API persists that acknowledgement only for the still-current connection epoch and desired revision.
 Reconciliation stops unassigned or expired sessions and carries the epoch on all commands and events.
+Stopped assignments retain ownership of pairing and lifecycle events, so a phone-code or QR
+pairing attempt can project its paired identity and connection status before desired run is
+enabled. Message and resource events still require a running assignment; organization,
+assignment epoch, and lease fencing apply to both paths.
+An unchanged stopped assignment does not tear down an in-progress pairing flow when a lease
+renewal snapshot arrives. A transition from running to stopped, a changed owner or epoch,
+omission, or lease expiry stops the local runtime.
+An explicit Stop of an unpaired session first forgets its live pairing client, then persists
+the stopped state; the snapshot alone cannot distinguish Stop from an ongoing pairing flow
+because both have no paired device JID.
+Later QR and phone-code requests prepare the local device again before starting their new flow.
+Reconciliation stores a NULL device JID for each unpaired STOP result, so several unpaired
+sessions can share a gateway while the unique device fence still applies to paired identities.
 The reconciler publishes each candidate assignment set before invoking runtime start/stop callbacks,
 so synchronous status publication can validate the new epoch without taking the reconciler lock
 recursively. Runtime callbacks run outside the state lock and are serialized as one transaction;
@@ -156,10 +171,58 @@ sibling internal imports):
   GetQRChannel/PairPhone`). The real client satisfies it (compile-time assert);
   tests inject a fake, so the full lifecycle is exercised without a WebSocket.
   Built via a swappable `clientFactory` (`SetClientFactory`). The exported `Client`
-  alias lets the isolated API/gateway process test supply that lifecycle client
-  while running the actual `Manager` against a gateway-local SQLite device
-  store. This seam simulates device connectivity; it does not connect to
-  WhatsApp's network.
+  alias lets development and the API/gateway E2E suite supply the shared
+  `internal/fakewhatsapp` client while running the actual `Manager` against a
+  gateway-local SQLite device store. The standalone `cmd/fake-whatsapp` server
+  owns simulated phones, scenarios, and remote effects; the client translates
+  its HTTP protocol into whatsmeow lifecycle and message events.
+
+### Development WhatsApp actor
+
+`WHATSAPP_FAKE_SERVER=true` selects the remote simulator for lifecycle, live
+operations, and outbound transport. `WHATSAPP_FAKE_SERVER_URL` selects the
+server, and `WHATSAPP_FAKE_STORE_DSN` selects a separate local SQLite identity
+store. An unavailable simulator produces a connection failure; there is no
+fallback to the live WhatsApp service.
+
+Phone numbers beginning with `555` identify simulated phones. Scenarios are
+explicit server state configured through its development panel or HTTP API.
+Reusable presets are typed Go scenario definitions registered in the fake package.
+The panel discovers the catalog over HTTP and runs ordered group, message,
+effect, and configuration steps against the selected phone. Run results retain
+completed effects and identify any failed step; they report gateway delivery
+separately from creation of a fake transcript entry.
+Pairing uses the normal API and manager flow, with approval supplied by the
+simulated peer. Successful pairing persists the fake JID/LID in SQLite before
+emitting lifecycle events, so gateway restarts exercise normal device recovery.
+
+This boundary preserves gateway lifecycle, assignment fencing, inbound handling,
+outbound protobuf construction, and journal/control-plane processing. It does
+not implement WhatsApp's encrypted network protocol. Internal API/gRPC fault
+controls stay in their existing E2E harness; WhatsApp faults use the shared
+simulator without a parallel test-only device implementation. See
+[local development](/docs/operators/local-development#develop-without-a-real-whatsapp-number)
+for startup and pairing.
+
+The hostile environment is organized by the observable WhatsApp boundary:
+
+| Failure family | Controlled peer behavior | Evidence to inspect |
+|---|---|---|
+| Pairing and identity | Pending approval, rejected fake identity, linked device reconnect | Public session status and persisted device recovery. |
+| Connection lifecycle | Refused connection, disconnect, logout, replaced stream, terminal connection failure | Session state, reconnect behavior, and a subsequent valid operation. |
+| Outbound acceptance | Reject before commit, hold a send until released, cancel a blocked request | Transport attempts versus the peer's committed message transcript. |
+| Ambiguous acknowledgement | Commit the message and lose its acknowledgement | Recipient transcript and the API's eventual command outcome, without assuming stronger WhatsApp deduplication guarantees. |
+| Upload and download | Reject media transfer independently of message send | No message committed from a failed upload; successful transfer after recovery. |
+| Inbound ordering | Duplicate messages, own echoes, stale or reordered receipts | Public message history and event delivery after projection. |
+| Capacity and concurrency | Caller-configured event bursts and paused sends | Accepted event identities, committed effects, and progress after pressure is removed. |
+
+Scenarios specify initial state, trigger, exact fault schedule, recovery action,
+and observable invariant before implementation. Barriers establish causal order;
+user-selected burst counts and pacing are workload inputs, not inferred product
+limits. The E2E artifact records executed results; this inventory is not a claim
+that every WhatsApp protocol failure has been reproduced. Network encryption,
+WhatsApp's changing service policy, and upstream protocol compatibility remain
+outside the simulated client boundary.
 
 Core types:
 

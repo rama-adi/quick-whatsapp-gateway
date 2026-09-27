@@ -134,7 +134,11 @@ func (r *Reconciler) Apply(ctx context.Context, snapshot Snapshot) (Result, erro
 			wantedDevices[assignment.DeviceJID] = struct{}{}
 		}
 		if !assignment.DesiredRun || !assignment.LeaseExpiresAt.After(now) {
-			if _, active := previousAssignments[assignment.SessionID]; active {
+			previous, owned := previousAssignments[assignment.SessionID]
+			if owned && (previous.DesiredRun ||
+				previous.AssignmentEpoch != assignment.AssignmentEpoch ||
+				previous.OrganizationID != assignment.OrganizationID ||
+				!assignment.LeaseExpiresAt.After(now)) {
 				addStop(assignment.SessionID)
 			}
 			if assignment.DesiredRun {

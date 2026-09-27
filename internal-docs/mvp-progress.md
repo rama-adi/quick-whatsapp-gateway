@@ -67,6 +67,13 @@ e2e smoke against a live WhatsApp number.
 
 ## Key v2 decisions (locked this session)
 
+- **Shared development WhatsApp actor:** `internal/fakewhatsapp` supplies the
+  standalone development server and the WhatsApp side of hostile E2E scenarios.
+  Fake `555…` numbers are identities; a panel/API configures behavior separately.
+  The gateway opts in with `WHATSAPP_FAKE_SERVER=true` and a separate fake SQLite
+  store. The existing API/gRPC fault harness remains at its own boundary.
+  See the [session-manager spec](../site-marketing/content/docs/architecture/session-manager.mdx#development-whatsapp-actor)
+  for the simulation boundary and failure inventory.
 - **gRPC target boundary (Increment 0; not runtime yet):** the API/control plane becomes the only
   public front door and owns REST/Huma/OpenAPI, public gRPC, end-user authn/authz, MySQL, Redis,
   application services, placement, jobs, realtime, webhooks, and event ingestion. Gateways become

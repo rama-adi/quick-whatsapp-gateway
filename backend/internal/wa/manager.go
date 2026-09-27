@@ -19,6 +19,7 @@ import (
 
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/gateway/desiredstate"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/wa/outbound"
 )
 
 // Config holds the manager's tunables, populated from ENV by the composition root.
@@ -280,11 +281,10 @@ func (m *Manager) ConnectionState(id string) (status domain.SessionStatus, conne
 	return status, connected, loggedIn, true
 }
 
-// ClientFor returns the live *whatsmeow.Client for a session, or (nil, false)
-// when the session is unknown or its client is not yet constructed/connected.
-// It is the bridge the outbound send path uses to reach the per-session client
-// (the account-global Sender resolves the right client per request via this).
-func (m *Manager) ClientFor(id string) (*whatsmeow.Client, bool) {
+// OutboundClientFor returns the per-session protocol builder with the matching
+// network transport. A fake session keeps whatsmeow's local payload builders
+// while sending every external operation to its configured fake server.
+func (m *Manager) OutboundClientFor(id string) (outbound.WAClient, bool) {
 	ms := m.Get(id)
 	if ms == nil {
 		return nil, false
@@ -295,11 +295,16 @@ func (m *Manager) ClientFor(id string) (*whatsmeow.Client, bool) {
 	if c == nil {
 		return nil, false
 	}
-	cli, ok := c.(*whatsmeow.Client)
-	if !ok {
-		return nil, false
+	if cli, ok := c.(*whatsmeow.Client); ok {
+		return outbound.NewWhatsmeowClient(cli), true
 	}
-	return cli, true
+	if remote, ok := c.(interface {
+		LocalClient() *whatsmeow.Client
+		Transport() outbound.WhatsAppTransport
+	}); ok {
+		return outbound.NewWhatsmeowClientWithTransport(remote.LocalClient(), remote.Transport()), true
+	}
+	return nil, false
 }
 
 // Forget tears down a session's runtime (cancelling its goroutine and

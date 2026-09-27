@@ -42,7 +42,7 @@ func runE2EConcurrentReplay(t *testing.T, infra *e2eInfra, gateway *e2eGateway) 
 		ctx, cancel := e2eContext(t)
 		defer cancel()
 		e2eEventually(t, ctx, "WhatsApp send barrier", func() bool {
-			response, err := http.Get(gateway.controlURL + "/state")
+			response, err := http.Get(gateway.fakeURL + "/v1/state")
 			if err != nil {
 				return false
 			}
@@ -67,7 +67,7 @@ func runE2EConcurrentReplay(t *testing.T, infra *e2eInfra, gateway *e2eGateway) 
 		}
 		close(start)
 		wg.Wait()
-		response, err := http.Post(gateway.controlURL+"/release", "application/json", nil)
+		response, err := http.Post(gateway.fakeURL+"/v1/sessions/"+gateway.fakeSessionKey(t)+"/release", "application/json", nil)
 		if err != nil {
 			t.Fatal(err)
 		}

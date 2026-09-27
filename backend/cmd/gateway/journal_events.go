@@ -11,17 +11,17 @@ import (
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/wa/inbound"
 )
 
-// controlEventSink is the control-mode event boundary. An event is accepted
-// only when the reconciler still owns its session; the durable journal then
-// replaces the legacy Redis/webhook fan-out until the API commits it.
+// controlEventSink is the control-mode event boundary. Its assignment resolver
+// checks each event against the reconciler's current epoch and the event type's
+// required ownership state. The durable journal hands accepted events to the API.
 type controlEventSink struct {
 	adapter    *journal.ControlAdapter
-	assignment func(organizationID, sessionID string) (uint64, bool)
+	assignment func(event domain.Event) (uint64, bool)
 	log        *slog.Logger
 }
 
 func (s controlEventSink) append(ctx context.Context, event domain.Event) error {
-	epoch, ok := s.assignment(event.Organization, event.Session)
+	epoch, ok := s.assignment(event)
 	if !ok {
 		return errors.New("event session is not currently assigned")
 	}

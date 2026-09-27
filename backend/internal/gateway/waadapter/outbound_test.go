@@ -18,9 +18,12 @@ type fakeResolver struct {
 	lastID string
 }
 
-func (f *fakeResolver) ClientFor(sessionID string) (*whatsmeow.Client, bool) {
+func (f *fakeResolver) OutboundClientFor(sessionID string) (outbound.WAClient, bool) {
 	f.lastID = sessionID
-	return f.cli, f.ok
+	if !f.ok || f.cli == nil {
+		return nil, false
+	}
+	return outbound.NewWhatsmeowClient(f.cli), true
 }
 
 // TestRoutingWAClient_NoSessionOnContext_NotImplemented calls the account-global routing adapter without

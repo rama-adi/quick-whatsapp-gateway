@@ -3,8 +3,6 @@ package waadapter
 import (
 	"context"
 
-	"go.mau.fi/whatsmeow"
-
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/wa/outbound"
 )
@@ -13,25 +11,23 @@ import (
 // account-global, but the live whatsmeow clients are per-session (owned by the
 // wa.Manager). For each call the Sender stamps the target session id onto the
 // context (outbound.WithSessionID); this client reads it back, resolves the live
-// *whatsmeow.Client from the manager, wraps it with the per-session adapter
-// (outbound.NewWhatsmeowClient) and delegates. When the session has no connected
+// WhatsApp protocol adapter from the manager and delegates. When the session has no connected
 // client, every method returns domain.ErrNotImplemented so a send fails loudly
 // (mapped to the §11 not_implemented envelope) rather than panicking on nil.
 type RoutingWAClient struct {
-	resolve func(sessionID string) (*whatsmeow.Client, bool)
+	resolve func(sessionID string) (outbound.WAClient, bool)
 }
 
 var _ outbound.WAClient = (*RoutingWAClient)(nil)
 
-// clientResolver is the slice of *wa.Manager the router needs: resolve the live
-// per-session whatsmeow client. *wa.Manager.ClientFor satisfies it.
+// clientResolver resolves a live per-session protocol adapter.
 type clientResolver interface {
-	ClientFor(sessionID string) (*whatsmeow.Client, bool)
+	OutboundClientFor(sessionID string) (outbound.WAClient, bool)
 }
 
 // NewRoutingWAClient builds a session-routing WAClient over the manager.
 func NewRoutingWAClient(m clientResolver) *RoutingWAClient {
-	return &RoutingWAClient{resolve: m.ClientFor}
+	return &RoutingWAClient{resolve: m.OutboundClientFor}
 }
 
 // client resolves a fresh lightweight adapter for the session ID carried on ctx.
@@ -42,11 +38,11 @@ func (c *RoutingWAClient) client(ctx context.Context) (outbound.WAClient, error)
 	if id == "" {
 		return nil, domain.ErrNotImplemented("no target session for outbound send")
 	}
-	cli, ok := c.resolve(id)
+	client, ok := c.resolve(id)
 	if !ok {
 		return nil, domain.ErrNotImplemented("live WhatsApp client is not available for this session")
 	}
-	return outbound.NewWhatsmeowClient(cli), nil
+	return client, nil
 }
 
 func (c *RoutingWAClient) SendText(

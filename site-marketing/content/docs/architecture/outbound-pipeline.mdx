@@ -232,26 +232,27 @@ session id, so the `Sender` carries the target session on the request context:
   dispatch; the async outbox worker stamps `entry.SessionID` before
   `Sender.Dispatch`.
 - `gateway/waadapter.RoutingWAClient` (the production `WAClient`) reads the session id back
-  with `outbound.SessionIDFromContext`, resolves the live `*whatsmeow.Client` via
-  `wa.Manager.ClientFor(sessionID)`, wraps it with `NewWhatsmeowClient`, and
-  delegates. When the session has no connected client (or no session is on the
+  with `outbound.SessionIDFromContext`, resolves the per-session protocol adapter
+  via `wa.Manager.OutboundClientFor(sessionID)`, and delegates. When the session
+  has no client (or no session is on the
   context) it returns `domain.ErrNotImplemented`, surfaced as the §13
   `not_implemented` (501) envelope — a send fails loudly rather than panicking on
   a nil client.
 
-The production `WAClient` replaces the earlier `StubWAClient` placeholder; sends reach WhatsApp for
-any connected session. `wa.Manager.ClientFor` type-asserts the managed session's
-`waClient` to the concrete `*whatsmeow.Client`, so test sessions (which inject a
-fake client) cleanly report "not available".
+The production `WAClient` sends through the connected session's transport.
+Development fake mode resolves the shared `internal/fakewhatsapp` client for
+that same session. It retains the local whatsmeow protobuf builders and device
+store, while send/upload operations cross HTTP to the standalone simulated
+peer. Missing sessions never fall back to another session or to live WhatsApp.
 
-The isolated API/gateway process test uses the same private-engine assembly
+The API/gateway E2E suite uses this same simulated peer, private-engine assembly
 (`newPrivateEngine`), command ledger, and `whatsmeowAdapter` protobuf builder.
-Its `WAClient` is supplied directly to the dispatcher, while the real Manager
-and SQLite device store run with a substituted external WhatsApp client for
-connectivity, pairing, contacts, groups, media, and sends. The test can inspect
-the actual quote and mention protobuf payload and control acknowledgements
-without opening a connection to WhatsApp. Production uses the live whatsmeow
-client for those external operations.
+The peer records transport attempts separately from committed messages and
+can fail before acceptance, block progress until released, or commit a message
+and lose its acknowledgement. The recipient transcript and public API state
+prove the outcome after recovery. API/gateway response-loss controls remain
+at the private gRPC boundary: losing a response after the gateway's durable
+commit is distinct from losing WhatsApp's acknowledgement before that commit.
 
 ## Rate limiter (ratelimit.go)
 

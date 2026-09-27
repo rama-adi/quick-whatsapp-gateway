@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
@@ -58,6 +59,50 @@ func runE2ESendFaults(t *testing.T, infra *e2eInfra, gateway *e2eGateway) {
 			}
 		})
 	}
+	t.Run("fake WhatsApp commits then loses acknowledgement", func(t *testing.T) {
+		const key = "wa-ack-gap-1"
+		before := len(gateway.getCaptures(t))
+		gateway.fault(t, "commit_drop_ack")
+		status, _ := infra.send(t, e2eOrgAKey, key, domain.SendRequest{
+			Type: domain.SendTypeText, To: e2eGroupJID, Text: "remote commit with lost acknowledgement",
+		})
+		if status == http.StatusOK || status == http.StatusAccepted {
+			t.Fatalf("lost WhatsApp acknowledgement was reported as success: %d", status)
+		}
+		firstCommit := gateway.getCaptures(t)
+		if len(firstCommit) != before+1 || firstCommit[before].ID == "" {
+			t.Fatalf("remote effect missing before recovery: before=%d captures=%+v", before, firstCommit)
+		}
+		gateway.fault(t, "none")
+		ctx, cancel := e2eContext(t)
+		defer cancel()
+		var recoveredID string
+		e2eEventually(t, ctx, "ambiguous WhatsApp acknowledgement recovery", func() bool {
+			var state string
+			if err := infra.db.QueryRowContext(ctx, `SELECT status,wa_message_id FROM outbox
+				WHERE organization_id=? AND idempotency_key=?`, e2eOrgA, key).Scan(&state, &recoveredID); err != nil {
+				return false
+			}
+			return state == "sent" && recoveredID != ""
+		})
+		if recoveredID != firstCommit[before].ID {
+			t.Fatalf("retry changed the native WhatsApp ID: committed=%q acknowledged=%q", firstCommit[before].ID, recoveredID)
+		}
+		state := gateway.fakeState(t)
+		for _, capture := range state.Captures[before:] {
+			if capture.ID != recoveredID {
+				t.Fatalf("retry committed a different WhatsApp ID: %+v", capture)
+			}
+		}
+		if len(state.Captures) <= before {
+			t.Fatal("fake WhatsApp has no committed effect after recovery")
+		}
+		encoded, err := json.Marshal(state)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("fake_whatsapp_commit_ack_gap=%s", encoded)
+	})
 	t.Run("list rejected by WhatsApp is terminal and explains buttons fallback", func(t *testing.T) {
 		gateway.fault(t, "server_405")
 		defer gateway.fault(t, "none")

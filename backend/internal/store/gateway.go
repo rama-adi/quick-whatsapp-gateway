@@ -450,9 +450,12 @@ func (r *GatewayRepo) DesiredStateForEpoch(
 	}
 	out := make([]domain.GatewayDesiredSession, 0, len(rows))
 	for _, row := range rows {
-		desiredRun := row.Status == storedb.WaSessionsStatusWorking ||
+		// Pairing can report starting or scan_qr_code before the device JID
+		// exists. A RUN assignment without that identity violates the control
+		// protocol and cannot be reconciled against a local keystore device.
+		desiredRun := row.WaJid.Valid && row.WaJid.String != "" && (row.Status == storedb.WaSessionsStatusWorking ||
 			row.Status == storedb.WaSessionsStatusStarting ||
-			row.Status == storedb.WaSessionsStatusScanQrCode
+			row.Status == storedb.WaSessionsStatusScanQrCode)
 		out = append(out, domain.GatewayDesiredSession{
 			SessionID:       row.SessionID,
 			OrganizationID:  row.OrganizationID,

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -25,7 +26,8 @@ const (
 	e2eOrgA          = "e2e-org-a"
 	e2eOrgB          = "e2e-org-b"
 	e2eSessionID     = "e2e-session-a"
-	e2eDeviceJID     = "6281111111111@s.whatsapp.net"
+	e2eFakeNumber    = "5551111111111"
+	e2eDeviceJID     = e2eFakeNumber + "@s.whatsapp.net"
 	e2eDeviceLID     = "111111111111@lid"
 	e2eGroupJID      = "120363000000000001@g.us"
 	e2eSenderLID     = "222222222222@lid"
@@ -208,6 +210,12 @@ func TestOutboundE2E(t *testing.T) {
 	runE2EOIDCScenarios(t, infra, gateway, adminToken)
 	runE2EPublicGRPCScenarios(t, infra, gateway)
 	runE2EAdminGateways(t, infra, gateway, adminToken)
+	peerEvidence, err := json.Marshal(gateway.fakeState(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("shared WhatsApp peer evidence: %s", peerEvidence)
+	runE2EFakeMode(t, infra, adminToken)
 }
 
 type e2eGatewayEnrollment struct {
