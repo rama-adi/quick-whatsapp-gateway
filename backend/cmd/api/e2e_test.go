@@ -203,6 +203,7 @@ func TestOutboundE2E(t *testing.T) {
 	runE2ELostGatewayResponse(t, infra, gateway)
 	runE2EAmbiguousExhaustion(t, infra, gateway)
 	runE2ELostEventAck(t, infra, gateway)
+	runE2EAudioPresenceReplay(t, infra, gateway)
 	runE2EResourceScenarios(t, infra, gateway, adminToken)
 	runE2EStreamScenarios(t, infra)
 	runE2EStickers(t, infra, gateway)

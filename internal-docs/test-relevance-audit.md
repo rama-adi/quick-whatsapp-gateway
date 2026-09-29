@@ -1,5 +1,15 @@
 # Test relevance audit
 
+## Recording presence and journal recovery
+
+The incident began with a valid `presence.update` carrying `media: "audio"`.
+Sticker capture decoded it as message media, rejecting the entire journal batch.
+The E2E scenario sends raw recording presence through the standalone fake WhatsApp
+provider, loses its first event acknowledgement, and injects a subsequent inbound
+message. Real normalization, SQLite replay, mTLS ingestion, MySQL/Redis and public
+WebSocket/history reads must preserve the presence schema, deduplicate replay and
+deliver the following message. No isolated test is needed for this behavior.
+
 ## Fake WhatsApp real-process E2E plan (before implementation)
 
 Boundary: public REST and realtime API → real API process, MySQL/Redis, private mTLS control/engine, real gateway process, SQLite journal and fake-mode keystore → the same standalone fake WhatsApp HTTP service used for local development. The fake service owns the remote committed-message transcript and event schedule; API reads and realtime events are independent observable results. The gateway-to-API fault controls remain in the existing private test harness.

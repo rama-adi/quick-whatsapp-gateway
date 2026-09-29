@@ -138,7 +138,7 @@ func (r *GatewayEventIngestRepo) IngestBatch(ctx context.Context, events []Gatew
 		if r.MediaCapture != nil {
 			event.Payload, err = r.MediaCapture(ctx, tx, event)
 			if err != nil {
-				return err
+				return fmt.Errorf("store: capture gateway event %s (%s): %w", event.EventID, event.Type, err)
 			}
 		} else {
 			// Strip private descriptors even when attachment storage is disabled.

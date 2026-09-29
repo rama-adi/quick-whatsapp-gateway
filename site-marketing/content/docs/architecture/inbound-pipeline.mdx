@@ -13,7 +13,14 @@ and composing presence happen locally before the normalized event enters the SQL
 journal. `InboundEventTimeout` is explicitly zero in this composition; the former
 10-second callback deadline does not apply.
 
-The API durably ingests journal events from the private control stream. Its
+The API durably ingests journal events from the private control stream. Sticker
+capture decodes only `message` and `message.from_me` payloads. Other event schemas
+keep their own field types, including the `"audio"` media string in recording
+presence. Ingestion failures log their cause and, for capture failures, the event
+ID and type without logging payloads. Failed batches remain in the gateway journal
+until committed and acknowledged; recording presence cannot block later messages.
+
+Its
 `CommittedEventWorker` runs OAuth login interception, then `EventProjectionConsumer`
 (store writes), then Redis publication and webhook enqueue. Realtime clients use
 WebSockets, not NDJSON. A failed projection leaves durable work incomplete for retry

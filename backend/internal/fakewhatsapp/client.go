@@ -311,6 +311,26 @@ func (c *Client) handleEvent(ctx context.Context, event Event) {
 		c.connected = false
 		c.mu.Unlock()
 		c.emit(&events.ClientOutdated{})
+	case "chat_presence":
+		var data struct {
+			State types.ChatPresence      `json:"state"`
+			Media types.ChatPresenceMedia `json:"media"`
+		}
+		if err := json.Unmarshal(event.Data, &data); err != nil {
+			return
+		}
+		chat, err := types.ParseJID(event.Chat)
+		if err != nil {
+			return
+		}
+		sender, err := types.ParseJID(event.Sender)
+		if err != nil {
+			return
+		}
+		c.emit(&events.ChatPresence{
+			MessageSource: types.MessageSource{Chat: chat, Sender: sender, IsGroup: chat.Server == types.GroupServer},
+			State:         data.State, Media: data.Media,
+		})
 	case "receipt":
 		var data struct {
 			Type       string            `json:"type"`

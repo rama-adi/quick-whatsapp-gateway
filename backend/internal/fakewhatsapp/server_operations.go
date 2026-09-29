@@ -260,7 +260,7 @@ func (s *Server) injectEvents(w http.ResponseWriter, r *http.Request, key string
 
 func validEventKind(kind string) bool {
 	switch kind {
-	case "message", "receipt", "paired", "connected", "disconnected", "qr", "logged_out", "stream_replaced", "temporary_ban", "outdated", "client_outdated":
+	case "message", "chat_presence", "receipt", "paired", "connected", "disconnected", "qr", "logged_out", "stream_replaced", "temporary_ban", "outdated", "client_outdated":
 		return true
 	default:
 		return false

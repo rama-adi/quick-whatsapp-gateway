@@ -535,6 +535,8 @@ func (s gatewayControlStore) IngestEvents(
 	for _, event := range events {
 		payload, err := decodeGatewayEventPayload(event)
 		if err != nil {
+			slog.ErrorContext(ctx, "decode gateway event failed",
+				"gateway", gatewayID, "event", event.EventID, "type", event.Type, "err", err)
 			return fmt.Errorf("%w: %w", apigateway.ErrUnavailable, err)
 		}
 		batch = append(batch, store.GatewayEvent{
@@ -550,6 +552,8 @@ func (s gatewayControlStore) IngestEvents(
 		})
 	}
 	if err := s.eventIngest.IngestBatch(ctx, batch, s.clock().UnixMilli()); err != nil {
+		slog.ErrorContext(ctx, "gateway event batch ingest failed",
+			"gateway", gatewayID, "connection_epoch", epoch, "events", len(batch), "err", err)
 		return fmt.Errorf("%w: %w", apigateway.ErrUnavailable, err)
 	}
 	return nil

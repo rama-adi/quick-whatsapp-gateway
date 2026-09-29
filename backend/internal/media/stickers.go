@@ -51,6 +51,11 @@ func stickerContext(msg *waE2E.Message) *waE2E.ContextInfo {
 }
 
 func (s *Service) captureStickers(ctx context.Context, tx storedb.DBTX, e store.GatewayEvent) ([]byte, error) {
+	// Other event schemas can reuse message field names with different types;
+	// recording presence, for example, carries media="audio".
+	if e.Type != domain.EventMessage && e.Type != domain.EventMessageFromMe {
+		return e.Payload, nil
+	}
 	var payload map[string]json.RawMessage
 	if err := json.Unmarshal(e.Payload, &payload); err != nil {
 		return nil, err
@@ -150,7 +155,9 @@ func (s *Service) StickerReferences(ctx context.Context, event domain.Event) (do
 	if err != nil {
 		return event, err
 	}
-	payload, err := s.captureStickers(ctx, s.DB, store.GatewayEvent{SessionID: event.Session, OrganizationID: event.Organization, Payload: raw})
+	payload, err := s.captureStickers(ctx, s.DB, store.GatewayEvent{
+		SessionID: event.Session, OrganizationID: event.Organization, Type: event.Type, Payload: raw,
+	})
 	if err != nil {
 		return event, fmt.Errorf("resolve sticker references: %w", err)
 	}
