@@ -27,6 +27,7 @@ func outboxFromColumns(
 	id, organizationID, sessionID string, idempotencyKey sql.NullString,
 	payload json.RawMessage, status storedb.OutboxStatus, attempts int32, nextAttemptAt int64,
 	waMessageID, errText sql.NullString, terminalAt sql.NullInt64, createdAt, updatedAt int64,
+	expiresAt, acknowledgedAt sql.NullInt64, effectPossible bool,
 ) domain.OutboxEntry {
 	o := domain.OutboxEntry{
 		ID:             id,
@@ -36,6 +37,9 @@ func outboxFromColumns(
 		Status:         domain.OutboxStatus(status),
 		Attempts:       int(attempts),
 		NextAttemptAt:  nextAttemptAt,
+		ExpiresAt:      int64PtrFromNull(expiresAt),
+		AcknowledgedAt: int64PtrFromNull(acknowledgedAt),
+		EffectPossible: effectPossible,
 		WAMessageID:    stringPtrFromNull(waMessageID),
 		Error:          stringPtrFromNull(errText),
 		TerminalAt:     int64PtrFromNull(terminalAt),
@@ -51,31 +55,31 @@ func outboxFromColumns(
 func outboxFromRow(row storedb.Outbox) domain.OutboxEntry {
 	return outboxFromColumns(row.ID, row.OrganizationID, row.SessionID, row.IdempotencyKey,
 		row.Payload, row.Status, row.Attempts, row.NextAttemptAt, row.WaMessageID, row.Error,
-		row.TerminalAt, row.CreatedAt, row.UpdatedAt)
+		row.TerminalAt, row.CreatedAt, row.UpdatedAt, row.ExpiresAt, row.AcknowledgedAt, row.EffectPossible)
 }
 
 func outboxRowFromGet(row storedb.GetOutboxRow) domain.OutboxEntry {
 	return outboxFromColumns(row.ID, row.OrganizationID, row.SessionID, row.IdempotencyKey,
 		row.Payload, row.Status, row.Attempts, row.NextAttemptAt, row.WaMessageID, row.Error,
-		row.TerminalAt, row.CreatedAt, row.UpdatedAt)
+		row.TerminalAt, row.CreatedAt, row.UpdatedAt, row.ExpiresAt, row.AcknowledgedAt, row.EffectPossible)
 }
 
 func outboxRowFromIdempotency(row storedb.GetOutboxByIdempotencyRow) domain.OutboxEntry {
 	return outboxFromColumns(row.ID, row.OrganizationID, row.SessionID, row.IdempotencyKey,
 		row.Payload, row.Status, row.Attempts, row.NextAttemptAt, row.WaMessageID, row.Error,
-		row.TerminalAt, row.CreatedAt, row.UpdatedAt)
+		row.TerminalAt, row.CreatedAt, row.UpdatedAt, row.ExpiresAt, row.AcknowledgedAt, row.EffectPossible)
 }
 
 func outboxRowFromQueuedClaim(row storedb.SelectQueuedOutboxForClaimRow) domain.OutboxEntry {
 	return outboxFromColumns(row.ID, row.OrganizationID, row.SessionID, row.IdempotencyKey,
 		row.Payload, row.Status, row.Attempts, row.NextAttemptAt, row.WaMessageID, row.Error,
-		row.TerminalAt, row.CreatedAt, row.UpdatedAt)
+		row.TerminalAt, row.CreatedAt, row.UpdatedAt, row.ExpiresAt, row.AcknowledgedAt, row.EffectPossible)
 }
 
 func outboxRowFromDueClaim(row storedb.SelectDueOutboxForClaimRow) domain.OutboxEntry {
 	return outboxFromColumns(row.ID, row.OrganizationID, row.SessionID, row.IdempotencyKey,
 		row.Payload, row.Status, row.Attempts, row.NextAttemptAt, row.WaMessageID, row.Error,
-		row.TerminalAt, row.CreatedAt, row.UpdatedAt)
+		row.TerminalAt, row.CreatedAt, row.UpdatedAt, row.ExpiresAt, row.AcknowledgedAt, row.EffectPossible)
 }
 
 // Insert appends a queued outbox entry. The unique (organization_id, idempotency_key)
@@ -96,6 +100,7 @@ func (r *OutboxRepo) Insert(ctx context.Context, o domain.OutboxEntry) error {
 		TerminalAt:     nullInt64(o.TerminalAt),
 		CreatedAt:      o.CreatedAt,
 		UpdatedAt:      o.UpdatedAt,
+		ExpiresAt:      nullInt64(o.ExpiresAt),
 	})
 	if err != nil {
 		return fmt.Errorf("store: insert outbox: %w", err)
@@ -331,6 +336,7 @@ func (r *OutboxRepo) claimDue(ctx context.Context, q *storedb.Queries, limit int
 		FailedStatus:  storedb.OutboxStatus(domain.OutboxFailed),
 		SendingStatus: storedb.OutboxStatus(domain.OutboxSending),
 		DueBefore:     dueBefore,
+		ExpiryBefore:  sql.NullInt64{Int64: dueBefore, Valid: true},
 		StaleBefore:   staleBefore,
 		Limit:         int32(limit),
 	})
@@ -354,6 +360,7 @@ func (r *OutboxRepo) claimDue(ctx context.Context, q *storedb.Queries, limit int
 		if claimed == 1 {
 			entry := outboxRowFromDueClaim(row)
 			entry.Status = domain.OutboxSending
+			entry.Attempts++
 			entry.UpdatedAt = updatedAt
 			out = append(out, entry)
 		}
@@ -365,7 +372,7 @@ func (r *OutboxRepo) claimDue(ctx context.Context, q *storedb.Queries, limit int
 // clearing any partial result. It only touches 'sending' rows the caller owns by
 // lease; a false result means the lease was lost and another scheduler now owns
 // the command.
-func (r *OutboxRepo) Reschedule(ctx context.Context, id string, note string, nextAttemptAt, updatedAt int64) (bool, error) {
+func (r *OutboxRepo) Reschedule(ctx context.Context, id string, ownerStamp int64, note string, nextAttemptAt, updatedAt int64) (bool, error) {
 	n, err := r.q.RescheduleOutbox(ctx, storedb.RescheduleOutboxParams{
 		QueuedStatus:  storedb.OutboxStatus(domain.OutboxQueued),
 		SendingStatus: storedb.OutboxStatus(domain.OutboxSending),
@@ -373,9 +380,59 @@ func (r *OutboxRepo) Reschedule(ctx context.Context, id string, note string, nex
 		NextAttemptAt: nextAttemptAt,
 		UpdatedAt:     updatedAt,
 		ID:            id,
+		OwnerStamp:    ownerStamp,
 	})
 	if err != nil {
 		return false, fmt.Errorf("store: reschedule outbox %s: %w", id, err)
+	}
+	return n == 1, nil
+}
+
+// MarkDispatchPossible records uncertainty before crossing the private engine
+// boundary. A later expiry can only be called a definite failure when this was
+// never reached and no acknowledgement has been recorded.
+func (r *OutboxRepo) MarkDispatchPossible(ctx context.Context, id string, ownerStamp int64) (bool, error) {
+	n, err := r.q.MarkOutboxDispatchPossible(ctx, storedb.MarkOutboxDispatchPossibleParams{ID: id, OwnerStamp: ownerStamp})
+	if err != nil {
+		return false, fmt.Errorf("store: mark outbox dispatch %s: %w", id, err)
+	}
+	return n == 1, nil
+}
+
+// ClearDispatchPossible is valid only after the engine client proves it
+// returned before issuing an RPC and the row had no earlier possible effect.
+func (r *OutboxRepo) ClearDispatchPossible(ctx context.Context, id string, ownerStamp int64) (bool, error) {
+	n, err := r.q.ClearOutboxDispatchPossible(ctx, storedb.ClearOutboxDispatchPossibleParams{
+		ID: id, OwnerStamp: ownerStamp,
+	})
+	if err != nil {
+		return false, fmt.Errorf("store: clear outbox dispatch %s: %w", id, err)
+	}
+	return n == 1, nil
+}
+
+// RecordAcknowledgement persists a definite remote commit before any local
+// projection. Recovery therefore never lets a later expiry erase success.
+func (r *OutboxRepo) RecordAcknowledgement(ctx context.Context, id string, ownerStamp int64, waID string, acknowledgedAt int64) (bool, error) {
+	n, err := r.q.RecordOutboxAcknowledgement(ctx, storedb.RecordOutboxAcknowledgementParams{
+		ID: id, OwnerStamp: ownerStamp, WaMessageID: sqlString(waID),
+		AcknowledgedAt: sql.NullInt64{Int64: acknowledgedAt, Valid: true},
+	})
+	if err != nil {
+		return false, fmt.Errorf("store: acknowledge outbox %s: %w", id, err)
+	}
+	return n == 1, nil
+}
+
+// CompleteOwned fences terminal settlement by the current sending lease.
+func (r *OutboxRepo) CompleteOwned(ctx context.Context, id string, ownerStamp int64, status domain.OutboxStatus, waID, note *string, updatedAt int64) (bool, error) {
+	n, err := r.q.CompleteOwnedOutbox(ctx, storedb.CompleteOwnedOutboxParams{
+		ID: id, OwnerStamp: ownerStamp, FinalStatus: storedb.OutboxStatus(status),
+		WaMessageID: nullString(waID), Error: nullString(note),
+		TerminalAt: sql.NullInt64{Int64: updatedAt, Valid: true}, UpdatedAt: updatedAt,
+	})
+	if err != nil {
+		return false, fmt.Errorf("store: complete outbox %s: %w", id, err)
 	}
 	return n == 1, nil
 }

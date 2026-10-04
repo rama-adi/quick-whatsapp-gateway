@@ -19,7 +19,8 @@ func TestOutboxClaimsExcludeTerminalResults(t *testing.T) {
 	defer db.Close()
 	_, err = db.Exec(`CREATE TABLE outbox (id TEXT, organization_id TEXT, session_id TEXT,
  idempotency_key TEXT, payload BLOB, status TEXT, attempts INTEGER, next_attempt_at INTEGER,
- wa_message_id TEXT, error TEXT, terminal_at INTEGER, created_at INTEGER, updated_at INTEGER)`)
+ wa_message_id TEXT, error TEXT, terminal_at INTEGER, created_at INTEGER, updated_at INTEGER,
+ expires_at INTEGER, acknowledged_at INTEGER, effect_possible BOOLEAN)`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,18 +31,21 @@ func TestOutboxClaimsExcludeTerminalResults(t *testing.T) {
 		{"queued", "queued", nil}, {"stale", "sending", nil}, {"retry", "failed", nil},
 		{"failed", "failed", 10}, {"sent", "sent", 10}, {"terminal-sending", "sending", 10},
 	} {
-		_, err = db.Exec(`INSERT INTO outbox VALUES (?, 'org', 'session', NULL, '{}', ?, 1, 0, NULL, NULL, ?, 0, 0)`, row.id, row.status, row.terminal)
+		_, err = db.Exec(`INSERT INTO outbox (id, organization_id, session_id, idempotency_key,
+ payload, status, attempts, next_attempt_at, wa_message_id, error, terminal_at,
+ created_at, updated_at, expires_at, acknowledged_at, effect_possible)
+ VALUES (?, 'org', 'session', NULL, '{}', ?, 1, 0, NULL, NULL, ?, 0, 0, NULL, NULL, FALSE)`, row.id, row.status, row.terminal)
 		if err != nil {
 			t.Fatal(err)
 		}
 	}
-	rows, err := db.Query(strings.ReplaceAll(selectDueOutboxForClaim, "FOR UPDATE SKIP LOCKED", ""), "queued", "failed", 100, "sending", 50, 6)
+	rows, err := db.Query(strings.ReplaceAll(selectDueOutboxForClaim, "FOR UPDATE SKIP LOCKED", ""), "queued", "failed", 100, 100, "sending", 50, 6)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ids := []string{}
 	for rows.Next() {
-		values := make([]any, 13)
+		values := make([]any, 16)
 		for i := range values {
 			values[i] = new(any)
 		}

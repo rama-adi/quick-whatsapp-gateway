@@ -1357,8 +1357,8 @@ export interface paths {
          *
          *     Buttons use native-flow quick replies; lists use legacy ListMessage. Both are experimental, including for group JIDs. A send acknowledgement does not guarantee client rendering. WhatsApp may reject a list with 405; this returns not_implemented and is not retried.
          *
-         *     Default mode is synchronous and returns 200. Set `async=true` for queued async sends that return 202.
-         *     Idempotency is enabled with `Idempotency-Key`.
+         *     Default mode is synchronous and returns 200 after a validated send. Set `async=true` for queued sends that return 202. A terminal replay also returns 200, including status=unknown when a remote effect may have committed.
+         *     Idempotency is enabled with `Idempotency-Key`; replay returns the current durable result in the original session. Optional expiresAt is an absolute UTC epoch millisecond frozen by the first accepted row. No new WhatsApp dispatch starts at or after that deadline.
          *
          *     Errors: `validation_error`, `not_found`, `rate_limited`, and `not_implemented` for unsupported types.
          */
@@ -1438,7 +1438,7 @@ export interface paths {
          * Add a reaction to a message
          * @description Set your reaction emoji for a message.
          *
-         *     Returns 200 with a SendResult.
+         *     Returns 200 for a terminal SendResult or 202 while it remains pending.
          *
          *     Errors: `validation_error` when emoji is missing and `not_found` for missing message or session.
          */
@@ -1447,7 +1447,7 @@ export interface paths {
          * Remove your reaction from a message
          * @description Clear your reaction from a message.
          *
-         *     The operation is idempotent.
+         *     The operation is idempotent. Returns 200 for a terminal SendResult or 202 while pending.
          *
          *     Errors: `not_found` for missing message or session.
          */
@@ -1477,6 +1477,26 @@ export interface paths {
          *     Errors: `validation_error` for bad poll/options and `not_found` for missing message or session.
          */
         post: operations["voteMessage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}/outbox/by-idempotency": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Look up an outbound command
+         * @description Read the current durable result for a previously accepted idempotency key in this organization and session. Requires send capability. Returns 200 with mode=sync for sent, failed, or unknown; 202 with mode=async for queued or sending. A missing or foreign key returns 404. The lookup has no delivery side effects.
+         */
+        get: operations["getOutboxByIdempotency"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -4323,6 +4343,12 @@ export interface components {
              */
             emoji?: string;
             /**
+             * Format: int64
+             * @description Optional absolute UTC epoch-ms expiry. The first accepted deadline remains fixed on replay.
+             * @example 1791158400000
+             */
+            expiresAt?: number;
+            /**
              * @description Original sender JID. Empty means your own message.
              * @example
              */
@@ -4390,6 +4416,12 @@ export interface components {
             caption?: string;
             /** @description The contact card to share. Required for type contact. */
             contact?: components["schemas"]["ContactCard"];
+            /**
+             * Format: int64
+             * @description Optional absolute expiry as a UTC Unix epoch millisecond. No new WhatsApp dispatch starts at or after this instant. The first accepted value remains fixed for idempotent replays.
+             * @example 1791158400000
+             */
+            expiresAt?: number;
             /** @description Optional footer for buttons or list. */
             footer?: string;
             /** @description Optional image header for type buttons. Provide exactly one of data or url. */
@@ -7103,7 +7135,7 @@ export interface operations {
                 async?: boolean;
             };
             header?: {
-                /** @description Optional idempotency token. Reusing the key returns the first send result and does not send again. */
+                /** @description Optional organization-scoped token. Reusing the key in its original session returns the current durable outbox result without sending again. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -7120,6 +7152,15 @@ export interface operations {
         responses: {
             /** @description OK */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SendResult"];
+                };
+            };
+            /** @description Accepted; the durable command is queued or sending */
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -7282,6 +7323,15 @@ export interface operations {
                     "application/json": components["schemas"]["SendResult"];
                 };
             };
+            /** @description Accepted; the durable command is queued or sending */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SendResult"];
+                };
+            };
             /** @description Error */
             default: {
                 headers: {
@@ -7323,6 +7373,15 @@ export interface operations {
                     "application/json": components["schemas"]["SendResult"];
                 };
             };
+            /** @description Accepted; the durable command is queued or sending */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SendResult"];
+                };
+            };
             /** @description Error */
             default: {
                 headers: {
@@ -7354,6 +7413,50 @@ export interface operations {
         responses: {
             /** @description OK */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SendResult"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getOutboxByIdempotency: {
+        parameters: {
+            query: {
+                /** @description Previously accepted Idempotency-Key value. */
+                key: string;
+            };
+            header?: never;
+            path: {
+                /** @description Session that owns the outbound command. */
+                session: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SendResult"];
+                };
+            };
+            /** @description Accepted; the durable command is queued or sending */
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };

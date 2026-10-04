@@ -8,6 +8,7 @@
     "forwardMessage",
     "addReaction",
     "removeReaction",
-    "voteMessage"
+    "voteMessage",
+    "getOutboxByIdempotency"
   ]
 }

@@ -40,7 +40,9 @@
       "getGroup": "live contacts and groups",
       "getGroupInvite": "live contacts and groups",
       "getMedia": "media transfer recovers and enforces access and expiry",
+      "getMessageSticker": "stickers deduplicate and expand live quoted and replay events",
       "getOAuthApp": "admin and OAuth applications",
+      "getOutboxByIdempotency": "idempotency lookup scopes tenant and session without effects",
       "getSession": "session lifecycle and pairing",
       "getSessionStorage": "storage lifecycle",
       "getWebhook": "webhook lifecycle",
@@ -90,8 +92,7 @@
       "updateOAuthApp": "admin and OAuth applications",
       "updateStorageBucket": "storage lifecycle",
       "updateWebhook": "webhook lifecycle",
-      "voteMessage": "message operations",
-      "getMessageSticker": "stickers deduplicate and expand live quoted and replay events"
+      "voteMessage": "message operations"
     },
     "untested": [],
     "unsupported": {

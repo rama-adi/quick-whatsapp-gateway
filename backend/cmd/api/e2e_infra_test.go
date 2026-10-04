@@ -88,9 +88,10 @@ func e2eStartInfra(t *testing.T) *e2eInfra {
 	mysqlID := e2eDockerRun(t, ctx, name+"-mysql", mysqlImage,
 		"-e", "MYSQL_ROOT_PASSWORD=e2e-password",
 		"-e", "MYSQL_DATABASE=qwg_e2e_test",
+		"--tmpfs", "/var/lib/mysql:rw",
 		"-p", "127.0.0.1::3306",
 	)
-	redisID := e2eDockerRun(t, ctx, name+"-redis", "redis:7-alpine", "-p", "127.0.0.1::6379")
+	redisID := e2eDockerRun(t, ctx, name+"-redis", "redis:7-alpine", "--tmpfs", "/data:rw", "-p", "127.0.0.1::6379")
 	mysqlAddr := e2eDockerPort(t, ctx, mysqlID, "3306/tcp")
 	redisAddr := e2eDockerPort(t, ctx, redisID, "6379/tcp")
 	infra := &e2eInfra{
@@ -104,7 +105,17 @@ func e2eStartInfra(t *testing.T) *e2eInfra {
 	}
 	t.Cleanup(func() { _ = infra.db.Close() })
 	e2eEventually(t, ctx, "MySQL TCP ready", func() bool {
-		return infra.db.PingContext(ctx) == nil
+		if err := infra.db.PingContext(ctx); err == nil {
+			return true
+		}
+		state, inspectErr := exec.CommandContext(ctx, "docker", "inspect", mysqlID,
+			"--format", "{{.State.Running}} {{.State.ExitCode}}").CombinedOutput()
+		if inspectErr == nil && strings.HasPrefix(string(state), "false ") {
+			logs, logErr := exec.CommandContext(ctx, "docker", "logs", mysqlID).CombinedOutput()
+			t.Fatalf("disposable MySQL exited during startup (%s); docker logs (%v):\n%s",
+				strings.TrimSpace(string(state)), logErr, logs)
+		}
+		return false
 	})
 	if err := dbmigrate.Run(infra.dsn, dbmigrate.Up); err != nil {
 		t.Fatalf("migrate disposable MySQL: %v", err)
@@ -114,7 +125,9 @@ func e2eStartInfra(t *testing.T) *e2eInfra {
 
 func e2eDockerRun(t *testing.T, ctx context.Context, name, image string, options ...string) string {
 	t.Helper()
-	args := append([]string{"run", "--detach", "--rm", "--name", name}, options...)
+	// Keep an exited fixture until cleanup so a startup failure can report its
+	// own container logs. Only this test-owned ID is removed by the cleanup.
+	args := append([]string{"run", "--detach", "--name", name}, options...)
 	args = append(args, image)
 	out, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput()
 	if err != nil {

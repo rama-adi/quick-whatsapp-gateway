@@ -2,15 +2,66 @@ package outbound
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"image"
 	"image/color"
 	"image/png"
 	"testing"
+	"time"
 
+	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/proto/waE2E"
+	waStore "go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
 
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 )
+
+type albumDeadlineTransport struct {
+	commits []string
+	advance func()
+}
+
+func (f *albumDeadlineTransport) SendMessage(_ context.Context, _ types.JID, _ *waE2E.Message,
+	extra ...whatsmeow.SendRequestExtra) (whatsmeow.SendResponse, error) {
+	id := ""
+	if len(extra) > 0 {
+		id = string(extra[0].ID)
+	}
+	f.commits = append(f.commits, id)
+	if len(f.commits) == 1 {
+		f.advance()
+	}
+	return whatsmeow.SendResponse{ID: id, Timestamp: time.Now()}, nil
+}
+
+func (*albumDeadlineTransport) Upload(context.Context, []byte, whatsmeow.MediaType) (whatsmeow.UploadResponse, error) {
+	return whatsmeow.UploadResponse{}, nil
+}
+
+// The process E2E clock cannot be paused between two album transport calls.
+// This uses the real album builder and transport seam to establish the exact
+// partial-prefix fault: a completed container followed by clock expiry.
+func TestAlbumDeadlineCheckedAfterAcknowledgedPrefix(t *testing.T) {
+	now := time.UnixMilli(1000)
+	expiresAt := int64(2000)
+	transport := &albumDeadlineTransport{advance: func() { now = time.UnixMilli(2000) }}
+	client := NewWhatsmeowClientWithTransport(&whatsmeow.Client{Store: &waStore.Device{}}, transport)
+	ctx := WithDispatchDeadline(WithCommandMessageIDs(context.Background(), "album-deadline"),
+		&expiresAt, func() time.Time { return now })
+	_, _, err := client.SendAlbum(ctx, "555@s.whatsapp.net", "", []AlbumMedia{
+		{Type: domain.SendTypeImage, Data: []byte("first"), Mimetype: "image/png"},
+		{Type: domain.SendTypeImage, Data: []byte("second"), Mimetype: "image/png"},
+	}, QuoteInfo{}, nil)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("partial album error = %v, want deadline exceeded", err)
+	}
+	if len(transport.commits) != 1 || transport.commits[0] != ReservedMessageIDs("album-deadline",
+		domain.SendRequest{Type: domain.SendTypeAlbum, Medias: []domain.AlbumMediaPayload{{}, {}}})[0] {
+		t.Fatalf("expiry allowed a child transport commit: %v", transport.commits)
+	}
+}
 
 func TestFillOwnQuoteParticipant(t *testing.T) {
 	group := types.NewJID("120363123456789012", types.GroupServer)

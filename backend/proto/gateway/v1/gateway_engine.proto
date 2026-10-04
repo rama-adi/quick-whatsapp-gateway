@@ -91,7 +91,8 @@ message SendMessageRequest {
   uint64 assignment_epoch = 2;
   string command_id = 3;
   bytes payload_json = 4;
-  reserved 5 to 15;
+  optional int64 expires_at_unix_ms = 5;
+  reserved 6 to 15;
   QuotedMessageContext quote_context = 16;
 }
 // The API resolves a reply target from its session-scoped message store before
@@ -128,7 +129,8 @@ message MessageOpRequest {
   string new_text = 9;
   repeated string options = 10;
   string to_jid = 11;
-  reserved 12 to 15;
+  optional int64 expires_at_unix_ms = 12;
+  reserved 13 to 15;
 }
 message MessageOpResponse {
   string command_id = 1;

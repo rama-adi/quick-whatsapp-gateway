@@ -99,7 +99,6 @@ func engineTLSConfig(
 // EngineClient implements the API-facing resolved live facade. Calls reuse one
 // grpc-go ClientConn per advertised endpoint; grpc-go owns reconnects.
 type EngineClient struct {
-	CaptureMedia  func(context.Context, string, string, string, domain.SendRequest) error
 	QuoteResolver QuoteResolver
 	resolver      EngineTargetResolver
 	dial          EngineDial
@@ -273,47 +272,53 @@ func (c *EngineClient) SendMessage(
 	}
 	target, err := c.resolver.ResolveSessionEngineTarget(ctx, command.OrganizationID, command.SessionID)
 	if err != nil {
-		return application.SendMessageResult{}, err
+		return application.SendMessageResult{}, &application.NoDispatchError{Cause: err}
 	}
 	conn, err := c.conn(ctx, target.GatewayID, target.GRPCEndpoint)
 	if err != nil {
-		return application.SendMessageResult{}, err
+		return application.SendMessageResult{}, &application.NoDispatchError{Cause: err}
 	}
-	prepared, err := outbound.PrepareEngineMedia(ctx, command.Payload)
-	if err != nil {
-		return application.SendMessageResult{}, err
-	}
-	quote, err := c.resolveQuote(ctx, command.SessionID, prepared)
-	if err != nil {
-		return application.SendMessageResult{}, err
+	prepared := command.Payload
+	var preparedForProjection *domain.SendRequest
+	var quote *gatewayv1.QuotedMessageContext
+	// A past-deadline RPC can only replay the gateway ledger. Keep it free of
+	// media downloads and quote lookups; the gateway checks its ledger before
+	// rejecting a command whose deadline has passed.
+	if command.ExpiresAt == nil || time.Now().UnixMilli() < *command.ExpiresAt {
+		prepared, err = outbound.PrepareEngineMedia(ctx, command.Payload)
+		if err != nil {
+			return application.SendMessageResult{}, &application.NoDispatchError{Cause: err}
+		}
+		preparedForProjection = &prepared
+		quote, err = c.resolveQuote(ctx, command.SessionID, prepared)
+		if err != nil {
+			return application.SendMessageResult{}, &application.NoDispatchError{Cause: err}
+		}
 	}
 	payload, err := json.Marshal(prepared)
 	if err != nil {
-		return application.SendMessageResult{}, fmt.Errorf("encode send payload: %w", err)
+		return application.SendMessageResult{}, &application.NoDispatchError{Cause: fmt.Errorf("encode send payload: %w", err)}
 	}
 	response, err := gatewayv1.NewGatewayEngineServiceClient(conn).SendMessage(ctx, &gatewayv1.SendMessageRequest{
 		Target:          sessionTargetProto(target),
 		AssignmentEpoch: target.AssignmentEpoch,
 		CommandId:       command.CommandID,
 		PayloadJson:     payload,
+		ExpiresAtUnixMs: command.ExpiresAt,
 		QuoteContext:    quote,
 	})
 	c.record(target.GatewayID, target.GRPCEndpoint, err)
 	if err != nil {
 		return application.SendMessageResult{}, mapEngineError(err)
 	}
-	if c.CaptureMedia != nil {
-		if err := c.CaptureMedia(ctx, target.OrganizationID, target.SessionID, response.WaMessageId, prepared); err != nil {
-			return application.SendMessageResult{}, err
-		}
-	}
 	return application.SendMessageResult{
 		MutationResult: application.MutationResult{
 			CommandID: response.CommandId, OrganizationID: target.OrganizationID,
 			SessionID: target.SessionID, GatewayID: target.GatewayID, AssignmentEpoch: target.AssignmentEpoch,
 		},
-		WAMessageID: response.WaMessageId,
-		SentAt:      time.UnixMilli(response.SentAtUnixMs).UTC(),
+		WAMessageID:     response.WaMessageId,
+		SentAt:          time.UnixMilli(response.SentAtUnixMs).UTC(),
+		PreparedPayload: preparedForProjection,
 	}, nil
 }
 
@@ -371,11 +376,11 @@ func (c *EngineClient) ExecuteOp(
 	}
 	target, err := c.resolver.ResolveSessionEngineTarget(ctx, command.OrganizationID, command.SessionID)
 	if err != nil {
-		return application.MessageOpResult{}, err
+		return application.MessageOpResult{}, &application.NoDispatchError{Cause: err}
 	}
 	conn, err := c.conn(ctx, target.GatewayID, target.GRPCEndpoint)
 	if err != nil {
-		return application.MessageOpResult{}, err
+		return application.MessageOpResult{}, &application.NoDispatchError{Cause: err}
 	}
 	response, err := gatewayv1.NewGatewayEngineServiceClient(conn).MessageOp(ctx, &gatewayv1.MessageOpRequest{
 		Target:          sessionTargetProto(target),
@@ -389,6 +394,7 @@ func (c *EngineClient) ExecuteOp(
 		NewText:         command.NewText,
 		Options:         command.Options,
 		ToJid:           command.ToJID,
+		ExpiresAtUnixMs: command.ExpiresAt,
 	})
 	c.record(target.GatewayID, target.GRPCEndpoint, err)
 	if err != nil {

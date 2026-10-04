@@ -171,6 +171,27 @@ its own.
 | WA tables (API control plane) | API startup or `go -C backend run ./cmd/migrate up` | automatically when the API starts, or explicitly with the migration CLI |
 | Auth tables (frontend) | `pnpm db:migrate` (drizzle-kit) | you run it once, before first use |
 
+Release migration `0019_outbox_expiry` adds nullable expiry and acknowledgement
+timestamps plus a dispatch-possibility flag to the API-owned `outbox` table.
+Before applying it to an existing installation, stop API send admission and
+the outbound worker, then back up MySQL together with the gateway journal and
+SQLite keystore. Inspect nonterminal outbox rows with
+`SELECT id, session_id, status, attempts, wa_message_id FROM outbox WHERE terminal_at IS NULL`.
+For each attempted row, reconcile the gateway command journal and any known
+recipient result under the **same command ID**. Do not replace an uncertain
+command with a new idempotency key. Run the normal API migration path while
+workers remain stopped. The migration marks every nonterminal attempted or
+sending row as a possible remote effect; an exhausted retry therefore settles
+as `unknown`, even if a later attempt cannot reach the engine. Verify the
+post-migration rows with
+`SELECT id, status, attempts, effect_possible FROM outbox WHERE terminal_at IS NULL`
+before resuming the API and workers. Reconcile any `unknown` result manually
+against the gateway journal and recipient before initiating a new send.
+
+This upgrade does not change gateway IDs, paired devices, or the gateway-local
+SQLite keystore. The separate one-time upgrade described above still applies
+to installations that have not completed that earlier runtime cutover.
+
 The runtime frontend image does not include `drizzle-kit`, so apply the auth
 tables against the database yourself:
 

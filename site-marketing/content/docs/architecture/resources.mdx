@@ -15,6 +15,12 @@ the caller's **active organization** first (foreign org => `not_found`). The cal
 org comes from the §4 principal — the active org on a JWT, or the key's org on an
 api-key. A platform `super_admin` (JWT `role`) crosses orgs for oversight.
 
+The message resource exposes a lookup-only outbox result at
+`GET /api/v1/sessions/{session}/outbox/by-idempotency?key=...`. It reads an
+already accepted send or reaction in the caller's organization and session,
+with `send` capability. It returns the current durable state without creating
+a command or contacting the assigned gateway; a missing or foreign key is `404`.
+
 **Session responses expose `gatewayId`** (§13): the gateway each session lives on —
 with gateway registry details available through the admin gateway resource — so
 the dashboard can show **where** a session runs once there is more than one gateway

@@ -25,10 +25,15 @@ _openapi:
           retried.
 
 
-          Default mode is synchronous and returns 200. Set `async=true` for
-          queued async sends that return 202.
+          Default mode is synchronous and returns 200 after a validated send.
+          Set `async=true` for queued sends that return 202. A terminal replay
+          also returns 200, including status=unknown when a remote effect may
+          have committed.
 
-          Idempotency is enabled with `Idempotency-Key`.
+          Idempotency is enabled with `Idempotency-Key`; replay returns the
+          current durable result in the original session. Optional expiresAt is
+          an absolute UTC epoch millisecond frozen by the first accepted row. No
+          new WhatsApp dispatch starts at or after that deadline.
 
 
           Errors: `validation_error`, `not_found`, `rate_limited`, and

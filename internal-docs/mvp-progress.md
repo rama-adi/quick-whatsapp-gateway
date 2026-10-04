@@ -3,7 +3,7 @@
 > **Historical design record.** Implementation decisions and milestone checkpoints are preserved below. Current implementation: [architecture overview](../site-marketing/content/docs/architecture/overview.mdx) and [subsystem references](../site-marketing/content/docs/architecture/index.mdx).
 
 Tracks implementation status against [`masterplan-mvp.md`](../site-marketing/content/docs/architecture/overview.mdx).
-Last updated: 2026-08-07.
+Last updated: 2026-10-04.
 
 > **Pivot to v2 (split architecture).** The single-binary v1 MVP (Go + Authula + embedded
 > React Router SPA + MySQL keystore) was **code-complete (M0–M8)** and is preserved at git
@@ -67,6 +67,18 @@ e2e smoke against a live WhatsApp number.
 
 ## Key v2 decisions (locked this session)
 
+- **Durable outbound status and deadline:** An authenticated, send-capable
+  caller can read an accepted outbox row by organization/session-scoped
+  idempotency key without dispatching. Terminal `unknown` replays as HTTP 200
+  with `mode: sync`, `status: unknown`, and stable command/native IDs; pending
+  rows remain HTTP 202. An optional absolute `expiresAt` is frozen by the first
+  accepted row. The API and private gateway check it at dispatch boundaries;
+  expired work with no possible WhatsApp call fails, while a possible remote
+  effect remains unknown. A saved validated acknowledgement remains sent across
+  later projection retries and deadline passage. Migration 0019 stores expiry,
+  effect possibility, and acknowledgement separately, with lease-stamped CAS
+  settlement. The API migrates this additive outbox schema; gateway IDs and
+  SQLite keystores are not modified.
 - **Shared development WhatsApp actor:** `internal/fakewhatsapp` supplies the
   standalone development server and the WhatsApp side of hostile E2E scenarios.
   Fake `555…` numbers are identities; a panel/API configures behavior separately.

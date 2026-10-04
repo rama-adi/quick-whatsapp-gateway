@@ -1668,6 +1668,9 @@ type Outbox struct {
 	NextAttemptAt  int64           `db:"next_attempt_at" json:"next_attempt_at"`
 	TerminalAt     sql.NullInt64   `db:"terminal_at" json:"terminal_at"`
 	Status         OutboxStatus    `db:"status" json:"status"`
+	ExpiresAt      sql.NullInt64   `db:"expires_at" json:"expires_at"`
+	AcknowledgedAt sql.NullInt64   `db:"acknowledged_at" json:"acknowledged_at"`
+	EffectPossible bool            `db:"effect_possible" json:"effect_possible"`
 }
 
 type PkiAuthority struct {

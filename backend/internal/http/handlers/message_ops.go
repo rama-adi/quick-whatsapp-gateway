@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -22,7 +23,7 @@ const maxSendMessageBody int64 = 88 << 20
 type sendMessageInput struct {
 	Session        string `path:"session" doc:"WhatsApp session id that sends the message. Must be owned and connected." example:"01HZX..."`
 	Async          bool   `query:"async" doc:"Set true to queue the send and return 202. False (default) waits for WhatsApp and returns 200." example:"false"`
-	IdempotencyKey string `header:"Idempotency-Key" doc:"Optional idempotency token. Reusing the key returns the first send result and does not send again." example:"2f1c9b6e-7a3d-4c2e-9f8a-1b2c3d4e5f60"`
+	IdempotencyKey string `header:"Idempotency-Key" doc:"Optional organization-scoped token. Reusing the key in its original session returns the current durable outbox result without sending again." example:"2f1c9b6e-7a3d-4c2e-9f8a-1b2c3d4e5f60"`
 	Body           domain.SendRequest
 }
 
@@ -58,9 +59,10 @@ type reactionInput struct {
 	MID            string `path:"mid" doc:"WhatsApp message id to react to." example:"3EB0C431C26A1916E07A"`
 	IdempotencyKey string `header:"Idempotency-Key" doc:"Optional idempotency token. Reusing the key returns the current durable reaction result without reacting again." example:"2f1c9b6e-7a3d-4c2e-9f8a-1b2c3d4e5f60"`
 	Body           struct {
-		Chat   string `json:"chat,omitempty" doc:"Chat JID for the message." example:"6281234567890@s.whatsapp.net"`
-		Sender string `json:"sender,omitempty" doc:"Original sender JID. Empty means your own message." example:""`
-		Emoji  string `json:"emoji,omitempty" doc:"Single emoji. Required for add; ignored for remove." example:"👍"`
+		Chat      string `json:"chat,omitempty" doc:"Chat JID for the message." example:"6281234567890@s.whatsapp.net"`
+		Sender    string `json:"sender,omitempty" doc:"Original sender JID. Empty means your own message." example:""`
+		Emoji     string `json:"emoji,omitempty" doc:"Single emoji. Required for add; ignored for remove." example:"👍"`
+		ExpiresAt *int64 `json:"expiresAt,omitempty" doc:"Optional absolute UTC epoch-ms expiry. The first accepted deadline remains fixed on replay." example:"1791158400000"`
 	}
 }
 
@@ -87,7 +89,10 @@ type voteInput struct {
 }
 
 // sendResultOutput is the success body for message operations.
-type sendResultOutput struct{ Body outbound.SendResult }
+type sendResultOutput struct {
+	Status int
+	Body   outbound.SendResult
+}
 
 // RegisterMessageOps registers outbound message operations.
 func RegisterMessageOps(api huma.API, h *Handlers) {
@@ -117,7 +122,7 @@ func RegisterMessageOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
-		return &sendResultOutput{Body: res}, nil
+		return &sendResultOutput{Status: http.StatusOK, Body: res}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -143,16 +148,17 @@ func RegisterMessageOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
-		return &sendResultOutput{Body: res}, nil
+		return &sendResultOutput{Status: http.StatusOK, Body: res}, nil
 	})
 
 	huma.Register(api, huma.Operation{
 		OperationID: "addReaction", Method: "POST", Path: "/api/v1/sessions/{session}/messages/{mid}/reaction",
 		Summary: "Add a reaction to a message",
 		Description: "Set your reaction emoji for a message.\n\n" +
-			"Returns 200 with a SendResult.\n\n" +
+			"Returns 200 for a terminal SendResult or 202 while it remains pending.\n\n" +
 			"Errors: `validation_error` when emoji is missing and `not_found` for missing message or session.",
 		Tags: []string{"Messages"}, Middlewares: send,
+		Responses: pendingSendResponses(),
 	}, func(ctx context.Context, in *reactionInput) (*sendResultOutput, error) {
 		org, err := humax.Org(ctx)
 		if err != nil {
@@ -167,27 +173,29 @@ func RegisterMessageOps(api huma.API, h *Handlers) {
 			in.MID,
 			in.Body.Emoji,
 			in.IdempotencyKey,
+			in.Body.ExpiresAt,
 		)
 		if err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
-		return &sendResultOutput{Body: res}, nil
+		return &sendResultOutput{Status: sendResultStatus(res), Body: res}, nil
 	})
 
 	huma.Register(api, huma.Operation{
 		OperationID: "removeReaction", Method: "DELETE", Path: "/api/v1/sessions/{session}/messages/{mid}/reaction",
 		Summary: "Remove your reaction from a message",
 		Description: "Clear your reaction from a message.\n\n" +
-			"The operation is idempotent.\n\n" +
+			"The operation is idempotent. Returns 200 for a terminal SendResult or 202 while pending.\n\n" +
 			"Errors: `not_found` for missing message or session.",
 		Tags: []string{"Messages"}, Middlewares: send,
+		Responses: pendingSendResponses(),
 	}, func(ctx context.Context, in *reactionInput) (*sendResultOutput, error) {
 		org, err := humax.Org(ctx)
 		if err != nil {
 			return nil, err
 		}
 		// Empty emoji clears the reaction.
-		res, err := h.Messages.React(
+		res, err := h.Messages.ReactWithIdempotency(
 			ctx,
 			org,
 			in.Session,
@@ -195,11 +203,13 @@ func RegisterMessageOps(api huma.API, h *Handlers) {
 			in.Body.Sender,
 			in.MID,
 			"",
+			in.IdempotencyKey,
+			in.Body.ExpiresAt,
 		)
 		if err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
-		return &sendResultOutput{Body: res}, nil
+		return &sendResultOutput{Status: sendResultStatus(res), Body: res}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -226,7 +236,7 @@ func RegisterMessageOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
-		return &sendResultOutput{Body: res}, nil
+		return &sendResultOutput{Status: http.StatusOK, Body: res}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -254,6 +264,6 @@ func RegisterMessageOps(api huma.API, h *Handlers) {
 		if err != nil {
 			return nil, humax.ErrContext(ctx, err)
 		}
-		return &sendResultOutput{Body: res}, nil
+		return &sendResultOutput{Status: http.StatusOK, Body: res}, nil
 	})
 }

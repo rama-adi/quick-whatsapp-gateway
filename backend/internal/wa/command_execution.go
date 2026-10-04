@@ -16,6 +16,7 @@ type durableCommand[T any] struct {
 	Replay       func(*application.CommandResultRecord) (T, error)
 	Execute      func() (T, error)
 	AllowStopped bool
+	ExpiresAt    *int64
 }
 
 type commandFlight struct {
@@ -88,6 +89,9 @@ func runDurableCommand[T any](
 		if !allowed {
 			return result, domain.ErrConflict("session assignment epoch is stale or lease expired")
 		}
+	}
+	if command.ExpiresAt != nil && adapter.now().UnixMilli() >= *command.ExpiresAt {
+		return result, domain.ErrValidation("outbound command expired before dispatch")
 	}
 	return command.Execute()
 }

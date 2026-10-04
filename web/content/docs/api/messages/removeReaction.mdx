@@ -10,10 +10,13 @@ _openapi:
   structuredData:
     headings: []
     contents:
-      - content: |-
+      - content: >-
           Clear your reaction from a message.
 
-          The operation is idempotent.
+
+          The operation is idempotent. Returns 200 for a terminal SendResult or
+          202 while pending.
+
 
           Errors: `not_found` for missing message or session.
 ---

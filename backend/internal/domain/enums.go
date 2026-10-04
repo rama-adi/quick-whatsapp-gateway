@@ -93,6 +93,7 @@ const (
 	MessageRead      MessageStatus = "read"
 	MessagePlayed    MessageStatus = "played"
 	MessageFailed    MessageStatus = "failed"
+	MessageUnknown   MessageStatus = "unknown"
 )
 
 // GroupRole mirrors whatsapp_group_members.role.

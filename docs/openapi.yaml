@@ -3618,6 +3618,12 @@ components:
           examples:
             - 👍
           type: string
+        expiresAt:
+          description: Optional absolute UTC epoch-ms expiry. The first accepted deadline remains fixed on replay.
+          examples:
+            - 1791158400000
+          format: int64
+          type: integer
         sender:
           description: Original sender JID. Empty means your own message.
           examples:
@@ -3725,6 +3731,12 @@ components:
         contact:
           $ref: "#/components/schemas/ContactCard"
           description: The contact card to share. Required for type contact.
+        expiresAt:
+          description: Optional absolute expiry as a UTC Unix epoch millisecond. No new WhatsApp dispatch starts at or after this instant. The first accepted value remains fixed for idempotent replays.
+          examples:
+            - 1791158400000
+          format: int64
+          type: integer
         footer:
           description: Optional footer for buttons or list.
           type: string
@@ -7022,8 +7034,8 @@ paths:
 
         Buttons use native-flow quick replies; lists use legacy ListMessage. Both are experimental, including for group JIDs. A send acknowledgement does not guarantee client rendering. WhatsApp may reject a list with 405; this returns not_implemented and is not retried.
 
-        Default mode is synchronous and returns 200. Set `async=true` for queued async sends that return 202.
-        Idempotency is enabled with `Idempotency-Key`.
+        Default mode is synchronous and returns 200 after a validated send. Set `async=true` for queued sends that return 202. A terminal replay also returns 200, including status=unknown when a remote effect may have committed.
+        Idempotency is enabled with `Idempotency-Key`; replay returns the current durable result in the original session. Optional expiresAt is an absolute UTC epoch millisecond frozen by the first accepted row. No new WhatsApp dispatch starts at or after that deadline.
 
         Errors: `validation_error`, `not_found`, `rate_limited`, and `not_implemented` for unsupported types.
       operationId: sendMessage
@@ -7046,11 +7058,11 @@ paths:
             examples:
               - false
             type: boolean
-        - description: Optional idempotency token. Reusing the key returns the first send result and does not send again.
+        - description: Optional organization-scoped token. Reusing the key in its original session returns the current durable outbox result without sending again.
           in: header
           name: Idempotency-Key
           schema:
-            description: Optional idempotency token. Reusing the key returns the first send result and does not send again.
+            description: Optional organization-scoped token. Reusing the key in its original session returns the current durable outbox result without sending again.
             examples:
               - 2f1c9b6e-7a3d-4c2e-9f8a-1b2c3d4e5f60
             type: string
@@ -7067,6 +7079,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/SendResult"
           description: OK
+        "202":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendResult"
+          description: Accepted; the durable command is queued or sending
         default:
           content:
             application/json:
@@ -7230,7 +7248,7 @@ paths:
       description: |-
         Clear your reaction from a message.
 
-        The operation is idempotent.
+        The operation is idempotent. Returns 200 for a terminal SendResult or 202 while pending.
 
         Errors: `not_found` for missing message or session.
       operationId: removeReaction
@@ -7274,6 +7292,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/SendResult"
           description: OK
+        "202":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendResult"
+          description: Accepted; the durable command is queued or sending
         default:
           content:
             application/json:
@@ -7287,7 +7311,7 @@ paths:
       description: |-
         Set your reaction emoji for a message.
 
-        Returns 200 with a SendResult.
+        Returns 200 for a terminal SendResult or 202 while it remains pending.
 
         Errors: `validation_error` when emoji is missing and `not_found` for missing message or session.
       operationId: addReaction
@@ -7331,6 +7355,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/SendResult"
           description: OK
+        "202":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendResult"
+          description: Accepted; the durable command is queued or sending
         default:
           content:
             application/json:
@@ -7390,6 +7420,48 @@ paths:
                 $ref: "#/components/schemas/ApiError"
           description: Error
       summary: Vote on a poll message
+      tags:
+        - Messages
+  /api/v1/sessions/{session}/outbox/by-idempotency:
+    get:
+      description: Read the current durable result for a previously accepted idempotency key in this organization and session. Requires send capability. Returns 200 with mode=sync for sent, failed, or unknown; 202 with mode=async for queued or sending. A missing or foreign key returns 404. The lookup has no delivery side effects.
+      operationId: getOutboxByIdempotency
+      parameters:
+        - description: Session that owns the outbound command.
+          in: path
+          name: session
+          required: true
+          schema:
+            description: Session that owns the outbound command.
+            type: string
+        - description: Previously accepted Idempotency-Key value.
+          explode: false
+          in: query
+          name: key
+          required: true
+          schema:
+            description: Previously accepted Idempotency-Key value.
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendResult"
+          description: OK
+        "202":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendResult"
+          description: Accepted; the durable command is queued or sending
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Look up an outbound command
       tags:
         - Messages
   /api/v1/sessions/{session}/pairing-code:

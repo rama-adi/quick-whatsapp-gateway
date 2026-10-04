@@ -48,6 +48,25 @@ func (q *Queries) ClaimOutboxByID(ctx context.Context, arg ClaimOutboxByIDParams
 	return result.RowsAffected()
 }
 
+const clearOutboxDispatchPossible = `-- name: ClearOutboxDispatchPossible :execrows
+UPDATE outbox SET effect_possible = FALSE
+WHERE id = ? AND status = 'sending' AND updated_at = ?
+  AND terminal_at IS NULL AND acknowledged_at IS NULL
+`
+
+type ClearOutboxDispatchPossibleParams struct {
+	ID         string `db:"id" json:"id"`
+	OwnerStamp int64  `db:"owner_stamp" json:"owner_stamp"`
+}
+
+func (q *Queries) ClearOutboxDispatchPossible(ctx context.Context, arg ClearOutboxDispatchPossibleParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, clearOutboxDispatchPossible, arg.ID, arg.OwnerStamp)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const completeOutbox = `-- name: CompleteOutbox :execrows
 UPDATE outbox
 SET status = ?, wa_message_id = ?, error = ?,
@@ -81,9 +100,46 @@ func (q *Queries) CompleteOutbox(ctx context.Context, arg CompleteOutboxParams) 
 	return result.RowsAffected()
 }
 
+const completeOwnedOutbox = `-- name: CompleteOwnedOutbox :execrows
+UPDATE outbox SET status = ?, wa_message_id = COALESCE(?, wa_message_id),
+  error = ?, terminal_at = ?, updated_at = ?,
+  payload = CASE WHEN ? = 'sent' THEN
+    JSON_REMOVE(payload, '$.media.data', '$.medias[0].data', '$.medias[1].data', '$.medias[2].data', '$.medias[3].data', '$.medias[4].data', '$.medias[5].data', '$.medias[6].data', '$.medias[7].data', '$.medias[8].data', '$.medias[9].data')
+    ELSE payload END
+WHERE id = ? AND status = 'sending' AND updated_at = ? AND terminal_at IS NULL
+`
+
+type CompleteOwnedOutboxParams struct {
+	FinalStatus OutboxStatus   `db:"final_status" json:"final_status"`
+	WaMessageID sql.NullString `db:"wa_message_id" json:"wa_message_id"`
+	Error       sql.NullString `db:"error" json:"error"`
+	TerminalAt  sql.NullInt64  `db:"terminal_at" json:"terminal_at"`
+	UpdatedAt   int64          `db:"updated_at" json:"updated_at"`
+	ID          string         `db:"id" json:"id"`
+	OwnerStamp  int64          `db:"owner_stamp" json:"owner_stamp"`
+}
+
+func (q *Queries) CompleteOwnedOutbox(ctx context.Context, arg CompleteOwnedOutboxParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, completeOwnedOutbox,
+		arg.FinalStatus,
+		arg.WaMessageID,
+		arg.Error,
+		arg.TerminalAt,
+		arg.UpdatedAt,
+		arg.FinalStatus,
+		arg.ID,
+		arg.OwnerStamp,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const getOutbox = `-- name: GetOutbox :one
 SELECT id, organization_id, session_id, idempotency_key, payload, status,
-	attempts, next_attempt_at, wa_message_id, error, terminal_at, created_at, updated_at
+	attempts, next_attempt_at, wa_message_id, error, terminal_at, created_at, updated_at,
+	expires_at, acknowledged_at, effect_possible
 FROM outbox
 WHERE id = ?
 `
@@ -106,6 +162,9 @@ type GetOutboxRow struct {
 	TerminalAt     sql.NullInt64   `db:"terminal_at" json:"terminal_at"`
 	CreatedAt      int64           `db:"created_at" json:"created_at"`
 	UpdatedAt      int64           `db:"updated_at" json:"updated_at"`
+	ExpiresAt      sql.NullInt64   `db:"expires_at" json:"expires_at"`
+	AcknowledgedAt sql.NullInt64   `db:"acknowledged_at" json:"acknowledged_at"`
+	EffectPossible bool            `db:"effect_possible" json:"effect_possible"`
 }
 
 func (q *Queries) GetOutbox(ctx context.Context, arg GetOutboxParams) (GetOutboxRow, error) {
@@ -125,13 +184,17 @@ func (q *Queries) GetOutbox(ctx context.Context, arg GetOutboxParams) (GetOutbox
 		&i.TerminalAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ExpiresAt,
+		&i.AcknowledgedAt,
+		&i.EffectPossible,
 	)
 	return i, err
 }
 
 const getOutboxByIdempotency = `-- name: GetOutboxByIdempotency :one
 SELECT id, organization_id, session_id, idempotency_key, payload, status,
-	attempts, next_attempt_at, wa_message_id, error, terminal_at, created_at, updated_at
+	attempts, next_attempt_at, wa_message_id, error, terminal_at, created_at, updated_at,
+	expires_at, acknowledged_at, effect_possible
 FROM outbox
 WHERE organization_id = ? AND idempotency_key = ?
 `
@@ -155,6 +218,9 @@ type GetOutboxByIdempotencyRow struct {
 	TerminalAt     sql.NullInt64   `db:"terminal_at" json:"terminal_at"`
 	CreatedAt      int64           `db:"created_at" json:"created_at"`
 	UpdatedAt      int64           `db:"updated_at" json:"updated_at"`
+	ExpiresAt      sql.NullInt64   `db:"expires_at" json:"expires_at"`
+	AcknowledgedAt sql.NullInt64   `db:"acknowledged_at" json:"acknowledged_at"`
+	EffectPossible bool            `db:"effect_possible" json:"effect_possible"`
 }
 
 func (q *Queries) GetOutboxByIdempotency(ctx context.Context, arg GetOutboxByIdempotencyParams) (GetOutboxByIdempotencyRow, error) {
@@ -174,6 +240,9 @@ func (q *Queries) GetOutboxByIdempotency(ctx context.Context, arg GetOutboxByIde
 		&i.TerminalAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ExpiresAt,
+		&i.AcknowledgedAt,
+		&i.EffectPossible,
 	)
 	return i, err
 }
@@ -181,8 +250,8 @@ func (q *Queries) GetOutboxByIdempotency(ctx context.Context, arg GetOutboxByIde
 const insertOutbox = `-- name: InsertOutbox :exec
 INSERT INTO outbox
 (id, organization_id, session_id, idempotency_key, payload, status, attempts,
- next_attempt_at, wa_message_id, error, terminal_at, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ next_attempt_at, wa_message_id, error, terminal_at, created_at, updated_at, expires_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertOutboxParams struct {
@@ -199,6 +268,7 @@ type InsertOutboxParams struct {
 	TerminalAt     sql.NullInt64   `db:"terminal_at" json:"terminal_at"`
 	CreatedAt      int64           `db:"created_at" json:"created_at"`
 	UpdatedAt      int64           `db:"updated_at" json:"updated_at"`
+	ExpiresAt      sql.NullInt64   `db:"expires_at" json:"expires_at"`
 }
 
 func (q *Queries) InsertOutbox(ctx context.Context, arg InsertOutboxParams) error {
@@ -216,15 +286,59 @@ func (q *Queries) InsertOutbox(ctx context.Context, arg InsertOutboxParams) erro
 		arg.TerminalAt,
 		arg.CreatedAt,
 		arg.UpdatedAt,
+		arg.ExpiresAt,
 	)
 	return err
+}
+
+const markOutboxDispatchPossible = `-- name: MarkOutboxDispatchPossible :execrows
+UPDATE outbox SET effect_possible = TRUE
+WHERE id = ? AND status = 'sending' AND updated_at = ? AND terminal_at IS NULL
+`
+
+type MarkOutboxDispatchPossibleParams struct {
+	ID         string `db:"id" json:"id"`
+	OwnerStamp int64  `db:"owner_stamp" json:"owner_stamp"`
+}
+
+func (q *Queries) MarkOutboxDispatchPossible(ctx context.Context, arg MarkOutboxDispatchPossibleParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, markOutboxDispatchPossible, arg.ID, arg.OwnerStamp)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const recordOutboxAcknowledgement = `-- name: RecordOutboxAcknowledgement :execrows
+UPDATE outbox SET wa_message_id = ?, acknowledged_at = ?
+WHERE id = ? AND status = 'sending' AND updated_at = ? AND terminal_at IS NULL
+`
+
+type RecordOutboxAcknowledgementParams struct {
+	WaMessageID    sql.NullString `db:"wa_message_id" json:"wa_message_id"`
+	AcknowledgedAt sql.NullInt64  `db:"acknowledged_at" json:"acknowledged_at"`
+	ID             string         `db:"id" json:"id"`
+	OwnerStamp     int64          `db:"owner_stamp" json:"owner_stamp"`
+}
+
+func (q *Queries) RecordOutboxAcknowledgement(ctx context.Context, arg RecordOutboxAcknowledgementParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, recordOutboxAcknowledgement,
+		arg.WaMessageID,
+		arg.AcknowledgedAt,
+		arg.ID,
+		arg.OwnerStamp,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const rescheduleOutbox = `-- name: RescheduleOutbox :execrows
 UPDATE outbox
 SET status = ?, error = ?, next_attempt_at = ?,
-    wa_message_id = '', updated_at = ?
-WHERE id = ? AND status = ?
+    updated_at = ?
+WHERE id = ? AND status = ? AND updated_at = ? AND terminal_at IS NULL
 `
 
 type RescheduleOutboxParams struct {
@@ -234,6 +348,7 @@ type RescheduleOutboxParams struct {
 	UpdatedAt     int64          `db:"updated_at" json:"updated_at"`
 	ID            string         `db:"id" json:"id"`
 	SendingStatus OutboxStatus   `db:"sending_status" json:"sending_status"`
+	OwnerStamp    int64          `db:"owner_stamp" json:"owner_stamp"`
 }
 
 func (q *Queries) RescheduleOutbox(ctx context.Context, arg RescheduleOutboxParams) (int64, error) {
@@ -244,6 +359,7 @@ func (q *Queries) RescheduleOutbox(ctx context.Context, arg RescheduleOutboxPara
 		arg.UpdatedAt,
 		arg.ID,
 		arg.SendingStatus,
+		arg.OwnerStamp,
 	)
 	if err != nil {
 		return 0, err
@@ -253,12 +369,14 @@ func (q *Queries) RescheduleOutbox(ctx context.Context, arg RescheduleOutboxPara
 
 const selectDueOutboxForClaim = `-- name: SelectDueOutboxForClaim :many
 SELECT id, organization_id, session_id, idempotency_key, payload, status,
-	attempts, next_attempt_at, wa_message_id, error, terminal_at, created_at, updated_at
+	attempts, next_attempt_at, wa_message_id, error, terminal_at, created_at, updated_at,
+	expires_at, acknowledged_at, effect_possible
 FROM outbox
 WHERE terminal_at IS NULL AND (
   (
     (status = ? OR status = ?)
-    AND next_attempt_at <= ?
+    AND (next_attempt_at <= ?
+      OR (expires_at IS NOT NULL AND expires_at <= ?))
   )
   OR (status = ? AND updated_at <= ?)
 )
@@ -268,12 +386,13 @@ FOR UPDATE SKIP LOCKED
 `
 
 type SelectDueOutboxForClaimParams struct {
-	QueuedStatus  OutboxStatus `db:"queued_status" json:"queued_status"`
-	FailedStatus  OutboxStatus `db:"failed_status" json:"failed_status"`
-	DueBefore     int64        `db:"due_before" json:"due_before"`
-	SendingStatus OutboxStatus `db:"sending_status" json:"sending_status"`
-	StaleBefore   int64        `db:"stale_before" json:"stale_before"`
-	Limit         int32        `db:"limit" json:"limit"`
+	QueuedStatus  OutboxStatus  `db:"queued_status" json:"queued_status"`
+	FailedStatus  OutboxStatus  `db:"failed_status" json:"failed_status"`
+	DueBefore     int64         `db:"due_before" json:"due_before"`
+	ExpiryBefore  sql.NullInt64 `db:"expiry_before" json:"expiry_before"`
+	SendingStatus OutboxStatus  `db:"sending_status" json:"sending_status"`
+	StaleBefore   int64         `db:"stale_before" json:"stale_before"`
+	Limit         int32         `db:"limit" json:"limit"`
 }
 
 type SelectDueOutboxForClaimRow struct {
@@ -290,6 +409,9 @@ type SelectDueOutboxForClaimRow struct {
 	TerminalAt     sql.NullInt64   `db:"terminal_at" json:"terminal_at"`
 	CreatedAt      int64           `db:"created_at" json:"created_at"`
 	UpdatedAt      int64           `db:"updated_at" json:"updated_at"`
+	ExpiresAt      sql.NullInt64   `db:"expires_at" json:"expires_at"`
+	AcknowledgedAt sql.NullInt64   `db:"acknowledged_at" json:"acknowledged_at"`
+	EffectPossible bool            `db:"effect_possible" json:"effect_possible"`
 }
 
 // SelectDueOutboxForClaim returns retryable work: fresh commands whose
@@ -300,6 +422,7 @@ func (q *Queries) SelectDueOutboxForClaim(ctx context.Context, arg SelectDueOutb
 		arg.QueuedStatus,
 		arg.FailedStatus,
 		arg.DueBefore,
+		arg.ExpiryBefore,
 		arg.SendingStatus,
 		arg.StaleBefore,
 		arg.Limit,
@@ -325,6 +448,9 @@ func (q *Queries) SelectDueOutboxForClaim(ctx context.Context, arg SelectDueOutb
 			&i.TerminalAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.ExpiresAt,
+			&i.AcknowledgedAt,
+			&i.EffectPossible,
 		); err != nil {
 			return nil, err
 		}
@@ -341,7 +467,8 @@ func (q *Queries) SelectDueOutboxForClaim(ctx context.Context, arg SelectDueOutb
 
 const selectQueuedOutboxForClaim = `-- name: SelectQueuedOutboxForClaim :many
 SELECT id, organization_id, session_id, idempotency_key, payload, status,
-	attempts, next_attempt_at, wa_message_id, error, terminal_at, created_at, updated_at
+	attempts, next_attempt_at, wa_message_id, error, terminal_at, created_at, updated_at,
+	expires_at, acknowledged_at, effect_possible
 FROM outbox
 WHERE status = ?
   AND terminal_at IS NULL
@@ -371,6 +498,9 @@ type SelectQueuedOutboxForClaimRow struct {
 	TerminalAt     sql.NullInt64   `db:"terminal_at" json:"terminal_at"`
 	CreatedAt      int64           `db:"created_at" json:"created_at"`
 	UpdatedAt      int64           `db:"updated_at" json:"updated_at"`
+	ExpiresAt      sql.NullInt64   `db:"expires_at" json:"expires_at"`
+	AcknowledgedAt sql.NullInt64   `db:"acknowledged_at" json:"acknowledged_at"`
+	EffectPossible bool            `db:"effect_possible" json:"effect_possible"`
 }
 
 func (q *Queries) SelectQueuedOutboxForClaim(ctx context.Context, arg SelectQueuedOutboxForClaimParams) ([]SelectQueuedOutboxForClaimRow, error) {
@@ -401,6 +531,9 @@ func (q *Queries) SelectQueuedOutboxForClaim(ctx context.Context, arg SelectQueu
 			&i.TerminalAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.ExpiresAt,
+			&i.AcknowledgedAt,
+			&i.EffectPossible,
 		); err != nil {
 			return nil, err
 		}

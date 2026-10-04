@@ -14,6 +14,7 @@ import (
 
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/authz"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/config"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/dbmigrate"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/pki/localmysql"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/service"
@@ -35,17 +36,34 @@ const (
 	e2eTextQuoteWAID = "e2e-quoted-text"
 	e2eOrgAKey       = "e2e-key-organization-a"
 	e2eOrgBKey       = "e2e-key-organization-b"
+	e2eReadOnlyKey   = "e2e-key-read-only"
 )
 
 func TestOutboundE2E(t *testing.T) {
 	infra := e2eStartInfra(t)
 	t.Log("disposable MySQL and Redis ready")
+	runE2EOutboxUpgrade(t, infra)
 	adminToken := setupE2EJWT(t, infra)
 	external := setupE2EExternalServices(t, infra)
 	infra.startAPI(t)
 	t.Log("API ready")
 	seedE2EAuth(t, infra.db)
 	t.Log("API keys seeded")
+	t.Run("pre-upgrade ambiguous retry exhausts as unknown without engine target", func(t *testing.T) {
+		ctx, cancel := e2eContext(t)
+		defer cancel()
+		e2eEventually(t, ctx, "upgraded retry terminal unknown", func() bool {
+			var state string
+			var possible bool
+			return infra.db.QueryRowContext(ctx,
+				`SELECT status,effect_possible FROM outbox WHERE id='e2e-upgrade-ambiguous'`).
+				Scan(&state, &possible) == nil && state == string(domain.OutboxUnknown) && possible
+		})
+		if _, err := infra.db.ExecContext(ctx,
+			`DELETE FROM wa_sessions WHERE id='missing-engine-session'`); err != nil {
+			t.Fatal(err)
+		}
+	})
 	gateway := infra.startGateway(t)
 	t.Log("gateway ready")
 	t.Run("reply to group image carries quoted author and image context", func(t *testing.T) {
@@ -134,6 +152,7 @@ func TestOutboundE2E(t *testing.T) {
 	})
 	runE2ESendTypes(t, infra, gateway)
 	runE2EAsyncSend(t, infra, gateway)
+	runE2EOutboxContract(t, infra, gateway)
 	t.Run("message operations", func(t *testing.T) {
 		runE2EMessageOperations(t, infra, gateway)
 	})
@@ -149,8 +168,9 @@ func TestOutboundE2E(t *testing.T) {
 			t.Fatal(err)
 		}
 		before := len(gateway.getCaptures(t))
+		expiresAt := time.Now().Add(time.Second).UnixMilli()
 		status, _ := infra.send(t, e2eOrgAKey, "projection-fault-1", domain.SendRequest{
-			Type: domain.SendTypeText, To: e2eGroupJID, Text: "projection recovery",
+			Type: domain.SendTypeText, To: e2eGroupJID, Text: "projection recovery", ExpiresAt: &expiresAt,
 		})
 		captures := gateway.waitCaptureCount(t, before+1)
 		waID := captures[len(captures)-1].ID
@@ -166,6 +186,14 @@ func TestOutboundE2E(t *testing.T) {
 		}
 		if prematureHistory != 0 || prematureEvent != 0 {
 			t.Fatalf("projection fault leaked %d history rows and %d sent events", prematureHistory, prematureEvent)
+		}
+		var acknowledgedAt sql.NullInt64
+		if err := infra.db.QueryRow(`SELECT acknowledged_at FROM outbox WHERE organization_id=? AND idempotency_key=?`,
+			e2eOrgA, "projection-fault-1").Scan(&acknowledgedAt); err != nil || !acknowledgedAt.Valid {
+			t.Fatalf("validated engine acknowledgement not saved before projection retry: %v %+v", err, acknowledgedAt)
+		}
+		if wait := time.Until(time.UnixMilli(expiresAt)); wait > 0 {
+			time.Sleep(wait)
 		}
 		if _, err := infra.db.Exec(`DROP TRIGGER e2e_reject_sent_projection`); err != nil {
 			t.Fatal(err)
@@ -217,6 +245,40 @@ func TestOutboundE2E(t *testing.T) {
 	}
 	t.Logf("shared WhatsApp peer evidence: %s", peerEvidence)
 	runE2EFakeMode(t, infra, adminToken)
+}
+
+// A retry accepted under schema 0018 has no dispatch-possibility field. The
+// upgrade conservatively retains that uncertainty before the API is started.
+func runE2EOutboxUpgrade(t *testing.T, infra *e2eInfra) {
+	t.Helper()
+	if err := dbmigrate.Run(infra.dsn, dbmigrate.Down); err != nil {
+		t.Fatalf("return disposable schema to 0018: %v", err)
+	}
+	now := time.Now().UnixMilli()
+	if _, err := infra.db.Exec(`INSERT INTO outbox
+		(id,organization_id,session_id,idempotency_key,payload,status,attempts,
+		next_attempt_at,created_at,updated_at)
+		VALUES ('e2e-upgrade-ambiguous','e2e-upgrade-org','missing-engine-session',
+		'upgrade-ambiguous','{"type":"text","to":"555@s.whatsapp.net","text":"never reclassify"}',
+		'queued',9,0,?,?)`, now, now); err != nil {
+		t.Fatalf("seed 0018 ambiguous retry: %v", err)
+	}
+	if err := dbmigrate.Run(infra.dsn, dbmigrate.Up); err != nil {
+		t.Fatalf("upgrade 0018 retry to 0019: %v", err)
+	}
+	var possible bool
+	if err := infra.db.QueryRow(`SELECT effect_possible FROM outbox WHERE id='e2e-upgrade-ambiguous'`).
+		Scan(&possible); err != nil || !possible {
+		t.Fatalf("migration erased old retry uncertainty: possible=%t err=%v", possible, err)
+	}
+	// The session is valid at dispatch time, but no gateway or assignment
+	// exists for its recorded target, so the private engine cannot be reached.
+	if _, err := infra.db.Exec(`INSERT INTO wa_sessions
+		(id,organization_id,gateway_id,status,rate_per_min,rate_per_hour,created_at,updated_at)
+		VALUES ('missing-engine-session','e2e-upgrade-org','unavailable-gateway','working',0,0,?,?)`,
+		now, now); err != nil {
+		t.Fatalf("seed upgraded session with unavailable engine: %v", err)
+	}
 }
 
 type e2eGatewayEnrollment struct {
@@ -301,15 +363,16 @@ func seedE2EAuth(t *testing.T, db *sql.DB) {
 	)`); err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []struct{ id, org, raw string }{
-		{id: "e2e-key-a", org: e2eOrgA, raw: e2eOrgAKey},
-		{id: "e2e-key-b", org: e2eOrgB, raw: e2eOrgBKey},
+	for _, key := range []struct{ id, org, raw, permissions string }{
+		{id: "e2e-key-a", org: e2eOrgA, raw: e2eOrgAKey, permissions: `{"gateway":["read","send","manage","events"]}`},
+		{id: "e2e-key-b", org: e2eOrgB, raw: e2eOrgBKey, permissions: `{"gateway":["read","send","manage","events"]}`},
+		{id: "e2e-key-read-only", org: e2eOrgA, raw: e2eReadOnlyKey, permissions: `{"gateway":["read"]}`},
 	} {
 		_, err := db.Exec(`INSERT INTO apikey
 			(id, reference_id, `+"`key`"+`, enabled, permissions, created_at, updated_at)
 			VALUES (?, ?, ?, true, ?, NOW(3), NOW(3))`,
 			key.id, key.org, authz.DefaultHasher().Hash(key.raw),
-			`{"gateway":["read","send","manage","events"]}`,
+			key.permissions,
 		)
 		if err != nil {
 			t.Fatalf("seed %s: %v", key.id, err)

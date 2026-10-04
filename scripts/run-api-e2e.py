@@ -110,7 +110,7 @@ def main():
                 result["errors"].append("Required E2E suite did not pass")
             if any(value["status"] != "pass" for name, value in result["scenarios"].items() if name.startswith("TestOutboundE2E/")):
                 result["errors"].append("An E2E scenario failed or was skipped")
-            result["images"] = describe(["docker", "image", "inspect", "mysql:8.4", "redis:7-alpine", "--format", "{{json .RepoDigests}} {{.Id}}"])
+            result["images"] = describe(["docker", "image", "inspect", os.environ.get("QWG_E2E_MYSQL_IMAGE", "mysql:8.4"), "redis:7-alpine", "--format", "{{json .RepoDigests}} {{.Id}}"])
         if source_identity() != before:
             result["errors"].append("Source changed during execution; rerun against stable source")
         if not result["errors"]:

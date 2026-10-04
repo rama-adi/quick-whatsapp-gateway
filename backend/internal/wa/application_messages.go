@@ -24,6 +24,7 @@ func (a *ApplicationGatewayAdapter) SendMessage(
 ) (application.SendMessageResult, error) {
 	return runDurableCommand(ctx, a, durableCommand[application.SendMessageResult]{
 		Operation: "send",
+		ExpiresAt: command.ExpiresAt,
 		Target: mutationResult(
 			command.CommandID,
 			command.OrganizationID,
@@ -44,7 +45,14 @@ func (a *ApplicationGatewayAdapter) executeSend(
 	ctx context.Context,
 	command application.SendCommand,
 ) (application.SendMessageResult, error) {
-	dispatchCtx := outbound.WithCommandMessageIDs(outbound.WithSessionID(ctx, command.SessionID), command.CommandID)
+	if command.ExpiresAt != nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(ctx, time.UnixMilli(*command.ExpiresAt))
+		defer cancel()
+	}
+	dispatchCtx := outbound.WithDispatchDeadline(
+		outbound.WithCommandMessageIDs(outbound.WithSessionID(ctx, command.SessionID), command.CommandID),
+		command.ExpiresAt, a.now)
 	waMessageID, ts, dispatchErr := a.dispatch.Dispatch(dispatchCtx, command.Payload)
 	if dispatchErr != nil {
 		// Only deterministic pre-dispatch rejections are terminal failures.
@@ -147,6 +155,7 @@ func (a *ApplicationGatewayAdapter) ExecuteOp(
 ) (application.MessageOpResult, error) {
 	return runDurableCommand(ctx, a, durableCommand[application.MessageOpResult]{
 		Operation: "message-op:" + string(command.Op),
+		ExpiresAt: command.ExpiresAt,
 		Target: mutationResult(
 			command.CommandID,
 			command.OrganizationID,
@@ -169,7 +178,14 @@ func (a *ApplicationGatewayAdapter) executeOp(
 	ctx context.Context,
 	command application.MessageOpCommand,
 ) (application.MessageOpResult, error) {
-	dispatchCtx := outbound.WithCommandMessageIDs(outbound.WithSessionID(ctx, command.SessionID), command.CommandID)
+	if command.ExpiresAt != nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(ctx, time.UnixMilli(*command.ExpiresAt))
+		defer cancel()
+	}
+	dispatchCtx := outbound.WithDispatchDeadline(
+		outbound.WithCommandMessageIDs(outbound.WithSessionID(ctx, command.SessionID), command.CommandID),
+		command.ExpiresAt, a.now)
 	waResult, opErr := a.opDispatch.DispatchOp(dispatchCtx, outbound.OpRequest{
 		Op:      outbound.MessageOp(command.Op),
 		Chat:    command.ChatJID,

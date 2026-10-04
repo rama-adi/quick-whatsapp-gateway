@@ -492,6 +492,23 @@ read queries can compile without making the API a writer or migration owner for 
   `sending` leases, oldest-due first), and `terminal_at` records when a row reached sent/failed.
   The API's `OutboundScheduler` owns these decisions since gRPC Increment 6; each row id is the
   stable engine `command_id` the gateway's result ledger deduplicates on.
+- **Deadline and acknowledgement state (migration 0019).** Nullable `expires_at`
+  stores the first accepted absolute UTC epoch-millisecond deadline; it is never
+  changed on idempotent replay. `effect_possible` records that an engine attempt
+  may have reached WhatsApp. Migration 0019 conservatively sets it for every
+  existing nonterminal attempted or sending row; old retries have no field that
+  proves they stopped before dispatch. Nullable `acknowledged_at` and `wa_message_id`
+  persist a validated remote acknowledgement before history/event projection.
+  `ClaimDue` includes expired queued rows even when `next_attempt_at` lies past
+  the deadline, so a rate-limited row settles at the next worker poll. The
+  dispatch-possible marker, acknowledgement, reschedule, and terminal update
+  all compare the row's current `sending` lease stamp. A stale owner cannot
+  overwrite a newer claim or a terminal acknowledged result. Known acknowledged
+  success is projected and completed as `sent` even if expiry passes meanwhile;
+  possible effects without an acknowledgement settle `unknown` at expiry.
+  An engine-client error proven to occur before its first private mutation RPC
+  clears the marker under the same lease, allowing definite no-dispatch failure
+  on expiry or attempt exhaustion.
 - **No retained media bytes.** An outbound media send carries either inline base64 in
   `outbox.payload.media.data` or a URL in `outbox.payload.media.url`. `OutboxRepo.UpdateStatus`
   strips `$.media.data` (via `JSON_REMOVE`) when the row is marked `sent`, so inline bytes live

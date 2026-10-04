@@ -654,6 +654,7 @@ type SendMessageRequest struct {
 	AssignmentEpoch uint64                 `protobuf:"varint,2,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
 	CommandId       string                 `protobuf:"bytes,3,opt,name=command_id,json=commandId,proto3" json:"command_id,omitempty"`
 	PayloadJson     []byte                 `protobuf:"bytes,4,opt,name=payload_json,json=payloadJson,proto3" json:"payload_json,omitempty"`
+	ExpiresAtUnixMs *int64                 `protobuf:"varint,5,opt,name=expires_at_unix_ms,json=expiresAtUnixMs,proto3,oneof" json:"expires_at_unix_ms,omitempty"`
 	QuoteContext    *QuotedMessageContext  `protobuf:"bytes,16,opt,name=quote_context,json=quoteContext,proto3" json:"quote_context,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
@@ -715,6 +716,13 @@ func (x *SendMessageRequest) GetPayloadJson() []byte {
 		return x.PayloadJson
 	}
 	return nil
+}
+
+func (x *SendMessageRequest) GetExpiresAtUnixMs() int64 {
+	if x != nil && x.ExpiresAtUnixMs != nil {
+		return *x.ExpiresAtUnixMs
+	}
+	return 0
 }
 
 func (x *SendMessageRequest) GetQuoteContext() *QuotedMessageContext {
@@ -895,6 +903,7 @@ type MessageOpRequest struct {
 	NewText         string                 `protobuf:"bytes,9,opt,name=new_text,json=newText,proto3" json:"new_text,omitempty"`
 	Options         []string               `protobuf:"bytes,10,rep,name=options,proto3" json:"options,omitempty"`
 	ToJid           string                 `protobuf:"bytes,11,opt,name=to_jid,json=toJid,proto3" json:"to_jid,omitempty"`
+	ExpiresAtUnixMs *int64                 `protobuf:"varint,12,opt,name=expires_at_unix_ms,json=expiresAtUnixMs,proto3,oneof" json:"expires_at_unix_ms,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -1004,6 +1013,13 @@ func (x *MessageOpRequest) GetToJid() string {
 		return x.ToJid
 	}
 	return ""
+}
+
+func (x *MessageOpRequest) GetExpiresAtUnixMs() int64 {
+	if x != nil && x.ExpiresAtUnixMs != nil {
+		return *x.ExpiresAtUnixMs
+	}
+	return 0
 }
 
 type MessageOpResponse struct {
@@ -3930,14 +3946,16 @@ const file_v1_gateway_engine_proto_rawDesc = "" +
 	"\n" +
 	"command_id\x18\x01 \x01(\tR\tcommandId\x121\n" +
 	"\x06target\x18\x02 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
-	"\x10assignment_epoch\x18\x03 \x01(\x04R\x0fassignmentEpochJ\x04\b\x04\x10\x10\"\x81\x02\n" +
+	"\x10assignment_epoch\x18\x03 \x01(\x04R\x0fassignmentEpochJ\x04\b\x04\x10\x10\"\xca\x02\n" +
 	"\x12SendMessageRequest\x121\n" +
 	"\x06target\x18\x01 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
 	"\x10assignment_epoch\x18\x02 \x01(\x04R\x0fassignmentEpoch\x12\x1d\n" +
 	"\n" +
 	"command_id\x18\x03 \x01(\tR\tcommandId\x12!\n" +
-	"\fpayload_json\x18\x04 \x01(\fR\vpayloadJson\x12E\n" +
-	"\rquote_context\x18\x10 \x01(\v2 .gateway.v1.QuotedMessageContextR\fquoteContextJ\x04\b\x05\x10\x10\"\x91\x01\n" +
+	"\fpayload_json\x18\x04 \x01(\fR\vpayloadJson\x120\n" +
+	"\x12expires_at_unix_ms\x18\x05 \x01(\x03H\x00R\x0fexpiresAtUnixMs\x88\x01\x01\x12E\n" +
+	"\rquote_context\x18\x10 \x01(\v2 .gateway.v1.QuotedMessageContextR\fquoteContextB\x15\n" +
+	"\x13_expires_at_unix_msJ\x04\b\x06\x10\x10\"\x91\x01\n" +
 	"\x14QuotedMessageContext\x12\x19\n" +
 	"\bchat_jid\x18\x01 \x01(\tR\achatJid\x12\x1d\n" +
 	"\n" +
@@ -3951,7 +3969,7 @@ const file_v1_gateway_engine_proto_rawDesc = "" +
 	"\x06target\x18\x02 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
 	"\x10assignment_epoch\x18\x03 \x01(\x04R\x0fassignmentEpoch\x12\"\n" +
 	"\rwa_message_id\x18\x04 \x01(\tR\vwaMessageId\x12%\n" +
-	"\x0fsent_at_unix_ms\x18\x05 \x01(\x03R\fsentAtUnixMsJ\x04\b\x06\x10\x10\"\xe0\x02\n" +
+	"\x0fsent_at_unix_ms\x18\x05 \x01(\x03R\fsentAtUnixMsJ\x04\b\x06\x10\x10\"\xa9\x03\n" +
 	"\x10MessageOpRequest\x121\n" +
 	"\x06target\x18\x01 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
 	"\x10assignment_epoch\x18\x02 \x01(\x04R\x0fassignmentEpoch\x12\x1d\n" +
@@ -3967,7 +3985,9 @@ const file_v1_gateway_engine_proto_rawDesc = "" +
 	"\bnew_text\x18\t \x01(\tR\anewText\x12\x18\n" +
 	"\aoptions\x18\n" +
 	" \x03(\tR\aoptions\x12\x15\n" +
-	"\x06to_jid\x18\v \x01(\tR\x05toJidJ\x04\b\f\x10\x10\"\xe1\x01\n" +
+	"\x06to_jid\x18\v \x01(\tR\x05toJid\x120\n" +
+	"\x12expires_at_unix_ms\x18\f \x01(\x03H\x00R\x0fexpiresAtUnixMs\x88\x01\x01B\x15\n" +
+	"\x13_expires_at_unix_msJ\x04\b\r\x10\x10\"\xe1\x01\n" +
 	"\x11MessageOpResponse\x12\x1d\n" +
 	"\n" +
 	"command_id\x18\x01 \x01(\tR\tcommandId\x121\n" +
@@ -4418,6 +4438,8 @@ func file_v1_gateway_engine_proto_init() {
 	if File_v1_gateway_engine_proto != nil {
 		return
 	}
+	file_v1_gateway_engine_proto_msgTypes[7].OneofWrappers = []any{}
+	file_v1_gateway_engine_proto_msgTypes[10].OneofWrappers = []any{}
 	file_v1_gateway_engine_proto_msgTypes[24].OneofWrappers = []any{}
 	file_v1_gateway_engine_proto_msgTypes[48].OneofWrappers = []any{}
 	type x struct{}

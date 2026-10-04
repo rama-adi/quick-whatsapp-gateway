@@ -32,6 +32,7 @@ type GatewayMessageSender interface {
 		req domain.SendRequest,
 		opts outbound.SendOptions,
 	) (outbound.SendResult, error)
+	LookupByIdempotency(ctx context.Context, organizationID, sessionID, key string) (outbound.SendResult, error)
 }
 
 // NewMessageService constructs a MessageService.
@@ -88,6 +89,13 @@ func (s *MessageService) Send(
 	return s.gatewaySend.Send(ctx, organizationID, sessionID, req, opts)
 }
 
+func (s *MessageService) LookupByIdempotency(ctx context.Context, organizationID, sessionID, key string) (outbound.SendResult, error) {
+	if s.gatewaySend == nil {
+		return outbound.SendResult{}, errLiveUnavailable()
+	}
+	return s.gatewaySend.LookupByIdempotency(ctx, organizationID, sessionID, key)
+}
+
 // op is the shared path for the message-operation sub-resources.
 func (s *MessageService) op(
 	ctx context.Context,
@@ -131,17 +139,18 @@ func (s *MessageService) React(
 	ctx context.Context,
 	organizationID, sessionID, chat, sender, msgID, emoji string,
 ) (outbound.SendResult, error) {
-	return s.ReactWithIdempotency(ctx, organizationID, sessionID, chat, sender, msgID, emoji, "")
+	return s.ReactWithIdempotency(ctx, organizationID, sessionID, chat, sender, msgID, emoji, "", nil)
 }
 
 // ReactWithIdempotency persists one reaction under the caller's stable action ID.
 func (s *MessageService) ReactWithIdempotency(
 	ctx context.Context,
-	organizationID, sessionID, chat, sender, msgID, emoji, idempotencyKey string,
+	organizationID, sessionID, chat, sender, msgID, emoji, idempotencyKey string, expiresAt *int64,
 ) (outbound.SendResult, error) {
 	return s.op(ctx, organizationID, sessionID, outbound.OpRequest{
 		Op:             outbound.OpReaction,
 		IdempotencyKey: idempotencyKey,
+		ExpiresAt:      expiresAt,
 		Chat:           chat,
 		Sender:         sender,
 		MsgID:          msgID,

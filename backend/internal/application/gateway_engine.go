@@ -72,7 +72,17 @@ type SendCommand struct {
 	GatewayID       string
 	AssignmentEpoch uint64
 	Payload         domain.SendRequest
+	ExpiresAt       *int64
 }
+
+// NoDispatchError proves the API-side engine client returned before issuing a
+// private mutation RPC. A scheduler may clear its conservative effect marker
+// only when this wraps an error from the command's first possible attempt.
+// Errors after an RPC begins cannot carry this proof.
+type NoDispatchError struct{ Cause error }
+
+func (e *NoDispatchError) Error() string { return e.Cause.Error() }
+func (e *NoDispatchError) Unwrap() error { return e.Cause }
 
 // MessageOp identifies a message sub-resource operation carried by
 // MessageOpCommand. Values mirror the outbound pipeline's op discriminators.
@@ -103,6 +113,7 @@ type MessageOpCommand struct {
 	NewText         string
 	Options         []string
 	ToJID           string
+	ExpiresAt       *int64
 }
 
 // Definite command-result statuses. Only these are recorded for replay;
@@ -234,6 +245,10 @@ type SendMessageResult struct {
 	MutationResult
 	WAMessageID string
 	SentAt      time.Time
+	// PreparedPayload is the exact media input sent over the private RPC.
+	// It is available on a fresh API dispatch for immediate media projection;
+	// gateway ledger replays return only the durable acknowledgement.
+	PreparedPayload *domain.SendRequest
 }
 
 // MutationResult preserves routing and fencing metadata across the boundary.

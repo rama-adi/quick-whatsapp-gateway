@@ -17,10 +17,10 @@ import (
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 )
 
-// SendResult is the outcome of a send. For sync sends Mode is "sync" and
-// WAMessageID/Status/Timestamp are populated from the whatsmeow ack. For async
-// sends Mode is "async" and only OutboxID is populated (the final status arrives
-// later via a message.status event when the outbox worker drains the row).
+// SendResult is the current durable outcome of a send or reaction. Mode is
+// "async" while queued or sending and "sync" after terminal settlement. A
+// terminal unknown status means a remote effect may have committed; it is not
+// evidence of failure. OutboxID identifies the same row across every replay.
 type SendResult struct {
 	// Mode is "sync" or "async".
 	Mode string `json:"mode"`
@@ -30,12 +30,11 @@ type SendResult struct {
 	// For albums it contains the container followed by each child. It is also
 	// present while pending and does not prove that any message was delivered.
 	ReservedMessageIDs []string `json:"reservedMessageIds,omitempty" doc:"Reserved native WhatsApp message IDs in wire order: one ID for a single message, or the album container followed by each child. Available for pending sends and stable on replay. Reservations do not prove delivery; use mode, status, and waMessageId for the committed outcome."`
-	// Status is the message status after the ack (sync only). For successful
-	// sends this is domain.MessageSent.
+	// Status is populated for a terminal sent, failed, or unknown row.
 	Status domain.MessageStatus `json:"status,omitempty"`
 	// Timestamp is the server timestamp of the send, epoch-ms (sync only).
 	Timestamp int64 `json:"timestamp,omitempty"`
-	// OutboxID is the persisted outbox row id (async only).
+	// OutboxID is the persisted outbox row id for every accepted command.
 	OutboxID string `json:"outboxId,omitempty"`
 	// Replayed is true when this result was returned from a prior send with the
 	// same Idempotency-Key (no new WhatsApp call was made).

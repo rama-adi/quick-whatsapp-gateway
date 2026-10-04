@@ -84,7 +84,7 @@ func (f *fakeCommandStore) ClaimDue(_ context.Context, limit int, _, _, _ int64)
 	return due, nil
 }
 
-func (f *fakeCommandStore) Reschedule(_ context.Context, id string, note string, nextAttemptAt, updatedAt int64) (bool, error) {
+func (f *fakeCommandStore) Reschedule(_ context.Context, id string, _ int64, note string, nextAttemptAt, updatedAt int64) (bool, error) {
 	row, ok := f.rows[id]
 	if !ok || row.Status != domain.OutboxSending {
 		return false, nil
@@ -100,6 +100,41 @@ func (f *fakeCommandStore) Reschedule(_ context.Context, id string, note string,
 		at   int64
 		note string
 	}{id, nextAttemptAt, note})
+	return true, nil
+}
+
+func (f *fakeCommandStore) MarkDispatchPossible(_ context.Context, id string, _ int64) (bool, error) {
+	row := f.rows[id]
+	if row == nil {
+		return false, nil
+	}
+	row.EffectPossible = true
+	return true, nil
+}
+
+func (f *fakeCommandStore) ClearDispatchPossible(_ context.Context, id string, _ int64) (bool, error) {
+	row := f.rows[id]
+	if row == nil {
+		return false, nil
+	}
+	row.EffectPossible = false
+	return true, nil
+}
+
+func (f *fakeCommandStore) RecordAcknowledgement(_ context.Context, id string, _ int64, waID string, at int64) (bool, error) {
+	row := f.rows[id]
+	if row == nil {
+		return false, nil
+	}
+	row.WAMessageID = &waID
+	row.AcknowledgedAt = &at
+	return true, nil
+}
+
+func (f *fakeCommandStore) CompleteOwned(ctx context.Context, id string, _ int64, status domain.OutboxStatus, waID, note *string, at int64) (bool, error) {
+	if err := f.UpdateStatus(ctx, id, status, waID, note, at); err != nil {
+		return false, err
+	}
 	return true, nil
 }
 

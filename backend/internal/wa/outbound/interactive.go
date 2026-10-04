@@ -144,6 +144,9 @@ func (a *whatsmeowAdapter) SendInteractive(
 		extra.AdditionalNodes = &nodes
 	}
 	extra.ID = nextCommandMessageID(ctx)
+	if err := checkDispatchDeadline(ctx); err != nil {
+		return "", 0, err
+	}
 	resp, err := a.transport.SendMessage(ctx, to, msg, extra)
 	if err != nil {
 		// The pinned whatsmeow version exposes the server's message-ack code

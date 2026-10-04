@@ -24,6 +24,7 @@ import (
 
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/media"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/store"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -315,6 +316,93 @@ func runE2EExternalScenarios(t *testing.T, infra *e2eInfra, gateway *e2eGateway,
 			return !remains && string(f.objects["/attachments/user-data/keep.jpg"]) == "unrelated"
 		})
 		e2eRequireStatus(t, infra.request(t, "PUT", binding, e2eOrgAKey, map[string]any{"bucketId": nil}, nil, nil), 200)
+	})
+	t.Run("acknowledged image survives media capture fault and stale expiry owner", func(t *testing.T) {
+		ctx, cancel := e2eContext(t)
+		defer cancel()
+		var bucket media.Bucket
+		e2eRequireStatus(t, infra.request(t, "POST", "/api/v1/storage/buckets", e2eOrgAKey,
+			media.BucketInput{Name: "ack recovery", Endpoint: f.server.URL, Region: "e2e",
+				Bucket: "attachments", PathStyle: true, AccessKey: "e2e", SecretKey: "e2e-secret"},
+			&bucket, nil), http.StatusOK)
+		binding := "/api/v1/sessions/" + e2eSessionID + "/storage"
+		e2eRequireStatus(t, infra.request(t, "PUT", binding, e2eOrgAKey,
+			map[string]any{"bucketId": bucket.ID}, nil, nil), http.StatusOK)
+		defer infra.request(t, "PUT", binding, e2eOrgAKey, map[string]any{"bucketId": nil}, nil, nil)
+		if _, err := infra.db.ExecContext(ctx, `CREATE TRIGGER e2e_reject_media_capture
+			BEFORE INSERT ON media_assets FOR EACH ROW
+			SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='e2e media capture fault'`); err != nil {
+			t.Fatal(err)
+		}
+		triggerPresent := true
+		defer func() {
+			if triggerPresent {
+				_, _ = infra.db.Exec(`DROP TRIGGER e2e_reject_media_capture`)
+			}
+		}()
+		before := len(gateway.getCaptures(t))
+		expiresAt := time.Now().Add(2 * time.Second).UnixMilli()
+		request := domain.SendRequest{Type: domain.SendTypeImage, To: e2eGroupJID,
+			Media: &domain.MediaPayload{Data: base64.StdEncoding.EncodeToString([]byte("acknowledged-image")),
+				Mimetype: "image/png"}, ExpiresAt: &expiresAt}
+		status, pending := infra.send(t, e2eOrgAKey, "media-capture-ack-recovery", request)
+		if status != http.StatusAccepted || pending.OutboxID == "" {
+			t.Fatalf("media capture fault response = %d %+v", status, pending)
+		}
+		capture := gateway.waitCaptureCount(t, before+1)[before]
+		state, waID, ack, queuedStamp := e2eOutboxStatus(t, infra, pending.OutboxID)
+		if state != string(domain.OutboxQueued) || !ack.Valid || !waID.Valid || waID.String != capture.ID {
+			t.Fatalf("acknowledged media fault lost known commit: %s %+v %+v", state, waID, ack)
+		}
+		var originalStamp int64
+		if err := infra.db.QueryRowContext(ctx, `SELECT created_at FROM outbox WHERE id=?`,
+			pending.OutboxID).Scan(&originalStamp); err != nil {
+			t.Fatal(err)
+		}
+		newStamp := queuedStamp + 1000
+		repo := store.NewOutboxRepo(infra.db)
+		claimed, err := repo.ClaimByID(ctx, pending.OutboxID, newStamp, 0)
+		if err != nil || !claimed {
+			t.Fatalf("new owner could not claim acknowledged projection: %t %v", claimed, err)
+		}
+		staleNote := "stale owner falsely settled expiry"
+		owned, err := repo.CompleteOwned(ctx, pending.OutboxID, originalStamp,
+			domain.OutboxUnknown, nil, &staleNote, newStamp+1)
+		if err != nil || owned {
+			t.Fatalf("old owner overwrote acknowledged nonterminal row: %t %v", owned, err)
+		}
+		state, waID, ack, _ = e2eOutboxStatus(t, infra, pending.OutboxID)
+		if state != string(domain.OutboxSending) || !ack.Valid || waID.String != capture.ID {
+			t.Fatalf("stale owner erased known commit: %s %+v %+v", state, waID, ack)
+		}
+		if owned, err = repo.Reschedule(ctx, pending.OutboxID, newStamp,
+			"resume acknowledged projection", time.Now().UnixMilli(), newStamp+1); err != nil || !owned {
+			t.Fatalf("new owner could not resume projection: %t %v", owned, err)
+		}
+		if wait := time.Until(time.UnixMilli(expiresAt)); wait > 0 {
+			time.Sleep(wait)
+		}
+		if _, err := infra.db.ExecContext(ctx, `DROP TRIGGER e2e_reject_media_capture`); err != nil {
+			t.Fatal(err)
+		}
+		triggerPresent = false
+		e2eEventually(t, ctx, "image capture and history after acknowledged expiry", func() bool {
+			var outboxState string
+			var assets, history int
+			err := infra.db.QueryRowContext(ctx, `SELECT status FROM outbox WHERE id=?`,
+				pending.OutboxID).Scan(&outboxState)
+			if err != nil {
+				return false
+			}
+			_ = infra.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM media_assets WHERE message_id=?`,
+				capture.ID).Scan(&assets)
+			_ = infra.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM messages WHERE session_id=? AND wa_message_id=?`,
+				e2eSessionID, capture.ID).Scan(&history)
+			return outboxState == string(domain.OutboxSent) && assets == 1 && history == 1
+		})
+		if got := len(gateway.getCaptures(t)); got != before+1 {
+			t.Fatalf("media projection recovery resent WhatsApp: %d -> %d", before, got)
+		}
 	})
 	t.Run("webhook retries preserve event identity and signature", func(t *testing.T) {
 		ctx, cancel := e2eContext(t)

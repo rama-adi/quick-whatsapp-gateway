@@ -13,7 +13,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/rama-adi/quick-whatsapp-gateway/internal/media"
 	"log/slog"
 	"net"
 	"net/http"
@@ -38,6 +37,7 @@ import (
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/dbmigrate"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/http/handlers"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/media"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/oidp"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/pki/apiidentity"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/pki/localmysql"
@@ -46,6 +46,7 @@ import (
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/service/gatewayadmin"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/store"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/stream"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/wa/outbound"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/webhooks"
 )
 
@@ -343,7 +344,6 @@ func runWithStorageTransport(storageTransport http.RoundTripper) error {
 			return fmt.Errorf("build gateway engine client: %w", identityErr)
 		}
 		mediaStorage.Downloader = engineClient
-		engineClient.CaptureMedia = mediaStorage.CaptureOutbound
 		engineClient.QuoteResolver = st.Messages
 		services.Sessions.SetGatewayLiveFacade(engineClient)
 		services.Presence.SetGatewayLiveFacade(engineClient)
@@ -391,6 +391,16 @@ func runWithStorageTransport(storageTransport http.RoundTripper) error {
 		if schedulerErr != nil {
 			return fmt.Errorf("build outbound scheduler: %w", schedulerErr)
 		}
+		outboundScheduler.SetMediaCapture(func(ctx context.Context, org, session, message string, req domain.SendRequest) error {
+			if req.Media == nil && len(req.Medias) == 0 {
+				return nil
+			}
+			prepared, err := outbound.PrepareEngineMedia(ctx, req)
+			if err != nil {
+				return err
+			}
+			return mediaStorage.CaptureOutbound(ctx, org, session, message, prepared)
+		})
 		outboundScheduler.SetMessageRecorder(service.NewMessageRecorderAdapter(
 			st.Messages,
 			st.Chats,

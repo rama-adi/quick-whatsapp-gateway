@@ -1,5 +1,36 @@
 # Test relevance audit
 
+## Provider outbox contract fault schedule (2026-10-04)
+
+Boundary: authenticated public HTTP → the running API with MySQL outbox and
+Redis rate limiter → private mTLS engine → running gateway, SQLite command
+ledger, and the stateful fake WhatsApp recipient. A recipient capture is a
+remote commit; an outbox acknowledgement, MySQL projection, and caller HTTP
+response are separate observations. `make api-e2e` preserves Go test JSON,
+result/coverage, source identity, and checksums. Reproduce the MySQL contract
+with `QWG_E2E_MYSQL_IMAGE=mysql:8.4 make api-e2e` and the MariaDB contract with
+`QWG_E2E_MYSQL_IMAGE=mariadb:12.3.3 make api-e2e`.
+
+| Fault schedule | Public and persisted evidence |
+|---|---|
+| Apply migration 0019 to a schema-0018 queued row with prior attempts, then start the API with no private engine target and exhaust the remaining attempt. | The migrated row retains `effect_possible=true` and settles `unknown`, never a proven no-dispatch failure. This runs on MySQL 8.4 and MariaDB 12.3.3. |
+| Accept a send, then probe its key as the owner, another org, another owned session, a missing session/key, an unauthenticated caller, and a read-only key. | Only the owner with `send` sees the same sent result; every denial leaves outbox row count, assignments, fake attempts, and recipient captures unchanged. POST replay for a foreign session is also denied before key lookup. |
+| Hold the first reaction at the fake recipient, replay its key and look it up, then probe missing/foreign/no-capability sessions; after acknowledgement, transfer the owning session to another organization and replay the original key again. | Pending replay and lookup return documented 202 bodies; every denied request has no recipient effect. The former replay-before-authorization order returns 200 after the ownership transfer, so this assertion catches it. |
+| Queue with a near deadline, then replay with a later deadline. | The first `expires_at` stays fixed; lookup moves from 202 queued to 200 failed, and no recipient effect appears. |
+| Consume the session's one-minute token, accept an async command with a three-second deadline, and let the worker defer it. | The expired row is claimed at the next two-second worker poll despite its later rate retry; it settles failed with no fake attempt. The prior implementation waited about a minute. |
+| Stop the gateway, accept a timed async send, then restart it. | Pre-RPC errors are proven no-dispatch, the row settles failed at expiry, and the recipient remains unchanged after restart. |
+| Withhold the fixture gateway's advertised private endpoint, then exhaust one permitted attempt and restore the endpoint. | Engine target resolution returns before any RPC, the row settles failed with `effect_possible=false`, and the recipient remains unchanged. |
+| Hold a first queued send in the fake peer until its deadline while a second queued row expires; separately hold a reaction at that same transport barrier. | Each command checks its own clock immediately before a remote call. The second send is never attempted; the held reaction cancels before commit and its possible effect is reported unknown, not failed. |
+| Commit remotely, discard the private response, exhaust the configured attempt budget, then pass the saved expiry and restart the API. | One recipient commit and stable reserved ID; lookup/replay remain terminal 200 `unknown`, with no second dispatch. |
+| Reject MySQL message projection after a validated engine acknowledgement, pass expiry, then clear the trigger. | `acknowledged_at` is saved before projection; recovery completes sent with one history/event and no second recipient effect. |
+| Reject outbound image media-asset insertion after the fake recipient acknowledges, advance past expiry, transfer the still-nonterminal claim to a newer owner, then restore storage. | The old owner cannot settle the newer claim; the outbox keeps its acknowledgement and finishes `sent` with one media asset, one history row, and exactly one recipient effect. Removing the ownership-stamp predicate makes the old owner overwrite it. |
+| Return one successful response for a button-header or image URL and then HTTP 410 for any repeated fetch. | The acknowledged command is `sent`, one fake recipient effect exists, and the source was downloaded once. The image uses the prepared bytes from the first engine dispatch; button headers do not enter media capture. |
+
+The retained scheduler and HTTP isolated tests compile against the updated
+interface; behavior above is verified at the real boundaries. The red
+rate-limiter run and its corrected focused run are preserved under
+`.artifacts/api-e2e/contract-red/` and `.artifacts/api-e2e/contract-green/`.
+
 ## Recording presence and journal recovery
 
 The incident began with a valid `presence.update` carrying `media: "audio"`.
@@ -52,6 +83,7 @@ Validation: run `make api-e2e` for the complete replacement suite and its checks
 | `backend/cmd/api/e2e_infra_test.go` | 0 | 1 | Real-process E2E scenario or its shared fixture; this is the replacement behavior coverage, not an isolated unit test. |
 | `backend/cmd/api/e2e_message_ops_test.go` | 0 | 0 | Real-process E2E scenario or its shared fixture; this is the replacement behavior coverage, not an isolated unit test. |
 | `backend/cmd/api/e2e_oidc_test.go` | 0 | 0 | Real-process E2E scenario or its shared fixture; this is the replacement behavior coverage, not an isolated unit test. |
+| `backend/cmd/api/e2e_outbox_contract_test.go` | 0 | 0 | Real-process HTTP/MySQL/private-engine/fake-recipient outbox contract scenarios from the fault schedule above. |
 | `backend/cmd/api/e2e_public_grpc_test.go` | 0 | 0 | Real-process E2E scenario or its shared fixture; this is the replacement behavior coverage, not an isolated unit test. |
 | `backend/cmd/api/e2e_quotes_test.go` | 0 | 0 | Real-process E2E scenario or its shared fixture; this is the replacement behavior coverage, not an isolated unit test. |
 | `backend/cmd/api/e2e_recovery_test.go` | 0 | 0 | Real-process E2E scenario or its shared fixture; this is the replacement behavior coverage, not an isolated unit test. |
@@ -200,7 +232,7 @@ Validation: run `make api-e2e` for the complete replacement suite and its checks
 | `backend/internal/wa/outbound/engine_media_test.go` | 1 | 1 | Upstream media download failure mapping is absent from E2E successful media transfer. |
 | `backend/internal/wa/outbound/interactive_test.go` | 1 | 1 | Malformed interactive payload constraints are not exercised by E2E valid buttons and list sends. |
 | `backend/internal/wa/outbound/sender_test.go` | 22 | 3 | Mixed URL/base64 album sourcing, album validation bounds, and cancellation during pacing are absent from send-matrix E2E. |
-| `backend/internal/wa/outbound/waclient_test.go` | 3 | 2 | Own group quote identity fallback and wide-image dimensions are not verified by E2E quote/media fixtures. |
+| `backend/internal/wa/outbound/waclient_test.go` | 4 | 3 | Own group quote identity fallback and wide-image dimensions are not verified by E2E quote/media fixtures. The real-process E2E cannot advance the gateway clock between two album transport calls; the adapter test acknowledges its container, advances the injected clock to expiry, then requires no child transport call. |
 | `backend/internal/wa/session_test.go` | 2 | 4 | WhatsApp reconnect classification and jitter bounds require failures the E2E transport does not simulate. |
 | `backend/internal/wa/store/sqlite/sqlite_test.go` | 2 | 4 | Corrupt/missing keystore classification, invalid persistent paths, foreign-key safety, and stopped-volume restore are absent in E2E. |
 | `backend/internal/wa/store/store_test.go` | 3 | 0 | Removed: assertions duplicate E2E behavior, mirror implementation, or detect incidental changes. |

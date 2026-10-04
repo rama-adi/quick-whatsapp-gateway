@@ -119,9 +119,16 @@ func (s *Server) SendMessage(
 	if req.GetAssignmentEpoch() == 0 || req.GetCommandId() == "" || len(req.GetPayloadJson()) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "invalid send-message request")
 	}
+	if req.ExpiresAtUnixMs != nil && *req.ExpiresAtUnixMs <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "expires_at_unix_ms must be positive")
+	}
 	var payload domain.SendRequest
 	if err := json.Unmarshal(req.GetPayloadJson(), &payload); err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid send payload")
+	}
+	if (payload.ExpiresAt == nil) != (req.ExpiresAtUnixMs == nil) ||
+		(payload.ExpiresAt != nil && *payload.ExpiresAt != *req.ExpiresAtUnixMs) {
+		return nil, status.Error(codes.InvalidArgument, "send expiry disagrees with private command deadline")
 	}
 	if quote := req.GetQuoteContext(); quote != nil && payload.ReplyTo != "" {
 		payload.QuoteContext = &domain.SendQuoteContext{
@@ -135,6 +142,7 @@ func (s *Server) SendMessage(
 	result, err := s.Engine.SendMessage(ctx, application.SendCommand{
 		CommandID: req.GetCommandId(), OrganizationID: target.OrganizationId, SessionID: target.SessionId,
 		GatewayID: target.GatewayId, AssignmentEpoch: req.GetAssignmentEpoch(), Payload: payload,
+		ExpiresAt: req.ExpiresAtUnixMs,
 	})
 	if err != nil {
 		slog.Error("gateway send failed", "session", target.SessionId, "type", payload.Type, "err", err)
@@ -161,12 +169,15 @@ func (s *Server) MessageOp(
 	if missingCommand || req.GetOp() == "" || req.GetMessageId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "invalid message-op request")
 	}
+	if req.ExpiresAtUnixMs != nil && *req.ExpiresAtUnixMs <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "expires_at_unix_ms must be positive")
+	}
 	result, err := s.Engine.ExecuteOp(ctx, application.MessageOpCommand{
 		CommandID: req.GetCommandId(), OrganizationID: target.OrganizationId, SessionID: target.SessionId,
 		GatewayID: target.GatewayId, AssignmentEpoch: req.GetAssignmentEpoch(),
 		Op: application.MessageOp(req.GetOp()), ChatJID: req.GetChatJid(), SenderJID: req.GetSenderJid(),
 		MessageID: req.GetMessageId(), Emoji: req.GetEmoji(), NewText: req.GetNewText(),
-		Options: req.GetOptions(), ToJID: req.GetToJid(),
+		Options: req.GetOptions(), ToJID: req.GetToJid(), ExpiresAt: req.ExpiresAtUnixMs,
 	})
 	if err != nil {
 		return nil, grpcError(err)

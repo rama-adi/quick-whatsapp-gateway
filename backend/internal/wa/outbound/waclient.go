@@ -57,6 +57,9 @@ func NewWhatsmeowClient(cli *whatsmeow.Client) WAClient {
 // send is the shared tail: dispatch a built message and normalize the response
 // into (waMessageID, epoch-ms timestamp).
 func (a *whatsmeowAdapter) send(ctx context.Context, to types.JID, msg *waE2E.Message) (string, int64, error) {
+	if err := checkDispatchDeadline(ctx); err != nil {
+		return "", 0, err
+	}
 	messageID := nextCommandMessageID(ctx)
 	var resp whatsmeow.SendResponse
 	var err error

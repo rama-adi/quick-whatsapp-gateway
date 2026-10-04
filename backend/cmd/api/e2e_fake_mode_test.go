@@ -113,10 +113,18 @@ func runE2EFakeMode(t *testing.T, infra *e2eInfra, adminToken string) {
 		}
 		start()
 		t.Log("real gateway ready with empty session inventory")
+		e2eEventually(t, ctx, "real fake-mode gateway eligible for placement", func() bool {
+			placement, err := store.NewGatewayRepo(infra.db).PickForPlacement(ctx)
+			return err == nil && placement.ID == enrollment.id &&
+				placement.GRPCEndpoint != nil && *placement.GRPCEndpoint == engine
+		})
 		fakeModeRequest(t, peer.URL+"/v1/numbers/"+number, fakewhatsapp.Config{Scenario: "healthy"}, nil)
 		var created domain.WASession
-		e2eRequireStatus(t, infra.request(t, "POST", "/api/v1/sessions", e2eOrgAKey,
-			map[string]any{"label": "Standalone fake phone", "start": false}, &created, nil), http.StatusCreated)
+		createStatus := infra.request(t, "POST", "/api/v1/sessions", e2eOrgAKey,
+			map[string]any{"label": "Standalone fake phone", "start": false}, &created, nil)
+		if createStatus != http.StatusCreated {
+			t.Fatalf("create session status=%d body=%+v API logs=%s", createStatus, created, infra.apiOutput.String())
+		}
 		if created.GatewayID != enrollment.id {
 			t.Fatalf("session assigned to %s instead of real fake-mode gateway %s", created.GatewayID, enrollment.id)
 		}

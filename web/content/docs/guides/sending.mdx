@@ -21,8 +21,8 @@ curl -X POST https://your-gateway/api/v1/sessions/{id}/messages \
   -d '{"type":"text","to":"628123456789@s.whatsapp.net","text":"Hello"}'
 ```
 
-The reply is a `SendResult`: the WhatsApp message id (`messageId`), the delivery
-`status`, and a `timestamp`. The full request and response shapes are in
+The reply is a `SendResult`: `waMessageId`, `status`, `timestamp`, and the
+durable `outboxId` for an accepted command. The full request and response shapes are in
 [send a message](/docs/api/messages/sendMessage).
 
 ## Message types
@@ -136,21 +136,43 @@ Once a message exists, these endpoints act on it by its message id:
 ## Sync vs. async
 
 By default the send is **synchronous**: the call blocks until WhatsApp
-acknowledges the message, then returns `200` with the `messageId` and `status`.
+acknowledges the message and its local projection is saved, then returns `200`
+with `mode: "sync"` and `status: "sent"`.
 
-Add `?async=true` to enqueue the send instead. You get `202` right away, and the
-final delivery status arrives later as a `message.status`
-[event](/docs/guides/receiving).
+Add `?async=true` to enqueue the send instead. You get `202` with
+`mode: "async"` and an `outboxId`. Use the idempotency lookup below to read
+the current durable command status. `message.status`
+[events](/docs/guides/receiving) report later WhatsApp delivery receipts for
+messages that were sent.
 
 ## Retrying safely (idempotency)
 
-Send the same request twice — say, after a network timeout — and you risk sending
-the message twice. To prevent that, pass an `Idempotency-Key` header with a value
-you choose. If a request with the same key has already run, the gateway returns
-the original result instead of sending again.
+Pass an `Idempotency-Key` header with a value you choose. If a request with
+that key has already been accepted, the API returns its **current durable
+result** with `replayed: true` and does not send again. A queued or sending
+command returns `202` with `mode: "async"`; a sent, failed, or unknown command
+returns `200` with `mode: "sync"` and the corresponding `status`. `unknown`
+means WhatsApp may have committed the effect; do not submit it under a new key.
 
-The key is scoped to your organization, so the same key reused across sessions in
-the same org counts as the same request.
+Read the status without submitting another send:
+
+```bash
+curl 'https://your-gateway/api/v1/sessions/{id}/outbox/by-idempotency?key=your-key' \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+The lookup needs `send` permission and access to the original session. A
+missing key or a key accepted for another session returns `404`. Keys are
+unique within an organization, so choose a new key for each distinct action.
+The lookup does not contact WhatsApp or schedule delivery.
+
+You may add `expiresAt` to a send body or reaction body as an absolute UTC
+Unix epoch millisecond. The first accepted deadline stays fixed if you reuse
+the key, even if a later request supplies a different value. Once the deadline
+passes, no new WhatsApp transport call starts. An expiry before any possible
+dispatch settles `failed`; an expiry after dispatch may have started can settle
+`unknown`. A validated WhatsApp acknowledgement remains `sent` even if the
+local history projection finishes after the deadline.
 
 ## Rate limits
 

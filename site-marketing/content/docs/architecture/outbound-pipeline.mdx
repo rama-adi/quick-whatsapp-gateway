@@ -52,6 +52,13 @@ protocol adapter; the final decisions section describes current scheduler semant
   drains the row.
 - Idempotency: an **organization-scoped** `Idempotency-Key` (keyed by `organization_id`, §7/§10); a replay returns the original
   result with `replayed:true` and makes no new WhatsApp call.
+- Optional `expiresAt` on sends and reactions is an absolute UTC Unix epoch
+  millisecond. The first accepted outbox row freezes it, including when a later
+  request reuses the key with a different deadline. No new WhatsApp transport
+  call starts at or after that instant; a call already in transport can still
+  have an uncertain outcome. The gateway checks the same deadline after its
+  command lookup and fence, and every album container/child and reaction send
+  checks its deadline immediately before the transport call.
 - Rate limiting: per-session token budget in Redis (`rate_per_min` /
   `rate_per_hour`); sync over-limit → `rate_limited` error; async over-limit →
   defer (the row stays queued).
@@ -292,14 +299,28 @@ atomic op.
   acknowledgement gap.
   Resource-specific implementations live in the gateway adapter's message, resource, and
   lifecycle modules; `command_execution.go` owns shared validation, fencing, and replay.
-- **Ambiguity policy**: only deterministic pre-dispatch rejections (domain validation errors,
-  including a replayed prior ledger failure) are terminal `failed`. Unavailable gateways, stale
-  assignment epochs (conflict), and lost deadlines reschedule to `queued` with exponential
-  backoff (`next_attempt_at`). After the configured attempt budget, the row becomes terminal
-  `unknown`: its remote effect may have committed, so an idempotent send replay returns `202`
-  with the same outbox ID and never reports a definite failure or dispatches that command again.
-  A channel agent keeps later messages behind that unresolved action. The stale-`sending` lease must exceed the engine
-  send deadline so an in-flight dispatch is never reclaimed mid-flight.
+- **Ambiguity and expiry**: a deadline passed before any possible dispatch
+  settles `failed`; a deadline passed after dispatch may have started settles
+  `unknown`. Unavailable gateways, stale assignment epochs, and lost responses
+  reschedule to `queued` with exponential backoff while the deadline is live.
+  The worker also claims expired queued rows whose scheduled rate-limit retry
+  is later than the deadline. After the configured attempt budget, unresolved
+  work becomes terminal `unknown` only if a WhatsApp effect was possible;
+  attempts that all stopped before issuing a private RPC settle `failed`.
+  Neither terminal state dispatches again.
+  A terminal replay and lookup return HTTP `200`, `mode:"sync"`, and
+  `status:"unknown"` with the original outbox ID and reserved native IDs for a
+  send. An initial call that expires after dispatch became possible returns a
+  service-unavailable error; callers use its key to read the durable result.
+  A channel agent keeps later messages behind an unresolved action. The
+  stale-`sending` lease exceeds the engine send deadline so an in-flight
+  dispatch is not reclaimed mid-flight.
+  The gateway compares the saved absolute deadline with a fresh clock before
+  every WhatsApp transport call, including each album child after an
+  acknowledged prefix. Context cancellation also interrupts waits. A
+  partially delivered album without a final acknowledgement remains
+  `unknown` with its reserved IDs. Expiry cannot cancel a transport call
+  already in progress.
 - **Sync over-limit = error, async = defer** (open-decision #3): sync returns
   `domain.ErrRateLimited` with `details.retryAfterSeconds`; async persists a
   `queued` row regardless of budget.
@@ -312,6 +333,14 @@ atomic op.
   lookup before dispatch. Repeating the key returns the row's current state;
   a queued operation progresses through the existing worker, and a sent
   operation returns its original WhatsApp message ID.
+  `GET /api/v1/sessions/{session}/outbox/by-idempotency?key=...` reads that
+  row without assigning a gateway, preparing media, or sending. It requires
+  authenticated `send` capability and current organization/session ownership
+  before the key is read; a missing or other-session key returns `404`.
+  Queued/sending returns `202` and `mode:"async"`; sent/failed/unknown returns
+  `200` and `mode:"sync"` with the current durable `status`. The key is unique
+  within an organization, but it cannot replay an entry through another
+  session. Reuse cannot extend or change the first saved expiry.
 - **Async worker ownership is leased and at-least-once**: a database CAS admits
   one scheduler for nonterminal `queued|failed → sending`; a fresh `sending` row is left to its
   owner, while a claim older than the lease (exceeding the engine send deadline) is
@@ -321,6 +350,20 @@ atomic op.
   outcome instead of re-sending. Dispatch
   is bounded by the engine send deadline so a healthy owner finishes before its
   lease expires.
+  Settlement, rescheduling, the dispatch-possible marker, and the saved
+  acknowledgement compare the current lease stamp before changing a row. A
+  first-attempt engine-client error proven to precede a private RPC clears
+  the conservative marker under that same lease; errors after the RPC begins
+  never do. A
+  validated engine acknowledgement is stored as `wa_message_id` and
+  `acknowledged_at` before the API captures outbound media or projects
+  history/events. A fresh engine response carries the already prepared media
+  bytes into capture, so an accepted URL or button header is not fetched a
+  second time after WhatsApp acknowledgement. A media or history projection
+  failure reschedules only that projection. The retry uses the saved
+  acknowledgement and can complete `sent` after expiry without another
+  engine call. A stale owner
+  cannot overwrite that result.
 - **Worker ownership is a database CAS**: before dispatching a queued task, a worker calls
   `ClaimByID`, which atomically changes `queued` (first attempt), `failed` (retry), or a
   lease-expired `sending` row to `sending`, increments attempts, and reports whether it won.
@@ -340,7 +383,11 @@ atomic op.
   URL, then hands the bytes to `SendMedia`. Inline bytes ride the `outbox`
   payload only until dispatch — `store.OutboxRepo.UpdateStatus` strips
   `$.media.data` once the row is `sent` (kept on `failed` for retry). URL sends
-  retain the URL in the request payload for retry. The `messages` row records
+  retain the URL in the request payload for retry. A fresh acknowledgement
+  captures the prepared bytes without another URL request; if capture fails,
+  a later projection retry needs that URL to remain fetchable. The saved
+  acknowledgement prevents another WhatsApp dispatch while capture waits.
+  The `messages` row records
   only the caption + media metadata, never the bytes.
 - **Reusable Sender pacing** is opt-in jitter (`WithPacing`), currently unwired
   in production scheduler composition, applied before each helper sync dispatch;

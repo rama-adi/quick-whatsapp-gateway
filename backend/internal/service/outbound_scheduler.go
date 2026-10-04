@@ -33,7 +33,11 @@ type outboundCommandStore interface {
 		updatedAt int64,
 	) error
 	ClaimDue(ctx context.Context, limit int, dueBefore, staleBefore, updatedAt int64) ([]domain.OutboxEntry, error)
-	Reschedule(ctx context.Context, id string, note string, nextAttemptAt, updatedAt int64) (bool, error)
+	Reschedule(ctx context.Context, id string, ownerStamp int64, note string, nextAttemptAt, updatedAt int64) (bool, error)
+	MarkDispatchPossible(ctx context.Context, id string, ownerStamp int64) (bool, error)
+	ClearDispatchPossible(ctx context.Context, id string, ownerStamp int64) (bool, error)
+	RecordAcknowledgement(ctx context.Context, id string, ownerStamp int64, waID string, acknowledgedAt int64) (bool, error)
+	CompleteOwned(ctx context.Context, id string, ownerStamp int64, status domain.OutboxStatus, waID, note *string, updatedAt int64) (bool, error)
 }
 
 // OutboundScheduler is the API-owned send pipeline (Increment 6): it owns
@@ -58,14 +62,15 @@ type outboundEngine interface {
 // messages-table projection for the gateway's own sends (the legacy gateway
 // MessageRecorder moved API-side with the MySQL cutover).
 type OutboundScheduler struct {
-	sessions    outboundSessionSource
-	outbox      outboundCommandStore
-	engine      outboundEngine
-	limiter     outbound.RateLimiter
-	recorder    outbound.MessageRecorder
-	publishSent func(context.Context, domain.Event) error
-	log         *slog.Logger
-	cfg         OutboundSchedulerConfig
+	sessions     outboundSessionSource
+	outbox       outboundCommandStore
+	engine       outboundEngine
+	limiter      outbound.RateLimiter
+	recorder     outbound.MessageRecorder
+	captureMedia func(context.Context, string, string, string, domain.SendRequest) error
+	publishSent  func(context.Context, domain.Event) error
+	log          *slog.Logger
+	cfg          OutboundSchedulerConfig
 }
 
 // OutboundSchedulerConfig is supplied by the composition root; there are no
@@ -153,8 +158,14 @@ func (s *OutboundScheduler) Send(
 			return outbound.SendResult{}, err
 		}
 		if found {
+			if prior.SessionID != sessionID {
+				return outbound.SendResult{}, domain.ErrNotFound("outbox entry not found")
+			}
 			return replayOutboxResult(prior), nil
 		}
+	}
+	if err := s.validateExpiry(req.ExpiresAt); err != nil {
+		return outbound.SendResult{}, err
 	}
 	if opts.Async {
 		return s.enqueueAsync(ctx, sess, req, opts)
@@ -163,6 +174,32 @@ func (s *OutboundScheduler) Send(
 }
 
 func (s *OutboundScheduler) now() time.Time { return s.cfg.Now().UTC() }
+
+func (s *OutboundScheduler) validateExpiry(expiresAt *int64) error {
+	if expiresAt != nil && *expiresAt <= s.now().UnixMilli() {
+		return domain.ErrValidation("expiresAt must be a future UTC epoch millisecond")
+	}
+	return nil
+}
+
+// LookupByIdempotency is a read of an already authorized, session-owned row.
+// It never resolves a gateway assignment, admits work, or changes the outbox.
+func (s *OutboundScheduler) LookupByIdempotency(ctx context.Context, organizationID, sessionID, key string) (outbound.SendResult, error) {
+	if key == "" {
+		return outbound.SendResult{}, domain.ErrValidation("key is required")
+	}
+	if _, err := s.session(ctx, organizationID, sessionID); err != nil {
+		return outbound.SendResult{}, err
+	}
+	entry, found, err := s.priorByIdempotency(ctx, organizationID, key)
+	if err != nil {
+		return outbound.SendResult{}, err
+	}
+	if !found || entry.SessionID != sessionID {
+		return outbound.SendResult{}, domain.ErrNotFound("outbox entry not found")
+	}
+	return replayOutboxResult(entry), nil
+}
 
 func (s *OutboundScheduler) session(ctx context.Context, organizationID, sessionID string) (domain.WASession, error) {
 	sess, err := s.sessions.Get(ctx, sessionID)
@@ -200,10 +237,13 @@ func (s *OutboundScheduler) enqueueAsync(
 	opts outbound.SendOptions,
 ) (outbound.SendResult, error) {
 	now := s.now()
-	entry := s.newCommand(sess, opts.IdempotencyKey, domain.OutboxQueued, now)
+	entry := s.newCommand(sess, opts.IdempotencyKey, domain.OutboxQueued, now, req.ExpiresAt)
 	if err := s.insertCommand(ctx, entry, req); err != nil {
 		if opts.IdempotencyKey != "" {
 			if prior, found, gerr := s.priorByIdempotency(ctx, sess.OrganizationID, opts.IdempotencyKey); gerr == nil && found {
+				if prior.SessionID != sess.ID {
+					return outbound.SendResult{}, domain.ErrNotFound("outbox entry not found")
+				}
 				return replayOutboxResult(prior), nil
 			}
 		}
@@ -228,13 +268,19 @@ func (s *OutboundScheduler) sendSync(
 		return outbound.SendResult{}, domain.ErrRateLimited("send rate limit exceeded").
 			WithDetails(map[string]any{"retryAfterSeconds": int(retryAfter.Seconds())})
 	}
+	if err := s.validateExpiry(req.ExpiresAt); err != nil {
+		return outbound.SendResult{}, err
+	}
 
 	now := s.now()
-	entry := s.newCommand(sess, opts.IdempotencyKey, domain.OutboxSending, now)
+	entry := s.newCommand(sess, opts.IdempotencyKey, domain.OutboxSending, now, req.ExpiresAt)
 	entry.Attempts = 1 // this call is attempt one; the lease is stamped by updated_at
 	if err := s.insertCommand(ctx, entry, req); err != nil {
 		if opts.IdempotencyKey != "" {
 			if prior, found, gerr := s.priorByIdempotency(ctx, sess.OrganizationID, opts.IdempotencyKey); gerr == nil && found {
+				if prior.SessionID != sess.ID {
+					return outbound.SendResult{}, domain.ErrNotFound("outbox entry not found")
+				}
 				return replayOutboxResult(prior), nil
 			}
 		}
@@ -244,6 +290,7 @@ func (s *OutboundScheduler) sendSync(
 	result, err := s.dispatchClaimed(ctx, entry, req, false)
 	if err == nil {
 		result.ReservedMessageIDs = outbound.ReservedMessageIDs(entry.ID, req)
+		result.OutboxID = entry.ID
 	}
 	return result, err
 }
@@ -254,6 +301,7 @@ func (s *OutboundScheduler) newCommand(
 	idempotencyKey string,
 	status domain.OutboxStatus,
 	now time.Time,
+	expiresAt *int64,
 ) domain.OutboxEntry {
 	return domain.OutboxEntry{
 		ID:             domain.NewULID(),
@@ -263,6 +311,7 @@ func (s *OutboundScheduler) newCommand(
 		Status:         status,
 		CreatedAt:      now.UnixMilli(),
 		UpdatedAt:      now.UnixMilli(),
+		ExpiresAt:      expiresAt,
 	}
 }
 
@@ -304,7 +353,7 @@ func (s *OutboundScheduler) processDue(ctx context.Context) {
 			// A malformed payload can never succeed; recording it terminal keeps
 			// it from churning forever.
 			note := "malformed stored payload"
-			if uerr := s.outbox.UpdateStatus(ctx, entry.ID, domain.OutboxFailed, nil, &note, s.now().UnixMilli()); uerr != nil {
+			if uerr := s.complete(ctx, entry, domain.OutboxFailed, nil, &note, s.now().UnixMilli()); uerr != nil {
 				s.log.WarnContext(ctx, "record malformed outbound command failed", "command", entry.ID, "err", uerr)
 			}
 			continue
@@ -325,13 +374,16 @@ func (s *OutboundScheduler) dispatchClaimed(
 	req domain.SendRequest,
 	checkLimit bool,
 ) (outbound.SendResult, error) {
+	if entry.AcknowledgedAt == nil && s.expired(entry) && !entry.EffectPossible {
+		return outbound.SendResult{}, s.expireClaim(ctx, entry)
+	}
 	// Op commands encode their discriminator in the payload's "type" field,
 	// which is disjoint from every SendRequest type.
 	if isOpType(req.Type) {
 		var payload opPayload
 		if err := json.Unmarshal(entry.Payload, &payload); err != nil {
 			note := "malformed stored op payload"
-			if uerr := s.outbox.UpdateStatus(ctx, entry.ID, domain.OutboxFailed, nil, &note, s.now().UnixMilli()); uerr != nil {
+			if uerr := s.complete(ctx, entry, domain.OutboxFailed, nil, &note, s.now().UnixMilli()); uerr != nil {
 				return outbound.SendResult{}, uerr
 			}
 			return outbound.SendResult{}, fmt.Errorf("%s", note)
@@ -340,7 +392,7 @@ func (s *OutboundScheduler) dispatchClaimed(
 	}
 	now := s.now()
 
-	if checkLimit {
+	if checkLimit && entry.AcknowledgedAt == nil && !s.expired(entry) {
 		sess, err := s.sessions.Get(ctx, entry.SessionID)
 		if err != nil {
 			return outbound.SendResult{}, s.ambiguous(ctx, entry, fmt.Sprintf("session lookup: %v", err))
@@ -350,9 +402,13 @@ func (s *OutboundScheduler) dispatchClaimed(
 			return outbound.SendResult{}, s.ambiguous(ctx, entry, fmt.Sprintf("rate check: %v", err))
 		}
 		if !ok {
+			if s.expired(entry) && !entry.EffectPossible {
+				return outbound.SendResult{}, s.expireClaim(ctx, entry)
+			}
 			if _, rerr := s.outbox.Reschedule(
 				ctx,
 				entry.ID,
+				entry.UpdatedAt,
 				"rate limited",
 				now.Add(retryAfter).UnixMilli(),
 				now.UnixMilli(),
@@ -363,72 +419,131 @@ func (s *OutboundScheduler) dispatchClaimed(
 				WithDetails(map[string]any{"retryAfterSeconds": int(retryAfter.Seconds())})
 		}
 	}
+	if entry.AcknowledgedAt == nil && s.expired(entry) && !entry.EffectPossible {
+		return outbound.SendResult{}, s.expireClaim(ctx, entry)
+	}
 
-	result, err := s.engine.SendMessage(ctx, application.SendCommand{
-		CommandID:       entry.ID,
-		OrganizationID:  entry.OrganizationID,
-		SessionID:       entry.SessionID,
-		AssignmentEpoch: 0, // the engine client resolves the current assignment target
-		Payload:         req,
-	})
-	timestamp := now.UnixMilli()
+	wasPossible := entry.EffectPossible
+	var result application.SendMessageResult
+	var err error
+	if entry.AcknowledgedAt != nil && entry.WAMessageID != nil {
+		result.WAMessageID = *entry.WAMessageID
+		result.SentAt = time.UnixMilli(*entry.AcknowledgedAt).UTC()
+	} else {
+		if !entry.EffectPossible {
+			if err := s.markPossible(ctx, entry); err != nil {
+				return outbound.SendResult{}, err
+			}
+		}
+		entry.EffectPossible = true
+		result, err = s.engine.SendMessage(ctx, application.SendCommand{
+			CommandID:       entry.ID,
+			OrganizationID:  entry.OrganizationID,
+			SessionID:       entry.SessionID,
+			AssignmentEpoch: 0, // the engine client resolves the current assignment target
+			Payload:         req,
+			ExpiresAt:       entry.ExpiresAt,
+		})
+	}
+	timestamp := s.now().UnixMilli()
 	if err == nil && !result.SentAt.IsZero() {
 		timestamp = result.SentAt.UnixMilli()
 	}
 	if err != nil {
+		var noDispatch *application.NoDispatchError
+		if !wasPossible && errors.As(err, &noDispatch) {
+			if clearErr := s.clearPossible(ctx, entry); clearErr != nil {
+				return outbound.SendResult{}, clearErr
+			}
+			entry.EffectPossible = false
+		}
 		var apiErr *domain.APIError
-		if errors.As(err, &apiErr) && (apiErr.Code == domain.CodeValidationError || apiErr.Code == domain.CodeNotImplemented) {
+		if !wasPossible && errors.As(err, &apiErr) &&
+			(apiErr.Code == domain.CodeValidationError || apiErr.Code == domain.CodeNotImplemented) {
 			// Deterministic rejection (including a replayed prior failure from
 			// the gateway ledger): terminal.
 			message := err.Error()
-			if uerr := s.outbox.UpdateStatus(ctx, entry.ID, domain.OutboxFailed, nil, &message, timestamp); uerr != nil {
+			if uerr := s.complete(ctx, entry, domain.OutboxFailed, nil, &message, timestamp); uerr != nil {
 				return outbound.SendResult{}, uerr
 			}
 			return outbound.SendResult{}, err
+		}
+		if s.expired(entry) {
+			return outbound.SendResult{}, s.expireClaim(ctx, entry)
 		}
 		return outbound.SendResult{}, s.ambiguous(ctx, entry, err.Error())
 	}
 
 	waID := result.WAMessageID
+	if entry.AcknowledgedAt == nil {
+		if err := s.recordAck(ctx, entry, waID, timestamp); err != nil {
+			return outbound.SendResult{}, err
+		}
+	}
+	if s.captureMedia != nil {
+		captureReq := req
+		if result.PreparedPayload != nil {
+			captureReq = *result.PreparedPayload
+		}
+		if err := s.captureMedia(ctx, entry.OrganizationID, entry.SessionID, waID, captureReq); err != nil {
+			return s.deferProjection(ctx, entry, err)
+		}
+	}
 	// Keep the command retryable until its application projection and event are
 	// durable. Reusing the command ID replays the gateway ledger acknowledgement.
 	if err := s.recordSent(ctx, entry.OrganizationID, entry.SessionID, req, waID, timestamp, entry.ID); err != nil {
-		note := "acknowledged send awaiting projection: " + err.Error()
-		if _, retryErr := s.outbox.Reschedule(ctx, entry.ID, note,
-			s.now().Add(s.cfg.BackoffBase).UnixMilli(), s.now().UnixMilli()); retryErr != nil {
-			return outbound.SendResult{}, retryErr
-		}
-		return outbound.SendResult{Mode: outbound.ModeAsync, OutboxID: entry.ID}, nil
+		return s.deferProjection(ctx, entry, err)
 	}
-	if uerr := s.outbox.UpdateStatus(ctx, entry.ID, domain.OutboxSent, &waID, nil, timestamp); uerr != nil {
+	if uerr := s.complete(ctx, entry, domain.OutboxSent, &waID, nil, timestamp); uerr != nil {
 		return outbound.SendResult{}, uerr
 	}
 	return outbound.SendResult{
 		Mode:        outbound.ModeSync,
+		OutboxID:    entry.ID,
 		WAMessageID: waID,
 		Status:      domain.MessageSent,
 		Timestamp:   timestamp,
 	}, nil
 }
 
+func (s *OutboundScheduler) deferProjection(ctx context.Context, entry domain.OutboxEntry, cause error) (outbound.SendResult, error) {
+	note := "acknowledged send awaiting projection: " + cause.Error()
+	owned, err := s.outbox.Reschedule(ctx, entry.ID, entry.UpdatedAt, note,
+		s.now().Add(s.cfg.BackoffBase).UnixMilli(), s.now().UnixMilli())
+	if err != nil {
+		return outbound.SendResult{}, err
+	}
+	if !owned {
+		return outbound.SendResult{}, domain.ErrConflict("outbox dispatch lease changed")
+	}
+	return outbound.SendResult{Mode: outbound.ModeAsync, OutboxID: entry.ID}, nil
+}
+
+// SetMediaCapture projects acknowledged outbound media. Failures leave the
+// acknowledgement durable and retry only this projection, never the transport.
+func (s *OutboundScheduler) SetMediaCapture(capture func(context.Context, string, string, string, domain.SendRequest) error) {
+	s.captureMedia = capture
+}
+
 // ambiguous reschedules one leased command for a later attempt under the same
 // command id. Exhaustion preserves an explicitly unknown remote outcome.
 func (s *OutboundScheduler) ambiguous(ctx context.Context, entry domain.OutboxEntry, cause string) error {
+	if s.expired(entry) {
+		return s.expireClaim(ctx, entry)
+	}
 	attempt := entry.Attempts
 	if attempt <= 0 {
 		attempt = 1
 	}
 	note := fmt.Sprintf("%s (attempt %d)", cause, attempt)
 	if attempt >= s.cfg.MaxAttempts {
+		status := domain.OutboxUnknown
 		message := fmt.Sprintf("no definite outcome after %d attempts; last error: %s", attempt, cause)
-		if uerr := s.outbox.UpdateStatus(
-			ctx,
-			entry.ID,
-			domain.OutboxUnknown,
-			nil,
-			&message,
-			s.now().UnixMilli(),
-		); uerr != nil {
+		if !entry.EffectPossible {
+			status = domain.OutboxFailed
+			message = fmt.Sprintf("no WhatsApp dispatch after %d attempts; last error: %s", attempt, cause)
+		}
+		if uerr := s.complete(ctx, entry, status, nil, &message, s.now().UnixMilli()); uerr != nil {
 			return uerr
 		}
 		return errors.New(note)
@@ -438,10 +553,74 @@ func (s *OutboundScheduler) ambiguous(ctx context.Context, entry domain.OutboxEn
 		backoff = s.cfg.BackoffCap
 	}
 	next := s.now().Add(backoff)
-	if _, err := s.outbox.Reschedule(ctx, entry.ID, note, next.UnixMilli(), s.now().UnixMilli()); err != nil {
+	if _, err := s.outbox.Reschedule(ctx, entry.ID, entry.UpdatedAt, note, next.UnixMilli(), s.now().UnixMilli()); err != nil {
 		return err
 	}
 	return errors.New(note)
+}
+
+func (s *OutboundScheduler) expired(entry domain.OutboxEntry) bool {
+	return entry.ExpiresAt != nil && s.now().UnixMilli() >= *entry.ExpiresAt
+}
+
+func (s *OutboundScheduler) expireClaim(ctx context.Context, entry domain.OutboxEntry) error {
+	status := domain.OutboxFailed
+	note := "expired before WhatsApp dispatch"
+	if entry.EffectPossible {
+		status = domain.OutboxUnknown
+		note = "expired after dispatch may have started; remote outcome unknown"
+	}
+	if err := s.complete(ctx, entry, status, nil, &note, s.now().UnixMilli()); err != nil {
+		return err
+	}
+	if status == domain.OutboxUnknown {
+		return domain.ErrUnavailable(note)
+	}
+	return domain.ErrValidation(note)
+}
+
+func (s *OutboundScheduler) complete(ctx context.Context, entry domain.OutboxEntry, status domain.OutboxStatus, waID, note *string, at int64) error {
+	owned, err := s.outbox.CompleteOwned(ctx, entry.ID, entry.UpdatedAt, status, waID, note, at)
+	if err != nil {
+		return err
+	}
+	if !owned {
+		return domain.ErrConflict("outbox dispatch lease changed")
+	}
+	return nil
+}
+
+func (s *OutboundScheduler) markPossible(ctx context.Context, entry domain.OutboxEntry) error {
+	owned, err := s.outbox.MarkDispatchPossible(ctx, entry.ID, entry.UpdatedAt)
+	if err != nil {
+		return err
+	}
+	if !owned {
+		return domain.ErrConflict("outbox dispatch lease changed")
+	}
+	return nil
+}
+
+func (s *OutboundScheduler) clearPossible(ctx context.Context, entry domain.OutboxEntry) error {
+	owned, err := s.outbox.ClearDispatchPossible(ctx, entry.ID, entry.UpdatedAt)
+	if err != nil {
+		return err
+	}
+	if !owned {
+		return domain.ErrConflict("outbox dispatch lease changed")
+	}
+	return nil
+}
+
+func (s *OutboundScheduler) recordAck(ctx context.Context, entry domain.OutboxEntry, waID string, at int64) error {
+	owned, err := s.outbox.RecordAcknowledgement(ctx, entry.ID, entry.UpdatedAt, waID, at)
+	if err != nil {
+		return err
+	}
+	if !owned {
+		return domain.ErrConflict("outbox dispatch lease changed")
+	}
+	return nil
 }
 
 // replayOutboxResult reconstructs a SendResult from a stored row so an
@@ -465,7 +644,8 @@ func replayOutboxResult(e *domain.OutboxEntry) outbound.SendResult {
 		r.Mode = outbound.ModeSync
 		r.Status = domain.MessageFailed
 	case domain.OutboxUnknown:
-		r.Mode = outbound.ModeAsync
+		r.Mode = outbound.ModeSync
+		r.Status = domain.MessageUnknown
 	default: // queued / sending
 		r.Mode = outbound.ModeAsync
 	}
@@ -641,39 +821,42 @@ func optionalString(value string) *string {
 // "type" values (reaction/edit/revoke/vote/forward) are disjoint from every
 // SendRequest type, so dispatchClaimed can branch on the decoded type alone.
 type opPayload struct {
-	Type    outbound.MessageOp `json:"type"`
-	Chat    string             `json:"chat,omitempty"`
-	Sender  string             `json:"sender,omitempty"`
-	MsgID   string             `json:"msgId,omitempty"`
-	Emoji   string             `json:"emoji,omitempty"`
-	NewText string             `json:"newText,omitempty"`
-	Options []string           `json:"options,omitempty"`
-	To      string             `json:"to,omitempty"`
+	Type      outbound.MessageOp `json:"type"`
+	ExpiresAt *int64             `json:"expiresAt,omitempty"`
+	Chat      string             `json:"chat,omitempty"`
+	Sender    string             `json:"sender,omitempty"`
+	MsgID     string             `json:"msgId,omitempty"`
+	Emoji     string             `json:"emoji,omitempty"`
+	NewText   string             `json:"newText,omitempty"`
+	Options   []string           `json:"options,omitempty"`
+	To        string             `json:"to,omitempty"`
 }
 
 func opRequestToPayload(req outbound.OpRequest) opPayload {
 	return opPayload{
-		Type:    req.Op,
-		Chat:    req.Chat,
-		Sender:  req.Sender,
-		MsgID:   req.MsgID,
-		Emoji:   req.Emoji,
-		NewText: req.NewText,
-		Options: req.Options,
-		To:      req.To,
+		Type:      req.Op,
+		ExpiresAt: req.ExpiresAt,
+		Chat:      req.Chat,
+		Sender:    req.Sender,
+		MsgID:     req.MsgID,
+		Emoji:     req.Emoji,
+		NewText:   req.NewText,
+		Options:   req.Options,
+		To:        req.To,
 	}
 }
 
 func (p opPayload) toOpRequest() outbound.OpRequest {
 	return outbound.OpRequest{
-		Op:      p.Type,
-		Chat:    p.Chat,
-		Sender:  p.Sender,
-		MsgID:   p.MsgID,
-		Emoji:   p.Emoji,
-		NewText: p.NewText,
-		Options: p.Options,
-		To:      p.To,
+		Op:        p.Type,
+		ExpiresAt: p.ExpiresAt,
+		Chat:      p.Chat,
+		Sender:    p.Sender,
+		MsgID:     p.MsgID,
+		Emoji:     p.Emoji,
+		NewText:   p.NewText,
+		Options:   p.Options,
+		To:        p.To,
 	}
 }
 
@@ -698,17 +881,23 @@ func (s *OutboundScheduler) ExecuteOp(
 	if err := outbound.ValidateOp(req); err != nil {
 		return outbound.SendResult{}, err
 	}
+	sess, err := s.session(ctx, organizationID, sessionID)
+	if err != nil {
+		return outbound.SendResult{}, err
+	}
 	if req.IdempotencyKey != "" {
 		prior, found, err := s.priorByIdempotency(ctx, organizationID, req.IdempotencyKey)
 		if err != nil {
 			return outbound.SendResult{}, err
 		}
 		if found {
+			if prior.SessionID != sessionID {
+				return outbound.SendResult{}, domain.ErrNotFound("outbox entry not found")
+			}
 			return replayOutboxResult(prior), nil
 		}
 	}
-	sess, err := s.session(ctx, organizationID, sessionID)
-	if err != nil {
+	if err := s.validateExpiry(req.ExpiresAt); err != nil {
 		return outbound.SendResult{}, err
 	}
 	ok, retryAfter, err := s.limiter.Allow(ctx, sess.ID, sess.RatePerMin, sess.RatePerHour)
@@ -719,8 +908,11 @@ func (s *OutboundScheduler) ExecuteOp(
 		return outbound.SendResult{}, domain.ErrRateLimited("send rate limit exceeded").
 			WithDetails(map[string]any{"retryAfterSeconds": int(retryAfter.Seconds())})
 	}
+	if err := s.validateExpiry(req.ExpiresAt); err != nil {
+		return outbound.SendResult{}, err
+	}
 	now := s.now()
-	entry := s.newCommand(sess, req.IdempotencyKey, domain.OutboxSending, now)
+	entry := s.newCommand(sess, req.IdempotencyKey, domain.OutboxSending, now, req.ExpiresAt)
 	entry.Attempts = 1
 	payload, err := json.Marshal(opRequestToPayload(req))
 	if err != nil {
@@ -730,6 +922,9 @@ func (s *OutboundScheduler) ExecuteOp(
 	if err := s.outbox.Insert(ctx, entry); err != nil {
 		if req.IdempotencyKey != "" {
 			if prior, found, lookupErr := s.priorByIdempotency(ctx, organizationID, req.IdempotencyKey); lookupErr == nil && found {
+				if prior.SessionID != sessionID {
+					return outbound.SendResult{}, domain.ErrNotFound("outbox entry not found")
+				}
 				return replayOutboxResult(prior), nil
 			}
 		}
@@ -744,41 +939,74 @@ func (s *OutboundScheduler) dispatchOp(
 	entry domain.OutboxEntry,
 	payload opPayload,
 ) (outbound.SendResult, error) {
-	now := s.now()
-	result, err := s.engine.ExecuteOp(ctx, application.MessageOpCommand{
-		CommandID:      entry.ID,
-		OrganizationID: entry.OrganizationID,
-		SessionID:      entry.SessionID,
-		Op:             application.MessageOp(payload.Type),
-		ChatJID:        payload.Chat,
-		SenderJID:      payload.Sender,
-		MessageID:      payload.MsgID,
-		Emoji:          payload.Emoji,
-		NewText:        payload.NewText,
-		Options:        payload.Options,
-		ToJID:          payload.To,
-	})
-	timestamp := now.UnixMilli()
+	if entry.AcknowledgedAt == nil && s.expired(entry) && !entry.EffectPossible {
+		return outbound.SendResult{}, s.expireClaim(ctx, entry)
+	}
+	wasPossible := entry.EffectPossible
+	var result application.MessageOpResult
+	var err error
+	if entry.AcknowledgedAt != nil && entry.WAMessageID != nil {
+		result.WAMessageID = *entry.WAMessageID
+		result.SentAt = time.UnixMilli(*entry.AcknowledgedAt).UTC()
+	} else {
+		if !entry.EffectPossible {
+			if err := s.markPossible(ctx, entry); err != nil {
+				return outbound.SendResult{}, err
+			}
+		}
+		entry.EffectPossible = true
+		result, err = s.engine.ExecuteOp(ctx, application.MessageOpCommand{
+			CommandID:      entry.ID,
+			OrganizationID: entry.OrganizationID,
+			SessionID:      entry.SessionID,
+			Op:             application.MessageOp(payload.Type),
+			ChatJID:        payload.Chat,
+			SenderJID:      payload.Sender,
+			MessageID:      payload.MsgID,
+			Emoji:          payload.Emoji,
+			NewText:        payload.NewText,
+			Options:        payload.Options,
+			ToJID:          payload.To,
+			ExpiresAt:      entry.ExpiresAt,
+		})
+	}
+	timestamp := s.now().UnixMilli()
 	if !result.SentAt.IsZero() {
 		timestamp = result.SentAt.UnixMilli()
 	}
 	if err != nil {
+		var noDispatch *application.NoDispatchError
+		if !wasPossible && errors.As(err, &noDispatch) {
+			if clearErr := s.clearPossible(ctx, entry); clearErr != nil {
+				return outbound.SendResult{}, clearErr
+			}
+			entry.EffectPossible = false
+		}
 		var apiErr *domain.APIError
-		if errors.As(err, &apiErr) && apiErr.Code == domain.CodeValidationError {
+		if !wasPossible && errors.As(err, &apiErr) && apiErr.Code == domain.CodeValidationError {
 			message := err.Error()
-			if uerr := s.outbox.UpdateStatus(ctx, entry.ID, domain.OutboxFailed, nil, &message, timestamp); uerr != nil {
+			if uerr := s.complete(ctx, entry, domain.OutboxFailed, nil, &message, timestamp); uerr != nil {
 				return outbound.SendResult{}, uerr
 			}
 			return outbound.SendResult{}, err
 		}
+		if s.expired(entry) {
+			return outbound.SendResult{}, s.expireClaim(ctx, entry)
+		}
 		return outbound.SendResult{}, s.ambiguous(ctx, entry, err.Error())
 	}
 	waID := result.WAMessageID
-	if uerr := s.outbox.UpdateStatus(ctx, entry.ID, domain.OutboxSent, &waID, nil, timestamp); uerr != nil {
+	if entry.AcknowledgedAt == nil {
+		if err := s.recordAck(ctx, entry, waID, timestamp); err != nil {
+			return outbound.SendResult{}, err
+		}
+	}
+	if uerr := s.complete(ctx, entry, domain.OutboxSent, &waID, nil, timestamp); uerr != nil {
 		return outbound.SendResult{}, uerr
 	}
 	return outbound.SendResult{
 		Mode:        outbound.ModeSync,
+		OutboxID:    entry.ID,
 		WAMessageID: waID,
 		Status:      domain.MessageSent,
 		Timestamp:   timestamp,

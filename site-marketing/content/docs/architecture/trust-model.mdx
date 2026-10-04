@@ -150,6 +150,10 @@ capability gate authorizes the action:
   read/send (tunable via the org plugin's access control).
 - `RequireRead` / `RequireSend` / `RequireManage` / `RequireEvents` gate route groups
   (see the router in `http-foundation.md`).
+- A send or reaction idempotency replay, and the lookup-only outbox route,
+  require `send` capability plus ownership of the requested session before
+  reading an organization-scoped key. The same key in another session does not
+  disclose its payload, message IDs, or status; a missing or foreign row is `404`.
 - `RequireSuperAdmin` gates cross-org oversight (`/admin/sessions`, `GET /contacts/{lid}`),
   resolved from the JWT `role`.
 

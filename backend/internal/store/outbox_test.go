@@ -13,7 +13,7 @@ func outboxColRow() []string {
 	return []string{
 		"id", "organization_id", "session_id", "idempotency_key", "payload", "status",
 		"attempts", "next_attempt_at", "wa_message_id", "error", "terminal_at",
-		"created_at", "updated_at",
+		"created_at", "updated_at", "expires_at", "acknowledged_at", "effect_possible",
 	}
 }
 
@@ -21,7 +21,7 @@ func TestOutboxRepo_ClaimQueuedRollsBackOnCASFailure(t *testing.T) {
 	db, mock := newMock(t)
 	repo := NewOutboxRepo(db)
 	rows := sqlmock.NewRows(outboxColRow()).
-		AddRow("out_1", "ten_1", "sess_1", nil, []byte(`{}`), "queued", 0, int64(0), nil, nil, nil, int64(1), int64(1))
+		AddRow("out_1", "ten_1", "sess_1", nil, []byte(`{}`), "queued", 0, int64(0), nil, nil, nil, int64(1), int64(1), nil, nil, false)
 
 	mock.ExpectBegin()
 	mock.ExpectQuery("SELECT .*FOR UPDATE SKIP LOCKED").

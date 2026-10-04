@@ -14,7 +14,7 @@ _openapi:
           Set your reaction emoji for a message.
 
 
-          Returns 200 with a SendResult.
+          Returns 200 for a terminal SendResult or 202 while it remains pending.
 
 
           Errors: `validation_error` when emoji is missing and `not_found` for

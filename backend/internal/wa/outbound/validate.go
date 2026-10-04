@@ -158,7 +158,8 @@ const (
 // forward). The target message is identified by its chat + (original) sender +
 // wa_message_id, as the §11 sub-resource routes provide.
 type OpRequest struct {
-	Op MessageOp
+	Op        MessageOp
+	ExpiresAt *int64
 	// IdempotencyKey identifies the durable operation across retry and restart.
 	IdempotencyKey string
 	// Chat is the chat JID the target message lives in.

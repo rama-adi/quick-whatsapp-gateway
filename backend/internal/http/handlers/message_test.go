@@ -33,7 +33,10 @@ func (f *bodyLimitMessageSvc) Revoke(context.Context, string, string, string, st
 func (f *bodyLimitMessageSvc) React(context.Context, string, string, string, string, string, string) (outbound.SendResult, error) {
 	return outbound.SendResult{}, nil
 }
-func (f *bodyLimitMessageSvc) ReactWithIdempotency(context.Context, string, string, string, string, string, string, string) (outbound.SendResult, error) {
+func (f *bodyLimitMessageSvc) ReactWithIdempotency(context.Context, string, string, string, string, string, string, string, *int64) (outbound.SendResult, error) {
+	return outbound.SendResult{}, nil
+}
+func (f *bodyLimitMessageSvc) LookupByIdempotency(context.Context, string, string, string) (outbound.SendResult, error) {
 	return outbound.SendResult{}, nil
 }
 func (f *bodyLimitMessageSvc) Forward(context.Context, string, string, string, string, string, string) (outbound.SendResult, error) {

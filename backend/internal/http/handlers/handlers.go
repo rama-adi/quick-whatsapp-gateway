@@ -42,6 +42,7 @@ type SessionSvc interface {
 
 // MessageSvc is the outbound send + message-op surface.
 type MessageSvc interface {
+	LookupByIdempotency(ctx context.Context, organizationID, sessionID, key string) (outbound.SendResult, error)
 	Send(
 		ctx context.Context,
 		organizationID string,
@@ -62,7 +63,7 @@ type MessageSvc interface {
 	) (outbound.SendResult, error)
 	ReactWithIdempotency(
 		ctx context.Context,
-		organizationID, sessionID, chat, sender, msgID, emoji, idempotencyKey string,
+		organizationID, sessionID, chat, sender, msgID, emoji, idempotencyKey string, expiresAt *int64,
 	) (outbound.SendResult, error)
 	Forward(
 		ctx context.Context,

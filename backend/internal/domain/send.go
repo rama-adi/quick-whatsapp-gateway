@@ -44,8 +44,9 @@ type ContactCard struct {
 // handler validates the subset required for each Type. JSON tags follow the §11
 // camelCase examples.
 type SendRequest struct {
-	Type string `json:"type" enum:"buttons,list,text,poll,location,contact,image,video,audio,document,sticker,album" doc:"Which kind of message to send. The media types use media; **album** uses medias with 2–10 images/videos and an optional shared caption. Each media source may independently be base64 data or an HTTP(S) URL." example:"text"`
-	To   string `json:"to" doc:"The recipient's JID: a user JID for a direct message (e.g. 6281234567890@s.whatsapp.net) or a group JID for a group (e.g. 120363021234567890@g.us). Required." example:"6281234567890@s.whatsapp.net"`
+	Type      string `json:"type" enum:"buttons,list,text,poll,location,contact,image,video,audio,document,sticker,album" doc:"Which kind of message to send. The media types use media; **album** uses medias with 2–10 images/videos and an optional shared caption. Each media source may independently be base64 data or an HTTP(S) URL." example:"text"`
+	To        string `json:"to" doc:"The recipient's JID: a user JID for a direct message (e.g. 6281234567890@s.whatsapp.net) or a group JID for a group (e.g. 120363021234567890@g.us). Required." example:"6281234567890@s.whatsapp.net"`
+	ExpiresAt *int64 `json:"expiresAt,omitempty" doc:"Optional absolute expiry as a UTC Unix epoch millisecond. No new WhatsApp dispatch starts at or after this instant. The first accepted value remains fixed for idempotent replays." example:"1791158400000"`
 
 	// text
 	Text     string   `json:"text,omitempty" doc:"The message text. Required for text, buttons, and list." example:"Hello there!"`

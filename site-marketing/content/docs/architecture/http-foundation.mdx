@@ -42,7 +42,7 @@ The API mounts the shared huma operations from `backend/internal/http/handlers`:
 | Admin | `RequireSuperAdmin` | `GET /admin/sessions`, `POST /admin/sessions/{session}:backfill`, `GET /admin/sessions/{session}/backfill` |
 | Gateway admin | `RequireSuperAdmin` | gateway inventory/enrollment/lifecycle administration |
 | Sessions | `RequireManage` | `/sessions`, `:start`/`:stop`/`:restart`/`:logout`, `/me`, `/qr`, `/pairing-code`, `POST`/`GET /sessions/{session}/backfill` (crypt15 backup import) |
-| Messages | `RequireSend` | `/sessions/{session}/messages` (+ edit/revoke/reaction/forward/vote) |
+| Messages | `RequireSend` | `/sessions/{session}/messages` (+ edit/revoke/reaction/forward/vote), `GET /sessions/{session}/outbox/by-idempotency?key=...` |
 | Chats/Contacts/Groups/Channels | `RequireRead` (GET) / `RequireSend` (mutations) | per-session sub-resources |
 | Status/Presence | `RequireSend` | `/status`, `/presence` |
 
@@ -56,6 +56,10 @@ Auth lives in `backend/internal/authz` and is detailed in [`trust-model.md`](/do
 the two-acceptor end-user middleware (JWT via JWKS / api-key via the shared
 `apikey` table) runs **only on the API**. `RequireRead/Send/Manage/Events/SuperAdmin`
 (`gates.go`) authorize from the authenticated principal.
+The outbox lookup is a read of an accepted send command but uses `RequireSend`
+because it exposes its send status and reserved message IDs. The handler checks
+the session's organization before reading the key and returns `404` for missing
+or other-session entries without invoking the private engine.
 There is **no Authula cookie bridge** — that whole v1 path is gone.
 
 ## `backend/internal/http/middleware`
