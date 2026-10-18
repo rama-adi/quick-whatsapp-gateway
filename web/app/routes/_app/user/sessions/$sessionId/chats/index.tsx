@@ -1,20 +1,12 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { MessageCircle, MessageSquareText, MousePointer2 } from "lucide-react";
-import type { ReactNode } from "react";
-import {
-  MessageScroller,
-  MessageScrollerProvider,
-  MessageScrollerViewport,
-  MessageScrollerContent,
-} from "~/components/ui/message-scroller";
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "~/components/ui/empty";
-import { Badge } from "~/components/ui/badge";
+// Viewer: the "no chat selected" pane (desktop only; on mobile the chats route
+// shows just the list here). Points at the next step instead of a blank pane.
+
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { MessageCirclePlus, MessagesSquare } from "lucide-react";
+import { useSession } from "~/lib/api/hooks/sessions";
+import { SessionStatusBadge } from "~/components/status-badge";
+import { Button } from "~/components/ui/button";
+import { NewChatDialog } from "./-new-chat";
 
 export const Route = createFileRoute(
   "/_app/user/sessions/$sessionId/chats/",
@@ -23,51 +15,52 @@ export const Route = createFileRoute(
 });
 
 function ChatEmptyState() {
+  const { sessionId } = Route.useParams();
+  const session = useSession(sessionId);
+  const status = session.data?.status;
+  const working = status === "working";
+  const label = session.data?.label || "this session";
+  const phone = session.data?.phoneNumber;
+
   return (
     <section
       aria-label="No chat selected"
-      className="flex h-full min-h-[60svh] flex-col overflow-hidden rounded-lg border bg-card md:min-h-0"
+      className="flex h-full min-h-0 flex-1 flex-col items-center justify-center bg-muted/70 p-8 dark:bg-background"
     >
-      <MessageScrollerProvider defaultScrollPosition="end">
-        <MessageScroller className="min-h-0 flex-1">
-          <MessageScrollerViewport
-            className="outline-none"
-            role="region"
-            aria-label="Chat showcase empty state"
-          >
-            <MessageScrollerContent className="min-h-full justify-center gap-4 p-6">
-              <Empty className="mx-auto max-w-lg border-0">
-                <EmptyHeader>
-                  <EmptyMedia variant="icon">
-                    <MessageCircle />
-                  </EmptyMedia>
-                  <EmptyTitle>Select a chat</EmptyTitle>
-                  <EmptyDescription>
-                    Pick a conversation to inspect messages, send rich WhatsApp
-                    payloads, and review contact or community context.
-                  </EmptyDescription>
-                </EmptyHeader>
-              </Empty>
-              <div className="mx-auto grid w-full max-w-xl gap-2 sm:grid-cols-3">
-                <ShowcaseItem icon={<MessageSquareText />} label="Markdown" />
-                <ShowcaseItem icon={<MousePointer2 />} label="Polls + location" />
-                <ShowcaseItem icon={<MessageCircle />} label="Live timeline" />
-              </div>
-            </MessageScrollerContent>
-          </MessageScrollerViewport>
-        </MessageScroller>
-      </MessageScrollerProvider>
+      <div className="flex max-w-sm flex-col items-center gap-4 text-center">
+        <span className="flex size-12 items-center justify-center rounded-2xl bg-background text-muted-foreground shadow-xs ring-1 ring-border">
+          <MessagesSquare className="size-6" aria-hidden />
+        </span>
+        <div className="space-y-1.5">
+          <h2 className="text-base font-semibold tracking-tight">Select a chat</h2>
+          <p className="text-sm text-pretty text-muted-foreground">
+            Pick a conversation on the left to read and reply as{" "}
+            <span className="font-medium text-foreground">{label}</span>
+            {phone ? ` (+${phone.replace(/^\+/, "")})` : ""}, or start a new
+            one with a contact or phone number.
+          </p>
+        </div>
+        {status ? <SessionStatusBadge status={status} /> : null}
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <NewChatDialog
+            sessionId={sessionId}
+            canCheckNumbers={working}
+            trigger={
+              <Button size="sm" className="gap-1.5">
+                <MessageCirclePlus aria-hidden />
+                New chat
+              </Button>
+            }
+          />
+          {!working && status ? (
+            <Button size="sm" variant="outline" asChild>
+              <Link to="/user/sessions/$sessionId" params={{ sessionId }}>
+                Open overview
+              </Link>
+            </Button>
+          ) : null}
+        </div>
+      </div>
     </section>
-  );
-}
-
-function ShowcaseItem({ icon, label }: { icon: ReactNode; label: string }) {
-  return (
-    <div className="flex items-center justify-center gap-2 rounded-md border bg-background px-3 py-2 text-sm">
-      <span className="[&_svg]:size-4 [&_svg]:text-muted-foreground">{icon}</span>
-      <Badge variant="secondary" className="font-normal">
-        {label}
-      </Badge>
-    </div>
   );
 }

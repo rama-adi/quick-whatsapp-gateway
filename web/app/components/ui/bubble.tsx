@@ -19,6 +19,12 @@ const bubbleVariants = cva(
   {
     variants: {
       variant: {
+        // Chat timeline pair: incoming reads as a raised white card on the
+        // thread's muted backdrop; outgoing is a soft emerald tint.
+        incoming:
+          "*:data-[slot=bubble-content]:bg-background *:data-[slot=bubble-content]:text-foreground *:data-[slot=bubble-content]:shadow-[0_1px_2px_rgb(0_0_0/0.07)] dark:*:data-[slot=bubble-content]:bg-muted",
+        outgoing:
+          "*:data-[slot=bubble-content]:bg-emerald-100/80 *:data-[slot=bubble-content]:text-foreground *:data-[slot=bubble-content]:shadow-[0_1px_2px_rgb(0_0_0/0.07)] dark:*:data-[slot=bubble-content]:bg-emerald-900/50",
         default:
           "*:data-[slot=bubble-content]:bg-primary *:data-[slot=bubble-content]:text-primary-foreground [&>[data-slot=bubble-content]:is(button,a):hover]:bg-primary/80",
         secondary:

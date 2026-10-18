@@ -69,6 +69,13 @@ function deriveInitials(label: string): string {
   return ((parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "")).toUpperCase();
 }
 
+/** A display name that is just a phone number ("628123…") reads as "+628123…". */
+export function prettyName(name?: string | null): string | undefined {
+  if (!name) return undefined;
+  const trimmed = name.trim();
+  return /^\d{6,15}$/.test(trimmed) ? `+${trimmed}` : trimmed || undefined;
+}
+
 /** Human-friendly timestamp: time today, otherwise short date. */
 export function formatTimestamp(ms?: number): string {
   if (!ms) return "";
@@ -81,7 +88,7 @@ export function formatTimestamp(ms?: number): string {
     d.getDate() === now.getDate();
   if (sameDay) {
     return d.toLocaleTimeString(undefined, {
-      hour: "2-digit",
+      hour: "numeric",
       minute: "2-digit",
     });
   }
