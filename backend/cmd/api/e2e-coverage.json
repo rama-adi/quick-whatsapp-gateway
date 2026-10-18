@@ -43,6 +43,7 @@
       "getMessageSticker": "stickers deduplicate and expand live quoted and replay events",
       "getOAuthApp": "admin and OAuth applications",
       "getOutboxByIdempotency": "idempotency lookup scopes tenant and session without effects",
+      "getOverview": "chat lifecycle",
       "getSession": "session lifecycle and pairing",
       "getSessionHistorySync": "session lifecycle and pairing",
       "getSessionStorage": "storage lifecycle",

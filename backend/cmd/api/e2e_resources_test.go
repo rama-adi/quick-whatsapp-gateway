@@ -97,6 +97,17 @@ func e2eChatLifecycle(t *testing.T, infra *e2eInfra) {
 	e2eRequireStatus(t, infra.request(t, http.MethodGet, chatPath, e2eOrgBKey, nil, nil, nil), http.StatusNotFound)
 	e2eRequireStatus(t, infra.request(t, http.MethodGet, chatPath, "", nil, nil, nil), http.StatusUnauthorized)
 
+	overviewPath := "/api/v1/overview?range=24h&tz=Asia%2FJakarta&session=" + url.QueryEscape(e2eSessionID)
+	var overview apitypes.Overview
+	e2eRequireStatus(t, infra.request(t, http.MethodGet, overviewPath, e2eOrgAKey,
+		nil, &overview, nil), http.StatusOK)
+	if len(overview.Buckets) != 24 || len(overview.Series.MessagesSent) != 24 || !overview.HasSentMessage {
+		t.Fatalf("overview = %#v", overview)
+	}
+	e2eRequireStatus(t, infra.request(t, http.MethodGet, overviewPath, e2eOrgBKey, nil, nil, nil), http.StatusNotFound)
+	e2eRequireStatus(t, infra.request(t, http.MethodGet, "/api/v1/overview?range=1y", e2eOrgAKey,
+		nil, nil, nil), http.StatusBadRequest)
+
 	e2eRequireStatus(t, infra.request(t, http.MethodPatch, chatPath, e2eOrgAKey,
 		map[string]any{"archived": true, "pinned": true}, &chat, nil), http.StatusOK)
 	if !chat.Archived || !chat.Pinned {
