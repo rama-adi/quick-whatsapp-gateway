@@ -195,9 +195,11 @@ func run() error {
 		log: log,
 	}
 	manager := wa.NewManager(keystore, managerSink, nil, nil, log, wa.Config{
-		GatewayID:           cfg.GatewayID,
-		DeviceName:          cfg.WhatsAppDeviceName,
-		InboundEventTimeout: 0,
+		GatewayID:            cfg.GatewayID,
+		DeviceName:           cfg.WhatsAppDeviceName,
+		InboundEventTimeout:  0,
+		HistoryFullSync:      cfg.HistoryFullSync,
+		HistoryFullSyncMaxMB: uint32(cfg.HistoryFullSyncMaxMB),
 	})
 	if cfg.WhatsAppFakeServer {
 		manager.SetClientFactory(func(device *store.Device) wa.Client { return fakewhatsapp.NewClient(device, cfg.WhatsAppFakeServerURL) })
@@ -223,6 +225,16 @@ func run() error {
 	manager.SetInboundHandler(inboundHandler)
 
 	desiredReconciler = desiredstate.New(manager, nil)
+
+	// --- History sync (durable inbox in the journal SQLite + paced worker) ---
+	// The worker starts only once a desired-state snapshot is applied, so
+	// ownership checks never see the empty boot-time assignment set.
+	historyWorker := newHistoryWorker(eventJournal, manager, inboundSink, desiredReconciler, cfg, log)
+	manager.SetHistoryInbox(historyWorker)
+	var startHistoryOnce sync.Once
+	startHistory := func(ctx context.Context) {
+		startHistoryOnce.Do(func() { go historyWorker.Run(ctx) })
+	}
 	controlRuntime.setSessionCounter(func(context.Context) (int, error) {
 		return desiredReconciler.AssignmentCount(), nil
 	})
@@ -377,6 +389,7 @@ func run() error {
 			if _, desiredErr := controlSupervisor.WaitForDesiredState(ctx, result.status.ConnectionEpoch); desiredErr != nil {
 				return fmt.Errorf("wait for gateway desired state: %w", desiredErr)
 			}
+			startHistory(supervisorCtx)
 		}
 	case <-supervisorExited:
 		supervisorResultMu.Lock()
@@ -409,6 +422,7 @@ func run() error {
 			if _, desiredErr := controlSupervisor.WaitForDesiredState(supervisorCtx, status.ConnectionEpoch); desiredErr != nil {
 				return
 			}
+			startHistory(supervisorCtx)
 			controlRuntime.setState(controlRuntimeStateForKeystore(controlKeystore))
 			controlSupervisor.ReportNow()
 		}()

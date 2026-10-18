@@ -57,6 +57,11 @@ type GatewayConfig struct {
 	IgnoreChannels  bool // IGNORE_CHANNELS
 	IgnoreBroadcast bool // IGNORE_BROADCAST
 
+	// History sync on (re)link
+	HistoryConcurrency   int  // GATEWAY_HISTORY_CONCURRENCY: sessions imported at once
+	HistoryFullSync      bool // GATEWAY_HISTORY_FULL_SYNC: ask the phone for full history at link time
+	HistoryFullSyncMaxMB int  // GATEWAY_HISTORY_FULL_SYNC_MAX_MB: full-sync size cap
+
 	// Observability
 	LogLevel string // LOG_LEVEL
 }
@@ -103,6 +108,9 @@ func LoadGateway() (*GatewayConfig, error) {
 		IgnoreGroups:           getBool("IGNORE_GROUPS", false),
 		IgnoreChannels:         getBool("IGNORE_CHANNELS", false),
 		IgnoreBroadcast:        getBool("IGNORE_BROADCAST", false),
+		HistoryConcurrency:     getInt("GATEWAY_HISTORY_CONCURRENCY", 1),
+		HistoryFullSync:        getBool("GATEWAY_HISTORY_FULL_SYNC", false),
+		HistoryFullSyncMaxMB:   getInt("GATEWAY_HISTORY_FULL_SYNC_MAX_MB", 256),
 		LogLevel:               getString("LOG_LEVEL", "info"),
 	}
 
@@ -183,6 +191,13 @@ func (c *GatewayConfig) Validate() error {
 		if fakeErr == nil && realErr == nil && os.SameFile(fakeInfo, realInfo) {
 			return fmt.Errorf("config: WHATSAPP_FAKE_STORE_DSN must differ from WHATSMEOW_STORE_DSN")
 		}
+	}
+
+	if c.HistoryConcurrency < 1 || c.HistoryConcurrency > 64 {
+		return fmt.Errorf("config: GATEWAY_HISTORY_CONCURRENCY must be between 1 and 64")
+	}
+	if c.HistoryFullSyncMaxMB < 1 || c.HistoryFullSyncMaxMB > 102400 {
+		return fmt.Errorf("config: GATEWAY_HISTORY_FULL_SYNC_MAX_MB must be between 1 and 102400")
 	}
 
 	if c.DefaultRatePerMin < 0 || c.DefaultRatePerHour < 0 {

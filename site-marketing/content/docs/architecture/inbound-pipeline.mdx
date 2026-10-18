@@ -42,6 +42,12 @@ projection and live/webhook fan-out **after** the credential-bearing envelope ha
 already reached the local journal and API event log; it is not a promise that those
 durable transport stores never contain login commands.
 
+History-sync notifications never reach this pipeline: the manager intercepts them first and
+hands them to the durable history inbox (see
+[session manager: history sync](/docs/architecture/session-manager#history-sync-on-relink)).
+Imported messages reach the API as `history.batch` events instead, so they never auto-read,
+never meet the OAuth/admin interceptors and never produce `message` events.
+
 The ordered inbound pipeline from masterplan §9. For every whatsmeow event
 (tagged with its session/organization) it runs six stages, in order, with a
 short-circuit on the command interceptor. It is the consumer of normalization

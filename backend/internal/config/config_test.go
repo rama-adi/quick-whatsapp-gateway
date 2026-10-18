@@ -20,7 +20,7 @@ func clearEnv(t *testing.T) {
 		"WHATSAPP_DEVICE_NAME",
 		"DEFAULT_RATE_PER_MIN", "DEFAULT_RATE_PER_HOUR", "DEFAULT_AUTO_READ",
 		"IGNORE_STATUS", "IGNORE_GROUPS", "IGNORE_CHANNELS", "IGNORE_BROADCAST",
-		"LOG_LEVEL",
+		"LOG_LEVEL", "GATEWAY_HISTORY_CONCURRENCY", "GATEWAY_HISTORY_FULL_SYNC", "GATEWAY_HISTORY_FULL_SYNC_MAX_MB",
 	}
 	for _, k := range keys {
 		t.Setenv(k, "")
@@ -53,6 +53,9 @@ func TestLoadGateway_Defaults(t *testing.T) {
 		IgnoreGroups:           false,
 		IgnoreChannels:         false,
 		IgnoreBroadcast:        false,
+		HistoryConcurrency:     1,
+		HistoryFullSync:        false,
+		HistoryFullSyncMaxMB:   256,
 		LogLevel:               "info",
 	}
 
@@ -66,7 +69,8 @@ func TestLoadGateway_Defaults(t *testing.T) {
 // minimal config without the
 // control-plane triple is rejected; every configured path is validated strictly.
 func TestGatewayControlPlaneConfigIsMandatoryAndPathsAreStrict(t *testing.T) {
-	base := GatewayConfig{HTTPAddr: ":8080", WhatsmeowStoreDSN: "file:test.db", GatewayID: "gw-1", LogLevel: "info"}
+	base := GatewayConfig{HTTPAddr: ":8080", WhatsmeowStoreDSN: "file:test.db", GatewayID: "gw-1", LogLevel: "info",
+		HistoryConcurrency: 1, HistoryFullSyncMaxMB: 256}
 	if err := base.Validate(); err == nil {
 		t.Fatal("control-plane-less config accepted; the control plane is mandatory")
 	}
@@ -269,6 +273,8 @@ func TestValidate(t *testing.T) {
 			WhatsmeowStoreDSN:      "file:/data/keystore/store.db?_pragma=foreign_keys(on)",
 			DefaultRatePerMin:      20,
 			DefaultRatePerHour:     200,
+			HistoryConcurrency:     1,
+			HistoryFullSyncMaxMB:   256,
 			LogLevel:               "info",
 		}
 	}
@@ -288,6 +294,9 @@ func TestValidate(t *testing.T) {
 		{"empty bootstrap CA", func(c *GatewayConfig) { c.BootstrapCAFile = "" }, true},
 		{"zero renewal window", func(c *GatewayConfig) { c.CertificateRenewBefore = 0 }, true},
 		{"negative rate per min", func(c *GatewayConfig) { c.DefaultRatePerMin = -1 }, true},
+		{"zero history concurrency", func(c *GatewayConfig) { c.HistoryConcurrency = 0 }, true},
+		{"zero full sync cap", func(c *GatewayConfig) { c.HistoryFullSyncMaxMB = 0 }, true},
+		{"full sync enabled", func(c *GatewayConfig) { c.HistoryFullSync = true; c.HistoryFullSyncMaxMB = 1024 }, false},
 		{"negative rate per hour", func(c *GatewayConfig) { c.DefaultRatePerHour = -1 }, true},
 		{"bad log level", func(c *GatewayConfig) { c.LogLevel = "verbose" }, true},
 	}

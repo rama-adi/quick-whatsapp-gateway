@@ -162,6 +162,70 @@ then clears ownership while retaining the previous revision for retry. Lease exp
 expired assignment first, attempts every corresponding runtime stop, and fails closed if any stop
 fails.
 
+## History sync on (re)link
+
+When a device is linked, the phone uploads the chat history it still has and sends one
+history-sync notification per chunk. The gateway imports it durably; package
+`backend/internal/gateway/historysync`.
+
+**Manual download.** Every client the manager builds (QR, phone code and reconnect all go
+through `Manager.buildClient`) runs whatsmeow in manual history mode:
+`ManualHistorySyncDownload` and `DisableManualHistorySyncReceipt` are set, so whatsmeow
+neither downloads nor acknowledges history itself. Rationale: whatsmeow's default sends the
+receipt first and downloads on a goroutine with no durability, and a slow handler stalls the
+live event loop.
+
+**Interception.** The manager's event handler recognizes the history-sync protocol message
+(`ProtocolMessage.historySyncNotification` on an own message) **before** the status state
+machine and the inbound pipeline. It never auto-reads, never reaches the OAuth/admin
+interceptors and never becomes a `message` event. `HistoryInbox.Accept` inserts the
+notification into the `history_inbox` table of the journal SQLite
+(`UNIQUE(session_id, notification_id)`), and only then sends the `hist_sync` receipt. A
+failed insert leaves the notification unacknowledged so the phone sends it again. The
+cutoff (`now − historySyncDays`) and whether the import is on are fixed at that moment.
+
+**Worker.** One `historysync.Worker` per gateway drains the inbox in arrival order per
+session (`GATEWAY_HISTORY_CONCURRENCY` sessions at once, default 1). It starts only after
+the first desired-state snapshot is applied. For each notification it:
+
+1. discards it when the session is no longer on this gateway or the device now belongs to a
+   different account; postpones it while the session is disconnected or not owned;
+2. calls `DownloadHistorySync(ctx, notif, true)`. This runs even when the import is off
+   (`historySyncDays = 0`), because whatsmeow stores message secrets, LID mappings and push
+   names from the blob; nothing is journaled in that case;
+3. on 404/410 sends one `SendHistorySyncServerErrorReceipt` (the phone may re-upload as a
+   new notification) and marks the notification failed; on other network errors retries
+   with backoff (5 s doubling, at most 10 min) for up to 24 h, then fails the run;
+4. converts the blob with `historysync.Convert` and journals the `history.batch` events
+   from a persisted cursor (`batches_done`), about 4 per second per session, pausing while
+   the journal is not in its healthy capacity band;
+5. journals a `history.sync` `progress` event, adds the counters to the run in the same
+   transaction that marks the notification done, then deletes the blob from the media
+   server (best effort).
+
+Event ids are deterministic ULIDs (notification time, entropy `sha256(session |
+notification | batch index)`), so re-processing after a crash re-appends the same ids and
+the journal deduplicates them.
+
+**Runs.** A run (`history_runs`) groups the notifications of one account. It is created by
+the first processed notification, which journals `started`. It completes when a `RECENT`
+notification reports 100% (`FULL` when full sync is enabled) and nothing is pending, or after
+10 minutes without a notification; it fails when a download gives up or the session is
+relinked or logged out. The final `completed`/`failed` event is journaled from the run
+table, so it survives restarts. `PairSuccess` discards pending notifications and fails the
+running run of any other account; logout and `Forget` discard everything pending.
+
+**Full sync (operator opt-in).** `GATEWAY_HISTORY_FULL_SYNC=true` asks the phone for full
+history, capped at `GATEWAY_HISTORY_FULL_SYNC_MAX_MB` (default 256). It sets
+`Client.GetClientPayload` to patch a **clone** of whatsmeow's process-global
+`store.DeviceProps` (`requireFullSync`, `fullSyncSizeMbLimit`) for registration payloads
+only; the global is never mutated, and paired devices log in unchanged.
+
+`historysync.Client` is the narrow client slice the pipeline uses (`DownloadHistorySync`,
+`ParseWebMessage`, `SendProtocolMessageReceipt`, `SendHistorySyncServerErrorReceipt`,
+`DeleteMedia`); `*whatsmeow.Client` and the development fake both satisfy it, and
+`Manager.HistoryClient` hands the worker the connected one.
+
 ## Key types / interfaces
 
 Consumer interfaces (defined here; the composition root wires concrete types — no

@@ -30,6 +30,15 @@ sizing objective is retained in the historical control-plane design.
 Journal startup runs an integrity check; close checkpoints WAL. Metrics expose unacknowledged
 entry/byte counts, oldest-entry time, acknowledgement watermark, and capacity state.
 
+The same SQLite file holds the history-sync inbox (`journal/history.go`):
+`history_inbox` stores each history-sync notification (the protobuf, account, cutoff,
+attempts, next attempt, batch cursor) before the phone is acknowledged, and `history_runs`
+tracks each import run's status and counters. Finished rows are pruned after seven days.
+They do not count toward journal capacity, which measures unacknowledged event payloads.
+A history batch is at most about 96 KiB; one oversized message travels alone and is
+truncated so its batch stays well under the 1 MiB replay batch (pinned by
+`TestMaxSizeBatchSurvivesControlDecode`).
+
 The whatsmeow **device keystore** — device identities, Signal sessions, prekeys, sender keys,
 app-state, the LID map. In v2 it is **SQLite** via whatsmeow's own `sqlstore`, gateway-local on a
 persistent volume. The v1 hand-written **MySQL** store (`backend/internal/wa/store/mysql`, the

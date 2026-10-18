@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	mrand "math/rand"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.mau.fi/whatsmeow"
@@ -37,6 +38,11 @@ type Config struct {
 	PresenceTimeout time.Duration
 	// Backoff overrides the reconnect schedule; the zero value uses defaultBackoff.
 	Backoff backoffConfig
+	// HistoryFullSync asks the phone for its full chat history (not only the
+	// recent part) when a device is linked. Applied at registration only.
+	HistoryFullSync bool
+	// HistoryFullSyncMaxMB caps the full-sync size the phone may send.
+	HistoryFullSyncMaxMB uint32
 }
 
 // clientFactory builds a waClient for a device. Production wires *whatsmeow.Client;
@@ -60,6 +66,7 @@ type Manager struct {
 	keystore Keystore
 	sink     EventSink
 	inbound  InboundHandler
+	history  atomic.Pointer[HistoryInbox]
 	clock    Clock
 	log      *slog.Logger
 	cfg      Config
@@ -320,6 +327,9 @@ func (m *Manager) Forget(id string) {
 	m.mu.Lock()
 	delete(m.sessions, id)
 	m.mu.Unlock()
+	if inbox := m.historyInbox(); inbox != nil {
+		inbox.Discard(context.Background(), id, "session removed")
+	}
 }
 
 // LatestQR returns the most recently streamed QR code for a session and its
@@ -380,7 +390,7 @@ func (m *Manager) startManaged(parent context.Context, id string) {
 	ms.cancel = cancel
 	ms.reconnect = true
 	ms.attempt = 0
-	client := m.newClient(ms.device)
+	client := m.buildClient(ms.device)
 	ms.client = client
 	ms.handlerID = client.AddEventHandler(m.eventHandlerFor(ms))
 	ms.mu.Unlock()
@@ -584,7 +594,7 @@ func (m *Manager) StartQR(ctx context.Context, id string) error {
 	ms.attempt = 0
 	ms.lastQR = ""
 	ms.lastQRExpires = 0
-	client := m.newClient(ms.device)
+	client := m.buildClient(ms.device)
 	ms.client = client
 	ms.handlerID = client.AddEventHandler(m.eventHandlerFor(ms))
 	ms.mu.Unlock()
@@ -672,7 +682,7 @@ func (m *Manager) StartPairingCode(ctx context.Context, id, phone string) (strin
 	ms.attempt = 0
 	ms.lastQR = ""
 	ms.lastQRExpires = 0
-	client := m.newClient(ms.device)
+	client := m.buildClient(ms.device)
 	ms.client = client
 	ms.handlerID = client.AddEventHandler(m.eventHandlerFor(ms))
 	ms.mu.Unlock()
@@ -732,6 +742,12 @@ func (m *Manager) eventHandlerFor(ms *ManagedSession) whatsmeow.EventHandler {
 		// synchronous for per-client ordering while bounding its lifetime.
 		ctx, cancel := context.WithTimeout(context.Background(), m.cfg.InboundEventTimeout)
 		defer cancel()
+		// History-sync notifications go to the durable inbox, never through
+		// the live inbound pipeline (no auto-read, interceptors or events).
+		if msg, notif, ok := historyNotification(evt); ok {
+			m.acceptHistory(ctx, ms, msg, notif)
+			return
+		}
 		m.applyEvent(ctx, ms, evt)
 		if m.inbound != nil {
 			m.inbound.Handle(ctx, ms.SessionID, ms.OrganizationID, ms.IsAdmin, evt)
@@ -745,6 +761,9 @@ func (m *Manager) applyEvent(ctx context.Context, ms *ManagedSession, evt any) {
 	// Capture the JID the moment pairing succeeds so the session row records it.
 	if ps, ok := evt.(*events.PairSuccess); ok {
 		m.recordPairedJID(ctx, ms, ps.ID, ps.LID)
+		if inbox := m.historyInbox(); inbox != nil && !ps.ID.IsEmpty() {
+			inbox.Paired(ctx, ms.SessionID, ps.ID.ToNonAD().String())
+		}
 	}
 
 	t := classifyEvent(evt)
@@ -833,6 +852,9 @@ func (m *Manager) setLoggedOut(ctx context.Context, ms *ManagedSession) {
 	ms.lastQRExpires = 0
 	ms.mu.Unlock()
 
+	if inbox := m.historyInbox(); inbox != nil {
+		inbox.Discard(ctx, ms.SessionID, "session logged out")
+	}
 	if m.sink != nil {
 		m.sink.Publish(ctx, domain.NewEvent(domain.EventSessionStatus, ms.SessionID, ms.OrganizationID, map[string]any{
 			"status": string(domain.SessionLoggedOut),

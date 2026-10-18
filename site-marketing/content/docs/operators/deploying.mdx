@@ -291,6 +291,8 @@ the API's; the rest is the gateway's.
 | `GATEWAY_ENROLLMENT_TOKEN` | gateway | One-time enrollment credential. |
 | `GATEWAY_JOURNAL_PATH` / `WHATSMEOW_STORE_DSN` | gateway | Durable event/command journal and device keystore. |
 | `GATEWAY_HTTP_ADDR` | gateway | Internal health/readiness/metrics listener only. |
+| `GATEWAY_HISTORY_CONCURRENCY` | gateway | How many sessions import history at once (default `1`, at most `64`). Each session is paced to about 4 batches per second, and imports pause while the gateway journal is above its healthy band, so live traffic keeps priority. |
+| `GATEWAY_HISTORY_FULL_SYNC` / `GATEWAY_HISTORY_FULL_SYNC_MAX_MB` | gateway | Off by default. When `true`, a newly linked device asks the phone for its full chat history, up to the size cap in MB (default `256`). Without it the phone sends only its recent history. Applies to links made after the change. Each session's `historySyncDays` still decides which messages are kept. |
 
 **Frontend** (`web/.env.example`):
 

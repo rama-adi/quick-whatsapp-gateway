@@ -308,8 +308,20 @@ phone-number-to-LID mappings. Conversation metadata repeats in every part that c
 its messages, so each batch is self-contained.
 
 **Batch limits.** A batch holds at most 200 messages and about 96 KiB of JSON so it fits
-webhook body limits; one oversized message gets its own batch (hard cap 1 MiB, with
-`body` / `quotedBody` truncated and `truncated: true` beyond that).
+webhook body limits; one oversized message gets its own batch (hard cap 768 KiB including
+its conversation metadata, with `body` / `quotedBody` truncated and `truncated: true`
+beyond that, so the event fits the gateway's 1 MiB journal replay batch).
+
+**Gateway production.** `historysync.Convert` builds batches deterministically: messages
+go through whatsmeow's `ParseWebMessage` and the same normalizer as live events (so the
+`MessagePayload` is identical, media metadata only), sorted by (timestamp, `msgOrderID`).
+It skips messages older than the cutoff, status updates (`status@broadcast`, status V3),
+system notices and stub messages; a revoke stub becomes `message.revoked`, an edit
+protocol message becomes `message.edited`, reactions and decrypted poll votes folded into
+a message become `message.reaction` / `poll.vote`. Contacts come from push names, the
+phone-number-to-LID mappings and conversation LID/PN pairs. Lifecycle: `started` before the
+first chunk's batches, `progress` after each chunk, then `completed` or `failed` (see
+[session manager: history sync](/docs/architecture/session-manager#history-sync-on-relink)).
 
 **Bulk events are opt-in.** `domain.IsBulkEvent` (today only `history.batch`) is the one
 rule every transport applies: a `*` webhook subscription or stream filter does not

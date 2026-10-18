@@ -131,7 +131,10 @@ func Convert(in Input) Result {
 		}
 		item := convItem{meta: conversationMeta(conv, chat, class, ids)}
 		var skipped int
-		item.messages, skipped = convertMessages(in, chat, conv.GetMessages(), ids)
+		// An oversized message travels with its conversation metadata, so the
+		// metadata (a large group's participants) comes out of its budget.
+		limit := max(MaxMessageBytes-jsonLen(item.meta), 64*1024)
+		item.messages, skipped = convertMessages(in, chat, conv.GetMessages(), ids, limit)
 		res.Skipped += skipped
 		res.Messages += len(item.messages)
 		convs = append(convs, item)
@@ -371,7 +374,7 @@ type orderedMessage struct {
 }
 
 func convertMessages(in Input, chat types.JID, msgs []*waHistorySync.HistorySyncMsg,
-	ids identityIndex) ([]apitypes.HistoryMessage, int) {
+	ids identityIndex, limit int) ([]apitypes.HistoryMessage, int) {
 	var out []orderedMessage
 	skipped := 0
 	for i, hsm := range msgs {
@@ -395,7 +398,7 @@ func convertMessages(in Input, chat types.JID, msgs []*waHistorySync.HistorySync
 	})
 	result := make([]apitypes.HistoryMessage, 0, len(out))
 	for _, o := range out {
-		if !fitMessage(&o.msg, MaxMessageBytes) {
+		if !fitMessage(&o.msg, limit) {
 			skipped++
 			continue
 		}
