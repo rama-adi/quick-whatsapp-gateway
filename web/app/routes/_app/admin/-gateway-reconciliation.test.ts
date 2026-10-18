@@ -14,3 +14,23 @@ describe("gateway reconciliation rendering", () => {
     expect(reconciliationSubject({ status: "applied", deviceJid: "device@lid", sessionId: "ses_1" } as never)).toBe("Session ses_1");
   });
 });
+
+describe("gateway lifecycle and capabilities", () => {
+  it("offers only the transitions the API accepts", async () => {
+    const { availableActions } = await import("./-gateway-reconciliation");
+    const list = (status: string, enrolledAt?: number) => [...availableActions({ status, enrolledAt } as never)].sort();
+    expect(list("pending_enrollment")).toEqual(["disable", "replaceToken"]);
+    expect(list("active", 1)).toEqual(["disable", "drain"]);
+    expect(list("draining", 1)).toEqual(["disable", "resume"]);
+    expect(list("drained", 1)).toEqual(["disable", "reenroll", "resume"]);
+    expect(list("disabled", 1)).toEqual(["reenable", "reenroll"]);
+    expect(list("disabled")).toEqual(["reenable"]);
+  });
+
+  it("renders capabilities as readable labels instead of raw JSON", async () => {
+    const { capabilityLabels } = await import("./-gateway-reconciliation");
+    expect(capabilityLabels(null)).toEqual([]);
+    expect(capabilityLabels(["GATEWAY_CAPABILITY_EVENT_STREAM", 1, "GATEWAY_CAPABILITY_UNKNOWN"])).toEqual(["Event stream", "Session engine"]);
+    expect(capabilityLabels({ commandExecution: true, eventStream: false, maxSessions: 50 })).toEqual(["Command execution", "Max sessions: 50"]);
+  });
+});
