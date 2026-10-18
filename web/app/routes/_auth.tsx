@@ -56,8 +56,9 @@ function AuthLayout() {
       </div>
 
       {/* Brand pane (lg+): an inset rounded panel on the page, like the app
-          shell's content panel. */}
-      <div className="relative m-2 hidden overflow-hidden rounded-panel bg-primary text-primary-foreground shadow-panel ring-1 ring-foreground/5 lg:flex lg:flex-col lg:justify-between lg:p-12">
+          shell's content panel. Fixed near-black (the light-mode primary) so
+          it stays a dark pane in dark mode instead of inverting to white. */}
+      <div className="relative m-2 hidden overflow-hidden rounded-panel bg-neutral-900 text-neutral-50 shadow-panel ring-1 ring-foreground/5 lg:flex lg:flex-col lg:justify-between lg:p-12 dark:bg-card dark:ring-white/10">
         <div
           aria-hidden
           className="pointer-events-none absolute inset-0 bg-[radial-gradient(60%_50%_at_70%_20%,rgba(255,255,255,0.12),transparent),radial-gradient(40%_40%_at_10%_100%,rgba(255,255,255,0.06),transparent)]"
@@ -74,7 +75,7 @@ function AuthLayout() {
           <h2 className="max-w-md text-3xl font-semibold tracking-tight text-balance">
             Realtime WhatsApp infrastructure for your product.
           </h2>
-          <ul className="space-y-3 text-sm text-primary-foreground/80">
+          <ul className="space-y-3 text-sm text-neutral-50/80">
             <li className="flex items-center gap-3">
               <FeatureIcon>
                 <Radio className="size-3.5" aria-hidden />
@@ -95,9 +96,9 @@ function AuthLayout() {
             </li>
           </ul>
         </div>
-        <p className="relative text-xs text-primary-foreground/60">
+        <p className="relative text-xs text-neutral-50/60">
           Need help getting set up?{" "}
-          <a href="/docs" className="underline underline-offset-4 hover:text-primary-foreground">
+          <a href="/docs" className="underline underline-offset-4 hover:text-neutral-50">
             Read the docs
           </a>
           .
@@ -109,7 +110,7 @@ function AuthLayout() {
 
 function FeatureIcon({ children }: { children: React.ReactNode }) {
   return (
-    <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary-foreground/10 ring-1 ring-primary-foreground/15">
+    <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-white/10 ring-1 ring-white/15">
       {children}
     </span>
   );

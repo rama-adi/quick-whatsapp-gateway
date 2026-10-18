@@ -301,7 +301,9 @@ function KeyTable({
           <TableHead>Permissions</TableHead>
           <TableHead>Created</TableHead>
           <TableHead>Last used</TableHead>
-          <TableHead className="text-right">Actions</TableHead>
+          <TableHead className="text-right">
+            <span className="sr-only">Actions</span>
+          </TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>

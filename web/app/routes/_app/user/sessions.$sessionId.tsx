@@ -66,7 +66,7 @@ function SessionDetailLayout() {
         <HeaderBack to="/user/sessions" label="All sessions" />
         <Separator
           orientation="vertical"
-          className="data-[orientation=vertical]:h-4"
+          className="hidden data-[orientation=vertical]:h-4 md:block"
         />
         <HeaderTitle className="hidden md:block">{name}</HeaderTitle>
         {/* The overview's own title already carries the status. */}

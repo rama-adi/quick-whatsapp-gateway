@@ -69,7 +69,15 @@ function useRefreshForActiveOrg(): () => Promise<void> {
   };
 }
 
-export function OrgSwitcher() {
+export function OrgSwitcher({
+  compactOnMobile = false,
+}: {
+  /**
+   * Below `sm`, collapse the trigger to just the org avatar. Used where the
+   * header also carries page chrome that needs the width (the session tabs).
+   */
+  compactOnMobile?: boolean;
+} = {}) {
   const session = useSessionContext();
   const refresh = useRefreshForActiveOrg();
   const orgs = authClient.useListOrganizations();
@@ -120,14 +128,18 @@ export function OrgSwitcher() {
             className={cn(
               "h-8 max-w-56 gap-2 rounded-lg bg-muted/60 px-2 text-sm font-medium hover:bg-muted aria-expanded:bg-muted",
               !activeOrg && !orgs.isPending && "border-dashed border-border text-muted-foreground",
+              compactOnMobile && "max-sm:w-8 max-sm:justify-center max-sm:px-0",
             )}
             disabled={orgs.isPending}
           >
             <OrgAvatar name={activeOrg?.name} />
-            <span className="min-w-0 truncate">
+            <span className={cn("min-w-0 truncate", compactOnMobile && "max-sm:hidden")}>
               {activeOrg?.name ?? "Select organization"}
             </span>
-            <ChevronsUpDownIcon className="size-3.5 text-muted-foreground" aria-hidden />
+            <ChevronsUpDownIcon
+              className={cn("size-3.5 text-muted-foreground", compactOnMobile && "max-sm:hidden")}
+              aria-hidden
+            />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-72">

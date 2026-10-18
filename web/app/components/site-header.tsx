@@ -9,6 +9,7 @@
 // every user surface (sessions/keys/webhooks) is scoped to the active org.
 // Admin-only accounts work cross-org, so the switcher is hidden for them.
 
+import { useMatch } from "@tanstack/react-router";
 import { Separator } from "~/components/ui/separator";
 import { SidebarTrigger } from "~/components/ui/sidebar";
 import { PageHeaderSlot } from "./shell/page-chrome";
@@ -19,6 +20,12 @@ import type { AppSession } from "~/lib/auth/session";
 export function SiteHeader({ session }: { session: AppSession }) {
   const showOrgSwitcher =
     session.userPanelEnabled && session.user.roles.includes("user");
+  // Inside one session the header also carries the Overview / Chats /
+  // Contacts segmented control on mobile, so the org switcher shrinks to its
+  // avatar there to give the tabs the width.
+  const inSession = Boolean(
+    useMatch({ from: "/_app/user/sessions/$sessionId", shouldThrow: false }),
+  );
   return (
     <header className="flex h-(--header-height) shrink-0 items-center border-b border-border/60">
       <div className="flex h-full w-full min-w-0 items-center gap-2 px-3 lg:px-4">
@@ -32,7 +39,7 @@ export function SiteHeader({ session }: { session: AppSession }) {
             and pushes the impersonation control + org switcher to the right. */}
         <PageHeaderSlot className="flex min-w-0 flex-1 items-center gap-2" />
         {session.impersonating && <ImpersonationButton session={session} />}
-        {showOrgSwitcher && <OrgSwitcher />}
+        {showOrgSwitcher && <OrgSwitcher compactOnMobile={inSession} />}
       </div>
     </header>
   );

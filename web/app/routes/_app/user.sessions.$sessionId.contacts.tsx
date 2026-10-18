@@ -190,7 +190,7 @@ function ContactsList() {
 
   // Below `lg` there's room for one pane: the list, or the open contact.
   return (
-    <div className="grid h-full min-h-0 lg:grid-cols-[22rem_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)]">
+    <div className="grid h-full min-h-0 lg:grid-cols-[360px_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)]">
       <section
         aria-label="Contacts"
         className={cn(
@@ -198,9 +198,18 @@ function ContactsList() {
           lid ? "hidden" : "flex",
         )}
       >
-        <header className="grid gap-2.5 border-b border-border/70 p-3">
-          <div className="flex h-7 items-center justify-between gap-2">
-            <h1 className="text-sm font-semibold">Contacts</h1>
+        {/* Same header rhythm as the Chats list column. */}
+        <header className="grid gap-2.5 border-b border-border/70 px-3 pt-4 pb-3">
+          <div className="flex h-8 items-center justify-between gap-2 px-1">
+            <div className="flex min-w-0 items-baseline gap-2">
+              <h1 className="text-base font-semibold tracking-tight">Contacts</h1>
+              {rows.length > 0 ? (
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  {rows.length}
+                  {contacts.hasNextPage ? "+" : ""}
+                </span>
+              ) : null}
+            </div>
             {hasFilters && (
               <Button
                 variant="ghost"

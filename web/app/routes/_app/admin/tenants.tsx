@@ -337,9 +337,15 @@ function UsersPanel() {
                     </TableCell>
                     <TableCell>
                       {t.banned ? (
-                        <Badge variant="destructive">Banned</Badge>
+                        <Badge variant="destructive" className="gap-1.5">
+                          <span aria-hidden className="size-1.5 rounded-full bg-destructive" />
+                          Banned
+                        </Badge>
                       ) : (
-                        <Badge className="bg-emerald-500/12 text-emerald-700 dark:text-emerald-400">Active</Badge>
+                        <Badge className="gap-1.5 bg-emerald-500/12 text-emerald-700 dark:text-emerald-400">
+                          <span aria-hidden className="size-1.5 rounded-full bg-emerald-500" />
+                          Active
+                        </Badge>
                       )}
                     </TableCell>
                     <TableCell className="text-muted-foreground">

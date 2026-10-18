@@ -24,7 +24,7 @@ export function ConsentPreview({ snapshot }: { snapshot: PendingSnapshot }) {
   return (
     <ConsentI18nProvider persist={false}>
       <div className="mb-3 flex items-center justify-between gap-3">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        <p className="text-sm font-medium text-muted-foreground">
           Sign-in preview
         </p>
         <div className="flex items-center gap-2">

@@ -182,7 +182,7 @@ export function SessionOverview({ sessionId }: { sessionId: string }) {
             ) : (
               <span>Not linked to a phone yet</span>
             )}
-            <span aria-hidden className="text-border">
+            <span aria-hidden className="hidden text-border sm:inline">
               ·
             </span>
             <span className="inline-flex items-center gap-1">
@@ -208,7 +208,7 @@ export function SessionOverview({ sessionId }: { sessionId: string }) {
         <>
           <StatusBanner session={s} actions={actions} />
           <NextSteps session={s} justConnected={justConnected} />
-          <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+          <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_20rem]">
             <div className="grid min-w-0 gap-6">
               <SendTestCard session={s} />
               <SessionStorageCard sessionId={s.id} />
@@ -367,7 +367,7 @@ function NextSteps({
     <section
       aria-label="Next steps"
       className={cn(
-        "relative rounded-xl border p-5",
+        "@container relative rounded-xl border p-5",
         justConnected
           ? "border-emerald-500/30 bg-emerald-500/[0.06] dark:bg-emerald-500/10"
           : "bg-card",
@@ -402,7 +402,7 @@ function NextSteps({
           </p>
         </div>
       </div>
-      <ul className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+      <ul className="mt-4 grid gap-2 @lg:grid-cols-2 @5xl:grid-cols-4">
         {steps.map(({ icon: Icon, title, body, link }) => (
           <li
             key={title}
@@ -521,7 +521,7 @@ function DetailsCard({ session, lid }: { session: WASession; lid: string | undef
         <CardTitle>Details</CardTitle>
       </CardHeader>
       <CardContent>
-        <dl className="grid gap-3.5 text-sm">
+        <dl className="grid gap-x-6 gap-y-3.5 text-sm sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-1">
           <Detail label="Phone">
             {phone ? (
               <CopyableId value={phone} label="Copy phone number" className="[&>span:first-child]:font-sans [&>span:first-child]:text-sm" />
@@ -587,7 +587,7 @@ function Detail({
   children: ReactNode;
 }) {
   return (
-    <div className="grid gap-0.5">
+    <div className="grid min-w-0 gap-0.5">
       <dt className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
         {label}
         {info && <InfoTip text={info} label={`About ${label}`} />}

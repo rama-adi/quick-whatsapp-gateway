@@ -233,7 +233,7 @@ export function Composer({
                 }
               }}
               placeholder={
-                isChannel ? "Write an announcement" : "Message (supports *bold* and _italic_)"
+                isChannel ? "Write an announcement" : "Message"
               }
               aria-label="Message"
               aria-describedby="composer-hint"
@@ -255,7 +255,7 @@ export function Composer({
           id="composer-hint"
           className="mt-1.5 hidden px-2 text-[11px] text-muted-foreground sm:block"
         >
-          <Kbd>Enter</Kbd> to send · <Kbd>Shift</Kbd> + <Kbd>Enter</Kbd> for a new line
+          <Kbd>Enter</Kbd> to send · <Kbd>Shift</Kbd> + <Kbd>Enter</Kbd> for a new line · *bold* and _italic_ work
         </p>
       </form>
       <RichSendDialog

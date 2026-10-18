@@ -303,86 +303,90 @@ function IdentityHeader({
     );
   };
 
+  // Lay out by the pane's own width (it sits beside the contact list on
+  // desktop), not the viewport: side-by-side only when there's room.
   return (
-    <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-      <Avatar className="size-16">
-        {picture.data?.url && <AvatarImage src={picture.data.url} alt={name} />}
-        <AvatarFallback className="text-lg">
-          {name.replace(/^\+/, "").slice(0, 2).toUpperCase()}
-        </AvatarFallback>
-      </Avatar>
-      <div className="grid min-w-0 flex-1 gap-1.5">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <h2 className="truncate text-xl font-semibold tracking-tight">{name}</h2>
-          {dm && (
-            <Badge variant="secondary" className="font-normal">
-              Has direct chat
-            </Badge>
+    <div className="@container">
+      <div className="flex flex-col gap-4 @xl:flex-row @xl:items-start">
+        <Avatar className="size-16">
+          {picture.data?.url && <AvatarImage src={picture.data.url} alt={name} />}
+          <AvatarFallback className="text-lg">
+            {name.replace(/^\+/, "").slice(0, 2).toUpperCase()}
+          </AvatarFallback>
+        </Avatar>
+        <div className="grid min-w-0 flex-1 gap-1.5">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <h2 className="truncate text-xl font-semibold tracking-tight">{name}</h2>
+            {dm && (
+              <Badge variant="secondary" className="font-normal">
+                Has direct chat
+              </Badge>
+            )}
+          </div>
+          {identity?.businessName && identity.businessName !== name && (
+            <p className="text-sm text-muted-foreground">{identity.businessName}</p>
           )}
+          {aboutText && (
+            <p className="text-sm text-pretty text-muted-foreground">“{aboutText}”</p>
+          )}
+          <dl className="mt-1 flex flex-wrap gap-x-6 gap-y-2 text-sm">
+            {phone && (
+              <div className="grid gap-0.5">
+                <dt className="text-xs text-muted-foreground">Phone</dt>
+                <dd>
+                  <CopyableId
+                    value={phone}
+                    label="Copy phone number"
+                    className="[&>span:first-child]:font-sans [&>span:first-child]:text-sm"
+                  />
+                </dd>
+              </div>
+            )}
+            {identity?.lid && (
+              <div className="grid min-w-0 gap-0.5">
+                <dt className="text-xs text-muted-foreground">LID</dt>
+                <dd className="min-w-0">
+                  <CopyableId value={identity.lid} label="Copy LID" />
+                </dd>
+              </div>
+            )}
+          </dl>
         </div>
-        {identity?.businessName && identity.businessName !== name && (
-          <p className="text-sm text-muted-foreground">{identity.businessName}</p>
-        )}
-        {aboutText && (
-          <p className="text-sm text-pretty text-muted-foreground">“{aboutText}”</p>
-        )}
-        <dl className="mt-1 flex flex-wrap gap-x-6 gap-y-2 text-sm">
-          {phone && (
-            <div className="grid gap-0.5">
-              <dt className="text-xs text-muted-foreground">Phone</dt>
-              <dd>
-                <CopyableId
-                  value={phone}
-                  label="Copy phone number"
-                  className="[&>span:first-child]:font-sans [&>span:first-child]:text-sm"
-                />
-              </dd>
-            </div>
-          )}
-          {identity?.lid && (
-            <div className="grid min-w-0 gap-0.5">
-              <dt className="text-xs text-muted-foreground">LID</dt>
-              <dd className="min-w-0">
-                <CopyableId value={identity.lid} label="Copy LID" />
-              </dd>
-            </div>
-          )}
-        </dl>
-      </div>
-      <div className="flex shrink-0 items-center gap-1.5">
-        <Button asChild>
-          <Link
-            to="/user/sessions/$sessionId/chats/$chatId"
-            params={{ sessionId, chatId: jid }}
-            preload={false}
-            onClick={seedChat}
-          >
-            <MessageSquareIcon aria-hidden data-icon="inline-start" />
-            {dm ? "Open chat" : "Message"}
-          </Link>
-        </Button>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              disabled={block.isPending}
-              aria-label={`More actions for ${name}`}
+        <div className="flex shrink-0 items-center gap-1.5">
+          <Button asChild>
+            <Link
+              to="/user/sessions/$sessionId/chats/$chatId"
+              params={{ sessionId, chatId: jid }}
+              preload={false}
+              onClick={seedChat}
             >
-              <MoreHorizontalIcon aria-hidden />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="min-w-40">
-            <DropdownMenuItem onSelect={() => void runBlock(false)}>
-              <CircleCheckIcon aria-hidden />
-              Unblock
-            </DropdownMenuItem>
-            <DropdownMenuItem variant="destructive" onSelect={() => void runBlock(true)}>
-              <BanIcon aria-hidden />
-              Block…
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+              <MessageSquareIcon aria-hidden data-icon="inline-start" />
+              {dm ? "Open chat" : "Message"}
+            </Link>
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                disabled={block.isPending}
+                aria-label={`More actions for ${name}`}
+              >
+                <MoreHorizontalIcon aria-hidden />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-40">
+              <DropdownMenuItem onSelect={() => void runBlock(false)}>
+                <CircleCheckIcon aria-hidden />
+                Unblock
+              </DropdownMenuItem>
+              <DropdownMenuItem variant="destructive" onSelect={() => void runBlock(true)}>
+                <BanIcon aria-hidden />
+                Block…
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
     </div>
   );

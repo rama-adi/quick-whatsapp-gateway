@@ -73,7 +73,13 @@ export function AppSidebar({
       <SidebarContent>
         {sessionId && <SessionNavGroup sessionId={sessionId} />}
         {workspaceItems.length > 0 && (
-          <NavGroup label="Workspace" items={workspaceItems} />
+          <NavGroup
+            label="Workspace"
+            items={workspaceItems}
+            // Inside a session the contextual section owns the strong active
+            // chip; the parent "Sessions" item steps down to a text-only cue.
+            parentOf={sessionId ? "/user/sessions" : undefined}
+          />
         )}
         {adminItems.length > 0 && <NavGroup label="Admin" items={adminItems} />}
       </SidebarContent>
@@ -97,19 +103,41 @@ export function AppSidebar({
   );
 }
 
-function NavGroup({ label, items }: { label: string; items: NavItem[] }) {
+function NavGroup({
+  label,
+  items,
+  parentOf,
+}: {
+  label: string;
+  items: NavItem[];
+  /** Item whose active state is secondary because a child section is shown. */
+  parentOf?: string;
+}) {
   return (
     <SidebarGroup>
       <SidebarGroupLabel>{label}</SidebarGroupLabel>
       <SidebarMenu>
         {items.map((item) => {
           const Icon = item.icon;
+          const isParent = item.to === parentOf;
           return (
             <SidebarMenuItem key={item.to}>
-              <SidebarMenuButton asChild tooltip={item.label}>
+              <SidebarMenuButton
+                asChild
+                tooltip={item.label}
+                className={
+                  isParent
+                    ? "data-[parent-active=true]:font-medium data-[parent-active=true]:text-sidebar-foreground"
+                    : undefined
+                }
+              >
                 <Link
                   to={item.to}
-                  activeProps={{ "data-active": "true" }}
+                  activeProps={
+                    isParent
+                      ? { "data-parent-active": "true" }
+                      : { "data-active": "true" }
+                  }
                   // Workspace/admin items are section roots; highlight on the
                   // whole subtree (e.g. /user/sessions/:id) not just exact.
                   activeOptions={{ exact: false }}

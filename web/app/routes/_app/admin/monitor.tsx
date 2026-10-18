@@ -6,7 +6,15 @@
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { ActivityIcon, EraserIcon, PauseIcon, PlayIcon, SearchIcon, XIcon } from "lucide-react";
+import {
+  ActivityIcon,
+  EraserIcon,
+  MousePointerClickIcon,
+  PauseIcon,
+  PlayIcon,
+  SearchIcon,
+  XIcon,
+} from "lucide-react";
 import { StreamIndicator, TONE_CLASS, useOrgNames } from "./-shared";
 import type { Tone } from "./-gateway-reconciliation";
 import { subscribeEvents } from "~/lib/events/eventBus";
@@ -328,9 +336,12 @@ function AdminMonitor() {
                 onClose={() => setSelectedId(null)}
               />
             ) : (
-              <Empty className="border-0 py-16">
+              <Empty className="border-0">
                 <EmptyHeader>
-                  <EmptyTitle className="text-sm">No event selected</EmptyTitle>
+                  <EmptyMedia variant="icon">
+                    <MousePointerClickIcon aria-hidden />
+                  </EmptyMedia>
+                  <EmptyTitle>No event selected</EmptyTitle>
                   <EmptyDescription>Pick an event in the feed to see its full payload.</EmptyDescription>
                 </EmptyHeader>
               </Empty>
