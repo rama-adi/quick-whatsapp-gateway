@@ -384,6 +384,17 @@ func TestWorkerWaitsForOwnershipAndCompletesIdleRuns(t *testing.T) {
 	}
 }
 
+func TestWorkerAssignmentDaysOverrideRuntimeConfig(t *testing.T) {
+	h := newHarness(t)
+	h.worker.cfg.Days = func(string) (uint32, bool) { return 7, true }
+	h.accept("N1", "/boot", waE2E.HistorySyncType_INITIAL_BOOTSTRAP, 0)
+	rows := h.pending()
+	want := h.clock.Now().Add(-7 * 24 * time.Hour).UnixMilli()
+	if len(rows) != 1 || !rows[0].ImportEnabled || rows[0].CutoffMs != want {
+		t.Fatalf("row = %+v, want cutoff %d", rows, want)
+	}
+}
+
 func TestWorkerAcceptLeavesUnackedOnStoreFailure(t *testing.T) {
 	h := newHarness(t)
 	_ = h.journal.Close()

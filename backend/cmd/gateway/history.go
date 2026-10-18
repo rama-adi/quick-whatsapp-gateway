@@ -24,6 +24,10 @@ func newHistoryWorker(
 	return historysync.NewWorker(eventJournal, sessions, sink, historysync.Config{
 		Concurrency: cfg.HistoryConcurrency,
 		FullSync:    cfg.HistoryFullSync,
+		Days: func(sessionID string) (uint32, bool) {
+			config, ok := reconciler.AssignedConfig(sessionID)
+			return config.HistorySyncDays, ok
+		},
 		Owns: func(organizationID, sessionID string) bool {
 			epoch, ok := reconciler.CurrentEpoch(sessionID)
 			return ok && reconciler.OwnsSession(organizationID, sessionID, epoch)

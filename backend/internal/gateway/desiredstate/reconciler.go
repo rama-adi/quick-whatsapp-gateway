@@ -322,6 +322,16 @@ func (r *Reconciler) AssignmentCount() int {
 	return len(r.assignments)
 }
 
+// AssignedConfig returns the session settings of the current assignment,
+// including a stopped one (a session that is still pairing has not been
+// started, so the runtime has not recorded its settings yet).
+func (r *Reconciler) AssignedConfig(sessionID string) (Config, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	a, ok := r.assignments[sessionID]
+	return a.Config, ok
+}
+
 func (r *Reconciler) NextLeaseExpiry() (time.Time, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

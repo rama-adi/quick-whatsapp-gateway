@@ -262,3 +262,26 @@ func TestApplyRejectsInvalidFence(t *testing.T) {
 		}
 	}
 }
+
+// A session that is still pairing has a stopped assignment and was never
+// started, yet its settings (history import days) must be readable.
+func TestAssignedConfigIncludesStoppedAssignments(t *testing.T) {
+	now := time.Unix(100, 0)
+	rt := &fakeRuntime{}
+	r := New(rt, func() time.Time { return now })
+	pairing := assignment("pairing", "", 3, now.Add(time.Minute))
+	pairing.DesiredRun = false
+	pairing.Config.HistorySyncDays = 45
+	if _, err := r.Apply(context.Background(), Snapshot{Revision: 1, Assignments: []Assignment{pairing}}); err != nil {
+		t.Fatal(err)
+	}
+	if len(rt.started) != 0 {
+		t.Fatal("stopped assignment was started")
+	}
+	if cfg, ok := r.AssignedConfig("pairing"); !ok || cfg.HistorySyncDays != 45 {
+		t.Fatalf("config = %+v ok=%v", cfg, ok)
+	}
+	if _, ok := r.AssignedConfig("unknown"); ok {
+		t.Fatal("unknown session has a config")
+	}
+}

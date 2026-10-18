@@ -82,6 +82,10 @@ type Config struct {
 	FullSync bool
 	// Owns reports whether this gateway currently owns the session.
 	Owns func(organizationID, sessionID string) bool
+	// Days resolves a session's historySyncDays from its current assignment.
+	// When it answers, it overrides Intercepted.HistorySyncDays (the runtime
+	// only records settings once a session is started, not while pairing).
+	Days func(sessionID string) (uint32, bool)
 	// Paused reports journal pressure; batches wait while it returns true.
 	Paused func(ctx context.Context) bool
 	// Now overrides the clock in tests.
@@ -154,6 +158,11 @@ func (w *Worker) Accept(ctx context.Context, c Client, n Intercepted) error {
 	raw, err := proto.Marshal(n.Notification)
 	if err != nil {
 		return fmt.Errorf("encode history notification: %w", err)
+	}
+	if w.cfg.Days != nil {
+		if days, ok := w.cfg.Days(n.SessionID); ok {
+			n.HistorySyncDays = days
+		}
 	}
 	now := w.cfg.Now()
 	notified := n.NotifiedAt
