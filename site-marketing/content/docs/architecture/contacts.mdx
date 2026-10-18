@@ -65,6 +65,11 @@ session exists and belongs to the caller's organization (foreign org => `not_fou
 
 ## Live ops boundary
 
+Dashboard contact and chat avatars request live profile pictures only while the cached
+session status is `working`. Picture queries do not retry errors, including HTTP 409
+when the session disconnects before the request reaches the gateway. Stored contact
+and chat data remains available while the session is offline.
+
 The live calls (`check`, `picture`, `about`, `block`/`unblock`) are delegated to
 the `service.ContactDirectory` port, satisfied in production by `wa.LiveOps` (a
 manager-backed adapter resolving the per-session `*whatsmeow.Client`). When the

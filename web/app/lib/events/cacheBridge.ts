@@ -45,6 +45,15 @@ function patchRow<T>(
   );
 }
 
+/** A live pairing artifact also proves the gateway has left starting. */
+function markPairingReady(qc: QueryClient, sessionId: string): void {
+  const patch = (row: WASession): WASession =>
+    row.status === "starting" ? { ...row, status: "scan_qr_code" } : row;
+  qc.setQueryData<WASession>(qk.session(sessionId), (cur) => cur ? patch(cur) : cur);
+  patchRow<WASession>(qc, qk.sessions(), (row) => row.id === sessionId, patch);
+  patchRow<WASession>(qc, qk.adminSessions(), (row) => row.id === sessionId, patch);
+}
+
 /** Apply one event to the cache. Pure w.r.t. its inputs aside from qc mutation. */
 export function applyEvent(qc: QueryClient, e: EventEnvelope): void {
   const s = e.session;
@@ -89,12 +98,19 @@ export function applyEvent(qc: QueryClient, e: EventEnvelope): void {
 
     case "auth.qr": {
       const code = str(p.code);
-      if (s && code) qc.setQueryData(qk.sessionQR(s), { code });
+      if (s && code) {
+        markPairingReady(qc, s);
+        qc.setQueryData(qk.sessionQR(s), { code });
+      }
       break;
     }
 
     case "auth.code": {
-      if (s) {
+      const code = str(p.code);
+      if (s && code) {
+        markPairingReady(qc, s);
+        qc.setQueryData(qk.sessionPairing(s), { code });
+      } else if (s) {
         qc.removeQueries({ queryKey: qk.sessionQR(s), exact: true });
         qc.removeQueries({ queryKey: qk.sessionPairing(s), exact: true });
         void qc.invalidateQueries({ queryKey: qk.session(s), exact: true });

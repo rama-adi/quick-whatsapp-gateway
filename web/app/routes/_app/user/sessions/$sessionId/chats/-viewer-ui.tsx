@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import { apiUrl, fetchJSON } from "~/lib/api/client";
 import type { ApiError } from "~/lib/api/envelope";
+import { useSession } from "~/lib/api/hooks/sessions";
 import type { Chat, Message } from "~/lib/api/types";
 import { cn } from "~/lib/utils";
 
@@ -43,9 +44,10 @@ export function ChatAvatar({
 }
 
 function useProfilePicture(sessionId?: string, jid?: string) {
+  const session = useSession(sessionId ?? "");
   return useQuery<{ url?: string }, ApiError>({
     queryKey: ["sessions", sessionId, "contacts", jid, "picture"],
-    enabled: Boolean(sessionId && jid),
+    enabled: Boolean(sessionId && jid) && session.data?.status === "working",
     retry: false,
     staleTime: 10 * 60_000,
     queryFn: () =>

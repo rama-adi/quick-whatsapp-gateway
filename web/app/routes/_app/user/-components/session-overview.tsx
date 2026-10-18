@@ -86,19 +86,14 @@ import { BackupImportCard } from "./backup-import-card";
 
 export function SessionOverview({ sessionId }: { sessionId: string }) {
   const poll = usePollingInterval();
-  const session = useSession(sessionId);
-  const me = useSessionMe(sessionId);
   const actions = useSessionActions();
+  const pending = actions.pendingFor(sessionId);
+  const session = useSession(sessionId, (query) =>
+    query.state.data?.status === "starting" || pending ? 3000 : poll,
+  );
+  const me = useSessionMe(sessionId);
   const navigate = useNavigate();
   const app = useAppSession();
-
-  // When the stream is degraded, poll the session row so the status badge keeps
-  // advancing through starting -> scan_qr_code -> working.
-  useEffect(() => {
-    if (!poll || !sessionId) return;
-    const t = window.setInterval(() => void session.refetch(), poll);
-    return () => window.clearInterval(t);
-  }, [poll, sessionId, session]);
 
   // The success moment: this page saw the session go from "not linked" to
   // "linked" (rather than the user opening an already-linked session).
@@ -720,6 +715,41 @@ function QrFrame({ children }: { children: ReactNode }) {
   );
 }
 
+/** How long "Connecting…" may show before offering a restart. */
+const SLOW_START_MS = 20_000;
+
+/** Spinner for a starting session; after SLOW_START_MS it offers a restart. */
+function ConnectingFrame({
+  canRestart,
+  onRestart,
+}: {
+  canRestart: boolean;
+  onRestart: () => void;
+}) {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    const t = window.setTimeout(() => setSlow(true), SLOW_START_MS);
+    return () => window.clearTimeout(t);
+  }, []);
+
+  return (
+    <QrFrame>
+      <Spinner className="size-5 text-muted-foreground" />
+      <p className="text-sm text-muted-foreground">
+        {slow
+          ? "This is taking longer than usual. Restarting the session usually brings the QR code up."
+          : "Connecting… the QR code appears in a few seconds."}
+      </p>
+      {slow && canRestart ? (
+        <Button variant="outline" size="sm" onClick={onRestart}>
+          <RefreshCwIcon aria-hidden data-icon="inline-start" />
+          Restart session
+        </Button>
+      ) : null}
+    </QrFrame>
+  );
+}
+
 function QrPanel({
   session,
   actions,
@@ -743,12 +773,12 @@ function QrPanel({
 
   if (session.status === "starting" || pending === "start" || pending === "restart") {
     return (
-      <QrFrame>
-        <Spinner className="size-5 text-muted-foreground" />
-        <p className="text-sm text-muted-foreground">
-          Connecting… the QR code appears in a few seconds.
-        </p>
-      </QrFrame>
+      <ConnectingFrame
+        // Remount on each new attempt so the slow-start timer starts over.
+        key={pending ?? "starting"}
+        canRestart={!pending}
+        onRestart={() => void actions.run(session, "restart")}
+      />
     );
   }
 

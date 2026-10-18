@@ -9,6 +9,7 @@ import {
   type UseInfiniteQueryResult,
   type UseMutationResult,
   type UseQueryResult,
+  type UseQueryOptions,
 } from "@tanstack/react-query";
 import { qk } from "../../query";
 import type { ApiError, Page } from "../envelope";
@@ -33,9 +34,13 @@ export function useSessions(): UseInfiniteQueryResult<
   });
 }
 
-export function useSession(s: string): UseQueryResult<WASession, ApiError> {
+export function useSession(
+  s: string,
+  refetchInterval?: UseQueryOptions<WASession, ApiError>["refetchInterval"],
+): UseQueryResult<WASession, ApiError> {
   return useQuery({
     queryKey: qk.session(s),
+    refetchInterval,
     enabled: Boolean(s),
     queryFn: ({ signal }) =>
       fetchJSON<WASession>(apiUrl(`/sessions/${encodeURIComponent(s)}`), { signal }),
@@ -110,7 +115,8 @@ export function useSessionLifecycle(): UseMutationResult<
         { method: "POST" },
       ),
     onSuccess: (data, { sessionId }) => {
-      qc.setQueryData(qk.session(sessionId), data);
+      // Events can advance the cache before the action response arrives.
+      qc.setQueryData<WASession>(qk.session(sessionId), (current) => current ?? data);
       void qc.invalidateQueries({ queryKey: qk.sessions() });
     },
   });

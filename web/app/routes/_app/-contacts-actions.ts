@@ -13,6 +13,7 @@ import {
 import { qk } from "~/lib/query";
 import { fetchJSON, apiUrl } from "~/lib/api/client";
 import type { ApiError } from "~/lib/api/envelope";
+import { useSession } from "~/lib/api/hooks/sessions";
 import type { OnWhatsApp, ProfilePicture } from "~/lib/api/types";
 
 type About = { about?: string };
@@ -42,9 +43,10 @@ export function useContactPicture(
   jid: string,
   enabled: boolean,
 ): UseQueryResult<ProfilePicture, ApiError> {
+  const session = useSession(s);
   return useQuery({
     queryKey: ["sessions", s, "contacts", jid, "picture"] as const,
-    enabled: Boolean(s && jid && enabled),
+    enabled: Boolean(s && jid && enabled) && session.data?.status === "working",
     retry: false,
     queryFn: () =>
       fetchJSON<ProfilePicture>(

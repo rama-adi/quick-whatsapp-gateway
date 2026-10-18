@@ -91,6 +91,30 @@ describe("applyEvent", () => {
     expect(qc.getQueryData(qk.sessionQR(SESSION))).toEqual({ code: "2@abc" });
   });
 
+  it.each(["auth.qr", "auth.code"])("%s recovers starting when the status frame was missed", (event) => {
+    const starting = { id: SESSION, status: "starting" } as WASession;
+    const working = { id: "other", status: "working" } as WASession;
+    qc.setQueryData(qk.session(SESSION), starting);
+    qc.setQueryData(qk.sessions(), infinite([starting, working]));
+    qc.setQueryData(qk.adminSessions(), infinite([starting]));
+
+    applyEvent(qc, evt(event, { code: "new-code" }));
+
+    expect(qc.getQueryData<WASession>(qk.session(SESSION))?.status).toBe("scan_qr_code");
+    for (const key of [qk.sessions(), qk.adminSessions()]) {
+      const rows = qc.getQueryData<InfiniteData<Page<WASession>>>(key)?.pages[0]?.data;
+      expect(rows?.[0]?.status).toBe("scan_qr_code");
+    }
+    expect(qc.getQueryData<InfiniteData<Page<WASession>>>(qk.sessions())?.pages[0]?.data[1]?.status).toBe("working");
+    expect(qc.getQueryData(event === "auth.qr" ? qk.sessionQR(SESSION) : qk.sessionPairing(SESSION))).toEqual({ code: "new-code" });
+  });
+
+  it.each(["auth.qr", "auth.code"])("%s does not regress an already working session", (event) => {
+    qc.setQueryData(qk.session(SESSION), { id: SESSION, status: "working" });
+    applyEvent(qc, evt(event, { code: "late-code" }));
+    expect(qc.getQueryData<WASession>(qk.session(SESSION))?.status).toBe("working");
+  });
+
   it("auth.code clears pairing artifacts and refreshes attached identity", () => {
     qc.setQueryData(qk.sessionQR(SESSION), { code: "stale" });
     qc.setQueryData(qk.sessionPairing(SESSION), { code: "1234" });

@@ -139,6 +139,13 @@ the work Redis. API processes subscribe and revoke cached authorization and live
   a QR flow as a side effect; this lets users choose phone-code pairing without an automatic QR
   client racing it. A `logged_out` event clears cached identity/old codes, while `working`
   invalidates session rows so the newly persisted JID appears immediately after PairSuccess.
+  A live `auth.qr` or code-bearing `auth.code` event advances cached `starting` rows to
+  `scan_qr_code` across detail, user-list, and admin-list caches. Code-bearing `auth.code`
+  stores the phone pairing code; the pairing-success form with identity fields clears old
+  pairing artifacts and refreshes the attached identity. Lifecycle responses preserve an
+  existing cache row and refetch it, so a late action response cannot replace a newer event
+  status. The overview polls every three seconds while starting or an action is pending,
+  independently of degraded-stream fallback polling.
   Shared lifecycle controls disable logout for unpaired sessions and confirm before unlinking a
   paired device; list and detail views use the same labels, pending state, and destructive styling.
 - **Chats** — chat list + message timeline with a composer (text, poll, location, contact card);
