@@ -302,7 +302,7 @@ A `HistoryConversation` carries the chat's phone-side state (`chatJid`, `type`, 
 `mutedUntil`, `lastMessageAt`, group `participants[]` of `HistoryParticipant{lid,
 phoneJid, role}`) plus its messages for this batch, **oldest first**. Each
 `HistoryMessage` embeds the live `MessagePayload` (same field names and meaning) and
-adds `status` (the recorded delivery status of an own message, applied on first insert
+adds `kind` (the live event type the entry corresponds to), `status` (the recorded delivery status of an own message, applied on first insert
 only) and `truncated`. `HistoryContact{lid, phoneJid, pushName}` carries push names and
 phone-number-to-LID mappings. Conversation metadata repeats in every part that carries
 its messages, so each batch is self-contained.
@@ -319,6 +319,15 @@ never publishes it, and event-log replay (`since` on the WebSocket and gRPC stre
 read their body from it. Rationale: existing `*` receivers and live dashboards must not
 start receiving large, high-volume bodies because history import shipped; the small
 `history.sync` lifecycle is enough to show progress.
+
+**API projection.** The API stores batches through `HistoryRepo` (insert-if-absent,
+`origin='history'`, timestamp-seeded ids, fill-only identities, snapshot-aware unread
+counts, no stale poll recaps) and tracks each run in `history_sync_runs`; see
+[store: history projection](/docs/architecture/store#history-projection-historyrepo).
+`HistoryMessage.kind` tells the projection (and webhook receivers) how to apply each
+entry: `message` / `message.from_me` / `message.interactive_reply` become rows,
+`message.edited` / `message.revoked` change `targetId`, `poll.vote` adds a vote, and
+`message.reaction` stores nothing.
 
 ## Interactive selections
 

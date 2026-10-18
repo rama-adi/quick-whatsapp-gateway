@@ -48,6 +48,7 @@ type Store struct {
 	Retention         *RetentionRepo
 	Overview          *OverviewRepo
 	BackfillImports   *BackfillImportRepo
+	History           *HistoryRepo
 	OAuthClients      *OAuthClientRepo
 	OAuthGrants       *OAuthGrantRepo
 	OAuthRefresh      *OAuthRefreshTokenRepo
@@ -78,6 +79,7 @@ func New(db *sql.DB) *Store {
 		Retention:         NewRetentionRepo(db),
 		Overview:          NewOverviewRepo(db),
 		BackfillImports:   NewBackfillImportRepo(db),
+		History:           NewHistoryRepo(db),
 		OAuthClients:      NewOAuthClientRepo(db),
 		OAuthGrants:       NewOAuthGrantRepo(db),
 		OAuthRefresh:      NewOAuthRefreshTokenRepo(db),

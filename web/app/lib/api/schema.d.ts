@@ -3233,6 +3233,12 @@ export interface components {
             hasMedia: boolean;
             /** @description Selected choice for message.interactive_reply; original message is quotedMessageId. */
             interactiveReply?: components["schemas"]["InteractiveReplyData"];
+            /**
+             * @description Which live event this message would have produced, so receivers can apply it the same way: message / message.from_me / message.interactive_reply are stored as messages; message.edited and message.revoked change the message in targetId; message.reaction and poll.vote refer to targetId and are not stored as messages.
+             * @example message
+             * @enum {string}
+             */
+            kind: "message" | "message.from_me" | "message.interactive_reply" | "message.edited" | "message.revoked" | "message.reaction" | "poll.vote";
             /** @description Set when type is location. */
             location?: components["schemas"]["LocationData"];
             /** @description Media metadata and stored attachment id when capture is enabled. URL is present when ready; media.ready announces asynchronous upload completion. */

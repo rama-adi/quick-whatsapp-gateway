@@ -356,6 +356,36 @@ type Message struct {
 	CreatedAt    int64             `json:"createdAt" doc:"When the message row was stored, in epoch milliseconds (UTC)." example:"1719662400000"`
 }
 
+// HistorySyncRun is the state of one WhatsApp history import run: the chat
+// history the phone sends after the device is (re)linked. Gateway counters
+// describe what the gateway sent; the messages* counters describe what the API
+// stored.
+type HistorySyncRun struct {
+	SessionID        string  `json:"sessionId" doc:"Id of the session the history belongs to." example:"01J9ZX8K2QHV0M3T6R7P4N5W8C"`
+	RunID            string  `json:"runId" doc:"Id of the import run, as carried by history.sync and history.batch events." example:"hsr_01J9ZX3K8Q2W5V7B4N6M1C0D9E"`
+	AccountJID       *string `json:"accountJid,omitempty" doc:"Phone JID of the WhatsApp account whose history was imported. Optional; null until the gateway reports it." example:"6281234567890@s.whatsapp.net"`
+	Status           string  `json:"status" enum:"running,completed,failed" doc:"Run state. **running** = the phone is still sending history or batches are still being stored; **completed** = all history the phone sent was imported; **failed** = the import stopped, see error." example:"running"`
+	Stalled          bool    `json:"stalled" doc:"True when the run is still running but nothing happened for over 10 minutes (for example the phone went offline). The import resumes if the phone sends more history." example:"false"`
+	SyncType         *string `json:"syncType,omitempty" enum:"initial_bootstrap,recent,full,push_name,initial_status_v3,non_blocking_data,on_demand" doc:"Kind of the latest WhatsApp history notification in this run. Optional." example:"recent"`
+	Progress         *int    `json:"progress,omitempty" minimum:"0" maximum:"100" doc:"Percent of the history the phone reports as sent (0-100). Optional; null when the phone did not report progress." example:"45"`
+	CutoffAt         *int64  `json:"cutoffAt,omitempty" doc:"Messages older than this time (epoch milliseconds) were not imported, per the session's historySyncDays. Optional; null when there was no cutoff." example:"1717000000000"`
+	Chunks           int     `json:"chunks" doc:"WhatsApp history notifications the gateway processed." example:"3"`
+	Batches          int     `json:"batches" doc:"history.batch events the gateway emitted." example:"12"`
+	Conversations    int     `json:"conversations" doc:"Conversations the gateway included in batches." example:"40"`
+	Messages         int     `json:"messages" doc:"Messages the gateway included in batches." example:"1830"`
+	Skipped          int     `json:"skipped" doc:"Messages the gateway left out: older than the cutoff, system notices, or undecodable." example:"25"`
+	BatchesApplied   int     `json:"batchesApplied" doc:"Batches the API has stored so far. Equals batches once the API has caught up." example:"12"`
+	MessagesImported int     `json:"messagesImported" doc:"Messages stored as new rows (marked origin history)." example:"1700"`
+	MessagesExisting int     `json:"messagesExisting" doc:"Messages that were already stored (for example received live) and were left unchanged." example:"110"`
+	MessagesDropped  int     `json:"messagesDropped" doc:"Messages not stored because they are older than the deployment's retention period or lack an id." example:"20"`
+	Error            *string `json:"error,omitempty" doc:"Why the run failed. Optional; only set when status is failed." example:"history blob expired on WhatsApp servers"`
+	AccountChanged   bool    `json:"accountChanged" doc:"True when this session was relinked to a different phone number than the one its stored chats came from. Older chats and messages stay and belong to the previous number." example:"false"`
+	AccountChangedAt *int64  `json:"accountChangedAt,omitempty" doc:"When the relink to a different number was detected, in epoch milliseconds. Optional; null when the number never changed." example:"1719662400000"`
+	StartedAt        int64   `json:"startedAt" doc:"When the run started, in epoch milliseconds." example:"1719662400000"`
+	UpdatedAt        int64   `json:"updatedAt" doc:"When the run last changed, in epoch milliseconds." example:"1719662460000"`
+	FinishedAt       *int64  `json:"finishedAt,omitempty" doc:"When the run completed or failed, in epoch milliseconds. Optional; null while running." example:"1719662700000"`
+}
+
 // BackfillSnapshot is the supported data pulled from a live WhatsApp session by
 // an admin-triggered background backfill. WhatsApp chat-message history is
 // event-driven through HistorySync; this snapshot covers data with direct APIs.

@@ -158,6 +158,16 @@ func (p *StoreProjections) InsertPollVote(ctx context.Context, in ProjectionPoll
 	return err
 }
 
+// ApplyHistoryBatch stores one history.batch through the history repo.
+func (p *StoreProjections) ApplyHistoryBatch(ctx context.Context, in store.HistoryBatch) (store.HistoryBatchResult, error) {
+	return p.st.History.ApplyBatch(ctx, in)
+}
+
+// ApplyHistorySync records one history.sync lifecycle event.
+func (p *StoreProjections) ApplyHistorySync(ctx context.Context, in store.HistorySyncUpdate) error {
+	return p.st.History.ApplySync(ctx, in)
+}
+
 // UpdateSessionStatus projects observed lifecycle state without changing pairing.
 func (p *StoreProjections) UpdateSessionStatus(ctx context.Context, sessionID string, status domain.SessionStatus, updatedAt int64) error {
 	return p.st.Sessions.UpdateStatus(ctx, sessionID, status, updatedAt)

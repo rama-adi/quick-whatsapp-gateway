@@ -87,6 +87,7 @@ type HistoryContact struct {
 // `message` payload, plus import-only fields.
 type HistoryMessage struct {
 	MessagePayload
+	Kind      string `json:"kind" doc:"Which live event this message would have produced, so receivers can apply it the same way: message / message.from_me / message.interactive_reply are stored as messages; message.edited and message.revoked change the message in targetId; message.reaction and poll.vote refer to targetId and are not stored as messages." enum:"message,message.from_me,message.interactive_reply,message.edited,message.revoked,message.reaction,poll.vote" example:"message"`
 	Status    string `json:"status,omitempty" doc:"For messages this account sent: the delivery status WhatsApp recorded. Applied only when the message is first stored." enum:"pending,sent,delivered,read,played,failed" example:"read"`
 	Truncated bool   `json:"truncated,omitempty" doc:"True when body or quotedBody was shortened to keep the batch under its size limit." example:"false"`
 }

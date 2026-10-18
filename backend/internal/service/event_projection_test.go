@@ -30,6 +30,8 @@ type fakeProjectionStore struct {
 	clearedAt         []int64
 	sessionStatuses   []domain.SessionStatus
 	deleteErr         error
+	historyBatches    []store.HistoryBatch
+	historySyncs      []store.HistorySyncUpdate
 }
 
 func (f *fakeProjectionStore) AttachPairing(_ context.Context, in store.AttachPairingInput) error {
@@ -56,6 +58,16 @@ func (f *fakeProjectionStore) FillIdentityName(_ context.Context, jid, name stri
 }
 
 func (f *fakeProjectionStore) UpsertGroup(context.Context, ProjectionGroupUpsert) error { return nil }
+
+func (f *fakeProjectionStore) ApplyHistoryBatch(_ context.Context, in store.HistoryBatch) (store.HistoryBatchResult, error) {
+	f.historyBatches = append(f.historyBatches, in)
+	return store.HistoryBatchResult{Applied: true}, nil
+}
+
+func (f *fakeProjectionStore) ApplyHistorySync(_ context.Context, in store.HistorySyncUpdate) error {
+	f.historySyncs = append(f.historySyncs, in)
+	return nil
+}
 
 func (f *fakeProjectionStore) UpsertGroupMember(_ context.Context, in ProjectionGroupMemberUpsert) error {
 	f.upsertMembers = append(f.upsertMembers, in)

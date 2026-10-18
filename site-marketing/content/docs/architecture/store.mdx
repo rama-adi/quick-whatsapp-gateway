@@ -382,6 +382,54 @@ that changed nothing and cannot distinguish an insert from a duplicate. History
 projection therefore checks the ledger and pre-selects existing
 `wa_message_id`s inside the batch transaction to decide what to insert and count.
 
+### History projection (`HistoryRepo`)
+
+`EventProjectionConsumer` routes `history.batch` to `HistoryRepo.ApplyBatch` and
+`history.sync` to `HistoryRepo.ApplySync` (`backend/internal/service/history_projection.go`).
+History never runs through the live message projection, so it gets no OAuth
+interception, no `message` webhooks, no auto-read, and no media capture.
+
+`ApplyBatch` runs one MySQL transaction per batch, in this order:
+
+1. **Ledger check.** `SELECT COUNT(*) FROM history_sync_batches WHERE event_id=?`; a hit
+   returns `Applied=false`. The ledger row is written last with a plain `INSERT`, so a
+   concurrent worker applying the same event fails on the primary key and rolls back.
+2. **Run row.** Inserted as `running` if the `history.sync started` event has not been seen.
+3. **Identities, fill-only.** Contacts, DM conversations, group participants and message
+   senders fill `phone_number` / `phone_jid` / `name` only where empty; a known name is
+   never overwritten by the phone snapshot. Phone-only push names use `FillNameByJID`
+   (never inserts). A LID↔phone mapping that is new in this batch merges this session's
+   phone-keyed DM chat into the LID chat (only when such a chat exists, to keep large
+   contact lists cheap).
+4. **Groups and members.** Subject/description fill-only; members inserted if absent
+   (live group events own roles).
+5. **Chats.** DM chat JIDs are canonicalized to the LID. On an existing chat,
+   `unread_count` takes the phone snapshot only when `snapshotAt ≥ last_message_at`
+   (assigned **before** `last_message_at` in the `ON DUPLICATE KEY UPDATE` list, which MySQL
+   evaluates left to right); `last_message_at` only moves forward and is taken from
+   messages actually kept in the batch, so a conversation whose messages were all cut off
+   does not appear as an empty inbox row; `name` is fill-only; `archived` / `pinned` /
+   `muted_until` are applied on insert only.
+6. **Messages, insert-if-absent.** Existing `wa_message_id`s are pre-selected; existing rows
+   (live capture, backup import, an earlier batch) win and are only counted. New rows get
+   `origin='history'`, an id from `domain.MessageIDSequence` seeded with the message
+   timestamp, `status` from the phone for own messages, and metadata-only `media_meta`
+   (no storage id or URL). Rows older than the `RETENTION_DAYS` cutoff are dropped and counted.
+7. **Polls.** Poll metadata is inserted if absent; a poll whose `end_time` already passed
+   gets `recap_emitted_at = now`, so importing it never fires a stale `poll.recap`.
+8. **Edits, revokes, votes.** Applied after all rows exist: an edit lands only on a row
+   with `edited=0` (a live edit is newer than the snapshot), revokes set `deleted=1`,
+   votes use the existing `INSERT IGNORE` replay key.
+9. **Counters.** Ledger row plus `history_sync_runs` increments
+   (`batches_applied`, `messages_imported` / `_existing` / `_dropped`).
+
+`ApplySync` upserts the run row from `history.sync`: gateway counters use `GREATEST`,
+`status` mirrors the latest phase (`completed` / `failed` set `finished_at`), and replaying
+the same event writes the same values. A history payload that cannot be decoded, or lacks
+its run id, is logged and skipped rather than returned as an error: the committed-event
+worker processes a session strictly in order, so an error would block every later event
+of that session.
+
 A session pinned to a gateway that is missing / not `active` / has a stale heartbeat is a *stranded*
 session: the router returns the new **`gateway_unavailable` (HTTP 503)** domain error rather than
 hanging. After running the migration, `cd web && pnpm db:introspect` refreshes the read-only WA

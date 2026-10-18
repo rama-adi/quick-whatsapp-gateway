@@ -180,7 +180,7 @@ func runWithStorageTransport(storageTransport http.RoundTripper) error {
 		oidpEvents = service.NewOIDPEventConsumer(nil)
 	}
 	consumers := []application.CommittedEventConsumer{
-		service.NewEventProjectionConsumer(service.NewStoreProjections(st), nil),
+		service.NewEventProjectionConsumer(service.NewStoreProjections(st), nil).WithRetentionDays(cfg.RetentionDays),
 	}
 	if oidpEvents != nil {
 		// Run OAuth interception before the projection consumer so claim messages

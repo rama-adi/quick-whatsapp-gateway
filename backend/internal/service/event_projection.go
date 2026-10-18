@@ -39,6 +39,9 @@ type projectionStore interface {
 	AttachPairing(ctx context.Context, in store.AttachPairingInput) error
 	ClearPairing(ctx context.Context, sessionID string, updatedAt int64) error
 	UpdateSessionStatus(ctx context.Context, sessionID string, status domain.SessionStatus, updatedAt int64) error
+	// History sync (history.batch / history.sync); see history_projection.go.
+	ApplyHistoryBatch(ctx context.Context, in store.HistoryBatch) (store.HistoryBatchResult, error)
+	ApplyHistorySync(ctx context.Context, in store.HistorySyncUpdate) error
 }
 
 // The Projection* structs mirror the argument structs the gateway's inbound
@@ -141,8 +144,9 @@ type ProjectionGroupMemberUpsert struct {
 // chats, messages, polls, poll votes, receipt statuses, identities, and sender
 // memberships are now derived API-side from committed events.
 type EventProjectionConsumer struct {
-	store projectionStore
-	clock func() int64
+	store         projectionStore
+	clock         func() int64
+	retentionDays int
 }
 
 // NewEventProjectionConsumer builds the shared projection sink. clock may be
@@ -180,6 +184,10 @@ func (c *EventProjectionConsumer) ConsumeCommittedEvent(ctx context.Context, eve
 		return c.projectPairSuccess(ctx, event)
 	case domain.EventSessionStatus:
 		return c.projectSessionStatus(ctx, event)
+	case domain.EventHistoryBatch:
+		return c.projectHistoryBatch(ctx, event)
+	case domain.EventHistorySync:
+		return c.projectHistorySync(ctx, event)
 	default:
 		// presence.update / group.update / group.participant / chat.update /
 		// contact.update / call.incoming / newsletter.update / poll.recap: no
