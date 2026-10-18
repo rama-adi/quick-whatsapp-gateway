@@ -4,10 +4,11 @@
 // were replaced with the real AppSession, a "Platform admin" marker for
 // super admins (plain members get no role line), and the sign-out flow ported
 // from the old shell/UserMenu.tsx (clears the query cache, then navigates to
-// /login). Documentation lives in the sidebar footer only, not in this menu.
+// /login). An "Account" item opens /account (profile, password, 2FA).
+// Documentation lives in the sidebar footer only, not in this menu.
 
 import { useState } from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Avatar,
@@ -27,7 +28,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "~/components/ui/sidebar";
-import { ChevronsUpDownIcon, LogOut, ShieldCheckIcon } from "lucide-react";
+import { ChevronsUpDownIcon, LogOut, ShieldCheckIcon, UserRoundCogIcon } from "lucide-react";
 import { signOut } from "~/lib/auth/client";
 import { clearGatewayToken } from "~/lib/api/token-provider";
 import { formatPlatformRole } from "~/lib/format";
@@ -117,6 +118,13 @@ export function NavUser({ session }: { session: AppSession }) {
                 )}
               </div>
             </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem asChild>
+              <Link to="/account">
+                <UserRoundCogIcon aria-hidden />
+                Account
+              </Link>
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
               disabled={signingOut}

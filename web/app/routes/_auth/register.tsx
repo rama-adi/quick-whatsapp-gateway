@@ -23,14 +23,7 @@ import { Loader2 } from "lucide-react";
 
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "~/components/ui/card";
+import { PasswordInput } from "~/components/password-input";
 import {
   Form,
   FormControl,
@@ -46,8 +39,11 @@ import {
   resolvePostAuthRedirect,
   signUpErrorMessage,
 } from "./-shared";
+import { AuthCard, FormAlert, authLinkClass } from "./-ui";
+import { titleHead } from "~/lib/head";
 
 export const Route = createFileRoute("/_auth/register")({
+  head: () => titleHead("Create account"),
   loader: async () => {
     if (!(await registrationEnabled())) {
       throw redirect({ to: "/login" });
@@ -95,108 +91,105 @@ function Register() {
   const submitting = form.formState.isSubmitting;
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Create account</CardTitle>
-        <CardDescription>Set up your dashboard access.</CardDescription>
-      </CardHeader>
+    <AuthCard
+      title="Create your account"
+      description="You get your own organization to connect WhatsApp numbers and create API keys."
+      footer={
+        <>
+          Already have an account?{" "}
+          <Link to="/login" className={authLinkClass}>
+            Sign in
+          </Link>
+        </>
+      }
+    >
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} noValidate>
-          <CardContent className="space-y-4">
-            {formError && (
-              <div
-                role="alert"
-                className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-              >
-                {formError}
-              </div>
+        <form onSubmit={form.handleSubmit(onSubmit)} noValidate className="grid gap-5">
+          {formError && <FormAlert>{formError}</FormAlert>}
+          <FormField
+            control={form.control}
+            name="name"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Name</FormLabel>
+                <FormControl>
+                  <Input autoComplete="name" autoFocus placeholder="Jane Doe" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
             )}
-            <FormField
-              control={form.control}
-              name="name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Name</FormLabel>
-                  <FormControl>
-                    <Input autoComplete="name" autoFocus placeholder="Jane Doe" {...field} />
-                  </FormControl>
+          />
+          <FormField
+            control={form.control}
+            name="email"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Email</FormLabel>
+                <FormControl>
+                  <Input
+                    type="email"
+                    autoComplete="email"
+                    spellCheck={false}
+                    placeholder="you@example.com"
+                    {...field}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="password"
+            render={({ field, fieldState }) => (
+              <FormItem>
+                <FormLabel>Password</FormLabel>
+                <FormControl>
+                  <PasswordInput
+                    autoComplete="new-password"
+                    placeholder="At least 8 characters"
+                    {...field}
+                  />
+                </FormControl>
+                {fieldState.error ? (
                   <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="email"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Email</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="email"
-                      autoComplete="email"
-                      placeholder="you@example.com"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="password"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Password</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="password"
-                      autoComplete="new-password"
-                      placeholder="••••••••"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormDescription>At least 8 characters.</FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="confirm"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Confirm password</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="password"
-                      autoComplete="new-password"
-                      placeholder="••••••••"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </CardContent>
-          <CardFooter className="flex flex-col gap-3">
-            <Button type="submit" className="w-full" disabled={submitting}>
-              {submitting && <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
-              Create account
-            </Button>
-            <p className="text-center text-sm text-muted-foreground">
-              Already have an account?{" "}
-              <Link
-                to="/login"
-                className="font-medium text-foreground underline-offset-4 hover:underline"
-              >
-                Sign in
-              </Link>
-            </p>
-          </CardFooter>
+                ) : (
+                  <FormDescription className="text-xs">
+                    Use 8 or more characters. A short passphrase is easier to remember
+                    than random symbols.
+                  </FormDescription>
+                )}
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="confirm"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Confirm password</FormLabel>
+                <FormControl>
+                  <PasswordInput
+                    autoComplete="new-password"
+                    placeholder="Type it again"
+                    {...field}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <Button type="submit" className="w-full" disabled={submitting}>
+            {submitting && (
+              <Loader2
+                className="size-4 animate-spin motion-reduce:animate-none"
+                aria-hidden="true"
+              />
+            )}
+            {submitting ? "Creating account…" : "Create account"}
+          </Button>
         </form>
       </Form>
-    </Card>
+    </AuthCard>
   );
 }

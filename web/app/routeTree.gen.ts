@@ -20,6 +20,7 @@ import { Route as AuthLoginRouteImport } from './routes/_auth/login'
 import { Route as Auth2faRouteImport } from './routes/_auth/2fa'
 import { Route as AppUserRouteImport } from './routes/_app/user'
 import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
+import { Route as AppAccountRouteImport } from './routes/_app/account'
 import { Route as AppAdminRouteRouteImport } from './routes/_app/admin/route'
 import { Route as AppAdminIndexRouteImport } from './routes/_app/admin/index'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth.$'
@@ -97,6 +98,11 @@ const AppUserRoute = AppUserRouteImport.update({
 const AppDashboardRoute = AppDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppAccountRoute = AppAccountRouteImport.update({
+  id: '/account',
+  path: '/account',
   getParentRoute: () => AppRoute,
 } as any)
 const AppAdminRouteRoute = AppAdminRouteRouteImport.update({
@@ -236,6 +242,7 @@ const AppUserSessionsSessionIdChatsChatIdRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AppAdminRouteRouteWithChildren
+  '/account': typeof AppAccountRoute
   '/dashboard': typeof AppDashboardRoute
   '/user': typeof AppUserRouteWithChildren
   '/2fa': typeof Auth2faRoute
@@ -271,6 +278,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/account': typeof AppAccountRoute
   '/dashboard': typeof AppDashboardRoute
   '/user': typeof AppUserRouteWithChildren
   '/2fa': typeof Auth2faRoute
@@ -306,6 +314,7 @@ export interface FileRoutesById {
   '/_app': typeof AppRouteWithChildren
   '/_auth': typeof AuthRouteWithChildren
   '/_app/admin': typeof AppAdminRouteRouteWithChildren
+  '/_app/account': typeof AppAccountRoute
   '/_app/dashboard': typeof AppDashboardRoute
   '/_app/user': typeof AppUserRouteWithChildren
   '/_auth/2fa': typeof Auth2faRoute
@@ -344,6 +353,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/admin'
+    | '/account'
     | '/dashboard'
     | '/user'
     | '/2fa'
@@ -379,6 +389,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/account'
     | '/dashboard'
     | '/user'
     | '/2fa'
@@ -413,6 +424,7 @@ export interface FileRouteTypes {
     | '/_app'
     | '/_auth'
     | '/_app/admin'
+    | '/_app/account'
     | '/_app/dashboard'
     | '/_app/user'
     | '/_auth/2fa'
@@ -534,6 +546,13 @@ declare module '@tanstack/react-router' {
       path: '/dashboard'
       fullPath: '/dashboard'
       preLoaderRoute: typeof AppDashboardRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/account': {
+      id: '/_app/account'
+      path: '/account'
+      fullPath: '/account'
+      preLoaderRoute: typeof AppAccountRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/admin': {
@@ -841,12 +860,14 @@ const AppUserRouteWithChildren =
 
 interface AppRouteChildren {
   AppAdminRouteRoute: typeof AppAdminRouteRouteWithChildren
+  AppAccountRoute: typeof AppAccountRoute
   AppDashboardRoute: typeof AppDashboardRoute
   AppUserRoute: typeof AppUserRouteWithChildren
 }
 
 const AppRouteChildren: AppRouteChildren = {
   AppAdminRouteRoute: AppAdminRouteRouteWithChildren,
+  AppAccountRoute: AppAccountRoute,
   AppDashboardRoute: AppDashboardRoute,
   AppUserRoute: AppUserRouteWithChildren,
 }

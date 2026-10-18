@@ -24,14 +24,7 @@ import { Loader2 } from "lucide-react";
 
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "~/components/ui/card";
+import { PasswordInput } from "~/components/password-input";
 import {
   Form,
   FormControl,
@@ -47,6 +40,8 @@ import {
   safeNext,
   signInErrorMessage,
 } from "./-shared";
+import { AuthCard, FormAlert, authLinkClass } from "./-ui";
+import { titleHead } from "~/lib/head";
 
 const searchSchema = z.object({
   next: z.string().optional(),
@@ -54,6 +49,7 @@ const searchSchema = z.object({
 
 export const Route = createFileRoute("/_auth/login")({
   validateSearch: searchSchema,
+  head: () => titleHead("Sign in"),
   loader: async () => ({ registrationEnabled: await registrationEnabled() }),
   component: Login,
 });
@@ -100,80 +96,97 @@ function Login() {
 
   const submitting = form.formState.isSubmitting;
 
+  const [forgotOpen, setForgotOpen] = useState(false);
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Sign in</CardTitle>
-        <CardDescription>Use your email and password to continue.</CardDescription>
-      </CardHeader>
+    <AuthCard
+      title="Sign in"
+      description="Use your email and password to continue."
+      footer={
+        canRegister ? (
+          <>
+            Don&apos;t have an account?{" "}
+            <Link to="/register" className={authLinkClass}>
+              Create one
+            </Link>
+          </>
+        ) : (
+          <>Need an account? Ask your gateway operator to create one for you.</>
+        )
+      }
+    >
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} noValidate>
-          <CardContent className="space-y-4">
-            {formError && (
-              <div
-                role="alert"
-                className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-              >
-                {formError}
-              </div>
+        <form onSubmit={form.handleSubmit(onSubmit)} noValidate className="grid gap-5">
+          {formError && <FormAlert>{formError}</FormAlert>}
+          <FormField
+            control={form.control}
+            name="email"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Email</FormLabel>
+                <FormControl>
+                  <Input
+                    type="email"
+                    autoComplete="username"
+                    autoFocus
+                    spellCheck={false}
+                    placeholder="you@example.com"
+                    {...field}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
             )}
-            <FormField
-              control={form.control}
-              name="email"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Email</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="email"
-                      autoComplete="email"
-                      autoFocus
-                      placeholder="you@example.com"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="password"
-              render={({ field }) => (
-                <FormItem>
+          />
+          <FormField
+            control={form.control}
+            name="password"
+            render={({ field }) => (
+              <FormItem>
+                <div className="flex items-center justify-between gap-2">
                   <FormLabel>Password</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="password"
-                      autoComplete="current-password"
-                      placeholder="••••••••"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </CardContent>
-          <CardFooter className="flex flex-col gap-3">
-            <Button type="submit" className="w-full" disabled={submitting}>
-              {submitting && <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
-              Sign in
-            </Button>
-            {canRegister && (
-              <p className="text-center text-sm text-muted-foreground">
-                Don&apos;t have an account?{" "}
-                <Link
-                  to="/register"
-                  className="font-medium text-foreground underline-offset-4 hover:underline"
-                >
-                  Create one
-                </Link>
-              </p>
+                  <button
+                    type="button"
+                    onClick={() => setForgotOpen((v) => !v)}
+                    aria-expanded={forgotOpen}
+                    aria-controls="forgot-password-hint"
+                    className="rounded-sm text-xs font-medium text-muted-foreground underline-offset-4 outline-none hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring/40"
+                  >
+                    Forgot password?
+                  </button>
+                </div>
+                <FormControl>
+                  <PasswordInput
+                    autoComplete="current-password"
+                    placeholder="Your password"
+                    {...field}
+                  />
+                </FormControl>
+                <FormMessage />
+                {forgotOpen && (
+                  <p
+                    id="forgot-password-hint"
+                    className="rounded-lg bg-muted/60 px-3 py-2 text-xs text-pretty text-muted-foreground animate-in fade-in-0 duration-200 ease-soft"
+                  >
+                    Password reset emails aren&apos;t available on this gateway.
+                    Ask your gateway operator to set a new password for you, then
+                    change it from your Account page after you sign in.
+                  </p>
+                )}
+              </FormItem>
             )}
-          </CardFooter>
+          />
+          <Button type="submit" className="w-full" disabled={submitting}>
+            {submitting && (
+              <Loader2
+                className="size-4 animate-spin motion-reduce:animate-none"
+                aria-hidden="true"
+              />
+            )}
+            {submitting ? "Signing in…" : "Sign in"}
+          </Button>
         </form>
       </Form>
-    </Card>
+    </AuthCard>
   );
 }
