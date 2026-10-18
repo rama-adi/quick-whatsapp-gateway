@@ -1,19 +1,49 @@
-import { useEffect, useState } from "react";
-import { LinkIcon, RefreshCwIcon, SmartphoneIcon } from "lucide-react";
+// The session overview: a guided page for one WhatsApp session.
+//
+// - Not linked yet: the "Link your phone" card is the whole page (QR or
+//   pairing code), with Start inside the QR panel.
+// - Linked: a "next steps" card (celebratory right after linking), a ready-to-run
+//   "send a test message" snippet with this session's ID filled in, attachment
+//   storage, backup import, and a details column.
+
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Link, useNavigate } from "@tanstack/react-router";
+import {
+  ArrowRightIcon,
+  ArrowUpRightIcon,
+  CheckCircle2Icon,
+  InfoIcon,
+  KeyRoundIcon,
+  MessagesSquareIcon,
+  PlayIcon,
+  QrCodeIcon,
+  RefreshCwIcon,
+  SearchXIcon,
+  SendIcon,
+  SmartphoneIcon,
+  TriangleAlertIcon,
+  WebhookIcon,
+  XIcon,
+} from "lucide-react";
 import {
   useSession,
-  useSessionLifecycle,
   useSessionMe,
   useSessionQR,
   usePairingCode,
 } from "~/lib/api/hooks/sessions";
 import { isApiError } from "~/lib/api/envelope";
-import type { SessionAction, WASession } from "~/lib/api/types";
+import type { WASession } from "~/lib/api/types";
 import { usePollingInterval } from "~/lib/events/useEventStream";
+import { useAppSession } from "~/lib/auth/context";
+import { usePublicApiUrl } from "~/lib/api/public-url";
+import { apiRequestSnippets } from "~/lib/snippets";
+import { DOCS } from "~/lib/docs-links";
+import { cn } from "~/lib/utils";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 import { Skeleton } from "~/components/ui/skeleton";
+import { Spinner } from "~/components/ui/spinner";
 import {
   Card,
   CardContent,
@@ -21,14 +51,35 @@ import {
   CardHeader,
   CardTitle,
 } from "~/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "~/components/ui/empty";
+import { Tabs, TabsList, TabsTrigger } from "~/components/ui/tabs";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "~/components/ui/tooltip";
+import { Page, PageTitle } from "~/components/shell/page-title";
+import { SessionStatusBadge } from "~/components/status-badge";
+import { CodeSnippet } from "~/components/code-snippet";
+import { CopyButton, CopyableId } from "~/components/copyable";
+import { Time } from "~/components/time";
 import { toast } from "sonner";
 import {
-  CopyButton,
-  formatTimestamp,
   QrImage,
-  SessionActionButtons,
-  SessionStatusBadge,
+  SessionActions,
+  formatPhone,
+  isRunning,
+  normalizePhone,
+  sessionName,
+  useSessionActions,
 } from "./user-ui";
 import { SessionStorageCard } from "./session-storage-card";
 import { BackupImportCard } from "./backup-import-card";
@@ -37,7 +88,9 @@ export function SessionOverview({ sessionId }: { sessionId: string }) {
   const poll = usePollingInterval();
   const session = useSession(sessionId);
   const me = useSessionMe(sessionId);
-  const lifecycle = useSessionLifecycle();
+  const actions = useSessionActions();
+  const navigate = useNavigate();
+  const app = useAppSession();
 
   // When the stream is degraded, poll the session row so the status badge keeps
   // advancing through starting -> scan_qr_code -> working.
@@ -47,217 +100,640 @@ export function SessionOverview({ sessionId }: { sessionId: string }) {
     return () => window.clearInterval(t);
   }, [poll, sessionId, session]);
 
+  // The success moment: this page saw the session go from "not linked" to
+  // "linked" (rather than the user opening an already-linked session).
+  const paired = Boolean(session.data?.waJid);
+  const sawUnpaired = useRef(false);
+  const [justConnected, setJustConnected] = useState(false);
+  useEffect(() => {
+    if (!session.data) return;
+    if (!paired) sawUnpaired.current = true;
+    else if (sawUnpaired.current) setJustConnected(true);
+  }, [paired, session.data]);
+
   if (session.isLoading) {
     return (
-      <div className="grid gap-4 md:grid-cols-2">
-        <Skeleton className="h-48 w-full" />
-        <Skeleton className="h-48 w-full" />
-      </div>
+      <Page>
+        <div className="space-y-2">
+          <Skeleton className="h-7 w-56" />
+          <Skeleton className="h-4 w-80" />
+        </div>
+        <Skeleton className="h-96 w-full rounded-xl" />
+      </Page>
     );
   }
 
   if (session.isError) {
+    const notFound = isApiError(session.error) && session.error.code === "not_found";
     return (
-      <Card>
-        <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
-          <p className="text-sm text-destructive">
-            {isApiError(session.error)
-              ? session.error.message
-              : "Failed to load session"}
-          </p>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5"
-            onClick={() => void session.refetch()}
-          >
-            <RefreshCwIcon className="size-4" aria-hidden />
-            Retry
+      <Empty className="min-h-[50svh]">
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            {notFound ? <SearchXIcon aria-hidden /> : <TriangleAlertIcon aria-hidden />}
+          </EmptyMedia>
+          <EmptyTitle>
+            {notFound
+              ? app.activeOrg
+                ? "This session isn't in your current organization"
+                : "No organization selected"
+              : "Couldn't load this session"}
+          </EmptyTitle>
+          <EmptyDescription>
+            {notFound
+              ? "It may have been deleted, or it belongs to another organization. Switch organizations from the switcher in the header, or go back to your sessions."
+              : isApiError(session.error)
+                ? session.error.message
+                : "Something went wrong while loading the session."}
+          </EmptyDescription>
+        </EmptyHeader>
+        <EmptyContent className="flex-row justify-center">
+          {!notFound && (
+            <Button variant="outline" onClick={() => void session.refetch()}>
+              <RefreshCwIcon aria-hidden data-icon="inline-start" />
+              Retry
+            </Button>
+          )}
+          <Button asChild variant={notFound ? "default" : "ghost"}>
+            <Link to="/user/sessions">Back to sessions</Link>
           </Button>
-        </CardContent>
-      </Card>
+        </EmptyContent>
+      </Empty>
     );
   }
 
   const s = session.data;
   if (!s) return null;
 
-  const run = (action: SessionAction): void => {
-    lifecycle.mutate(
-      { sessionId, action },
-      {
-        onError: (err) =>
-          toast.error(isApiError(err) ? err.message : "Action failed"),
-        onSuccess: () => toast.success(`Session ${action} requested`),
-      },
-    );
-  };
-
-  // Pairing is an attachment fact, not a lifecycle-status guess. In particular,
-  // logged_out is unpaired, while a deliberately stopped session may still have
-  // a valid attachment.
-  const needsPairing = !s.waJid;
+  const phone = formatPhone(s.phoneNumber);
 
   return (
-    <div className="space-y-4">
-      <SessionHeader
-        session={s}
-        pendingAction={lifecycle.variables?.action}
-        onAction={run}
+    <Page>
+      <PageTitle
+        title={
+          <>
+            <span className="truncate">{sessionName(s)}</span>
+            <SessionStatusBadge status={s.status} className="shrink-0" />
+          </>
+        }
+        description={
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            {phone ? (
+              <span className="font-medium text-foreground/80 tabular-nums">{phone}</span>
+            ) : (
+              <span>Not linked to a phone yet</span>
+            )}
+            <span aria-hidden className="text-border">
+              ·
+            </span>
+            <span className="inline-flex items-center gap-1">
+              Session ID
+              <CopyableId value={s.id} label="Copy session ID" />
+            </span>
+          </span>
+        }
+        actions={
+          <SessionActions
+            session={s}
+            actions={actions}
+            size="default"
+            showPrimary={paired}
+            onDeleted={() => void navigate({ to: "/user/sessions" })}
+          />
+        }
       />
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <IdentityCard session={s} me={me} />
-        {needsPairing ? (
-          <PairingCard sessionId={sessionId} status={s.status} />
+      {!paired ? (
+        <PairingCard session={s} actions={actions} />
+      ) : (
+        <>
+          <StatusBanner session={s} actions={actions} />
+          <NextSteps session={s} justConnected={justConnected} />
+          <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+            <div className="grid min-w-0 gap-6">
+              <SendTestCard session={s} />
+              <SessionStorageCard sessionId={s.id} />
+              <BackupImportCard sessionId={s.id} />
+            </div>
+            <DetailsCard session={s} lid={s.waLid || me.data?.waLid} />
+          </div>
+        </>
+      )}
+    </Page>
+  );
+}
+
+// --- Linked: status banner -------------------------------------------------------
+
+/** A slim notice when a linked session isn't connected right now. */
+function StatusBanner({
+  session,
+  actions,
+}: {
+  session: WASession;
+  actions: ReturnType<typeof useSessionActions>;
+}) {
+  const pending = actions.pendingFor(session.id);
+  const copy: Record<string, { text: string; action?: "start" | "restart" }> = {
+    stopped: {
+      text: "This session is stopped, so it isn't receiving new messages. Start it to reconnect.",
+      action: "start",
+    },
+    failed: {
+      text: "The connection failed and the gateway stopped retrying. Restart the session to try again.",
+      action: "restart",
+    },
+    starting: { text: "Reconnecting to WhatsApp…" },
+    scan_qr_code: { text: "Waiting for the phone to confirm the link…" },
+    logged_out: {
+      text: "The phone unlinked this session. Link it again to reconnect.",
+      action: "start",
+    },
+  };
+  const entry = copy[session.status];
+  if (!entry) return null;
+  const tone =
+    session.status === "failed"
+      ? "border-destructive/30 bg-destructive/5"
+      : "border-border bg-muted/40";
+
+  return (
+    <div
+      role="status"
+      className={cn(
+        "flex flex-col gap-3 rounded-xl border px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between",
+        tone,
+      )}
+    >
+      <p className="flex items-center gap-2">
+        {entry.action ? (
+          <InfoIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
         ) : (
-          <ConnectedCard session={s} />
+          <Spinner className="text-muted-foreground" />
         )}
-        <SessionStorageCard sessionId={sessionId} />
-        <BackupImportCard sessionId={sessionId} />
-      </div>
+        {entry.text}
+      </p>
+      {entry.action && (
+        <Button
+          size="sm"
+          className="shrink-0 self-start sm:self-auto"
+          disabled={Boolean(pending)}
+          onClick={() => void actions.run(session, entry.action!)}
+        >
+          {entry.action === "start" ? (
+            <PlayIcon aria-hidden data-icon="inline-start" />
+          ) : (
+            <RefreshCwIcon aria-hidden data-icon="inline-start" />
+          )}
+          {entry.action === "start" ? "Start session" : "Restart session"}
+        </Button>
+      )}
     </div>
   );
 }
 
-function SessionHeader({
+// --- Linked: next steps -----------------------------------------------------------
+
+const dismissKey = (id: string) => `qwg:next-steps-dismissed:${id}`;
+
+function NextSteps({
   session,
-  pendingAction,
-  onAction,
+  justConnected,
 }: {
   session: WASession;
-  pendingAction?: SessionAction;
-  onAction: (action: SessionAction) => void;
+  justConnected: boolean;
 }) {
-  return (
-    <Card>
-      <CardHeader className="flex-row items-start justify-between gap-2 space-y-0">
-        <div className="space-y-1">
-          <CardTitle>{session.label || session.id}</CardTitle>
-          <CardDescription className="font-mono text-xs">
-            {session.id}
-          </CardDescription>
-        </div>
-        <SessionStatusBadge status={session.status} />
-      </CardHeader>
-      <CardContent className="flex flex-wrap gap-2">
-        <SessionActionButtons
-          paired={Boolean(session.waJid)}
-          pendingAction={pendingAction}
-          onAction={onAction}
+  // Read after mount (localStorage isn't available during SSR).
+  const [dismissed, setDismissed] = useState(true);
+  useEffect(() => {
+    try {
+      setDismissed(window.localStorage.getItem(dismissKey(session.id)) === "1");
+    } catch {
+      setDismissed(false);
+    }
+  }, [session.id]);
+
+  if (!justConnected && (dismissed || session.status !== "working")) return null;
+
+  const dismiss = (): void => {
+    setDismissed(true);
+    try {
+      window.localStorage.setItem(dismissKey(session.id), "1");
+    } catch {
+      // Private mode: hide for this visit only.
+    }
+  };
+
+  const phone = formatPhone(session.phoneNumber);
+  const steps: Array<{
+    icon: typeof KeyRoundIcon;
+    title: string;
+    body: string;
+    link: ReactNode;
+  }> = [
+    {
+      icon: KeyRoundIcon,
+      title: "Create an API key",
+      body: "Lets your server call the gateway.",
+      link: <Link to="/user/keys" className="absolute inset-0" aria-label="Create an API key" />,
+    },
+    {
+      icon: SendIcon,
+      title: "Send a test message",
+      body: "Run the snippet below from a terminal.",
+      link: <a href="#send-test" className="absolute inset-0" aria-label="Send a test message" />,
+    },
+    {
+      icon: WebhookIcon,
+      title: "Add a webhook",
+      body: "Get new messages pushed to your server.",
+      link: <Link to="/user/webhooks" className="absolute inset-0" aria-label="Add a webhook" />,
+    },
+    {
+      icon: MessagesSquareIcon,
+      title: "Open chats",
+      body: "Read and reply from the dashboard.",
+      link: (
+        <Link
+          to="/user/sessions/$sessionId/chats"
+          params={{ sessionId: session.id }}
+          className="absolute inset-0"
+          aria-label="Open chats"
         />
-      </CardContent>
-    </Card>
+      ),
+    },
+  ];
+
+  return (
+    <section
+      aria-label="Next steps"
+      className={cn(
+        "relative rounded-xl border p-5",
+        justConnected
+          ? "border-emerald-500/30 bg-emerald-500/[0.06] dark:bg-emerald-500/10"
+          : "bg-card",
+      )}
+    >
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        className="absolute top-3 right-3 text-muted-foreground"
+        onClick={dismiss}
+        aria-label="Hide next steps"
+      >
+        <XIcon aria-hidden />
+      </Button>
+      <div className="flex items-start gap-3 pr-8">
+        {justConnected && (
+          <CheckCircle2Icon
+            className="mt-0.5 size-5 shrink-0 text-emerald-600 dark:text-emerald-400"
+            aria-hidden
+          />
+        )}
+        <div className="space-y-1">
+          <h2 className="font-semibold tracking-tight">
+            {justConnected
+              ? `You're connected${phone ? ` as ${phone}` : ""}`
+              : "Next steps"}
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            {justConnected
+              ? "Your number is live. Here's what most people do next."
+              : "Your number is connected. Pick up where you left off."}
+          </p>
+        </div>
+      </div>
+      <ul className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        {steps.map(({ icon: Icon, title, body, link }) => (
+          <li
+            key={title}
+            className="group relative flex items-start gap-3 rounded-lg border bg-background/70 p-3 transition-colors duration-150 ease-soft hover:bg-muted/60 focus-within:ring-3 focus-within:ring-ring/30"
+          >
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground ring-1 ring-border">
+              <Icon className="size-4" aria-hidden />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center gap-1 text-sm font-medium">
+                {title}
+                <ArrowRightIcon
+                  className="size-3.5 text-muted-foreground transition-transform duration-150 ease-soft group-hover:translate-x-0.5"
+                  aria-hidden
+                />
+              </span>
+              <span className="block text-xs text-muted-foreground">{body}</span>
+            </span>
+            {link}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
-function IdentityCard({
-  session,
-  me,
-}: {
-  session: WASession;
-  me: ReturnType<typeof useSessionMe>;
-}) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Identity</CardTitle>
-        <CardDescription>The connected WhatsApp account.</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-2 text-sm">
-        <Row label="Phone">
-          {session.phoneNumber ? `+${session.phoneNumber}` : "-"}
-        </Row>
-        <Row label="JID">
-          <span className="font-mono text-xs break-all">
-            {session.waJid || me.data?.waJid || "-"}
-          </span>
-        </Row>
-        <Row label="LID">
-          {me.isLoading
-            ? "..."
-            : isApiError(me.error) && me.error.isNotImplemented
-              ? "not available"
-              : me.data?.waLid || "-"}
-        </Row>
-        <Row label="Auto-read">{session.autoRead ? "on" : "off"}</Row>
-        <Row label="Presence typing">
-          {session.presenceTyping ? "on" : "off"}
-        </Row>
-        <Row label="Rate limit">
-          {session.ratePerMin}/min / {session.ratePerHour}/hr
-        </Row>
-        <Row label="Last connected">
-          {formatTimestamp(session.lastConnectedAt)}
-        </Row>
-      </CardContent>
-    </Card>
-  );
-}
+// --- Linked: send a test message ----------------------------------------------------
 
-function ConnectedCard({ session }: { session: WASession }) {
+function SendTestCard({ session }: { session: WASession }) {
+  const apiBase = usePublicApiUrl();
+  const [to, setTo] = useState(formatPhone(session.phoneNumber) ?? "");
+  const digits = normalizePhone(to);
+  const self = digits !== "" && digits === session.phoneNumber;
+  const recipient = digits ? `${digits}@s.whatsapp.net` : "628123456789@s.whatsapp.net";
+
+  const tabs = apiRequestSnippets({
+    method: "POST",
+    url: `${apiBase}/sessions/${session.id}/messages`,
+    token: "$WA_API_KEY",
+    body: { type: "text", to: recipient, text: "Hello from WA Gateway" },
+  });
+
   return (
-    <Card>
+    <Card id="send-test" className="scroll-mt-6">
       <CardHeader>
-        <CardTitle className="text-base">Connection</CardTitle>
+        <CardTitle>Send a test message</CardTitle>
         <CardDescription>
-          This session is {(session.status ?? "").replace(/_/g, " ")}.
+          Call the API from your own code. This session's ID is already filled
+          in; replace <code className="font-mono text-xs">$WA_API_KEY</code> with
+          a key from{" "}
+          <Link to="/user/keys" className="font-medium text-foreground/80 underline-offset-4 hover:text-foreground hover:underline">
+            API keys
+          </Link>
+          .
         </CardDescription>
       </CardHeader>
-      <CardContent className="text-sm text-muted-foreground">
-        {session.status === "working"
-          ? "The device is paired and online. Use Logout to unpair, or Restart to reconnect."
-          : "No pairing needed in the current state. Start the session to pair a device."}
+      <CardContent className="grid gap-4">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-1.5">
+            <Label htmlFor="test-to">Send to</Label>
+            <Input
+              id="test-to"
+              inputMode="tel"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+              placeholder="+62 812 3456 789"
+              autoComplete="off"
+            />
+            <p className="text-xs text-muted-foreground">
+              {self
+                ? "Your own number: the message lands in “Message yourself”."
+                : "Phone number with country code."}
+            </p>
+          </div>
+          <div className="grid content-start gap-1.5">
+            <span className="text-sm font-medium">API endpoint</span>
+            <div className="flex h-8 items-center rounded-lg border bg-muted/40 pr-1 pl-2.5">
+              <CopyableId value={apiBase} label="Copy API endpoint" className="w-full justify-between" />
+            </div>
+            <p className="text-xs text-muted-foreground">Base URL for every API call.</p>
+          </div>
+        </div>
+        <CodeSnippet tabs={tabs} />
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+          <a
+            href={DOCS.sending}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-0.5 font-medium text-foreground/80 underline-offset-4 hover:text-foreground hover:underline"
+          >
+            Other message types
+            <ArrowUpRightIcon className="size-3.5" aria-hidden />
+          </a>
+          <a
+            href={DOCS.receiving}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-0.5 font-medium text-foreground/80 underline-offset-4 hover:text-foreground hover:underline"
+          >
+            Receive messages
+            <ArrowUpRightIcon className="size-3.5" aria-hidden />
+          </a>
+        </div>
       </CardContent>
     </Card>
   );
 }
 
-function PairingCard({
-  sessionId,
-  status,
-}: {
-  sessionId: string;
-  status: WASession["status"];
-}) {
+// --- Linked: details --------------------------------------------------------------
+
+function DetailsCard({ session, lid }: { session: WASession; lid: string | undefined }) {
+  const phone = formatPhone(session.phoneNumber);
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Pair a device</CardTitle>
-        <CardDescription>
-          Scan the QR with WhatsApp, or request a code to type on your phone.
-        </CardDescription>
+        <CardTitle>Details</CardTitle>
       </CardHeader>
       <CardContent>
-        <Tabs defaultValue="qr">
-          <TabsList className="grid w-full grid-cols-2">
+        <dl className="grid gap-3.5 text-sm">
+          <Detail label="Phone">
+            {phone ? (
+              <CopyableId value={phone} label="Copy phone number" className="[&>span:first-child]:font-sans [&>span:first-child]:text-sm" />
+            ) : (
+              "—"
+            )}
+          </Detail>
+          <Detail
+            label="WhatsApp ID (JID)"
+            info="The WhatsApp address of this number. Use JIDs like this as `to` when sending."
+          >
+            {session.waJid ? (
+              <CopyableId value={session.waJid} truncate={[14, 10]} label="Copy JID" />
+            ) : (
+              "—"
+            )}
+          </Detail>
+          <Detail
+            label="LID"
+            info="WhatsApp's privacy-preserving ID for this account. Some events identify people by LID instead of phone number."
+          >
+            {lid ? <CopyableId value={lid} truncate={[14, 6]} label="Copy LID" /> : "—"}
+          </Detail>
+          <Detail
+            label="Send rate limit"
+            info="Messages sent above this rate are queued and go out as the limit allows."
+          >
+            <span className="tabular-nums">{formatRateLimit(session)}</span>
+          </Detail>
+          <Detail label="Auto-read" info="Inbound messages are marked as read automatically. Set when the session was created.">
+            {session.autoRead ? "On" : "Off"}
+          </Detail>
+          <Detail label="Typing indicator" info="Shows “typing…” to the recipient while a message is sent. Set when the session was created.">
+            {session.presenceTyping ? "On" : "Off"}
+          </Detail>
+          <Detail label="Last connected">
+            <Time value={session.lastConnectedAt} fallback="Never" />
+          </Detail>
+          <Detail label="Created">
+            <Time value={session.createdAt} />
+          </Detail>
+        </dl>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** "20/min · 300/hour"; a 0 means that window has no limit. */
+function formatRateLimit(s: WASession): string {
+  if (!s.ratePerMin && !s.ratePerHour) return "No limit";
+  const perMin = s.ratePerMin ? `${s.ratePerMin}/min` : "no per-minute limit";
+  const perHour = s.ratePerHour ? `${s.ratePerHour}/hour` : "no hourly limit";
+  return `${perMin} · ${perHour}`;
+}
+
+function Detail({
+  label,
+  info,
+  children,
+}: {
+  label: string;
+  info?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="grid gap-0.5">
+      <dt className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+        {label}
+        {info && <InfoTip text={info} label={`About ${label}`} />}
+      </dt>
+      <dd className="min-w-0">{children}</dd>
+    </div>
+  );
+}
+
+function InfoTip({ text, label }: { text: string; label: string }) {
+  return (
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            aria-label={label}
+            className="inline-flex rounded-full text-muted-foreground/70 outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/30"
+          >
+            <InfoIcon className="size-3.5" aria-hidden />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-64">{text}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+// --- Not linked: pairing ----------------------------------------------------------
+
+type PairMode = "qr" | "code";
+
+const STEPS: Record<PairMode, ReactNode[]> = {
+  qr: [
+    "Open WhatsApp on the phone you want to connect.",
+    <>
+      Go to <b className="font-medium">Settings → Linked devices</b> and tap{" "}
+      <b className="font-medium">Link a device</b>.
+    </>,
+    "Point the phone's camera at the QR code.",
+  ],
+  code: [
+    "Enter the phone's number here and get a pairing code.",
+    <>
+      In WhatsApp, go to <b className="font-medium">Settings → Linked devices → Link a device</b>{" "}
+      and tap <b className="font-medium">Link with phone number instead</b>.
+    </>,
+    "Type the 8-character code shown here.",
+  ],
+};
+
+function PairingCard({
+  session,
+  actions,
+}: {
+  session: WASession;
+  actions: ReturnType<typeof useSessionActions>;
+}) {
+  const [mode, setMode] = useState<PairMode>("qr");
+
+  return (
+    <Card>
+      <CardHeader className="gap-3 sm:grid-cols-[1fr_auto] sm:items-center">
+        <div className="grid gap-1">
+          <CardTitle className="text-lg">Link your phone</CardTitle>
+          <CardDescription>
+            Connect a WhatsApp number to this session, the same way you'd link
+            WhatsApp Web.{" "}
+            <a
+              href={DOCS.connectNumber}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-0.5 font-medium whitespace-nowrap text-foreground/80 underline-offset-4 hover:text-foreground hover:underline"
+            >
+              Learn more
+              <ArrowUpRightIcon className="size-3.5" aria-hidden />
+            </a>
+          </CardDescription>
+        </div>
+        <Tabs value={mode} onValueChange={(v) => setMode(v as PairMode)}>
+          <TabsList>
             <TabsTrigger value="qr" className="gap-1.5">
-              <LinkIcon className="size-4" aria-hidden />
+              <QrCodeIcon className="size-4" aria-hidden />
               QR code
             </TabsTrigger>
             <TabsTrigger value="code" className="gap-1.5">
               <SmartphoneIcon className="size-4" aria-hidden />
-              Pairing code
+              Phone number
             </TabsTrigger>
           </TabsList>
-          <TabsContent value="qr" className="pt-4">
-            <QrPanel sessionId={sessionId} ready={status === "scan_qr_code"} />
-          </TabsContent>
-          <TabsContent value="code" className="pt-4">
-            <PairingCodePanel sessionId={sessionId} />
-          </TabsContent>
         </Tabs>
+      </CardHeader>
+      <CardContent>
+        <div className="grid items-center gap-8 rounded-xl border bg-muted/30 p-5 md:grid-cols-[minmax(0,28rem)_18rem] md:justify-center md:gap-x-16 md:p-8">
+          <ol className="grid gap-4 md:max-w-md">
+            {STEPS[mode].map((step, i) => (
+              <li key={i} className="flex gap-3 text-sm">
+                <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-background text-xs font-semibold tabular-nums ring-1 ring-border">
+                  {i + 1}
+                </span>
+                <span className="pt-0.5 text-pretty">{step}</span>
+              </li>
+            ))}
+            {(isRunning(session.status) || mode === "code") && (
+              <li className="flex items-center gap-2 pt-1 text-xs text-muted-foreground">
+                <Spinner className="size-3.5" />
+                This page updates by itself once the phone is linked.
+              </li>
+            )}
+          </ol>
+          <div className="flex justify-center">
+            {mode === "qr" ? (
+              <QrPanel session={session} actions={actions} />
+            ) : (
+              <PairingCodePanel sessionId={session.id} />
+            )}
+          </div>
+        </div>
       </CardContent>
     </Card>
   );
 }
 
-function QrPanel({ sessionId, ready }: { sessionId: string; ready: boolean }) {
-  // GET /qr starts QR pairing when none exists, so don't issue it merely because
-  // the pairing card mounted. This lets the user choose phone-code pairing
+/** A fixed-size square so the QR panel doesn't jump between states. */
+function QrFrame({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex size-56 flex-col items-center justify-center gap-3 rounded-xl border border-dashed bg-background p-5 text-center">
+      {children}
+    </div>
+  );
+}
+
+function QrPanel({
+  session,
+  actions,
+}: {
+  session: WASession;
+  actions: ReturnType<typeof useSessionActions>;
+}) {
+  const ready = session.status === "scan_qr_code";
+  // GET /qr starts QR pairing when none exists, so only issue it once the
+  // session is waiting for a scan. That lets the user choose phone-code pairing
   // without an accidental QR client competing with PairPhone.
-  const qr = useSessionQR(sessionId, ready);
+  const qr = useSessionQR(session.id, ready);
   const poll = usePollingInterval();
+  const pending = actions.pendingFor(session.id);
 
   useEffect(() => {
     if (!poll || !ready) return;
@@ -265,119 +741,136 @@ function QrPanel({ sessionId, ready }: { sessionId: string; ready: boolean }) {
     return () => window.clearInterval(t);
   }, [poll, qr, ready]);
 
-  if (!ready) {
+  if (session.status === "starting" || pending === "start" || pending === "restart") {
     return (
-      <p className="py-6 text-center text-sm text-muted-foreground">
-        Start the session to generate a QR code, or choose pairing code.
-      </p>
+      <QrFrame>
+        <Spinner className="size-5 text-muted-foreground" />
+        <p className="text-sm text-muted-foreground">
+          Connecting… the QR code appears in a few seconds.
+        </p>
+      </QrFrame>
     );
   }
 
-  if (qr.isLoading) {
-    return <Skeleton className="mx-auto size-56" />;
+  if (!isRunning(session.status)) {
+    return (
+      <QrFrame>
+        <QrCodeIcon className="size-8 text-muted-foreground/60" aria-hidden />
+        <p className="text-sm text-muted-foreground">
+          Start the session to show a QR code.
+        </p>
+        <Button onClick={() => void actions.run(session, "start")}>
+          <PlayIcon aria-hidden data-icon="inline-start" />
+          Start session
+        </Button>
+      </QrFrame>
+    );
   }
 
-  if (qr.isError) {
+  if (!ready || qr.isLoading) {
+    return <Skeleton className="size-56 rounded-xl" />;
+  }
+
+  if (qr.isError || !qr.data?.code) {
     return (
-      <div className="flex flex-col items-center gap-3 py-6 text-center">
+      <QrFrame>
         <p className="text-sm text-muted-foreground">
-          {isApiError(qr.error)
+          {qr.isError && isApiError(qr.error)
             ? qr.error.message
-            : "No QR available yet. Start the session to generate one."}
+            : "Waiting for a QR code…"}
         </p>
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-1.5"
-          onClick={() => void qr.refetch()}
-        >
-          <RefreshCwIcon className="size-4" aria-hidden />
+        <Button variant="outline" size="sm" onClick={() => void qr.refetch()}>
+          <RefreshCwIcon aria-hidden data-icon="inline-start" />
           Refresh
         </Button>
-      </div>
+      </QrFrame>
     );
   }
 
-  if (!qr.data?.code) {
-    return (
-      <p className="py-6 text-center text-sm text-muted-foreground">
-        Waiting for a QR code...
-      </p>
-    );
-  }
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <QrImage code={qr.data.code} hint={false} />
+      <p className="text-xs text-muted-foreground">Refreshes automatically</p>
+    </div>
+  );
+}
 
-  return <QrImage code={qr.data.code} />;
+/** "ABCD1234" → "ABCD-1234", the way WhatsApp shows it. */
+function formatPairingCode(code: string): string {
+  const raw = code.replace(/[^0-9A-Za-z]/g, "");
+  return raw.length === 8 ? `${raw.slice(0, 4)}-${raw.slice(4)}` : code;
 }
 
 function PairingCodePanel({ sessionId }: { sessionId: string }) {
   const [phone, setPhone] = useState("");
+  const [touched, setTouched] = useState(false);
   const pairing = usePairingCode();
+  const digits = normalizePhone(phone);
+  const tooShort = digits.length > 0 && digits.length < 8;
+  const invalid = touched && (digits.length === 0 || tooShort);
 
   const submit = (e: React.FormEvent): void => {
     e.preventDefault();
-    const cleaned = phone.replace(/[^\d]/g, "");
-    if (!cleaned) {
-      toast.error("Enter the phone number in international format.");
-      return;
-    }
+    setTouched(true);
+    if (digits.length < 8) return;
     pairing.mutate(
-      { sessionId, phone: cleaned },
+      { sessionId, phone: digits },
       {
         onError: (err) =>
-          toast.error(isApiError(err) ? err.message : "Failed to request code"),
-        onSuccess: () => toast.success("Pairing code generated"),
+          toast.error(isApiError(err) ? err.message : "Couldn't get a pairing code"),
       },
     );
   };
 
-  return (
-    <form onSubmit={submit} className="space-y-4">
-      <div className="space-y-2">
-        <Label htmlFor="pairing-phone">Phone number</Label>
-        <Input
-          id="pairing-phone"
-          inputMode="numeric"
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          placeholder="628123456789"
-        />
-        <p className="text-xs text-muted-foreground">
-          International format, digits only (country code + number).
-        </p>
-      </div>
-      <Button type="submit" disabled={pairing.isPending}>
-        {pairing.isPending ? "Requesting..." : "Request pairing code"}
-      </Button>
+  const code = pairing.data?.code;
 
-      {pairing.data?.code && (
-        <div className="space-y-2 rounded-md border bg-muted/40 p-3">
-          <p className="text-xs text-muted-foreground">
-            Enter this code on your phone (WhatsApp {"->"} Linked devices{" "}
-            {"->"} Link with phone number):
+  return (
+    <div className="grid w-full max-w-72 gap-4">
+      <form onSubmit={submit} className="grid gap-3" noValidate>
+        <div className="grid gap-1.5">
+          <Label htmlFor="pairing-phone">Phone number</Label>
+          <Input
+            id="pairing-phone"
+            inputMode="tel"
+            autoComplete="tel"
+            value={phone}
+            aria-invalid={invalid || undefined}
+            aria-describedby="pairing-phone-hint"
+            onChange={(e) => setPhone(e.target.value)}
+            onBlur={() => phone && setTouched(true)}
+            placeholder="+62 812 3456 789"
+            className="bg-background"
+          />
+          <p
+            id="pairing-phone-hint"
+            className={cn("text-xs", invalid ? "text-destructive" : "text-muted-foreground")}
+          >
+            {invalid
+              ? digits.length === 0
+                ? "Enter the number with its country code."
+                : "That looks too short. Include the country code."
+              : digits
+                ? `Will request a code for +${digits}`
+                : "With country code, e.g. +62 for Indonesia."}
           </p>
-          <div className="flex items-center justify-between gap-2">
-            <code className="text-lg font-semibold tracking-widest">
-              {pairing.data.code}
-            </code>
-            <CopyButton value={pairing.data.code} label="Copy code" />
-          </div>
+        </div>
+        <Button type="submit" disabled={pairing.isPending}>
+          {pairing.isPending ? "Requesting…" : code ? "Get a new code" : "Get pairing code"}
+        </Button>
+      </form>
+
+      {code && (
+        <div className="grid gap-2 rounded-xl border bg-background p-4 text-center">
+          <p className="text-xs text-muted-foreground">Enter this code on your phone</p>
+          <code className="font-mono text-2xl font-semibold tracking-[0.2em]">
+            {formatPairingCode(code)}
+          </code>
+          <CopyButton value={code} label="Copy code" className="justify-self-center" />
+          <p className="text-xs text-pretty text-muted-foreground">
+            The code expires after a few minutes. If it stops working, get a new one.
+          </p>
         </div>
       )}
-    </form>
-  );
-}
-
-function Row({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-start justify-between gap-4">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="text-right">{children}</span>
     </div>
   );
 }

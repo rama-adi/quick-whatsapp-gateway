@@ -1,11 +1,31 @@
-// Surface-local UI helpers for the user panel (sessions / keys / webhooks).
-// Ported from the v1 user/_ui.tsx (tag mvp-v1) and re-fitted to TanStack
-// Start. Colocated under -components/ (the leading "-" excludes it from
-// file-based route generation) on purpose — the Verify stage may hoist these
-// into a shared module if the admin/viewer/contacts surfaces need them too.
+// Surface-local UI helpers for the user panel's session pages (list, overview).
+// Colocated under -components/ (the leading "-" excludes it from file-based
+// route generation). Session lifecycle actions live here so the list and the
+// overview share one set of rules: which actions apply in which state, the
+// confirmations for the destructive ones, and human toast copy.
 
+import { useState } from "react";
+import {
+  LogOutIcon,
+  MoreHorizontalIcon,
+  PlayIcon,
+  RotateCwIcon,
+  SquareIcon,
+  Trash2Icon,
+} from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "~/components/ui/button";
-import type { SessionAction, SessionStatus } from "~/lib/api/types";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "~/components/ui/dropdown-menu";
+import { useConfirm } from "~/components/confirm-dialog";
+import { useDeleteSession, useSessionLifecycle } from "~/lib/api/hooks/sessions";
+import { isApiError } from "~/lib/api/envelope";
+import type { SessionAction, SessionStatus, WASession } from "~/lib/api/types";
 import { QrCode } from "~/routes/-oauth/QrCode";
 import { formatDateTime } from "~/lib/format";
 
@@ -39,64 +59,275 @@ export { CopyButton } from "~/components/copyable";
 /** @deprecated Import `SessionStatusBadge` from `~/components/status-badge` instead. */
 export { SessionStatusBadge } from "~/components/status-badge";
 
-const SESSION_ACTIONS: ReadonlyArray<{
-  action: SessionAction;
-  label: string;
-}> = [
-  { action: "start", label: "Start" },
-  { action: "stop", label: "Stop" },
-  { action: "restart", label: "Restart" },
-  { action: "logout", label: "Log out" },
-];
+// --- Small formatters ---------------------------------------------------------
 
-/** Shared lifecycle controls; logout is the one action that unpairs the device. */
-export function SessionActionButtons({
-  paired,
-  disabled = false,
-  pendingAction,
-  onAction,
-}: {
-  paired: boolean;
-  disabled?: boolean;
-  pendingAction?: SessionAction;
-  onAction: (action: SessionAction) => void;
-}) {
-  const run = (action: SessionAction): void => {
-    if (
-      action === "logout" &&
-      !window.confirm("Log out this session? The WhatsApp device must be paired again.")
-    ) {
-      return;
+/** The name to show for a session: its label, else a short form of its ID. */
+export function sessionName(s: Pick<WASession, "label" | "id">): string {
+  return s.label?.trim() || s.id;
+}
+
+/** "628123456789" → "+628123456789"; undefined/empty → undefined. */
+export function formatPhone(digits: string | undefined | null): string | undefined {
+  if (!digits) return undefined;
+  const d = digits.replace(/[^\d]/g, "");
+  return d ? `+${d}` : undefined;
+}
+
+/** Keep only the digits of a phone typed as "+62 812-3456-789". */
+export function normalizePhone(input: string): string {
+  return input.replace(/[^\d]/g, "");
+}
+
+/** Whether the session is (or is about to be) connected, i.e. "Stop" applies. */
+export function isRunning(status: SessionStatus | undefined): boolean {
+  return status === "working" || status === "starting" || status === "scan_qr_code";
+}
+
+/** One-line hint for a non-connected state, shown under the session name. */
+export function statusHint(s: WASession): string | undefined {
+  const paired = Boolean(s.waJid);
+  switch (s.status) {
+    case "scan_qr_code":
+      return "Waiting for you to scan the QR code.";
+    case "starting":
+      return paired ? "Reconnecting to WhatsApp…" : "Connecting to WhatsApp…";
+    case "stopped":
+      return paired ? "Stopped. Start it to receive new messages." : undefined;
+    case "logged_out":
+      return "The phone unlinked this session. Link it again to reconnect.";
+    case "failed":
+      return "The connection failed. Try restarting the session.";
+    default:
+      return undefined;
+  }
+}
+
+// --- Lifecycle actions ----------------------------------------------------------
+
+const ACTION_TOAST: Record<SessionAction, (name: string) => string> = {
+  start: (n) => `Starting ${n}…`,
+  stop: (n) => `Stopped ${n}`,
+  restart: (n) => `Restarting ${n}…`,
+  logout: (n) => `Logged out ${n}`,
+};
+
+const errMessage = (err: unknown, fallback: string): string =>
+  isApiError(err) ? err.message : err instanceof Error && err.message ? err.message : fallback;
+
+/**
+ * Session lifecycle + delete with confirmations. `run` confirms "Log out";
+ * `remove` offers "Log out and delete" when a number is still linked (the API
+ * docs ask for `:logout` before delete) and chains both calls.
+ */
+export function useSessionActions() {
+  const lifecycle = useSessionLifecycle();
+  const del = useDeleteSession();
+  const confirm = useConfirm();
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const run = async (s: WASession, action: SessionAction): Promise<void> => {
+    const name = sessionName(s);
+    if (action === "logout") {
+      const ok = await confirm({
+        title: <>Log out “{name}”?</>,
+        description: `WhatsApp unlinks this device from ${
+          formatPhone(s.phoneNumber) ?? "the phone"
+        }. To use the number here again, you'll link it with a new QR code.`,
+        confirmLabel: "Log out",
+        destructive: true,
+      });
+      if (!ok) return;
     }
-    onAction(action);
+    lifecycle.mutate(
+      { sessionId: s.id, action },
+      {
+        onError: (err) => toast.error(errMessage(err, `Couldn't ${action} ${name}`)),
+        onSuccess: () => toast.success(ACTION_TOAST[action](name)),
+      },
+    );
   };
 
-  return SESSION_ACTIONS.map(({ action, label }) => {
-    const unavailable = disabled || Boolean(pendingAction) || (action === "logout" && !paired);
-    return (
-      <Button
-        key={action}
-        size="sm"
-        variant={action === "logout" ? "destructive" : "outline"}
-        disabled={unavailable}
-        title={action === "logout" && !paired ? "No device is paired" : undefined}
-        onClick={() => run(action)}
-      >
-        {pendingAction === action ? `${label}…` : label}
-      </Button>
-    );
-  });
+  const remove = async (
+    s: WASession,
+    { onDeleted }: { onDeleted?: () => void } = {},
+  ): Promise<void> => {
+    const name = sessionName(s);
+    const paired = Boolean(s.waJid);
+    const ok = await confirm({
+      title: <>Delete “{name}”?</>,
+      description: paired
+        ? `${formatPhone(s.phoneNumber) ?? "A number"} is still linked. We'll log it out of WhatsApp first, then delete the session. This can't be undone.`
+        : "The session and its settings are removed. This can't be undone.",
+      confirmLabel: paired ? "Log out and delete" : "Delete session",
+      destructive: true,
+    });
+    if (!ok) return;
+
+    setDeletingId(s.id);
+    try {
+      if (paired) {
+        try {
+          await lifecycle.mutateAsync({ sessionId: s.id, action: "logout" });
+        } catch (err) {
+          const force = await confirm({
+            title: "Couldn't log out",
+            description: `${errMessage(err, "The logout request failed.")} Delete the session anyway? The phone may keep showing it under Linked devices until you remove it there.`,
+            confirmLabel: "Delete anyway",
+            destructive: true,
+          });
+          if (!force) return;
+        }
+      }
+      // Right after a logout the gateway is still tearing the runtime down and
+      // can answer DELETE with a transient not_found; retry briefly.
+      for (let attempt = 0; ; attempt++) {
+        try {
+          await del.mutateAsync({ sessionId: s.id });
+          break;
+        } catch (err) {
+          const transient = paired && isApiError(err) && err.code === "not_found";
+          if (!transient || attempt >= 5) {
+            if (transient) {
+              throw new Error(
+                `${name} is still logging out. Try deleting it again in a minute.`,
+              );
+            }
+            throw err;
+          }
+          await new Promise((r) => setTimeout(r, 1000 * 2 ** Math.min(attempt, 3)));
+        }
+      }
+      toast.success(`Deleted ${name}`);
+      onDeleted?.();
+    } catch (err) {
+      toast.error(errMessage(err, `Couldn't delete ${name}`));
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  return {
+    run,
+    remove,
+    /** The action in flight for `sessionId`, if any. */
+    pendingFor: (sessionId: string): SessionAction | "delete" | undefined =>
+      deletingId === sessionId
+        ? "delete"
+        : lifecycle.isPending && lifecycle.variables?.sessionId === sessionId
+          ? lifecycle.variables.action
+          : undefined,
+  };
+}
+
+/**
+ * The lifecycle controls for one session: the one primary action that applies
+ * (Start when stopped, Stop when running) plus a "…" menu with Restart,
+ * Log out and Delete.
+ */
+export function SessionActions({
+  session,
+  actions,
+  onDeleted,
+  showPrimary = true,
+  size = "sm",
+}: {
+  session: WASession;
+  actions: ReturnType<typeof useSessionActions>;
+  onDeleted?: () => void;
+  /** Render the Start/Stop button next to the menu. Default true. */
+  showPrimary?: boolean;
+  size?: "sm" | "default";
+}) {
+  const pending = actions.pendingFor(session.id);
+  const busy = Boolean(pending);
+  const running = isRunning(session.status);
+  const paired = Boolean(session.waJid);
+
+  return (
+    <div className="flex items-center gap-1.5">
+      {showPrimary &&
+        (running ? (
+          <Button
+            variant="outline"
+            size={size}
+            disabled={busy}
+            onClick={() => void actions.run(session, "stop")}
+          >
+            <SquareIcon aria-hidden data-icon="inline-start" />
+            {pending === "stop" ? "Stopping…" : "Stop"}
+          </Button>
+        ) : (
+          <Button
+            variant="outline"
+            size={size}
+            disabled={busy}
+            onClick={() => void actions.run(session, "start")}
+          >
+            <PlayIcon aria-hidden data-icon="inline-start" />
+            {pending === "start" ? "Starting…" : "Start"}
+          </Button>
+        ))}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size={size === "sm" ? "icon-sm" : "icon"}
+            disabled={busy}
+            aria-label={`More actions for ${sessionName(session)}`}
+          >
+            <MoreHorizontalIcon aria-hidden />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="min-w-44">
+          {!showPrimary && (
+            <DropdownMenuItem
+              onSelect={() => void actions.run(session, running ? "stop" : "start")}
+            >
+              {running ? <SquareIcon aria-hidden /> : <PlayIcon aria-hidden />}
+              {running ? "Stop" : "Start"}
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuItem onSelect={() => void actions.run(session, "restart")}>
+            <RotateCwIcon aria-hidden />
+            Restart
+          </DropdownMenuItem>
+          {paired && (
+            <DropdownMenuItem
+              variant="destructive"
+              onSelect={() => void actions.run(session, "logout")}
+            >
+              <LogOutIcon aria-hidden />
+              Log out
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            variant="destructive"
+            onSelect={() => void actions.remove(session, { onDeleted })}
+          >
+            <Trash2Icon aria-hidden />
+            {paired ? "Log out and delete…" : "Delete session…"}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
 }
 
 // --- QR image ---------------------------------------------------------------
 //
-// v1 rendered the QR as <img src={…?format=image}> served by the gateway; the
-// v2 QR route returns JSON only (the raw code string). Since `code` (from the
-// auth.qr event / GET /qr) is already in hand, encode it client-side with the
-// same `uqr` renderer the OAuth consent page uses — no fetch, no Bearer
-// plumbing, and the image rotates with the code automatically.
+// The v2 QR route returns JSON only (the raw code string), so encode it
+// client-side with the same `uqr` renderer the OAuth consent page uses: no
+// fetch, no Bearer plumbing, and the image rotates with the code automatically.
 
-export function QrImage({ code }: { code: string | undefined }) {
+export function QrImage({
+  code,
+  hint = true,
+}: {
+  code: string | undefined;
+  /** Show the "how to scan" line under the code. Default true. */
+  hint?: boolean;
+}) {
   if (!code) {
     return (
       <p className="py-6 text-center text-sm text-muted-foreground">
@@ -110,12 +341,14 @@ export function QrImage({ code }: { code: string | undefined }) {
       <QrCode
         value={code}
         size={224}
-        className="rounded-md border shadow-none ring-0"
+        className="rounded-xl border shadow-none ring-0"
       />
-      <p className="text-center text-xs text-muted-foreground">
-        Open WhatsApp → Linked devices → Link a device, then scan. The code
-        refreshes automatically.
-      </p>
+      {hint && (
+        <p className="text-center text-xs text-muted-foreground">
+          Open WhatsApp → Linked devices → Link a device, then scan. The code
+          refreshes automatically.
+        </p>
+      )}
     </div>
   );
 }

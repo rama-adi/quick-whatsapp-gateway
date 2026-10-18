@@ -1,5 +1,5 @@
-// Contacts: drill-in (identity + dm flag + group memberships with per-group
-// nicknames). Surface: contacts. Child of the contacts list — renders in its
+// Contacts: drill-in (identity + direct-chat flag + shared groups with
+// per-group names). Surface: contacts. Child of the contacts list — renders in its
 // <Outlet/>.
 //
 // Ported from v1 react-router to TanStack Start:
@@ -7,15 +7,23 @@
 //     read (contacts.server.ts, §6.2); the client hook hydrates from cache.
 //   - Best-effort enrichment (picture/about) + block/unblock actions stay as
 //     gateway calls via the colocated hooks (contacts.actions.ts); each degrades
-//     gracefully to "not available in v1" on 501.
+//     gracefully (the row is simply hidden) on 501.
 //   - useParams/useSearchParams -> Route.useParams()/Route.useSearch(); links
 //     use @tanstack/react-router <Link> with typed params + preserved search.
 
-import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  ArrowLeftIcon,
+  BanIcon,
+  CircleCheckIcon,
+  MessageSquareIcon,
+  MoreHorizontalIcon,
+  UsersIcon,
+} from "lucide-react";
 import { useContact } from "~/lib/api/hooks/contacts";
 import { qk } from "~/lib/query";
-import type { ContactDetail } from "~/lib/api/types";
+import type { Chat, ContactDetail } from "~/lib/api/types";
 import { isApiError } from "~/lib/api/envelope";
 import {
   useBlockContact,
@@ -27,19 +35,32 @@ import { Badge } from "~/components/ui/badge";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "~/components/ui/card";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "~/components/ui/dropdown-menu";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "~/components/ui/empty";
 import {
   Table,
   TableBody,
+  TableCard,
   TableCell,
   TableHead,
   TableHeader,
   TableRow,
 } from "~/components/ui/table";
+import { useConfirm } from "~/components/confirm-dialog";
+import { CopyableId } from "~/components/copyable";
+import { Time } from "~/components/time";
+import { titleHead } from "~/lib/head";
 import { toast } from "sonner";
 import { fetchContactDetail } from "./-contacts-data";
 
@@ -52,19 +73,17 @@ interface ContactsSearch {
   group?: string;
 }
 
+function formatPhone(p: string | undefined): string | undefined {
+  const d = p?.replace(/[^\d]/g, "");
+  return d ? `+${d}` : undefined;
+}
+
 function displayName(c: Identity | undefined): string {
   if (!c) return "Unknown";
-  return c.name || c.businessName || c.phoneNumber || c.lid || "Unknown";
+  return c.name || c.businessName || formatPhone(c.phoneNumber) || c.lid || "Unknown";
 }
 
-function formatLastSeen(ts: number | undefined): string {
-  if (!ts) return "—";
-  // Timestamps are unix seconds (int64); guard against ms just in case.
-  const ms = ts < 1e12 ? ts * 1000 : ts;
-  return new Date(ms).toLocaleString();
-}
-
-const ROLE_LABEL: Record<NonNullable<GroupRow["role"]>, string> = {
+const ROLE_LABEL: Record<string, string> = {
   member: "Member",
   admin: "Admin",
   superadmin: "Owner",
@@ -92,43 +111,61 @@ function ContactDetailRoute() {
 
   const detail = useContact(sessionId, lid);
 
+  const back = (
+    <Link
+      to="/user/sessions/$sessionId/contacts"
+      params={{ sessionId }}
+      search={search}
+      className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground lg:hidden"
+    >
+      <ArrowLeftIcon className="size-4" aria-hidden />
+      All contacts
+    </Link>
+  );
+
   if (detail.isLoading) {
     return (
-      <Card>
-        <CardHeader>
-          <Skeleton className="h-6 w-40" />
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <Skeleton className="h-16 w-full" />
-          <Skeleton className="h-32 w-full" />
-        </CardContent>
-      </Card>
+      <div className="grid gap-6">
+        <div className="flex items-center gap-4">
+          <Skeleton className="size-16 rounded-full" />
+          <div className="grid gap-2">
+            <Skeleton className="h-6 w-48" />
+            <Skeleton className="h-4 w-32" />
+          </div>
+        </div>
+        <Skeleton className="h-40 w-full rounded-xl" />
+      </div>
     );
   }
 
   if (detail.isError) {
     const notFound =
       isApiError(detail.error) && detail.error.code === "not_found";
-    const msg = isApiError(detail.error)
-      ? detail.error.message
-      : "Failed to load contact";
     return (
-      <Card>
-        <CardContent className="space-y-3 pt-6">
-          <p className="text-sm text-destructive">
-            {notFound ? "Contact not found." : msg}
-          </p>
+      <Empty>
+        <EmptyHeader>
+          <EmptyTitle>{notFound ? "Contact not found" : "Couldn't load this contact"}</EmptyTitle>
+          <EmptyDescription>
+            {notFound
+              ? "This session hasn't seen this person, or the link is out of date."
+              : isApiError(detail.error)
+                ? detail.error.message
+                : "Something went wrong while loading the contact."}
+          </EmptyDescription>
+        </EmptyHeader>
+        <EmptyContent className="flex-row justify-center">
           {!notFound && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void detail.refetch()}
-            >
+            <Button variant="outline" onClick={() => void detail.refetch()}>
               Retry
             </Button>
           )}
-        </CardContent>
-      </Card>
+          <Button asChild variant={notFound ? "outline" : "ghost"}>
+            <Link to="/user/sessions/$sessionId/contacts" params={{ sessionId }} search={search}>
+              Back to contacts
+            </Link>
+          </Button>
+        </EmptyContent>
+      </Empty>
     );
   }
 
@@ -139,38 +176,47 @@ function ContactDetailRoute() {
   const jid = identity?.lid ?? lid;
 
   return (
-    <div className="space-y-4">
-      <IdentityCard
-        sessionId={sessionId}
-        jid={jid}
-        identity={identity}
-        dm={Boolean(data?.dm)}
-        search={search}
-      />
+    <div className="grid gap-6">
+      <div>
+        {back}
+        <IdentityHeader
+          sessionId={sessionId}
+          jid={jid}
+          identity={identity}
+          dm={Boolean(data?.dm)}
+        />
+      </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">
-            Group memberships
-            <Badge variant="secondary" className="ml-2 align-middle">
-              {groups.length}
-            </Badge>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
+      <section aria-labelledby="groups-heading" className="grid gap-3">
+        <h2 id="groups-heading" className="flex items-center gap-2 text-sm font-semibold">
+          Shared groups
+          <Badge variant="secondary" className="tabular-nums">
+            {groups.length}
+          </Badge>
+        </h2>
+        <TableCard>
           {groups.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              Not found in any shared group.
-            </p>
+            <Empty className="border-0 py-8">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <UsersIcon aria-hidden />
+                </EmptyMedia>
+                <EmptyDescription>
+                  You're not in any group with this person.
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Group</TableHead>
-                  <TableHead>Tag</TableHead>
+                  <TableHead>Name in group</TableHead>
                   <TableHead>Role</TableHead>
                   <TableHead>Last seen</TableHead>
-                  <TableHead className="text-right">Filter</TableHead>
+                  <TableHead className="text-right">
+                    <span className="sr-only">Actions</span>
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -184,45 +230,54 @@ function ContactDetailRoute() {
               </TableBody>
             </Table>
           )}
-        </CardContent>
-      </Card>
+        </TableCard>
+      </section>
     </div>
   );
 }
 
-function IdentityCard({
+function IdentityHeader({
   sessionId,
   jid,
   identity,
   dm,
-  search,
 }: {
   sessionId: string;
   jid: string;
   identity: Identity | undefined;
   dm: boolean;
-  search: ContactsSearch;
 }) {
-  // Best-effort enrichment — both may be 501 in v1; we never block the page on
-  // them and surface a friendly note instead of an error.
+  // Best-effort enrichment: both may be unavailable (501) or fail while the
+  // session is offline; never block the page on them, just leave them out.
   const picture = useContactPicture(sessionId, jid, Boolean(jid));
   const about = useContactAbout(sessionId, jid, Boolean(jid));
   const block = useBlockContact(sessionId);
+  const confirm = useConfirm();
+  const queryClient = useQueryClient();
 
-  const pictureUnavailable =
-    isApiError(picture.error) && picture.error.isNotImplemented;
-  const aboutUnavailable =
-    isApiError(about.error) && about.error.isNotImplemented;
+  const name = displayName(identity);
+  const phone = formatPhone(identity?.phoneNumber);
+  const aboutText = about.data?.about;
 
-  const runBlock = (shouldBlock: boolean): void => {
+  const runBlock = async (shouldBlock: boolean): Promise<void> => {
+    if (shouldBlock) {
+      const ok = await confirm({
+        title: <>Block {name}?</>,
+        description:
+          "They won't be able to call or message this WhatsApp number. You can unblock them later.",
+        confirmLabel: "Block",
+        destructive: true,
+      });
+      if (!ok) return;
+    }
     block.mutate(
       { jid, block: shouldBlock },
       {
         onSuccess: () =>
-          toast.success(shouldBlock ? "Contact blocked" : "Contact unblocked"),
+          toast.success(shouldBlock ? `Blocked ${name}` : `Unblocked ${name}`),
         onError: (err) => {
           if (isApiError(err) && err.isNotImplemented) {
-            toast.info("Block/unblock is not available in v1.");
+            toast.info("Blocking isn't available on this gateway.");
             return;
           }
           toast.error(isApiError(err) ? err.message : "Action failed");
@@ -231,89 +286,105 @@ function IdentityCard({
     );
   };
 
-  const name = displayName(identity);
+  // Same as "New chat" in Chats: seed the chat row so the thread opens
+  // instantly, keyed by the contact's LID.
+  const seedChat = (): void => {
+    queryClient.setQueryData(qk.chat(sessionId, jid), (prev: Chat | undefined) =>
+      prev ?? ({
+        id: 0,
+        sessionId,
+        jid,
+        type: "dm",
+        name,
+        unreadCount: 0,
+        archived: false,
+        pinned: false,
+      } satisfies Chat),
+    );
+  };
 
   return (
-    <Card>
-      <CardHeader className="flex-row items-start gap-4 space-y-0">
-        <Avatar className="size-16">
-          {picture.data?.url && !pictureUnavailable && (
-            <AvatarImage src={picture.data.url} alt={name} />
+    <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+      <Avatar className="size-16">
+        {picture.data?.url && <AvatarImage src={picture.data.url} alt={name} />}
+        <AvatarFallback className="text-lg">
+          {name.replace(/^\+/, "").slice(0, 2).toUpperCase()}
+        </AvatarFallback>
+      </Avatar>
+      <div className="grid min-w-0 flex-1 gap-1.5">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <h2 className="truncate text-xl font-semibold tracking-tight">{name}</h2>
+          {dm && (
+            <Badge variant="secondary" className="font-normal">
+              Has direct chat
+            </Badge>
           )}
-          <AvatarFallback className="text-lg">
-            {name.slice(0, 2).toUpperCase()}
-          </AvatarFallback>
-        </Avatar>
-        <div className="min-w-0 flex-1 space-y-1">
-          <CardTitle className="truncate text-lg">{name}</CardTitle>
-          {identity?.phoneNumber && (
-            <p className="text-sm text-muted-foreground">
-              {identity.phoneNumber}
-            </p>
+        </div>
+        {identity?.businessName && identity.businessName !== name && (
+          <p className="text-sm text-muted-foreground">{identity.businessName}</p>
+        )}
+        {aboutText && (
+          <p className="text-sm text-pretty text-muted-foreground">“{aboutText}”</p>
+        )}
+        <dl className="mt-1 flex flex-wrap gap-x-6 gap-y-2 text-sm">
+          {phone && (
+            <div className="grid gap-0.5">
+              <dt className="text-xs text-muted-foreground">Phone</dt>
+              <dd>
+                <CopyableId
+                  value={phone}
+                  label="Copy phone number"
+                  className="[&>span:first-child]:font-sans [&>span:first-child]:text-sm"
+                />
+              </dd>
+            </div>
           )}
           {identity?.lid && (
-            <p className="truncate font-mono text-xs text-muted-foreground">
-              {identity.lid}
-            </p>
+            <div className="grid min-w-0 gap-0.5">
+              <dt className="text-xs text-muted-foreground">LID</dt>
+              <dd className="min-w-0">
+                <CopyableId value={identity.lid} label="Copy LID" />
+              </dd>
+            </div>
           )}
-          <div className="flex flex-wrap gap-1.5 pt-1">
-            {dm && <Badge variant="secondary">Has DM</Badge>}
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <dl className="grid gap-3 text-sm sm:grid-cols-2">
-          {identity?.businessName && identity.businessName !== name && (
-            <Field label="Business name" value={identity.businessName} />
-          )}
-          <Field
-            label="About"
-            value={
-              aboutUnavailable
-                ? "Not available in v1"
-                : about.isLoading
-                  ? "Loading…"
-                  : about.data?.about || "—"
-            }
-            muted={aboutUnavailable}
-          />
         </dl>
-
-        <div className="flex flex-wrap items-center gap-2 pt-1">
-          {dm && (
-            <Button asChild size="sm" variant="outline">
-              <Link
-                to="/user/sessions/$sessionId/chats"
-                params={{ sessionId }}
-              >
-                Open chats
-              </Link>
+      </div>
+      <div className="flex shrink-0 items-center gap-1.5">
+        <Button asChild>
+          <Link
+            to="/user/sessions/$sessionId/chats/$chatId"
+            params={{ sessionId, chatId: jid }}
+            preload={false}
+            onClick={seedChat}
+          >
+            <MessageSquareIcon aria-hidden data-icon="inline-start" />
+            {dm ? "Open chat" : "Message"}
+          </Link>
+        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              disabled={block.isPending}
+              aria-label={`More actions for ${name}`}
+            >
+              <MoreHorizontalIcon aria-hidden />
             </Button>
-          )}
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={block.isPending}
-            onClick={() => runBlock(true)}
-          >
-            Block
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={block.isPending}
-            onClick={() => runBlock(false)}
-          >
-            Unblock
-          </Button>
-        </div>
-        {pictureUnavailable && (
-          <p className="text-xs text-muted-foreground">
-            Profile picture is not available in v1.
-          </p>
-        )}
-      </CardContent>
-    </Card>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="min-w-40">
+            <DropdownMenuItem onSelect={() => void runBlock(false)}>
+              <CircleCheckIcon aria-hidden />
+              Unblock
+            </DropdownMenuItem>
+            <DropdownMenuItem variant="destructive" onSelect={() => void runBlock(true)}>
+              <BanIcon aria-hidden />
+              Block…
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    </div>
   );
 }
 
@@ -324,58 +395,46 @@ function GroupMembershipRow({
   sessionId: string;
   group: GroupRow;
 }) {
-  const groupName = group.name || group.jid || "Unknown group";
+  const groupName = group.name || "Unnamed group";
   return (
     <TableRow>
-      <TableCell className="font-medium">
-        <span className="block max-w-[16rem] truncate">{groupName}</span>
+      <TableCell className="max-w-[16rem]">
+        <span className="block truncate font-medium">{groupName}</span>
         {group.jid && (
-          <span className="block max-w-[16rem] truncate font-mono text-xs text-muted-foreground">
-            {group.jid}
-          </span>
+          <CopyableId
+            value={group.jid}
+            truncate={[10, 12]}
+            label="Copy group JID"
+            className="text-muted-foreground"
+          />
         )}
       </TableCell>
-      <TableCell>{group.tag || "—"}</TableCell>
+      <TableCell>{group.tag || <span className="text-muted-foreground">—</span>}</TableCell>
       <TableCell>
         {group.role ? (
-          <Badge variant="outline">{ROLE_LABEL[group.role]}</Badge>
+          <Badge variant="outline" className="font-normal">
+            {ROLE_LABEL[group.role] ?? group.role}
+          </Badge>
         ) : (
           "—"
         )}
       </TableCell>
       <TableCell className="text-muted-foreground">
-        {formatLastSeen(group.lastSeen)}
+        <Time value={group.lastSeen} />
       </TableCell>
       <TableCell className="text-right">
         {group.jid && (
-          <Button asChild size="sm" variant="ghost" className="h-7 px-2">
+          <Button asChild size="sm" variant="ghost">
             <Link
               to="/user/sessions/$sessionId/contacts"
               params={{ sessionId }}
               search={{ source: "group", group: group.jid }}
             >
-              View members
+              Show members
             </Link>
           </Button>
         )}
       </TableCell>
     </TableRow>
-  );
-}
-
-function Field({
-  label,
-  value,
-  muted,
-}: {
-  label: string;
-  value: string;
-  muted?: boolean;
-}) {
-  return (
-    <div>
-      <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
-      <dd className={muted ? "text-muted-foreground" : ""}>{value}</dd>
-    </div>
   );
 }
