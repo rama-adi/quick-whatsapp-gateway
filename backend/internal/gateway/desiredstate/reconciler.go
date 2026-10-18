@@ -19,6 +19,9 @@ type Config struct {
 	PresenceTyping bool
 	RatePerMin     uint32
 	RatePerHour    uint32
+	// HistorySyncDays is how many days of chat history the gateway imports
+	// when this session's device is (re)linked; 0 = import nothing.
+	HistorySyncDays uint32
 }
 
 type Assignment struct {

@@ -346,6 +346,9 @@ type gatewayControlStore struct {
 	reconciliation *store.GatewayReconciliationRepo
 	eventIngest    *store.GatewayEventIngestRepo
 	now            func() time.Time
+	// historySyncMaxDays caps each session's stored history_sync_days, so
+	// lowering HISTORY_SYNC_MAX_DAYS takes effect without rewriting rows.
+	historySyncMaxDays uint32
 }
 
 func (s gatewayControlStore) Accept(
@@ -474,6 +477,7 @@ func (s gatewayControlStore) DesiredState(
 			PresenceTyping:  assignment.PresenceTyping,
 			RatePerMin:      assignment.RatePerMin,
 			RatePerHour:     assignment.RatePerHour,
+			HistorySyncDays: min(assignment.HistorySyncDays, s.historySyncMaxDays),
 			LeaseExpiresAt:  time.UnixMilli(assignment.LeaseExpiresAt).UTC(),
 		})
 	}

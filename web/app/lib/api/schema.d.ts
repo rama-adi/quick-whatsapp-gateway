@@ -584,7 +584,17 @@ export interface paths {
         delete: operations["deleteSession"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Update session settings
+         * @description Change settings of a session. Only the fields you send change.
+         *
+         *     `historySyncDays` sets how many days of chat history are imported the next time the phone is linked or relinked. It does not re-import history for a device that is already linked.
+         *
+         *     Requires `manage` capability. Returns the updated session.
+         *
+         *     Errors: `validation_error` (400) for a value outside 0 and the deployment maximum, `not_found` (404), `unauthorized` (401), `forbidden` (403).
+         */
+        patch: operations["updateSession"];
         trace?: never;
     };
     "/api/v1/sessions/{session}/backfill": {
@@ -1336,6 +1346,32 @@ export interface paths {
          * @description Join the group from an invite code or link and return `groupJid`.
          */
         post: operations["joinGroup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}/history-sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get history import status
+         * @description Show how the import of chat history from the phone is going. When a device is linked or relinked, the phone sends the chat history it still has; the gateway imports up to `historySyncDays` days of it.
+         *
+         *     The response has the session's import setting, whether the session was relinked to a different phone number, and the latest import run. `run` is absent until the phone sends history. While `run.status` is `running`, compare `batchesApplied` with `batches` and use `progress` (percent reported by the phone). `run.stalled` turns true when a running import has had no activity for 10 minutes.
+         *
+         *     Imported messages are stored like received messages with `origin` set to `history`. They do not trigger `message` webhooks; subscribe to `history.sync` (progress) or `history.batch` (the imported data, opt-in) instead.
+         *
+         *     Requires `read` capability. Errors: `not_found` (404), `unauthorized` (401), `forbidden` (403).
+         */
+        get: operations["getSessionHistorySync"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2543,6 +2579,12 @@ export interface components {
              */
             autoRead?: boolean;
             /**
+             * Format: int64
+             * @description How many days of chat history to import when the phone is linked. The phone sends the history it still has; older messages are skipped. 0 turns the import off. Omit to use the deployment default (30 days unless the operator changed it). Values above the deployment maximum are rejected.
+             * @example 30
+             */
+            historySyncDays?: number;
+            /**
              * @description Optional human-friendly session label.
              * @example Sales line
              */
@@ -3436,6 +3478,155 @@ export interface components {
              * @enum {string}
              */
             syncType?: "initial_bootstrap" | "recent" | "full" | "push_name" | "initial_status_v3" | "non_blocking_data" | "on_demand";
+        };
+        HistorySyncRun: {
+            /**
+             * @description Phone JID of the WhatsApp account whose history was imported. Optional; null until the gateway reports it.
+             * @example 6281234567890@s.whatsapp.net
+             */
+            accountJid?: string;
+            /**
+             * Format: int64
+             * @description history.batch events the gateway emitted.
+             * @example 12
+             */
+            batches: number;
+            /**
+             * Format: int64
+             * @description Batches the API has stored so far. Equals batches once the API has caught up.
+             * @example 12
+             */
+            batchesApplied: number;
+            /**
+             * Format: int64
+             * @description WhatsApp history notifications the gateway processed.
+             * @example 3
+             */
+            chunks: number;
+            /**
+             * Format: int64
+             * @description Conversations the gateway included in batches.
+             * @example 40
+             */
+            conversations: number;
+            /**
+             * Format: int64
+             * @description Messages older than this time (epoch milliseconds) were not imported, per the session's historySyncDays. Optional; null when there was no cutoff.
+             * @example 1717000000000
+             */
+            cutoffAt?: number;
+            /**
+             * @description Why the run failed. Optional; only set when status is failed.
+             * @example history blob expired on WhatsApp servers
+             */
+            error?: string;
+            /**
+             * Format: int64
+             * @description When the run completed or failed, in epoch milliseconds. Optional; null while running.
+             * @example 1719662700000
+             */
+            finishedAt?: number;
+            /**
+             * Format: int64
+             * @description Messages the gateway included in batches.
+             * @example 1830
+             */
+            messages: number;
+            /**
+             * Format: int64
+             * @description Messages not stored because they are older than the deployment's retention period or lack an id.
+             * @example 20
+             */
+            messagesDropped: number;
+            /**
+             * Format: int64
+             * @description Messages that were already stored (for example received live) and were left unchanged.
+             * @example 110
+             */
+            messagesExisting: number;
+            /**
+             * Format: int64
+             * @description Messages stored as new rows (marked origin history).
+             * @example 1700
+             */
+            messagesImported: number;
+            /**
+             * Format: int64
+             * @description Percent of the history the phone reports as sent (0-100). Optional; null when the phone did not report progress.
+             * @example 45
+             */
+            progress?: number;
+            /**
+             * @description Id of the import run, as carried by history.sync and history.batch events.
+             * @example hsr_01J9ZX3K8Q2W5V7B4N6M1C0D9E
+             */
+            runId: string;
+            /**
+             * @description Id of the session the history belongs to.
+             * @example 01J9ZX8K2QHV0M3T6R7P4N5W8C
+             */
+            sessionId: string;
+            /**
+             * Format: int64
+             * @description Messages the gateway left out: older than the cutoff, system notices, or undecodable.
+             * @example 25
+             */
+            skipped: number;
+            /**
+             * @description True when the run is still running but nothing happened for over 10 minutes (for example the phone went offline). The import resumes if the phone sends more history.
+             * @example false
+             */
+            stalled: boolean;
+            /**
+             * Format: int64
+             * @description When the run started, in epoch milliseconds.
+             * @example 1719662400000
+             */
+            startedAt: number;
+            /**
+             * @description Run state. **running** = the phone is still sending history or batches are still being stored; **completed** = all history the phone sent was imported; **failed** = the import stopped, see error.
+             * @example running
+             * @enum {string}
+             */
+            status: "running" | "completed" | "failed";
+            /**
+             * @description Kind of the latest WhatsApp history notification in this run. Optional.
+             * @example recent
+             * @enum {string}
+             */
+            syncType?: "initial_bootstrap" | "recent" | "full" | "push_name" | "initial_status_v3" | "non_blocking_data" | "on_demand";
+            /**
+             * Format: int64
+             * @description When the run last changed, in epoch milliseconds.
+             * @example 1719662460000
+             */
+            updatedAt: number;
+        };
+        HistorySyncStatus: {
+            /**
+             * @description True when the session was relinked to a different phone number than an earlier link. Chats and messages from the earlier number are kept, so stored data now mixes both numbers.
+             * @example false
+             */
+            accountChanged: boolean;
+            /**
+             * Format: int64
+             * @description When the relink to a different number happened, in epoch milliseconds. Optional; null when the number never changed.
+             * @example 1719662400000
+             */
+            accountChangedAt?: number;
+            /**
+             * @description Phone JID of the WhatsApp account the session's stored chats belong to. Kept after logout. Optional; null before the first link.
+             * @example 6281234567890@s.whatsapp.net
+             */
+            accountJid?: string;
+            /**
+             * Format: int64
+             * @description Days of history the session imports at its next link or relink (0 = off), after the deployment cap.
+             * @example 30
+             */
+            historySyncDays: number;
+            /** @description The most recently started import run. Optional; null when the phone has not sent any history yet (for example before the first link, or when the import is off). */
+            run?: components["schemas"]["HistorySyncRun"];
         };
         Identity: {
             /**
@@ -5200,6 +5391,14 @@ export interface components {
              */
             subject?: string;
         };
+        UpdateSessionInputBody: {
+            /**
+             * Format: int64
+             * @description How many days of chat history to import at the next link or relink (0 = off). Does not re-import history for an already linked device. Values above the deployment maximum are rejected.
+             * @example 90
+             */
+            historySyncDays?: number;
+        };
         VoteInputBody: {
             /**
              * @description Chat JID of the poll.
@@ -5242,6 +5441,12 @@ export interface components {
              * @example gw-sg-1
              */
             gatewayId: string;
+            /**
+             * Format: int64
+             * @description How many days of chat history to import when the device is linked or relinked. The phone sends the history it still has; messages older than this are skipped. 0 turns the import off. Takes effect at the next link.
+             * @example 30
+             */
+            historySyncDays: number;
             /**
              * @description The session id (a ULID). Stable identifier for the attached WhatsApp number; used in all per-session routes.
              * @example 01J9ZX8K2QHV0M3T6R7P4N5W8C
@@ -6396,6 +6601,42 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    updateSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Session ID within your organization. Unknown or cross-organization sessions return not_found (404). */
+                session: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateSessionInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WASession"];
+                };
             };
             /** @description Error */
             default: {
@@ -7695,6 +7936,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["JoinGroupOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getSessionHistorySync: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Session ID within your organization. Unknown or cross-organization sessions return not_found (404). */
+                session: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistorySyncStatus"];
                 };
             };
             /** @description Error */

@@ -66,6 +66,7 @@ type GatewayDesiredSession struct {
 	AutoRead, PresenceTyping             bool
 	DesiredRun                           bool
 	RatePerMin, RatePerHour              uint32
+	HistorySyncDays                      uint32
 	LeaseExpiresAt                       int64
 }
 

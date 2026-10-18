@@ -316,7 +316,11 @@ indefinitely.
 `ControlFrame.desired_state_snapshot` (field 20) is an additive, complete authoritative session
 assignment set. It follows Welcome and each successfully persisted heartbeat so its absolute lease
 expiries are renewed. Every assignment includes its organization ID, nonzero `assignment_epoch`,
-and revisioned auto-read, typing, and rate settings. `GatewayFrame.desired_state_report` (field
+and revisioned auto-read, typing, rate, and history-import settings
+(`SessionConfig.history_sync_days`, field 16: days of history to import at the next link, 0 =
+off, already capped by the API at `HISTORY_SYNC_MAX_DAYS`). Field 16 sits after the
+`reserved 6 to 15` range on purpose: releasing a reserved number is a Buf FILE breaking change, so
+new `SessionConfig` fields are numbered from 16. `GatewayFrame.desired_state_report` (field
 20) acknowledges a processed snapshot revision with the connection epoch, safe keystore health,
 the complete local device inventory, and reconciliation outcomes. The API accepts and persists its
 processed revision only when both fences and the gateway's current desired revision match. Lifecycle

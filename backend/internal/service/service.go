@@ -37,6 +37,12 @@ type Deps struct {
 	// overview reports it so clients can flag windows longer than retention.
 	RetentionDays int
 
+	// HistorySyncDefaultDays / HistorySyncMaxDays are HISTORY_SYNC_DEFAULT_DAYS
+	// and HISTORY_SYNC_MAX_DAYS: the history import window for new sessions and
+	// the cap on any session's window.
+	HistorySyncDefaultDays int
+	HistorySyncMaxDays     int
+
 	Log *slog.Logger
 }
 
@@ -92,6 +98,7 @@ func New(d Deps) *Services {
 		),
 	}
 	services.Sessions.SetOAuthCascader(services.OAuthApps)
+	services.Sessions.SetHistorySync(d.Store.History, d.HistorySyncDefaultDays, d.HistorySyncMaxDays)
 	return services
 }
 

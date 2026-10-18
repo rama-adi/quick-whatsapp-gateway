@@ -16,13 +16,25 @@ import (
 // on the wire so the service stays the validator (domain.ErrValidation → 400),
 // matching the chi handler's behavior.
 type createSessionInputBody struct {
-	Label          *string `json:"label,omitempty" doc:"Optional human-friendly session label." example:"Sales line"`
-	Start          bool    `json:"start,omitempty" doc:"If true, begin QR pairing immediately. If false, create the session in stopped/unpaired state and pair later." example:"true"`
-	AutoRead       *bool   `json:"autoRead,omitempty" doc:"If true, mark incoming messages as read automatically." example:"false"`
-	PresenceTyping *bool   `json:"presenceTyping,omitempty" doc:"If true, send typing indicator while a message is sent from this session." example:"true"`
+	Label           *string `json:"label,omitempty" doc:"Optional human-friendly session label." example:"Sales line"`
+	Start           bool    `json:"start,omitempty" doc:"If true, begin QR pairing immediately. If false, create the session in stopped/unpaired state and pair later." example:"true"`
+	AutoRead        *bool   `json:"autoRead,omitempty" doc:"If true, mark incoming messages as read automatically." example:"false"`
+	PresenceTyping  *bool   `json:"presenceTyping,omitempty" doc:"If true, send typing indicator while a message is sent from this session." example:"true"`
+	HistorySyncDays *int    `json:"historySyncDays,omitempty" minimum:"0" doc:"How many days of chat history to import when the phone is linked. The phone sends the history it still has; older messages are skipped. 0 turns the import off. Omit to use the deployment default (30 days unless the operator changed it). Values above the deployment maximum are rejected." example:"30"`
 }
 
 type createSessionInput struct{ Body createSessionInputBody }
+
+// updateSessionInput is the PATCH /sessions/{session} request. Omitted fields
+// keep their current value.
+type updateSessionInput struct {
+	Session string `path:"session" doc:"Session ID within your organization. Unknown or cross-organization sessions return not_found (404)." example:"sess_01HZX8K3M9"`
+	Body    struct {
+		HistorySyncDays *int `json:"historySyncDays,omitempty" minimum:"0" doc:"How many days of chat history to import at the next link or relink (0 = off). Does not re-import history for an already linked device. Values above the deployment maximum are rejected." example:"90"`
+	}
+}
+
+type historySyncOutput struct{ Body domain.HistorySyncStatus }
 type sessionIDInput struct {
 	Session string `path:"session" doc:"Session ID within your organization. Unknown or cross-organization sessions return not_found (404)." example:"sess_01HZX8K3M9"`
 }
@@ -66,10 +78,11 @@ func RegisterSessionOps(api huma.API, h *Handlers) {
 			return nil, err
 		}
 		sess, err := h.Sessions.Create(ctx, org, service.CreateInput{
-			Label:          in.Body.Label,
-			Start:          in.Body.Start,
-			AutoRead:       in.Body.AutoRead,
-			PresenceTyping: in.Body.PresenceTyping,
+			Label:           in.Body.Label,
+			Start:           in.Body.Start,
+			AutoRead:        in.Body.AutoRead,
+			PresenceTyping:  in.Body.PresenceTyping,
+			HistorySyncDays: in.Body.HistorySyncDays,
 		})
 		if err != nil {
 			return nil, humax.ErrContext(ctx, err)
@@ -115,6 +128,49 @@ func RegisterSessionOps(api huma.API, h *Handlers) {
 			return nil, humax.ErrContext(ctx, err)
 		}
 		return &sessionOutput{Body: sess}, nil
+	})
+
+	huma.Register(api, huma.Operation{
+		OperationID: "updateSession", Method: "PATCH", Path: "/api/v1/sessions/{session}",
+		Summary: "Update session settings",
+		Description: "Change settings of a session. Only the fields you send change.\n\n" +
+			"`historySyncDays` sets how many days of chat history are imported the next time the phone is linked or relinked. " +
+			"It does not re-import history for a device that is already linked.\n\n" +
+			"Requires `manage` capability. Returns the updated session.\n\n" +
+			"Errors: `validation_error` (400) for a value outside 0 and the deployment maximum, `not_found` (404), `unauthorized` (401), `forbidden` (403).",
+		Tags: []string{"Sessions"}, Middlewares: manage,
+	}, func(ctx context.Context, in *updateSessionInput) (*sessionOutput, error) {
+		org, err := humax.Org(ctx)
+		if err != nil {
+			return nil, err
+		}
+		sess, err := h.Sessions.Update(ctx, org, in.Session, service.UpdateInput{HistorySyncDays: in.Body.HistorySyncDays})
+		if err != nil {
+			return nil, humax.ErrContext(ctx, err)
+		}
+		return &sessionOutput{Body: sess}, nil
+	})
+
+	huma.Register(api, huma.Operation{
+		OperationID: "getSessionHistorySync", Method: "GET", Path: "/api/v1/sessions/{session}/history-sync",
+		Summary: "Get history import status",
+		Description: "Show how the import of chat history from the phone is going. When a device is linked or relinked, the phone sends the chat history it still has; the gateway imports up to `historySyncDays` days of it.\n\n" +
+			"The response has the session's import setting, whether the session was relinked to a different phone number, and the latest import run. " +
+			"`run` is absent until the phone sends history. While `run.status` is `running`, compare `batchesApplied` with `batches` and use `progress` (percent reported by the phone). " +
+			"`run.stalled` turns true when a running import has had no activity for 10 minutes.\n\n" +
+			"Imported messages are stored like received messages with `origin` set to `history`. They do not trigger `message` webhooks; subscribe to `history.sync` (progress) or `history.batch` (the imported data, opt-in) instead.\n\n" +
+			"Requires `read` capability. Errors: `not_found` (404), `unauthorized` (401), `forbidden` (403).",
+		Tags: []string{"Sessions"}, Middlewares: huma.Middlewares{humax.RequireCap(api, authz.CapRead)},
+	}, func(ctx context.Context, in *sessionIDInput) (*historySyncOutput, error) {
+		org, err := humax.Org(ctx)
+		if err != nil {
+			return nil, err
+		}
+		status, err := h.Sessions.HistorySync(ctx, org, in.Session)
+		if err != nil {
+			return nil, humax.ErrContext(ctx, err)
+		}
+		return &historySyncOutput{Body: status}, nil
 	})
 
 	// Lifecycle actions (colon-suffix). On success each returns the refreshed

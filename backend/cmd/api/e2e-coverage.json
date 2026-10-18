@@ -44,6 +44,7 @@
       "getOAuthApp": "admin and OAuth applications",
       "getOutboxByIdempotency": "idempotency lookup scopes tenant and session without effects",
       "getSession": "session lifecycle and pairing",
+      "getSessionHistorySync": "session lifecycle and pairing",
       "getSessionStorage": "storage lifecycle",
       "getWebhook": "webhook lifecycle",
       "importBackup": "backup validation and status",
@@ -90,6 +91,7 @@
       "updateChat": "chat lifecycle",
       "updateGroup": "live contacts and groups",
       "updateOAuthApp": "admin and OAuth applications",
+      "updateSession": "session lifecycle and pairing",
       "updateStorageBucket": "storage lifecycle",
       "updateWebhook": "webhook lifecycle",
       "voteMessage": "message operations"

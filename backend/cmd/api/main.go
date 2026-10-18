@@ -131,6 +131,8 @@ func runWithStorageTransport(storageTransport http.RoundTripper) error {
 		DefaultRetryDelay:          cfg.WebhookRetryDelay,
 		DefaultRetryAttempts:       cfg.WebhookRetryAttempts,
 		RetentionDays:              cfg.RetentionDays,
+		HistorySyncDefaultDays:     cfg.HistorySyncDefaultDays,
+		HistorySyncMaxDays:         cfg.HistorySyncMaxDays,
 		Log:                        log,
 	})
 	apiHandlers := handlers.New(services, log)
@@ -509,6 +511,8 @@ func runWithStorageTransport(storageTransport http.RoundTripper) error {
 				repo:           st.Gateways,
 				reconciliation: store.NewGatewayReconciliationRepo(db),
 				eventIngest:    st.GatewayEvents,
+				// Validate caps HISTORY_SYNC_MAX_DAYS at 65535.
+				historySyncMaxDays: uint32(cfg.HistorySyncMaxDays), //nolint:gosec // validated non-negative and <= 65535
 			},
 			ResolveGatewayID: func(ctx context.Context) (string, bool) {
 				identity, ok := gatewayIdentityFromContext(ctx)

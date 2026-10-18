@@ -19,23 +19,26 @@ func NewSessionRepo(db storedb.DBTX) *SessionRepo { return &SessionRepo{q: store
 
 func sessionFromRow(row storedb.WaSession) domain.WASession {
 	return domain.WASession{
-		ID:              row.ID,
-		OrganizationID:  row.OrganizationID,
-		CreatedByUserID: stringPtrFromNull(row.CreatedByUserID),
-		GatewayID:       row.GatewayID,
-		Label:           stringPtrFromNull(row.Label),
-		Status:          domain.SessionStatus(row.Status),
-		WAJID:           stringPtrFromNull(row.WaJid),
-		WALID:           stringPtrFromNull(row.WaLid),
-		PhoneNumber:     stringPtrFromNull(row.PhoneNumber),
-		IsAdminSession:  row.IsAdminSession,
-		AutoRead:        row.AutoRead,
-		PresenceTyping:  row.PresenceTyping,
-		RatePerMin:      int(row.RatePerMin),
-		RatePerHour:     int(row.RatePerHour),
-		LastConnectedAt: int64PtrFromNull(row.LastConnectedAt),
-		CreatedAt:       row.CreatedAt,
-		UpdatedAt:       row.UpdatedAt,
+		ID:               row.ID,
+		OrganizationID:   row.OrganizationID,
+		CreatedByUserID:  stringPtrFromNull(row.CreatedByUserID),
+		GatewayID:        row.GatewayID,
+		Label:            stringPtrFromNull(row.Label),
+		Status:           domain.SessionStatus(row.Status),
+		WAJID:            stringPtrFromNull(row.WaJid),
+		WALID:            stringPtrFromNull(row.WaLid),
+		PhoneNumber:      stringPtrFromNull(row.PhoneNumber),
+		IsAdminSession:   row.IsAdminSession,
+		AutoRead:         row.AutoRead,
+		PresenceTyping:   row.PresenceTyping,
+		RatePerMin:       int(row.RatePerMin),
+		RatePerHour:      int(row.RatePerHour),
+		LastConnectedAt:  int64PtrFromNull(row.LastConnectedAt),
+		CreatedAt:        row.CreatedAt,
+		UpdatedAt:        row.UpdatedAt,
+		HistorySyncDays:  int(row.HistorySyncDays),
+		DataAccountJID:   stringPtrFromNull(row.DataAccountJid),
+		AccountChangedAt: int64PtrFromNull(row.AccountChangedAt),
 	}
 }
 
@@ -59,6 +62,7 @@ func (r *SessionRepo) Create(ctx context.Context, s domain.WASession) error {
 		LastConnectedAt: nullInt64(s.LastConnectedAt),
 		CreatedAt:       s.CreatedAt,
 		UpdatedAt:       s.UpdatedAt,
+		HistorySyncDays: uint16(min(max(s.HistorySyncDays, 0), 65535)), //nolint:gosec // clamped to the column range
 	})
 	if err != nil {
 		return fmt.Errorf("store: create session: %w", err)

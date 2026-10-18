@@ -28,6 +28,10 @@ type SessionService struct {
 	// private engine RPCs while this service owns rows, placement, and
 	// assignments.
 	gatewayFacade GatewaySessionFacade
+	// History sync: run reads plus the HISTORY_SYNC_* policy.
+	history            *store.HistoryRepo
+	historyDefaultDays int
+	historyMaxDays     int
 }
 
 // SetGatewayAssignmentRepo supplies the assignment-revision repo used by the
@@ -92,6 +96,8 @@ type CreateInput struct {
 	Start          bool
 	AutoRead       *bool
 	PresenceTyping *bool
+	// HistorySyncDays overrides the deployment default (nil = default).
+	HistorySyncDays *int
 }
 
 // Create provisions a new session for the organization: the API picks the
@@ -113,6 +119,11 @@ func (s *SessionService) createControlled(
 	organizationID string,
 	in CreateInput,
 ) (domain.WASession, error) {
+	// Validate before placement so a bad value is a 400, not a placement error.
+	historyDays, err := s.resolveHistorySyncDays(in.HistorySyncDays)
+	if err != nil {
+		return domain.WASession{}, err
+	}
 	gatewayRow, err := s.gateways.PickForPlacement(ctx)
 	if err != nil {
 		return domain.WASession{}, domain.ErrUnavailable("no eligible gateway available for placement")
@@ -127,15 +138,16 @@ func (s *SessionService) createControlled(
 	}
 	now := domain.NowMs()
 	sess := domain.WASession{
-		ID:             domain.NewSessionID(),
-		OrganizationID: organizationID,
-		GatewayID:      gatewayRow.ID,
-		Label:          in.Label,
-		Status:         domain.SessionStopped,
-		AutoRead:       autoRead,
-		PresenceTyping: presence,
-		CreatedAt:      now,
-		UpdatedAt:      now,
+		HistorySyncDays: historyDays,
+		ID:              domain.NewSessionID(),
+		OrganizationID:  organizationID,
+		GatewayID:       gatewayRow.ID,
+		Label:           in.Label,
+		Status:          domain.SessionStopped,
+		AutoRead:        autoRead,
+		PresenceTyping:  presence,
+		CreatedAt:       now,
+		UpdatedAt:       now,
 	}
 	if err := s.assignments.CreateSession(ctx, sess); err != nil {
 		return domain.WASession{}, err

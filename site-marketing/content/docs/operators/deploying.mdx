@@ -282,6 +282,7 @@ the API's; the rest is the gateway's.
 | `MYSQL_DSN` / `REDIS_URL` | API | Application persistence, rate limits, and event fan-out. |
 | `APP_ENCRYPTION_KEY` | API | Encryption of webhook secrets. |
 | `REDIS_PREFIX` / `RETENTION_DAYS` | API | Shared Redis namespace and retention-component configuration. The production retention scheduler is unwired; setting `RETENTION_DAYS` alone does not prune history. |
+| `HISTORY_SYNC_DEFAULT_DAYS` / `HISTORY_SYNC_MAX_DAYS` | API | Chat history imported when a phone is linked or relinked. New sessions import `HISTORY_SYNC_DEFAULT_DAYS` days (default `30`, `0` = off) unless they set `historySyncDays`; no session can exceed `HISTORY_SYNC_MAX_DAYS` (default `365`, at most `65535`). The default must not exceed the maximum. When `RETENTION_DAYS` is set, imported messages older than it are not stored. |
 | `API_GATEWAY_GRPC_ADDR` / `API_GATEWAY_TLS_IDENTITY_DIR` | API | Private listener and persistent certificate. |
 | `PKI_ENCRYPTION_KEY` / `PKI_ENCRYPTION_KEY_ID` | API | Encrypted CA key custody. |
 | `GATEWAY_ID` / `GATEWAY_CONTROL_PLANE_ADDR` | gateway | Enrolled identity and API control listener. |

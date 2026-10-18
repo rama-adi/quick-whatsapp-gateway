@@ -358,3 +358,21 @@ func TestPrivateTLSCompositionIsPinnedTLS13AndOptionalClientCert(t *testing.T) {
 		t.Fatalf("TLS configuration = %+v", config)
 	}
 }
+
+// TestGatewayControlStoreCapsHistorySyncDays streams each session's history
+// window capped by HISTORY_SYNC_MAX_DAYS, so lowering the cap needs no row
+// rewrite.
+func TestGatewayControlStoreCapsHistorySyncDays(t *testing.T) {
+	repo := &fakeGatewayControlRepo{heartbeatOK: true, desired: []domain.GatewayDesiredSession{
+		{SessionID: "s1", OrganizationID: "o", HistorySyncDays: 400},
+		{SessionID: "s2", OrganizationID: "o", HistorySyncDays: 30},
+	}}
+	controlStore := gatewayControlStore{repo: repo, historySyncMaxDays: 365}
+	desired, err := controlStore.DesiredState(context.Background(), "gw_1", 1, 2, time.UnixMilli(1000))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := []uint32{desired.Assignments[0].HistorySyncDays, desired.Assignments[1].HistorySyncDays}; got[0] != 365 || got[1] != 30 {
+		t.Fatalf("history days = %v, want [365 30]", got)
+	}
+}

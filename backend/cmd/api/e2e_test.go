@@ -251,8 +251,18 @@ func TestOutboundE2E(t *testing.T) {
 // upgrade conservatively retains that uncertainty before the API is started.
 func runE2EOutboxUpgrade(t *testing.T, infra *e2eInfra) {
 	t.Helper()
-	if err := dbmigrate.Run(infra.dsn, dbmigrate.Down); err != nil {
-		t.Fatalf("return disposable schema to 0018: %v", err)
+	// Down is one step; walk back from whatever the latest migration is.
+	for {
+		var version int
+		if err := infra.db.QueryRow(`SELECT version FROM schema_migrations`).Scan(&version); err != nil {
+			t.Fatalf("read disposable schema version: %v", err)
+		}
+		if version <= 18 {
+			break
+		}
+		if err := dbmigrate.Run(infra.dsn, dbmigrate.Down); err != nil {
+			t.Fatalf("return disposable schema to 0018: %v", err)
+		}
 	}
 	now := time.Now().UnixMilli()
 	if _, err := infra.db.Exec(`INSERT INTO outbox

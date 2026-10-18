@@ -274,8 +274,10 @@ type Session struct {
 	LastConnectedAtUnixMs *int64                 `protobuf:"varint,15,opt,name=last_connected_at_unix_ms,json=lastConnectedAtUnixMs,proto3,oneof" json:"last_connected_at_unix_ms,omitempty"`
 	CreatedAtUnixMs       int64                  `protobuf:"varint,16,opt,name=created_at_unix_ms,json=createdAtUnixMs,proto3" json:"created_at_unix_ms,omitempty"`
 	UpdatedAtUnixMs       int64                  `protobuf:"varint,17,opt,name=updated_at_unix_ms,json=updatedAtUnixMs,proto3" json:"updated_at_unix_ms,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// Days of chat history imported when the device is (re)linked; 0 = off.
+	HistorySyncDays int32 `protobuf:"varint,18,opt,name=history_sync_days,json=historySyncDays,proto3" json:"history_sync_days,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *Session) Reset() {
@@ -423,6 +425,13 @@ func (x *Session) GetCreatedAtUnixMs() int64 {
 func (x *Session) GetUpdatedAtUnixMs() int64 {
 	if x != nil {
 		return x.UpdatedAtUnixMs
+	}
+	return 0
+}
+
+func (x *Session) GetHistorySyncDays() int32 {
+	if x != nil {
+		return x.HistorySyncDays
 	}
 	return 0
 }
@@ -1104,8 +1113,10 @@ type StoredMessage struct {
 	Deleted         bool                   `protobuf:"varint,21,opt,name=deleted,proto3" json:"deleted,omitempty"`
 	TimestampUnixMs int64                  `protobuf:"varint,22,opt,name=timestamp_unix_ms,json=timestampUnixMs,proto3" json:"timestamp_unix_ms,omitempty"`
 	CreatedAtUnixMs int64                  `protobuf:"varint,23,opt,name=created_at_unix_ms,json=createdAtUnixMs,proto3" json:"created_at_unix_ms,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Where this stored copy came from: live, history, or backup.
+	Origin        string `protobuf:"bytes,24,opt,name=origin,proto3" json:"origin,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *StoredMessage) Reset() {
@@ -1299,6 +1310,13 @@ func (x *StoredMessage) GetCreatedAtUnixMs() int64 {
 	return 0
 }
 
+func (x *StoredMessage) GetOrigin() string {
+	if x != nil {
+		return x.Origin
+	}
+	return ""
+}
+
 // Page is the cursor-paginated list envelope ({"data":[...],"nextCursor"}).
 type Page struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1348,7 +1366,7 @@ var File_v1_resources_proto protoreflect.FileDescriptor
 
 const file_v1_resources_proto_rawDesc = "" +
 	"\n" +
-	"\x12v1/resources.proto\x12\tpublic.v1\"\xf5\x05\n" +
+	"\x12v1/resources.proto\x12\tpublic.v1\"\xa1\x06\n" +
 	"\aSession\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12'\n" +
 	"\x0forganization_id\x18\x02 \x01(\tR\x0eorganizationId\x120\n" +
@@ -1369,7 +1387,8 @@ const file_v1_resources_proto_rawDesc = "" +
 	"\rrate_per_hour\x18\x0e \x01(\x05R\vratePerHour\x12=\n" +
 	"\x19last_connected_at_unix_ms\x18\x0f \x01(\x03H\x05R\x15lastConnectedAtUnixMs\x88\x01\x01\x12+\n" +
 	"\x12created_at_unix_ms\x18\x10 \x01(\x03R\x0fcreatedAtUnixMs\x12+\n" +
-	"\x12updated_at_unix_ms\x18\x11 \x01(\x03R\x0fupdatedAtUnixMsB\x15\n" +
+	"\x12updated_at_unix_ms\x18\x11 \x01(\x03R\x0fupdatedAtUnixMs\x12*\n" +
+	"\x11history_sync_days\x18\x12 \x01(\x05R\x0fhistorySyncDaysB\x15\n" +
 	"\x13_created_by_user_idB\b\n" +
 	"\x06_labelB\t\n" +
 	"\a_wa_jidB\t\n" +
@@ -1457,7 +1476,7 @@ const file_v1_resources_proto_rawDesc = "" +
 	"\bmimetype\x18\x01 \x01(\tR\bmimetype\x12\x12\n" +
 	"\x04size\x18\x02 \x01(\x03R\x04size\x12\x1a\n" +
 	"\bfilename\x18\x03 \x01(\tR\bfilenameB\r\n" +
-	"\v_expires_at\"\x92\b\n" +
+	"\v_expires_at\"\xaa\b\n" +
 	"\rStoredMessage\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
 	"\n" +
@@ -1486,7 +1505,8 @@ const file_v1_resources_proto_rawDesc = "" +
 	"\x06edited\x18\x14 \x01(\bR\x06edited\x12\x18\n" +
 	"\adeleted\x18\x15 \x01(\bR\adeleted\x12*\n" +
 	"\x11timestamp_unix_ms\x18\x16 \x01(\x03R\x0ftimestampUnixMs\x12+\n" +
-	"\x12created_at_unix_ms\x18\x17 \x01(\x03R\x0fcreatedAtUnixMs\x1a?\n" +
+	"\x12created_at_unix_ms\x18\x17 \x01(\x03R\x0fcreatedAtUnixMs\x12\x16\n" +
+	"\x06origin\x18\x18 \x01(\tR\x06origin\x1a?\n" +
 	"\x11MentionNamesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\r\n" +

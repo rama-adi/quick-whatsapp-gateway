@@ -40,6 +40,7 @@ describe("applyEvent", () => {
       presenceTyping: false,
       ratePerMin: 10,
       ratePerHour: 100,
+      historySyncDays: 30,
       createdAt: 1,
       updatedAt: 1,
     };
@@ -67,6 +68,7 @@ describe("applyEvent", () => {
       presenceTyping: false,
       ratePerMin: 10,
       ratePerHour: 100,
+      historySyncDays: 30,
       createdAt: 1,
       updatedAt: 1,
     };

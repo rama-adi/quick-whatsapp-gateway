@@ -38,6 +38,8 @@ type SessionSvc interface {
 	Me(ctx context.Context, organizationID, id string) (service.Me, error)
 	QR(ctx context.Context, organizationID, id string) (service.QR, error)
 	PairingCode(ctx context.Context, organizationID, id, phone string) (string, error)
+	Update(ctx context.Context, organizationID, id string, in service.UpdateInput) (domain.WASession, error)
+	HistorySync(ctx context.Context, organizationID, id string) (domain.HistorySyncStatus, error)
 }
 
 // MessageSvc is the outbound send + message-op surface.

@@ -43,11 +43,12 @@ func (a *ControlApplier) ApplyDesiredState(
 		}
 		if config != nil {
 			assignment.Config = Config{
-				Revision:       config.GetRevision(),
-				AutoRead:       config.GetAutoRead(),
-				PresenceTyping: config.GetPresenceTyping(),
-				RatePerMin:     config.GetRatePerMin(),
-				RatePerHour:    config.GetRatePerHour(),
+				Revision:        config.GetRevision(),
+				AutoRead:        config.GetAutoRead(),
+				PresenceTyping:  config.GetPresenceTyping(),
+				RatePerMin:      config.GetRatePerMin(),
+				RatePerHour:     config.GetRatePerHour(),
+				HistorySyncDays: config.GetHistorySyncDays(),
 			}
 		}
 		assignments = append(assignments, assignment)

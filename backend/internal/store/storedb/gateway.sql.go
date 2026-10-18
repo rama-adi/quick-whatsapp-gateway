@@ -463,7 +463,7 @@ func (q *Queries) ListActiveGateways(ctx context.Context, arg ListActiveGateways
 
 const listGatewayDesiredStateAssignments = `-- name: ListGatewayDesiredStateAssignments :many
 SELECT a.session_id, s.organization_id, s.wa_jid, s.status, a.assignment_epoch,
-       s.auto_read, s.presence_typing, s.rate_per_min, s.rate_per_hour
+       s.auto_read, s.presence_typing, s.rate_per_min, s.rate_per_hour, s.history_sync_days
 FROM gateway_session_assignments AS a
 JOIN wa_sessions AS s ON s.id = a.session_id
 JOIN gateways AS g ON g.id = a.gateway_id
@@ -488,6 +488,7 @@ type ListGatewayDesiredStateAssignmentsRow struct {
 	PresenceTyping  bool             `db:"presence_typing" json:"presence_typing"`
 	RatePerMin      int32            `db:"rate_per_min" json:"rate_per_min"`
 	RatePerHour     int32            `db:"rate_per_hour" json:"rate_per_hour"`
+	HistorySyncDays uint16           `db:"history_sync_days" json:"history_sync_days"`
 }
 
 func (q *Queries) ListGatewayDesiredStateAssignments(ctx context.Context, arg ListGatewayDesiredStateAssignmentsParams) ([]ListGatewayDesiredStateAssignmentsRow, error) {
@@ -509,6 +510,7 @@ func (q *Queries) ListGatewayDesiredStateAssignments(ctx context.Context, arg Li
 			&i.PresenceTyping,
 			&i.RatePerMin,
 			&i.RatePerHour,
+			&i.HistorySyncDays,
 		); err != nil {
 			return nil, err
 		}

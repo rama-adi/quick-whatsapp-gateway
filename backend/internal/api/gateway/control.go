@@ -79,6 +79,7 @@ type DesiredSession struct {
 	AssignmentEpoch, ConfigRevision      uint64
 	AutoRead, PresenceTyping             bool
 	RatePerMin, RatePerHour              uint32
+	HistorySyncDays                      uint32
 	LeaseExpiresAt                       time.Time
 }
 
@@ -400,11 +401,12 @@ func (s *Server) sendDesiredState(
 			DesiredAction:        assignment.DesiredAction,
 			LeaseExpiresAtUnixMs: assignment.LeaseExpiresAt.UnixMilli(),
 			Config: &gatewayv1.SessionConfig{
-				Revision:       assignment.ConfigRevision,
-				AutoRead:       assignment.AutoRead,
-				PresenceTyping: assignment.PresenceTyping,
-				RatePerMin:     assignment.RatePerMin,
-				RatePerHour:    assignment.RatePerHour,
+				Revision:        assignment.ConfigRevision,
+				AutoRead:        assignment.AutoRead,
+				PresenceTyping:  assignment.PresenceTyping,
+				RatePerMin:      assignment.RatePerMin,
+				RatePerHour:     assignment.RatePerHour,
+				HistorySyncDays: assignment.HistorySyncDays,
 			},
 		}
 		if assignment.DeviceJID != "" {

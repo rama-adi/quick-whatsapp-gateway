@@ -129,6 +129,42 @@ func (r *GatewayAssignmentRepo) UpdateConfig(
 	return tx.Commit()
 }
 
+// UpdateHistorySyncDays changes a session's history import window and advances
+// its assigned gateway's desired revision in the same transaction, so the new
+// value reaches the gateway in its next desired-state snapshot.
+func (r *GatewayAssignmentRepo) UpdateHistorySyncDays(ctx context.Context, sessionID string, days int, at int64) error {
+	if days < 0 || days > 65535 {
+		return domain.ErrValidation("historySyncDays out of range")
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("store: begin history window update: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var gatewayID string
+	if err := tx.QueryRowContext(ctx,
+		`SELECT gateway_id FROM gateway_session_assignments WHERE session_id=? FOR UPDATE`,
+		sessionID,
+	).Scan(&gatewayID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return domain.ErrNotFound("session assignment not found")
+		}
+		return fmt.Errorf("store: lock session history window: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE wa_sessions SET history_sync_days=?, updated_at=? WHERE id=?`, days, at, sessionID,
+	); err != nil {
+		return fmt.Errorf("store: update session history window: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE gateways SET desired_revision=desired_revision+1, updated_at=? WHERE id=? AND deleted_at IS NULL`,
+		at, gatewayID,
+	); err != nil {
+		return fmt.Errorf("store: advance config revision: %w", err)
+	}
+	return tx.Commit()
+}
+
 // Assign records the first assignment for a session at epoch 1 and advances
 // the owning gateway's desired revision in one transaction. An existing
 // assignment is kept as-is (no-op) so retries after a partial create never

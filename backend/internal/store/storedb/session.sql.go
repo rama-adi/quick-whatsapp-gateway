@@ -90,8 +90,8 @@ const createSession = `-- name: CreateSession :exec
 INSERT INTO wa_sessions
 (id, organization_id, created_by_user_id, gateway_id, label, status, wa_jid, wa_lid,
  phone_number, is_admin_session, auto_read, presence_typing, rate_per_min, rate_per_hour,
- last_connected_at, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ last_connected_at, created_at, updated_at, history_sync_days)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type CreateSessionParams struct {
@@ -112,6 +112,7 @@ type CreateSessionParams struct {
 	LastConnectedAt sql.NullInt64    `db:"last_connected_at" json:"last_connected_at"`
 	CreatedAt       int64            `db:"created_at" json:"created_at"`
 	UpdatedAt       int64            `db:"updated_at" json:"updated_at"`
+	HistorySyncDays uint16           `db:"history_sync_days" json:"history_sync_days"`
 }
 
 func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) error {
@@ -133,6 +134,7 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) er
 		arg.LastConnectedAt,
 		arg.CreatedAt,
 		arg.UpdatedAt,
+		arg.HistorySyncDays,
 	)
 	return err
 }

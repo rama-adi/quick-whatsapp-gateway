@@ -1747,8 +1747,12 @@ type SessionConfig struct {
 	PresenceTyping bool                   `protobuf:"varint,3,opt,name=presence_typing,json=presenceTyping,proto3" json:"presence_typing,omitempty"`
 	RatePerMin     uint32                 `protobuf:"varint,4,opt,name=rate_per_min,json=ratePerMin,proto3" json:"rate_per_min,omitempty"`
 	RatePerHour    uint32                 `protobuf:"varint,5,opt,name=rate_per_hour,json=ratePerHour,proto3" json:"rate_per_hour,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Days of chat history to import when the device is (re)linked; 0 = off.
+	// Already capped by the API at HISTORY_SYNC_MAX_DAYS. Numbered after the
+	// reserved range: releasing a reserved number is a buf FILE breaking change.
+	HistorySyncDays uint32 `protobuf:"varint,16,opt,name=history_sync_days,json=historySyncDays,proto3" json:"history_sync_days,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *SessionConfig) Reset() {
@@ -1812,6 +1816,13 @@ func (x *SessionConfig) GetRatePerMin() uint32 {
 func (x *SessionConfig) GetRatePerHour() uint32 {
 	if x != nil {
 		return x.RatePerHour
+	}
+	return 0
+}
+
+func (x *SessionConfig) GetHistorySyncDays() uint32 {
+	if x != nil {
+		return x.HistorySyncDays
 	}
 	return 0
 }
@@ -2091,14 +2102,15 @@ const file_v1_gateway_control_proto_rawDesc = "" +
 	"\n" +
 	"device_jid\x18\x06 \x01(\tH\x00R\tdeviceJid\x88\x01\x01\x12G\n" +
 	"\x0edesired_action\x18\a \x01(\x0e2 .gateway.v1.SessionDesiredActionR\rdesiredActionB\r\n" +
-	"\v_device_jidJ\x04\b\b\x10\x10\"\xbd\x01\n" +
+	"\v_device_jidJ\x04\b\b\x10\x10\"\xe9\x01\n" +
 	"\rSessionConfig\x12\x1a\n" +
 	"\brevision\x18\x01 \x01(\x04R\brevision\x12\x1b\n" +
 	"\tauto_read\x18\x02 \x01(\bR\bautoRead\x12'\n" +
 	"\x0fpresence_typing\x18\x03 \x01(\bR\x0epresenceTyping\x12 \n" +
 	"\frate_per_min\x18\x04 \x01(\rR\n" +
 	"ratePerMin\x12\"\n" +
-	"\rrate_per_hour\x18\x05 \x01(\rR\vratePerHourJ\x04\b\x06\x10\x10\"\xc6\x02\n" +
+	"\rrate_per_hour\x18\x05 \x01(\rR\vratePerHour\x12*\n" +
+	"\x11history_sync_days\x18\x10 \x01(\rR\x0fhistorySyncDaysJ\x04\b\x06\x10\x10\"\xc6\x02\n" +
 	"\x0eControlWelcome\x12#\n" +
 	"\rconnection_id\x18\x01 \x01(\tR\fconnectionId\x12)\n" +
 	"\x10connection_epoch\x18\x02 \x01(\x04R\x0fconnectionEpoch\x122\n" +

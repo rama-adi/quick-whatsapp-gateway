@@ -26,6 +26,33 @@ with gateway registry details available through the admin gateway resource — s
 the dashboard can show **where** a session runs once there is more than one gateway
 (§4.5). Session pinning itself is handled by the session manager (session-manager.md).
 
+## Session history import settings and status
+
+Sessions carry `historySyncDays`: how many days of chat history to import when the
+device is linked or relinked (0 = off). `POST /api/v1/sessions` accepts it (omitted =
+`HISTORY_SYNC_DEFAULT_DAYS`, default 30); `PATCH /api/v1/sessions/{session}` changes it
+(`manage`). Values above `HISTORY_SYNC_MAX_DAYS` (default 365) are `validation_error`.
+A change updates `wa_sessions.history_sync_days` and advances the assigned gateway's
+desired revision in one transaction (`GatewayAssignmentRepo.UpdateHistorySyncDays`), so
+the new window reaches the gateway in its next desired-state snapshot; it applies at the
+next link and never re-imports history for an already linked device. The API also caps
+the streamed value at the current `HISTORY_SYNC_MAX_DAYS`, so lowering the cap needs no
+row rewrite.
+
+`GET /api/v1/sessions/{session}/history-sync` (`read`) returns `HistorySyncStatus`:
+the effective `historySyncDays`, `accountJid` (`wa_sessions.data_account_jid`),
+`accountChanged` / `accountChangedAt` (a relink attached a different phone number;
+stored data now mixes both and nothing is purged), and `run`, the most recently started
+`history_sync_runs` row or absent when no history has arrived. `run.stalled` is computed
+at read time: `status = running` and no update for 10 minutes. Gateway counters
+(`chunks`, `batches`, `messages`, …) sit beside the API's own results
+(`batchesApplied`, `messagesImported`, `messagesExisting`, `messagesDropped`).
+
+Stored messages expose `origin` (`live` / `history` / `backup`), set once on insert.
+Public gRPC mirrors the read fields (`Session.history_sync_days`,
+`StoredMessage.origin`) and `CreateSessionRequest.history_sync_days`; the PATCH and the
+status read are REST-only for now.
+
 ## Live-ops boundary (the key design point)
 
 Operations that must hit a connected `*whatsmeow.Client` (group management,

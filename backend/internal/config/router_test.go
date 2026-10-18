@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/base64"
+	"strings"
 	"testing"
 	"time"
 )
@@ -230,5 +231,28 @@ func TestLoadAPI_RetentionDays(t *testing.T) {
 	}
 	if err := cfg.Validate(); err == nil || err.Error() != "config: RETENTION_DAYS must not be negative" {
 		t.Fatalf("negative retention error = %v", err)
+	}
+}
+
+// History sync defaults: 30 days for new sessions, capped at 365; a default
+// above the cap or a negative value is refused at boot.
+func TestLoadAPI_HistorySyncDays(t *testing.T) {
+	cfg, err := LoadAPI()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.HistorySyncDefaultDays != 30 || cfg.HistorySyncMaxDays != 365 {
+		t.Fatalf("defaults = %d/%d, want 30/365", cfg.HistorySyncDefaultDays, cfg.HistorySyncMaxDays)
+	}
+	for _, tc := range []struct{ def, max string }{{"400", "365"}, {"-1", "365"}, {"0", "70000"}} {
+		t.Setenv("HISTORY_SYNC_DEFAULT_DAYS", tc.def)
+		t.Setenv("HISTORY_SYNC_MAX_DAYS", tc.max)
+		cfg, err := LoadAPI()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "HISTORY_SYNC") {
+			t.Fatalf("%+v accepted: %v", tc, err)
+		}
 	}
 }

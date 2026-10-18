@@ -166,7 +166,7 @@ LIMIT 1;
 
 -- name: ListGatewayDesiredStateAssignments :many
 SELECT a.session_id, s.organization_id, s.wa_jid, s.status, a.assignment_epoch,
-       s.auto_read, s.presence_typing, s.rate_per_min, s.rate_per_hour
+       s.auto_read, s.presence_typing, s.rate_per_min, s.rate_per_hour, s.history_sync_days
 FROM gateway_session_assignments AS a
 JOIN wa_sessions AS s ON s.id = a.session_id
 JOIN gateways AS g ON g.id = a.gateway_id

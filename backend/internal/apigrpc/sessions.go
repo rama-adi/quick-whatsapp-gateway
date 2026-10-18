@@ -57,6 +57,10 @@ func (s *Sessions) CreateSession(
 			AutoRead:       req.AutoRead,
 			PresenceTyping: req.PresenceTyping,
 		}
+		if req.HistorySyncDays != nil {
+			days := int(req.GetHistorySyncDays())
+			in.HistorySyncDays = &days
+		}
 	}
 	sess, err := s.Sessions.Create(ctx, org, in)
 	if err != nil {
@@ -262,6 +266,7 @@ func sessionToProto(s domain.WASession) *publicv1.Session {
 		LastConnectedAtUnixMs: s.LastConnectedAt,
 		CreatedAtUnixMs:       s.CreatedAt,
 		UpdatedAtUnixMs:       s.UpdatedAt,
+		HistorySyncDays:       int32(min(s.HistorySyncDays, 65535)), //nolint:gosec // bounded by the column range
 	}
 }
 

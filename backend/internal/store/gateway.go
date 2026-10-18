@@ -466,6 +466,7 @@ func (r *GatewayRepo) DesiredStateForEpoch(
 			PresenceTyping:  row.PresenceTyping,
 			RatePerMin:      uint32(row.RatePerMin),
 			RatePerHour:     uint32(row.RatePerHour),
+			HistorySyncDays: uint32(row.HistorySyncDays),
 			DesiredRun:      desiredRun,
 			LeaseExpiresAt:  leaseExpiresAt,
 		})

@@ -153,6 +153,10 @@ message SessionConfig {
   uint32 rate_per_min = 4;
   uint32 rate_per_hour = 5;
   reserved 6 to 15;
+  // Days of chat history to import when the device is (re)linked; 0 = off.
+  // Already capped by the API at HISTORY_SYNC_MAX_DAYS. Numbered after the
+  // reserved range: releasing a reserved number is a buf FILE breaking change.
+  uint32 history_sync_days = 16;
 }
 
 message ControlWelcome {

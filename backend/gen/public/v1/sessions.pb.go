@@ -27,8 +27,11 @@ type CreateSessionRequest struct {
 	Start          bool                   `protobuf:"varint,2,opt,name=start,proto3" json:"start,omitempty"`
 	AutoRead       *bool                  `protobuf:"varint,3,opt,name=auto_read,json=autoRead,proto3,oneof" json:"auto_read,omitempty"`
 	PresenceTyping *bool                  `protobuf:"varint,4,opt,name=presence_typing,json=presenceTyping,proto3,oneof" json:"presence_typing,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Days of chat history to import when the phone is linked (0 = off);
+	// omitted = deployment default.
+	HistorySyncDays *int32 `protobuf:"varint,5,opt,name=history_sync_days,json=historySyncDays,proto3,oneof" json:"history_sync_days,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *CreateSessionRequest) Reset() {
@@ -87,6 +90,13 @@ func (x *CreateSessionRequest) GetPresenceTyping() bool {
 		return *x.PresenceTyping
 	}
 	return false
+}
+
+func (x *CreateSessionRequest) GetHistorySyncDays() int32 {
+	if x != nil && x.HistorySyncDays != nil {
+		return *x.HistorySyncDays
+	}
+	return 0
 }
 
 type CreateSessionResponse struct {
@@ -1019,16 +1029,18 @@ var File_v1_sessions_proto protoreflect.FileDescriptor
 
 const file_v1_sessions_proto_rawDesc = "" +
 	"\n" +
-	"\x11v1/sessions.proto\x12\tpublic.v1\x1a\x12v1/resources.proto\"\xc3\x01\n" +
+	"\x11v1/sessions.proto\x12\tpublic.v1\x1a\x12v1/resources.proto\"\x8a\x02\n" +
 	"\x14CreateSessionRequest\x12\x19\n" +
 	"\x05label\x18\x01 \x01(\tH\x00R\x05label\x88\x01\x01\x12\x14\n" +
 	"\x05start\x18\x02 \x01(\bR\x05start\x12 \n" +
 	"\tauto_read\x18\x03 \x01(\bH\x01R\bautoRead\x88\x01\x01\x12,\n" +
-	"\x0fpresence_typing\x18\x04 \x01(\bH\x02R\x0epresenceTyping\x88\x01\x01B\b\n" +
+	"\x0fpresence_typing\x18\x04 \x01(\bH\x02R\x0epresenceTyping\x88\x01\x01\x12/\n" +
+	"\x11history_sync_days\x18\x05 \x01(\x05H\x03R\x0fhistorySyncDays\x88\x01\x01B\b\n" +
 	"\x06_labelB\f\n" +
 	"\n" +
 	"_auto_readB\x12\n" +
-	"\x10_presence_typing\"E\n" +
+	"\x10_presence_typingB\x14\n" +
+	"\x12_history_sync_days\"E\n" +
 	"\x15CreateSessionResponse\x12,\n" +
 	"\asession\x18\x01 \x01(\v2\x12.public.v1.SessionR\asession\"\x15\n" +
 	"\x13ListSessionsRequest\"g\n" +

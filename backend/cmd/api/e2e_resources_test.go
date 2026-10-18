@@ -587,6 +587,22 @@ func e2eSessionLifecycle(t *testing.T, infra *e2eInfra) {
 		nil, nil, nil), http.StatusNotFound)
 	e2eRequireStatus(t, infra.request(t, http.MethodGet, itemPath+"/me", e2eOrgAKey,
 		nil, nil, nil), http.StatusNotFound)
+	var updated domain.WASession
+	e2eRequireStatus(t, infra.request(t, http.MethodPatch, itemPath, e2eOrgAKey,
+		map[string]any{"historySyncDays": 7}, &updated, nil), http.StatusOK)
+	if updated.HistorySyncDays != 7 {
+		t.Fatalf("updated session = %#v", updated)
+	}
+	e2eRequireStatus(t, infra.request(t, http.MethodPatch, itemPath, e2eOrgAKey,
+		map[string]any{"historySyncDays": 100000}, nil, nil), http.StatusBadRequest)
+	var historyStatus domain.HistorySyncStatus
+	e2eRequireStatus(t, infra.request(t, http.MethodGet, itemPath+"/history-sync", e2eOrgAKey,
+		nil, &historyStatus, nil), http.StatusOK)
+	if historyStatus.HistorySyncDays != 7 || historyStatus.Run != nil {
+		t.Fatalf("history sync status = %#v", historyStatus)
+	}
+	e2eRequireStatus(t, infra.request(t, http.MethodGet, itemPath+"/history-sync", e2eOrgBKey,
+		nil, nil, nil), http.StatusNotFound)
 	var qrSession domain.WASession
 	e2eRequireStatus(t, infra.request(t, http.MethodPost, path, e2eOrgAKey,
 		map[string]any{"label": "E2E QR pairing", "start": false}, &qrSession, nil), http.StatusCreated)

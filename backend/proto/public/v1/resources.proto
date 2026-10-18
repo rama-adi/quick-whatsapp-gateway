@@ -66,6 +66,8 @@ message Session {
   optional int64 last_connected_at_unix_ms = 15;
   int64 created_at_unix_ms = 16;
   int64 updated_at_unix_ms = 17;
+  // Days of chat history imported when the device is (re)linked; 0 = off.
+  int32 history_sync_days = 18;
 }
 
 // Me is the attached WhatsApp identity of a paired session
@@ -172,6 +174,8 @@ message StoredMessage {
   bool deleted = 21;
   int64 timestamp_unix_ms = 22;
   int64 created_at_unix_ms = 23;
+  // Where this stored copy came from: live, history, or backup.
+  string origin = 24;
 }
 
 // Page is the cursor-paginated list envelope ({"data":[...],"nextCursor"}).

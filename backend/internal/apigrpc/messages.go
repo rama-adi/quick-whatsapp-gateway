@@ -454,6 +454,7 @@ func messageToProto(m domain.Message) *publicv1.StoredMessage {
 		TimestampUnixMs: m.Timestamp,
 		CreatedAtUnixMs: m.CreatedAt,
 		MentionNames:    m.MentionNames,
+		Origin:          string(m.Origin),
 	}
 	for _, mention := range m.Mentions {
 		msg.Mentions = append(msg.Mentions, string(mention))

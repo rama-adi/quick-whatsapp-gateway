@@ -51,6 +51,8 @@ type APIConfig struct {
 	WebhookRetryDelay       int    // WEBHOOK_RETRIES_DELAY (seconds): seeds new webhooks' retry policy
 	WebhookRetryAttempts    int    // WEBHOOK_RETRIES_ATTEMPTS: seeds new webhooks' retry policy
 	RetentionDays           int    // RETENTION_DAYS: history retention policy in days; 0 keeps forever
+	HistorySyncDefaultDays  int    // HISTORY_SYNC_DEFAULT_DAYS: history import window for new sessions; 0 = off
+	HistorySyncMaxDays      int    // HISTORY_SYNC_MAX_DAYS: cap on any session's history import window
 	WhatsAppAdminCmdPrefix  string // WHATSAPP_ADMIN_CMD_PREFIX: reserved command namespace prefix
 	WebLoginURL             string // WEB_LOGIN_URL: public consent page URL
 	OIDCRequestTTLSeconds   int    // OIDC_REQUEST_TTL_SECONDS
@@ -91,6 +93,8 @@ func LoadAPI() (*APIConfig, error) {
 		WebhookRetryDelay:          getInt("WEBHOOK_RETRIES_DELAY", 2),
 		WebhookRetryAttempts:       getInt("WEBHOOK_RETRIES_ATTEMPTS", 5),
 		RetentionDays:              getInt("RETENTION_DAYS", 0),
+		HistorySyncDefaultDays:     getInt("HISTORY_SYNC_DEFAULT_DAYS", 30),
+		HistorySyncMaxDays:         getInt("HISTORY_SYNC_MAX_DAYS", 365),
 		WhatsAppAdminCmdPrefix:     getString("WHATSAPP_ADMIN_CMD_PREFIX", "am"),
 		WebLoginURL:                getString("WEB_LOGIN_URL", ""),
 		OIDCRequestTTLSeconds:      getInt("OIDC_REQUEST_TTL_SECONDS", 600),
@@ -154,6 +158,15 @@ func (c *APIConfig) Validate() error {
 	}
 	if c.RetentionDays < 0 {
 		return fmt.Errorf("config: RETENTION_DAYS must not be negative")
+	}
+	if c.HistorySyncDefaultDays < 0 || c.HistorySyncMaxDays < 0 {
+		return fmt.Errorf("config: HISTORY_SYNC_DEFAULT_DAYS and HISTORY_SYNC_MAX_DAYS must not be negative")
+	}
+	if c.HistorySyncMaxDays > 65535 {
+		return fmt.Errorf("config: HISTORY_SYNC_MAX_DAYS must be at most 65535")
+	}
+	if c.HistorySyncDefaultDays > c.HistorySyncMaxDays {
+		return fmt.Errorf("config: HISTORY_SYNC_DEFAULT_DAYS must not exceed HISTORY_SYNC_MAX_DAYS")
 	}
 	if c.PublicGRPCAddr == "" {
 		return fmt.Errorf("config: API_PUBLIC_GRPC_ADDR must not be empty")

@@ -2,8 +2,8 @@
 INSERT INTO wa_sessions
 (id, organization_id, created_by_user_id, gateway_id, label, status, wa_jid, wa_lid,
  phone_number, is_admin_session, auto_read, presence_typing, rate_per_min, rate_per_hour,
- last_connected_at, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+ last_connected_at, created_at, updated_at, history_sync_days)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: GetSession :one
 SELECT id, organization_id, created_by_user_id, gateway_id, label, status,

@@ -137,7 +137,8 @@ QR reads never return a code after its expiry.
 After authenticated connection, the API emits a complete revisioned assignment snapshot, and emits
 a fresh snapshot after every durably persisted heartbeat to renew leases. Each assignment includes
 the organization ID, nonzero durable `assignment_epoch`, absolute lease expiry, and the session's
-auto-read, typing, and rate settings. The gateway acknowledges the applied snapshot revision; the
+auto-read, typing, rate, and history-import (`HistorySyncDays`, carried in
+`desiredstate.Config`) settings. The gateway acknowledges the applied snapshot revision; the
 API persists that acknowledgement only for the still-current connection epoch and desired revision.
 Reconciliation stops unassigned or expired sessions and carries the epoch on all commands and events.
 Stopped assignments retain ownership of pairing and lifecycle events, so a phone-code or QR

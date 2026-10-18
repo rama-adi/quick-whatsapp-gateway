@@ -29,6 +29,9 @@ message CreateSessionRequest {
   bool start = 2;
   optional bool auto_read = 3;
   optional bool presence_typing = 4;
+  // Days of chat history to import when the phone is linked (0 = off);
+  // omitted = deployment default.
+  optional int32 history_sync_days = 5;
 }
 
 message CreateSessionResponse {

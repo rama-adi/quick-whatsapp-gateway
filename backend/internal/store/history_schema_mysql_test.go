@@ -103,3 +103,37 @@ func TestMessageOriginMySQL(t *testing.T) {
 		}
 	}
 }
+
+// TestHistorySyncDaysMySQL stores the window at creation, changes it with a
+// gateway desired-revision bump, and carries it in the desired-state rows.
+func TestHistorySyncDaysMySQL(t *testing.T) {
+	db := lifecycleTestDB(t)
+	ctx := context.Background()
+	gatewayID, session := lifecycleFixture(t, db)
+	session.HistorySyncDays = 45
+	assignments := NewGatewayAssignmentRepo(db)
+	if err := assignments.CreateSession(ctx, session); err != nil {
+		t.Fatal(err)
+	}
+	got, err := NewSessionRepo(db).Get(ctx, session.ID)
+	if err != nil || got.HistorySyncDays != 45 {
+		t.Fatalf("created days = %d err=%v", got.HistorySyncDays, err)
+	}
+	var before, after uint64
+	if err := db.QueryRow(`SELECT desired_revision FROM gateways WHERE id=?`, gatewayID).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	if err := assignments.UpdateHistorySyncDays(ctx, session.ID, 90, 77); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT desired_revision FROM gateways WHERE id=?`, gatewayID).Scan(&after); err != nil {
+		t.Fatal(err)
+	}
+	got, err = NewSessionRepo(db).Get(ctx, session.ID)
+	if err != nil || got.HistorySyncDays != 90 || got.UpdatedAt != 77 || after != before+1 {
+		t.Fatalf("updated days=%d updatedAt=%d revision %d->%d err=%v", got.HistorySyncDays, got.UpdatedAt, before, after, err)
+	}
+	if err := assignments.UpdateHistorySyncDays(ctx, session.ID, -1, 78); err == nil {
+		t.Fatal("negative window accepted")
+	}
+}

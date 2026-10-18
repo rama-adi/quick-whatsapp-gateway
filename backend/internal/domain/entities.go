@@ -77,8 +77,13 @@ type WASession struct {
 	RatePerMin      int           `json:"ratePerMin" doc:"Outbound send rate limit for this session, in messages per minute. Sends exceeding the limit are throttled." example:"20"`
 	RatePerHour     int           `json:"ratePerHour" doc:"Outbound send rate limit for this session, in messages per hour. Sends exceeding the limit are throttled." example:"600"`
 	LastConnectedAt *int64        `json:"lastConnectedAt,omitempty" doc:"When the session last established a live WhatsApp connection, in epoch milliseconds (UTC). Optional; null if it has never connected." example:"1719662400000"`
-	CreatedAt       int64         `json:"createdAt" doc:"When the session was created, in epoch milliseconds (UTC)." example:"1719662400000"`
-	UpdatedAt       int64         `json:"updatedAt" doc:"When the session was last updated, in epoch milliseconds (UTC)." example:"1719662400000"`
+	HistorySyncDays int           `json:"historySyncDays" minimum:"0" doc:"How many days of chat history to import when the device is linked or relinked. The phone sends the history it still has; messages older than this are skipped. 0 turns the import off. Takes effect at the next link." example:"30"`
+	// DataAccountJID / AccountChangedAt back relink detection (GET
+	// /sessions/{session}/history-sync); they are not part of the session DTO.
+	DataAccountJID   *string `json:"-"`
+	AccountChangedAt *int64  `json:"-"`
+	CreatedAt        int64   `json:"createdAt" doc:"When the session was created, in epoch milliseconds (UTC)." example:"1719662400000"`
+	UpdatedAt        int64   `json:"updatedAt" doc:"When the session was last updated, in epoch milliseconds (UTC)." example:"1719662400000"`
 }
 
 // PresenceStatus is the snapshot returned by the live presence lookup endpoint.
@@ -379,11 +384,19 @@ type HistorySyncRun struct {
 	MessagesExisting int     `json:"messagesExisting" doc:"Messages that were already stored (for example received live) and were left unchanged." example:"110"`
 	MessagesDropped  int     `json:"messagesDropped" doc:"Messages not stored because they are older than the deployment's retention period or lack an id." example:"20"`
 	Error            *string `json:"error,omitempty" doc:"Why the run failed. Optional; only set when status is failed." example:"history blob expired on WhatsApp servers"`
-	AccountChanged   bool    `json:"accountChanged" doc:"True when this session was relinked to a different phone number than the one its stored chats came from. Older chats and messages stay and belong to the previous number." example:"false"`
-	AccountChangedAt *int64  `json:"accountChangedAt,omitempty" doc:"When the relink to a different number was detected, in epoch milliseconds. Optional; null when the number never changed." example:"1719662400000"`
 	StartedAt        int64   `json:"startedAt" doc:"When the run started, in epoch milliseconds." example:"1719662400000"`
 	UpdatedAt        int64   `json:"updatedAt" doc:"When the run last changed, in epoch milliseconds." example:"1719662460000"`
 	FinishedAt       *int64  `json:"finishedAt,omitempty" doc:"When the run completed or failed, in epoch milliseconds. Optional; null while running." example:"1719662700000"`
+}
+
+// HistorySyncStatus is the response of GET /sessions/{session}/history-sync:
+// the session's import setting, relink detection, and its latest import run.
+type HistorySyncStatus struct {
+	HistorySyncDays  int             `json:"historySyncDays" minimum:"0" doc:"Days of history the session imports at its next link or relink (0 = off), after the deployment cap." example:"30"`
+	AccountJID       *string         `json:"accountJid,omitempty" doc:"Phone JID of the WhatsApp account the session's stored chats belong to. Kept after logout. Optional; null before the first link." example:"6281234567890@s.whatsapp.net"`
+	AccountChanged   bool            `json:"accountChanged" doc:"True when the session was relinked to a different phone number than an earlier link. Chats and messages from the earlier number are kept, so stored data now mixes both numbers." example:"false"`
+	AccountChangedAt *int64          `json:"accountChangedAt,omitempty" doc:"When the relink to a different number happened, in epoch milliseconds. Optional; null when the number never changed." example:"1719662400000"`
+	Run              *HistorySyncRun `json:"run,omitempty" doc:"The most recently started import run. Optional; null when the phone has not sent any history yet (for example before the first link, or when the import is off)."`
 }
 
 // BackfillSnapshot is the supported data pulled from a live WhatsApp session by
