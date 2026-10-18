@@ -117,9 +117,18 @@ the work Redis. API processes subscribe and revoke cached authorization and live
   roles), all WhatsApp sessions across **all orgs** (each showing its gateway), admin-number
   pairing code, event monitor.
 - **User** (`_app/user/*`, toggleable) — the active org is chosen with the **org switcher** in the
-  app top bar (`components/shell/org-switcher.tsx`); that org's sessions (create/start/stop/QR/
-  pairing, each tagged with its gateway); API keys (`keys.tsx`), webhooks (`webhooks.tsx`), viewer.
-  Members & invitations UI is the R6 fast-follow.
+  app top bar (`components/shell/org-switcher.tsx`, which can also create an org); that org's
+  sessions (create/start/stop/QR/pairing, each tagged with its gateway); API keys (`keys.tsx`),
+  webhooks (`webhooks.tsx`), attachment storage, Sign in with WhatsApp apps, chats. Members &
+  invitations UI is the R6 fast-follow.
+- **Home** (`_app/user/home.tsx`) — the landing page for anyone with the user panel
+  (`landingPath()` in `lib/auth/session.ts`; admin-only accounts land on `/admin/sessions`). A
+  per-org dismissible get-started checklist (connected session, API key, first send via
+  `hasSentMessage`, webhook) above a range-switched (`?range=24h|7d|14d|30d`) metrics grid fed by
+  `GET /api/v1/overview` with the browser's IANA zone, plus a Sessions tile from `GET /sessions`.
+  Against an API without `/overview` (404) the grid degrades to a note; the rest still renders.
+- **Account** (`_app/account.tsx`) — profile name, password change, and better-auth two-factor
+  setup (QR + one-time backup codes); read-only while impersonating.
 - **Webhook editor boundary** — `user/webhooks.tsx` owns collection loading and row actions;
   `user/-webhook-editor.tsx` owns form state, request projection, validation, and field rendering.
   Header validation rejects duplicate names and gateway-controlled integrity headers before a
@@ -132,8 +141,10 @@ the work Redis. API processes subscribe and revoke cached authorization and live
   invalidates session rows so the newly persisted JID appears immediately after PairSuccess.
   Shared lifecycle controls disable logout for unpaired sessions and confirm before unlinking a
   paired device; list and detail views use the same labels, pending state, and destructive styling.
-- **Viewer** (read-only) — chats + message timeline; stored attachments provide download links after `media.ready`.
-- **Contacts** — searchable found-users list; drill into DM + groups.
+- **Chats** — chat list + message timeline with a composer (text, poll, location, contact card);
+  one pane at a time below `md`. Stored attachments render inline or as downloads after
+  `media.ready`.
+- **Contacts** — searchable contacts list; drill into DM + groups.
 
 ## App shell
 

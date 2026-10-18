@@ -19,7 +19,6 @@ import { Route as AuthRegisterRouteImport } from './routes/_auth/register'
 import { Route as AuthLoginRouteImport } from './routes/_auth/login'
 import { Route as Auth2faRouteImport } from './routes/_auth/2fa'
 import { Route as AppUserRouteImport } from './routes/_app/user'
-import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
 import { Route as AppAccountRouteImport } from './routes/_app/account'
 import { Route as AppAdminRouteRouteImport } from './routes/_app/admin/route'
 import { Route as AppAdminIndexRouteImport } from './routes/_app/admin/index'
@@ -29,6 +28,7 @@ import { Route as AppUserStorageRouteImport } from './routes/_app/user/storage'
 import { Route as AppUserSessionsRouteImport } from './routes/_app/user/sessions'
 import { Route as AppUserOauthAppsRouteImport } from './routes/_app/user/oauth-apps'
 import { Route as AppUserKeysRouteImport } from './routes/_app/user/keys'
+import { Route as AppUserHomeRouteImport } from './routes/_app/user/home'
 import { Route as AppAdminTenantsRouteImport } from './routes/_app/admin/tenants'
 import { Route as AppAdminSessionsRouteImport } from './routes/_app/admin/sessions'
 import { Route as AppAdminPairingRouteImport } from './routes/_app/admin/pairing'
@@ -95,11 +95,6 @@ const AppUserRoute = AppUserRouteImport.update({
   path: '/user',
   getParentRoute: () => AppRoute,
 } as any)
-const AppDashboardRoute = AppDashboardRouteImport.update({
-  id: '/dashboard',
-  path: '/dashboard',
-  getParentRoute: () => AppRoute,
-} as any)
 const AppAccountRoute = AppAccountRouteImport.update({
   id: '/account',
   path: '/account',
@@ -143,6 +138,11 @@ const AppUserOauthAppsRoute = AppUserOauthAppsRouteImport.update({
 const AppUserKeysRoute = AppUserKeysRouteImport.update({
   id: '/keys',
   path: '/keys',
+  getParentRoute: () => AppUserRoute,
+} as any)
+const AppUserHomeRoute = AppUserHomeRouteImport.update({
+  id: '/home',
+  path: '/home',
   getParentRoute: () => AppUserRoute,
 } as any)
 const AppAdminTenantsRoute = AppAdminTenantsRouteImport.update({
@@ -243,7 +243,6 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AppAdminRouteRouteWithChildren
   '/account': typeof AppAccountRoute
-  '/dashboard': typeof AppDashboardRoute
   '/user': typeof AppUserRouteWithChildren
   '/2fa': typeof Auth2faRoute
   '/login': typeof AuthLoginRoute
@@ -255,6 +254,7 @@ export interface FileRoutesByFullPath {
   '/admin/pairing': typeof AppAdminPairingRoute
   '/admin/sessions': typeof AppAdminSessionsRoute
   '/admin/tenants': typeof AppAdminTenantsRoute
+  '/user/home': typeof AppUserHomeRoute
   '/user/keys': typeof AppUserKeysRoute
   '/user/oauth-apps': typeof AppUserOauthAppsRouteWithChildren
   '/user/sessions': typeof AppUserSessionsRouteWithChildren
@@ -279,7 +279,6 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/account': typeof AppAccountRoute
-  '/dashboard': typeof AppDashboardRoute
   '/user': typeof AppUserRouteWithChildren
   '/2fa': typeof Auth2faRoute
   '/login': typeof AuthLoginRoute
@@ -291,6 +290,7 @@ export interface FileRoutesByTo {
   '/admin/pairing': typeof AppAdminPairingRoute
   '/admin/sessions': typeof AppAdminSessionsRoute
   '/admin/tenants': typeof AppAdminTenantsRoute
+  '/user/home': typeof AppUserHomeRoute
   '/user/keys': typeof AppUserKeysRoute
   '/user/storage': typeof AppUserStorageRoute
   '/user/webhooks': typeof AppUserWebhooksRoute
@@ -315,7 +315,6 @@ export interface FileRoutesById {
   '/_auth': typeof AuthRouteWithChildren
   '/_app/admin': typeof AppAdminRouteRouteWithChildren
   '/_app/account': typeof AppAccountRoute
-  '/_app/dashboard': typeof AppDashboardRoute
   '/_app/user': typeof AppUserRouteWithChildren
   '/_auth/2fa': typeof Auth2faRoute
   '/_auth/login': typeof AuthLoginRoute
@@ -327,6 +326,7 @@ export interface FileRoutesById {
   '/_app/admin/pairing': typeof AppAdminPairingRoute
   '/_app/admin/sessions': typeof AppAdminSessionsRoute
   '/_app/admin/tenants': typeof AppAdminTenantsRoute
+  '/_app/user/home': typeof AppUserHomeRoute
   '/_app/user/keys': typeof AppUserKeysRoute
   '/_app/user/oauth-apps': typeof AppUserOauthAppsRouteWithChildren
   '/_app/user/sessions': typeof AppUserSessionsRouteWithChildren
@@ -354,7 +354,6 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/account'
-    | '/dashboard'
     | '/user'
     | '/2fa'
     | '/login'
@@ -366,6 +365,7 @@ export interface FileRouteTypes {
     | '/admin/pairing'
     | '/admin/sessions'
     | '/admin/tenants'
+    | '/user/home'
     | '/user/keys'
     | '/user/oauth-apps'
     | '/user/sessions'
@@ -390,7 +390,6 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/account'
-    | '/dashboard'
     | '/user'
     | '/2fa'
     | '/login'
@@ -402,6 +401,7 @@ export interface FileRouteTypes {
     | '/admin/pairing'
     | '/admin/sessions'
     | '/admin/tenants'
+    | '/user/home'
     | '/user/keys'
     | '/user/storage'
     | '/user/webhooks'
@@ -425,7 +425,6 @@ export interface FileRouteTypes {
     | '/_auth'
     | '/_app/admin'
     | '/_app/account'
-    | '/_app/dashboard'
     | '/_app/user'
     | '/_auth/2fa'
     | '/_auth/login'
@@ -437,6 +436,7 @@ export interface FileRouteTypes {
     | '/_app/admin/pairing'
     | '/_app/admin/sessions'
     | '/_app/admin/tenants'
+    | '/_app/user/home'
     | '/_app/user/keys'
     | '/_app/user/oauth-apps'
     | '/_app/user/sessions'
@@ -541,13 +541,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppUserRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/dashboard': {
-      id: '/_app/dashboard'
-      path: '/dashboard'
-      fullPath: '/dashboard'
-      preLoaderRoute: typeof AppDashboardRouteImport
-      parentRoute: typeof AppRoute
-    }
     '/_app/account': {
       id: '/_app/account'
       path: '/account'
@@ -609,6 +602,13 @@ declare module '@tanstack/react-router' {
       path: '/keys'
       fullPath: '/user/keys'
       preLoaderRoute: typeof AppUserKeysRouteImport
+      parentRoute: typeof AppUserRoute
+    }
+    '/_app/user/home': {
+      id: '/_app/user/home'
+      path: '/home'
+      fullPath: '/user/home'
+      preLoaderRoute: typeof AppUserHomeRouteImport
       parentRoute: typeof AppUserRoute
     }
     '/_app/admin/tenants': {
@@ -840,6 +840,7 @@ const AppUserSessionsRouteWithChildren = AppUserSessionsRoute._addFileChildren(
 )
 
 interface AppUserRouteChildren {
+  AppUserHomeRoute: typeof AppUserHomeRoute
   AppUserKeysRoute: typeof AppUserKeysRoute
   AppUserOauthAppsRoute: typeof AppUserOauthAppsRouteWithChildren
   AppUserSessionsRoute: typeof AppUserSessionsRouteWithChildren
@@ -848,6 +849,7 @@ interface AppUserRouteChildren {
 }
 
 const AppUserRouteChildren: AppUserRouteChildren = {
+  AppUserHomeRoute: AppUserHomeRoute,
   AppUserKeysRoute: AppUserKeysRoute,
   AppUserOauthAppsRoute: AppUserOauthAppsRouteWithChildren,
   AppUserSessionsRoute: AppUserSessionsRouteWithChildren,
@@ -861,14 +863,12 @@ const AppUserRouteWithChildren =
 interface AppRouteChildren {
   AppAdminRouteRoute: typeof AppAdminRouteRouteWithChildren
   AppAccountRoute: typeof AppAccountRoute
-  AppDashboardRoute: typeof AppDashboardRoute
   AppUserRoute: typeof AppUserRouteWithChildren
 }
 
 const AppRouteChildren: AppRouteChildren = {
   AppAdminRouteRoute: AppAdminRouteRouteWithChildren,
   AppAccountRoute: AppAccountRoute,
-  AppDashboardRoute: AppDashboardRoute,
   AppUserRoute: AppUserRouteWithChildren,
 }
 

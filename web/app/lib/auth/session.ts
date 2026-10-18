@@ -118,3 +118,15 @@ export function requireRole(s: AppSession, role: AppRole): void {
 export function hasRole(s: AppSession, role: AppRole): boolean {
   return s.user.roles.includes(role);
 }
+
+/**
+ * Where a signed-in user lands (after login, and when opening "/"). Anyone
+ * with the user panel starts on the workspace Home; an account without it but
+ * with platform admin rights starts on the admin sessions list. Returns null
+ * when the account has no usable surface.
+ */
+export function landingPath(s: AppSession): "/user/home" | "/admin/sessions" | null {
+  if (s.userPanelEnabled && s.user.roles.includes("user")) return "/user/home";
+  if (s.user.roles.includes("super_admin")) return "/admin/sessions";
+  return null;
+}

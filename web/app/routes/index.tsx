@@ -1,17 +1,17 @@
-// Home / landing — the role-routed entry point (§12).
+// Root entry point: the role-routed landing (§12).
 //
 // Resolved SERVER-SIDE in beforeLoad: read the better-auth session via
-// getServerSession and bounce to the role landing route:
-//   - unauthenticated        -> /login
-//   - super_admin            -> /admin/sessions
-//   - user (panel enabled)   -> /user/sessions
+// getServerSession and bounce to the landing route (landingPath):
+//   - unauthenticated              -> /login
+//   - user panel (incl. admins)    -> /user/home
+//   - admin without the user panel -> /admin/sessions
 // The redirect target is a fully-built runtime string, so we use the
 // `redirect({ href })` escape hatch (the same pattern the auth surface uses)
 // rather than a typed `to`, keeping "/" independent of the sibling surfaces'
 // route types.
 
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { getServerSession } from "~/lib/auth/session";
+import { getServerSession, landingPath } from "~/lib/auth/session";
 
 export const Route = createFileRoute("/")({
   beforeLoad: async () => {
@@ -19,11 +19,9 @@ export const Route = createFileRoute("/")({
     if (!session) {
       throw redirect({ href: "/login" });
     }
-    if (session.user.roles.includes("super_admin")) {
-      throw redirect({ href: "/admin/sessions" });
-    }
-    if (session.userPanelEnabled && session.user.roles.includes("user")) {
-      throw redirect({ href: "/user/sessions" });
+    const landing = landingPath(session);
+    if (landing) {
+      throw redirect({ href: landing });
     }
     // Authenticated but no usable surface (e.g. user panel disabled and not an
     // admin) — fall through to the minimal shell below.

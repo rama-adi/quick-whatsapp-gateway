@@ -14,6 +14,7 @@ import {
   Contact,
   Fingerprint,
   HardDrive,
+  House,
   KeyRound,
   Layers,
   LayoutDashboard,
@@ -40,8 +41,9 @@ const isUserPanel = (s: AppSession) =>
   s.userPanelEnabled && s.user.roles.includes("user");
 
 // Labels are the page names: each page's <PageTitle> and route head() title
-// use the same string. Workspace order follows the setup flow (connect a
-// number → get a key → receive events → store media → advanced sign-in).
+// use the same string. Workspace opens with Home (activity + get-started
+// checklist), then follows the setup flow (connect a number → get a key →
+// receive events → store media → advanced sign-in).
 // Every item has a distinct icon so the collapsed icon rail stays readable.
 export const NAV: NavItem[] = [
   { to: "/admin/sessions", label: "All sessions", icon: Layers, group: "Admin", show: isAdmin },
@@ -49,6 +51,7 @@ export const NAV: NavItem[] = [
   { to: "/admin/tenants", label: "Users & orgs", icon: Users, group: "Admin", show: isAdmin },
   { to: "/admin/monitor", label: "Event monitor", icon: Activity, group: "Admin", show: isAdmin },
   { to: "/admin/pairing", label: "Number pairing", icon: QrCode, group: "Admin", show: isAdmin },
+  { to: "/user/home", label: "Home", icon: House, group: "Workspace", show: isUserPanel },
   { to: "/user/sessions", label: "Sessions", icon: Smartphone, group: "Workspace", show: isUserPanel },
   { to: "/user/keys", label: "API keys", icon: KeyRound, group: "Workspace", show: isUserPanel },
   { to: "/user/webhooks", label: "Webhooks", icon: Webhook, group: "Workspace", show: isUserPanel },

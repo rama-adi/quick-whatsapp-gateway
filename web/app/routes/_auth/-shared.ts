@@ -15,11 +15,11 @@
 //     (§12 gate).
 
 import { createServerFn } from "@tanstack/react-start";
-import { getServerSession } from "~/lib/auth/session";
+import { getServerSession, landingPath } from "~/lib/auth/session";
 
 /**
- * Resolve the landing route after a successful authentication, by role (§12 /
- * Stage-3 spec): super_admin -> /admin/sessions, user -> /user/sessions.
+ * Resolve the landing route after a successful authentication, by role (§12):
+ * see landingPath (user panel -> /user/home, admin-only -> /admin/sessions).
  * Runs on the server (reads the better-auth session cookie). Returns "/login"
  * when there is no session yet (caller should stay on the form).
  */
@@ -27,11 +27,7 @@ export const resolvePostAuthRedirect = createServerFn({ method: "GET" }).handler
   async (): Promise<string> => {
     const session = await getServerSession();
     if (!session) return "/login";
-    if (session.user.roles.includes("super_admin")) return "/admin/sessions";
-    if (session.userPanelEnabled && session.user.roles.includes("user")) {
-      return "/user/sessions";
-    }
-    return "/";
+    return landingPath(session) ?? "/";
   },
 );
 

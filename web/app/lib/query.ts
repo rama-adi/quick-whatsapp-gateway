@@ -89,6 +89,9 @@ export const qk = {
 
   presence: (s: string, jid: string) => ["presence", s, jid] as const,
 
+  overview: (p: { range: string; tz: string; session?: string }) =>
+    ["overview", p] as const,
+
   keys: () => ["keys"] as const,
   webhooks: () => ["webhooks"] as const,
 
