@@ -9,91 +9,56 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as AuthRouteImport } from './routes/_auth'
-import { Route as AppRouteImport } from './routes/_app'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as LoginWhatsappRouteImport } from './routes/login.whatsapp'
-import { Route as DocsSplatRouteImport } from './routes/docs/$'
-import { Route as ApiSearchRouteImport } from './routes/api/search'
-import { Route as AuthRegisterRouteImport } from './routes/_auth/register'
-import { Route as AuthLoginRouteImport } from './routes/_auth/login'
-import { Route as Auth2faRouteImport } from './routes/_auth/2fa'
-import { Route as AppUserRouteImport } from './routes/_app/user'
+import { Route as AppRouteImport } from './routes/_app'
+import { Route as AuthRouteImport } from './routes/_auth'
 import { Route as AppAccountRouteImport } from './routes/_app/account'
 import { Route as AppAdminRouteRouteImport } from './routes/_app/admin/route'
+import { Route as AppUserRouteImport } from './routes/_app/user'
+import { Route as Auth2faRouteImport } from './routes/_auth/2fa'
+import { Route as AuthLoginRouteImport } from './routes/_auth/login'
+import { Route as AuthRegisterRouteImport } from './routes/_auth/register'
+import { Route as ApiSearchRouteImport } from './routes/api/search'
+import { Route as DocsSplatRouteImport } from './routes/docs/$'
+import { Route as LoginWhatsappRouteImport } from './routes/login.whatsapp'
 import { Route as AppAdminIndexRouteImport } from './routes/_app/admin/index'
-import { Route as ApiAuthSplatRouteImport } from './routes/api/auth.$'
-import { Route as AppUserWebhooksRouteImport } from './routes/_app/user/webhooks'
-import { Route as AppUserStorageRouteImport } from './routes/_app/user/storage'
-import { Route as AppUserSessionsRouteImport } from './routes/_app/user/sessions'
-import { Route as AppUserOauthAppsRouteImport } from './routes/_app/user/oauth-apps'
-import { Route as AppUserKeysRouteImport } from './routes/_app/user/keys'
-import { Route as AppUserHomeRouteImport } from './routes/_app/user/home'
-import { Route as AppAdminTenantsRouteImport } from './routes/_app/admin/tenants'
-import { Route as AppAdminSessionsRouteImport } from './routes/_app/admin/sessions'
-import { Route as AppAdminPairingRouteImport } from './routes/_app/admin/pairing'
 import { Route as AppAdminMonitorRouteImport } from './routes/_app/admin/monitor'
-import { Route as AppUserSessionsIndexRouteImport } from './routes/_app/user/sessions.index'
-import { Route as AppUserOauthAppsIndexRouteImport } from './routes/_app/user/oauth-apps.index'
+import { Route as AppAdminPairingRouteImport } from './routes/_app/admin/pairing'
+import { Route as AppAdminSessionsRouteImport } from './routes/_app/admin/sessions'
+import { Route as AppAdminTenantsRouteImport } from './routes/_app/admin/tenants'
+import { Route as AppUserHomeRouteImport } from './routes/_app/user/home'
+import { Route as AppUserKeysRouteImport } from './routes/_app/user/keys'
+import { Route as AppUserOauthAppsRouteImport } from './routes/_app/user/oauth-apps'
+import { Route as AppUserSessionsRouteImport } from './routes/_app/user/sessions'
+import { Route as AppUserStorageRouteImport } from './routes/_app/user/storage'
+import { Route as AppUserWebhooksRouteImport } from './routes/_app/user/webhooks'
+import { Route as ApiAuthSplatRouteImport } from './routes/api/auth.$'
 import { Route as AppAdminGatewaysIndexRouteImport } from './routes/_app/admin/gateways.index'
-import { Route as AppUserSessionsSessionIdRouteImport } from './routes/_app/user/sessions.$sessionId'
-import { Route as AppUserOauthAppsNewRouteImport } from './routes/_app/user/oauth-apps.new'
-import { Route as AppUserOauthAppsAppIdRouteImport } from './routes/_app/user/oauth-apps.$appId'
 import { Route as AppAdminGatewaysGatewayIdRouteImport } from './routes/_app/admin/gateways.$gatewayId'
+import { Route as AppUserOauthAppsIndexRouteImport } from './routes/_app/user/oauth-apps.index'
+import { Route as AppUserOauthAppsAppIdRouteImport } from './routes/_app/user/oauth-apps.$appId'
+import { Route as AppUserOauthAppsNewRouteImport } from './routes/_app/user/oauth-apps.new'
+import { Route as AppUserSessionsIndexRouteImport } from './routes/_app/user/sessions.index'
+import { Route as AppUserSessionsSessionIdRouteImport } from './routes/_app/user/sessions.$sessionId'
 import { Route as AppUserSessionsSessionIdIndexRouteImport } from './routes/_app/user/sessions.$sessionId.index'
-import { Route as AppUserSessionsSessionIdContactsRouteImport } from './routes/_app/user.sessions.$sessionId.contacts'
 import { Route as AppUserSessionsSessionIdChatsRouteRouteImport } from './routes/_app/user/sessions/$sessionId/chats/route'
+import { Route as AppUserSessionsSessionIdContactsRouteImport } from './routes/_app/user.sessions.$sessionId.contacts'
 import { Route as AppUserSessionsSessionIdChatsIndexRouteImport } from './routes/_app/user/sessions/$sessionId/chats/index'
-import { Route as AppUserSessionsSessionIdContactsLidRouteImport } from './routes/_app/user.sessions.$sessionId.contacts.$lid'
 import { Route as AppUserSessionsSessionIdChatsChatIdRouteImport } from './routes/_app/user/sessions/$sessionId/chats/$chatId'
+import { Route as AppUserSessionsSessionIdContactsLidRouteImport } from './routes/_app/user.sessions.$sessionId.contacts.$lid'
 
-const AuthRoute = AuthRouteImport.update({
-  id: '/_auth',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppRoute = AppRouteImport.update({
   id: '/_app',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+const AuthRoute = AuthRouteImport.update({
+  id: '/_auth',
   getParentRoute: () => rootRouteImport,
-} as any)
-const LoginWhatsappRoute = LoginWhatsappRouteImport.update({
-  id: '/login/whatsapp',
-  path: '/login/whatsapp',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DocsSplatRoute = DocsSplatRouteImport.update({
-  id: '/docs/$',
-  path: '/docs/$',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiSearchRoute = ApiSearchRouteImport.update({
-  id: '/api/search',
-  path: '/api/search',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AuthRegisterRoute = AuthRegisterRouteImport.update({
-  id: '/register',
-  path: '/register',
-  getParentRoute: () => AuthRoute,
-} as any)
-const AuthLoginRoute = AuthLoginRouteImport.update({
-  id: '/login',
-  path: '/login',
-  getParentRoute: () => AuthRoute,
-} as any)
-const Auth2faRoute = Auth2faRouteImport.update({
-  id: '/2fa',
-  path: '/2fa',
-  getParentRoute: () => AuthRoute,
-} as any)
-const AppUserRoute = AppUserRouteImport.update({
-  id: '/user',
-  path: '/user',
-  getParentRoute: () => AppRoute,
 } as any)
 const AppAccountRoute = AppAccountRouteImport.update({
   id: '/account',
@@ -105,59 +70,44 @@ const AppAdminRouteRoute = AppAdminRouteRouteImport.update({
   path: '/admin',
   getParentRoute: () => AppRoute,
 } as any)
+const AppUserRoute = AppUserRouteImport.update({
+  id: '/user',
+  path: '/user',
+  getParentRoute: () => AppRoute,
+} as any)
+const Auth2faRoute = Auth2faRouteImport.update({
+  id: '/2fa',
+  path: '/2fa',
+  getParentRoute: () => AuthRoute,
+} as any)
+const AuthLoginRoute = AuthLoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => AuthRoute,
+} as any)
+const AuthRegisterRoute = AuthRegisterRouteImport.update({
+  id: '/register',
+  path: '/register',
+  getParentRoute: () => AuthRoute,
+} as any)
+const ApiSearchRoute = ApiSearchRouteImport.update({
+  id: '/api/search',
+  path: '/api/search',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DocsSplatRoute = DocsSplatRouteImport.update({
+  id: '/docs/$',
+  path: '/docs/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginWhatsappRoute = LoginWhatsappRouteImport.update({
+  id: '/login/whatsapp',
+  path: '/login/whatsapp',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppAdminIndexRoute = AppAdminIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => AppAdminRouteRoute,
-} as any)
-const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
-  id: '/api/auth/$',
-  path: '/api/auth/$',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AppUserWebhooksRoute = AppUserWebhooksRouteImport.update({
-  id: '/webhooks',
-  path: '/webhooks',
-  getParentRoute: () => AppUserRoute,
-} as any)
-const AppUserStorageRoute = AppUserStorageRouteImport.update({
-  id: '/storage',
-  path: '/storage',
-  getParentRoute: () => AppUserRoute,
-} as any)
-const AppUserSessionsRoute = AppUserSessionsRouteImport.update({
-  id: '/sessions',
-  path: '/sessions',
-  getParentRoute: () => AppUserRoute,
-} as any)
-const AppUserOauthAppsRoute = AppUserOauthAppsRouteImport.update({
-  id: '/oauth-apps',
-  path: '/oauth-apps',
-  getParentRoute: () => AppUserRoute,
-} as any)
-const AppUserKeysRoute = AppUserKeysRouteImport.update({
-  id: '/keys',
-  path: '/keys',
-  getParentRoute: () => AppUserRoute,
-} as any)
-const AppUserHomeRoute = AppUserHomeRouteImport.update({
-  id: '/home',
-  path: '/home',
-  getParentRoute: () => AppUserRoute,
-} as any)
-const AppAdminTenantsRoute = AppAdminTenantsRouteImport.update({
-  id: '/tenants',
-  path: '/tenants',
-  getParentRoute: () => AppAdminRouteRoute,
-} as any)
-const AppAdminSessionsRoute = AppAdminSessionsRouteImport.update({
-  id: '/sessions',
-  path: '/sessions',
-  getParentRoute: () => AppAdminRouteRoute,
-} as any)
-const AppAdminPairingRoute = AppAdminPairingRouteImport.update({
-  id: '/pairing',
-  path: '/pairing',
   getParentRoute: () => AppAdminRouteRoute,
 } as any)
 const AppAdminMonitorRoute = AppAdminMonitorRouteImport.update({
@@ -165,36 +115,60 @@ const AppAdminMonitorRoute = AppAdminMonitorRouteImport.update({
   path: '/monitor',
   getParentRoute: () => AppAdminRouteRoute,
 } as any)
-const AppUserSessionsIndexRoute = AppUserSessionsIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => AppUserSessionsRoute,
+const AppAdminPairingRoute = AppAdminPairingRouteImport.update({
+  id: '/pairing',
+  path: '/pairing',
+  getParentRoute: () => AppAdminRouteRoute,
 } as any)
-const AppUserOauthAppsIndexRoute = AppUserOauthAppsIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => AppUserOauthAppsRoute,
+const AppAdminSessionsRoute = AppAdminSessionsRouteImport.update({
+  id: '/sessions',
+  path: '/sessions',
+  getParentRoute: () => AppAdminRouteRoute,
+} as any)
+const AppAdminTenantsRoute = AppAdminTenantsRouteImport.update({
+  id: '/tenants',
+  path: '/tenants',
+  getParentRoute: () => AppAdminRouteRoute,
+} as any)
+const AppUserHomeRoute = AppUserHomeRouteImport.update({
+  id: '/home',
+  path: '/home',
+  getParentRoute: () => AppUserRoute,
+} as any)
+const AppUserKeysRoute = AppUserKeysRouteImport.update({
+  id: '/keys',
+  path: '/keys',
+  getParentRoute: () => AppUserRoute,
+} as any)
+const AppUserOauthAppsRoute = AppUserOauthAppsRouteImport.update({
+  id: '/oauth-apps',
+  path: '/oauth-apps',
+  getParentRoute: () => AppUserRoute,
+} as any)
+const AppUserSessionsRoute = AppUserSessionsRouteImport.update({
+  id: '/sessions',
+  path: '/sessions',
+  getParentRoute: () => AppUserRoute,
+} as any)
+const AppUserStorageRoute = AppUserStorageRouteImport.update({
+  id: '/storage',
+  path: '/storage',
+  getParentRoute: () => AppUserRoute,
+} as any)
+const AppUserWebhooksRoute = AppUserWebhooksRouteImport.update({
+  id: '/webhooks',
+  path: '/webhooks',
+  getParentRoute: () => AppUserRoute,
+} as any)
+const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
+  id: '/api/auth/$',
+  path: '/api/auth/$',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AppAdminGatewaysIndexRoute = AppAdminGatewaysIndexRouteImport.update({
   id: '/gateways/',
   path: '/gateways/',
   getParentRoute: () => AppAdminRouteRoute,
-} as any)
-const AppUserSessionsSessionIdRoute =
-  AppUserSessionsSessionIdRouteImport.update({
-    id: '/$sessionId',
-    path: '/$sessionId',
-    getParentRoute: () => AppUserSessionsRoute,
-  } as any)
-const AppUserOauthAppsNewRoute = AppUserOauthAppsNewRouteImport.update({
-  id: '/new',
-  path: '/new',
-  getParentRoute: () => AppUserOauthAppsRoute,
-} as any)
-const AppUserOauthAppsAppIdRoute = AppUserOauthAppsAppIdRouteImport.update({
-  id: '/$appId',
-  path: '/$appId',
-  getParentRoute: () => AppUserOauthAppsRoute,
 } as any)
 const AppAdminGatewaysGatewayIdRoute =
   AppAdminGatewaysGatewayIdRouteImport.update({
@@ -202,16 +176,36 @@ const AppAdminGatewaysGatewayIdRoute =
     path: '/gateways/$gatewayId',
     getParentRoute: () => AppAdminRouteRoute,
   } as any)
+const AppUserOauthAppsIndexRoute = AppUserOauthAppsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppUserOauthAppsRoute,
+} as any)
+const AppUserOauthAppsAppIdRoute = AppUserOauthAppsAppIdRouteImport.update({
+  id: '/$appId',
+  path: '/$appId',
+  getParentRoute: () => AppUserOauthAppsRoute,
+} as any)
+const AppUserOauthAppsNewRoute = AppUserOauthAppsNewRouteImport.update({
+  id: '/new',
+  path: '/new',
+  getParentRoute: () => AppUserOauthAppsRoute,
+} as any)
+const AppUserSessionsIndexRoute = AppUserSessionsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppUserSessionsRoute,
+} as any)
+const AppUserSessionsSessionIdRoute =
+  AppUserSessionsSessionIdRouteImport.update({
+    id: '/$sessionId',
+    path: '/$sessionId',
+    getParentRoute: () => AppUserSessionsRoute,
+  } as any)
 const AppUserSessionsSessionIdIndexRoute =
   AppUserSessionsSessionIdIndexRouteImport.update({
     id: '/',
     path: '/',
-    getParentRoute: () => AppUserSessionsSessionIdRoute,
-  } as any)
-const AppUserSessionsSessionIdContactsRoute =
-  AppUserSessionsSessionIdContactsRouteImport.update({
-    id: '/contacts',
-    path: '/contacts',
     getParentRoute: () => AppUserSessionsSessionIdRoute,
   } as any)
 const AppUserSessionsSessionIdChatsRouteRoute =
@@ -220,10 +214,22 @@ const AppUserSessionsSessionIdChatsRouteRoute =
     path: '/chats',
     getParentRoute: () => AppUserSessionsSessionIdRoute,
   } as any)
+const AppUserSessionsSessionIdContactsRoute =
+  AppUserSessionsSessionIdContactsRouteImport.update({
+    id: '/contacts',
+    path: '/contacts',
+    getParentRoute: () => AppUserSessionsSessionIdRoute,
+  } as any)
 const AppUserSessionsSessionIdChatsIndexRoute =
   AppUserSessionsSessionIdChatsIndexRouteImport.update({
     id: '/',
     path: '/',
+    getParentRoute: () => AppUserSessionsSessionIdChatsRouteRoute,
+  } as any)
+const AppUserSessionsSessionIdChatsChatIdRoute =
+  AppUserSessionsSessionIdChatsChatIdRouteImport.update({
+    id: '/$chatId',
+    path: '/$chatId',
     getParentRoute: () => AppUserSessionsSessionIdChatsRouteRoute,
   } as any)
 const AppUserSessionsSessionIdContactsLidRoute =
@@ -231,12 +237,6 @@ const AppUserSessionsSessionIdContactsLidRoute =
     id: '/$lid',
     path: '/$lid',
     getParentRoute: () => AppUserSessionsSessionIdContactsRoute,
-  } as any)
-const AppUserSessionsSessionIdChatsChatIdRoute =
-  AppUserSessionsSessionIdChatsChatIdRouteImport.update({
-    id: '/$chatId',
-    path: '/$chatId',
-    getParentRoute: () => AppUserSessionsSessionIdChatsRouteRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
@@ -471,11 +471,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/_auth': {
-      id: '/_auth'
-      path: ''
+    '/': {
+      id: '/'
+      path: '/'
       fullPath: '/'
-      preLoaderRoute: typeof AuthRouteImport
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_app': {
@@ -485,61 +485,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
+    '/_auth': {
+      id: '/_auth'
+      path: ''
       fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+      preLoaderRoute: typeof AuthRouteImport
       parentRoute: typeof rootRouteImport
-    }
-    '/login/whatsapp': {
-      id: '/login/whatsapp'
-      path: '/login/whatsapp'
-      fullPath: '/login/whatsapp'
-      preLoaderRoute: typeof LoginWhatsappRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/docs/$': {
-      id: '/docs/$'
-      path: '/docs/$'
-      fullPath: '/docs/$'
-      preLoaderRoute: typeof DocsSplatRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/search': {
-      id: '/api/search'
-      path: '/api/search'
-      fullPath: '/api/search'
-      preLoaderRoute: typeof ApiSearchRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/_auth/register': {
-      id: '/_auth/register'
-      path: '/register'
-      fullPath: '/register'
-      preLoaderRoute: typeof AuthRegisterRouteImport
-      parentRoute: typeof AuthRoute
-    }
-    '/_auth/login': {
-      id: '/_auth/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof AuthLoginRouteImport
-      parentRoute: typeof AuthRoute
-    }
-    '/_auth/2fa': {
-      id: '/_auth/2fa'
-      path: '/2fa'
-      fullPath: '/2fa'
-      preLoaderRoute: typeof Auth2faRouteImport
-      parentRoute: typeof AuthRoute
-    }
-    '/_app/user': {
-      id: '/_app/user'
-      path: '/user'
-      fullPath: '/user'
-      preLoaderRoute: typeof AppUserRouteImport
-      parentRoute: typeof AppRoute
     }
     '/_app/account': {
       id: '/_app/account'
@@ -555,81 +506,60 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAdminRouteRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/user': {
+      id: '/_app/user'
+      path: '/user'
+      fullPath: '/user'
+      preLoaderRoute: typeof AppUserRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_auth/2fa': {
+      id: '/_auth/2fa'
+      path: '/2fa'
+      fullPath: '/2fa'
+      preLoaderRoute: typeof Auth2faRouteImport
+      parentRoute: typeof AuthRoute
+    }
+    '/_auth/login': {
+      id: '/_auth/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof AuthLoginRouteImport
+      parentRoute: typeof AuthRoute
+    }
+    '/_auth/register': {
+      id: '/_auth/register'
+      path: '/register'
+      fullPath: '/register'
+      preLoaderRoute: typeof AuthRegisterRouteImport
+      parentRoute: typeof AuthRoute
+    }
+    '/api/search': {
+      id: '/api/search'
+      path: '/api/search'
+      fullPath: '/api/search'
+      preLoaderRoute: typeof ApiSearchRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/docs/$': {
+      id: '/docs/$'
+      path: '/docs/$'
+      fullPath: '/docs/$'
+      preLoaderRoute: typeof DocsSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login/whatsapp': {
+      id: '/login/whatsapp'
+      path: '/login/whatsapp'
+      fullPath: '/login/whatsapp'
+      preLoaderRoute: typeof LoginWhatsappRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_app/admin/': {
       id: '/_app/admin/'
       path: '/'
       fullPath: '/admin/'
       preLoaderRoute: typeof AppAdminIndexRouteImport
-      parentRoute: typeof AppAdminRouteRoute
-    }
-    '/api/auth/$': {
-      id: '/api/auth/$'
-      path: '/api/auth/$'
-      fullPath: '/api/auth/$'
-      preLoaderRoute: typeof ApiAuthSplatRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/_app/user/webhooks': {
-      id: '/_app/user/webhooks'
-      path: '/webhooks'
-      fullPath: '/user/webhooks'
-      preLoaderRoute: typeof AppUserWebhooksRouteImport
-      parentRoute: typeof AppUserRoute
-    }
-    '/_app/user/storage': {
-      id: '/_app/user/storage'
-      path: '/storage'
-      fullPath: '/user/storage'
-      preLoaderRoute: typeof AppUserStorageRouteImport
-      parentRoute: typeof AppUserRoute
-    }
-    '/_app/user/sessions': {
-      id: '/_app/user/sessions'
-      path: '/sessions'
-      fullPath: '/user/sessions'
-      preLoaderRoute: typeof AppUserSessionsRouteImport
-      parentRoute: typeof AppUserRoute
-    }
-    '/_app/user/oauth-apps': {
-      id: '/_app/user/oauth-apps'
-      path: '/oauth-apps'
-      fullPath: '/user/oauth-apps'
-      preLoaderRoute: typeof AppUserOauthAppsRouteImport
-      parentRoute: typeof AppUserRoute
-    }
-    '/_app/user/keys': {
-      id: '/_app/user/keys'
-      path: '/keys'
-      fullPath: '/user/keys'
-      preLoaderRoute: typeof AppUserKeysRouteImport
-      parentRoute: typeof AppUserRoute
-    }
-    '/_app/user/home': {
-      id: '/_app/user/home'
-      path: '/home'
-      fullPath: '/user/home'
-      preLoaderRoute: typeof AppUserHomeRouteImport
-      parentRoute: typeof AppUserRoute
-    }
-    '/_app/admin/tenants': {
-      id: '/_app/admin/tenants'
-      path: '/tenants'
-      fullPath: '/admin/tenants'
-      preLoaderRoute: typeof AppAdminTenantsRouteImport
-      parentRoute: typeof AppAdminRouteRoute
-    }
-    '/_app/admin/sessions': {
-      id: '/_app/admin/sessions'
-      path: '/sessions'
-      fullPath: '/admin/sessions'
-      preLoaderRoute: typeof AppAdminSessionsRouteImport
-      parentRoute: typeof AppAdminRouteRoute
-    }
-    '/_app/admin/pairing': {
-      id: '/_app/admin/pairing'
-      path: '/pairing'
-      fullPath: '/admin/pairing'
-      preLoaderRoute: typeof AppAdminPairingRouteImport
       parentRoute: typeof AppAdminRouteRoute
     }
     '/_app/admin/monitor': {
@@ -639,19 +569,75 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAdminMonitorRouteImport
       parentRoute: typeof AppAdminRouteRoute
     }
-    '/_app/user/sessions/': {
-      id: '/_app/user/sessions/'
-      path: '/'
-      fullPath: '/user/sessions/'
-      preLoaderRoute: typeof AppUserSessionsIndexRouteImport
-      parentRoute: typeof AppUserSessionsRoute
+    '/_app/admin/pairing': {
+      id: '/_app/admin/pairing'
+      path: '/pairing'
+      fullPath: '/admin/pairing'
+      preLoaderRoute: typeof AppAdminPairingRouteImport
+      parentRoute: typeof AppAdminRouteRoute
     }
-    '/_app/user/oauth-apps/': {
-      id: '/_app/user/oauth-apps/'
-      path: '/'
-      fullPath: '/user/oauth-apps/'
-      preLoaderRoute: typeof AppUserOauthAppsIndexRouteImport
-      parentRoute: typeof AppUserOauthAppsRoute
+    '/_app/admin/sessions': {
+      id: '/_app/admin/sessions'
+      path: '/sessions'
+      fullPath: '/admin/sessions'
+      preLoaderRoute: typeof AppAdminSessionsRouteImport
+      parentRoute: typeof AppAdminRouteRoute
+    }
+    '/_app/admin/tenants': {
+      id: '/_app/admin/tenants'
+      path: '/tenants'
+      fullPath: '/admin/tenants'
+      preLoaderRoute: typeof AppAdminTenantsRouteImport
+      parentRoute: typeof AppAdminRouteRoute
+    }
+    '/_app/user/home': {
+      id: '/_app/user/home'
+      path: '/home'
+      fullPath: '/user/home'
+      preLoaderRoute: typeof AppUserHomeRouteImport
+      parentRoute: typeof AppUserRoute
+    }
+    '/_app/user/keys': {
+      id: '/_app/user/keys'
+      path: '/keys'
+      fullPath: '/user/keys'
+      preLoaderRoute: typeof AppUserKeysRouteImport
+      parentRoute: typeof AppUserRoute
+    }
+    '/_app/user/oauth-apps': {
+      id: '/_app/user/oauth-apps'
+      path: '/oauth-apps'
+      fullPath: '/user/oauth-apps'
+      preLoaderRoute: typeof AppUserOauthAppsRouteImport
+      parentRoute: typeof AppUserRoute
+    }
+    '/_app/user/sessions': {
+      id: '/_app/user/sessions'
+      path: '/sessions'
+      fullPath: '/user/sessions'
+      preLoaderRoute: typeof AppUserSessionsRouteImport
+      parentRoute: typeof AppUserRoute
+    }
+    '/_app/user/storage': {
+      id: '/_app/user/storage'
+      path: '/storage'
+      fullPath: '/user/storage'
+      preLoaderRoute: typeof AppUserStorageRouteImport
+      parentRoute: typeof AppUserRoute
+    }
+    '/_app/user/webhooks': {
+      id: '/_app/user/webhooks'
+      path: '/webhooks'
+      fullPath: '/user/webhooks'
+      preLoaderRoute: typeof AppUserWebhooksRouteImport
+      parentRoute: typeof AppUserRoute
+    }
+    '/api/auth/$': {
+      id: '/api/auth/$'
+      path: '/api/auth/$'
+      fullPath: '/api/auth/$'
+      preLoaderRoute: typeof ApiAuthSplatRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/_app/admin/gateways/': {
       id: '/_app/admin/gateways/'
@@ -660,18 +646,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAdminGatewaysIndexRouteImport
       parentRoute: typeof AppAdminRouteRoute
     }
-    '/_app/user/sessions/$sessionId': {
-      id: '/_app/user/sessions/$sessionId'
-      path: '/$sessionId'
-      fullPath: '/user/sessions/$sessionId'
-      preLoaderRoute: typeof AppUserSessionsSessionIdRouteImport
-      parentRoute: typeof AppUserSessionsRoute
+    '/_app/admin/gateways/$gatewayId': {
+      id: '/_app/admin/gateways/$gatewayId'
+      path: '/gateways/$gatewayId'
+      fullPath: '/admin/gateways/$gatewayId'
+      preLoaderRoute: typeof AppAdminGatewaysGatewayIdRouteImport
+      parentRoute: typeof AppAdminRouteRoute
     }
-    '/_app/user/oauth-apps/new': {
-      id: '/_app/user/oauth-apps/new'
-      path: '/new'
-      fullPath: '/user/oauth-apps/new'
-      preLoaderRoute: typeof AppUserOauthAppsNewRouteImport
+    '/_app/user/oauth-apps/': {
+      id: '/_app/user/oauth-apps/'
+      path: '/'
+      fullPath: '/user/oauth-apps/'
+      preLoaderRoute: typeof AppUserOauthAppsIndexRouteImport
       parentRoute: typeof AppUserOauthAppsRoute
     }
     '/_app/user/oauth-apps/$appId': {
@@ -681,25 +667,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppUserOauthAppsAppIdRouteImport
       parentRoute: typeof AppUserOauthAppsRoute
     }
-    '/_app/admin/gateways/$gatewayId': {
-      id: '/_app/admin/gateways/$gatewayId'
-      path: '/gateways/$gatewayId'
-      fullPath: '/admin/gateways/$gatewayId'
-      preLoaderRoute: typeof AppAdminGatewaysGatewayIdRouteImport
-      parentRoute: typeof AppAdminRouteRoute
+    '/_app/user/oauth-apps/new': {
+      id: '/_app/user/oauth-apps/new'
+      path: '/new'
+      fullPath: '/user/oauth-apps/new'
+      preLoaderRoute: typeof AppUserOauthAppsNewRouteImport
+      parentRoute: typeof AppUserOauthAppsRoute
+    }
+    '/_app/user/sessions/': {
+      id: '/_app/user/sessions/'
+      path: '/'
+      fullPath: '/user/sessions/'
+      preLoaderRoute: typeof AppUserSessionsIndexRouteImport
+      parentRoute: typeof AppUserSessionsRoute
+    }
+    '/_app/user/sessions/$sessionId': {
+      id: '/_app/user/sessions/$sessionId'
+      path: '/$sessionId'
+      fullPath: '/user/sessions/$sessionId'
+      preLoaderRoute: typeof AppUserSessionsSessionIdRouteImport
+      parentRoute: typeof AppUserSessionsRoute
     }
     '/_app/user/sessions/$sessionId/': {
       id: '/_app/user/sessions/$sessionId/'
       path: '/'
       fullPath: '/user/sessions/$sessionId/'
       preLoaderRoute: typeof AppUserSessionsSessionIdIndexRouteImport
-      parentRoute: typeof AppUserSessionsSessionIdRoute
-    }
-    '/_app/user/sessions/$sessionId/contacts': {
-      id: '/_app/user/sessions/$sessionId/contacts'
-      path: '/contacts'
-      fullPath: '/user/sessions/$sessionId/contacts'
-      preLoaderRoute: typeof AppUserSessionsSessionIdContactsRouteImport
       parentRoute: typeof AppUserSessionsSessionIdRoute
     }
     '/_app/user/sessions/$sessionId/chats': {
@@ -709,11 +702,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppUserSessionsSessionIdChatsRouteRouteImport
       parentRoute: typeof AppUserSessionsSessionIdRoute
     }
+    '/_app/user/sessions/$sessionId/contacts': {
+      id: '/_app/user/sessions/$sessionId/contacts'
+      path: '/contacts'
+      fullPath: '/user/sessions/$sessionId/contacts'
+      preLoaderRoute: typeof AppUserSessionsSessionIdContactsRouteImport
+      parentRoute: typeof AppUserSessionsSessionIdRoute
+    }
     '/_app/user/sessions/$sessionId/chats/': {
       id: '/_app/user/sessions/$sessionId/chats/'
       path: '/'
       fullPath: '/user/sessions/$sessionId/chats/'
       preLoaderRoute: typeof AppUserSessionsSessionIdChatsIndexRouteImport
+      parentRoute: typeof AppUserSessionsSessionIdChatsRouteRoute
+    }
+    '/_app/user/sessions/$sessionId/chats/$chatId': {
+      id: '/_app/user/sessions/$sessionId/chats/$chatId'
+      path: '/$chatId'
+      fullPath: '/user/sessions/$sessionId/chats/$chatId'
+      preLoaderRoute: typeof AppUserSessionsSessionIdChatsChatIdRouteImport
       parentRoute: typeof AppUserSessionsSessionIdChatsRouteRoute
     }
     '/_app/user/sessions/$sessionId/contacts/$lid': {
@@ -722,13 +729,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/user/sessions/$sessionId/contacts/$lid'
       preLoaderRoute: typeof AppUserSessionsSessionIdContactsLidRouteImport
       parentRoute: typeof AppUserSessionsSessionIdContactsRoute
-    }
-    '/_app/user/sessions/$sessionId/chats/$chatId': {
-      id: '/_app/user/sessions/$sessionId/chats/$chatId'
-      path: '/$chatId'
-      fullPath: '/user/sessions/$sessionId/chats/$chatId'
-      preLoaderRoute: typeof AppUserSessionsSessionIdChatsChatIdRouteImport
-      parentRoute: typeof AppUserSessionsSessionIdChatsRouteRoute
     }
   }
 }
