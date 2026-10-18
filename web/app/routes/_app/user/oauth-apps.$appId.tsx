@@ -224,8 +224,8 @@ function DetailView({ app }: { app: OAuthApp }) {
           <TabsTrigger value="integration">Integration</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="settings">
-          <SettingsTab app={app} secretFlow={secretFlow} />
+        <TabsContent value="settings" forceMount hidden={tab !== "settings"}>
+          <SettingsTab key={app.id} app={app} secretFlow={secretFlow} />
         </TabsContent>
         <TabsContent value="users">
           <UsersTab app={app} onOpenIntegration={() => setTab("integration")} />

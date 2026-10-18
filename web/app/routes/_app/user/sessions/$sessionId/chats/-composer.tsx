@@ -6,7 +6,7 @@
 // put back (unless the user already started a new message).
 
 import { useState, type ComponentProps, type FormEvent, type ReactNode } from "react";
-import { Link } from "@tanstack/react-router";
+import { Link, useParams } from "@tanstack/react-router";
 import {
   Contact,
   ListChecks,
@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import type { Chat, Message, SessionStatus } from "~/lib/api/types";
 import { cn } from "~/lib/utils";
+import { isApiError } from "~/lib/api/envelope";
 import { Button } from "~/components/ui/button";
 import { Textarea } from "~/components/ui/textarea";
 import { Input } from "~/components/ui/input";
@@ -93,8 +94,16 @@ export function Composer({
   /** Resolves when the API accepted the send; rejects on failure. */
   onSend: (payload: ComposerSend) => Promise<unknown>;
 }) {
-  const [text, setText] = useState("");
-  const [dialog, setDialog] = useState<RichKind | null>(null);
+  const { chatId } = useParams({
+    from: "/_app/user/sessions/$sessionId/chats/$chatId",
+  });
+  const chatKey = JSON.stringify([sessionId, chatId]);
+  const [drafts, setDrafts] = useState<Record<string, { text: string }>>({});
+  const text = drafts[chatKey]?.text ?? "";
+  const setText = (value: string) =>
+    setDrafts((current) => ({ ...current, [chatKey]: { text: value } }));
+  const [dialog, setDialog] = useState<{ chatKey: string; kind: RichKind } | null>(null);
+  const openDialog = (kind: RichKind) => setDialog({ chatKey, kind });
 
   const offline = sessionStatus !== undefined && sessionStatus !== "working";
 
@@ -103,10 +112,16 @@ export function Composer({
     const trimmed = text.trim();
     if (!trimmed || sending || offline) return;
     const typed = text;
-    setText("");
+    const clearedDraft = { text: "" };
+    setDrafts((current) => ({ ...current, [chatKey]: clearedDraft }));
     onSend({ type: "text", text: trimmed }).catch(() => {
-      // Put the message back so a failed send never loses it.
-      setText((cur) => (cur.trim() ? cur : typed));
+      // Restore only this conversation, and only if no newer edit replaced
+      // the cleared draft (even if the user typed and then erased that edit).
+      setDrafts((current) =>
+        current[chatKey] === clearedDraft
+          ? { ...current, [chatKey]: { text: typed } }
+          : current,
+      );
     });
   };
 
@@ -197,13 +212,13 @@ export function Composer({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" side="top" className="w-48">
-                <DropdownMenuItem onClick={() => setDialog("poll")}>
+                <DropdownMenuItem onClick={() => openDialog("poll")}>
                   <ListChecks /> Poll
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setDialog("location")}>
+                <DropdownMenuItem onClick={() => openDialog("location")}>
                   <MapPin /> Location
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setDialog("contact")}>
+                <DropdownMenuItem onClick={() => openDialog("contact")}>
                   <Contact /> Contact card
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -244,13 +259,15 @@ export function Composer({
         </p>
       </form>
       <RichSendDialog
-        kind={dialog}
+        key={JSON.stringify([chatKey, dialog?.kind])}
+        kind={dialog?.chatKey === chatKey ? dialog.kind : null}
         onOpenChange={(open) => {
           if (!open) setDialog(null);
         }}
-        onSend={(payload) => {
-          setDialog(null);
-          void onSend(payload).catch(() => undefined);
+        onSend={async (payload) => {
+          await onSend(payload);
+          // A completed request must not close a newer conversation's dialog.
+          setDialog((current) => (current === dialog ? null : current));
         }}
       />
     </>
@@ -287,10 +304,25 @@ function RichSendDialog({
 }: {
   kind: RichKind | null;
   onOpenChange: (open: boolean) => void;
-  onSend: (payload: ComposerSend) => void;
+  onSend: (payload: ComposerSend) => Promise<unknown>;
 }) {
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const send = async (payload: ComposerSend) => {
+    if (pending) return;
+    setPending(true);
+    setError(null);
+    try {
+      await onSend(payload);
+    } catch (err) {
+      setError(isApiError(err) ? err.message : "Message not sent. Try again.");
+    } finally {
+      setPending(false);
+    }
+  };
+
   return (
-    <Dialog open={kind !== null} onOpenChange={onOpenChange}>
+    <Dialog open={kind !== null} onOpenChange={(open) => !pending && onOpenChange(open)}>
       <DialogContent className="sm:max-w-md">
         {kind ? (
           <>
@@ -298,9 +330,10 @@ function RichSendDialog({
               <DialogTitle>{RICH_COPY[kind].title}</DialogTitle>
               <DialogDescription>{RICH_COPY[kind].description}</DialogDescription>
             </DialogHeader>
-            {kind === "poll" ? <PollForm onSend={onSend} /> : null}
-            {kind === "location" ? <LocationForm onSend={onSend} /> : null}
-            {kind === "contact" ? <ContactForm onSend={onSend} /> : null}
+            {kind === "poll" ? <PollForm onSend={send} pending={pending} /> : null}
+            {kind === "location" ? <LocationForm onSend={send} pending={pending} /> : null}
+            {kind === "contact" ? <ContactForm onSend={send} pending={pending} /> : null}
+            {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
           </>
         ) : null}
       </DialogContent>
@@ -308,7 +341,10 @@ function RichSendDialog({
   );
 }
 
-function PollForm({ onSend }: { onSend: (payload: ComposerSend) => void }) {
+function PollForm({ onSend, pending }: {
+  onSend: (payload: ComposerSend) => void;
+  pending: boolean;
+}) {
   const [question, setQuestion] = useState("");
   const [options, setOptions] = useState("");
   const [selectableCount, setSelectableCount] = useState("1");
@@ -338,7 +374,7 @@ function PollForm({ onSend }: { onSend: (payload: ComposerSend) => void }) {
       onSubmit={(e) => {
         e.preventDefault();
         setTouched(true);
-        if (!valid) return;
+        if (!valid || pending) return;
         const selectable = Math.max(1, Math.min(Number(selectableCount) || 1, rows.length));
         const endTime = pollEndTime ? new Date(pollEndTime).getTime() : 0;
         onSend({
@@ -402,15 +438,19 @@ function PollForm({ onSend }: { onSend: (payload: ComposerSend) => void }) {
         Hide who voted for what
       </label>
       <DialogFooter>
-        <Button type="submit" disabled={touched && !valid}>
-          Send poll
+        <Button type="submit" disabled={pending || (touched && !valid)}>
+          {pending ? <Spinner /> : null}
+          {pending ? "Sending…" : "Send poll"}
         </Button>
       </DialogFooter>
     </form>
   );
 }
 
-function LocationForm({ onSend }: { onSend: (payload: ComposerSend) => void }) {
+function LocationForm({ onSend, pending }: {
+  onSend: (payload: ComposerSend) => void;
+  pending: boolean;
+}) {
   const [place, setPlace] = useState("");
   const [lat, setLat] = useState("");
   const [lng, setLng] = useState("");
@@ -447,7 +487,7 @@ function LocationForm({ onSend }: { onSend: (payload: ComposerSend) => void }) {
       onSubmit={(e) => {
         e.preventDefault();
         setTouched(true);
-        if (!valid) return;
+        if (!valid || pending) return;
         onSend({ type: "location", name: place.trim() || undefined, latitude, longitude });
       }}
     >
@@ -483,15 +523,19 @@ function LocationForm({ onSend }: { onSend: (payload: ComposerSend) => void }) {
         Tip: paste “-6.2088, 106.8456” into either field to fill both.
       </p>
       <DialogFooter>
-        <Button type="submit" disabled={touched && !valid}>
-          Send location
+        <Button type="submit" disabled={pending || (touched && !valid)}>
+          {pending ? <Spinner /> : null}
+          {pending ? "Sending…" : "Send location"}
         </Button>
       </DialogFooter>
     </form>
   );
 }
 
-function ContactForm({ onSend }: { onSend: (payload: ComposerSend) => void }) {
+function ContactForm({ onSend, pending }: {
+  onSend: (payload: ComposerSend) => void;
+  pending: boolean;
+}) {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [touched, setTouched] = useState(false);
@@ -508,7 +552,7 @@ function ContactForm({ onSend }: { onSend: (payload: ComposerSend) => void }) {
       onSubmit={(e) => {
         e.preventDefault();
         setTouched(true);
-        if (!valid) return;
+        if (!valid || pending) return;
         onSend({
           type: "contact",
           contact: { name: name.trim(), phone: phone.trim() || undefined },
@@ -534,8 +578,9 @@ function ContactForm({ onSend }: { onSend: (payload: ComposerSend) => void }) {
         error={touched ? phoneError : null}
       />
       <DialogFooter>
-        <Button type="submit" disabled={touched && !valid}>
-          Send contact
+        <Button type="submit" disabled={pending || (touched && !valid)}>
+          {pending ? <Spinner /> : null}
+          {pending ? "Sending…" : "Send contact"}
         </Button>
       </DialogFooter>
     </form>
