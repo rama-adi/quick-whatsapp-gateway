@@ -57,7 +57,7 @@ app.get("/login", async (req, res) => {
 });
 
 // 3. Handle the callback: exchange the code, read the claims.
-app.get("/callback", async (req, res) => {
+app.get(${q(callbackPath(redirectUri))}, async (req, res) => {
   const { code_verifier, state } = req.session;
   const tokens = await client.authorizationCodeGrant(
     config,
@@ -73,8 +73,68 @@ app.listen(3000, () => console.log("Sign in with WhatsApp: http://localhost:3000
 `;
 }
 
+/** A runnable Flask app using Authlib's standard OIDC client. Confidential
+ * clients read the secret from an env var; public clients send no secret and
+ * rely on PKCE (Authlib generates the verifier/challenge). */
+export function pythonQuickstart(input: QuickstartInput): string {
+  const { issuer, clientId, clientType, redirectUri, scopes } = input;
+  const isConfidential = clientType === "confidential";
+  const secretLine = isConfidential
+    ? `    client_secret=os.environ["WA_CLIENT_SECRET"],  # shown once on create / rotate\n`
+    : "";
+  const authMethodLine = isConfidential
+    ? ""
+    : `        "token_endpoint_auth_method": "none",  # public client: PKCE only, no secret\n`;
+
+  return `# pip install flask authlib requests
+import os
+from flask import Flask, jsonify
+from authlib.integrations.flask_client import OAuth
+
+app = Flask(__name__)
+app.secret_key = os.environ["FLASK_SECRET_KEY"]  # signs the session cookie
+
+# 1. Register the provider from its discovery document.
+oauth = OAuth(app)
+oauth.register(
+    name="whatsapp",
+    server_metadata_url=${q(discoveryUrl(issuer))},
+    client_id=${q(clientId)},
+${secretLine}    client_kwargs={
+        "scope": ${q(scopes.join(" "))},
+        "code_challenge_method": "S256",  # PKCE (required)
+${authMethodLine}    },
+)
+
+# 2. Kick off login: redirects to the WhatsApp sign-in page.
+@app.route("/login")
+def login():
+    return oauth.whatsapp.authorize_redirect(${q(redirectUri)})
+
+# 3. Handle the callback: exchange the code, read the claims.
+@app.route(${q(callbackPath(redirectUri))})
+def callback():
+    token = oauth.whatsapp.authorize_access_token()
+    return jsonify(token["userinfo"])  # sub, name, phone_number, ...
+`;
+}
+
+/** A curl call that fetches the discovery document (endpoints + capabilities). */
+export function discoveryCurl(issuer: string): string {
+  return `curl ${discoveryUrl(issuer)}`;
+}
+
 function q(s: string): string {
   return JSON.stringify(s);
+}
+
+/** The path part of the redirect URI, used as the callback route. */
+function callbackPath(redirectUri: string): string {
+  try {
+    return new URL(redirectUri).pathname || "/callback";
+  } catch {
+    return "/callback";
+  }
 }
 
 function trimSlash(s: string): string {

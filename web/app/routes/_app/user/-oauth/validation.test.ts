@@ -9,7 +9,7 @@ import {
   buildAuthorizeUrl,
   discoveryUrl,
 } from "./validation";
-import { nodeQuickstart } from "./quickstart";
+import { nodeQuickstart, pythonQuickstart } from "./quickstart";
 
 describe("validateLoginCommand", () => {
   it("accepts valid single-word commands", () => {
@@ -159,6 +159,37 @@ describe("nodeQuickstart", () => {
       scopes: ["openid"],
     });
     expect(snippet).toContain('token_endpoint_auth_method: "none"');
+    expect(snippet).not.toContain("WA_CLIENT_SECRET");
+  });
+});
+
+describe("pythonQuickstart", () => {
+  it("fills in discovery URL, client_id, scopes and the callback route", () => {
+    const snippet = pythonQuickstart({
+      issuer: "https://gw.example.com",
+      clientId: "wa_abc",
+      clientType: "confidential",
+      redirectUri: "https://app.example.com/auth/cb",
+      scopes: ["openid", "phone"],
+    });
+    expect(snippet).toContain(
+      '"https://gw.example.com/.well-known/openid-configuration"',
+    );
+    expect(snippet).toContain('client_id="wa_abc"');
+    expect(snippet).toContain('"scope": "openid phone"');
+    expect(snippet).toContain('@app.route("/auth/cb")');
+    expect(snippet).toContain('os.environ["WA_CLIENT_SECRET"]');
+    expect(snippet).not.toContain("token_endpoint_auth_method");
+  });
+  it("sends no secret for public clients", () => {
+    const snippet = pythonQuickstart({
+      issuer: "https://gw.example.com",
+      clientId: "wa_pub",
+      clientType: "public",
+      redirectUri: "https://app.example.com/cb",
+      scopes: ["openid"],
+    });
+    expect(snippet).toContain('"token_endpoint_auth_method": "none"');
     expect(snippet).not.toContain("WA_CLIENT_SECRET");
   });
 });

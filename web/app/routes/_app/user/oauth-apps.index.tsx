@@ -1,19 +1,20 @@
-// User: OAuth apps — list + create. §12 user surface, scoped to the active org.
-// oauth.md §6.2. The INDEX of /user/oauth-apps; the detail lives in the sibling
-// $appId route, rendered in the layout's Outlet.
+// User: "Sign in with WhatsApp" apps — the list. §12 user surface, scoped to
+// the active org. oauth.md §6.2. The INDEX of /user/oauth-apps; the detail
+// lives in the sibling $appId route, rendered in the layout's Outlet.
 //
-// List columns: name + logo, bound session (number + live status pill), mode
-// chips, grant count, status. "New app" opens the dedicated setup wizard.
+// Columns: name + logo + client ID, the WhatsApp number it uses (label + live
+// status), verification methods, status. "New app" opens the setup page.
 
 import { Link, createFileRoute } from "@tanstack/react-router";
-import { PlusIcon, RefreshCwIcon, KeyRoundIcon } from "lucide-react";
+import {
+  ArrowRightIcon,
+  LogInIcon,
+  PlusIcon,
+  RefreshCwIcon,
+  SmartphoneIcon,
+} from "lucide-react";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
-import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
-import {
-  Card,
-  CardContent,
-} from "~/components/ui/card";
 import {
   Empty,
   EmptyContent,
@@ -25,71 +26,63 @@ import {
 import {
   Table,
   TableBody,
+  TableCard,
   TableCell,
   TableHead,
   TableHeader,
   TableRow,
 } from "~/components/ui/table";
+import { Page, PageTitle } from "~/components/shell/page-title";
+import { CopyableId } from "~/components/copyable";
+import { SessionStatusBadge } from "~/components/status-badge";
 import { isApiError } from "~/lib/api/envelope";
 import { useSessions } from "~/lib/api/hooks/sessions";
 import { useOAuthApps, type OAuthApp } from "~/lib/api/hooks/oauth";
-import { SessionStatusBadge } from "./-components/user-ui";
-import { AppStatusBadge, ModeChips } from "./-oauth/ui";
+import { DOCS } from "~/lib/docs-links";
+import { titleHead } from "~/lib/head";
+import { AppAvatar, AppStatusBadge, ModeChips } from "./-oauth/ui";
 
 export const Route = createFileRoute("/_app/user/oauth-apps/")({
+  head: () => titleHead("Sign in with WhatsApp"),
   component: OAuthAppsList,
 });
 
 function OAuthAppsList() {
   const apps = useOAuthApps();
   const rows = apps.data?.pages.flatMap((p) => p.data) ?? [];
+  const empty = !apps.isLoading && !apps.isError && rows.length === 0;
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <h1 className="text-xl font-semibold">Sign in with WhatsApp</h1>
-          <p className="text-sm text-muted-foreground">
-            OAuth applications that let third-party apps sign users in with their
-            WhatsApp number.
-          </p>
-        </div>
-        <NewAppButton />
-      </div>
+    <Page>
+      <PageTitle
+        title="Sign in with WhatsApp"
+        description="Let people log in to your website or app by sending a short code from their WhatsApp to your number. No passwords."
+        docsHref={DOCS.signInWithWhatsApp}
+        actions={empty ? null : <NewAppButton />}
+      />
 
-      {apps.isLoading ? (
-        <div className="grid gap-3">
-          <Skeleton className="h-14 w-full" />
-          <Skeleton className="h-14 w-full" />
-        </div>
-      ) : apps.isError ? (
-        <Card>
-          <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
+      <TableCard>
+        {apps.isLoading ? (
+          <div className="grid gap-2 p-4">
+            <Skeleton className="h-12 w-full" />
+            <Skeleton className="h-12 w-full" />
+          </div>
+        ) : apps.isError ? (
+          <div className="flex flex-col items-center gap-3 py-10 text-center">
             <p className="text-sm text-destructive">
-              {isApiError(apps.error)
-                ? apps.error.message
-                : "Failed to load apps"}
+              {isApiError(apps.error) ? apps.error.message : "Couldn't load your apps"}
             </p>
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-1.5"
-              onClick={() => void apps.refetch()}
-            >
-              <RefreshCwIcon className="size-4" aria-hidden />
+            <Button variant="outline" size="sm" onClick={() => void apps.refetch()}>
+              <RefreshCwIcon aria-hidden data-icon="inline-start" />
               Retry
             </Button>
-          </CardContent>
-        </Card>
-      ) : rows.length === 0 ? (
-        <EmptyState />
-      ) : (
-        <Card>
-          <CardContent className="p-0">
-            <AppTable rows={rows} />
-          </CardContent>
-        </Card>
-      )}
+          </div>
+        ) : rows.length === 0 ? (
+          <EmptyState />
+        ) : (
+          <AppTable rows={rows} />
+        )}
+      </TableCard>
 
       {apps.hasNextPage && (
         <div className="flex justify-center">
@@ -102,8 +95,7 @@ function OAuthAppsList() {
           </Button>
         </div>
       )}
-
-    </div>
+    </Page>
   );
 }
 
@@ -113,34 +105,34 @@ function AppTable({ rows }: { rows: OAuthApp[] }) {
       <TableHeader>
         <TableRow>
           <TableHead>App</TableHead>
-          <TableHead>Bound session</TableHead>
-          <TableHead>Modes</TableHead>
+          <TableHead>WhatsApp number</TableHead>
+          <TableHead>Verified by</TableHead>
           <TableHead>Status</TableHead>
-          <TableHead className="text-right">Actions</TableHead>
+          <TableHead className="text-right">
+            <span className="sr-only">Actions</span>
+          </TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {rows.map((app) => (
           <TableRow key={app.id}>
             <TableCell>
-              <div className="flex items-center gap-3">
-                <Avatar className="size-8">
-                  {app.logoUrl ? <AvatarImage src={app.logoUrl} alt="" /> : null}
-                  <AvatarFallback className="text-xs">
-                    {initials(app.name)}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="min-w-0">
+              <div className="flex min-w-52 items-center gap-3">
+                <AppAvatar name={app.name} logoUrl={app.logoUrl} />
+                <div className="grid min-w-0">
                   <Link
                     to="/user/oauth-apps/$appId"
                     params={{ appId: app.id }}
-                    className="font-medium hover:underline"
+                    className="truncate font-medium underline-offset-4 hover:underline"
                   >
                     {app.name}
                   </Link>
-                  <p className="truncate font-mono text-xs text-muted-foreground">
-                    {app.clientId}
-                  </p>
+                  <CopyableId
+                    value={app.clientId}
+                    truncate
+                    label="Copy client ID"
+                    className="text-muted-foreground"
+                  />
                 </div>
               </div>
             </TableCell>
@@ -157,6 +149,7 @@ function AppTable({ rows }: { rows: OAuthApp[] }) {
               <Button asChild size="sm" variant="ghost">
                 <Link to="/user/oauth-apps/$appId" params={{ appId: app.id }}>
                   Manage
+                  <ArrowRightIcon aria-hidden data-icon="inline-end" />
                 </Link>
               </Button>
             </TableCell>
@@ -168,44 +161,76 @@ function AppTable({ rows }: { rows: OAuthApp[] }) {
 }
 
 /** Resolve the bound session from the already-loaded sessions list so the row
- * shows a human number + a live status pill. */
+ * shows the session name, its number, and a live status pill. */
 function BoundSession({ sessionId }: { sessionId: string }) {
   const sessions = useSessions();
   const rows = sessions.data?.pages.flatMap((p) => p.data) ?? [];
   const session = rows.find((s) => s.id === sessionId);
   if (!session) {
-    return (
-      <span className="font-mono text-xs text-muted-foreground">
-        {sessionId}
-      </span>
+    return sessions.isLoading ? (
+      <Skeleton className="h-4 w-28" />
+    ) : (
+      <CopyableId value={sessionId} truncate label="Copy session ID" />
     );
   }
   return (
-    <div className="flex items-center gap-2">
-      <span className="text-sm">
-        {session.phoneNumber ? `+${session.phoneNumber}` : session.label || session.id}
-      </span>
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+      <div className="grid min-w-0">
+        <Link
+          to="/user/sessions/$sessionId"
+          params={{ sessionId: session.id }}
+          className="truncate text-sm underline-offset-4 hover:underline"
+        >
+          {session.label || (session.phoneNumber ? `+${session.phoneNumber}` : session.id)}
+        </Link>
+        {session.label && session.phoneNumber ? (
+          <span className="text-xs text-muted-foreground tabular-nums">
+            +{session.phoneNumber}
+          </span>
+        ) : null}
+      </div>
       <SessionStatusBadge status={session.status} />
     </div>
   );
 }
 
 function EmptyState() {
+  const sessions = useSessions();
+  const sessionRows = sessions.data?.pages.flatMap((p) => p.data) ?? [];
+  const hasConnected = sessionRows.some((s) => s.status === "working");
+  const needsNumber = !sessions.isLoading && !hasConnected;
+
   return (
-    <Empty className="rounded-lg border border-dashed py-12">
+    <Empty className="border-0 py-12">
       <EmptyHeader>
         <EmptyMedia variant="icon">
-          <KeyRoundIcon />
+          {needsNumber ? <SmartphoneIcon aria-hidden /> : <LogInIcon aria-hidden />}
         </EmptyMedia>
-        <EmptyTitle>No OAuth apps yet</EmptyTitle>
-        <EmptyDescription>
-          Create an app to turn a WhatsApp session into a Sign in with WhatsApp
-          identity provider. Third-party apps use it as a standard OpenID Connect
-          provider.
+        <EmptyTitle>
+          {needsNumber ? "Connect a WhatsApp number first" : "No sign-in apps yet"}
+        </EmptyTitle>
+        <EmptyDescription className="text-pretty">
+          {needsNumber
+            ? "Your users sign in by messaging one of your numbers. Connect a number, then come back to create a sign-in app."
+            : "Create an app to add a “Sign in with WhatsApp” button to your site. It works with any standard OpenID Connect (OIDC) library."}
         </EmptyDescription>
       </EmptyHeader>
       <EmptyContent>
-        <NewAppButton />
+        {needsNumber ? (
+          <div className="flex flex-wrap justify-center gap-2">
+            <Button asChild size="sm">
+              <Link to="/user/sessions">
+                Connect a number
+                <ArrowRightIcon aria-hidden data-icon="inline-end" />
+              </Link>
+            </Button>
+            <Button asChild size="sm" variant="ghost">
+              <Link to="/user/oauth-apps/new">Set up an app anyway</Link>
+            </Button>
+          </div>
+        ) : (
+          <NewAppButton />
+        )}
       </EmptyContent>
     </Empty>
   );
@@ -213,18 +238,11 @@ function EmptyState() {
 
 function NewAppButton() {
   return (
-    <Button asChild size="sm" className="gap-1.5">
+    <Button asChild>
       <Link to="/user/oauth-apps/new">
-        <PlusIcon className="size-4" aria-hidden />
+        <PlusIcon aria-hidden data-icon="inline-start" />
         New app
       </Link>
     </Button>
   );
-}
-
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
-  return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase();
 }
