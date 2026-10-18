@@ -272,6 +272,8 @@ the API's; the rest is the gateway's.
 | `BETTER_AUTH_JWKS_URL` | `${BETTER_AUTH_URL}/api/auth/jwks` | Frontend signing-key endpoint. |
 | `FRONTEND_ORIGINS` | — | Allowed browser origins. |
 | `PUBSUB_REDIS_URL` | falls back to `REDIS_URL` | Control-bus Redis consumed by the API. |
+| `WEBHOOK_RETRIES_ATTEMPTS` | `5` | Delivery attempts given to a new webhook that is created without its own retry policy. Optional; not listed in `.env.example`. |
+| `WEBHOOK_RETRIES_DELAY` | `2` | First retry delay in seconds for those webhooks. Later retries double the delay. Optional; not listed in `.env.example`. |
 
 **API persistence and gateway identity** (`deploy/.env.example`):
 

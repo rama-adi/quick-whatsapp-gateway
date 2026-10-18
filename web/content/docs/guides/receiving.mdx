@@ -10,7 +10,7 @@ produces an **event**. You read those events in one of two ways:
 | Way | How it works | Use it when |
 |---|---|---|
 | **Realtime WebSocket** | You mint a ticket, open a WebSocket connection, and receive events as discrete JSON frames as they happen. | Your code can hold a connection open — a worker, a script, the dashboard. |
-| **Webhooks** | The gateway sends an HTTP `POST` to a URL you run, once per event, and retries until it succeeds. | You have a public URL and would rather not hold a connection open. |
+| **Webhooks** | The gateway sends an HTTP `POST` to a URL you run, once per event, and retries failed deliveries. | You have a public URL and would rather not hold a connection open. |
 
 Both carry the **same event envelope** (the JSON wrapper described below), so the data
 you receive is identical whichever you pick.
@@ -106,9 +106,8 @@ A login JWT expires after about 5 minutes, but the ticket carries the connection
 ## Use webhooks instead
 
 Register a webhook and the gateway delivers each matching event to your URL as a JSON
-`POST`. You create and manage webhooks through the gateway API
-([create a webhook](/docs/api/webhooks/createWebhook)); the dashboard shows the same
-config read-only.
+`POST`. You can create and edit webhooks in the dashboard or through the gateway API
+([create a webhook](/docs/api/webhooks/createWebhook)).
 
 A webhook is configured with:
 
@@ -117,8 +116,38 @@ A webhook is configured with:
 | URL | Where to send the `POST`. |
 | events | Which event types to send: `["*"]` for all, or a list like `["message","poll.vote"]`. An empty list matches nothing. |
 | session | Optional. Limit to one session. Leave it off to cover all the organization's sessions. |
+| secret | Optional. Used to sign each delivery so you can check it came from the gateway. See [before you trust a delivery](#before-you-trust-a-delivery). |
 | custom headers | Optional. Extra headers added to every delivery (applied last, so they can override the defaults below). |
-| retry policy | Optional. How many times and how often to retry a failed delivery. |
+| retry policy | Optional. How many times and how often to retry a failed delivery. See [retries](#retries). |
+| active | Turn off to pause deliveries without deleting the webhook. |
+
+### Set up a webhook in the dashboard
+
+1. Open **Webhooks** and select **New webhook**.
+2. Enter the **Delivery URL**: your server's HTTPS endpoint.
+3. Under **Sessions**, choose whether events come from every number in the organization or from one session.
+4. Choose **All events**, or **Only the events I choose** and tick events in the list. The list groups events by topic and describes each one in plain words.
+5. Optionally open **Advanced** to set the signing secret, custom headers, and retries.
+6. Select **Create webhook**.
+
+Under **Advanced**:
+
+- **Signing secret**: paste your own secret or select **Generate** to create one. The secret is recommended. After you save, the **Save your signing secret** dialog shows it once, with code to verify signatures. The dashboard never shows the secret again. To change it later, edit the webhook and select **Replace secret**. Saving replaces the old secret immediately, so update your server at the same time.
+- **Custom headers**: select **Add header** for each extra header name and value.
+- **Retries**: the webhook uses the gateway default unless you tick **Customize retries**. You can then set **Attempts**, **First wait (seconds)**, and **Backoff** (**Doubling** or **Fixed**). The form shows when the last retry would happen.
+
+To edit a webhook, select **Edit**. Untick **Deliver events** to pause it. The list
+shows each webhook as **Active** or **Paused**.
+
+### Send a test event
+
+The dashboard cannot trigger a delivery. Instead, open a webhook's **…** menu and
+select **Send a test event**. The dialog shows a `curl` command that sends your
+endpoint a sample `message` event, signed the same way as a real delivery. Replace
+`your-signing-secret` with your secret and run the command in a terminal. Your server
+should answer with a 2xx status.
+
+To see real events, send a message to one of your numbers.
 
 ### Delivery headers
 
@@ -142,9 +171,16 @@ Every `POST` carries these headers:
 - **Drop duplicates.** A retried delivery repeats the same event `id`
   (`X-Webhook-Request-Id`). Keep track of ids you have already handled and skip repeats.
 
-The gateway retries a failed delivery with growing gaps between attempts. Once a
-delivery is accepted (a 2xx response) it stops; once it runs out of retry attempts it
-is marked **dead** and not tried again.
+### Retries
+
+A delivery fails when your server does not answer with a 2xx status or cannot be
+reached. The gateway then tries again. A webhook created without its own retry policy
+gets the gateway default: up to 5 attempts, waiting 2 seconds before the first retry
+and doubling the wait each time (2s, 4s, 8s, …). Your gateway operator can change this
+default.
+
+Once a delivery is accepted, the gateway stops. Once it runs out of attempts, the
+delivery is marked **dead** and not tried again.
 
 ## Event catalog
 
@@ -155,7 +191,7 @@ all of them, or list just the ones you want.
 |---|---|
 | `session.status` | A session changes status (for example `working`, `logged_out`). |
 | `auth.qr` | A new QR code is available to scan. |
-| `auth.code` | A pairing code is available. |
+| `auth.code` | Pairing succeeded: a phone linked to the session. |
 | `message` | A message comes in. |
 | `message.from_me` | A message was sent from this number, including from another linked device. |
 | `message.status` | WhatsApp reports a receipt for message IDs; advance known statuses monotonically and ignore unknown/stale IDs. |
@@ -164,13 +200,16 @@ all of them, or list just the ones you want.
 | `message.edited` | A message is edited. |
 | `message.revoked` | A message is deleted for everyone. |
 | `poll.vote` | Someone votes on a poll. |
+| `poll.recap` | A poll's end time is reached. Sent once, with the vote totals. |
 | `presence.update` | A contact goes online or offline, or starts typing. |
 | `group.update` | A group's metadata changes (name, settings). |
 | `group.participant` | Someone joins, leaves, or changes role in a group. |
-| `chat.update` | A chat changes (archived, pinned, read state). |
+| `chat.update` | A chat changes. Currently sent only for profile-picture changes. |
 | `contact.update` | A contact's name or details change. |
 | `call.incoming` | A call comes in. |
 | `newsletter.update` | A followed channel updates. |
+| `media.ready` | An attachment finished uploading to your storage bucket. Includes its URL. |
+| `media.expired` | An attachment reached its retention limit and was deleted. |
 
 <Callout type="info">
 **Attachment storage is configured per session.** Media messages carry `hasMedia: true`. Linked sessions receive a tracked `media.id`; `media.ready` supplies the URL after upload. See [attachment storage](/docs/guides/attachment-storage).

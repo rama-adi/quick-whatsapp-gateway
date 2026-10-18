@@ -33,7 +33,7 @@ For fast rendering, the frontend reads the WhatsApp data tables straight from My
 through Drizzle (TanStack Start loaders run the queries). It only reads them. To
 change anything, it calls the API. So:
 
-- **Showing data** (dashboards, the message viewer, contacts) → the frontend queries MySQL directly, no extra network hop.
+- **Showing data** (dashboards, chats, contacts) → the frontend queries MySQL directly, no extra network hop.
 - **Doing something** (send a message, start or stop a session, fetch a QR code, register a webhook) → the frontend calls the REST API on the **router**, which authenticates the caller and dispatches private mTLS commands to the owning gateway.
 - **Live updates** → the frontend opens the **router's realtime WebSocket** (mint a single-use ticket, then connect; events arrive as discrete JSON frames). See Receive events (dashboard path `/docs/guides/receiving`).
 

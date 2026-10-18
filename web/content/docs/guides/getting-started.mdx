@@ -3,33 +3,42 @@ title: Getting started
 description: Sign in to your gateway dashboard and find your organization.
 ---
 
-This guide gets you to a running system and a signed-in account. The gateway is
-the service that holds the WhatsApp connection and serves the API; the dashboard
-is the web app where you sign in and manage things.
+This guide gets you to a signed-in account. The gateway is the service that
+holds the WhatsApp connection and serves the API. The dashboard is the web app
+where you sign in and manage things.
 
 ## Open your dashboard
 
 Use the dashboard URL provided by the person hosting your gateway. You also need
-the public API URL when calling the gateway from your own code.
+the public API URL when calling the gateway from your own code. The dashboard
+shows it when you create an API key and on each session's overview.
 
 ## Create your account
 
-Open the dashboard and sign up with an email and password. If registration is
-closed, ask your gateway operator to create an account for you. New accounts
-receive ordinary user access and a personal organization.
+Open the dashboard, select **Create one** below the sign-in form, and sign up
+with an email and password. If registration is closed, the sign-in page asks you
+to contact your gateway operator, who can create an account for you. New accounts receive ordinary user access and a personal organization.
+
+After you sign in, the dashboard opens on **Home**. Its **Get started**
+checklist walks you through the next steps. See [Home](/docs/guides/dashboard#home).
+
+If you forget your password, the gateway cannot send a reset email. Ask your
+gateway operator to set a new password, then change it from your
+[account settings](/docs/guides/dashboard#your-account). The same page lets you
+turn on two-factor authentication.
 
 ## Your personal organization
 
-Every resource in the gateway — a WhatsApp number, an API key, a webhook —
-belongs to an **organization** (a container that owns resources and can have
-several members), not to you directly. So when you sign up, the dashboard
-automatically creates a **personal organization** for you and makes you its
+Every resource in the gateway, such as a WhatsApp number, an API key, or a
+webhook, belongs to an **organization**, not to you directly. An organization is
+a container that owns resources and can have several members. When you sign up,
+the dashboard creates a **personal organization** for you and makes you its
 owner.
 
-For solo use you never think about this: your personal org is just "your stuff",
-and every number and key you create lands in it. It matters once you want to
-**share** a connection — sharing means inviting someone into the org that owns it.
-See [organizations](/docs/guides/organizations).
+For solo use you do not need to think about this. Every number and key you
+create goes into your personal organization. Organizations matter once you want
+to share a connection or keep separate projects apart. See
+[organizations](/docs/guides/organizations).
 
 ## Next
 

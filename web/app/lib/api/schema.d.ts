@@ -1822,7 +1822,7 @@ export interface paths {
          *
          *     **Delivery headers.** Every `POST` also carries `X-Webhook-Request-Id` (the event id — use it to drop duplicate redeliveries) and `X-Webhook-Timestamp` (epoch milliseconds). Custom headers may add receiver-specific metadata, but cannot override gateway-controlled `Content-Type` or `X-Webhook-*` integrity headers.
          *
-         *     **Retries.** A delivery that returns non-2xx or fails to connect is retried on the `retryPolicy` schedule — by default exponential backoff (2s, 4s, 8s, …) for up to 15 attempts, after which it is given up (dead-lettered).
+         *     **Retries.** A delivery that returns non-2xx or fails to connect is retried on the `retryPolicy` schedule — by default exponential backoff (2s, 4s, 8s, …) for up to 5 attempts, after which it is given up (dead-lettered). The operator can change this default.
          *
          *     On success returns `201` with the created webhook. Errors: `422 validation_error` if the body is malformed (e.g. `url` missing or not a valid URL); `403 forbidden` if the caller lacks the `manage` capability.
          */
@@ -4556,8 +4556,8 @@ export interface components {
         RetryPolicy: {
             /**
              * Format: int64
-             * @description Maximum number of delivery attempts before the delivery is given up and marked dead (dead-lettered). Defaults to 15.
-             * @example 15
+             * @description Maximum number of delivery attempts before the delivery is given up and marked dead (dead-lettered). A webhook created without a retryPolicy gets the API default (5 unless the operator changes WEBHOOK_RETRIES_ATTEMPTS). A value of 0 or less falls back to 15.
+             * @example 5
              */
             attempts: number;
             /**
@@ -5001,7 +5001,7 @@ export interface components {
              *     ]
              */
             events?: string[] | null;
-            /** @description How failed deliveries (non-2xx response or connection error) are retried. Omit to use the gateway default: exponential backoff with a 2s base delay (2s, 4s, 8s, …) for up to 15 attempts, after which the delivery is given up (dead-lettered). */
+            /** @description How failed deliveries (non-2xx response or connection error) are retried. Omit to use the API default: exponential backoff with a 2s base delay (2s, 4s, 8s, …) for up to 5 attempts, after which the delivery is given up (dead-lettered). The operator can change this default with WEBHOOK_RETRIES_DELAY and WEBHOOK_RETRIES_ATTEMPTS. */
             retryPolicy?: components["schemas"]["RetryPolicy"];
             /**
              * @description Plaintext HMAC signing secret. When set, the gateway signs each delivery: it sends the lowercase-hex HMAC-SHA512 of the exact raw request body in the X-Webhook-Hmac header (alongside X-Webhook-Hmac-Algorithm: sha512), so the receiver can recompute it with the same secret and confirm authenticity. Stored encrypted at rest and **never returned** in any response. On update: send a new value to rotate the secret; omit the field to leave the stored secret unchanged.

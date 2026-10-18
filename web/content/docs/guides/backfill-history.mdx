@@ -1,5 +1,5 @@
 ---
-title: Backfill chat history
+title: Import chat history
 description: Import your existing WhatsApp chat history into a session by uploading an encrypted backup.
 ---
 
@@ -24,13 +24,17 @@ top of live history) never creates duplicates.
 
 ## Import from the dashboard
 
-1. Open the session (**Sessions → your number**).
-2. In the **Backup import** card, choose your `.crypt15` file and paste the key.
-3. Press **Import**. The gateway decrypts the file (a wrong key or wrong file is
-   rejected immediately), then imports in the background. The card shows progress
-   and the counts of chats and messages as they land.
+1. Open **Sessions** and select your number.
+2. Find the **Import chat history** card on the session's overview. It appears once the phone is linked.
+3. Under **Backup file**, choose your `.crypt15` file.
+4. Paste the 64-character key into **Encryption key**.
+5. Select **Import backup**. The gateway decrypts the file first, so a wrong key or wrong file is rejected immediately. The import then runs in the background.
 
-When it finishes, open the **Chats** tab — your history is there.
+The card shows the job as **Importing**, then **Imported** or **Failed**, with the
+counts of chats and messages. After a successful import, the card shows when the next
+import is available.
+
+When it finishes, open the session's **Chats** page. Your history is there.
 
 ## Limits
 

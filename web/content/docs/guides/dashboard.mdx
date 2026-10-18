@@ -1,43 +1,176 @@
 ---
 title: The dashboard
-description: Manage your organization’s sessions, API keys, webhooks, chats, and contacts.
+description: Find your way around the dashboard — Home, sessions, chats, contacts, and your account settings.
 ---
 
-The dashboard is the web app where you sign in to pair WhatsApp numbers, create
-API keys and webhooks, and watch messages arrive. You work inside your active organization — the shared
-workspace that owns your numbers, keys, and webhooks.
+The dashboard is the web app where you link WhatsApp numbers, create API keys
+and webhooks, and read and reply to chats. Everything you see belongs to your
+active organization, the shared workspace that owns your numbers, keys, and
+webhooks. Pick the active organization with the organization switcher in the
+header. See [organizations](/docs/guides/organizations).
 
-## What a user can do
+## Pages in the sidebar
 
-Everything a user does is scoped to one **active organization** at a time. Switch
-which one is active with the org switcher.
+The **Workspace** section of the sidebar follows the order you usually set
+things up in.
 
 | Page | What you do there | More |
 |---|---|---|
-| **Sessions** | The org's WhatsApp numbers. Create one, start or stop it, get a QR or pairing code to link a phone, and watch its status change live. | [Connect a number](/docs/guides/connect-a-number) |
-| **API keys** | Create and revoke the org's keys. A key lets code call the gateway without a browser login. | [API keys](/docs/guides/api-keys) |
-| **Webhooks** | Set and edit the URLs where the org's events get sent. | [Receive events](/docs/guides/receiving) |
-| **Viewer** | Read-only window into a session's chats. | [Below](#the-viewer) |
-| **Contacts** | Searchable list of people and groups a session has seen. | [Below](#contacts) |
+| **Home** | See message activity and work through the get-started checklist. This is the page you land on after signing in. | [Below](#home) |
+| **Sessions** | Create a session for each WhatsApp number, link the phone, and start, stop, or remove it. | [Connect a number](/docs/guides/connect-a-number) |
+| **API keys** | Create and revoke keys that let your code call the gateway. | [API keys](/docs/guides/api-keys) |
+| **Webhooks** | Choose the URLs on your server that receive events. | [Receive events](/docs/guides/receiving#set-up-a-webhook-in-the-dashboard) |
+| **Attachment storage** | Connect an S3-compatible bucket so photos, videos, and documents stay downloadable. | [Attachment storage](/docs/guides/attachment-storage) |
+| **Sign in with WhatsApp** | Let people log in to your own website or app with their WhatsApp number. | [Sign in with WhatsApp](/docs/guides/sign-in-with-whatsapp) |
 
-## The viewer
+**Documentation** at the bottom of the sidebar opens these guides. Platform
+administrators also see an **Admin** section. Your gateway operator's
+documentation describes those pages.
 
-The viewer is a **read-only** window into one session's WhatsApp. It shows the
-session's chats and the message timeline, and updates live as new messages
-arrive. Edits replace the displayed text and show an **edited** label, including
-after reload. A message deleted for everyone displays **“This message was deleted”**
-and hides its original content and actions.
+## Home
 
-It is for watching, not replying — you send messages through the
-[API](/docs/guides/sending), not here. A stored attachment offers a download link after its upload completes. Configure [attachment storage](/docs/guides/attachment-storage) from the organization storage page and session overview.
+Home shows how your numbers are being used and what is left to set up.
 
-## Contacts
+The activity section has a time range selector: **Last 24 hours**, **Last 7
+days**, **Last 14 days**, or **Last 30 days**. Times are in your local time
+zone. It shows:
 
-Contacts is a searchable list of the people and groups a session has seen, built
-up from the messages it receives. Open a contact to see:
+- **Sessions**: how many numbers are connected, connecting, need attention, or stopped
+- **Messages received**: incoming messages on your numbers
+- **Messages sent**: messages sent from the API, the dashboard, and the phone
+- **Active chats**: chats with at least one message in the range
+- **Send failures**: sends that gave up after retrying
+- **Webhook deliveries**: events posted to your webhook URLs, including failed deliveries
 
-- Their direct chat with the session.
-- The groups you and they share, including the name they use in each group.
+The **Get started** checklist has 4 steps. Each step is ticked off on its own
+once the dashboard sees it done:
 
-Use it to find a recipient's **JID** — the WhatsApp address you send a message to
-— and to confirm who you are talking to before you send.
+1. Connect a WhatsApp number.
+2. Create an API key.
+3. Send your first message. The step shows a ready-to-run request with your first connected session filled in.
+4. Receive messages with a webhook.
+
+Use **Hide** to collapse the checklist and **Show** to open it again. It
+collapses on its own when every step is done. The close button removes it from
+Home for the current organization in this browser.
+
+## Inside a session
+
+Open a session from the **Sessions** page. The sidebar then shows a section
+named after the session with 3 pages: **Overview**, **Chats**, and
+**Contacts**. On a phone-sized screen the same 3 pages appear as tabs at the
+top.
+
+### Overview
+
+Before the phone is linked, the overview shows only the **Link your phone**
+card. See [connect a number](/docs/guides/connect-a-number#2-link-the-phone).
+
+After the phone is linked, the overview shows:
+
+- **Next steps**: shortcuts to create an API key, send a test message, add a webhook, and open chats. Hide it with the close button.
+- **Send a test message**: a ready-to-run request with this session's ID filled in. Enter a phone number in **Send to**; it defaults to your own number, so the message arrives in "Message yourself".
+- **Attachment storage**: where this session stores the media it receives. See [link a session](/docs/guides/attachment-storage#link-a-session).
+- **Import chat history**: load older messages from a WhatsApp backup. See [import chat history](/docs/guides/backfill-history).
+- **Details**: the phone number, WhatsApp ID (JID), LID, send rate limit, auto-read and typing settings, and when the session last connected.
+
+The **Start** or **Stop** button in the page header starts or stops the
+session. The **…** menu has **Restart**, **Log out** (only when a number is
+linked), and **Delete session…**. When a number is still linked, the delete item
+reads **Log out and delete…**. See [log out or delete a
+session](/docs/guides/connect-a-number#log-out-or-delete-a-session).
+
+### Chats
+
+Chats is a two-pane messenger. The left pane lists the session's chats with a
+search box. Pinned, muted, archived, and unread chats are marked. The right pane
+shows the selected conversation and updates live as messages arrive.
+
+You can reply from the dashboard:
+
+- Type in the message box at the bottom. Press **Enter** to send and **Shift** + **Enter** for a new line. WhatsApp formatting such as `*bold*` and `_italic_` works.
+- Use the paperclip menu to send a **Poll**, a **Location**, or a **Contact card**.
+- Open a message's actions menu to **Reply**, **Copy text**, or **Copy message ID**.
+- Vote on a poll by tapping one of its options.
+- Start a conversation with **New chat**. Pick a contact the session has seen, or type a phone number with its country code. The dashboard checks that the number is on WhatsApp before it opens the chat.
+
+A message you send appears straight away. If the send fails, the message is
+marked **Not sent** and your text goes back into the message box. In a group
+where only admins can post, or in a channel, the box warns you that the send
+fails unless this number is an admin or owns the channel. When the session is
+not connected, the box is replaced by a prompt to start the session or to link
+the phone again.
+
+Edited messages show an **edited** label. A message deleted for everyone shows
+"This message was deleted" and hides its content. An attachment shows a
+**Download** button once it is stored. See [attachment
+storage](/docs/guides/attachment-storage).
+
+The chat's options menu copies the chat ID (the JID you send to) or the phone
+number, and opens the person's contact page.
+
+To send from your own code instead, see [send messages](/docs/guides/sending).
+
+### Contacts
+
+Contacts lists the people this session has seen in direct chats or groups. Search
+by name or phone number. Use the **Seen in** filter to show **All**, **Direct
+chats**, or **Groups**.
+
+Open a contact to see:
+
+- their phone number and LID, each with a copy button
+- **Shared groups**: the groups you and they are both in, with the name they use in each group, their role, and when they were last seen
+- **Open chat** (or **Message** if you have not chatted yet)
+- a **…** menu with **Block…** and **Unblock**
+
+Use Contacts to find a recipient's JID, the WhatsApp address you send a message
+to.
+
+## Your account
+
+Open **Account** from the menu under your name at the bottom of the sidebar.
+These settings belong to you, not to an organization, so they apply in every
+organization you are a member of.
+
+### Profile
+
+Change your display **Name** and select **Save**. Your **Email** is the address
+you sign in with. Ask your gateway operator if it needs to change.
+
+### Password
+
+Enter your **Current password**, then the **New password** twice, and select
+**Change password**. Tick **Sign out of other devices** if you think someone
+else knows your password. The browser you are using stays signed in.
+
+You cannot reset a forgotten password by email. Ask your gateway operator to
+set a new password for you, then change it here after you sign in.
+
+### Two-factor authentication
+
+Two-factor authentication asks for a 6-digit code from an authenticator app
+after your password. A leaked password alone is then not enough to sign in. You
+need an authenticator app such as Google Authenticator, 1Password, Authy, or
+Microsoft Authenticator.
+
+To turn it on:
+
+1. Select **Set up two-factor** and confirm your password.
+2. Scan the QR code with your authenticator app. If you cannot scan it, select **Can't scan it? Enter a setup key instead** and type the key into the app as a time-based code.
+3. Enter the 6-digit code the app shows.
+4. Save the backup codes. Copy them or select **Download as .txt**. Each code works once and lets you sign in if you lose the authenticator app.
+
+When two-factor authentication is on, the sign-in page asks for a code after
+your password. Use the **Authenticator app** tab for a code from the app, or the
+**Backup code** tab for one of your backup codes. Tick **Don't ask again on
+this device for 30 days** to skip the code on that browser.
+
+Select **New backup codes** to replace your backup codes. The old codes stop
+working. Select **Turn off** to switch two-factor authentication off. Both ask
+for your password.
+
+<Callout type="info">
+While a platform administrator is signed in as you to help with support, the
+Account page is read-only.
+</Callout>

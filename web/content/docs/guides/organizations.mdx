@@ -14,7 +14,8 @@ When you sign up, an organization is created for you automatically, and you are 
 owner. If you work alone you never have to think about it: everything you create lands
 in that one organization.
 
-It only starts to matter when you want a second person on a connection.
+It starts to matter when you want a second person on a connection, or when you want
+to keep separate projects apart.
 
 ## Letting someone else manage a connection
 
@@ -31,16 +32,31 @@ Each member has a role that decides what they are allowed to do:
 | `admin` | Manage the organization's sessions, API keys, and webhooks, and invite people. |
 | `member` | Read messages and send messages. Cannot change settings or membership. |
 
-One person can be a member of more than one organization. The dashboard has an **org
-switcher** to pick which one you are currently working in. The organization you have
-selected is the one that any new resource you create belongs to, and the one your
-access is checked against.
+## Switch between organizations
+
+One person can be a member of more than one organization. The organization switcher
+in the dashboard header shows the organization you are working in. Open it to pick
+another one. The selected organization owns any new resource you create, and the
+gateway checks your access against it.
+
+When no organization is selected, the switcher reads **Select organization** and the
+workspace pages ask you to pick one.
+
+## Create another organization
+
+Create a separate organization to keep projects apart, each with its own WhatsApp
+numbers, API keys, and webhooks.
+
+1. Open the organization switcher and select **Create organization**.
+2. Enter a **Name** of up to 80 characters.
+3. Select **Create organization**. You become the owner, and the dashboard switches to the new organization.
 
 <Callout type="info">
-**You can't send invitations from the dashboard yet.** Members, roles, and email
-invitations all work under the hood, but the dashboard screens for sending and
-accepting an invitation ship in a later release. Until then, organizations work for
-solo use as described above.
+You cannot add members from the dashboard yet. The **Members** item in the
+organization switcher is marked **Coming soon**. Members, roles, and email
+invitations exist in the backend, but the screens for sending and accepting an
+invitation ship in a later release. Until then, each organization has one member:
+the person who created it.
 </Callout>
 
 ## Organization administrators

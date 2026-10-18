@@ -15,8 +15,23 @@ Linking takes three steps:
 
 ## 1. Create the session
 
-In the dashboard, open your organization's sessions page, create a session, and
-give it a label.
+In the dashboard:
+
+1. Open **Sessions** and select **New session**.
+2. Enter a **Name** you will recognize, such as "Support line".
+3. Optionally open **Advanced options** (see below).
+4. Select **Create and link phone**.
+
+The dashboard creates the session and opens its overview on the **Link your
+phone** card.
+
+**Advanced options** has 3 settings:
+
+| Setting | Default | What it does |
+|---|---|---|
+| **Start right away** | On | Shows a QR code as soon as the session exists. Turn it off if you will link with a phone-number code instead. |
+| **Auto-read messages** | Off | Marks incoming messages as read automatically. You cannot change this later. |
+| **Show typing indicator** | Off | Shows "typing…" to the recipient while a message is sent. You cannot change this later. |
 
 To do it from code, send `POST /sessions` with an optional label and a `start`
 flag. See [create a session](/docs/api/sessions/createSession). If the session
@@ -29,16 +44,20 @@ start it or request a phone pairing code directly.
 
 ## 2. Link the phone
 
-Pick whichever is easier on the phone. Both link the same way WhatsApp's own
-"Linked devices" feature does.
+The **Link your phone** card has 2 tabs: **QR code** and **Phone number**. Pick
+whichever is easier on the phone. Both link the same way WhatsApp's own "Linked
+devices" feature does. The card lists the steps for the selected tab, and the
+page updates by itself once the phone is linked. To return to an unlinked
+session later, select **Link phone** next to it on the **Sessions** page.
 
 ### Option A: Scan a QR code
 
-The session produces a QR code string that refreshes about every 20 seconds. The
-dashboard draws the QR image for you and swaps it each time it refreshes.
+On the **QR code** tab, the dashboard draws the QR image and replaces it each
+time it refreshes, about every 20 seconds. If the session is stopped, select
+**Start session** to show a code.
 
-On the phone, open **WhatsApp → Linked devices → Link a device**, then scan the
-code shown in the dashboard.
+On the phone, open **WhatsApp → Settings → Linked devices → Link a device**,
+then point the camera at the QR code.
 
 To fetch the current code from code instead, call
 [get the QR code](/docs/api/sessions/sessionQR). The endpoint returns JSON with a
@@ -49,10 +68,17 @@ directly without calling `:start` first.
 
 ### Option B: Enter a pairing code
 
-If scanning is awkward, request a pairing code tied to the phone number. WhatsApp
-returns a short code (for example `ABCD-1234`) that you type into the phone.
+If scanning is awkward, use a pairing code tied to the phone number. WhatsApp
+returns an 8-character code, shown as `ABCD-1234`, that you type into the phone.
 
-Request the code:
+In the dashboard, open the **Phone number** tab, enter the number with its
+country code, and select **Get pairing code**. Select **Get a new code** if the
+code expires.
+
+On the phone, open **WhatsApp → Settings → Linked devices → Link a device**, tap
+**Link with phone number instead**, then type the code.
+
+To request the code from your own code:
 
 ```bash
 curl -X POST https://your-gateway/api/v1/sessions/{id}/pairing-code \
@@ -64,28 +90,44 @@ curl -X POST https://your-gateway/api/v1/sessions/{id}/pairing-code \
 The `phone` value is the number in international format — digits only, no `+` and
 no spaces.
 
-On the phone, open **WhatsApp → Linked devices → Link a device → Link with phone
-number instead**, then enter the code.
-
 See [request a pairing code](/docs/api/sessions/sessionPairingCode).
 
 ## 3. Confirm it linked
 
-Once the phone accepts, the session moves to the `working` status. A session can
-be in any of these statuses:
+Once the phone accepts, the session moves to the `working` status. The dashboard
+shows it as **Connected** and replaces the pairing card with the session's
+overview. See [inside a session](/docs/guides/dashboard#inside-a-session).
 
-| Status | Meaning |
-|---|---|
-| `starting` | Connecting to WhatsApp. |
-| `scan_qr_code` | Waiting for you to scan the QR code or enter the pairing code. |
-| `working` | Linked and live — ready to send and receive. |
-| `stopped` | Stopped on purpose; reconnects when you start it. |
-| `failed` | Connection failed; the gateway stopped retrying. |
-| `logged_out` | The link was removed (from the phone or by a ban); needs re-linking. |
+A session can be in any of these statuses:
+
+| Status | Dashboard label | Meaning |
+|---|---|---|
+| `starting` | Connecting | Connecting to WhatsApp. |
+| `scan_qr_code` | Waiting for QR scan | Waiting for you to scan the QR code or enter the pairing code. |
+| `working` | Connected | Linked and live — ready to send and receive. |
+| `stopped` | Stopped | Stopped on purpose; reconnects when you start it. |
+| `failed` | Failed | Connection failed; the gateway stopped retrying. |
+| `logged_out` | Logged out | The link was removed (from the phone or by a ban); needs re-linking. |
 
 The dashboard updates the status live. From code, you can
 [poll the session](/docs/api/sessions/getSession) or subscribe to `session.status`
 on the [realtime WebSocket](/docs/guides/receiving).
+
+## Log out or delete a session
+
+Both actions are in the **…** menu on the **Sessions** page and in the session's
+page header.
+
+- **Log out** unlinks this device from the phone. The session stays in the dashboard. To use the number again, link it with a new QR code or pairing code.
+- **Delete session…** removes the session and its settings. This cannot be undone.
+- **Log out and delete…** replaces **Delete session…** while a number is still linked. The dashboard logs the number out of WhatsApp first, then deletes the session.
+
+If the logout fails, the dashboard asks whether to delete the session anyway. If
+you do, the phone may keep showing the device under **Linked devices** until you
+remove it there.
+
+From code, call `POST /sessions/{id}:logout` before
+[deleting the session](/docs/api/sessions/deleteSession).
 
 ## Next
 

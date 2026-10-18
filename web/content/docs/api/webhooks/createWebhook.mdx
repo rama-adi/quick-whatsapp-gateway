@@ -39,8 +39,8 @@ _openapi:
 
           **Retries.** A delivery that returns non-2xx or fails to connect is
           retried on the `retryPolicy` schedule — by default exponential backoff
-          (2s, 4s, 8s, …) for up to 15 attempts, after which it is given up
-          (dead-lettered).
+          (2s, 4s, 8s, …) for up to 5 attempts, after which it is given up
+          (dead-lettered). The operator can change this default.
 
 
           On success returns `201` with the created webhook. Errors: `422

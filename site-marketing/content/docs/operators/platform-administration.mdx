@@ -1,17 +1,73 @@
 ---
 title: Platform administration
-description: Platform-wide account management, session oversight, pairing, and event monitoring.
+description: Platform-wide account management, session oversight, gateways, pairing, and event monitoring.
 ---
 
-## Extra pages a super admin sees
+A platform administrator (the `super_admin` role) manages the whole platform, not
+one organization. Grant the role with `ADMIN_USER_IDS` (see
+[create the first admin](/docs/operators/deploying#create-the-first-admin)) or with
+**Make platform admin** on the **Users & orgs** page.
 
-The super admin role spans the whole platform, not one organization. On top of
-the user pages above, a super admin gets:
+An administrator sees an **Admin** section in the dashboard sidebar, below the
+ordinary **Workspace** pages that every user has. Every privileged action asks for
+confirmation.
 
 | Page | What you do there |
 |---|---|
-| **Users** | List every account, change a person's role, ban or unban them, and impersonate one to help with support. |
-| **All sessions** | Every WhatsApp session across **all** organizations, with its live status. Each row shows which gateway (the Go service running the connection) the session lives on. |
-| **Admin number** | The pairing code for the deployment's [admin number](/docs/operators/deploying#create-the-first-admin), so it can be linked without console access. |
-| **Event monitor** | A live feed of events flowing through the platform. |
+| **All sessions** | See every WhatsApp session across all organizations, with its live status and the gateway it runs on. Filter to one organization. **Re-sync** fetches a session's contact list and every group, with members, from WhatsApp and saves them. It runs in the background. |
+| **Gateways** | See every gateway process, its health, and the sessions placed on it. Register a new gateway with **Add gateway**. |
+| **Users & orgs** | List every account on the **Users** tab and every organization on the **Organizations** tab. See the actions below. |
+| **Event monitor** | Watch a live feed of every event on the platform, newest first. |
+| **Number pairing** | Link the platform's admin WhatsApp number with a QR code or a pairing code, without console access. |
 
+## Users & orgs
+
+On the **Users** tab you can:
+
+- **Ban** or **Unban** an account
+- **Impersonate** a user to help with support
+- **Make platform admin** or **Remove platform admin**
+
+None of these actions can be run on your own account.
+
+While you impersonate someone, the header shows **Stop impersonating**. Select it to
+return to your own account. Their **Account** page is read-only while you are signed
+in as them.
+
+On the **Organizations** tab, **View sessions** opens **All sessions** filtered to that
+organization.
+
+## Gateways
+
+Open a gateway to see its health, keystore, version, assigned sessions,
+reconciliation results, and recent activity. The page offers only the actions that
+apply to the gateway's current state:
+
+| Action | What it does |
+|---|---|
+| **Drain** | Stops placing new sessions on the gateway. Current sessions keep running. |
+| **Resume** | Accepts new sessions again after a drain. |
+| **Disable** | Drops the gateway's connection and rejects reconnects. Its sessions go offline until you re-enable it. |
+| **Re-enable** | Lets a disabled gateway connect again. |
+| **Replace enrollment token** | Issues a new single-use enrollment token. The old token stops working. |
+| **Re-enroll** | Revokes the gateway's certificate and any unused token, then issues a new enrollment token, for example after moving it to a new host. |
+
+A new enrollment token is shown once. Store it in your deployment's secret manager.
+The same lifecycle is available through the admin API. See
+[cut over an existing gateway](/docs/operators/deploying#cut-over-an-existing-gateway).
+
+## Event monitor
+
+The monitor shows events as they arrive. Filter by event type or search the text.
+Select **Pause** to hold the list while you read it. The page counts the events that
+arrive while paused, and **Resume** shows them. **Clear** empties the list. Open an
+event to see its payload.
+
+## Number pairing
+
+The page lists the sessions marked as the platform's admin session. Each one has a
+**Scan a QR code** panel and a **Use a pairing code** panel. If no admin session
+exists, the page shows **No admin number set up**.
+
+The dashboard and API cannot mark a session as the admin session. A session has the
+mark only when its `is_admin_session` column in the `wa_sessions` table is set to `1`.

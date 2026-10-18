@@ -75,10 +75,11 @@ Config in `app/lib/auth/server.ts`:
   - `_auth.tsx` + `_auth/*` — public auth surface (login/register/2fa).
   - `_app.tsx` — authenticated layout; resolves the session server-side in
     `beforeLoad` and puts it on the route context (`{ session }`).
-  - `_app/admin/*` — super_admin surface (sessions/tenants/monitor/pairing).
-  - `_app/user*` — user workspace (sessions/keys/webhooks) + the org switcher.
-  - `_app/user.sessions.$sessionId.chats*` / `.contacts*` — viewer + contacts.
-  - `index.tsx` — role-routed entry (→ /login, /admin/sessions, or /user/sessions).
+  - `_app/admin/*` — super_admin surface (sessions, gateways, tenants, monitor, pairing).
+  - `_app/user/*` — user workspace (home, sessions, keys, webhooks, storage, Sign in with WhatsApp apps).
+  - `_app/user/sessions/$sessionId/chats/*` and `_app/user.sessions.$sessionId.contacts*` — chats and contacts for one session.
+  - `_app/account.tsx` — personal account settings (profile, password, two-factor).
+  - `index.tsx` — role-routed entry (→ /login, /user/home, or /admin/sessions for an admin without the user panel).
   - Files prefixed `-` are colocated helpers excluded from the route tree.
 
 Add more shadcn components with `pnpm dlx shadcn@latest add <name>`.

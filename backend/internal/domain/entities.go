@@ -198,7 +198,7 @@ type OAuthSigningKey struct {
 type RetryPolicy struct {
 	Policy       string `json:"policy" doc:"Backoff strategy for failed deliveries. **exponential** doubles the delay each attempt (delaySeconds × 2^(attempt-1)); any other value uses a constant delay of delaySeconds." example:"exponential"`
 	DelaySeconds int    `json:"delaySeconds" doc:"Base delay before retrying, in seconds. For the exponential policy this is the first-attempt delay and the base of the doubling. Defaults to 2." example:"2"`
-	Attempts     int    `json:"attempts" doc:"Maximum number of delivery attempts before the delivery is given up and marked dead (dead-lettered). Defaults to 15." example:"15"`
+	Attempts     int    `json:"attempts" doc:"Maximum number of delivery attempts before the delivery is given up and marked dead (dead-lettered). A webhook created without a retryPolicy gets the API default (5 unless the operator changes WEBHOOK_RETRIES_ATTEMPTS). A value of 0 or less falls back to 15." example:"5"`
 }
 
 // Webhook mirrors the webhooks table. HMACSecret is stored AES-GCM encrypted at

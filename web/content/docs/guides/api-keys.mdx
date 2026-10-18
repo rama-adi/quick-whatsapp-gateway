@@ -10,15 +10,20 @@ and the gateway checks the key on each call.
 
 ## Create a key
 
-1. Open the dashboard and go to your organization's **API Keys** page.
-2. Click **New key**.
-3. Give it a **name** — this is how you tell keys apart and revoke the right one
-   later.
-4. Tick the **permissions** the key needs (see [Permissions](#permissions) below).
-5. Click **Create key**.
+1. Open **API keys** in the dashboard sidebar.
+2. Select **New key**.
+3. Give it a **Name**, such as "Production server". The name is how you tell keys
+   apart and revoke the right one later.
+4. Tick the **Permissions** the key needs (see [Permissions](#permissions) below).
+5. Select **Create key**.
 
-The full secret is shown **once**, right after you create it. Copy it then. You
-can't read it again — if you lose it, revoke the key and make a new one.
+The **Save your API key** dialog shows the full key once. Copy it then. You
+cannot read it again. If you lose it, revoke the key and make a new one. The
+dialog also shows your gateway's API endpoint and a sample request that uses the
+new key.
+
+The list shows each key's prefix, permissions, when it was created, and when it
+was last used.
 
 Keys start with the prefix `wa_`.
 
@@ -71,6 +76,6 @@ stop working.
 
 ## Revoke a key
 
-On the **API Keys** page, find the key by its name and click **Revoke**. The key
-stops working immediately. Anything still using it will start getting rejected, so
+On the **API keys** page, find the key by its name, select **Revoke**, and
+confirm with **Revoke key**. The key stops working immediately. Anything still using it will start getting rejected, so
 swap in a new key first if the old one is in use.

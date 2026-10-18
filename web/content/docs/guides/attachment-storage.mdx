@@ -3,23 +3,39 @@ title: Attachment storage
 description: Connect organization S3 buckets, choose session storage, and control attachment retention.
 ---
 
-Open **Attachment storage** in the dashboard to manage buckets for the active
-organization. Organization members with the `manage` capability can create and
-update connections. Each organization can have multiple connections, and each
-session can use one connection at a time.
+Attachment storage saves the photos, videos, voice notes, and documents your sessions
+receive to your own S3-compatible bucket, so they stay downloadable. Open **Attachment
+storage** in the dashboard to manage bucket connections for the active organization.
+Organization members with the `manage` capability can create and update connections.
+An organization can have several connections. Each session uses one connection at a
+time.
 
 ## Connect a bucket
 
-Enter a connection name, the S3 service's endpoint, region, bucket name,
-access key, and secret key. Enable **path-style requests** when your S3 provider
-requires them. Public endpoints require HTTPS and public IP addresses. Trusted internal domains
+1. Select **Connect a bucket**.
+2. Pick a **Provider**: **AWS S3**, **Cloudflare R2**, **MinIO**, or **Other**. The preset fills in sensible values for the region, endpoint, and addressing style, and shows a hint for that provider.
+3. Enter a **Connection name**, the **Bucket name**, the **Region**, and the **Endpoint**. For AWS S3, the endpoint is filled in from the region until you edit it.
+4. Tick **Use path-style requests** if your provider needs them. MinIO and most self-hosted S3 services do. AWS S3 and Cloudflare R2 do not.
+5. Enter the **Access key ID** and **Secret access key**. They are stored encrypted and never shown again.
+6. Choose how long to keep attachments (see [retention](#retention)).
+7. Select **Connect bucket**.
+
+Provider defaults:
+
+| Provider | Region | Endpoint | Path-style |
+|---|---|---|---|
+| AWS S3 | you choose | `https://s3.<region>.amazonaws.com` | off |
+| Cloudflare R2 | `auto` | `https://<account-id>.r2.cloudflarestorage.com` | off |
+| MinIO | `us-east-1` | your MinIO URL | on |
+| Other | you choose | your provider's S3 API endpoint | off |
+
+For Cloudflare R2, your account ID is on the R2 overview page in Cloudflare. Use an R2
+API token with Object Read & Write permission.
+
+Public endpoints require HTTPS and public IP addresses. Trusted internal domains
 also support HTTP and private addresses, including `.internal`, `.local`, `.lan`,
 `.home.arpa`, `.localdomain`, `.svc`, and `.cluster.local` by default. Your
 operator can configure additional suffixes or exact service names.
-
-Choose a whole number of retention days starting at **1**, or select **Keep
-attachments indefinitely**. Saving stores the configuration and encrypted
-credentials. Transfers use the credentials when new attachments arrive.
 
 The bucket stays private. The gateway creates object keys under
 `whatsapp-gateway/<connection-id>/`. The storage credentials need object read,
@@ -27,19 +43,48 @@ write, and delete access to that prefix, plus prefix-scoped bucket listing so
 missing objects can be distinguished during retry recovery. Versioned buckets
 also need permission to read and delete the stored object version.
 
-To rotate credentials, edit the connection and supply both keys. Leave both key
-fields blank to keep the saved credentials. To change the endpoint, region,
-bucket name, or addressing style, create a new connection.
+### Retention
+
+**Keep attachments for** sets how long each new attachment stays stored. Choose **7
+days**, **30 days**, **90 days** (the default), **1 year**, **Keep forever**, or
+**Custom…**. A custom value must be a whole number of days, 1 or more.
+
+Retention is counted from when each attachment is saved. After that, the file is
+deleted and its link stops working. With **Keep forever**, files stay in the bucket
+until you delete them yourself.
+
+### Edit a connection
+
+Select **Edit** on a connection to rename it, replace its keys, or change its
+retention. A retention change applies to new attachments only.
+
+To rotate credentials, select **Replace keys** and enter both new keys. Keep the old
+keys valid until the files stored with them have expired. Select **Keep the saved
+keys** to cancel.
+
+The destination (endpoint, region, bucket name, and path-style setting) cannot be
+changed. To store files somewhere else, connect a new bucket. Files already saved stay
+where they are.
+
+### Remove a connection
+
+Open the connection's **…** menu, select **Remove…**, and confirm with **Remove
+connection**. While a session still uses the connection, the item reads **Remove
+(unlink sessions first)** and is disabled. The gateway forgets
+the connection and its saved keys. Files already in the bucket are not deleted. You
+can only remove a connection that no session uses and whose stored files have finished
+expiring.
 
 ## Link a session
 
-Open the session overview and choose a connection in **Attachment storage**.
-Choose **Capture disabled** to unlink it. You can switch or unlink at any time.
+Open the session's overview. In the **Attachment storage** card, choose a connection
+under **Store attachments in**. Choose **Don't store attachments** to stop storing.
+You can switch or stop at any time.
 
 The selected connection applies when the API captures a new attachment. Files
-already captured keep their original connection and expiry date. A retention
-change applies to subsequent captures. Linking starts capture for new messages;
-existing message history keeps its current storage state.
+already captured keep their original connection and expiry date. Linking starts
+capture for new messages; existing message history keeps its current storage state.
+Without a linked connection, media in the chat shows as "not downloaded".
 
 Capture covers images, videos, audio, documents, and stickers observed through
 WhatsApp, plus media and album sends through the API. The gateway's existing
@@ -59,7 +104,7 @@ when a file becomes available. The event includes `id`, `sessionId`,
 `size`, and optional `expiresAt`.
 
 Use `GET /api/v1/media/{id}` to read the current status and available URL.
-The chat viewer also offers **Download attachment** after an upload completes.
+In the dashboard, the chat shows a **Download** button on an attachment after its upload completes.
 
 A media URL grants access to its attachment. Share it with the intended recipients
 and keep it out of public logs. The API checks retention on every download and
@@ -74,8 +119,7 @@ serving content. A background worker removes the object and publishes
 
 Storage outages or revoked credentials delay physical deletion. Access remains
 expired while cleanup retries. Keep the connection credentials valid until
-cleanup finishes. You can remove a connection after unlinking its sessions and
-finishing cleanup of its retained files. Indefinite files remain stored.
+cleanup finishes. Files kept forever are never cleaned up.
 
 The worker tracks object keys in MySQL, reuses keys during retries, and targets
 the recorded version in versioned buckets. Cleanup operates on gateway-owned

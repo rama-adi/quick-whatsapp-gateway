@@ -38,32 +38,45 @@ and layer a second (e.g. a device check or step-up). Requiring
 `acr=wa:group` (below) shrinks the attack surface to known group members.
 </Callout>
 
-## Prerequisites: create an OAuth app
+## Prerequisites: create a sign-in app
 
-The person who owns the WhatsApp number (the gateway customer) creates the OAuth
-app in the dashboard — you, the relying-app developer, receive the resulting
-credentials. In the dashboard's **OAuth apps** section they:
+The person who owns the WhatsApp number (the gateway customer) creates the sign-in
+app in the dashboard. You, the relying-app developer, receive the resulting
+credentials. In the dashboard they open **Sign in with WhatsApp**, select **New app**,
+and fill in the form. A preview shows what users will see.
 
-1. **Name the app** and optionally add a logo. Both appear on the consent page and
-   in the bot's confirmation message, so users recognise who they're signing in to.
-2. **Bind it to one WhatsApp session** — that number becomes the "bot" users
-   message. Optionally set the **Bot name** to that WhatsApp account's display
-   name so users recognise the bot they're messaging (and can pick it from the
-   @-mention suggestions in group mode).
-3. **Choose the verification mode(s):** DM, Group, or both. Group mode requires
-   picking a pinned group.
-4. **Set the login command** — the keyword users type before the code (default
-   `login`, e.g. `masuk`). Messages starting with this word on the bound session
-   are intercepted for login and never reach the customer's own webhooks.
-5. **Add your redirect URI(s)** — exact-match, `https` only (`http://localhost`
-   allowed for development), no URL fragments.
-6. **Pick the client type and scopes** (see [Scopes and claims](#scopes-and-claims)).
+1. Under **App details**, enter the **App name** and optionally a **Logo URL**. Both
+   appear on the consent page and in the bot's confirmation message, so users
+   recognise who they're signing in to. Optionally set the **Bot name** to the
+   WhatsApp profile name of the number, so users recognise the bot they're messaging
+   (and can pick it from the @-mention suggestions in group mode).
+2. Under **WhatsApp number**, choose the **Number people message**. That connected
+   session becomes the "bot" users message.
+3. Under **How users verify**, turn on **Direct message**, **Group membership**, or
+   both. Group membership requires choosing the **Group users must be in**.
+4. Set the **Login keyword**: the word users type before the code (default `login`,
+   for example `masuk`). Messages to this number that start with this word are
+   intercepted for login and never reach the customer's own webhooks.
+5. Under **Redirect URIs**, add the **Allowed redirect URIs**: exact-match, `https`
+   only (`http://localhost` allowed for development), no URL fragments.
+6. Under **What your app receives**, pick the scopes (see
+   [Scopes and claims](#scopes-and-claims)).
+7. Under **App type and how long sign-ins last**, choose the **App type**:
+   **Server app** (a confidential client with a secret) or **Browser or mobile app**
+   (a public client with no secret, PKCE only). The same section sets the
+   **Access token lifetime** and **Stay signed in for** (the refresh token lifetime).
+8. Select **Create app**.
 
-On create they get a **`client_id`** and, for confidential clients, a
-**`client_secret`** shown **once** — copy it then; it can't be read again (they
-can rotate it later). Hand these to your app. The dashboard's **Integration** tab
-also generates a ready-to-run version of the example below, pre-filled with the
-app's `client_id` and redirect URI.
+On create they get a **`client_id`** and, for a server app, a **`client_secret`**
+shown **once**. Copy it then, because it can't be read again. They can create a new
+one later with **Rotate secret** on the app's **Settings** tab. Hand these values to
+your app.
+
+After the secret dialog closes, the dashboard opens the app's **Integration** tab.
+It lists the discovery URL, client ID, and redirect URI, and generates a
+ready-to-run version of the example below in **Node.js** or **Python**, pre-filled
+with the app's values. **Try sign-in** opens the real consent page in a new tab so
+the owner can walk through the flow their users will see.
 
 ## The endpoints (via discovery)
 
@@ -97,7 +110,7 @@ the optional `acr_values`.
 
 This is a complete end-to-end integration using the standard
 [`openid-client`](https://github.com/panva/node-openid-client) library — the same
-one the dashboard's Integration tab generates. It builds the authorize URL with
+one the dashboard's **Integration** tab generates for Node.js. It builds the authorize URL with
 PKCE, state, and nonce, handles the redirect back, exchanges the code, and reads
 the claims.
 
@@ -185,7 +198,7 @@ it and get verified claims.
 
 ### Choosing DM vs group per login
 
-If the OAuth app enables both modes, pick per request with `acr_values`:
+If the sign-in app enables both verification methods, pick per request with `acr_values`:
 
 - `acr_values: "wa:dm"` — DM verification.
 - `acr_values: "wa:group"` — group verification (proves membership).
@@ -211,7 +224,7 @@ of claims, available on the `id_token` and from `/userinfo`.
 What the claims mean:
 
 - **`sub`** — the user's canonical WhatsApp LID, such as
-  `107082225311887@lid`. It is stable across OAuth apps and therefore
+  `107082225311887@lid`. It is stable across sign-in apps and therefore
   correlatable across relying parties by design. Use it as your primary key for
   the account.
 - **`name`** — resolved fresh at each login from WhatsApp, so a display-name change
@@ -265,8 +278,8 @@ Two ways a grant ends:
 - **Your app revokes it** (RFC 7009). Post the refresh or access token to the
   revocation endpoint (your library exposes this — e.g.
   `client.tokenRevocation(config, token)`). Do this at your app's logout.
-- **The app owner revokes it** from the dashboard's **Grants** tab — per user or
-  all at once. This immediately kills the user's refresh tokens; their access token
+- **The app owner revokes it** from the app's **Signed-in users** tab in the
+  dashboard, with **Revoke** for one user or **Sign everyone out** for all of them. This immediately kills the user's refresh tokens; their access token
   then dies at its short TTL.
 
 Either way the user has to sign in through WhatsApp again to get a new grant.

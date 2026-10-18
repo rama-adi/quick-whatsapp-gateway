@@ -78,7 +78,9 @@ Pure helpers: `EventMatches(events, type)`, `SignHMAC(secret, body)`,
   delay before the next attempt is `delaySeconds * 2^(attempt-1)` →
   `2,4,8,16,…` for `delaySeconds=2`. Non-`exponential` policies use a constant
   `delaySeconds`. The exponent is clamped (`maxBackoffShift`) to avoid overflow.
-  Under-specified fields fall back to defaults (`delaySeconds=2`, `attempts=15`).
+  Under-specified fields fall back to defaults (`delaySeconds=2`, `attempts=15`). A
+  webhook created without a policy is stamped with the configured
+  `WEBHOOK_RETRIES_ATTEMPTS` / `WEBHOOK_RETRIES_DELAY` (default 5 attempts, 2s).
 - **Exhaustion.** When the just-run attempt number reaches `attempts`, the
   delivery is marked `dead` instead of rescheduled.
 - **Error vs. failure.** A non-2xx response or transport error is a normal
