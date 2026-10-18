@@ -130,6 +130,7 @@ func runWithStorageTransport(storageTransport http.RoundTripper) error {
 		ControlPublisher:           service.NewRedisControlPublisher(rdb),
 		DefaultRetryDelay:          cfg.WebhookRetryDelay,
 		DefaultRetryAttempts:       cfg.WebhookRetryAttempts,
+		RetentionDays:              cfg.RetentionDays,
 		Log:                        log,
 	})
 	apiHandlers := handlers.New(services, log)

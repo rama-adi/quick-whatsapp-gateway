@@ -1,0 +1,7 @@
+{
+  "title": "Overview",
+  "description": "Workspace activity at a glance: message, send-failure, and webhook delivery counts over a recent window, bucketed by hour or day in your time zone.",
+  "pages": [
+    "getOverview"
+  ]
+}

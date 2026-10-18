@@ -3,6 +3,7 @@
   "pages": [
     "index",
     "media-storage",
+    "overview",
     "sessions",
     "channels",
     "chats",

@@ -33,6 +33,10 @@ type Deps struct {
 	DefaultRetryDelay    int
 	DefaultRetryAttempts int
 
+	// RetentionDays is the configured RETENTION_DAYS (0 = keep forever). The
+	// overview reports it so clients can flag windows longer than retention.
+	RetentionDays int
+
 	Log *slog.Logger
 }
 
@@ -52,6 +56,7 @@ type Services struct {
 	Events    *EventsService
 	Backup    *BackupImportService
 	OAuthApps *OAuthAppService
+	Overview  *OverviewService
 }
 
 // New builds every service from shared immutable dependencies and is the single
@@ -77,6 +82,7 @@ func New(d Deps) *Services {
 		Admin:    NewAdminService(d.Store, nil, d.Log),
 		Events:   NewEventsService(d.Store.EventLog, d.Log),
 		Backup:   NewBackupImportService(d.Store, d.Log),
+		Overview: NewOverviewService(d.Store.Overview, d.Store.Sessions, d.RetentionDays),
 		OAuthApps: NewOAuthAppService(
 			d.Store,
 			d.OAuthClientSecretPepper,

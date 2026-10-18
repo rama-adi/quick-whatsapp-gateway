@@ -124,6 +124,7 @@ export const messages = mysqlTable("messages", {
 	createdAt: bigint("created_at", { mode: "number" }).notNull(),
 },
 (table) => [
+	index("idx_msg_activity").on(table.sessionId, table.direction, table.timestamp, table.chatJid),
 	index("idx_msg_chat").on(table.sessionId, table.chatJid, table.id),
 	index("idx_msg_retention").on(table.timestamp, table.id),
 	index("idx_msg_sender").on(table.senderLid),
@@ -150,6 +151,7 @@ export const outbox = mysqlTable("outbox", {
 	updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 },
 (table) => [
+	index("idx_outbox_activity").on(table.organizationId, table.status, table.createdAt, table.sessionId),
 	index("idx_outbox_due").on(table.status, table.nextAttemptAt),
 	primaryKey({ columns: [table.id], name: "outbox_id"}),
 	unique("uq_idem").on(table.organizationId, table.idempotencyKey),
@@ -228,6 +230,7 @@ export const webhookDeliveries = mysqlTable("webhook_deliveries", {
 	createdAt: bigint("created_at", { mode: "number" }).notNull(),
 },
 (table) => [
+	index("idx_deliv_activity").on(table.webhookId, table.status, table.createdAt),
 	index("idx_deliv_event_status").on(table.eventId, table.status),
 	index("idx_deliv_retention").on(table.status, table.createdAt, table.id),
 	index("idx_deliv_retry").on(table.status, table.nextRetryAt),

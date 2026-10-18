@@ -93,8 +93,9 @@ last-option-wins), and return `*asynq.TaskInfo`. `Close()` releases the conn.
 
 `RetentionCutoffMs(now, retentionDays)` computes the prune cutoff and returns
 `ok=false` when `retentionDays <= 0` (§5: 0 = keep forever) so the scheduler can
-skip enqueueing entirely. `RETENTION_DAYS` is an API configuration value:
-negative values are rejected at boot. The daily scheduler uses a UTC midnight
+skip enqueueing entirely. `RETENTION_DAYS` is an API configuration value
+(`config.APIConfig.RetentionDays`): negative values are rejected at boot, and
+`GET /api/v1/overview` reports it as `retentionDays`. The daily scheduler uses a UTC midnight
 cutoff, retaining at least the configured number of full UTC days (and the
 current partial day).
 

@@ -229,6 +229,7 @@ func (s *Server) Handler() http.Handler {
 			handlersapi.RegisterStatusOps(hapi, s.resourceHandlers)
 			handlersapi.RegisterBackupOps(hapi, s.resourceHandlers)
 			handlersapi.RegisterAdminOps(hapi, s.resourceHandlers)
+			handlersapi.RegisterOverviewOps(hapi, s.resourceHandlers)
 		})
 	}
 	if s.oidpSigner != nil {

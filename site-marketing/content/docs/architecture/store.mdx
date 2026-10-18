@@ -49,6 +49,7 @@ api-key `reference_id`, never by joining `member` on the hot path ([`trust-model
 | `event_log` | `EventLogRepo` | `organization_id` |
 | `outgoing_message_event_claims` | `EventLogRepo` + `GatewayEventIngestRepo` | composite organization/session/chat/WhatsApp-message identity; first committed event owner |
 | `messages` + `event_log` + `webhook_deliveries` | `RetentionRepo` | global maintenance (bounded retention batches) |
+| `messages` + `outbox` + `webhook_deliveries` (read-only) | `OverviewRepo` | `organization_id`; messages via the org's session ids, deliveries via the org's webhook ids |
 | `backfill_imports` | `BackfillImportRepo` | via `session_id` (import job status + once/24h quota) |
 | `oauth_clients` | `OAuthClientRepo` | `organization_id` |
 | `oauth_grants` | `OAuthGrantRepo` | `organization_id` |
@@ -325,6 +326,41 @@ terminal webhook-delivery rows, messages, then event-log rows that have no
 `pending` or retryable `failed` webhook delivery. This keeps webhook retries
 able to reload their event body while still bounding completed history.
 
+## Overview activity indexes (`migration 0020_overview_indexes`)
+
+`OverviewRepo` serves the read-only aggregates behind `GET /api/v1/overview`
+(queries in `backend/internal/store/queries/overview.sql`). Migration
+**`0020_overview_indexes`** adds one covering index per counted table so every
+window query is an index-only range scan:
+
+| Index | Serves |
+|---|---|
+| `messages(session_id, direction, timestamp, chat_jid)` (`idx_msg_activity`) | received/sent counts per bucket, the distinct active-chat count, and the "has sent" seek on `(session_id, 'out')` |
+| `outbox(organization_id, status, created_at, session_id)` (`idx_outbox_activity`) | failed sends per bucket (with the optional session filter) and the "has sent" seek on `(organization_id, 'sent')` |
+| `webhook_deliveries(webhook_id, status, created_at)` (`idx_deliv_activity`) | delivered / failed / dead deliveries per bucket |
+
+Query shape decisions:
+
+- **Bucketing is exact, not approximated.** The service computes the bucket
+  starts in the caller's time zone; each query passes the starts after the first
+  to MySQL `INTERVAL(x, b1, ..., bn)`, which binary-searches them and returns
+  the zero-based bucket index. Grouping by that index returns at most one row
+  per bucket (and direction/status), and half-hour zones and DST days need no
+  special handling in SQL. The repo folds the rows into zero-filled series.
+- **Ids are resolved first, then filtered with `IN`.** Messages are filtered by
+  the org's session ids (or the one filtered session) and deliveries by the
+  org's webhook ids. A `JOIN` to `wa_sessions`/`webhooks` made MySQL fall back
+  to a ref lookup on the leading column alone and read every row of that
+  session or webhook.
+- **Index hints pin the covering indexes.** With skewed statistics MySQL picks
+  shorter indexes (`uq_deliv_webhook_event`, or `idx_outbox_due` for the
+  `EXISTS` check, which would walk other organizations' sent rows). Each
+  overview query uses `FORCE INDEX` on its 0020 index.
+- **Session-filtered deliveries join `event_log`.** Deliveries carry no session
+  column, so the filtered query uses `STRAIGHT_JOIN event_log` on
+  `uq_event_id`: the in-window deliveries drive the join and each one costs a
+  single unique-key lookup.
+
 A session pinned to a gateway that is missing / not `active` / has a stale heartbeat is a *stranded*
 session: the router returns the new **`gateway_unavailable` (HTTP 503)** domain error rather than
 hanging. After running the migration, `cd web && pnpm db:introspect` refreshes the read-only WA
@@ -520,6 +556,11 @@ read queries can compile without making the API a writer or migration owner for 
 `go-sqlmock` (regexp matcher) drives every repo — generated SQL execution, arg binding, row mapping
 into `domain` (incl. `*T` nullables + typed JSON), cursor pagination, and `ErrNoRows`/zero-rows →
 `not_found` mapping. `CGO_ENABLED=0 go -C backend test ./internal/store/...`.
+
+Behavior sqlmock cannot check (foreign-key cascades, lease predicates, `INTERVAL()`
+bucketing, window edges) runs against a real migrated schema in `*_mysql_test.go` and
+`TestOverviewMySQL`. Those tests skip unless `STORE_TEST_DSN` points at a database whose
+name starts with `qwg_store_test` and `STORE_TEST_DISPOSABLE=1` is set.
 
 ## Session lifecycle transaction boundary
 

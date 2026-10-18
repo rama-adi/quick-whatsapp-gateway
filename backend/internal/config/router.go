@@ -50,6 +50,7 @@ type APIConfig struct {
 	AppEncryptionKey        string // APP_ENCRYPTION_KEY: AES-GCM key for webhook HMAC secrets (API-owned since Increment 7)
 	WebhookRetryDelay       int    // WEBHOOK_RETRIES_DELAY (seconds): seeds new webhooks' retry policy
 	WebhookRetryAttempts    int    // WEBHOOK_RETRIES_ATTEMPTS: seeds new webhooks' retry policy
+	RetentionDays           int    // RETENTION_DAYS: history retention policy in days; 0 keeps forever
 	WhatsAppAdminCmdPrefix  string // WHATSAPP_ADMIN_CMD_PREFIX: reserved command namespace prefix
 	WebLoginURL             string // WEB_LOGIN_URL: public consent page URL
 	OIDCRequestTTLSeconds   int    // OIDC_REQUEST_TTL_SECONDS
@@ -89,6 +90,7 @@ func LoadAPI() (*APIConfig, error) {
 		AppEncryptionKey:           getString("APP_ENCRYPTION_KEY", ""),
 		WebhookRetryDelay:          getInt("WEBHOOK_RETRIES_DELAY", 2),
 		WebhookRetryAttempts:       getInt("WEBHOOK_RETRIES_ATTEMPTS", 5),
+		RetentionDays:              getInt("RETENTION_DAYS", 0),
 		WhatsAppAdminCmdPrefix:     getString("WHATSAPP_ADMIN_CMD_PREFIX", "am"),
 		WebLoginURL:                getString("WEB_LOGIN_URL", ""),
 		OIDCRequestTTLSeconds:      getInt("OIDC_REQUEST_TTL_SECONDS", 600),
@@ -149,6 +151,9 @@ func LoadAPI() (*APIConfig, error) {
 func (c *APIConfig) Validate() error {
 	if c.HTTPAddr == "" {
 		return fmt.Errorf("config: API_HTTP_ADDR must not be empty")
+	}
+	if c.RetentionDays < 0 {
+		return fmt.Errorf("config: RETENTION_DAYS must not be negative")
 	}
 	if c.PublicGRPCAddr == "" {
 		return fmt.Errorf("config: API_PUBLIC_GRPC_ADDR must not be empty")

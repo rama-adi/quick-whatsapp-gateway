@@ -205,6 +205,13 @@ e2e smoke against a live WhatsApp number.
   merges with live capture. **Quota locked: once per 24h per session for non-admins; super_admin
   unlimited** — enforced durably via the new `backfill_imports` table (Migration
   `0003_backfill_imports`). See `docs/specs/backfill-import.md`.
+- **Workspace overview (`GET /api/v1/overview`):** one org-scoped endpoint feeds the dashboard
+  home page with window totals plus zero-filled hourly (24h) or daily (7/14/30d) series, aligned
+  to the caller's IANA `tz`. Bucket boundaries are computed in Go with calendar arithmetic and
+  applied exactly in SQL through `INTERVAL()`, so DST days and half-hour zones need no
+  approximation. Covering indexes come from migration `0020_overview_indexes`. `retentionDays`
+  echoes `RETENTION_DAYS`, which the API config now parses and validates. See the
+  architecture specs `resources.mdx` (Workspace overview) and `store.mdx`.
 
 ## Open risks / follow-ups
 

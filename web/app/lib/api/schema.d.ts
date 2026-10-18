@@ -487,6 +487,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the workspace overview
+         * @description Returns an activity summary for the caller's organization over a recent window: messages received and sent, active chats, failed sends, and webhook delivery outcomes. Each count is returned as a window total and as a per-bucket series for charts. Requires the `read` capability.
+         *
+         *     **Buckets.** `range=24h` returns 24 hourly buckets; `7d`, `14d` and `30d` return 7, 14 or 30 daily buckets. Buckets are aligned to the `tz` time zone and listed in `buckets` as epoch-millisecond start times, oldest first. The last bucket contains the current moment, so it is partial. Every series has one entry per bucket, and buckets without activity are 0.
+         *
+         *     **What is counted.** Messages are bucketed by their WhatsApp timestamp. Failed sends and webhook deliveries are bucketed by when they were created, using their current status. `hasSentMessage` and `retentionDays` describe the organization and do not depend on the window. Session states, API keys and webhook configuration are not included; use `GET /sessions` and `GET /webhooks` for those.
+         *
+         *     Errors: `validation_error` if `range` or `tz` is invalid; `not_found` if `session` is not owned by the caller's organization; `forbidden` if the caller lacks the `read` capability.
+         */
+        get: operations["getOverview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sessions": {
         parameters: {
             query?: never;
@@ -4115,6 +4141,164 @@ export interface components {
             jid?: string;
             query: string;
         };
+        Overview: {
+            /**
+             * @description Start of each bucket in Unix epoch milliseconds, oldest first. Each bucket runs until the next bucket starts; the last bucket runs until to and is therefore usually partial. Daily buckets follow the local calendar, so a bucket on a daylight-saving change day is 23 or 25 hours long.
+             * @example [
+             *       1760029200000,
+             *       1760115600000,
+             *       1760202000000,
+             *       1760288400000,
+             *       1760374800000,
+             *       1760461200000,
+             *       1760547600000
+             *     ]
+             */
+            buckets: number[];
+            /**
+             * Format: int64
+             * @description Start of the window in Unix epoch milliseconds. Equal to the start of the first bucket.
+             * @example 1760029200000
+             */
+            from: number;
+            /**
+             * @description True when the organization has ever sent a WhatsApp message, either through the API or from a linked phone. Not limited to the window or the session filter. Useful for a getting-started checklist.
+             * @example true
+             */
+            hasSentMessage: boolean;
+            /**
+             * @description The window length that was used: 24h returns 24 hourly buckets; 7d, 14d and 30d return 7, 14 or 30 daily buckets.
+             * @example 7d
+             * @enum {string}
+             */
+            range: "24h" | "7d" | "14d" | "30d";
+            /**
+             * Format: int64
+             * @description The configured history retention in days (the RETENTION_DAYS setting). 0 means history is kept forever. When the window is longer than this value, the oldest buckets may be undercounted because older messages and deliveries can be deleted.
+             * @example 0
+             */
+            retentionDays: number;
+            /** @description The same counts split per bucket. Every array has exactly one entry per element of buckets, in the same order; buckets with no activity are 0. */
+            series: components["schemas"]["OverviewSeries"];
+            /**
+             * Format: int64
+             * @description End of the window in Unix epoch milliseconds: the moment the summary was computed. Activity at or after this instant is not counted.
+             * @example 1760600000000
+             */
+            to: number;
+            /** @description Counts for the whole window. */
+            totals: components["schemas"]["OverviewTotals"];
+            /**
+             * @description The IANA time zone the buckets are aligned to (echoes the tz parameter, UTC by default). Hourly buckets start on the hour and daily buckets start at local midnight in this zone.
+             * @example Asia/Jakarta
+             */
+            tz: string;
+        };
+        OverviewSeries: {
+            /**
+             * @description Incoming messages per bucket.
+             * @example [
+             *       180,
+             *       201,
+             *       164,
+             *       190,
+             *       175,
+             *       166,
+             *       158
+             *     ]
+             */
+            messagesReceived: number[];
+            /**
+             * @description Outgoing messages per bucket.
+             * @example [
+             *       80,
+             *       92,
+             *       77,
+             *       85,
+             *       81,
+             *       79,
+             *       73
+             *     ]
+             */
+            messagesSent: number[];
+            /**
+             * @description Failed send requests per bucket, by creation time.
+             * @example [
+             *       0,
+             *       1,
+             *       0,
+             *       0,
+             *       2,
+             *       0,
+             *       0
+             *     ]
+             */
+            sendsFailed: number[];
+            /**
+             * @description Delivered webhook deliveries per bucket, by creation time.
+             * @example [
+             *       160,
+             *       170,
+             *       150,
+             *       165,
+             *       155,
+             *       152,
+             *       148
+             *     ]
+             */
+            webhookDeliveries: number[];
+            /**
+             * @description Failed or dead webhook deliveries per bucket, by creation time.
+             * @example [
+             *       2,
+             *       1,
+             *       0,
+             *       4,
+             *       3,
+             *       2,
+             *       1
+             *     ]
+             */
+            webhookFailures: number[];
+        };
+        OverviewTotals: {
+            /**
+             * Format: int64
+             * @description Number of distinct chats (per session) with at least one incoming or outgoing message in the window.
+             * @example 42
+             */
+            activeChats: number;
+            /**
+             * Format: int64
+             * @description Messages received from WhatsApp (incoming) whose WhatsApp timestamp is in the window.
+             * @example 1234
+             */
+            messagesReceived: number;
+            /**
+             * Format: int64
+             * @description Outgoing messages whose WhatsApp timestamp is in the window. Includes messages sent through the API and messages typed on the linked phone.
+             * @example 567
+             */
+            messagesSent: number;
+            /**
+             * Format: int64
+             * @description Send requests created in the window that ended in a definite failure (outbox status failed). Sends with an unknown outcome are not counted.
+             * @example 3
+             */
+            sendsFailed: number;
+            /**
+             * Format: int64
+             * @description Webhook deliveries created in the window that your endpoint accepted (status delivered).
+             * @example 1100
+             */
+            webhookDeliveries: number;
+            /**
+             * Format: int64
+             * @description Webhook deliveries created in the window whose latest attempt failed: still retrying (failed) or given up (dead).
+             * @example 13
+             */
+            webhookFailures: number;
+        };
         PairingCodeInputBody: {
             /**
              * @description Phone number to pair in E.164 digits only (country code + number, no + or spaces).
@@ -5659,6 +5843,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OAuthAppWithSecret"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getOverview: {
+        parameters: {
+            query?: {
+                /** @description How far back to look. 24h returns the last 24 hours in hourly buckets; 7d, 14d and 30d return the last 7, 14 or 30 days in daily buckets (today included, so the last bucket is partial). */
+                range?: "24h" | "7d" | "14d" | "30d";
+                /** @description IANA time zone name used to align buckets: hourly buckets start on the hour and daily buckets start at midnight in this zone. Pass the viewer's zone so days match their calendar. An unknown zone fails with validation_error. */
+                tz?: string;
+                /** @description Optional session id. When set, messages, active chats, failed sends and webhook deliveries are counted for this session only. Must belong to the caller's organization, otherwise the request fails with not_found. Omit to count all of the organization's sessions. */
+                session?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Overview"];
                 };
             };
             /** @description Error */

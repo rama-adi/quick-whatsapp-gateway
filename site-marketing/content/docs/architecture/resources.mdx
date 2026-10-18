@@ -192,6 +192,46 @@ fail. Identity capture is the reliability focus (`wa.LiveOps.BackfillSessionData
   source. Names are `COALESCE`d on upsert, so a member with no push name yet stays
   unnamed until message capture fills it; obfuscated display names are never stored.
 
+## Workspace overview
+
+`GET /api/v1/overview` (`read` capability) returns the dashboard home page's
+activity summary for the caller's organization. Handler
+`backend/internal/http/handlers/overview_ops.go`, service
+`backend/internal/service/overview.go`, repo `store.OverviewRepo`, response type
+`apitypes.Overview`. It is served from MySQL projections in the API process and
+never contacts a gateway.
+
+- **Parameters.** `range` is `24h` (24 hourly buckets) or `7d`/`14d`/`30d` (7/14/30
+  daily buckets), default `7d`. `tz` is an IANA zone name, default `UTC`; an unknown
+  zone (or `Local`) is `400 validation_error`. `session` optionally narrows the counts
+  to one session; a missing or foreign session is `404 not_found`.
+- **Buckets.** `OverviewBuckets` computes the boundaries in `tz` with calendar
+  arithmetic. Daily starts are `time.Date(y, m, d-k, 0, 0, 0, 0, loc)`, so a DST day
+  is one 23- or 25-hour bucket. Hourly starts step back one real hour and truncate
+  to the local `:00`, so a repeated fall-back hour gets its own bucket and
+  half-hour/45-minute offset zones stay on their wall-clock hour. The last bucket
+  contains now (partial); `from` is the first bucket start and `to` is now
+  (exclusive). The response returns the boundaries so clients never recompute them.
+- **What is counted.** `messagesReceived`/`messagesSent` are `messages` rows by
+  direction and WhatsApp `timestamp` (sent includes messages typed on the phone);
+  `activeChats` is distinct `(session_id, chat_jid)` with a message in the window;
+  `sendsFailed` is `outbox` rows with status `failed` by `created_at` (`unknown`
+  outcomes are excluded); `webhookDeliveries` is `delivered` and `webhookFailures` is
+  `failed` + `dead` `webhook_deliveries` rows by `created_at`, using each row's current
+  status. Messages and sends cover the org's current sessions. Every series is
+  zero-filled to `len(buckets)`.
+- **Organization facts.** `hasSentMessage` (an outbox row reached `sent`, or any
+  outgoing message exists for one of the org's sessions) ignores the window and the
+  session filter; it drives the get-started checklist. `retentionDays` echoes the
+  API's `RETENTION_DAYS` (0 = keep forever) so the UI can warn when the window is
+  longer than retention. The retention scheduler is not composed in production yet
+  ([queue](/docs/architecture/queue)), so today the value states policy, not
+  observed pruning.
+- **Not included.** Session statuses, API keys, and webhook configuration come from
+  `GET /sessions`, better-auth `apiKey.list`, and `GET /webhooks`.
+
+Query and index design: [store](/docs/architecture/store#overview-activity-indexes-migration-0020_overview_indexes).
+
 ## Media (cross-cutting)
 
 Image status returns `501 not_implemented` consistently. Message media sends,
@@ -207,3 +247,8 @@ helper for unsupported resource operations: `domain.ErrNotImplemented`.
   live ports: org-ownership rejection, validation, live delegation, and the
   nil-port / image-status `not_implemented` fallbacks.
 - Store: `GroupRepo.ListBySession` covered in `backend/internal/store/repos_more_test.go`.
+- Overview: bucket math (hourly/daily, DST transitions in `America/New_York`,
+  `Asia/Kolkata` and `Asia/Kathmandu` offsets, partial last bucket) and service scoping in
+  `backend/internal/service/overview_test.go`; the HTTP contract in
+  `backend/internal/http/handlers/overview_ops_test.go`; zero-fill folding (sqlmock) and
+  the real queries against a disposable MySQL schema in `backend/internal/store/overview_test.go`.

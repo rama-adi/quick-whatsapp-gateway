@@ -46,6 +46,7 @@ type Store struct {
 	EventLog          *EventLogRepo
 	GatewayEvents     *GatewayEventIngestRepo
 	Retention         *RetentionRepo
+	Overview          *OverviewRepo
 	BackfillImports   *BackfillImportRepo
 	OAuthClients      *OAuthClientRepo
 	OAuthGrants       *OAuthGrantRepo
@@ -75,6 +76,7 @@ func New(db *sql.DB) *Store {
 		EventLog:          NewEventLogRepo(db),
 		GatewayEvents:     NewGatewayEventIngestRepo(db),
 		Retention:         NewRetentionRepo(db),
+		Overview:          NewOverviewRepo(db),
 		BackfillImports:   NewBackfillImportRepo(db),
 		OAuthClients:      NewOAuthClientRepo(db),
 		OAuthGrants:       NewOAuthGrantRepo(db),
@@ -106,7 +108,7 @@ func newWithDBTX(db storedb.DBTX) *Store {
 		Identities: NewIdentityRepo(db), Contacts: NewContactRepo(db), Groups: NewGroupRepo(db),
 		GroupMembers: NewGroupMemberRepo(db), Chats: NewChatRepo(db), Messages: NewMessageRepo(db),
 		Polls: NewPollRepo(db), PollVotes: NewPollVoteRepo(db), Outbox: NewOutboxRepo(db),
-		EventLog: NewEventLogRepo(db), GatewayEvents: NewGatewayEventIngestRepo(db), Retention: NewRetentionRepo(db), BackfillImports: NewBackfillImportRepo(db),
+		EventLog: NewEventLogRepo(db), GatewayEvents: NewGatewayEventIngestRepo(db), Retention: NewRetentionRepo(db), Overview: NewOverviewRepo(db), BackfillImports: NewBackfillImportRepo(db),
 		OAuthClients: NewOAuthClientRepo(db), OAuthGrants: NewOAuthGrantRepo(db),
 		OAuthRefresh: NewOAuthRefreshTokenRepo(db), OAuthSigningKeys: NewOAuthSigningKeyRepo(db),
 		AuditEvents: NewAuditRepo(db),

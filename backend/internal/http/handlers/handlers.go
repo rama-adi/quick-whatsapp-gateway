@@ -242,6 +242,11 @@ type OAuthAppSvc interface {
 	RevokeAllGrants(ctx context.Context, organizationID, appID string, isSuperAdmin bool) error
 }
 
+// OverviewSvc is the workspace activity summary surface (GET /overview).
+type OverviewSvc interface {
+	Get(ctx context.Context, organizationID string, q service.OverviewQuery) (apitypes.Overview, error)
+}
+
 // Compile-time proof that the concrete services satisfy the handler interfaces.
 var (
 	_ SessionSvc      = (*service.SessionService)(nil)
@@ -256,6 +261,7 @@ var (
 	_ StatusSvc       = (*service.StatusService)(nil)
 	_ PresenceSvc     = (*service.PresenceService)(nil)
 	_ OAuthAppSvc     = (*service.OAuthAppService)(nil)
+	_ OverviewSvc     = (*service.OverviewService)(nil)
 	_ GatewayAdminSvc = (*gatewayadmin.Service)(nil)
 )
 
@@ -276,6 +282,7 @@ type Handlers struct {
 	Status       StatusSvc
 	Presence     PresenceSvc
 	OAuthApps    OAuthAppSvc
+	Overview     OverviewSvc
 	GatewayAdmin GatewayAdminSvc
 
 	Log *slog.Logger
@@ -300,6 +307,7 @@ func New(s *service.Services, log *slog.Logger) *Handlers {
 		Status:    s.Status,
 		Presence:  s.Presence,
 		OAuthApps: s.OAuthApps,
+		Overview:  s.Overview,
 		Log:       log,
 	}
 }

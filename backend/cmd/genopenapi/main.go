@@ -148,6 +148,11 @@ location, and contact message types do work.`)
 
 	o.Tags = []*huma.Tag{
 		{
+			Name: "Overview",
+			Description: "Workspace activity at a glance: message, send-failure, and webhook delivery counts " +
+				"over a recent window, bucketed by hour or day in your time zone.",
+		},
+		{
 			Name: "Sessions",
 			Description: "Create, pair, start, stop, restart, and delete WhatsApp sessions. " +
 				"A session is one attached WhatsApp number.",

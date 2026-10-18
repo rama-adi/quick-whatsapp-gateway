@@ -38,6 +38,7 @@ The API mounts the shared huma operations from `backend/internal/http/handlers`:
 
 | Group | Gate | Routes |
 |---|---|---|
+| Overview | `RequireRead` | `GET /overview?range=&tz=&session=` (workspace activity summary, see [resources](/docs/architecture/resources#workspace-overview)) |
 | Webhooks | `RequireManage` | `/webhooks`, `/webhooks/{id}` (POST/GET/PATCH/DELETE) |
 | Admin | `RequireSuperAdmin` | `GET /admin/sessions`, `POST /admin/sessions/{session}:backfill`, `GET /admin/sessions/{session}/backfill` |
 | Gateway admin | `RequireSuperAdmin` | gateway inventory/enrollment/lifecycle administration |

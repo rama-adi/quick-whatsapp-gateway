@@ -211,3 +211,24 @@ func TestAPIPrivateGatewayConfig(t *testing.T) {
 		})
 	}
 }
+
+// RETENTION_DAYS is reported to clients by GET /overview, so the API parses it
+// itself and refuses a negative policy at boot (0 keeps history forever).
+func TestLoadAPI_RetentionDays(t *testing.T) {
+	t.Setenv("RETENTION_DAYS", "30")
+	cfg, err := LoadAPI()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.RetentionDays != 30 {
+		t.Fatalf("RetentionDays = %d, want 30", cfg.RetentionDays)
+	}
+	t.Setenv("RETENTION_DAYS", "-1")
+	cfg, err = LoadAPI()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.Validate(); err == nil || err.Error() != "config: RETENTION_DAYS must not be negative" {
+		t.Fatalf("negative retention error = %v", err)
+	}
+}
