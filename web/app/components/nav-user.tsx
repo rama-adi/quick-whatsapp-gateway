@@ -1,9 +1,10 @@
 // Sidebar footer account chip (styled like naivault's vault switcher: a soft
-// tinted card with a 2-line label). Tailored from the dashboard-01 `nav-user` block:
-// the demo {name,email,avatar} + Account/Billing/Notifications items were
-// replaced with the real AppSession (email + roles), a Documentation link, and
-// the sign-out flow ported from the old shell/UserMenu.tsx (clears the query
-// cache, then navigates to /login).
+// tinted card with a 2-line label: name, then email). Tailored from the
+// dashboard-01 `nav-user` block: the demo Account/Billing/Notifications items
+// were replaced with the real AppSession, a "Platform admin" marker for
+// super admins (plain members get no role line), and the sign-out flow ported
+// from the old shell/UserMenu.tsx (clears the query cache, then navigates to
+// /login). Documentation lives in the sidebar footer only, not in this menu.
 
 import { useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
@@ -15,7 +16,6 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -27,9 +27,10 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "~/components/ui/sidebar";
-import { BookOpen, ChevronsUpDownIcon, LogOut } from "lucide-react";
+import { ChevronsUpDownIcon, LogOut, ShieldCheckIcon } from "lucide-react";
 import { signOut } from "~/lib/auth/client";
 import { clearGatewayToken } from "~/lib/api/token-provider";
+import { formatPlatformRole } from "~/lib/format";
 import type { AppSession } from "~/lib/auth/session";
 import { toast } from "sonner";
 
@@ -39,12 +40,13 @@ export function NavUser({ session }: { session: AppSession }) {
   const queryClient = useQueryClient();
   const [signingOut, setSigningOut] = useState(false);
 
-  const email = session.user.email || "Account";
-  const roles =
-    session.user.roles.map((r) => r.replace(/_/g, " ")).join(", ") || "user";
-  const initial = (session.user.email || session.user.roles[0] || "?")
-    .charAt(0)
-    .toUpperCase();
+  const { name, email } = session.user;
+  // Line 1 is the name (falls back to the email); line 2 is the email when a
+  // distinct name exists.
+  const primary = name || email || "Account";
+  const secondary = name && email && name !== email ? email : null;
+  const isPlatformAdmin = session.user.roles.includes("super_admin");
+  const initial = primary.charAt(0).toUpperCase() || "?";
 
   const onSignOut = async (): Promise<void> => {
     if (signingOut) return;
@@ -80,10 +82,12 @@ export function NavUser({ session }: { session: AppSession }) {
                 </AvatarFallback>
               </Avatar>
               <div className="grid min-w-0 flex-1 text-left leading-tight">
-                <span className="truncate text-sm font-medium">{email}</span>
-                <span className="truncate text-xs text-muted-foreground">
-                  {roles}
-                </span>
+                <span className="truncate text-sm font-medium">{primary}</span>
+                {(secondary || isPlatformAdmin) && (
+                  <span className="truncate text-xs text-muted-foreground">
+                    {secondary ?? formatPlatformRole("super_admin")}
+                  </span>
+                )}
               </div>
               <ChevronsUpDownIcon
                 aria-hidden
@@ -98,22 +102,21 @@ export function NavUser({ session }: { session: AppSession }) {
             sideOffset={4}
           >
             <DropdownMenuLabel className="p-0 font-normal">
-              <div className="flex flex-col px-2 py-1.5 text-left text-sm">
-                <span className="truncate font-medium text-foreground">{email}</span>
-                <span className="truncate text-xs text-muted-foreground">
-                  {roles}
-                </span>
+              <div className="flex flex-col gap-0.5 px-2 py-1.5 text-left text-sm">
+                <span className="truncate font-medium text-foreground">{primary}</span>
+                {secondary && (
+                  <span className="truncate text-xs text-muted-foreground">
+                    {secondary}
+                  </span>
+                )}
+                {isPlatformAdmin && (
+                  <span className="mt-1 inline-flex w-fit items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[0.7rem] font-medium text-muted-foreground">
+                    <ShieldCheckIcon className="size-3" aria-hidden />
+                    {formatPlatformRole("super_admin")}
+                  </span>
+                )}
               </div>
             </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuGroup>
-              <DropdownMenuItem asChild>
-                <a href="/docs">
-                  <BookOpen aria-hidden />
-                  Documentation
-                </a>
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuItem
               disabled={signingOut}

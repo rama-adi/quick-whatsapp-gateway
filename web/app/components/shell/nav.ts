@@ -11,15 +11,17 @@ import type { LucideIcon } from "lucide-react";
 import {
   Activity,
   BookOpen,
-  Building2,
   Contact,
   Fingerprint,
+  HardDrive,
   KeyRound,
+  Layers,
   LayoutDashboard,
   MessagesSquare,
   QrCode,
-  ServerCog,
+  Server,
   Smartphone,
+  Users,
   Webhook,
 } from "lucide-react";
 import type { AppSession } from "~/lib/auth/session";
@@ -37,17 +39,21 @@ const isAdmin = (s: AppSession) => s.user.roles.includes("super_admin");
 const isUserPanel = (s: AppSession) =>
   s.userPanelEnabled && s.user.roles.includes("user");
 
+// Labels are the page names: each page's <PageTitle> and route head() title
+// use the same string. Workspace order follows the setup flow (connect a
+// number → get a key → receive events → store media → advanced sign-in).
+// Every item has a distinct icon so the collapsed icon rail stays readable.
 export const NAV: NavItem[] = [
-  { to: "/admin/sessions", label: "All Sessions", icon: ServerCog, group: "Admin", show: isAdmin },
-  { to: "/admin/gateways", label: "Gateways", icon: ServerCog, group: "Admin", show: isAdmin },
-  { to: "/admin/tenants", label: "Tenants", icon: Building2, group: "Admin", show: isAdmin },
-  { to: "/admin/monitor", label: "Event Monitor", icon: Activity, group: "Admin", show: isAdmin },
-  { to: "/admin/pairing", label: "Pairing", icon: QrCode, group: "Admin", show: isAdmin },
-  { to: "/user/sessions", label: "My Sessions", icon: Smartphone, group: "Workspace", show: isUserPanel },
-  { to: "/user/keys", label: "API Keys", icon: KeyRound, group: "Workspace", show: isUserPanel },
-  { to: "/user/oauth-apps", label: "Sign in with WhatsApp", icon: Fingerprint, group: "Workspace", show: isUserPanel },
-  { to: "/user/storage", label: "Attachment storage", icon: ServerCog, group: "Workspace", show: isUserPanel },
+  { to: "/admin/sessions", label: "All sessions", icon: Layers, group: "Admin", show: isAdmin },
+  { to: "/admin/gateways", label: "Gateways", icon: Server, group: "Admin", show: isAdmin },
+  { to: "/admin/tenants", label: "Users & orgs", icon: Users, group: "Admin", show: isAdmin },
+  { to: "/admin/monitor", label: "Event monitor", icon: Activity, group: "Admin", show: isAdmin },
+  { to: "/admin/pairing", label: "Number pairing", icon: QrCode, group: "Admin", show: isAdmin },
+  { to: "/user/sessions", label: "Sessions", icon: Smartphone, group: "Workspace", show: isUserPanel },
+  { to: "/user/keys", label: "API keys", icon: KeyRound, group: "Workspace", show: isUserPanel },
   { to: "/user/webhooks", label: "Webhooks", icon: Webhook, group: "Workspace", show: isUserPanel },
+  { to: "/user/storage", label: "Attachment storage", icon: HardDrive, group: "Workspace", show: isUserPanel },
+  { to: "/user/oauth-apps", label: "Sign in with WhatsApp", icon: Fingerprint, group: "Workspace", show: isUserPanel },
 ];
 
 export function visibleNav(s: AppSession): NavItem[] {

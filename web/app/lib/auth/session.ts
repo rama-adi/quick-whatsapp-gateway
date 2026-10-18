@@ -12,7 +12,8 @@
 //   - userPanelEnabled is always true: the user panel is available to every
 //     signed-in user regardless of the registration gate. USER_REGISTRATION_ENABLED
 //     only controls self sign-up (disableSignUp), not panel access.
-//   - impersonating reflects an admin-plugin impersonated session.
+//   - impersonating reflects an admin-plugin impersonated session (user.* is
+//     then the impersonated user).
 
 import { redirect } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
@@ -23,6 +24,8 @@ export type AppRole = "super_admin" | "user";
 export interface AppSession {
   user: {
     id: string;
+    /** Display name from the better-auth profile ("" when unset). */
+    name: string;
     email: string;
     roles: AppRole[];
   };
@@ -64,6 +67,7 @@ export const getServerSession = createServerFn({ method: "GET" }).handler(
     return {
       user: {
         id: session.user.id,
+        name: session.user.name ?? "",
         email: session.user.email ?? "",
         roles,
       },
