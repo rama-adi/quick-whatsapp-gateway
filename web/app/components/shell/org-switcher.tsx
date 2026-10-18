@@ -69,17 +69,22 @@ export function OrgSwitcher() {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
-          variant="outline"
+          variant="ghost"
           size="sm"
-          className="gap-2"
+          className="h-8 max-w-56 gap-2 rounded-lg bg-muted/60 px-2 text-sm font-medium hover:bg-muted aria-expanded:bg-muted"
           disabled={orgs.isPending}
         >
-          <BuildingIcon className="size-4" aria-hidden />
-          <span className="max-w-40 truncate">{activeName}</span>
-          <ChevronsUpDownIcon className="size-4 opacity-60" aria-hidden />
+          <span
+            aria-hidden
+            className="flex size-5 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground shadow-xs ring-1 ring-border"
+          >
+            <BuildingIcon className="size-3" />
+          </span>
+          <span className="min-w-0 truncate">{activeName}</span>
+          <ChevronsUpDownIcon className="size-3.5 text-muted-foreground" aria-hidden />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-56">
+      <DropdownMenuContent align="end" className="w-60">
         <DropdownMenuLabel>Organizations</DropdownMenuLabel>
         <DropdownMenuSeparator />
         {list.length === 0 ? (
@@ -96,7 +101,7 @@ export function OrgSwitcher() {
             >
               <span className="flex-1 truncate">{org.name}</span>
               {org.id === activeOrg?.id && (
-                <CheckIcon className="size-4" aria-hidden />
+                <CheckIcon className="size-4 text-foreground" aria-hidden />
               )}
             </DropdownMenuItem>
           ))

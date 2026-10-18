@@ -144,10 +144,22 @@ The authenticated shell (`web/app/components/shell/AppShell.tsx`) is built on th
 the v1 hand-rolled `<aside>`, which had **no mobile navigation**; the primitive gives a collapsible
 icon rail, a `Sheet` drawer below `md`, a Cmd/Ctrl+B toggle, and cookie-persisted collapsed state.
 
+- **Frame + inset panel** — the sidebar uses the primitive's `inset` variant: the window background
+  is the `--sidebar` "frame" (a step darker than the panel in both themes), the sidebar sits on it
+  with no border, and the top bar + content live in one rounded panel (`rounded-panel`,
+  hairline `border-sidebar-border/80`, `shadow-panel`). Below `md` the panel keeps its margin and
+  radius. The visual language (radius scale with `--radius-panel` / `--radius-item`, `ease-soft`
+  motion, hairline depth, translucent inputs) is defined once in `app/app.css` and the
+  `components/ui/*` primitives; colors stay the neutral shadcn palette.
+- **Route transition** — `components/shell/route-transition.ts` fades the page wrapper in with the
+  Web Animations API on navigation (no remount, so page state survives). The key collapses
+  everything under a session's chats or contacts into one value, so switching chats does not
+  re-animate. Reduced motion is respected.
+
 - **Clamped height** — the shell is pinned to the viewport (`SidebarProvider` is `h-svh
   overflow-hidden`), so the sidebar + top bar stay fixed and the **content region is the only
   scroller** — the body never scrolls. `AppMain` is `flex-1 min-h-0`: by default `overflow-auto`
-  with `p-4 md:p-6`; in **fill mode** it drops the padding and becomes `overflow-hidden` so the page
+  with `p-4 sm:p-5 xl:p-6` inside a centered `max-w-screen-2xl` wrapper; in **fill mode** it drops the padding and becomes `overflow-hidden` so the page
   owns its own internal scroll areas (used by chat — `routes/_app/user/sessions/$sessionId/chats/*`,
   which sizes its panes with flex `min-h-0` + `ScrollArea`/`MessageScroller`, no `calc()` heights).
 - **Page chrome** — `components/shell/page-chrome.tsx` lets the active route project content into the
@@ -155,8 +167,15 @@ icon rail, a `Sheet` drawer below `md`, a Cmd/Ctrl+B toggle, and cookie-persiste
   `<PageHeader>` (with `HeaderBack` / `HeaderTitle` / actions) which **portals** into that slot for
   as long as it's mounted, and `fill` (or the standalone `useFillMain()` for a leaf under a layout
   that already owns the header) flips `AppMain` to fill. Exactly one route per surface owns the
-  `PageHeader` (the session-detail layout `sessions.$sessionId.tsx` owns the back button + tab strip
-  for overview/chats/contacts; the nested chat route only calls `useFillMain()`).
+  `PageHeader` (the session-detail layout `sessions.$sessionId.tsx` owns the back button + session
+  name; the nested chat route only calls `useFillMain()`).
+- **Page titles** — page bodies open with `components/shell/page-title.tsx`: `<Page width>` sets the
+  section rhythm and optional max width, `<PageTitle title description actions eyebrow>` renders the
+  single `h1` plus a muted one-line description and right-aligned actions.
+- **Session nav** — inside `/user/sessions/$sessionId/*`, `AppSidebar` shows a contextual section
+  titled with the session's label (Overview / Chats / Contacts, from `SESSION_NAV` in `nav.ts`).
+  Below `md`, where the sidebar is a drawer, the same links render as a segmented control in the
+  top bar.
 
 - **Nav model** — `components/shell/nav.ts` (`visibleNav(session)`) is the single source of truth:
   role-filtered `Workspace` / `Admin` groups, each item carrying a lucide icon. Hiding is
@@ -171,7 +190,7 @@ icon rail, a `Sheet` drawer below `md`, a Cmd/Ctrl+B toggle, and cookie-persiste
   uses TanStack Router's `activeProps` → `data-[active=true]` (value-matched, not attribute-presence).
 - **Auth shell** — `_auth.tsx` is a split-screen layout (shadcn `login-04`): a form pane
   (login/register/2fa render their existing react-hook-form + Zod cards) beside a branded value-prop
-  pane shown at `lg+`. No OAuth providers are wired, so the block's social buttons were dropped.
+  pane shown at `lg+`, drawn as an inset rounded panel to match the app shell. No OAuth providers are wired, so the block's social buttons were dropped.
 
 ## Page-scoped event stream
 

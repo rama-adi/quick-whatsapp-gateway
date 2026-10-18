@@ -21,7 +21,7 @@
 // list() never returns the secret (only `start`/`prefix`).
 
 import { useState } from "react";
-import { KeyRoundIcon, PlusIcon, RefreshCwIcon } from "lucide-react";
+import { BuildingIcon, KeyRoundIcon, PlusIcon, RefreshCwIcon } from "lucide-react";
 import {
   useMutation,
   useQuery,
@@ -37,9 +37,17 @@ import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 import { Badge } from "~/components/ui/badge";
 import { Skeleton } from "~/components/ui/skeleton";
-import { Card, CardContent } from "~/components/ui/card";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "~/components/ui/empty";
+import { Page, PageTitle } from "~/components/shell/page-title";
 import {
   Table,
+  TableCard,
   TableBody,
   TableCell,
   TableHead,
@@ -182,59 +190,71 @@ function Keys() {
     del.mutate(id, { onSuccess: () => toast.success("Key revoked") });
   };
 
+  const title = "API Keys";
+  const description =
+    "Let your servers call the gateway API on behalf of this organization.";
+
   if (!orgId) {
     return (
-      <Card>
-        <CardContent className="py-10 text-center text-sm text-muted-foreground">
-          Select an organization to manage its API keys.
-        </CardContent>
-      </Card>
+      <Page>
+        <PageTitle title={title} description={description} />
+        <Empty>
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <BuildingIcon aria-hidden />
+            </EmptyMedia>
+            <EmptyTitle>No organization selected</EmptyTitle>
+            <EmptyDescription>
+              Select an organization to manage its API keys.
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      </Page>
     );
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2">
-        <h1 className="text-xl font-semibold">API Keys</h1>
-        <CreateKeyDialog orgId={orgId} onCreated={setSecret} />
-      </div>
+    <Page>
+      <PageTitle
+        title={title}
+        description={description}
+        actions={<CreateKeyDialog orgId={orgId} onCreated={setSecret} />}
+      />
 
-      <Card>
-        <CardContent className="p-0">
-          {keys.isLoading ? (
-            <div className="space-y-2 p-4">
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-full" />
-            </div>
-          ) : keys.isError ? (
-            <div className="flex flex-col items-center gap-3 py-10 text-center">
-              <p className="text-sm text-destructive">
-                {keys.error instanceof Error
-                  ? keys.error.message
-                  : "Failed to load keys"}
-              </p>
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5"
-                onClick={() => void keys.refetch()}
-              >
-                <RefreshCwIcon className="size-4" aria-hidden />
-                Retry
-              </Button>
-            </div>
-          ) : (
-            <KeyTable
-              rows={keys.data ?? []}
-              deleting={del.isPending}
-              onDelete={doDelete}
-            />
-          )}
-        </CardContent>
-      </Card>
+      <TableCard>
+        {keys.isLoading ? (
+          <div className="space-y-2 p-4">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        ) : keys.isError ? (
+          <div className="flex flex-col items-center gap-3 py-10 text-center">
+            <p className="text-sm text-destructive">
+              {keys.error instanceof Error
+                ? keys.error.message
+                : "Failed to load keys"}
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => void keys.refetch()}
+            >
+              <RefreshCwIcon className="size-4" aria-hidden />
+              Retry
+            </Button>
+          </div>
+        ) : (
+          <KeyTable
+            rows={keys.data ?? []}
+            deleting={del.isPending}
+            onDelete={doDelete}
+          />
+        )}
+      </TableCard>
 
       <SecretDialog secret={secret} onClose={() => setSecret(null)} />
-    </div>
+    </Page>
   );
 }
 
@@ -249,9 +269,17 @@ function KeyTable({
 }) {
   if (rows.length === 0) {
     return (
-      <p className="py-10 text-center text-sm text-muted-foreground">
-        No API keys yet. Create one to call the gateway API from your own apps.
-      </p>
+      <Empty className="border-0">
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <KeyRoundIcon aria-hidden />
+          </EmptyMedia>
+          <EmptyTitle>No API keys yet</EmptyTitle>
+          <EmptyDescription>
+            Create one to call the gateway API from your own apps.
+          </EmptyDescription>
+        </EmptyHeader>
+      </Empty>
     );
   }
 
@@ -302,7 +330,7 @@ function KeyTable({
                 <Button
                   size="sm"
                   variant="ghost"
-                  className="text-destructive hover:text-destructive"
+                  className="text-destructive hover:bg-destructive/10 hover:text-destructive"
                   disabled={deleting}
                   onClick={() => onDelete(k.id)}
                 >
@@ -384,8 +412,8 @@ function CreateKeyDialog({
       }}
     >
       <DialogTrigger asChild>
-        <Button size="sm" className="gap-1.5">
-          <PlusIcon className="size-4" aria-hidden />
+        <Button>
+          <PlusIcon aria-hidden data-icon="inline-start" />
           New key
         </Button>
       </DialogTrigger>
@@ -477,8 +505,8 @@ function SecretDialog({
         </DialogHeader>
 
         <div className="space-y-3 py-2">
-          <div className="rounded-md border bg-muted/40 p-3">
-            <code className="block text-sm break-all">{value}</code>
+          <div className="rounded-lg border bg-muted/40 p-3">
+            <code className="block font-mono text-sm break-all">{value}</code>
           </div>
           <CopyButton value={value} label="Copy key" className="w-full" />
         </div>

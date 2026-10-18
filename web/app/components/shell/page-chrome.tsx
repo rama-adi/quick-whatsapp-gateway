@@ -21,6 +21,7 @@ import { createPortal } from "react-dom";
 import { Link } from "@tanstack/react-router";
 import { ArrowLeftIcon } from "lucide-react";
 import { Button } from "~/components/ui/button";
+import { cn } from "~/lib/utils";
 
 interface PageChromeContextValue {
   headerSlot: HTMLElement | null;
@@ -104,10 +105,27 @@ export function PageHeader({
   return headerSlot ? createPortal(children, headerSlot) : null;
 }
 
-/** Consistent top-bar page title. */
-export function HeaderTitle({ children }: { children: ReactNode }) {
+/**
+ * Consistent top-bar title. This is the header's context label (e.g. the open
+ * session's name), not the page heading: page bodies open with <PageTitle>
+ * from page-title.tsx.
+ */
+export function HeaderTitle({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
   return (
-    <h1 className="min-w-0 truncate text-sm font-semibold">{children}</h1>
+    <span
+      className={cn(
+        "min-w-0 truncate text-sm font-medium text-foreground",
+        className,
+      )}
+    >
+      {children}
+    </span>
   );
 }
 
@@ -126,7 +144,7 @@ export function HeaderBack({
       asChild
       variant="ghost"
       size="sm"
-      className="-ml-1 shrink-0 gap-1.5 text-muted-foreground"
+      className="-ml-1 shrink-0 gap-1.5 text-muted-foreground hover:text-foreground"
     >
       {/* `to` is a runtime-dynamic route string; cast past the typed-route union. */}
       <Link to={to as never} params={params as never} aria-label={label}>

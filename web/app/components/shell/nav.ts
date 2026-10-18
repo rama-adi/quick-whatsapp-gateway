@@ -12,8 +12,11 @@ import {
   Activity,
   BookOpen,
   Building2,
+  Contact,
   Fingerprint,
   KeyRound,
+  LayoutDashboard,
+  MessagesSquare,
   QrCode,
   ServerCog,
   Smartphone,
@@ -59,3 +62,25 @@ export const DOCS_NAV = {
   label: "Documentation",
   icon: BookOpen,
 } as const;
+
+// Contextual nav for a single WhatsApp session. While the route is inside
+// /user/sessions/$sessionId/*, the sidebar shows these as a section titled with
+// the session's name (desktop), and the session layout renders the same list as
+// a compact segmented control in the top bar below `md` (the sidebar is a sheet
+// there). One list, two renderings, so the links can't drift.
+export interface SessionNavItem {
+  to:
+    | "/user/sessions/$sessionId"
+    | "/user/sessions/$sessionId/chats"
+    | "/user/sessions/$sessionId/contacts";
+  label: string;
+  icon: LucideIcon;
+  /** Match only the exact path (the overview is the parent of the others). */
+  exact: boolean;
+}
+
+export const SESSION_NAV: readonly SessionNavItem[] = [
+  { to: "/user/sessions/$sessionId", label: "Overview", icon: LayoutDashboard, exact: true },
+  { to: "/user/sessions/$sessionId/chats", label: "Chats", icon: MessagesSquare, exact: false },
+  { to: "/user/sessions/$sessionId/contacts", label: "Contacts", icon: Contact, exact: false },
+];

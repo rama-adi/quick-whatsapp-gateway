@@ -19,19 +19,19 @@ export function SiteHeader({ session }: { session: AppSession }) {
   const showOrgSwitcher =
     session.userPanelEnabled && session.user.roles.includes("user");
   return (
-    <header className="flex h-(--header-height) shrink-0 items-center gap-2 border-b transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-(--header-height)">
-      <div className="flex h-full w-full items-center gap-2 px-4 lg:px-6">
-        <SidebarTrigger className="-ml-1 shrink-0" />
+    <header className="flex h-(--header-height) shrink-0 items-center border-b border-border/60">
+      <div className="flex h-full w-full min-w-0 items-center gap-2 px-3 lg:px-4">
+        <SidebarTrigger className="-ml-0.5 shrink-0 text-muted-foreground hover:text-foreground" />
         <Separator
           orientation="vertical"
-          className="mx-1 data-[orientation=vertical]:h-4"
+          className="mr-1 data-[orientation=vertical]:h-4"
         />
         {/* Per-page chrome (back button, title, tabs, actions) is portaled here
             by the active route via <PageHeader>. flex-1 so it owns the middle
             and pushes the impersonation badge + org switcher to the right. */}
         <PageHeaderSlot className="flex min-w-0 flex-1 items-center gap-2" />
         {session.impersonating && (
-          <span className="shrink-0 rounded bg-destructive px-2 py-0.5 text-xs font-medium text-destructive-foreground">
+          <span className="shrink-0 rounded-full bg-destructive px-2.5 py-0.5 text-xs font-medium text-white shadow-xs">
             Impersonating
           </span>
         )}
