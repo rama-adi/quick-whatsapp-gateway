@@ -3782,6 +3782,12 @@ export interface components {
              */
             mentions?: unknown;
             /**
+             * @description Where this stored copy came from. **live** = received or sent while the session was connected; **history** = imported from the chat history the phone sent when the device was (re)linked; **backup** = imported from a WhatsApp backup file. Imported messages never triggered message webhooks, and their media is not downloadable.
+             * @example live
+             * @enum {string}
+             */
+            origin: "live" | "history" | "backup";
+            /**
              * @description Id of the message this one quotes/replies to. Optional; null when not a reply.
              * @example 3EB0C431C26A1916E001
              */

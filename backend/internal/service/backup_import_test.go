@@ -33,11 +33,12 @@ func sessionRows(id, orgID string) *sqlmock.Rows {
 		"id", "organization_id", "created_by_user_id", "gateway_id", "label", "status",
 		"wa_jid", "wa_lid", "phone_number", "is_admin_session", "auto_read", "presence_typing",
 		"rate_per_min", "rate_per_hour", "last_connected_at", "created_at", "updated_at",
+		"history_sync_days", "data_account_jid", "account_changed_at",
 	}
 	return sqlmock.NewRows(cols).AddRow(
 		id, orgID, nil, "gw_1", nil, "working",
 		nil, nil, nil, 0, 1, 0,
-		20, 200, nil, int64(1), int64(1),
+		20, 200, nil, int64(1), int64(1), 30, nil, nil,
 	)
 }
 
@@ -209,6 +210,7 @@ func TestImportAll_UpsertsAndCounts(t *testing.T) {
 	for i := 1; i < 22; i++ {
 		msgArgs = append(msgArgs, sqlmock.AnyArg())
 	}
+	msgArgs = append(msgArgs, "backup") // origin: imported rows are marked as backup
 	mock.ExpectExec("INSERT INTO messages").WithArgs(msgArgs...).WillReturnResult(sqlmock.NewResult(0, 1))
 
 	var job domain.BackfillImport

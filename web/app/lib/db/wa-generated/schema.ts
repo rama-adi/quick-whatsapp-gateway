@@ -1,4 +1,4 @@
-import { mysqlTable, mysqlSchema, index, primaryKey, varchar, mysqlEnum, int, text, bigint, unique, json, check, mediumtext, tinyint } from "drizzle-orm/mysql-core"
+import { mysqlTable, mysqlSchema, index, primaryKey, varchar, mysqlEnum, int, text, bigint, unique, json, check, mediumtext, smallint, tinyint } from "drizzle-orm/mysql-core"
 import { sql } from "drizzle-orm"
 
 export const backfillImports = mysqlTable("backfill_imports", {
@@ -122,6 +122,7 @@ export const messages = mysqlTable("messages", {
 	timestamp: bigint({ mode: "number" }).notNull(),
 	rawJson: json("raw_json"),
 	createdAt: bigint("created_at", { mode: "number" }).notNull(),
+	origin: mysqlEnum(['live','history','backup']).default('live').notNull(),
 },
 (table) => [
 	index("idx_msg_activity").on(table.sessionId, table.direction, table.timestamp, table.chatJid),
@@ -210,6 +211,9 @@ export const waSessions = mysqlTable("wa_sessions", {
 	lastConnectedAt: bigint("last_connected_at", { mode: "number" }),
 	createdAt: bigint("created_at", { mode: "number" }).notNull(),
 	updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+	historySyncDays: smallint("history_sync_days", { unsigned: true }).default(30).notNull(),
+	dataAccountJid: varchar("data_account_jid", { length: 255 }),
+	accountChangedAt: bigint("account_changed_at", { mode: "number" }),
 },
 (table) => [
 	index("idx_sessions_gateway").on(table.gatewayId),

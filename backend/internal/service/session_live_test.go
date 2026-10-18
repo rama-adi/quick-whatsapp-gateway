@@ -34,7 +34,8 @@ func sessionRowForLiveState(id, org, gatewayID, waJID string) *sqlmock.Rows {
 		"id", "organization_id", "created_by_user_id", "gateway_id", "label", "status",
 		"wa_jid", "wa_lid", "phone_number", "is_admin_session", "auto_read", "presence_typing",
 		"rate_per_min", "rate_per_hour", "last_connected_at", "created_at", "updated_at",
-	}).AddRow(id, org, nil, gatewayID, nil, domain.SessionWorking, waJID, nil, nil, false, false, false, 20, 200, nil, int64(1), int64(1))
+		"history_sync_days", "data_account_jid", "account_changed_at",
+	}).AddRow(id, org, nil, gatewayID, nil, domain.SessionWorking, waJID, nil, nil, false, false, false, 20, 200, nil, int64(1), int64(1), 30, nil, nil)
 }
 
 func TestSessionServiceMeRejectsMismatchedEngineState(t *testing.T) {
@@ -129,7 +130,8 @@ func unpairedSessionRow() *sqlmock.Rows {
 		"id", "organization_id", "created_by_user_id", "gateway_id", "label", "status",
 		"wa_jid", "wa_lid", "phone_number", "is_admin_session", "auto_read", "presence_typing",
 		"rate_per_min", "rate_per_hour", "last_connected_at", "created_at", "updated_at",
-	}).AddRow("sess_1", "org_1", nil, "gw_1", nil, domain.SessionScanQR, nil, nil, nil, false, false, false, 20, 200, nil, int64(1), int64(1))
+		"history_sync_days", "data_account_jid", "account_changed_at",
+	}).AddRow("sess_1", "org_1", nil, "gw_1", nil, domain.SessionScanQR, nil, nil, nil, false, false, false, 20, 200, nil, int64(1), int64(1), 30, nil, nil)
 }
 
 func TestSessionServiceRestartDoesNotSetDesiredAfterForgetFailure(t *testing.T) {

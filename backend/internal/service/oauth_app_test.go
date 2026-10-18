@@ -40,7 +40,8 @@ func expectOAuthSession(mock sqlmock.Sqlmock, id, org string) {
 		"id", "organization_id", "created_by_user_id", "gateway_id", "label", "status",
 		"wa_jid", "wa_lid", "phone_number", "is_admin_session", "auto_read", "presence_typing",
 		"rate_per_min", "rate_per_hour", "last_connected_at", "created_at", "updated_at",
-	}).AddRow(id, org, nil, "gw-1", nil, "working", nil, nil, nil, false, true, false, 20, 200, nil, int64(100), int64(100))
+		"history_sync_days", "data_account_jid", "account_changed_at",
+	}).AddRow(id, org, nil, "gw-1", nil, "working", nil, nil, nil, false, true, false, 20, 200, nil, int64(100), int64(100), 30, nil, nil)
 	mock.ExpectQuery("SELECT id, organization_id, created_by_user_id, gateway_id").
 		WithArgs(id).WillReturnRows(rows)
 }

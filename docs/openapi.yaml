@@ -2825,6 +2825,15 @@ components:
           description: JIDs @-mentioned in this message (group mentions), as stored — typically LIDs. JSON array. Optional; absent when there are no mentions.
           examples:
             - - 205227043110953@lid
+        origin:
+          description: Where this stored copy came from. **live** = received or sent while the session was connected; **history** = imported from the chat history the phone sent when the device was (re)linked; **backup** = imported from a WhatsApp backup file. Imported messages never triggered message webhooks, and their media is not downloadable.
+          enum:
+            - live
+            - history
+            - backup
+          examples:
+            - live
+          type: string
         quotedMessageId:
           description: Id of the message this one quotes/replies to. Optional; null when not a reply.
           examples:
@@ -2890,6 +2899,7 @@ components:
         - edited
         - deleted
         - timestamp
+        - origin
         - createdAt
       type: object
     MessageEvent:

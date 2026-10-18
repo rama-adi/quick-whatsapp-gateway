@@ -287,6 +287,7 @@ function projectMessage(
     createdAt: timestamp,
     deleted: false,
     edited: false,
+    origin: "live",
   };
 }
 

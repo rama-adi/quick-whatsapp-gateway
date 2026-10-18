@@ -12,11 +12,20 @@ import (
 
 const attachSessionPairing = `-- name: AttachSessionPairing :execrows
 UPDATE wa_sessions
-SET wa_jid = ?, wa_lid = ?, phone_number = ?, updated_at = ?
+SET account_changed_at = CASE
+		-- NULL on either side compares as NULL, which keeps the stored value.
+		WHEN data_account_jid <> ? THEN ?
+		ELSE account_changed_at
+	END,
+	data_account_jid = COALESCE(?, data_account_jid),
+	wa_jid = ?, wa_lid = ?, phone_number = ?,
+	updated_at = ?
 WHERE id = ?
 `
 
 type AttachSessionPairingParams struct {
+	AccountJid  sql.NullString `db:"account_jid" json:"account_jid"`
+	ChangedAt   sql.NullInt64  `db:"changed_at" json:"changed_at"`
 	WaJid       sql.NullString `db:"wa_jid" json:"wa_jid"`
 	WaLid       sql.NullString `db:"wa_lid" json:"wa_lid"`
 	PhoneNumber sql.NullString `db:"phone_number" json:"phone_number"`
@@ -24,8 +33,13 @@ type AttachSessionPairingParams struct {
 	ID          string         `db:"id" json:"id"`
 }
 
+// account_changed_at is assigned before data_account_jid (MySQL applies SET
+// left to right), so it compares against the previously paired account.
 func (q *Queries) AttachSessionPairing(ctx context.Context, arg AttachSessionPairingParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, attachSessionPairing,
+		arg.AccountJid,
+		arg.ChangedAt,
+		arg.AccountJid,
 		arg.WaJid,
 		arg.WaLid,
 		arg.PhoneNumber,
@@ -142,7 +156,8 @@ func (q *Queries) DeleteSession(ctx context.Context, arg DeleteSessionParams) (i
 const getSession = `-- name: GetSession :one
 SELECT id, organization_id, created_by_user_id, gateway_id, label, status,
 	wa_jid, wa_lid, phone_number, is_admin_session, auto_read, presence_typing,
-	rate_per_min, rate_per_hour, last_connected_at, created_at, updated_at
+	rate_per_min, rate_per_hour, last_connected_at, created_at, updated_at,
+	history_sync_days, data_account_jid, account_changed_at
 FROM wa_sessions
 WHERE id = ?
 `
@@ -172,6 +187,9 @@ func (q *Queries) GetSession(ctx context.Context, arg GetSessionParams) (WaSessi
 		&i.LastConnectedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.HistorySyncDays,
+		&i.DataAccountJid,
+		&i.AccountChangedAt,
 	)
 	return i, err
 }
@@ -179,7 +197,8 @@ func (q *Queries) GetSession(ctx context.Context, arg GetSessionParams) (WaSessi
 const getSessionByJID = `-- name: GetSessionByJID :one
 SELECT id, organization_id, created_by_user_id, gateway_id, label, status,
 	wa_jid, wa_lid, phone_number, is_admin_session, auto_read, presence_typing,
-	rate_per_min, rate_per_hour, last_connected_at, created_at, updated_at
+	rate_per_min, rate_per_hour, last_connected_at, created_at, updated_at,
+	history_sync_days, data_account_jid, account_changed_at
 FROM wa_sessions
 WHERE wa_jid = ?
 `
@@ -209,6 +228,9 @@ func (q *Queries) GetSessionByJID(ctx context.Context, arg GetSessionByJIDParams
 		&i.LastConnectedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.HistorySyncDays,
+		&i.DataAccountJid,
+		&i.AccountChangedAt,
 	)
 	return i, err
 }
@@ -216,7 +238,8 @@ func (q *Queries) GetSessionByJID(ctx context.Context, arg GetSessionByJIDParams
 const listAllSessions = `-- name: ListAllSessions :many
 SELECT id, organization_id, created_by_user_id, gateway_id, label, status,
 	wa_jid, wa_lid, phone_number, is_admin_session, auto_read, presence_typing,
-	rate_per_min, rate_per_hour, last_connected_at, created_at, updated_at
+	rate_per_min, rate_per_hour, last_connected_at, created_at, updated_at,
+	history_sync_days, data_account_jid, account_changed_at
 FROM wa_sessions
 ORDER BY created_at DESC
 `
@@ -248,6 +271,9 @@ func (q *Queries) ListAllSessions(ctx context.Context) ([]WaSession, error) {
 			&i.LastConnectedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.HistorySyncDays,
+			&i.DataAccountJid,
+			&i.AccountChangedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -265,7 +291,8 @@ func (q *Queries) ListAllSessions(ctx context.Context) ([]WaSession, error) {
 const listSessionsByGateway = `-- name: ListSessionsByGateway :many
 SELECT id, organization_id, created_by_user_id, gateway_id, label, status,
 	wa_jid, wa_lid, phone_number, is_admin_session, auto_read, presence_typing,
-	rate_per_min, rate_per_hour, last_connected_at, created_at, updated_at
+	rate_per_min, rate_per_hour, last_connected_at, created_at, updated_at,
+	history_sync_days, data_account_jid, account_changed_at
 FROM wa_sessions
 WHERE gateway_id = ?
 ORDER BY created_at ASC
@@ -302,6 +329,9 @@ func (q *Queries) ListSessionsByGateway(ctx context.Context, arg ListSessionsByG
 			&i.LastConnectedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.HistorySyncDays,
+			&i.DataAccountJid,
+			&i.AccountChangedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -319,7 +349,8 @@ func (q *Queries) ListSessionsByGateway(ctx context.Context, arg ListSessionsByG
 const listSessionsByOrg = `-- name: ListSessionsByOrg :many
 SELECT id, organization_id, created_by_user_id, gateway_id, label, status,
 	wa_jid, wa_lid, phone_number, is_admin_session, auto_read, presence_typing,
-	rate_per_min, rate_per_hour, last_connected_at, created_at, updated_at
+	rate_per_min, rate_per_hour, last_connected_at, created_at, updated_at,
+	history_sync_days, data_account_jid, account_changed_at
 FROM wa_sessions
 WHERE organization_id = ?
 ORDER BY created_at DESC
@@ -356,6 +387,9 @@ func (q *Queries) ListSessionsByOrg(ctx context.Context, arg ListSessionsByOrgPa
 			&i.LastConnectedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.HistorySyncDays,
+			&i.DataAccountJid,
+			&i.AccountChangedAt,
 		); err != nil {
 			return nil, err
 		}

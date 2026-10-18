@@ -883,6 +883,67 @@ func AllGatewaysStatusValues() []GatewaysStatus {
 	}
 }
 
+type HistorySyncRunsStatus string
+
+const (
+	HistorySyncRunsStatusRunning   HistorySyncRunsStatus = "running"
+	HistorySyncRunsStatusCompleted HistorySyncRunsStatus = "completed"
+	HistorySyncRunsStatusFailed    HistorySyncRunsStatus = "failed"
+)
+
+func (e *HistorySyncRunsStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = HistorySyncRunsStatus(s)
+	case string:
+		*e = HistorySyncRunsStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for HistorySyncRunsStatus: %T", src)
+	}
+	return nil
+}
+
+type NullHistorySyncRunsStatus struct {
+	HistorySyncRunsStatus HistorySyncRunsStatus `json:"history_sync_runs_status"`
+	Valid                 bool                  `json:"valid"` // Valid is true if HistorySyncRunsStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullHistorySyncRunsStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.HistorySyncRunsStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.HistorySyncRunsStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullHistorySyncRunsStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.HistorySyncRunsStatus), nil
+}
+
+func (e HistorySyncRunsStatus) Valid() bool {
+	switch e {
+	case HistorySyncRunsStatusRunning,
+		HistorySyncRunsStatusCompleted,
+		HistorySyncRunsStatusFailed:
+		return true
+	}
+	return false
+}
+
+func AllHistorySyncRunsStatusValues() []HistorySyncRunsStatus {
+	return []HistorySyncRunsStatus{
+		HistorySyncRunsStatusRunning,
+		HistorySyncRunsStatusCompleted,
+		HistorySyncRunsStatusFailed,
+	}
+}
+
 type MessagesDirection string
 
 const (
@@ -938,6 +999,67 @@ func AllMessagesDirectionValues() []MessagesDirection {
 	return []MessagesDirection{
 		MessagesDirectionIn,
 		MessagesDirectionOut,
+	}
+}
+
+type MessagesOrigin string
+
+const (
+	MessagesOriginLive    MessagesOrigin = "live"
+	MessagesOriginHistory MessagesOrigin = "history"
+	MessagesOriginBackup  MessagesOrigin = "backup"
+)
+
+func (e *MessagesOrigin) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = MessagesOrigin(s)
+	case string:
+		*e = MessagesOrigin(s)
+	default:
+		return fmt.Errorf("unsupported scan type for MessagesOrigin: %T", src)
+	}
+	return nil
+}
+
+type NullMessagesOrigin struct {
+	MessagesOrigin MessagesOrigin `json:"messages_origin"`
+	Valid          bool           `json:"valid"` // Valid is true if MessagesOrigin is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullMessagesOrigin) Scan(value interface{}) error {
+	if value == nil {
+		ns.MessagesOrigin, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.MessagesOrigin.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullMessagesOrigin) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.MessagesOrigin), nil
+}
+
+func (e MessagesOrigin) Valid() bool {
+	switch e {
+	case MessagesOriginLive,
+		MessagesOriginHistory,
+		MessagesOriginBackup:
+		return true
+	}
+	return false
+}
+
+func AllMessagesOriginValues() []MessagesOrigin {
+	return []MessagesOrigin{
+		MessagesOriginLive,
+		MessagesOriginHistory,
+		MessagesOriginBackup,
 	}
 }
 
@@ -1625,6 +1747,40 @@ type GatewaySessionAssignment struct {
 	UpdatedAt       int64  `db:"updated_at" json:"updated_at"`
 }
 
+type HistorySyncBatch struct {
+	EventID          string `db:"event_id" json:"event_id"`
+	SessionID        string `db:"session_id" json:"session_id"`
+	RunID            string `db:"run_id" json:"run_id"`
+	MessagesImported int32  `db:"messages_imported" json:"messages_imported"`
+	MessagesExisting int32  `db:"messages_existing" json:"messages_existing"`
+	MessagesDropped  int32  `db:"messages_dropped" json:"messages_dropped"`
+	AppliedAt        int64  `db:"applied_at" json:"applied_at"`
+}
+
+type HistorySyncRun struct {
+	ID               uint64                `db:"id" json:"id"`
+	SessionID        string                `db:"session_id" json:"session_id"`
+	RunID            string                `db:"run_id" json:"run_id"`
+	AccountJid       sql.NullString        `db:"account_jid" json:"account_jid"`
+	Status           HistorySyncRunsStatus `db:"status" json:"status"`
+	SyncType         sql.NullString        `db:"sync_type" json:"sync_type"`
+	Progress         sql.NullInt16         `db:"progress" json:"progress"`
+	CutoffAt         sql.NullInt64         `db:"cutoff_at" json:"cutoff_at"`
+	Chunks           int32                 `db:"chunks" json:"chunks"`
+	Batches          int32                 `db:"batches" json:"batches"`
+	Conversations    int32                 `db:"conversations" json:"conversations"`
+	Messages         int32                 `db:"messages" json:"messages"`
+	Skipped          int32                 `db:"skipped" json:"skipped"`
+	BatchesApplied   int32                 `db:"batches_applied" json:"batches_applied"`
+	MessagesImported int32                 `db:"messages_imported" json:"messages_imported"`
+	MessagesExisting int32                 `db:"messages_existing" json:"messages_existing"`
+	MessagesDropped  int32                 `db:"messages_dropped" json:"messages_dropped"`
+	Error            sql.NullString        `db:"error" json:"error"`
+	StartedAt        int64                 `db:"started_at" json:"started_at"`
+	UpdatedAt        int64                 `db:"updated_at" json:"updated_at"`
+	FinishedAt       sql.NullInt64         `db:"finished_at" json:"finished_at"`
+}
+
 type Message struct {
 	ID              string             `db:"id" json:"id"`
 	SessionID       string             `db:"session_id" json:"session_id"`
@@ -1648,6 +1804,7 @@ type Message struct {
 	Timestamp       int64              `db:"timestamp" json:"timestamp"`
 	RawJson         json.RawMessage    `db:"raw_json" json:"raw_json"`
 	CreatedAt       int64              `db:"created_at" json:"created_at"`
+	Origin          MessagesOrigin     `db:"origin" json:"origin"`
 }
 
 type Organization struct {
@@ -1721,23 +1878,26 @@ type PollVote struct {
 }
 
 type WaSession struct {
-	ID              string           `db:"id" json:"id"`
-	OrganizationID  string           `db:"organization_id" json:"organization_id"`
-	CreatedByUserID sql.NullString   `db:"created_by_user_id" json:"created_by_user_id"`
-	GatewayID       string           `db:"gateway_id" json:"gateway_id"`
-	Label           sql.NullString   `db:"label" json:"label"`
-	Status          WaSessionsStatus `db:"status" json:"status"`
-	WaJid           sql.NullString   `db:"wa_jid" json:"wa_jid"`
-	WaLid           sql.NullString   `db:"wa_lid" json:"wa_lid"`
-	PhoneNumber     sql.NullString   `db:"phone_number" json:"phone_number"`
-	IsAdminSession  bool             `db:"is_admin_session" json:"is_admin_session"`
-	AutoRead        bool             `db:"auto_read" json:"auto_read"`
-	PresenceTyping  bool             `db:"presence_typing" json:"presence_typing"`
-	RatePerMin      int32            `db:"rate_per_min" json:"rate_per_min"`
-	RatePerHour     int32            `db:"rate_per_hour" json:"rate_per_hour"`
-	LastConnectedAt sql.NullInt64    `db:"last_connected_at" json:"last_connected_at"`
-	CreatedAt       int64            `db:"created_at" json:"created_at"`
-	UpdatedAt       int64            `db:"updated_at" json:"updated_at"`
+	ID               string           `db:"id" json:"id"`
+	OrganizationID   string           `db:"organization_id" json:"organization_id"`
+	CreatedByUserID  sql.NullString   `db:"created_by_user_id" json:"created_by_user_id"`
+	GatewayID        string           `db:"gateway_id" json:"gateway_id"`
+	Label            sql.NullString   `db:"label" json:"label"`
+	Status           WaSessionsStatus `db:"status" json:"status"`
+	WaJid            sql.NullString   `db:"wa_jid" json:"wa_jid"`
+	WaLid            sql.NullString   `db:"wa_lid" json:"wa_lid"`
+	PhoneNumber      sql.NullString   `db:"phone_number" json:"phone_number"`
+	IsAdminSession   bool             `db:"is_admin_session" json:"is_admin_session"`
+	AutoRead         bool             `db:"auto_read" json:"auto_read"`
+	PresenceTyping   bool             `db:"presence_typing" json:"presence_typing"`
+	RatePerMin       int32            `db:"rate_per_min" json:"rate_per_min"`
+	RatePerHour      int32            `db:"rate_per_hour" json:"rate_per_hour"`
+	LastConnectedAt  sql.NullInt64    `db:"last_connected_at" json:"last_connected_at"`
+	CreatedAt        int64            `db:"created_at" json:"created_at"`
+	UpdatedAt        int64            `db:"updated_at" json:"updated_at"`
+	HistorySyncDays  uint16           `db:"history_sync_days" json:"history_sync_days"`
+	DataAccountJid   sql.NullString   `db:"data_account_jid" json:"data_account_jid"`
+	AccountChangedAt sql.NullInt64    `db:"account_changed_at" json:"account_changed_at"`
 }
 
 type Webhook struct {

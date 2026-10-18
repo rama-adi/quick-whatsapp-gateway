@@ -188,6 +188,7 @@ export const fetchMessagesPage = createServerFn({ method: "GET" })
         deleted: messages.deleted,
         timestamp: messages.timestamp,
         createdAt: messages.createdAt,
+        origin: messages.origin,
       })
       .from(messages)
       .leftJoin(
@@ -336,6 +337,7 @@ type MessageRow = {
   pollHideVotes: number | null;
   mentions: unknown;
   status: Message["status"] | null;
+  origin: Message["origin"];
   fromMe: number;
   hasMedia: number;
   edited: number;
@@ -379,6 +381,7 @@ function rowToMessage(
     timestamp: r.timestamp,
     createdAt: r.createdAt,
     status: r.status ?? undefined,
+    origin: r.origin,
   };
 }
 

@@ -44,6 +44,9 @@ func (r *MessageRepo) Upsert(ctx context.Context, m domain.Message) error {
 	if m.ID == "" {
 		m.ID = domain.NewMessageID()
 	}
+	if m.Origin == "" {
+		m.Origin = domain.OriginLive
+	}
 
 	if err := r.q.UpsertMessage(ctx, storedb.UpsertMessageParams{
 		ID:              m.ID,
@@ -68,6 +71,7 @@ func (r *MessageRepo) Upsert(ctx context.Context, m domain.Message) error {
 		Timestamp:       m.Timestamp,
 		RawJson:         nullableJSON(m.RawJSON),
 		CreatedAt:       m.CreatedAt,
+		Origin:          storedb.MessagesOrigin(m.Origin),
 	}); err != nil {
 		return fmt.Errorf("store: upsert message: %w", err)
 	}
@@ -105,6 +109,7 @@ func (r *MessageRepo) GetByWAID(ctx context.Context, sessionID, waMessageID stri
 		row.RawJson,
 		row.CreatedAt,
 		row.SenderName,
+		row.Origin,
 	)
 }
 
@@ -215,6 +220,7 @@ func (r *MessageRepo) ListByChat(
 			row.RawJson,
 			row.CreatedAt,
 			row.SenderName,
+			row.Origin,
 		)
 		if err != nil {
 			return Page[domain.Message]{}, err
@@ -242,6 +248,7 @@ func messageFromParts(
 	rawJSON json.RawMessage,
 	createdAt int64,
 	senderName sql.NullString,
+	origin storedb.MessagesOrigin,
 ) (domain.Message, error) {
 	m := domain.Message{
 		ID:              id,
@@ -266,6 +273,7 @@ func messageFromParts(
 		Timestamp:       timestamp,
 		RawJSON:         jsonOrNil(rawJSON),
 		CreatedAt:       createdAt,
+		Origin:          domain.MessageOrigin(origin),
 	}
 	if len(mediaMeta) > 0 {
 		mm := &domain.MediaMeta{}

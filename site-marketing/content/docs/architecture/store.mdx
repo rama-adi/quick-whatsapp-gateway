@@ -51,6 +51,7 @@ api-key `reference_id`, never by joining `member` on the hot path ([`trust-model
 | `messages` + `event_log` + `webhook_deliveries` | `RetentionRepo` | global maintenance (bounded retention batches) |
 | `messages` + `outbox` + `webhook_deliveries` (read-only) | `OverviewRepo` | `organization_id`; messages via the org's session ids, deliveries via the org's webhook ids |
 | `backfill_imports` | `BackfillImportRepo` | via `session_id` (import job status + once/24h quota) |
+| `history_sync_runs` + `history_sync_batches` | `HistoryRepo` | via `session_id` (history-sync run status + per-batch idempotency ledger; `ON DELETE CASCADE` with the session) |
 | `oauth_clients` | `OAuthClientRepo` | `organization_id` |
 | `oauth_grants` | `OAuthGrantRepo` | `organization_id` |
 | `oauth_refresh_tokens` | `OAuthRefreshTokenRepo` | `organization_id` |
@@ -360,6 +361,26 @@ Query shape decisions:
   column, so the filtered query uses `STRAIGHT_JOIN event_log` on
   `uq_event_id`: the in-window deliveries drive the join and each one costs a
   single unique-key lookup.
+
+## History sync schema (`migration 0021_history_sync`)
+
+Supports importing the chat history the phone sends after a device (re)link
+(see [history sync events](/docs/architecture/eventing#history-sync-events)).
+
+| Change | Purpose |
+|---|---|
+| `messages.origin ENUM('live','history','backup') NOT NULL DEFAULT 'live'` | Where the row came from. Set on insert only: a later live upsert of the same `(session_id, wa_message_id)` keeps the first origin. Exposed as `Message.origin`. Appended as the last column so MySQL can add it instantly on a large table. |
+| `wa_sessions.history_sync_days SMALLINT UNSIGNED NOT NULL DEFAULT 30` | Days of history to import on (re)link; `0` = off. The API fills it from `HISTORY_SYNC_DEFAULT_DAYS` when a create omits it and caps it at `HISTORY_SYNC_MAX_DAYS`. |
+| `wa_sessions.data_account_jid VARCHAR(255) NULL` | Phone JID (no device suffix) of the account whose chats the session's rows belong to. `AttachPairing` sets it; `ClearPairing` (logout) does **not** clear it. Backfilled from `phone_number`. |
+| `wa_sessions.account_changed_at BIGINT NULL` | Stamped by `AttachPairing` when it attaches a different phone number than `data_account_jid` (the SET list assigns it before `data_account_jid`, so it compares against the previous account). Stored rows then mix two accounts; nothing is purged automatically. A new device of the same number is not a change. |
+| `history_sync_runs` (unique `(session_id, run_id)`, `idx_hsr_latest (session_id, started_at)`) | One row per gateway import run. Gateway counters (`chunks`, `batches`, `conversations`, `messages`, `skipped`, `progress`, `sync_type`, `cutoff_at`) mirror the latest `history.sync` event and only grow; `batches_applied` and `messages_imported` / `messages_existing` / `messages_dropped` are the API's own projection result. |
+| `history_sync_batches` (PK `event_id`) | Idempotency ledger for `history.batch` projection. A present row means the batch (rows and run counters) is already applied, so a redelivered event is a no-op. |
+
+**Why a ledger instead of `ON DUPLICATE KEY` row counts.** `dbconn` forces
+`clientFoundRows=true`, so `RowsAffected` reports 1 for an `ON DUPLICATE KEY UPDATE`
+that changed nothing and cannot distinguish an insert from a duplicate. History
+projection therefore checks the ledger and pre-selects existing
+`wa_message_id`s inside the batch transaction to decide what to insert and count.
 
 A session pinned to a gateway that is missing / not `active` / has a stale heartbeat is a *stranded*
 session: the router returns the new **`gateway_unavailable` (HTTP 503)** domain error rather than

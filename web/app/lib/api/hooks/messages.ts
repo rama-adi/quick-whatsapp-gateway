@@ -127,6 +127,7 @@ export function useSendMessage(
         edited: false,
         hasMedia: false,
         waMessageId: "",
+        origin: "live",
       };
       qc.setQueryData<Chat>(qk.chat(s, chatJid), (cur) =>
         cur

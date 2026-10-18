@@ -5,7 +5,7 @@ import { parseExtras, parseMessage } from "./-viewer-ui";
 const message: Message = {
   id: "row-1", waMessageId: "original", sessionId: "session", chatJid: "123@g.us",
   type: "text", body: "new text", direction: "in", fromMe: false,
-  timestamp: 1, createdAt: 1, edited: true, deleted: false, hasMedia: false,
+  timestamp: 1, createdAt: 1, edited: true, deleted: false, hasMedia: false, origin: "live",
 };
 
 describe("message lifecycle display", () => {

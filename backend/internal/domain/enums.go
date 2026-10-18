@@ -83,6 +83,18 @@ const (
 	DirectionOut MessageDirection = "out"
 )
 
+// MessageOrigin records where a stored message row came from (messages.origin).
+type MessageOrigin string
+
+const (
+	// OriginLive is a message captured from a live WhatsApp event or our own send.
+	OriginLive MessageOrigin = "live"
+	// OriginHistory is a message imported from WhatsApp history sync on (re)link.
+	OriginHistory MessageOrigin = "history"
+	// OriginBackup is a message imported from a WhatsApp backup file.
+	OriginBackup MessageOrigin = "backup"
+)
+
 // MessageStatus mirrors messages.status.
 type MessageStatus string
 

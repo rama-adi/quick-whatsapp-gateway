@@ -2,9 +2,9 @@
 INSERT INTO messages
 (id, session_id, wa_message_id, chat_jid, sender_lid, sender_jid, from_me, direction,
  type, body, quoted_message_id, mentions, has_media, media_meta, status,
- ack_level, error, edited, deleted, timestamp, raw_json, created_at)
+ ack_level, error, edited, deleted, timestamp, raw_json, created_at, origin)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(sqlc.arg(mentions), ''), ?, NULLIF(sqlc.arg(media_meta), ''), ?,
- ?, ?, ?, ?, ?, NULLIF(sqlc.arg(raw_json), ''), ?)
+ ?, ?, ?, ?, ?, NULLIF(sqlc.arg(raw_json), ''), ?, ?)
 ON DUPLICATE KEY UPDATE
 	chat_jid          = VALUES(chat_jid),
 	sender_lid        = COALESCE(VALUES(sender_lid), sender_lid),
@@ -21,7 +21,7 @@ SELECT m.id, m.session_id, m.wa_message_id, m.chat_jid, m.sender_lid,
 	m.sender_jid, m.from_me, m.direction, m.type, m.body, m.quoted_message_id,
 	COALESCE(m.mentions, '') AS mentions, m.has_media, COALESCE(m.media_meta, '') AS media_meta,
 	m.status, m.ack_level, m.error, m.edited, m.deleted, m.timestamp,
-	COALESCE(m.raw_json, '') AS raw_json, m.created_at, i.name AS sender_name
+	COALESCE(m.raw_json, '') AS raw_json, m.created_at, i.name AS sender_name, m.origin
 FROM messages m
 LEFT JOIN whatsapp_identities i ON i.lid = m.sender_lid
 WHERE m.session_id = ? AND m.wa_message_id = ?;
@@ -61,7 +61,7 @@ SELECT m.id, m.session_id, m.wa_message_id, m.chat_jid, m.sender_lid,
 	m.sender_jid, m.from_me, m.direction, m.type, m.body, m.quoted_message_id,
 	COALESCE(m.mentions, '') AS mentions, m.has_media, COALESCE(m.media_meta, '') AS media_meta,
 	m.status, m.ack_level, m.error, m.edited, m.deleted, m.timestamp,
-	COALESCE(m.raw_json, '') AS raw_json, m.created_at, i.name AS sender_name
+	COALESCE(m.raw_json, '') AS raw_json, m.created_at, i.name AS sender_name, m.origin
 FROM messages m
 LEFT JOIN whatsapp_identities i ON i.lid = m.sender_lid
 WHERE m.session_id = ? AND (sqlc.arg(message_cursor) = '' OR m.id < sqlc.arg(message_cursor)) AND (

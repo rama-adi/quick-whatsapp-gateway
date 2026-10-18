@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
@@ -194,9 +195,19 @@ func (r *SessionRepo) ClearPairing(ctx context.Context, id string, updatedAt int
 // write-side of pairing on this branch — desired-state reconciliation derives
 // each assignment's DeviceJID from wa_jid, so without it a freshly paired
 // session never starts. Idempotent by event replay: rewriting the same identity
-// is a no-op on the row.
+// is a no-op on the row. It also records data_account_jid (kept across logout)
+// and stamps account_changed_at when the pairing attaches a different phone
+// number than the one the session's stored data belongs to.
 func (r *SessionRepo) AttachPairing(ctx context.Context, in AttachPairingInput) error {
+	// The account is the phone JID without the device suffix, so relinking
+	// the same number as a new device does not count as an account change.
+	var account sql.NullString
+	if in.PhoneNumber != "" {
+		account = sql.NullString{String: in.PhoneNumber + "@s.whatsapp.net", Valid: true}
+	}
 	n, err := r.q.AttachSessionPairing(ctx, storedb.AttachSessionPairingParams{
+		AccountJid:  account,
+		ChangedAt:   sql.NullInt64{Int64: in.UpdatedAt, Valid: true},
 		WaJid:       nullStringFromValue(in.WaJID),
 		WaLid:       nullStringFromValue(in.WaLID),
 		PhoneNumber: nullStringFromValue(in.PhoneNumber),

@@ -316,6 +316,7 @@ describe("applyEvent", () => {
           deleted: false,
           edited: false,
           hasMedia: false,
+          origin: "live",
         },
       ]),
     );
@@ -383,6 +384,7 @@ describe("applyEvent", () => {
       edited: false,
       hasMedia: false,
       waMessageId: "m1",
+      origin: "live",
     };
     qc.setQueryData(qk.chatMessages(SESSION, chatJid), infinite([m]));
 
@@ -486,7 +488,7 @@ describe("message lifecycle cache", () => {
   const original: Message = {
     id: "row-1", waMessageId: "original", sessionId: SESSION, chatJid,
     type: "text", body: "old text", direction: "in", fromMe: false,
-    timestamp: 1, createdAt: 1, edited: false, deleted: false, hasMedia: false,
+    timestamp: 1, createdAt: 1, edited: false, deleted: false, hasMedia: false, origin: "live",
   };
 
   it("patches the original row on an older page and keeps other chats unchanged", () => {

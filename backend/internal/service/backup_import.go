@@ -351,6 +351,7 @@ func (s *BackupImportService) importAll(
 		}
 		if err := s.store.Messages.Upsert(ctx, domain.Message{
 			ID:              ids.Next(m.TimestampMs),
+			Origin:          domain.OriginBackup,
 			SessionID:       sessionID,
 			WAMessageID:     m.WAMessageID,
 			ChatJID:         m.ChatJID,

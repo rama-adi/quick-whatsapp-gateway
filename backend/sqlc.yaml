@@ -14,6 +14,7 @@ sql:
       - "migrations/0014_outbound_commands.up.sql"
       - "migrations/0018_outbox_unknown.up.sql"
       - "migrations/0019_outbox_expiry.up.sql"
+      - "migrations/0021_history_sync.up.sql"
       - "internal/store/sqlc_schema/auth.sql"
     queries: "internal/store/queries"
     gen:

@@ -351,6 +351,7 @@ type Message struct {
 	Edited       bool              `json:"edited" doc:"True if the message was edited after being sent." example:"false"`
 	Deleted      bool              `json:"deleted" doc:"True if the message was deleted/revoked." example:"false"`
 	Timestamp    int64             `json:"timestamp" doc:"When the message was sent or received, in epoch milliseconds (UTC)." example:"1719662400000"`
+	Origin       MessageOrigin     `json:"origin" enum:"live,history,backup" doc:"Where this stored copy came from. **live** = received or sent while the session was connected; **history** = imported from the chat history the phone sent when the device was (re)linked; **backup** = imported from a WhatsApp backup file. Imported messages never triggered message webhooks, and their media is not downloadable." example:"live"`
 	RawJSON      json.RawMessage   `json:"-"` // normalized event payload; never re-exposed
 	CreatedAt    int64             `json:"createdAt" doc:"When the message row was stored, in epoch milliseconds (UTC)." example:"1719662400000"`
 }
