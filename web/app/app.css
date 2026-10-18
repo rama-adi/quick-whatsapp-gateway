@@ -6,10 +6,25 @@
 @theme inline {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji",
     "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
+  /* System mono for IDs, JIDs, key prefixes and secrets (no webfont). */
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, "JetBrains Mono", Menlo,
+    Consolas, "Liberation Mono", monospace;
+  /* Multiplicative radius scale: every step stays proportional to --radius. */
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+  /* Shell surfaces: the inset content panel and the nav items on the frame. */
+  --radius-panel: calc(var(--radius) * 1.4);
+  --radius-item: calc(var(--radius) * 0.8);
+  /* One soft deceleration for every micro-interaction; drives both
+     transitions (`ease-soft`) and tw-animate enter/exit animations. */
+  --ease-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  /* Inset content panel: hairline top highlight + a wide, low drop shadow. */
+  --shadow-panel: var(--panel-shadow);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -70,14 +85,18 @@
   --chart-3: oklch(0.398 0.07 227.392);
   --chart-4: oklch(0.828 0.189 84.429);
   --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
+  /* The frame (sidebar + window chrome) sits a step grayer than the white
+     panel so the inset content reads as a raised sheet. */
+  --sidebar: oklch(0.965 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.205 0 0);
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-accent: oklch(0.925 0 0);
+  --sidebar-accent-foreground: oklch(0.145 0 0);
+  --sidebar-border: oklch(0.9 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+  --panel-shadow: 0 1px 0 rgb(255 255 255 / 0.6) inset, 0 1px 2px rgb(0 0 0 / 0.04),
+    0 12px 32px -16px rgb(0 0 0 / 0.12);
 }
 
 .dark {
@@ -105,14 +124,17 @@
   --chart-3: oklch(0.769 0.188 70.08);
   --chart-4: oklch(0.627 0.265 303.9);
   --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
+  /* Dark: the frame recedes below the panel instead of rising above it. */
+  --sidebar: oklch(0.112 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
   --sidebar-primary: oklch(0.488 0.243 264.376);
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent: oklch(0.205 0 0);
   --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-border: oklch(1 0 0 / 9%);
   --sidebar-ring: oklch(0.556 0 0);
+  --panel-shadow: 0 1px 0 rgb(255 255 255 / 0.04) inset, 0 1px 2px rgb(0 0 0 / 0.3),
+    0 12px 32px -16px rgb(0 0 0 / 0.6);
 }
 
 @layer base {
@@ -121,5 +143,33 @@
   }
   body {
     @apply bg-background text-foreground;
+    /* Inter: single-storey a (cv11) + open digits (ss01) read calmer in dense UI. */
+    font-feature-settings: "cv11", "ss01";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    letter-spacing: -0.012em;
+    text-wrap: balance;
+  }
+  code,
+  kbd,
+  samp,
+  pre {
+    font-feature-settings: normal;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
