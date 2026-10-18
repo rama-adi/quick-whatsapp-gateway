@@ -13,51 +13,6 @@ The system contains independently deployable API, gateway, web dashboard, and ma
 Design rationale lives in [`site-marketing/content/docs/architecture/overview.mdx`](./site-marketing/content/docs/architecture/overview.mdx). This file is the bookkeeping
 rulebook: where things live, what to update alongside a change, and the gates that must pass.
 
-## Orchestration model
-
-You (Fable) are the orchestrator. Your job is to plan, decompose, and synthesize — not to do all
-the work yourself. Keep your own context lean: delegate the heavy lifting and pull back only the
-conclusions you need to act on.
-
-- Reasoning-heavy phases (architecture, complex debugging, algorithm design) → Opus.
-- Mechanical work (boilerplate, tests, formatting, simple edits) → Sonnet.
-- High-stakes decisions: task two Opus agents on the same problem **in parallel**, without showing
-  either the other's answer. Then synthesize the best of both yourself.
-- Do not use Codex / OpenAI models (the `codex` plugin, `/codex:*` commands, `codex:*` agents).
-
-## Picking the right models for workflows and subagents
-
-Rankings, higher = better. Intelligence is how hard a problem you can hand the model unsupervised.
-Taste covers UI/UX, code quality, API design, and copy.
-
-| model | cost | intelligence | taste |
-|---|---:|---:|---:|
-| sonnet-5 | 5 | 5 | 7 |
-| opus-4.8 | 4 | 7 | 8 |
-| fable-5 | 2 | 9 | 9 |
-
-Character notes (how each model actually behaves):
-
-- **sonnet-5** — Fast worker. Not as polished as opus, but workable for clear-spec, mechanical work.
-- **opus-4.8** — The default worker. High taste for frontend and docs, and strong enough for logic,
-  debugging, and backend work. Its code is more freeform, so pair implementation with a review pass
-  that hunts for bugs and regressions.
-- **fable-5** — The best and most expensive model. Strong in every scenario, but super expensive —
-  reserve for when it's worth it.
-
-How to apply:
-
-- These are defaults, not limits. You have standing permission to override them: if a cheaper
-  model's output doesn't meet the bar, rerun or redo the work with a smarter model without asking.
-  Judge the output, not the price tag. Escalating costs less than shipping mediocre work.
-- Cost is a tie-breaker only; when axes conflict for anything that ships, intelligence > taste >
-  cost.
-- Anything user-facing (UI, copy, API design) needs taste >= 7.
-- Reviews of plans/implementations: fable-5 or opus-4.8. For correctness reviews, brief the
-  reviewer to hunt for real bugs (data flow, races, regressions), not style.
-- Never use Haiku.
-- Claude models run via the Agent/Workflow model parameter.
-
 ## Where things live
 
 | Path | What it is |
