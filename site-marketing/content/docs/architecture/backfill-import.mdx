@@ -77,7 +77,9 @@ Mapping (every JID is the `jid.raw_string`; `message.timestamp` is already epoch
 15/20 sticker; 4 contact; 5/16 location). Rows with no recognized content type **and** no body **and**
 no media (system/placeholder) are skipped. All upserts go through the existing repos and are
 idempotent by `(session_id, wa_message_id)` — re-running an import merges rather than duplicates and
-reconciles with live capture.
+reconciles with live capture. New message rows get an id seeded from the message's own timestamp
+(`domain.MessageIDSequence`, clamped to now), so imported history interleaves with live messages in
+timeline order instead of sorting as the newest rows.
 
 ## Quota & concurrency (`backfill_imports`, [`store.md`](/docs/architecture/store))
 

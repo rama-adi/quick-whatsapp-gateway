@@ -398,7 +398,10 @@ read queries can compile without making the API a writer or migration owner for 
 - **Upserts** via `ON DUPLICATE KEY UPDATE` on the natural unique key; capture upserts use
   `COALESCE(VALUES(col), col)` so a sparse later sighting never wipes a known value (e.g. a
   resolved push name survives a later nameless sighting); `chats.last_message_at` only moves
-  forward via `GREATEST`.
+  forward, and a NULL input keeps the stored value (a stored NULL stays NULL instead of becoming
+  `0`, which would surface a never-messaged chat in the inbox). `ChatRepo.Upsert` writes
+  `unread_count`, `archived`, `pinned` and `muted_until` on insert only: a message-driven upsert
+  must not reset the unread counter or a user's flags.
 - **Read-time identity resolution.** Message reads enrich rows from
   `whatsapp_identities` rather than storing display data on the message: a left
   join resolves the sender's `sender_name` (by `sender_lid`), and the service
@@ -491,7 +494,13 @@ read queries can compile without making the API a writer or migration owner for 
   integer. It stays lexicographically sortable for cursor pagination while avoiding a single
   hot monotonic database counter under high write throughput. Message timeline
   pages are returned newest-first; the next cursor is the last row in the page
-  and loads older rows with `id < cursor`.
+  and loads older rows with `id < cursor`. Because timelines sort by id, the
+  ULID time must be the message's own time: live capture mints the id at insert
+  (`domain.NewMessageID`), while importers (backup import, history sync) seed
+  it from the WhatsApp timestamp with `domain.NewMessageIDAt` /
+  `domain.MessageIDSequence` (monotonic within one batch). The timestamp is
+  clamped to now, so a zero or future (clock-skewed) value can never sort ahead
+  of later live messages.
 - **Cursor pagination** uses opaque resource-specific cursors
   (`lastMessageAt:id` for the chat inbox, sortable message ids for messages,
   numeric ids elsewhere); limits clamp to `[1,200]` (default 50); bad cursor →

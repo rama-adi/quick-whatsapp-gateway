@@ -198,8 +198,11 @@ INSERT INTO chats (session_id, chat_jid, type, name, last_message_at, unread_cou
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON DUPLICATE KEY UPDATE
 	name = COALESCE(VALUES(name), name),
-	last_message_at = GREATEST(COALESCE(last_message_at, 0), COALESCE(VALUES(last_message_at), 0)),
-	unread_count = VALUES(unread_count)
+	last_message_at = CASE
+		WHEN VALUES(last_message_at) IS NULL THEN last_message_at
+		WHEN last_message_at IS NULL THEN VALUES(last_message_at)
+		ELSE GREATEST(last_message_at, VALUES(last_message_at))
+	END
 `
 
 type UpsertChatParams struct {

@@ -23,9 +23,10 @@ func NewChatRepo(db storedb.DBTX) *ChatRepo { return &ChatRepo{db: db, q: stored
 
 // Upsert inserts or updates a chat by (session_id, chat_jid). On conflict the
 // name and last_message_at advance (name only when non-NULL; last_message_at
-// only forward via GREATEST), unread_count is overwritten from the struct. Flags
-// (archived/pinned/muted) are managed via UpdateFlags, not here, so a message-
-// driven upsert doesn't clobber a user's pin/archive state.
+// only forward, and a NULL input never turns a stored value into 0 or a NULL
+// into 0). unread_count, archived, pinned and muted_until are written on insert
+// only: a message-driven upsert must not reset the unread counter or clobber a
+// user's pin/archive state (those are owned by UpdateFlags).
 func (r *ChatRepo) Upsert(ctx context.Context, c domain.Chat) error {
 	if c.Type == domain.ChatDM {
 		chatJID, err := canonicalDMChatJID(ctx, r.db, c.ChatJID)

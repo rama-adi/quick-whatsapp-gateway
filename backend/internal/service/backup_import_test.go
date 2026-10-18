@@ -2,10 +2,13 @@ package service
 
 import (
 	"context"
+	"database/sql/driver"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/oklog/ulid/v2"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/backup"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/store"
@@ -202,7 +205,11 @@ func TestImportAll_UpsertsAndCounts(t *testing.T) {
 	mock.ExpectExec("INSERT INTO whatsapp_groups").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("INSERT INTO whatsapp_group_members").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("INSERT INTO chats").WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec("INSERT INTO messages").WillReturnResult(sqlmock.NewResult(0, 1))
+	msgArgs := []driver.Value{messageIDAt{testNow}}
+	for i := 1; i < 22; i++ {
+		msgArgs = append(msgArgs, sqlmock.AnyArg())
+	}
+	mock.ExpectExec("INSERT INTO messages").WithArgs(msgArgs...).WillReturnResult(sqlmock.NewResult(0, 1))
 
 	var job domain.BackfillImport
 	if err := svc.importAll(context.Background(), reader, "sess_1", &job); err != nil {
@@ -214,4 +221,17 @@ func TestImportAll_UpsertsAndCounts(t *testing.T) {
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// messageIDAt matches a msg_<ULID> id whose time component is ms: imported
+// rows must sort by their own timestamp, not by import time.
+type messageIDAt struct{ ms int64 }
+
+func (m messageIDAt) Match(v driver.Value) bool {
+	id, ok := v.(string)
+	if !ok || !strings.HasPrefix(id, domain.PrefixMessage) {
+		return false
+	}
+	parsed, err := ulid.Parse(strings.TrimPrefix(id, domain.PrefixMessage))
+	return err == nil && int64(parsed.Time()) == m.ms
 }

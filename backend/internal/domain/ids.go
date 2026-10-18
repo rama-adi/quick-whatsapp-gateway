@@ -70,6 +70,55 @@ func NewMessageID() string     { return NewPrefixedID(PrefixMessage) }
 func NewOAuthClientID() string { return NewPrefixedID(PrefixOAuthClient) }
 func NewOAuthGrantID() string  { return NewPrefixedID(PrefixOAuthGrant) }
 
+// NewMessageIDAt returns a msg_<ULID> whose time component is the message's own
+// WhatsApp timestamp (epoch ms) instead of the insert time. Chat timelines order
+// by messages.id, so a message imported long after it was sent (history sync,
+// backup import) must carry an id from its send time to land in the right place.
+// The timestamp is clamped to now: a zero/negative value or a future value
+// (sender clock skew) gets the current time, so an import can never sort ahead
+// of messages that arrive live later. It uses its own entropy source: rewinding
+// the shared one to a past millisecond would break NewULID's monotonicity for
+// ids minted live in the same millisecond.
+func NewMessageIDAt(timestampMs int64) string {
+	ms := clampIDTime(timestampMs, time.Now())
+	importEntropyMu.Lock()
+	defer importEntropyMu.Unlock()
+	return PrefixMessage + ulid.MustNew(ms, importEntropy).String()
+}
+
+var (
+	importEntropyMu sync.Mutex
+	importEntropy   = ulid.Monotonic(rand.Reader, 0)
+)
+
+// MessageIDSequence mints timestamp-seeded message ids for one import batch.
+// It owns its monotonic entropy, so ids minted for messages sharing the same
+// millisecond keep their call order even when other goroutines mint ids
+// concurrently. Callers feed messages oldest first. Not safe for concurrent use.
+type MessageIDSequence struct {
+	entropy *ulid.MonotonicEntropy
+	now     func() time.Time
+}
+
+// NewMessageIDSequence returns a sequence for one batch.
+func NewMessageIDSequence() *MessageIDSequence {
+	return &MessageIDSequence{entropy: ulid.Monotonic(rand.Reader, 0), now: time.Now}
+}
+
+// Next returns the id for a message sent at timestampMs (clamped like
+// NewMessageIDAt).
+func (s *MessageIDSequence) Next(timestampMs int64) string {
+	return PrefixMessage + ulid.MustNew(clampIDTime(timestampMs, s.now()), s.entropy).String()
+}
+
+func clampIDTime(timestampMs int64, now time.Time) uint64 {
+	nowMs := now.UnixMilli()
+	if timestampMs <= 0 || timestampMs > nowMs {
+		return uint64(nowMs)
+	}
+	return uint64(timestampMs)
+}
+
 // NowMs returns the current time as epoch milliseconds — the canonical
 // timestamp unit for every BIGINT column in §5.
 func NowMs() int64 { return time.Now().UnixMilli() }

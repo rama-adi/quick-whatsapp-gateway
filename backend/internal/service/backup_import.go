@@ -317,6 +317,9 @@ func (s *BackupImportService) importAll(
 		return err
 	}
 
+	// Ids carry each message's own timestamp so imported rows interleave with
+	// live rows in timeline order (timelines sort by messages.id).
+	ids := domain.NewMessageIDSequence()
 	if err := db.EachMessage(ctx, func(m backup.Message) error {
 		if m.WAMessageID == "" || m.ChatJID == "" {
 			return nil
@@ -347,6 +350,7 @@ func (s *BackupImportService) importAll(
 			}
 		}
 		if err := s.store.Messages.Upsert(ctx, domain.Message{
+			ID:              ids.Next(m.TimestampMs),
 			SessionID:       sessionID,
 			WAMessageID:     m.WAMessageID,
 			ChatJID:         m.ChatJID,
