@@ -13,6 +13,57 @@ The system contains independently deployable API, gateway, web dashboard, and ma
 Design rationale lives in [`site-marketing/content/docs/architecture/overview.mdx`](./site-marketing/content/docs/architecture/overview.mdx). This file is the bookkeeping
 rulebook: where things live, what to update alongside a change, and the gates that must pass.
 
+## TanStack skills (Intent)
+
+`web/` and `site-marketing/` pin `@tanstack/intent` and list allowed skill sources in each
+`package.json` under `intent.skills` (an explicit allowlist) and `intent.exclude`. Intent reads skill
+files from installed packages; it does not run their code. Load only the skill that matches the task
+in front of you. To allow a new package's skills, add it to `intent.skills` after reviewing
+`pnpm --dir web exec intent list --show-hidden`.
+
+<!-- intent-skills:start -->
+# TanStack Intent - before editing files, run the matching guidance command.
+# Run from the repo root. Use --dir site-marketing instead when the change is in site-marketing/.
+# For skills not listed here: pnpm --dir web exec intent list
+tanstackIntent:
+  - id: "@tanstack/router-core#router-core"
+    run: "pnpm --dir web exec intent load @tanstack/router-core#router-core"
+    for: "adding, renaming or restructuring routes; file-route naming in web/app/routes or site-marketing/app/routes"
+  - id: "@tanstack/router-core#router-core/data-loading"
+    run: "pnpm --dir web exec intent load @tanstack/router-core#router-core/data-loading"
+    for: "route loaders, beforeLoad, pending and error components, router.invalidate"
+  - id: "@tanstack/router-core#router-core/search-params"
+    run: "pnpm --dir web exec intent load @tanstack/router-core#router-core/search-params"
+    for: "validateSearch and URL state such as ?tab= and ?range="
+  - id: "@tanstack/router-core#router-core/navigation"
+    run: "pnpm --dir web exec intent load @tanstack/router-core#router-core/navigation"
+    for: "Link, useNavigate, useBlocker, active link states"
+  - id: "@tanstack/router-core#router-core/auth-and-guards"
+    run: "pnpm --dir web exec intent load @tanstack/router-core#router-core/auth-and-guards"
+    for: "session and role gates in _app, _auth and admin layouts"
+  - id: "@tanstack/router-core#router-core/ssr"
+    run: "pnpm --dir web exec intent load @tanstack/router-core#router-core/ssr"
+    for: "head(), the root document shell, SSR and hydration problems"
+  - id: "@tanstack/start-client-core#start-core/server-functions"
+    run: "pnpm --dir web exec intent load @tanstack/start-client-core#start-core/server-functions"
+    for: "createServerFn calls (auth, session, contacts data, post-login redirects)"
+  - id: "@tanstack/start-client-core#start-core/execution-model"
+    run: "pnpm --dir web exec intent load @tanstack/start-client-core#start-core/execution-model"
+    for: "server vs client boundaries, env vars, ClientOnly and hydration-safe code"
+  - id: "@tanstack/start-client-core#start-core/server-routes"
+    run: "pnpm --dir web exec intent load @tanstack/start-client-core#start-core/server-routes"
+    for: "API endpoints under web/app/routes/api"
+  - id: "@tanstack/start-client-core#start-core/middleware"
+    run: "pnpm --dir web exec intent load @tanstack/start-client-core#start-core/middleware"
+    for: "Start request or server-function middleware"
+  - id: "@tanstack/start-client-core#start-core/deployment"
+    run: "pnpm --dir web exec intent load @tanstack/start-client-core#start-core/deployment"
+    for: "Node/Docker builds of web and site-marketing (deploy/)"
+  - id: "@tanstack/router-plugin#router-plugin"
+    run: "pnpm --dir web exec intent load @tanstack/router-plugin#router-plugin"
+    for: "vite.config router plugin, route generation, routeTree.gen.ts"
+<!-- intent-skills:end -->
+
 ## Where things live
 
 | Path | What it is |
