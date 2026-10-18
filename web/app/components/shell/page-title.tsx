@@ -3,6 +3,7 @@
 // <PageHeader> in page-chrome.tsx, which portals into the header.)
 
 import type { ReactNode } from "react";
+import { ArrowUpRightIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
 
 const PAGE_WIDTH = {
@@ -62,18 +63,23 @@ export function Page({
  *   or a mono ID as the description).
  * - `eyebrow` sits above the title: a back link or breadcrumb on detail pages.
  * - `actions` collapse under the title on narrow screens.
+ * - `docsHref` adds a "Learn more" link to the matching guide after the
+ *   description (use the `DOCS` map in ~/lib/docs-links). Opens in a new tab.
  */
 export function PageTitle({
   title,
   description,
   actions,
   eyebrow,
+  docsHref,
   className,
 }: {
   title: ReactNode;
   description?: ReactNode;
   actions?: ReactNode;
   eyebrow?: ReactNode;
+  /** Guide URL for a trailing "Learn more" link, e.g. DOCS.apiKeys. */
+  docsHref?: string;
   className?: string;
 }) {
   return (
@@ -91,9 +97,23 @@ export function PageTitle({
         <h1 className="flex min-w-0 items-center gap-2 text-xl font-semibold tracking-tight">
           {title}
         </h1>
-        {description ? (
+        {description || docsHref ? (
           <div className="text-sm text-pretty text-muted-foreground">
             {description}
+            {docsHref ? (
+              <>
+                {description ? " " : null}
+                <a
+                  href={docsHref}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-0.5 font-medium whitespace-nowrap text-foreground/80 underline-offset-4 hover:text-foreground hover:underline"
+                >
+                  Learn more
+                  <ArrowUpRightIcon className="size-3.5" aria-hidden />
+                </a>
+              </>
+            ) : null}
           </div>
         ) : null}
       </div>

@@ -3,6 +3,8 @@
 // component is purely presentational.
 // Owned by the foundation agent.
 //
+// ConfirmProvider hosts the single promise-based confirm dialog (useConfirm()).
+//
 // The EventStreamProvider is mounted here so the whole authed tree can read the
 // connection status, but it stays IDLE until a surface opts in with
 // useEventStreamSubscription() — the socket is page-scoped, not global.
@@ -26,6 +28,7 @@ import { useRouteTransition } from "~/components/shell/route-transition";
 import { SidebarInset, SidebarProvider } from "~/components/ui/sidebar";
 import { AppSidebar } from "~/components/app-sidebar";
 import { SiteHeader } from "~/components/site-header";
+import { ConfirmProvider } from "~/components/confirm-dialog";
 import { cn } from "~/lib/utils";
 
 export function AppShell({ session }: { session: AppSession }) {
@@ -33,21 +36,23 @@ export function AppShell({ session }: { session: AppSession }) {
     <SessionProvider session={session}>
       <EventStreamProvider>
         <PageChromeProvider>
-          <SidebarProvider
-            className="h-svh overflow-hidden bg-sidebar"
-            style={
-              {
-                "--sidebar-width": "16rem",
-                "--header-height": "3rem",
-              } as React.CSSProperties
-            }
-          >
-            <AppSidebar session={session} variant="inset" />
-            <SidebarInset className="min-h-0 min-w-0 overflow-hidden max-md:m-2 max-md:rounded-panel max-md:border max-md:border-sidebar-border/80 max-md:shadow-panel">
-              <SiteHeader session={session} />
-              <AppMain />
-            </SidebarInset>
-          </SidebarProvider>
+          <ConfirmProvider>
+            <SidebarProvider
+              className="h-svh overflow-hidden bg-sidebar"
+              style={
+                {
+                  "--sidebar-width": "16rem",
+                  "--header-height": "3rem",
+                } as React.CSSProperties
+              }
+            >
+              <AppSidebar session={session} variant="inset" />
+              <SidebarInset className="min-h-0 min-w-0 overflow-hidden max-md:m-2 max-md:rounded-panel max-md:border max-md:border-sidebar-border/80 max-md:shadow-panel">
+                <SiteHeader session={session} />
+                <AppMain />
+              </SidebarInset>
+            </SidebarProvider>
+          </ConfirmProvider>
         </PageChromeProvider>
       </EventStreamProvider>
     </SessionProvider>

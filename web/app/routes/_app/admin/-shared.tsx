@@ -7,37 +7,12 @@
 import { useEffect, useState } from "react";
 import { useEventStream } from "~/lib/events/useEventStream";
 import { subscribeEvents } from "~/lib/events/eventBus";
-import { Badge } from "~/components/ui/badge";
 import { cn } from "~/lib/utils";
+import { formatDateTime } from "~/lib/format";
 import type { EventEnvelope, SessionStatus, WASession } from "~/lib/api/types";
 
-/** Map a session status to a shadcn Badge variant + tone class. */
-const STATUS_TONE: Record<SessionStatus, string> = {
-  working: "border-transparent bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
-  starting: "border-transparent bg-amber-500/15 text-amber-700 dark:text-amber-400",
-  scan_qr_code: "border-transparent bg-sky-500/15 text-sky-700 dark:text-sky-400",
-  stopped: "border-transparent bg-muted text-muted-foreground",
-  logged_out: "border-transparent bg-muted text-muted-foreground",
-  failed: "border-transparent bg-destructive/15 text-destructive",
-};
-
-const STATUS_LABEL: Record<SessionStatus, string> = {
-  working: "working",
-  starting: "starting",
-  scan_qr_code: "scan QR",
-  stopped: "stopped",
-  logged_out: "logged out",
-  failed: "failed",
-};
-
-export function SessionStatusBadge({ status }: { status?: SessionStatus }) {
-  if (!status) return <Badge variant="outline">unknown</Badge>;
-  return (
-    <Badge className={cn("font-medium", STATUS_TONE[status])} aria-label={`status ${status}`}>
-      {STATUS_LABEL[status]}
-    </Badge>
-  );
-}
+/** @deprecated Import `SessionStatusBadge` from `~/components/status-badge` instead. */
+export { SessionStatusBadge } from "~/components/status-badge";
 
 /** Stream-connection indicator shared by admin pages. */
 export function StreamIndicator() {
@@ -119,12 +94,7 @@ export function withLiveStatus(
   return overrides[s.id] ?? s.status;
 }
 
-/** Format an epoch-millis (or seconds) timestamp into a short local string. */
+/** @deprecated Use `<Time>` (components/time) or `formatDateTime` (lib/format). */
 export function fmtTime(ts?: number | null): string {
-  if (!ts) return "—";
-  // Backend uses int64 millis; tolerate seconds just in case.
-  const ms = ts < 1e12 ? ts * 1000 : ts;
-  const d = new Date(ms);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString();
+  return formatDateTime(ts);
 }

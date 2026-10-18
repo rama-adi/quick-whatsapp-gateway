@@ -65,9 +65,18 @@ import {
   DialogTrigger,
 } from "~/components/ui/dialog";
 import { toast } from "sonner";
-import { CopyButton, formatTimestamp } from "./-components/user-ui";
+import { useConfirm } from "~/components/confirm-dialog";
+import { SecretRevealDialog } from "~/components/secret-reveal";
+import { CodeSnippet } from "~/components/code-snippet";
+import { CopyableId } from "~/components/copyable";
+import { Time } from "~/components/time";
+import { usePublicApiUrl } from "~/lib/api/public-url";
+import { apiRequestSnippets } from "~/lib/snippets";
+import { DOCS } from "~/lib/docs-links";
+import { titleHead } from "~/lib/head";
 
 export const Route = createFileRoute("/_app/user/keys")({
+  head: () => titleHead("API keys"),
   component: Keys,
 });
 
@@ -143,16 +152,11 @@ const createApiKeyFn = createServerFn({ method: "POST" })
     return created as unknown as CreatedKey;
   });
 
-function toMs(d: string | Date | null | undefined): number | undefined {
-  if (!d) return undefined;
-  const t = typeof d === "string" ? Date.parse(d) : d.getTime();
-  return Number.isNaN(t) ? undefined : t;
-}
-
 function Keys() {
   const session = useAppSession();
   const orgId = session.activeOrg?.id;
   const qc = useQueryClient();
+  const confirm = useConfirm();
 
   const keys = useQuery({
     queryKey: keysQueryKey(orgId),
@@ -182,22 +186,26 @@ function Keys() {
   // The one-time secret to surface in the reveal dialog.
   const [secret, setSecret] = useState<CreatedKey | null>(null);
 
-  const doDelete = (id: string): void => {
-    if (
-      !window.confirm("Revoke this key? Applications using it will stop working.")
-    )
-      return;
-    del.mutate(id, { onSuccess: () => toast.success("Key revoked") });
+  const doDelete = async (key: ApiKeyRow): Promise<void> => {
+    const ok = await confirm({
+      title: key.name ? <>Revoke “{key.name}”?</> : "Revoke this key?",
+      description:
+        "Apps using this key stop working immediately. This can't be undone.",
+      confirmLabel: "Revoke key",
+      destructive: true,
+    });
+    if (!ok) return;
+    del.mutate(key.id, { onSuccess: () => toast.success("Key revoked") });
   };
 
-  const title = "API Keys";
+  const title = "API keys";
   const description =
     "Let your servers call the gateway API on behalf of this organization.";
 
   if (!orgId) {
     return (
       <Page>
-        <PageTitle title={title} description={description} />
+        <PageTitle title={title} description={description} docsHref={DOCS.apiKeys} />
         <Empty>
           <EmptyHeader>
             <EmptyMedia variant="icon">
@@ -218,6 +226,7 @@ function Keys() {
       <PageTitle
         title={title}
         description={description}
+        docsHref={DOCS.apiKeys}
         actions={<CreateKeyDialog orgId={orgId} onCreated={setSecret} />}
       />
 
@@ -248,7 +257,7 @@ function Keys() {
           <KeyTable
             rows={keys.data ?? []}
             deleting={del.isPending}
-            onDelete={doDelete}
+            onDelete={(key) => void doDelete(key)}
           />
         )}
       </TableCard>
@@ -265,7 +274,7 @@ function KeyTable({
 }: {
   rows: ApiKeyRow[];
   deleting: boolean;
-  onDelete: (id: string) => void;
+  onDelete: (key: ApiKeyRow) => void;
 }) {
   if (rows.length === 0) {
     return (
@@ -290,6 +299,7 @@ function KeyTable({
           <TableHead>Name</TableHead>
           <TableHead>Prefix</TableHead>
           <TableHead>Permissions</TableHead>
+          <TableHead>Created</TableHead>
           <TableHead>Last used</TableHead>
           <TableHead className="text-right">Actions</TableHead>
         </TableRow>
@@ -324,7 +334,10 @@ function KeyTable({
                 </div>
               </TableCell>
               <TableCell className="text-sm text-muted-foreground">
-                {formatTimestamp(toMs(k.lastRequest))}
+                <Time value={k.createdAt} />
+              </TableCell>
+              <TableCell className="text-sm text-muted-foreground">
+                <Time value={k.lastRequest} fallback="Never" />
               </TableCell>
               <TableCell className="text-right">
                 <Button
@@ -332,7 +345,7 @@ function KeyTable({
                   variant="ghost"
                   className="text-destructive hover:bg-destructive/10 hover:text-destructive"
                   disabled={deleting}
-                  onClick={() => onDelete(k.id)}
+                  onClick={() => onDelete(k)}
                 >
                   Revoke
                 </Button>
@@ -489,32 +502,29 @@ function SecretDialog({
   secret: CreatedKey | null;
   onClose: () => void;
 }) {
+  const apiBase = usePublicApiUrl();
   const value = secret?.key ?? "";
   return (
-    <Dialog open={Boolean(secret)} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent showCloseButton={false}>
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <KeyRoundIcon className="size-5" aria-hidden />
-            Save your API key
-          </DialogTitle>
-          <DialogDescription>
-            This is the only time the full secret is shown. Copy it now — you
-            won't be able to see it again.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-3 py-2">
-          <div className="rounded-lg border bg-muted/40 p-3">
-            <code className="block font-mono text-sm break-all">{value}</code>
-          </div>
-          <CopyButton value={value} label="Copy key" className="w-full" />
+    <SecretRevealDialog
+      open={Boolean(secret)}
+      secret={value}
+      title="Save your API key"
+      secretLabel={secret?.name ? `API key “${secret.name}”` : "API key"}
+      copyLabel="Copy key"
+      onClose={onClose}
+    >
+      <div className="grid gap-1.5">
+        <div className="flex min-w-0 items-center justify-between gap-3 text-sm">
+          <span className="font-medium">Try it</span>
+          <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+            API endpoint
+            <CopyableId value={apiBase} label="Copy API endpoint" />
+          </span>
         </div>
-
-        <DialogFooter>
-          <Button onClick={onClose}>I've saved it</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        <CodeSnippet
+          tabs={apiRequestSnippets({ url: `${apiBase}/sessions`, token: value })}
+        />
+      </div>
+    </SecretRevealDialog>
   );
 }
