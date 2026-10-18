@@ -174,3 +174,51 @@ func TestCommittedEventMySQLLeaseAndRetention(t *testing.T) {
 		t.Fatalf("completed event not pruned: count=%d err=%v", count, err)
 	}
 }
+
+// Force the projection-before-intent interleaving directly: process E2E cannot
+// schedule the MySQL projection commit relative to the desired-state write.
+// Real MySQL evaluates the conditional UPDATE; sqlmock cannot prove row state.
+func TestSessionDesiredMySQLPreservesPairingStatus(t *testing.T) {
+	db := lifecycleTestDB(t)
+	for _, tc := range []struct {
+		name    string
+		jid     any
+		initial string
+		run     bool
+		want    string
+	}{
+		{name: "unpaired_scan_before_desired", initial: "scan_qr_code", run: true, want: "scan_qr_code"},
+		{name: "paired_start", jid: "123@s.whatsapp.net", initial: "stopped", run: true, want: "starting"},
+		{name: "unpaired_stop", initial: "scan_qr_code", want: "stopped"},
+		{name: "paired_stop", jid: "123@s.whatsapp.net", initial: "working", want: "stopped"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gatewayID, session := lifecycleFixture(t, db)
+			ctx := context.Background()
+			repo := NewGatewayAssignmentRepo(db)
+			if err := repo.CreateSession(ctx, session); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec(`UPDATE wa_sessions SET wa_jid=?, status=? WHERE id=?`, tc.jid, tc.initial, session.ID); err != nil {
+				t.Fatal(err)
+			}
+			if err := repo.SetSessionDesired(ctx, session.ID, tc.run, 200); err != nil {
+				t.Fatal(err)
+			}
+			var status string
+			if err := db.QueryRow(`SELECT status FROM wa_sessions WHERE id=?`, session.ID).Scan(&status); err != nil {
+				t.Fatal(err)
+			}
+			if status != tc.want {
+				t.Fatalf("status = %q; want %q", status, tc.want)
+			}
+			var revision uint64
+			if err := db.QueryRow(`SELECT desired_revision FROM gateways WHERE id=?`, gatewayID).Scan(&revision); err != nil {
+				t.Fatal(err)
+			}
+			if revision != 2 {
+				t.Fatalf("desired revision = %d; want creation plus lifecycle update", revision)
+			}
+		})
+	}
+}

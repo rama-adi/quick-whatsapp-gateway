@@ -564,8 +564,16 @@ func (m *Manager) StartQR(ctx context.Context, id string) error {
 		// client is still a conflict, though the service normally rejects that
 		// from the durable wa_jid precondition before reaching the manager.
 		unpaired := ms.device == nil || ms.device.ID == nil
+		status := ms.status
 		ms.mu.Unlock()
 		if unpaired {
+			// Replay the observed state even when unchanged, repairing API/UI
+			// state after a missed event or an older desired-state overwrite.
+			if m.sink != nil {
+				m.sink.Publish(ctx, domain.NewEvent(domain.EventSessionStatus, ms.SessionID, ms.OrganizationID, map[string]any{
+					"status": string(status),
+				}))
+			}
 			return nil
 		}
 		return domain.ErrConflict("session already running")

@@ -247,9 +247,14 @@ func (r *GatewayAssignmentRepo) SetSessionDesired(ctx context.Context, sessionID
 	if run {
 		status = storedb.WaSessionsStatusStarting
 	}
+	// Unpaired sessions are started directly by BeginPairing before this
+	// write. Preserve their gateway-projected status; only paired sessions
+	// need starting to express RUN to the reconciler. Stop is unconditional.
 	if _, err := tx.ExecContext(ctx,
-		`UPDATE wa_sessions SET status=?, updated_at=? WHERE id=?`,
-		status, at, sessionID,
+		`UPDATE wa_sessions
+		 SET status=CASE WHEN ? AND wa_jid IS NULL THEN status ELSE ? END, updated_at=?
+		 WHERE id=?`,
+		run, status, at, sessionID,
 	); err != nil {
 		return fmt.Errorf("store: update session desired state: %w", err)
 	}

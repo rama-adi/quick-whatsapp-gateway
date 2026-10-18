@@ -41,7 +41,12 @@ The session lifecycle splits across the trust boundary:
 - **Observed status is API-projected.** Every committed `session.status` event updates
   `wa_sessions.status`, including `working` after connection. Non-logout transitions preserve
   pairing identity; logout also clears it. REST reads therefore reflect the gateway lifecycle
-  rather than remaining at the API's initial `starting` state.
+  rather than remaining at the API's initial `starting` state. The API writes
+  `starting` on desired RUN only for paired sessions (`wa_jid IS NOT NULL`),
+  whose connection is driven by reconciliation. For unpaired sessions the
+  gateway owns the pairing status, including `scan_qr_code`; the desired-state
+  write preserves it even when projection completes before Start returns.
+  Desired STOP still writes `stopped` for both paired and unpaired sessions.
 - **Pairing identity is API-projected.** The gateway records the paired JIDs
   only in memory; the committed `auth.code` event (PairSuccess) is what the API
   projects onto `wa_sessions` (`SessionRepo.AttachPairing`: `wa_jid`, `wa_lid`,
@@ -64,7 +69,11 @@ The session lifecycle splits across the trust boundary:
   stopping. API-side, an unpaired Start/Restart prepares the gateway-local
   device and kicks pairing through the facade before flipping desired run state
   (desired run alone cannot express the unpaired case — reconciliation skips
-  assignments without a device JID). Restart first forgets the live runtime
+  assignments without a device JID). Pairing setup remains before the desired
+  write so a failed setup does not change desired state. Repeating StartQR on
+  an already-running unpaired client republishes its current `session.status`,
+  bypassing transition deduplication so the API and dashboard can resynchronize.
+  Restart first forgets the live runtime
   synchronously, preserving the SQLite device, then performs the same start
   sequence; it does not rely on stop/start desired-state writes, which can
   coalesce before reconciliation. Start, Stop, and Restart return a

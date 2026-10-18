@@ -324,3 +324,28 @@ func TestManagerLatestQRDoesNotReturnExpiredCode(t *testing.T) {
 		t.Fatalf("expired QR = %q, %d", code, expiry)
 	}
 }
+
+// The process E2E cannot deterministically keep a real QR client running while
+// replaying BeginPairing before any status transition or QR refresh.
+func TestStartQRRunningUnpairedClientRepublishesStatus(t *testing.T) {
+	manager, sink, _, client := newTestManagerParts(t, Config{})
+	manager.EnsureDevice("session", "org")
+	ms := manager.Get("session")
+	ms.client = client
+	manager.setStatus(context.Background(), ms, domain.SessionScanQR)
+
+	if err := manager.StartQR(context.Background(), "session"); err != nil {
+		t.Fatal(err)
+	}
+	if got := sink.typeCount(domain.EventSessionStatus); got != 2 {
+		t.Fatalf("status events = %d; want initial status and replay", got)
+	}
+	event := sink.events[1]
+	payload, ok := event.Payload.(map[string]any)
+	if !ok || payload["status"] != string(domain.SessionScanQR) || event.Session != "session" {
+		t.Fatalf("replayed status = %+v", event)
+	}
+	if ms.client != client || client.disconnects != 0 {
+		t.Fatal("repeated pairing replaced or disconnected the running client")
+	}
+}
