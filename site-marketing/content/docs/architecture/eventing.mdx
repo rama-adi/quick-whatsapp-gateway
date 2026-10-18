@@ -71,6 +71,7 @@ func Normalize(evt any, sessionID, organizationID string) (domain.Event, Persist
 | `*events.Contact` / `*events.PushName` | `contact.update` | `PersistContactUpdate` |
 | `*events.CallOffer` | `call.incoming` | `PersistNone` |
 | `*events.Newsletter{Join,Leave,MuteChange}` | `newsletter.update` | `PersistNone` |
+| history sync notification (manual download, see [history sync](#history-sync-events)) | `history.sync` / `history.batch` | API history projection |
 
 Anything else → `ok=false`.
 
@@ -282,6 +283,42 @@ stored media capture details may arrive separately.
 Poll-recap emission is API-owned in every mode: the durable MySQL sweep and its event append,
 realtime publish, and webhook enqueue run beside the committed-event worker on the API; the Redis
 sorted set is only a low-latency wake-up index and gateways no longer write it.
+
+## History sync events
+
+When a device is linked or relinked, the phone sends the chat history it still has in
+WhatsApp history-sync notifications. They never enter the live inbound pipeline: no
+`message` / `message.from_me` events, no auto-read, no OAuth/admin interception, no
+media or sticker capture. Instead the gateway emits two event types, both typed in
+`backend/internal/apitypes/history.go`:
+
+| event | payload | delivery |
+|---|---|---|
+| `history.sync` | `HistorySyncPayload`: `runId`, `phase` (`started` / `progress` / `completed` / `failed`), `accountJid`, `syncType`, `chunkOrder`, `progress` (phone-reported percent), `cutoffAt`, running counters `chunks` / `batches` / `conversations` / `messages` / `skipped`, `error` | like any event: matched by `*`, published to realtime, replayed by `since` |
+| `history.batch` | `HistoryBatchPayload`: `runId`, `accountJid`, `syncType`, `chunkOrder`, `part` / `parts` (1-based split of one notification), `snapshotAt`, `conversations[]`, `contacts[]` | **bulk, opt-in only** (see below) |
+
+A `HistoryConversation` carries the chat's phone-side state (`chatJid`, `type`, `name`,
+`description`, `lid` / `phoneJid` for DMs, `unreadCount`, `archived`, `pinned`,
+`mutedUntil`, `lastMessageAt`, group `participants[]` of `HistoryParticipant{lid,
+phoneJid, role}`) plus its messages for this batch, **oldest first**. Each
+`HistoryMessage` embeds the live `MessagePayload` (same field names and meaning) and
+adds `status` (the recorded delivery status of an own message, applied on first insert
+only) and `truncated`. `HistoryContact{lid, phoneJid, pushName}` carries push names and
+phone-number-to-LID mappings. Conversation metadata repeats in every part that carries
+its messages, so each batch is self-contained.
+
+**Batch limits.** A batch holds at most 200 messages and about 96 KiB of JSON so it fits
+webhook body limits; one oversized message gets its own batch (hard cap 1 MiB, with
+`body` / `quotedBody` truncated and `truncated: true` beyond that).
+
+**Bulk events are opt-in.** `domain.IsBulkEvent` (today only `history.batch`) is the one
+rule every transport applies: a `*` webhook subscription or stream filter does not
+match a bulk event (an exact `history.batch` element does), the realtime publisher
+never publishes it, and event-log replay (`since` on the WebSocket and gRPC streams,
+`GET` event listings) skips it. The row stays in `event_log` because webhook deliveries
+read their body from it. Rationale: existing `*` receivers and live dashboards must not
+start receiving large, high-volume bodies because history import shipped; the small
+`history.sync` lifecycle is enough to show progress.
 
 ## Interactive selections
 

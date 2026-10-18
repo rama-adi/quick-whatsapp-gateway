@@ -24,7 +24,7 @@ func TestParseEventFilter(t *testing.T) {
 			name:    "star means all",
 			raw:     "*",
 			wantAll: true,
-			allows:  map[string]bool{"anything": true},
+			allows:  map[string]bool{"anything": true, "history.sync": true, "history.batch": false},
 		},
 		{
 			name:    "star within list means all",

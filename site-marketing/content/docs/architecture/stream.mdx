@@ -79,7 +79,8 @@ Constructors: `NewPublisher(RedisClient, *slog.Logger)`, `NewPump(PumpConfig)`, 
 ## Pump lifecycle (`Pump.Run`)
 
 1. **Parse filter** — the `events` allow-list (`*`/empty = all, else comma-list). A
-   filter that resolves to nothing → error.
+   filter that resolves to nothing → error. `*` never admits bulk events
+   (`domain.IsBulkEvent`, today `history.batch`).
 2. **Subscribe first** — open the Redis subscription *before* any replay, so events
    published during replay are not lost in the gap between "end of replay" and "start
    of tail".
@@ -118,6 +119,10 @@ re-validates and fails closed if access is gone.
 - **Boundary dedup over `since`.** Because we subscribe before replaying, the event that
   `since` resumes *at* may arrive on both paths; the tail drops the single message whose
   id equals the last replayed id.
+- **Bulk events are not realtime.** `Publish` skips `history.batch` (reporting success
+  so the committed-event dispatcher continues), and event-log replay queries exclude it.
+  Bulk history reaches consumers only through explicit webhook subscriptions; the
+  dashboard follows imports through the small `history.sync` lifecycle event.
 - **Empty organization is a hard error** in `Publish` — an event with no owning org is
   unaddressable.
 - **Scope validation is fail-closed.** A session scope without an organization is

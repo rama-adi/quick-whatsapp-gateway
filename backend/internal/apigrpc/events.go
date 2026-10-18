@@ -149,7 +149,7 @@ func parseEventTypes(types []string) eventTypeFilter {
 
 func (f eventTypeFilter) allows(t string) bool {
 	if f.all {
-		return true
+		return !domain.IsBulkEvent(t)
 	}
 	_, ok := f.types[t]
 	return ok

@@ -38,7 +38,14 @@ func NewPublisher(rc RedisClient, log *slog.Logger) *Publisher {
 //
 // An empty Organization is a programming error — without it the event cannot be
 // addressed to any subscriber — so we reject it rather than silently dropping.
+//
+// Bulk events (domain.IsBulkEvent, e.g. history.batch) are never published: they
+// are webhook opt-in data and would flood live dashboards. Publish skips them
+// and reports success so the committed-event dispatcher moves on.
 func (p *Publisher) Publish(ctx context.Context, e domain.Event) error {
+	if domain.IsBulkEvent(e.Type) {
+		return nil
+	}
 	if e.Organization == "" {
 		return fmt.Errorf("stream: cannot publish event %q with empty organization", e.ID)
 	}

@@ -60,6 +60,28 @@ func TestPublisher_EmptyOrganizationRejected(t *testing.T) {
 	}
 }
 
+// TestPublisher_SkipsBulkEvents publishes a history.batch event: it must report
+// success without reaching the realtime channel, because bulk events are
+// webhook opt-in data only.
+func TestPublisher_SkipsBulkEvents(t *testing.T) {
+	_, rc := newMiniRedis(t)
+	pub := NewPublisher(rc, nil)
+	sub := rc.Subscribe(context.Background(), channelFor("ten_a", "sess_1"))
+	defer func() { _ = sub.Close() }()
+	if _, err := sub.Receive(context.Background()); err != nil {
+		t.Fatalf("subscribe confirm: %v", err)
+	}
+	ch := sub.Channel()
+	if err := pub.Publish(context.Background(), domain.NewEvent(domain.EventHistoryBatch, "sess_1", "ten_a", nil)); err != nil {
+		t.Fatalf("publish bulk: %v", err)
+	}
+	select {
+	case msg := <-ch:
+		t.Fatalf("bulk event reached realtime channel: %s", msg.Payload)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
 type discardSink struct{}
 
 func (discardSink) Send(context.Context, []byte) error { return nil }

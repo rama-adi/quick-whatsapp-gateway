@@ -1884,7 +1884,7 @@ export interface webhooks {
         put?: never;
         /**
          * Gateway event
-         * @description The gateway sends this JSON body to each matching webhook and sends the same shape over the realtime WebSocket. Use the `event` field to choose the right payload schema. Webhooks include the event id in `X-Webhook-Request-Id`. If a secret is set, they also include `X-Webhook-Signature` so the receiver can verify the body.
+         * @description The gateway sends this JSON body to each matching webhook and sends the same shape over the realtime WebSocket. Use the `event` field to choose the right payload schema. Webhooks include the event id in `X-Webhook-Request-Id`. If a secret is set, they also include `X-Webhook-Signature` so the receiver can verify the body. `history.batch` is a bulk event: it goes only to webhooks that list it by name. `*` does not include it, and it is never sent over the realtime WebSocket.
          */
         post: operations["event"];
         delete?: never;
@@ -3050,6 +3050,386 @@ export interface components {
              * @description When the change happened, epoch milliseconds.
              */
             timestamp?: number;
+        };
+        HistoryBatchEvent: {
+            /**
+             * @description The event type. Opt-in only: a webhook subscribed to * does not receive it. (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            event: "history.batch";
+            /**
+             * @description Unique event id. Webhook deliveries repeat it in the X-Webhook-Request-Id header so receivers can drop duplicate redeliveries; the realtime client uses it as the ?since resume cursor.
+             * @example evt_01J9ZX...
+             */
+            id: string;
+            /**
+             * @description Id of the organization that owns the session.
+             * @example org_01J9...
+             */
+            organization: string;
+            payload: components["schemas"]["HistoryBatchPayload"];
+            /**
+             * @description Envelope schema version, so consumers can adapt if the shape changes.
+             * @example v1
+             * @enum {string}
+             */
+            schema: "v1";
+            /**
+             * @description Id of the WhatsApp session the event came from.
+             * @example wa_sess_01J9...
+             */
+            session: string;
+            /**
+             * Format: int64
+             * @description When the event happened, in epoch milliseconds.
+             * @example 1719400000000
+             */
+            timestamp: number;
+        };
+        HistoryBatchPayload: {
+            /**
+             * @description Phone JID of the WhatsApp account whose history this is.
+             * @example 6281234567890@s.whatsapp.net
+             */
+            accountJid: string;
+            /**
+             * Format: int64
+             * @description Position of the source notification within its sync type, as numbered by WhatsApp.
+             * @example 2
+             */
+            chunkOrder: number;
+            /** @description Contact names and phone-number-to-LID mappings from the notification. A large list is split across parts like messages. */
+            contacts?: components["schemas"]["HistoryContact"][] | null;
+            /** @description Conversations in this batch with their messages. A conversation can appear in several parts of the same notification; its metadata is repeated in each. */
+            conversations: components["schemas"]["HistoryConversation"][] | null;
+            /**
+             * Format: int64
+             * @description 1-based index of this batch within the source notification.
+             * @example 1
+             */
+            part: number;
+            /**
+             * Format: int64
+             * @description Total number of batches the source notification was split into.
+             * @example 3
+             */
+            parts: number;
+            /**
+             * @description Id of the import run this batch belongs to (see history.sync).
+             * @example hsr_01J9ZX3K8Q2W5V7B4N6M1C0D9E
+             */
+            runId: string;
+            /**
+             * Format: int64
+             * @description When the phone produced this snapshot, in epoch milliseconds. Chat state (unread counts, names) in the batch is as of this time; a receiver should not apply it over newer state it already has.
+             * @example 1719400000000
+             */
+            snapshotAt: number;
+            /**
+             * @description Kind of the WhatsApp history notification this batch came from (see history.sync).
+             * @example recent
+             * @enum {string}
+             */
+            syncType: "initial_bootstrap" | "recent" | "full" | "push_name" | "initial_status_v3" | "non_blocking_data" | "on_demand";
+        };
+        HistoryContact: {
+            /**
+             * @description The contact's LID, when known.
+             * @example 123456789012345@lid
+             */
+            lid?: string;
+            /**
+             * @description The contact's phone JID, when known. When both lid and phoneJid are set they are the same person.
+             * @example 6281234567890@s.whatsapp.net
+             */
+            phoneJid?: string;
+            /**
+             * @description The contact's WhatsApp display (push) name. Only fills a missing name.
+             * @example Alice
+             */
+            pushName?: string;
+        };
+        HistoryConversation: {
+            /**
+             * @description True when the chat is archived on the phone. Applied only when the chat is first created locally.
+             * @example false
+             */
+            archived?: boolean;
+            /**
+             * @description JID of the chat (a user LID or phone JID, group, newsletter, or broadcast list).
+             * @example 6281234567890@s.whatsapp.net
+             */
+            chatJid: string;
+            /**
+             * @description Group description, when the phone included it.
+             * @example Weekly planning
+             */
+            description?: string;
+            /**
+             * Format: int64
+             * @description Time of the chat's latest message on the phone, in epoch milliseconds. Only moves a stored value forward.
+             * @example 1719399000000
+             */
+            lastMessageAt?: number;
+            /**
+             * @description For a direct chat: the contact's LID, when known.
+             * @example 123456789012345@lid
+             */
+            lid?: string;
+            /** @description Messages of this chat in this batch, oldest first. Can be empty when the batch only carries chat metadata. */
+            messages: components["schemas"]["HistoryMessage"][] | null;
+            /**
+             * Format: int64
+             * @description Mute end time in epoch milliseconds, when the chat is muted on the phone. Applied only when the chat is first created locally.
+             * @example 1719500000000
+             */
+            mutedUntil?: number;
+            /**
+             * @description Chat display name on the phone: the group subject, or the contact name for a direct chat. Only fills a missing name; never overwrites a known one.
+             * @example Project team
+             */
+            name?: string;
+            /** @description For a group: members as listed by the phone. */
+            participants?: components["schemas"]["HistoryParticipant"][] | null;
+            /**
+             * @description For a direct chat: the contact's phone JID, when known.
+             * @example 6281234567890@s.whatsapp.net
+             */
+            phoneJid?: string;
+            /**
+             * @description True when the chat is pinned on the phone. Applied only when the chat is first created locally.
+             * @example false
+             */
+            pinned?: boolean;
+            /**
+             * @description Chat kind, derived from the JID.
+             * @example dm
+             * @enum {string}
+             */
+            type: "dm" | "group" | "newsletter" | "broadcast" | "status";
+            /**
+             * Format: int64
+             * @description Unread messages in this chat on the phone at snapshotAt. Omitted when the phone did not say.
+             * @example 2
+             */
+            unreadCount?: number;
+        };
+        HistoryMessage: {
+            /**
+             * @description Text body, for text and caption-bearing messages.
+             * @example Hello!
+             */
+            body?: string;
+            /**
+             * @description JID of the chat the message belongs to (a user, group, or broadcast list).
+             * @example 6281234567890@s.whatsapp.net
+             */
+            chatJid: string;
+            /** @description Set when type is contact. */
+            contact?: components["schemas"]["ContactData"];
+            /** @description True if this account authored the message (the message.from_me event). */
+            fromMe: boolean;
+            /** @description True if the message carried media. Storage capture is configured per session. */
+            hasMedia: boolean;
+            /** @description Selected choice for message.interactive_reply; original message is quotedMessageId. */
+            interactiveReply?: components["schemas"]["InteractiveReplyData"];
+            /** @description Set when type is location. */
+            location?: components["schemas"]["LocationData"];
+            /** @description Media metadata and stored attachment id when capture is enabled. URL is present when ready; media.ready announces asynchronous upload completion. */
+            media: components["schemas"]["MediaMeta"];
+            /** @description Mentions in the message body, keyed by mentioned JID. Values contain the user's known pushName and per-group tag when available. */
+            mentions?: {
+                [key: string]: components["schemas"]["MentionData"];
+            };
+            /** @description Set when type is poll (poll creation). */
+            poll?: components["schemas"]["PollData"];
+            /** @description The sender's WhatsApp display (push) name at send time. */
+            pushName?: string;
+            /** @description For a reply: the text/caption of the quoted message, carried inline in the reply's context info (guaranteed for genuine text/caption replies), else the locally stored body. Truncated to 4096 bytes on a UTF-8 boundary. */
+            quotedBody?: string;
+            /** @description For a reply: true when the quoted message was sent by this account. Best-effort — resolved from the locally stored quoted message; false when the quoted message is not (or no longer) in local storage. Only meaningful when quotedMessageId is set. */
+            quotedFromMe?: boolean;
+            /** @description If this message quotes/replies to another, that message's id. */
+            quotedMessageId?: string;
+            /** @description For a reply: the phone JID of the quoted message's author, when WhatsApp includes it in the reply's context (guaranteed for genuine replies), else resolved from the locally stored quoted message. */
+            quotedSenderJid?: string;
+            /** @description For a reply: the LID identity of the quoted message's author, when available from the reply context or the locally stored quoted message. */
+            quotedSenderLid?: string;
+            /** @description Content of the sticker quoted by this message, when identifiable. */
+            quotedSticker?: components["schemas"]["StickerData"];
+            /** @description For message.reaction: the emoji reacted with; empty string means the reaction was removed. */
+            reaction?: string;
+            /**
+             * @description For poll.vote: the option(s) the voter selected, resolved to the poll's option text. Falls back to the raw SHA-256 hash for any option that can't be resolved (e.g. the poll creation was never seen).
+             * @example [
+             *       "Yes"
+             *     ]
+             */
+            selectedOptions?: string[] | null;
+            /** @description JID of the sender (set for group messages; for DMs it equals the chat). */
+            senderJid?: string;
+            /** @description The sender's linked-device id, when available. */
+            senderLid?: string;
+            /**
+             * @description For messages this account sent: the delivery status WhatsApp recorded. Applied only when the message is first stored.
+             * @example read
+             * @enum {string}
+             */
+            status?: "pending" | "sent" | "delivered" | "read" | "played" | "failed";
+            /** @description Content of this sticker message. */
+            sticker?: components["schemas"]["StickerData"];
+            /** @description For reaction/edit/revoke: the id of the message being reacted to, edited, or revoked. */
+            targetId?: string;
+            /**
+             * Format: int64
+             * @description When WhatsApp timestamped the message, in epoch milliseconds.
+             */
+            timestamp: number;
+            /**
+             * @description True when body or quotedBody was shortened to keep the batch under its size limit.
+             * @example false
+             */
+            truncated?: boolean;
+            /**
+             * @description Content type of the message: text, location, contact, poll, reaction, edit, revoke, media, and others.
+             * @example text
+             */
+            type: string;
+            /**
+             * @description WhatsApp's message id (stanza id), unique within the chat.
+             * @example 3EB0...
+             */
+            waMessageId: string;
+        };
+        HistoryParticipant: {
+            /**
+             * @description The member's LID. Members without a known LID are not stored.
+             * @example 123456789012345@lid
+             */
+            lid?: string;
+            /**
+             * @description The member's phone JID, when known.
+             * @example 6281234567890@s.whatsapp.net
+             */
+            phoneJid?: string;
+            /**
+             * @description The member's role in the group.
+             * @example member
+             * @enum {string}
+             */
+            role: "member" | "admin" | "superadmin";
+        };
+        HistorySyncEvent: {
+            /**
+             * @description The event type. (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            event: "history.sync";
+            /**
+             * @description Unique event id. Webhook deliveries repeat it in the X-Webhook-Request-Id header so receivers can drop duplicate redeliveries; the realtime client uses it as the ?since resume cursor.
+             * @example evt_01J9ZX...
+             */
+            id: string;
+            /**
+             * @description Id of the organization that owns the session.
+             * @example org_01J9...
+             */
+            organization: string;
+            payload: components["schemas"]["HistorySyncPayload"];
+            /**
+             * @description Envelope schema version, so consumers can adapt if the shape changes.
+             * @example v1
+             * @enum {string}
+             */
+            schema: "v1";
+            /**
+             * @description Id of the WhatsApp session the event came from.
+             * @example wa_sess_01J9...
+             */
+            session: string;
+            /**
+             * Format: int64
+             * @description When the event happened, in epoch milliseconds.
+             * @example 1719400000000
+             */
+            timestamp: number;
+        };
+        HistorySyncPayload: {
+            /**
+             * @description Phone JID of the WhatsApp account whose history this is. Compare it with the session's account to detect a relink to a different number.
+             * @example 6281234567890@s.whatsapp.net
+             */
+            accountJid?: string;
+            /**
+             * Format: int64
+             * @description Number of history.batch events emitted so far in this run.
+             * @example 12
+             */
+            batches: number;
+            /**
+             * Format: int64
+             * @description Position of that notification within its sync type, as numbered by WhatsApp.
+             * @example 2
+             */
+            chunkOrder?: number;
+            /**
+             * Format: int64
+             * @description Number of WhatsApp history notifications processed so far in this run.
+             * @example 3
+             */
+            chunks: number;
+            /**
+             * Format: int64
+             * @description Number of conversations included in batches so far. A conversation split over several batches counts once per notification.
+             * @example 40
+             */
+            conversations: number;
+            /**
+             * Format: int64
+             * @description Messages older than this time (epoch milliseconds) are not imported, per the session's historySyncDays setting. Omitted when there is no cutoff.
+             * @example 1717000000000
+             */
+            cutoffAt?: number;
+            /**
+             * @description Why the run failed. Only set when phase is failed.
+             * @example history blob expired on WhatsApp servers
+             */
+            error?: string;
+            /**
+             * Format: int64
+             * @description Number of messages included in batches so far. Messages already stored (for example received live) are still counted here; the API skips them on import.
+             * @example 1830
+             */
+            messages: number;
+            /**
+             * @description Where the run is. started: the first history notification arrived. progress: another notification was imported. completed: the phone reported all history sent (or the run went quiet) and every batch was emitted. failed: the run stopped; see error.
+             * @example progress
+             * @enum {string}
+             */
+            phase: "started" | "progress" | "completed" | "failed";
+            /**
+             * Format: int64
+             * @description Percent of the history the phone reports as sent so far (0-100). Omitted when the phone did not report progress.
+             * @example 45
+             */
+            progress?: number;
+            /**
+             * @description Id of the import run. A run starts when the phone begins sending history after a device link and covers every notification that follows for the same WhatsApp account. history.batch events of the run carry the same id.
+             * @example hsr_01J9ZX3K8Q2W5V7B4N6M1C0D9E
+             */
+            runId: string;
+            /**
+             * Format: int64
+             * @description Number of messages left out so far: older than cutoffAt, system notices, or messages that could not be decoded.
+             * @example 25
+             */
+            skipped: number;
+            /**
+             * @description Kind of the WhatsApp history notification that caused this update. initial_bootstrap and recent carry recent chats and messages; full carries older history (only when the operator enables full sync); push_name carries contact display names; the other kinds carry status updates and settings.
+             * @example recent
+             * @enum {string}
+             */
+            syncType?: "initial_bootstrap" | "recent" | "full" | "push_name" | "initial_status_v3" | "non_blocking_data" | "on_demand";
         };
         Identity: {
             /**
@@ -8323,7 +8703,7 @@ export interface operations {
         /** @description The event envelope. Exactly one of the listed event shapes, selected by `event`. */
         requestBody: {
             content: {
-                "application/json": components["schemas"]["MediaEvent"] | components["schemas"]["MessageEvent"] | components["schemas"]["PollRecapEvent"] | components["schemas"]["MessageStatusEvent"] | components["schemas"]["SessionStatusEvent"] | components["schemas"]["AuthQREvent"] | components["schemas"]["AuthCodeEvent"] | components["schemas"]["PresenceEvent"] | components["schemas"]["GroupEvent"] | components["schemas"]["ChatUpdateEvent"] | components["schemas"]["ContactUpdateEvent"] | components["schemas"]["CallEvent"] | components["schemas"]["NewsletterEvent"];
+                "application/json": components["schemas"]["MediaEvent"] | components["schemas"]["MessageEvent"] | components["schemas"]["PollRecapEvent"] | components["schemas"]["MessageStatusEvent"] | components["schemas"]["SessionStatusEvent"] | components["schemas"]["AuthQREvent"] | components["schemas"]["AuthCodeEvent"] | components["schemas"]["PresenceEvent"] | components["schemas"]["GroupEvent"] | components["schemas"]["ChatUpdateEvent"] | components["schemas"]["ContactUpdateEvent"] | components["schemas"]["CallEvent"] | components["schemas"]["NewsletterEvent"] | components["schemas"]["HistorySyncEvent"] | components["schemas"]["HistoryBatchEvent"];
             };
         };
         responses: {

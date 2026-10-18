@@ -241,7 +241,9 @@ func registerEventWebhooks(api huma.API) {
 			Description: "The gateway sends this JSON body to each matching webhook and sends the same " +
 				"shape over the realtime WebSocket. Use the `event` field to choose the right payload " +
 				"schema. Webhooks include the event id in `X-Webhook-Request-Id`. If a secret is set, " +
-				"they also include `X-Webhook-Signature` so the receiver can verify the body.",
+				"they also include `X-Webhook-Signature` so the receiver can verify the body. " +
+				"`history.batch` is a bulk event: it goes only to webhooks that list it by name. " +
+				"`*` does not include it, and it is never sent over the realtime WebSocket.",
 			RequestBody: &huma.RequestBody{
 				Required:    true,
 				Description: "The event envelope. Exactly one of the listed event shapes, selected by `event`.",

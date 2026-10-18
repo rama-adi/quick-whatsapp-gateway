@@ -61,8 +61,11 @@ Pure helpers: `EventMatches(events, type)`, `SignHMAC(secret, body)`,
 
 ## Decisions
 
-- **Matching.** `events: ["*"]` matches everything; otherwise an exact element
-  match. Empty list matches nothing. The webhook MySQL repository filters in SQL; the dispatcher
+- **Matching.** `events: ["*"]` matches every event except bulk events
+  (`domain.IsBulkEvent`, today `history.batch`), which match only an exact element;
+  otherwise an exact element match. Empty list matches nothing. A receiver opts into
+  imported history with `events: ["*", "history.batch"]` (or just `["history.batch"]`);
+  see [history sync events](/docs/architecture/eventing#history-sync-events). The webhook MySQL repository filters in SQL; the dispatcher
   re-checks with `EventMatches` as a defensive guard so a loose query can't fan
   out to unsubscribed hooks.
 - **Dedup.** A unique `(webhook_id,event_id)` database key makes enqueue idempotent even when

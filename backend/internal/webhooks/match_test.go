@@ -21,6 +21,9 @@ func TestEventMatches(t *testing.T) {
 		{"empty list matches nothing", nil, "message", false},
 		{"empty list with wildcard target", []string{}, "*", false},
 		{"wildcard mixed with others still matches", []string{"message", "*"}, "anything", true},
+		{"wildcard excludes bulk history.batch", []string{"*"}, "history.batch", false},
+		{"wildcard includes history.sync lifecycle", []string{"*"}, "history.sync", true},
+		{"explicit history.batch opt-in matches", []string{"*", "history.batch"}, "history.batch", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

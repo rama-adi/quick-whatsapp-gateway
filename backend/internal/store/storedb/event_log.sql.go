@@ -64,7 +64,7 @@ func (q *Queries) GetEventLogByEventID(ctx context.Context, arg GetEventLogByEve
 const listEventLogSinceForOrg = `-- name: ListEventLogSinceForOrg :many
 SELECT id, event_id, organization_id, session_id, type, payload, created_at
 FROM event_log
-WHERE organization_id = ? AND id > ?
+WHERE organization_id = ? AND id > ? AND type <> 'history.batch'
 ORDER BY id ASC
 LIMIT ?
 `
@@ -75,6 +75,8 @@ type ListEventLogSinceForOrgParams struct {
 	Limit          int32  `db:"limit" json:"limit"`
 }
 
+// Replay (stream/gRPC ?since, GET events) skips bulk events: 'history.batch'
+// must match domain.EventHistoryBatch (pinned by TestEventLogReplaySkipsBulkEvents).
 func (q *Queries) ListEventLogSinceForOrg(ctx context.Context, arg ListEventLogSinceForOrgParams) ([]EventLog, error) {
 	rows, err := q.db.QueryContext(ctx, listEventLogSinceForOrg, arg.OrganizationID, arg.ID, arg.Limit)
 	if err != nil {
@@ -109,7 +111,7 @@ func (q *Queries) ListEventLogSinceForOrg(ctx context.Context, arg ListEventLogS
 const listEventLogSinceForSession = `-- name: ListEventLogSinceForSession :many
 SELECT id, event_id, organization_id, session_id, type, payload, created_at
 FROM event_log
-WHERE organization_id = ? AND session_id = ? AND id > ?
+WHERE organization_id = ? AND session_id = ? AND id > ? AND type <> 'history.batch'
 ORDER BY id ASC
 LIMIT ?
 `

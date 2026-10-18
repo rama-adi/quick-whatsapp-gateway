@@ -1,6 +1,10 @@
 package stream
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
+)
 
 // eventFilter decides whether an event type should be delivered on a connection,
 // per the events= query param (§9): "*" (or empty) means all types, otherwise a
@@ -34,10 +38,12 @@ func parseEventFilter(raw string) eventFilter {
 	return f
 }
 
-// allows reports whether an event of the given type passes the filter.
+// allows reports whether an event of the given type passes the filter. "*"
+// never admits bulk events (domain.IsBulkEvent); they are not published to the
+// realtime channel at all, so this is a defensive guard.
 func (f eventFilter) allows(eventType string) bool {
 	if f.all {
-		return true
+		return !domain.IsBulkEvent(eventType)
 	}
 	_, ok := f.types[eventType]
 	return ok

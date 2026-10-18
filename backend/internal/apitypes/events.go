@@ -287,6 +287,7 @@ func EventTypeSchemas() []any {
 		MediaEvent{}, MessageEvent{}, PollRecapEvent{}, MessageStatusEvent{}, SessionStatusEvent{},
 		AuthQREvent{}, AuthCodeEvent{}, PresenceEvent{}, GroupEvent{},
 		ChatUpdateEvent{}, ContactUpdateEvent{}, CallEvent{}, NewsletterEvent{},
+		HistorySyncEvent{}, HistoryBatchEvent{},
 	}
 }
 

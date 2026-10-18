@@ -47,6 +47,41 @@ const (
 	EventContactUpdate           = "contact.update"
 	EventCallIncoming            = "call.incoming"
 	EventNewsletterUpdate        = "newsletter.update"
+	// EventHistorySync is the lifecycle of one history import run (started,
+	// progress, completed, failed). Small; matched by "*" like any other event.
+	EventHistorySync = "history.sync"
+	// EventHistoryBatch carries one slice of imported chat history (up to a few
+	// hundred messages). It is a bulk event: see IsBulkEvent.
+	EventHistoryBatch = "history.batch"
+)
+
+// IsBulkEvent reports whether an event type is a bulk data event. Bulk events
+// are opt-in only: a webhook or stream subscribed to "*" does not receive them
+// (only an explicit subscription to the exact type does), they are never
+// published to the realtime channel, and event-log replay skips them. This
+// keeps existing "*" consumers safe from large, high-volume bodies.
+func IsBulkEvent(eventType string) bool {
+	return eventType == EventHistoryBatch
+}
+
+// History sync lifecycle phases carried by history.sync.
+const (
+	HistoryPhaseStarted   = "started"
+	HistoryPhaseProgress  = "progress"
+	HistoryPhaseCompleted = "completed"
+	HistoryPhaseFailed    = "failed"
+)
+
+// History sync types: the kind of WhatsApp history notification a batch or
+// lifecycle event came from (whatsmeow's HistorySync.SyncType, lower-cased).
+const (
+	HistorySyncInitialBootstrap = "initial_bootstrap"
+	HistorySyncRecent           = "recent"
+	HistorySyncFull             = "full"
+	HistorySyncPushName         = "push_name"
+	HistorySyncInitialStatusV3  = "initial_status_v3"
+	HistorySyncNonBlockingData  = "non_blocking_data"
+	HistorySyncOnDemand         = "on_demand"
 )
 
 // NewEvent builds an Event with the current schema, a fresh evt_ ULID, and the
