@@ -27,7 +27,7 @@ import { useDeleteSession, useSessionLifecycle } from "~/lib/api/hooks/sessions"
 import { isApiError } from "~/lib/api/envelope";
 import type { SessionAction, SessionStatus, WASession } from "~/lib/api/types";
 import { QrCode } from "~/routes/-oauth/QrCode";
-import { formatDateTime } from "~/lib/format";
+import { formatDateTime, formatPhone, sessionTitle } from "~/lib/format";
 
 /** @deprecated Use `<Time>` (components/time) or `formatDateTime` (lib/format); local time. */
 export function formatTimestamp(ms: number | undefined): string {
@@ -61,17 +61,10 @@ export { SessionStatusBadge } from "~/components/status-badge";
 
 // --- Small formatters ---------------------------------------------------------
 
-/** The name to show for a session: its label, else a short form of its ID. */
-export function sessionName(s: Pick<WASession, "label" | "id">): string {
-  return s.label?.trim() || s.id;
-}
+/** The name to show for a session: its label, else its number, else "Untitled session". */
+export const sessionName = sessionTitle;
 
-/** "628123456789" → "+628123456789"; undefined/empty → undefined. */
-export function formatPhone(digits: string | undefined | null): string | undefined {
-  if (!digits) return undefined;
-  const d = digits.replace(/[^\d]/g, "");
-  return d ? `+${d}` : undefined;
-}
+export { formatPhone };
 
 /** Keep only the digits of a phone typed as "+62 812-3456-789". */
 export function normalizePhone(input: string): string {

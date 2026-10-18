@@ -1,12 +1,13 @@
 // User: session DETAIL layout — the shell around a single session's surfaces.
-// §12 user surface. Renders a back link + the session name in the top bar
-// (plus a segmented Overview / Chats / Contacts control below `md`; the sidebar
-// carries that nav on desktop) and an <Outlet/> for the active sub-surface.
+// §12 user surface. Renders a back link + the session's title and status in the
+// top bar, the Overview / Chats / Contacts tabs in a row directly under it (on
+// every breakpoint; the sidebar never changes shape), and an <Outlet/> for the
+// active sub-surface.
 //
 // Ported from v1 user/session.detail.tsx (tag mvp-v1) — the detail shell with
 // sub-navigation. Reshape notes:
 //   - /user/sessions/:id (shell + nested) -> TanStack file-based LAYOUT route
-//     /user/sessions/$sessionId rendering the tabs + <Outlet/>.
+//     /user/sessions/$sessionId rendering the header, tabs + <Outlet/>.
 //   - The OVERVIEW (status/QR/pairing) lives in the index child
 //     (sessions.$sessionId.index.tsx). CHATS and CONTACTS are sibling-owned
 //     surfaces (viewer/contacts) that mount as the other children
@@ -19,9 +20,11 @@ import { createFileRoute, Link, Outlet, useRouterState } from "@tanstack/react-r
 import { Separator } from "~/components/ui/separator";
 import {
   PageHeader,
+  PageSubnav,
   HeaderBack,
   HeaderTitle,
 } from "~/components/shell/page-chrome";
+import { Skeleton } from "~/components/ui/skeleton";
 import { SESSION_NAV, type SessionNavItem } from "~/components/shell/nav";
 import { useSession } from "~/lib/api/hooks/sessions";
 import type { WASession } from "~/lib/api/types";
@@ -31,6 +34,7 @@ import { titleHead } from "~/lib/head";
 import { PlayIcon, RefreshCwIcon } from "lucide-react";
 import { SessionOverview } from "./-components/session-overview";
 import { sessionName, useSessionActions } from "./-components/user-ui";
+import { UNTITLED_SESSION, sessionTitle } from "~/lib/format";
 
 export const Route = createFileRoute("/_app/user/sessions/$sessionId")({
   head: () => titleHead("Session"),
@@ -44,47 +48,52 @@ function SessionDetailLayout() {
   });
   const isBareSessionRoute =
     pathname === `/user/sessions/${encodeURIComponent(sessionId)}`;
-  const isOverview =
-    pathname.replace(/\/+$/, "") === `/user/sessions/${encodeURIComponent(sessionId)}`;
-  // Same query key as the overview + sidebar, so this is a cache read.
+  // Same query key as the overview, so this is a cache read.
   const session = useSession(sessionId);
-  const name = session.data?.label || sessionId;
 
   return (
     <>
-      {/* This layout owns the top-bar chrome for the whole session-detail
-          surface (overview / chats / contacts), so nested routes don't render
-          their own <PageHeader>. Keeping the layout body height-transparent
-          (just the active child) is what lets the chat surface opt into fill
-          mode below it.
+      {/* This layout owns the top chrome for the whole session-detail surface
+          (overview / chats / contacts), so nested routes don't render their own
+          <PageHeader>. Keeping the layout body height-transparent (just the
+          active child) is what lets chats / contacts opt into fill mode below
+          it.
 
-          Sub-navigation: on desktop the sidebar shows this session's section
-          (Overview / Chats / Contacts, see AppSidebar), so the header carries
-          only the back link + the session name. Below `md` the sidebar is a
-          sheet, so the same SESSION_NAV renders here as a segmented control. */}
+          Header row: back link, the session's title and its status. Tab row
+          (PageSubnav, under the header on every breakpoint): Overview / Chats /
+          Contacts. Both stay mounted while the child routes swap, so nothing
+          shifts when moving between a session's sections. */}
       <PageHeader>
         <HeaderBack to="/user/sessions" label="All sessions" />
         <Separator
           orientation="vertical"
-          className="hidden data-[orientation=vertical]:h-4 md:block"
+          className="data-[orientation=vertical]:h-4"
         />
-        <HeaderTitle className="hidden md:block">{name}</HeaderTitle>
-        {/* The overview's own title already carries the status. */}
-        {session.data && !isOverview && (
-          <SessionStatusBadge
-            status={session.data.status}
-            className="hidden shrink-0 md:inline-flex"
-          />
+        {session.data ? (
+          <HeaderTitle>
+            <span title={sessionTitle(session.data)}>
+              {sessionTitle(session.data)}
+            </span>
+          </HeaderTitle>
+        ) : session.isPending ? (
+          <Skeleton className="h-4 w-28" />
+        ) : (
+          <HeaderTitle>Session</HeaderTitle>
         )}
+        {session.data && (
+          <SessionStatusBadge status={session.data.status} className="shrink-0" />
+        )}
+      </PageHeader>
+      <PageSubnav>
         <nav
           aria-label="Session sections"
-          className="flex h-8 min-w-0 items-center gap-0.5 overflow-x-auto rounded-lg bg-muted p-[3px] md:hidden"
+          className="-mb-px flex items-center gap-1 px-1.5 lg:px-2.5"
         >
           {SESSION_NAV.map((item) => (
             <SessionTab key={item.to} item={item} sessionId={sessionId} />
           ))}
         </nav>
-      </PageHeader>
+      </PageSubnav>
 
       {isBareSessionRoute ? (
         <SessionOverview sessionId={sessionId} />
@@ -112,7 +121,9 @@ function NotConnectedBanner({ session }: { session: WASession }) {
   const actions = useSessionActions();
   const pending = Boolean(actions.pendingFor(session.id));
   const paired = Boolean(session.waJid);
-  const name = sessionName(session);
+  // "Untitled session isn't linked…" reads oddly; fall back to "This session".
+  const title = sessionName(session);
+  const name = title === UNTITLED_SESSION ? "This session" : title;
 
   let text: string;
   let action: "start" | "restart" | "link" | null = null;
@@ -172,14 +183,21 @@ function SessionTab({
   item: SessionNavItem;
   sessionId: string;
 }) {
+  const Icon = item.icon;
+  // Underline tab: the active one gets a 2px bar that sits on the top chrome's
+  // hairline (the nav's -mb-px). Active state is route-driven: <Link> sets
+  // data-status="active" and aria-current="page".
   return (
     <Link
       to={item.to}
       params={{ sessionId }}
       activeOptions={{ exact: item.exact }}
-      className="inline-flex h-full shrink-0 items-center rounded-md px-2.5 text-sm font-medium text-muted-foreground transition-[color,background-color,box-shadow] duration-200 ease-soft hover:text-foreground data-[status=active]:bg-background data-[status=active]:text-foreground data-[status=active]:shadow-xs dark:data-[status=active]:bg-input/40"
+      className="group/tab relative inline-flex h-10 shrink-0 items-center px-1 text-sm font-medium text-muted-foreground outline-none transition-colors duration-150 ease-soft hover:text-foreground data-[status=active]:text-foreground after:absolute after:inset-x-1 after:bottom-0 after:h-0.5 after:rounded-full after:bg-foreground after:opacity-0 after:transition-opacity after:duration-200 after:ease-soft data-[status=active]:after:opacity-100"
     >
-      {item.label}
+      <span className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 transition-colors duration-150 ease-soft group-hover/tab:bg-muted group-focus-visible/tab:ring-3 group-focus-visible/tab:ring-ring/40">
+        <Icon className="size-4 opacity-70 group-data-[status=active]/tab:opacity-100" aria-hidden />
+        {item.label}
+      </span>
     </Link>
   );
 }

@@ -67,7 +67,6 @@ import {
   TooltipTrigger,
 } from "~/components/ui/tooltip";
 import { Page, PageTitle } from "~/components/shell/page-title";
-import { SessionStatusBadge } from "~/components/status-badge";
 import { CodeSnippet } from "~/components/code-snippet";
 import { CopyButton, CopyableId } from "~/components/copyable";
 import { Time } from "~/components/time";
@@ -164,12 +163,9 @@ export function SessionOverview({ sessionId }: { sessionId: string }) {
   return (
     <Page>
       <PageTitle
-        title={
-          <>
-            <span className="truncate">{sessionName(s)}</span>
-            <SessionStatusBadge status={s.status} className="shrink-0" />
-          </>
-        }
+        // The status badge lives in the session layout's top bar (always
+        // visible on every section), so the heading carries just the title.
+        title={<span className="truncate">{sessionName(s)}</span>}
         description={
           <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
             {phone ? (

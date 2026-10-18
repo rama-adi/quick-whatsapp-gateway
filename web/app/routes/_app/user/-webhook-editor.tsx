@@ -31,6 +31,7 @@ import {
 import { CopyButton } from "~/components/copyable";
 import { DOCS } from "~/lib/docs-links";
 import { cn } from "~/lib/utils";
+import { sessionTitle } from "~/lib/format";
 
 // --- event catalog --------------------------------------------------------
 
@@ -474,7 +475,7 @@ function SessionScopeField({
           {rows.length > 0 || unknown ? <SelectSeparator /> : null}
           {rows.map((s) => (
             <SelectItem key={s.id} value={s.id}>
-              <span className="truncate">{s.label || "Untitled session"}</span>
+              <span className="truncate">{sessionTitle(s)}</span>
               <span className="text-muted-foreground">
                 {s.phoneNumber ? `+${s.phoneNumber}` : "not linked yet"}
               </span>

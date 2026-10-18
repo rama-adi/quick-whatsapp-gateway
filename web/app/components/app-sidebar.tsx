@@ -4,10 +4,11 @@
 // It sits directly on the shell frame (AppShell renders it with
 // variant="inset"): brand row on top, the role-filtered nav model
 // (shell/nav.ts) in the middle, and the docs link + account chip at the
-// bottom. Inside /user/sessions/$sessionId/* it also shows a contextual
-// section for that session (Overview / Chats / Contacts).
+// bottom. It never changes shape with the route: one session's sections
+// (Overview / Chats / Contacts) are tabs in that session's own page chrome
+// (user/sessions.$sessionId.tsx), and "Sessions" stays the active item there.
 
-import { Link, useMatch } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import {
   Sidebar,
   SidebarContent,
@@ -20,13 +21,7 @@ import {
   SidebarMenuItem,
 } from "~/components/ui/sidebar";
 import { MessageSquareText } from "lucide-react";
-import { useSession } from "~/lib/api/hooks/sessions";
-import {
-  visibleNav,
-  DOCS_NAV,
-  SESSION_NAV,
-  type NavItem,
-} from "./shell/nav";
+import { visibleNav, DOCS_NAV, type NavItem } from "./shell/nav";
 import { NavUser } from "./nav-user";
 import type { AppSession } from "~/lib/auth/session";
 
@@ -38,13 +33,6 @@ export function AppSidebar({
   const adminItems = items.filter((i) => i.group === "Admin");
   const workspaceItems = items.filter((i) => i.group === "Workspace");
   const DocsIcon = DOCS_NAV.icon;
-  // Non-throwing lookup: the session-detail layout is only in the match tree
-  // while the user is inside one session's surfaces.
-  const sessionMatch = useMatch({
-    from: "/_app/user/sessions/$sessionId",
-    shouldThrow: false,
-  });
-  const sessionId = sessionMatch?.params.sessionId;
 
   return (
     <Sidebar collapsible="icon" {...props}>
@@ -71,15 +59,8 @@ export function AppSidebar({
       </SidebarHeader>
 
       <SidebarContent>
-        {sessionId && <SessionNavGroup sessionId={sessionId} />}
         {workspaceItems.length > 0 && (
-          <NavGroup
-            label="Workspace"
-            items={workspaceItems}
-            // Inside a session the contextual section owns the strong active
-            // chip; the parent "Sessions" item steps down to a text-only cue.
-            parentOf={sessionId ? "/user/sessions" : undefined}
-          />
+          <NavGroup label="Workspace" items={workspaceItems} />
         )}
         {adminItems.length > 0 && <NavGroup label="Admin" items={adminItems} />}
       </SidebarContent>
@@ -103,78 +84,22 @@ export function AppSidebar({
   );
 }
 
-function NavGroup({
-  label,
-  items,
-  parentOf,
-}: {
-  label: string;
-  items: NavItem[];
-  /** Item whose active state is secondary because a child section is shown. */
-  parentOf?: string;
-}) {
+function NavGroup({ label, items }: { label: string; items: NavItem[] }) {
   return (
     <SidebarGroup>
       <SidebarGroupLabel>{label}</SidebarGroupLabel>
       <SidebarMenu>
         {items.map((item) => {
           const Icon = item.icon;
-          const isParent = item.to === parentOf;
-          return (
-            <SidebarMenuItem key={item.to}>
-              <SidebarMenuButton
-                asChild
-                tooltip={item.label}
-                className={
-                  isParent
-                    ? "data-[parent-active=true]:font-medium data-[parent-active=true]:text-sidebar-foreground"
-                    : undefined
-                }
-              >
-                <Link
-                  to={item.to}
-                  activeProps={
-                    isParent
-                      ? { "data-parent-active": "true" }
-                      : { "data-active": "true" }
-                  }
-                  // Workspace/admin items are section roots; highlight on the
-                  // whole subtree (e.g. /user/sessions/:id) not just exact.
-                  activeOptions={{ exact: false }}
-                >
-                  <Icon aria-hidden />
-                  <span>{item.label}</span>
-                </Link>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          );
-        })}
-      </SidebarMenu>
-    </SidebarGroup>
-  );
-}
-
-// The open session's own surfaces, titled with its label. Shares the session
-// query (same key) with the overview, so it never adds a distinct request.
-function SessionNavGroup({ sessionId }: { sessionId: string }) {
-  const session = useSession(sessionId);
-  const name = session.data?.label || sessionId;
-  return (
-    <SidebarGroup className="animate-in duration-300 ease-soft fade-in-0 slide-in-from-left-1">
-      <SidebarGroupLabel title={name} className="gap-2">
-        <span className="truncate">{name}</span>
-      </SidebarGroupLabel>
-      <SidebarMenu>
-        {SESSION_NAV.map((item) => {
-          const Icon = item.icon;
           return (
             <SidebarMenuItem key={item.to}>
               <SidebarMenuButton asChild tooltip={item.label}>
                 <Link
                   to={item.to}
-                  params={{ sessionId }}
                   activeProps={{ "data-active": "true" }}
-                  activeOptions={{ exact: item.exact }}
+                  // Workspace/admin items are section roots; highlight on the
+                  // whole subtree (e.g. /user/sessions/:id) not just exact.
+                  activeOptions={{ exact: false }}
                 >
                   <Icon aria-hidden />
                   <span>{item.label}</span>

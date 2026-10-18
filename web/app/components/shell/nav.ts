@@ -72,11 +72,11 @@ export const DOCS_NAV = {
   icon: BookOpen,
 } as const;
 
-// Contextual nav for a single WhatsApp session. While the route is inside
-// /user/sessions/$sessionId/*, the sidebar shows these as a section titled with
-// the session's name (desktop), and the session layout renders the same list as
-// a compact segmented control in the top bar below `md` (the sidebar is a sheet
-// there). One list, two renderings, so the links can't drift.
+// Section nav for a single WhatsApp session. The session layout
+// (user/sessions.$sessionId.tsx) renders these as underline tabs in a row
+// directly under the top bar, on every breakpoint. They are deliberately NOT in
+// the sidebar: the sidebar keeps one shape on every route, and "Sessions" stays
+// its active item while you are inside a session.
 export interface SessionNavItem {
   to:
     | "/user/sessions/$sessionId"

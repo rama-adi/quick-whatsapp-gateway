@@ -103,3 +103,26 @@ export function formatPlatformRole(role: string | null | undefined): string {
   if (!role) return "Member";
   return PLATFORM_ROLE_LABEL[role] ?? humanizeEnum(role);
 }
+
+/** "628123456789" → "+628123456789"; undefined/empty → undefined. */
+export function formatPhone(digits: string | undefined | null): string | undefined {
+  if (!digits) return undefined;
+  const d = digits.replace(/[^\d]/g, "");
+  return d ? `+${d}` : undefined;
+}
+
+/** Fallback title for a session with no label and no linked number. */
+export const UNTITLED_SESSION = "Untitled session";
+
+/**
+ * The human title for a WhatsApp session, used everywhere a session is named
+ * (top bar, overview heading, lists, pickers, confirmations): its label, else
+ * its linked phone number, else "Untitled session". Never the raw `sess_…` ID;
+ * the overview keeps that one copy-click away as "Session ID".
+ */
+export function sessionTitle(s: {
+  label?: string | null;
+  phoneNumber?: string | null;
+}): string {
+  return s.label?.trim() || formatPhone(s.phoneNumber) || UNTITLED_SESSION;
+}

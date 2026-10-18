@@ -57,6 +57,7 @@ import {
   TOKEN_TTL,
   REFRESH_TTL,
 } from "./validation";
+import { sessionTitle } from "~/lib/format";
 
 export interface OAuthFormState {
   name: string;
@@ -377,7 +378,7 @@ export function OAuthAppForm({
                         value={s.id}
                         disabled={s.status !== "working" && s.id !== state.sessionId}
                       >
-                        {s.label || s.id}
+                        {sessionTitle(s)}
                         {s.phoneNumber ? ` · +${s.phoneNumber}` : ""}
                         {s.status !== "working" ? ` (${sessionStatusLabel(s.status)})` : ""}
                       </SelectItem>

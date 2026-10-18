@@ -16,6 +16,7 @@ import { DOCS } from "~/lib/docs-links";
 import { apiRequestSnippets } from "~/lib/snippets";
 import { cn } from "~/lib/utils";
 import { ArtPanel, QuickLink } from "./art-panel";
+import { sessionTitle } from "~/lib/format";
 
 // --- Per-org visibility, persisted in localStorage ------------------------------
 
@@ -139,7 +140,7 @@ export function GetStarted({
               <>
                 It sends a test message to your own number from{" "}
                 <span className="font-medium text-foreground">
-                  {firstWorking.label || firstWorking.phoneNumber || "your session"}
+                  {sessionTitle(firstWorking)}
                 </span>
                 .
               </>

@@ -181,19 +181,30 @@ icon rail, a `Sheet` drawer below `md`, a Cmd/Ctrl+B toggle, and cookie-persiste
   owns its own internal scroll areas (used by chat — `routes/_app/user/sessions/$sessionId/chats/*`,
   which sizes its panes with flex `min-h-0` + `ScrollArea`/`MessageScroller`, no `calc()` heights).
 - **Page chrome** — `components/shell/page-chrome.tsx` lets the active route project content into the
-  top bar and opt into fill mode. `SiteHeader` renders a `PageHeaderSlot`; a route renders
-  `<PageHeader>` (with `HeaderBack` / `HeaderTitle` / actions) which **portals** into that slot for
-  as long as it's mounted, and `fill` (or the standalone `useFillMain()` for a leaf under a layout
-  that already owns the header) flips `AppMain` to fill. Exactly one route per surface owns the
-  `PageHeader` (the session-detail layout `sessions.$sessionId.tsx` owns the back button + session
-  name; the nested chat route only calls `useFillMain()`).
+  top chrome and opt into fill mode. `SiteHeader` renders a `PageHeaderSlot` in the header row and a
+  `PageSubnavSlot` directly under it (one hairline border wraps both); a route renders
+  `<PageHeader>` (with `HeaderBack` / `HeaderTitle` / actions) and, for a layout with sections,
+  `<PageSubnav>` (a tab row). Both **portal** into their slot for as long as they're mounted, so they
+  sit above the scroller and stay put while child routes swap. `fill` (or the standalone
+  `useFillMain()` for a leaf under a layout that already owns the header) flips `AppMain` to fill.
+  Exactly one route per surface owns the `PageHeader` (the session-detail layout
+  `sessions.$sessionId.tsx` owns the back button, session title, status badge and section tabs; the
+  nested chat and contacts routes only call `useFillMain()`).
 - **Page titles** — page bodies open with `components/shell/page-title.tsx`: `<Page width>` sets the
   section rhythm and optional max width, `<PageTitle title description actions eyebrow>` renders the
   single `h1` plus a muted one-line description and right-aligned actions.
-- **Session nav** — inside `/user/sessions/$sessionId/*`, `AppSidebar` shows a contextual section
-  titled with the session's label (Overview / Chats / Contacts, from `SESSION_NAV` in `nav.ts`).
-  Below `md`, where the sidebar is a drawer, the same links render as a segmented control in the
-  top bar.
+- **Session nav** — inside `/user/sessions/$sessionId/*`, the session-detail layout puts the
+  session's own navigation in its page chrome, on every breakpoint: the header row reads
+  **All sessions** (back) · session title · status badge, and the row under it holds underline tabs
+  for Overview / Chats / Contacts (`SESSION_NAV` in `nav.ts`; route-driven active state via
+  `<Link>`'s `data-status="active"` / `aria-current`). The sidebar is **not** contextual: it keeps
+  the same shape on every route, and **Sessions** stays its active item inside a session. (An
+  earlier design added a per-session sidebar section; it shifted the whole sidebar on entering or
+  leaving a session, so it was dropped.)
+- **Session titles** — `sessionTitle()` in `lib/format.ts` is the one fallback chain wherever a
+  session is named (top bar, overview heading, lists, pickers, confirmations): label, else the
+  linked phone number (`+…`), else "Untitled session". The raw `sess_…` ID is never the title; the
+  overview shows it as a copyable **Session ID**.
 
 - **Nav model** — `components/shell/nav.ts` (`visibleNav(session)`) is the single source of truth:
   role-filtered `Workspace` / `Admin` groups, each item carrying a lucide icon. Hiding is

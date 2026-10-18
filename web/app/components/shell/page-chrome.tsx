@@ -1,10 +1,13 @@
 // Page chrome: lets a route project content (back button, title, tabs, actions)
-// into the app top bar, and opt the main content region into "fill" mode.
+// into the app top bar, project a section-tab row directly under it, and opt
+// the main content region into "fill" mode.
 //
 // The top bar (SiteHeader) is global chrome rendered ABOVE the <Outlet> by the
 // AppShell, so a page can't render into it directly. SiteHeader exposes a slot
 // via context; <PageHeader> portals its children into that slot for as long as
-// the page is mounted. <main> normally has padding and scrolls; a page that
+// the page is mounted. <PageSubnav> does the same for an optional second row
+// under the header (a layout's section tabs, e.g. one session's Overview /
+// Chats / Contacts), so the tabs stay fixed above the scroller. <main> normally has padding and scrolls; a page that
 // manages its own internal scrolling (e.g. chat) opts into "fill" mode — no
 // padding, height-clamped to the viewport, page owns the scroll — via the
 // `fill` prop on <PageHeader> or the standalone useFillMain() hook (for a leaf
@@ -26,6 +29,8 @@ import { cn } from "~/lib/utils";
 interface PageChromeContextValue {
   headerSlot: HTMLElement | null;
   setHeaderSlot: (el: HTMLElement | null) => void;
+  subnavSlot: HTMLElement | null;
+  setSubnavSlot: (el: HTMLElement | null) => void;
   fill: boolean;
   setFill: (fill: boolean) => void;
 }
@@ -42,10 +47,18 @@ function usePageChromeContext(): PageChromeContextValue {
 
 export function PageChromeProvider({ children }: { children: ReactNode }) {
   const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
+  const [subnavSlot, setSubnavSlot] = useState<HTMLElement | null>(null);
   const [fill, setFill] = useState(false);
   return (
     <PageChromeContext.Provider
-      value={{ headerSlot, setHeaderSlot, fill, setFill }}
+      value={{
+        headerSlot,
+        setHeaderSlot,
+        subnavSlot,
+        setSubnavSlot,
+        fill,
+        setFill,
+      }}
     >
       {children}
     </PageChromeContext.Provider>
@@ -76,6 +89,22 @@ export function useFillMain(enabled = true): void {
 export function PageHeaderSlot({ className }: { className?: string }) {
   const { setHeaderSlot } = usePageChromeContext();
   return <div ref={setHeaderSlot} className={className} />;
+}
+
+/** The second-row slot under the top bar that <PageSubnav> portals into. */
+export function PageSubnavSlot({ className }: { className?: string }) {
+  const { setSubnavSlot } = usePageChromeContext();
+  return <div ref={setSubnavSlot} className={className} />;
+}
+
+/**
+ * Project a section-tab row under the top bar for as long as this component is
+ * mounted. Like <PageHeader>, render it once, from the layout that owns the
+ * sections, so the row stays put while its child routes swap below it.
+ */
+export function PageSubnav({ children }: { children: ReactNode }) {
+  const { subnavSlot } = usePageChromeContext();
+  return subnavSlot ? createPortal(children, subnavSlot) : null;
 }
 
 /**

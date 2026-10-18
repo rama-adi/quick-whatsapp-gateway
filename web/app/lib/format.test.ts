@@ -5,6 +5,7 @@ import {
   formatRelative,
   humanizeEnum,
   middleTruncate,
+  sessionTitle,
   toDate,
 } from "./format";
 import { pageTitle, titleHead } from "./head";
@@ -97,5 +98,14 @@ describe("apiRequestSnippets", () => {
     expect(curl?.code).toContain("-X POST");
     expect(curl?.code).toContain(`-d '{"type":"text","text":"it'\\''s ok","preview":true}'`);
     expect(py?.code).toContain('"preview": True');
+  });
+});
+
+describe("sessionTitle", () => {
+  it("prefers the label, then the phone number, never the raw id", () => {
+    expect(sessionTitle({ label: " Sales line ", phoneNumber: "628123" })).toBe("Sales line");
+    expect(sessionTitle({ label: "", phoneNumber: "628123456789" })).toBe("+628123456789");
+    expect(sessionTitle({ label: "  " })).toBe("Untitled session");
+    expect(sessionTitle({})).toBe("Untitled session");
   });
 });

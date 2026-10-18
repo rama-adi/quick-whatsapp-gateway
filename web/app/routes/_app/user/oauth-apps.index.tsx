@@ -41,6 +41,7 @@ import { useOAuthApps, type OAuthApp } from "~/lib/api/hooks/oauth";
 import { DOCS } from "~/lib/docs-links";
 import { titleHead } from "~/lib/head";
 import { AppAvatar, AppStatusBadge, ModeChips } from "./-oauth/ui";
+import { sessionTitle } from "~/lib/format";
 
 export const Route = createFileRoute("/_app/user/oauth-apps/")({
   head: () => titleHead("Sign in with WhatsApp"),
@@ -181,7 +182,7 @@ function BoundSession({ sessionId }: { sessionId: string }) {
           params={{ sessionId: session.id }}
           className="truncate text-sm underline-offset-4 hover:underline"
         >
-          {session.label || (session.phoneNumber ? `+${session.phoneNumber}` : session.id)}
+          {sessionTitle(session)}
         </Link>
         {session.label && session.phoneNumber ? (
           <span className="text-xs text-muted-foreground tabular-nums">

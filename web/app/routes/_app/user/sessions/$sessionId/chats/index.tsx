@@ -6,6 +6,7 @@ import { MessageCirclePlus, MessagesSquare } from "lucide-react";
 import { useSession } from "~/lib/api/hooks/sessions";
 import { SessionStatusBadge } from "~/components/status-badge";
 import { Button } from "~/components/ui/button";
+import { formatPhone, sessionTitle } from "~/lib/format";
 import { NewChatDialog } from "./-new-chat";
 
 export const Route = createFileRoute(
@@ -19,8 +20,9 @@ function ChatEmptyState() {
   const session = useSession(sessionId);
   const status = session.data?.status;
   const working = status === "working";
-  const label = session.data?.label || "this session";
-  const phone = session.data?.phoneNumber;
+  const label = session.data ? sessionTitle(session.data) : "this session";
+  // The title falls back to the number itself, so only add it after a label.
+  const phone = session.data?.label?.trim() ? formatPhone(session.data.phoneNumber) : undefined;
 
   return (
     <section
@@ -36,7 +38,7 @@ function ChatEmptyState() {
           <p className="text-sm text-pretty text-muted-foreground">
             Pick a conversation on the left to read and reply as{" "}
             <span className="font-medium text-foreground">{label}</span>
-            {phone ? ` (+${phone.replace(/^\+/, "")})` : ""}, or start a new
+            {phone ? ` (${phone})` : ""}, or start a new
             one with a contact or phone number.
           </p>
         </div>

@@ -73,6 +73,7 @@ import {
   type DeleteCheck,
 } from "./-gateway-reconciliation";
 import { OrgLabel, ToneBadge, useOrgNames } from "./-shared";
+import { sessionTitle } from "~/lib/format";
 
 type GatewayDetailData = components["schemas"]["GatewayAdminDetail"];
 type Gateway = components["schemas"]["GatewayAdmin"];
@@ -570,7 +571,7 @@ function AssignedSessions({ sessions }: { sessions: components["schemas"]["WASes
             {sessions.map((session) => (
               <TableRow key={session.id}>
                 <TableCell>
-                  <div className="font-medium">{session.label || "Untitled session"}</div>
+                  <div className="font-medium">{sessionTitle(session)}</div>
                   <div className="text-muted-foreground">
                     <CopyableId value={session.id} truncate label="Copy session ID" />
                   </div>

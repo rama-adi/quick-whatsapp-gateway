@@ -89,6 +89,7 @@ import {
   type StorageFieldErrors,
   type StorageFormState,
 } from "./-storage-form";
+import { sessionTitle } from "~/lib/format";
 
 export const Route = createFileRoute("/_app/user/storage")({
   head: () => titleHead("Attachment storage"),
@@ -361,7 +362,7 @@ function BucketCard({
               {usedBy.map((s) => (
                 <Badge key={s.id} variant="secondary" asChild>
                   <Link to="/user/sessions/$sessionId" params={{ sessionId: s.id }}>
-                    {s.label || (s.phoneNumber ? `+${s.phoneNumber}` : "Untitled session")}
+                    {sessionTitle(s)}
                   </Link>
                 </Badge>
               ))}

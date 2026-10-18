@@ -55,7 +55,7 @@ import { useConfirm } from "~/components/confirm-dialog";
 import { CopyableId } from "~/components/copyable";
 import { SESSION_STATUS, SessionStatusBadge } from "~/components/status-badge";
 import { Time } from "~/components/time";
-import { formatRelative, middleTruncate } from "~/lib/format";
+import { formatRelative, middleTruncate, sessionTitle } from "~/lib/format";
 import { titleHead } from "~/lib/head";
 import { toast } from "sonner";
 
@@ -219,7 +219,7 @@ function AdminSessions() {
                 <TableRow key={s.id}>
                   <TableCell>
                     <div className="flex items-center gap-2 font-medium">
-                      {s.label || "Untitled session"}
+                      {sessionTitle(s)}
                       {s.isAdminSession ? <Badge variant="secondary">Admin number</Badge> : null}
                     </div>
                     <div className="text-muted-foreground">
@@ -297,7 +297,7 @@ function BackfillCell({ session }: { session: WASession }) {
 
   const onBackfill = async () => {
     const ok = await confirm({
-      title: <>Re-sync “{session.label || "this session"}”?</>,
+      title: <>Re-sync “{sessionTitle(session)}”?</>,
       description:
         "Fetches the contact list and every group (with members) from WhatsApp and saves them. It runs in the background and can take a minute on large accounts.",
       confirmLabel: "Re-sync",

@@ -96,6 +96,7 @@ import {
   type FieldErrors,
   type FormState,
 } from "./-webhook-editor";
+import { sessionTitle } from "~/lib/format";
 
 export const Route = createFileRoute("/_app/user/webhooks")({
   head: () => titleHead("Webhooks"),
@@ -461,7 +462,7 @@ function ScopedSession({ sessionId }: { sessionId: string }) {
   return (
     <div className="grid gap-0.5">
       <span className="flex items-center gap-2 text-sm">
-        <span className="truncate">{session.label || "Untitled session"}</span>
+        <span className="truncate">{sessionTitle(session)}</span>
         <SessionStatusBadge status={session.status} />
       </span>
       {session.phoneNumber ? (
