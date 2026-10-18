@@ -183,6 +183,8 @@ notification into the `history_inbox` table of the journal SQLite
 (`UNIQUE(session_id, notification_id)`), and only then sends the `hist_sync` receipt. A
 failed insert leaves the notification unacknowledged so the phone sends it again. The
 cutoff (`now − historySyncDays`) and whether the import is on are fixed at that moment.
+`historySyncDays` is read from the session's current assignment in the reconciler, which
+exists (stopped) while a new device is still pairing, before the runtime has started it.
 
 **Worker.** One `historysync.Worker` per gateway drains the inbox in arrival order per
 session (`GATEWAY_HISTORY_CONCURRENCY` sessions at once, default 1). It starts only after
@@ -269,6 +271,18 @@ separately from creation of a fake transcript entry.
 Pairing uses the normal API and manager flow, with approval supplied by the
 simulated peer. Successful pairing persists the fake JID/LID in SQLite before
 emitting lifecycle events, so gateway restarts exercise normal device recovery.
+
+History sync is simulated at the same boundary. With `history_sync` in the phone's
+config (or `POST /v1/numbers/{number}/history`), the peer sends history-sync protocol
+messages as an own message: an `INITIAL_BOOTSTRAP` notification with a zlib-compressed
+inline payload built from the phone's transcripts (or a seeded conversation), then
+`RECENT` notifications (10 chats each, the last at 100%) whose blobs the client downloads
+from the peer; `history_chats` × `history_messages` adds synthetic chats and
+`history_404` expires the downloadable blobs. The fake client implements
+`historysync.Client`: it fetches downloadable blobs, then lets its local whatsmeow client
+inflate, decode and store them, and records receipts, server-error receipts and
+`DeleteMedia` as peer operations. The `large-history` (50 chats × 400 messages) and
+`expired-history` scenarios exercise volume and the 404 path.
 
 This boundary preserves gateway lifecycle, assignment fencing, inbound handling,
 outbound protobuf construction, and journal/control-plane processing. It does

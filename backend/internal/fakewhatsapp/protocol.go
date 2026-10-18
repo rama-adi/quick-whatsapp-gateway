@@ -11,6 +11,15 @@ type Config struct {
 	ConnectError string `json:"connect_error,omitempty"`
 	SendError    string `json:"send_error,omitempty"`
 	UploadError  string `json:"upload_error,omitempty"`
+	// HistorySync sends a history sync right after this number pairs, as a
+	// real phone does for a newly linked device.
+	HistorySync bool `json:"history_sync,omitempty"`
+	// HistoryChats / HistoryMessages add synthetic chats (each with that
+	// many messages) to that history; HistoryForce404 makes its downloadable
+	// chunks expire.
+	HistoryChats    int  `json:"history_chats,omitempty"`
+	HistoryMessages int  `json:"history_messages,omitempty"`
+	HistoryForce404 bool `json:"history_404,omitempty"`
 }
 
 type ConnectRequest struct {

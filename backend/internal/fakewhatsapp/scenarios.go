@@ -125,6 +125,8 @@ func stepKind(step scenario.Step) string {
 		return "config"
 	case scenario.Effect:
 		return "effect"
+	case scenario.History:
+		return "history"
 	default:
 		return "unknown"
 	}
@@ -139,6 +141,13 @@ func (s *Server) runStep(ctx context.Context, number string, step scenario.Step,
 		return s.runBehaviorStep(ctx, number, typed)
 	case scenario.Effect:
 		return s.runEffectStep(ctx, number, typed, run)
+	case scenario.History:
+		var response HistoryResponse
+		body := HistoryRequest{Chats: typed.Chats, Messages: typed.Messages, Force404: typed.Force404}
+		if err := s.scenarioCall(ctx, "/v1/numbers/"+number+"/history", body, &response); err != nil {
+			return failedStep(err)
+		}
+		return StepResult{Status: "ok", Delivered: response.Delivered}
 	default:
 		return failedStep(fmt.Errorf("unsupported scenario step %T", step))
 	}
@@ -183,6 +192,13 @@ func (s *Server) runGroupStep(ctx context.Context, number string, step scenario.
 }
 func (s *Server) runBehaviorStep(ctx context.Context, number string, step scenario.Behavior) StepResult {
 	config := Config{Scenario: string(step.Mode), AutoPair: step.AutoPair, Echo: step.Echo}
+	// A behavior step changes connection behavior only; keep the phone's
+	// history settings.
+	s.mu.Lock()
+	current := s.numbers[number]
+	s.mu.Unlock()
+	config.HistorySync, config.HistoryChats = current.HistorySync, current.HistoryChats
+	config.HistoryMessages, config.HistoryForce404 = current.HistoryMessages, current.HistoryForce404
 	if err := s.scenarioCall(ctx, "/v1/numbers/"+number, config, nil); err != nil {
 		return failedStep(err)
 	}
@@ -328,6 +344,10 @@ func validateStory(story scenario.Story) error {
 			case "delivered", "read", "played", "reaction", "edit", "delete":
 			default:
 				return fmt.Errorf("effect step %d has unsupported effect %q", index, typed.Kind)
+			}
+		case scenario.History:
+			if err := validateHistory(HistoryRequest{Chats: typed.Chats, Messages: typed.Messages}); err != nil {
+				return fmt.Errorf("history step %d: %w", index, err)
 			}
 		default:
 			return fmt.Errorf("step %d has unsupported type %T", index, step)

@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
@@ -118,7 +119,12 @@ func runE2EFakeMode(t *testing.T, infra *e2eInfra, adminToken string) {
 			return err == nil && placement.ID == enrollment.id &&
 				placement.GRPCEndpoint != nil && *placement.GRPCEndpoint == engine
 		})
-		fakeModeRequest(t, peer.URL+"/v1/numbers/"+number, fakewhatsapp.Config{Scenario: "healthy"}, nil)
+		// The phone sends its history when the gateway pairs: a seeded inline
+		// bootstrap plus one downloadable RECENT chunk of 3 x 150 messages.
+		const historyChats, historyPerChat, historySeed = 3, 150, 5
+		fakeModeRequest(t, peer.URL+"/v1/numbers/"+number, fakewhatsapp.Config{
+			Scenario: "healthy", HistorySync: true, HistoryChats: historyChats, HistoryMessages: historyPerChat,
+		}, nil)
 		var created domain.WASession
 		createStatus := infra.request(t, "POST", "/api/v1/sessions", e2eOrgAKey,
 			map[string]any{"label": "Standalone fake phone", "start": false}, &created, nil)
@@ -167,6 +173,59 @@ func runE2EFakeMode(t *testing.T, infra *e2eInfra, adminToken string) {
 		}
 		working()
 		t.Log("pairing approved and persisted through public session state")
+		// A message the phone also has in its history arrives live while the
+		// import runs; it must be stored exactly once.
+		liveDuplicate := fmt.Sprintf("FAKE_HISTORY_%s_0_5", number)
+		fakeModeRequest(t, peer.URL+"/v1/numbers/"+number+"/messages", fakewhatsapp.MessageRequest{
+			ID: liveDuplicate, Chat: "55580000000@s.whatsapp.net", Sender: "55580000000@s.whatsapp.net",
+			Message: json.RawMessage(`{"conversation":"History message 6 in chat 1"}`),
+		}, nil)
+		historyTotal := historyChats*historyPerChat + historySeed
+		var historyStatus domain.HistorySyncStatus
+		e2eEventually(t, ctx, "history import run completed and applied", func() bool {
+			status := infra.request(t, "GET", base+"/history-sync", e2eOrgAKey, nil, &historyStatus, nil)
+			run := historyStatus.Run
+			return status == http.StatusOK && run != nil && run.Status == "completed" &&
+				run.Batches > 0 && run.BatchesApplied == run.Batches
+		})
+		if run := historyStatus.Run; run.Messages != historyTotal || run.Chunks != 2 ||
+			run.MessagesImported+run.MessagesExisting != historyTotal || historyStatus.AccountJID == nil ||
+			*historyStatus.AccountJID != number+"@s.whatsapp.net" {
+			t.Fatalf("history run = %+v status=%+v", run, historyStatus)
+		}
+		var historyRows, historyOrigin, duplicateRows int
+		if err := infra.db.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(SUM(origin='history'),0) FROM messages
+			WHERE session_id=? AND wa_message_id LIKE 'FAKE_HISTORY%'`, created.ID).Scan(&historyRows, &historyOrigin); err != nil {
+			t.Fatal(err)
+		}
+		if err := infra.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM messages WHERE session_id=? AND wa_message_id=?`,
+			created.ID, liveDuplicate).Scan(&duplicateRows); err != nil {
+			t.Fatal(err)
+		}
+		if historyRows != historyTotal || historyOrigin < historyTotal-1 || duplicateRows != 1 {
+			t.Fatalf("history rows=%d origin=history %d duplicate=%d", historyRows, historyOrigin, duplicateRows)
+		}
+		rows, err := infra.db.QueryContext(ctx, `SELECT CAST(payload AS CHAR) FROM event_log WHERE session_id=?
+			AND type IN ('message','message.from_me') AND CAST(payload AS CHAR) LIKE '%FAKE_HISTORY%'`, created.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for rows.Next() {
+			var payload string
+			if err := rows.Scan(&payload); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(payload, liveDuplicate) {
+				t.Fatalf("imported history produced a live message event: %s", payload)
+			}
+		}
+		_ = rows.Close()
+		var lifecycle int
+		if err := infra.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM event_log WHERE session_id=? AND type='history.sync'`,
+			created.ID).Scan(&lifecycle); err != nil || lifecycle < 4 {
+			t.Fatalf("history.sync lifecycle events = %d err=%v", lifecycle, err)
+		}
+		t.Logf("history import: %d messages over %d batches, live duplicate stored once", historyTotal, historyStatus.Run.Batches)
 		send := func(id, text string) {
 			var result outbound.SendResult
 			status := infra.request(t, "POST", base+"/messages", e2eOrgAKey,

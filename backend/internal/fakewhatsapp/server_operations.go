@@ -151,6 +151,9 @@ func (s *Server) perform(se *session, req OperationRequest, cfg Config) Operatio
 		}
 		return OperationResponse{ID: id}
 	}
+	if result, ok := s.performHistory(req); ok {
+		return result
+	}
 	if result, ok := s.performResource(se, req); ok {
 		return result
 	}

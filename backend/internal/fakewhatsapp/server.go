@@ -36,6 +36,7 @@ type Server struct {
 	attemptTrace    []Attempt
 	eventTrace      []EventTrace
 	media           map[string][]byte
+	expiredHistory  map[string]bool
 	transcripts     map[string]map[string][]actorMessage
 	blocklists      map[string]map[string]bool
 	contactNames    map[string]map[string]string
@@ -61,21 +62,22 @@ type session struct {
 
 func NewServer() *Server {
 	server := &Server{
-		numbers:      map[string]Config{},
-		sessions:     map[string]*session{},
-		captures:     []Capture{},
-		operations:   []Operation{},
-		groups:       map[string]*types.GroupInfo{},
-		groupOwners:  map[string]string{},
-		groupAccess:  map[string]map[string]bool{},
-		invites:      map[string]string{},
-		attemptTrace: []Attempt{},
-		eventTrace:   []EventTrace{},
-		media:        map[string][]byte{},
-		transcripts:  map[string]map[string][]actorMessage{},
-		blocklists:   map[string]map[string]bool{},
-		contactNames: map[string]map[string]string{},
-		stateNotify:  make(chan struct{}),
+		numbers:        map[string]Config{},
+		sessions:       map[string]*session{},
+		captures:       []Capture{},
+		operations:     []Operation{},
+		groups:         map[string]*types.GroupInfo{},
+		groupOwners:    map[string]string{},
+		groupAccess:    map[string]map[string]bool{},
+		invites:        map[string]string{},
+		attemptTrace:   []Attempt{},
+		eventTrace:     []EventTrace{},
+		media:          map[string][]byte{},
+		expiredHistory: map[string]bool{},
+		transcripts:    map[string]map[string][]actorMessage{},
+		blocklists:     map[string]map[string]bool{},
+		contactNames:   map[string]map[string]string{},
+		stateNotify:    make(chan struct{}),
 	}
 	server.scenarios = registeredScenarios()
 	return server
@@ -102,6 +104,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.injectNumber(w, r, parts[2])
 	case len(parts) == 4 && parts[0] == "v1" && parts[1] == "numbers" && parts[3] == "firehose" && r.Method == http.MethodPost:
 		s.firehose(w, r, parts[2])
+	case len(parts) == 4 && parts[0] == "v1" && parts[1] == "numbers" && parts[3] == "history" && r.Method == http.MethodPost:
+		s.historyRoute(w, r, parts[2])
 	case len(parts) == 4 && parts[0] == "v1" && parts[1] == "numbers" && parts[3] == "confirm" && r.Method == http.MethodPost:
 		s.confirmNumber(w, r, parts[2])
 	case len(parts) == 4 && parts[0] == "v1" && parts[1] == "sessions":
@@ -186,6 +190,10 @@ func (s *Server) configure(w http.ResponseWriter, r *http.Request, number string
 	}
 	if cfg.Scenario == "" {
 		cfg.Scenario = "healthy"
+	}
+	if err := validateHistory(HistoryRequest{Chats: cfg.HistoryChats, Messages: cfg.HistoryMessages}); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
 	s.mu.Lock()
 	s.numbers[number] = cfg
@@ -289,6 +297,12 @@ func (s *Server) pairSession(se *session, number string) {
 	se.number, se.paired, se.pending, se.connected = number, true, false, true
 	s.appendEvent(se, Event{Kind: "paired", Number: number})
 	s.appendEvent(se, Event{Kind: "connected", Number: number})
+	if cfg := s.config(number); cfg.HistorySync {
+		// Building in-memory blobs cannot fail for validated configs.
+		_, _ = s.queueHistory(number, HistoryRequest{
+			Chats: cfg.HistoryChats, Messages: cfg.HistoryMessages, Force404: cfg.HistoryForce404,
+		})
+	}
 }
 
 func (s *Server) confirm(w http.ResponseWriter, r *http.Request, key string) {
