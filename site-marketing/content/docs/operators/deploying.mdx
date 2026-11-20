@@ -80,8 +80,13 @@ is intentional for this same-origin layout.
 <Callout type="info">
 The self-host app container’s entrypoint supervises
 four processes: Caddy, `api`, `gateway`, and the TanStack Start Node server. The
-entrypoint waits for API readiness before starting the gateway. If any
-one exits, the container exits so Compose can restart the whole app.
+entrypoint waits for API readiness before starting the gateway. If Caddy, the
+API, or the Node server exits, the container exits so Compose can restart the
+whole app. If the gateway exits, the entrypoint restarts only the gateway, after
+5 seconds at first and up to 60 seconds between later attempts. The API and
+dashboard stay available, so you can still issue a new enrollment token when the
+gateway cannot start, for example after its certificate expired during a long
+outage.
 </Callout>
 
 ### Lock down self-registration
