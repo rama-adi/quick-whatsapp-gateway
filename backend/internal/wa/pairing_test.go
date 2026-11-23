@@ -83,7 +83,7 @@ func TestPasskeyRequestStopsQRAndPublishesOptions(t *testing.T) {
 	}
 
 	// Running out of QR codes must not end a pending passkey verification.
-	manager.emitQRCodes(ms.pairCtx, ms, nil, nil)
+	manager.emitQRCodes(ms.pairCtx, ms, nil, nil, nil)
 	if ms.client == nil || ms.Status() == domain.SessionFailed {
 		t.Fatal("QR exhaustion tore down a pending passkey verification")
 	}
@@ -163,5 +163,39 @@ func TestPasskeyWindowBounds(t *testing.T) {
 	}
 	if got := passkeyWindow(&types.WebAuthnPublicKey{Timeout: 300_000}); got != 5*time.Minute {
 		t.Fatalf("5 minute timeout window = %v", got)
+	}
+}
+
+// Regression (live, 2026-11-23): after a passkey pairing succeeded, the QR
+// emitter kept running, published scan_qr_code over the working session and,
+// once its codes ran out, tore the paired client down with qr_timeout.
+func TestPairSuccessStopsQREmitterWithoutTeardown(t *testing.T) {
+	manager, sink, _, ms := startTestPairing(t)
+	manager.handlePairingEvent(ms, &events.QR{Codes: []string{"c1", "c2"}})
+	waitFor(t, func() bool { return len(eventsOfType(sink, domain.EventAuthQR)) == 1 })
+
+	manager.applyEvent(context.Background(), ms, &events.PairSuccess{ID: types.NewJID("6281", types.DefaultUserServer)})
+	manager.applyEvent(context.Background(), ms, &events.Connected{})
+
+	// The emitter must stop at once instead of waiting out the code's timeout.
+	waitFor(t, func() bool {
+		ms.mu.Lock()
+		defer ms.mu.Unlock()
+		return ms.qrStopped
+	})
+	time.Sleep(20 * time.Millisecond)
+	if ms.Status() != domain.SessionWorking {
+		t.Fatalf("status = %q, want working", ms.Status())
+	}
+	if code, _ := manager.LatestQR("session"); code != "" {
+		t.Fatalf("QR code %q still served after pairing", code)
+	}
+	// Running out of codes after pairing must not tear the client down.
+	manager.emitQRCodes(ms.pairCtx, ms, nil, nil, nil)
+	if ms.client == nil || ms.Status() != domain.SessionWorking {
+		t.Fatal("QR exhaustion after pairing tore down the working session")
+	}
+	if n := len(eventsOfType(sink, domain.EventAuthQR)); n != 1 {
+		t.Fatalf("auth.qr events = %d after pairing; want no more codes", n)
 	}
 }

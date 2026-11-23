@@ -820,7 +820,7 @@ func (m *Manager) recordPairedJID(_ context.Context, ms *ManagedSession, jid, li
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
 	ms.passkey = nil
-	ms.lastQR, ms.lastQRExpires = "", 0
+	ms.stopQRCodes()
 	ms.pairedJID = jid.String()
 	if !lid.IsEmpty() {
 		ms.pairedLID = lid.String()

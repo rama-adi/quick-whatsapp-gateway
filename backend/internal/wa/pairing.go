@@ -45,9 +45,23 @@ const (
 func (ms *ManagedSession) beginPairingRun(ctx context.Context) {
 	ms.pairCtx = ctx
 	ms.qrRotate = make(chan *events.RotateADVSecret, 4)
+	ms.qrStop = make(chan struct{})
+	ms.qrStopped = false
 	ms.passkey = nil
 	ms.lastQR = ""
 	ms.lastQRExpires = 0
+}
+
+// stopQRCodes ends this run's QR codes for good. Call with ms.mu held. The QR
+// emitter must not outlive a passkey verification or a successful pairing:
+// it would publish scan_qr_code over a working session and, once its codes ran
+// out, tear the paired client down with qr_timeout.
+func (ms *ManagedSession) stopQRCodes() {
+	if ms.qrStop != nil && !ms.qrStopped {
+		close(ms.qrStop)
+		ms.qrStopped = true
+	}
+	ms.lastQR, ms.lastQRExpires = "", 0
 }
 
 // handlePairingEvent drives QR rotation and the passkey flow. It reports
@@ -56,12 +70,12 @@ func (m *Manager) handlePairingEvent(ms *ManagedSession, evt any) bool {
 	switch e := evt.(type) {
 	case *events.QR:
 		ms.mu.Lock()
-		ctx, rotate := ms.pairCtx, ms.qrRotate
+		ctx, rotate, stop, stopped := ms.pairCtx, ms.qrRotate, ms.qrStop, ms.qrStopped
 		ms.mu.Unlock()
-		if ctx == nil || ctx.Err() != nil {
+		if ctx == nil || ctx.Err() != nil || stopped {
 			return true
 		}
-		go m.emitQRCodes(ctx, ms, append([]string(nil), e.Codes...), rotate)
+		go m.emitQRCodes(ctx, ms, append([]string(nil), e.Codes...), rotate, stop)
 		return true
 	case *events.RotateADVSecret:
 		ms.mu.Lock()
@@ -90,7 +104,7 @@ func (m *Manager) handlePairingEvent(ms *ManagedSession, evt any) bool {
 // emitQRCodes publishes the codes of one events.QR in turn. It stops when the
 // run ends, when a passkey verification starts, or when the codes run out; in
 // the last case the session fails with qr_timeout.
-func (m *Manager) emitQRCodes(ctx context.Context, ms *ManagedSession, codes []string, rotate <-chan *events.RotateADVSecret) {
+func (m *Manager) emitQRCodes(ctx context.Context, ms *ManagedSession, codes []string, rotate <-chan *events.RotateADVSecret, stop <-chan struct{}) {
 	for i := 0; i < len(codes); i++ {
 		timeout := nextQRTimeout
 		if i == 0 && len(codes) == 6 {
@@ -104,6 +118,9 @@ func (m *Manager) emitQRCodes(ctx context.Context, ms *ManagedSession, codes []s
 		for {
 			select {
 			case <-ctx.Done():
+				timer.Stop()
+				return
+			case <-stop:
 				timer.Stop()
 				return
 			case rot := <-rotate:
@@ -120,10 +137,10 @@ func (m *Manager) emitQRCodes(ctx context.Context, ms *ManagedSession, codes []s
 		}
 	}
 	ms.mu.Lock()
-	passkeyPending := ms.passkey != nil
+	ended := ms.passkey != nil || ms.qrStopped || ms.pairedJID != "" || (ms.device != nil && ms.device.ID != nil)
 	ms.mu.Unlock()
-	if passkeyPending || ctx.Err() != nil {
-		// The passkey deadline owns the run from here.
+	if ended || ctx.Err() != nil {
+		// A passkey verification or a successful pairing owns the run now.
 		return
 	}
 	m.log.Warn("qr pairing timed out", "session", ms.SessionID)
@@ -136,7 +153,7 @@ func (m *Manager) emitQRCodes(ctx context.Context, ms *ManagedSession, codes []s
 // verification has taken over.
 func (m *Manager) publishQR(ctx context.Context, ms *ManagedSession, code string, timeout time.Duration) bool {
 	ms.mu.Lock()
-	if ctx.Err() != nil || ms.passkey != nil {
+	if ctx.Err() != nil || ms.passkey != nil || ms.qrStopped {
 		ms.mu.Unlock()
 		return false
 	}
@@ -178,7 +195,7 @@ func (m *Manager) startPasskey(ms *ManagedSession, options *types.WebAuthnPublic
 		return
 	}
 	ms.passkey = pending
-	ms.lastQR, ms.lastQRExpires = "", 0
+	ms.stopQRCodes()
 	ms.mu.Unlock()
 
 	m.log.Info("passkey verification requested", "session", ms.SessionID, "rp_id", rpID(options), "window", window.String())

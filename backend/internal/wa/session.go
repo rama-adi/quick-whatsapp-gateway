@@ -140,6 +140,10 @@ type ManagedSession struct {
 	pairCtx context.Context
 	// qrRotate carries ADV-secret rotations to the running QR emitter.
 	qrRotate chan *events.RotateADVSecret
+	// qrStop is closed when this run's QR codes must stop for good: a passkey
+	// verification took over or pairing succeeded. qrStopped records the close.
+	qrStop    chan struct{}
+	qrStopped bool
 	// passkey is non-nil while WhatsApp waits for passkey verification of this
 	// pairing. QR codes stop while it is pending; the connection stays open
 	// until it completes, fails, or passes its deadline.

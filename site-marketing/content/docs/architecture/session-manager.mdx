@@ -146,7 +146,9 @@ handles the raw events instead:
 - `events.QR` starts an emitter that stores each code for `GET /qr`, publishes it as `auth.qr`
   (60 s for the first code, 20 s for the rest) and replaces the ADV secret in the remaining codes
   on `events.RotateADVSecret`. When the codes run out the session fails with `qr_timeout`, unless
-  a passkey verification is pending.
+  a passkey verification is pending. A passkey request or `PairSuccess` stops the emitter for good
+  (a per-run stop channel): left running, it published `scan_qr_code` over a working session and
+  tore the paired client down with `qr_timeout` once its codes ran out.
 - The status moves to `scan_qr_code` only once there is something to scan or enter: after the
   first QR code is stored, or after WhatsApp returns a phone-number pairing code. Until then the
   session keeps its previous status.

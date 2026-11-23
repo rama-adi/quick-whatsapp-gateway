@@ -312,7 +312,7 @@ func TestQRTimeoutReleasesRuntimeAndCachedCode(t *testing.T) {
 	ms.client, ms.cancel, ms.reconnect = client, cancel, true
 	ms.lastQR, ms.lastQRExpires = "expired-code", time.Now().Add(time.Minute).UnixMilli()
 	// No codes left: the emitter reaches the end of the run at once.
-	manager.emitQRCodes(ctx, ms, nil, nil)
+	manager.emitQRCodes(ctx, ms, nil, nil, nil)
 	if ms.client != nil || ms.reconnect || ms.lastQR != "" || ms.lastQRExpires != 0 {
 		t.Fatal("timed-out pairing retained its client, reconnect loop, or QR code")
 	}
