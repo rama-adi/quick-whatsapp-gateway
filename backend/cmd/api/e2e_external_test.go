@@ -2,10 +2,12 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha512"
 	"crypto/tls"
 	"crypto/x509"
+	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -403,6 +405,9 @@ func runE2EExternalScenarios(t *testing.T, infra *e2eInfra, gateway *e2eGateway,
 	t.Run("webhook retries preserve event identity and signature", func(t *testing.T) {
 		ctx, cancel := e2eContext(t)
 		defer cancel()
+		// Fan-out is asynchronous: drain earlier subtests' events so none of
+		// them matches the webhook created below.
+		e2eWaitFanoutIdle(t, ctx, infra)
 		var hook domain.Webhook
 		const secret = "isolated-webhook-secret"
 		e2eRequireStatus(t, infra.request(t, "POST", "/api/v1/webhooks", e2eOrgAKey, map[string]any{"url": f.server.URL + "/hook", "events": []string{"message.from_me"}, "secret": secret, "sessionId": e2eSessionID, "customHeaders": map[string]string{"X-E2E": "preserved"}}, &hook, nil), 201)
@@ -454,8 +459,10 @@ func runE2EExternalScenarios(t *testing.T, infra *e2eInfra, gateway *e2eGateway,
 		defer infra.db.Exec(`DROP TRIGGER IF EXISTS e2e_reject_webhook_enqueue`)
 		before := len(gateway.getCaptures(t))
 		status, result := infra.send(t, e2eOrgAKey, "enqueue-fault", domain.SendRequest{Type: domain.SendTypeText, To: e2eGroupJID, Text: "repair webhook enqueue"})
-		if status != http.StatusAccepted {
-			t.Fatalf("enqueue failure became terminal send: HTTP %d result %+v", status, result)
+		// Webhook enqueue is durable post-commit fan-out, not part of the send:
+		// the send completes and the fan-out row retries the enqueue.
+		if status != http.StatusOK || result.Status != domain.MessageSent {
+			t.Fatalf("send did not complete while webhook enqueue failed: HTTP %d result %+v", status, result)
 		}
 		var count int
 		if err := infra.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM event_log WHERE event_id=?`, result.OutboxID).Scan(&count); err != nil {
@@ -464,12 +471,19 @@ func runE2EExternalScenarios(t *testing.T, infra *e2eInfra, gateway *e2eGateway,
 		if count != 1 {
 			t.Fatalf("durable event count before retry=%d", count)
 		}
+		e2eEventually(t, ctx, "failed enqueue recorded on the fan-out row", func() bool {
+			var state string
+			var lastErr sql.NullString
+			return infra.db.QueryRowContext(ctx, `SELECT status, last_error FROM event_fanout WHERE event_id=?`,
+				result.OutboxID).Scan(&state, &lastErr) == nil && state == "pending" &&
+				strings.Contains(lastErr.String, "e2e enqueue fault")
+		})
 		if _, err := infra.db.ExecContext(ctx, `DROP TRIGGER e2e_reject_webhook_enqueue`); err != nil {
 			t.Fatal(err)
 		}
-		e2eEventually(t, ctx, "enqueue and terminal projection repair", func() bool {
+		e2eEventually(t, ctx, "fan-out enqueue repair", func() bool {
 			var state string
-			return infra.db.QueryRowContext(ctx, `SELECT status FROM outbox WHERE id=?`, result.OutboxID).Scan(&state) == nil && state == "sent"
+			return infra.db.QueryRowContext(ctx, `SELECT status FROM event_fanout WHERE event_id=?`, result.OutboxID).Scan(&state) == nil && state == "done"
 		})
 		if err := infra.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM event_log WHERE event_id=?`, result.OutboxID).Scan(&count); err != nil {
 			t.Fatal(err)
@@ -485,4 +499,13 @@ func runE2EExternalScenarios(t *testing.T, infra *e2eInfra, gateway *e2eGateway,
 		}
 	})
 
+}
+
+// e2eWaitFanoutIdle waits until no committed event is still pending fan-out.
+func e2eWaitFanoutIdle(t *testing.T, ctx context.Context, infra *e2eInfra) {
+	t.Helper()
+	e2eEventually(t, ctx, "committed-event fan-out idle", func() bool {
+		var n int
+		return infra.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM event_fanout WHERE status IN ('pending','leased')`).Scan(&n) == nil && n == 0
+	})
 }
