@@ -73,24 +73,37 @@ func TestReplayRetiresRemovedAssignmentsWithoutBlockingOwnedEvents(t *testing.T)
 	}
 }
 
-func TestReplayPreservesMalformedJournalEntryForVisibleRecovery(t *testing.T) {
+// An entry that can never decode is quarantined (kept for repair) and replay
+// continues with the next entry instead of failing every batch.
+func TestReplayQuarantinesMalformedJournalEntryAndContinues(t *testing.T) {
 	ctx := context.Background()
 	j, _ := openTestJournal(t, DefaultConfig())
 	if _, _, err := j.Append(ctx, "malformed", []byte("invalid JSON"), time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	adapter := &ControlAdapter{Journal: j, GatewayID: "gateway"}
-	adapter.SetDesiredAssignments(&gatewayv1.DesiredStateSnapshot{Revision: 1})
-	if _, err := adapter.NextEventBatch(ctx, 1); err == nil {
-		t.Fatal("malformed entry silently discarded")
+	event := domain.NewEvent(domain.EventMessage, "session", "org", map[string]any{})
+	good, _, err := adapter.AppendDomainEvent(ctx, event, 1)
+	if err != nil {
+		t.Fatal(err)
 	}
-	metrics, err := j.Metrics(ctx)
-	if err != nil || metrics.Entries != 1 {
-		t.Fatalf("malformed entry lost: %+v %v", metrics, err)
+	adapter.SetDesiredAssignments(&gatewayv1.DesiredStateSnapshot{Revision: 1, Assignments: []*gatewayv1.SessionAssignment{
+		{SessionId: "session", OrganizationId: "org", AssignmentEpoch: 1},
+	}})
+	batch, err := adapter.NextEventBatch(ctx, 1)
+	if err != nil || len(batch.Events) != 1 || batch.Events[0].JournalSequence != good.Seq {
+		t.Fatalf("malformed entry blocked replay: %+v %v", batch, err)
+	}
+	if n, err := j.QuarantinedEntries(ctx); err != nil || n != 1 {
+		t.Fatalf("malformed entry not quarantined: %d %v", n, err)
+	}
+	var payload []byte
+	if err := j.db.QueryRowContext(ctx, `SELECT payload FROM journal_quarantine WHERE event_id='malformed'`).Scan(&payload); err != nil || string(payload) != "invalid JSON" {
+		t.Fatalf("quarantined bytes lost: %q %v", payload, err)
 	}
 }
 
-func TestReplayPreservesEntriesMissingOwnershipMetadata(t *testing.T) {
+func TestReplayQuarantinesEntriesMissingOwnershipMetadata(t *testing.T) {
 	for _, field := range []string{"session", "organization"} {
 		t.Run(field, func(t *testing.T) {
 			ctx := context.Background()
@@ -106,14 +119,45 @@ func TestReplayPreservesEntriesMissingOwnershipMetadata(t *testing.T) {
 				t.Fatal(err)
 			}
 			adapter.SetDesiredAssignments(&gatewayv1.DesiredStateSnapshot{Revision: 1})
-			if _, err := adapter.NextEventBatch(ctx, 1); err == nil {
-				t.Fatal("invalid ownership treated as retired assignment")
+			if batch, err := adapter.NextEventBatch(ctx, 1); err != nil || len(batch.Events) != 0 {
+				t.Fatalf("invalid ownership entry: %+v %v", batch, err)
 			}
 			metrics, err := j.Metrics(ctx)
-			if err != nil || metrics.Entries != 1 || metrics.AckedThrough != 0 {
-				t.Fatalf("malformed ownership entry lost: %+v %v", metrics, err)
+			if err != nil || metrics.Entries != 0 {
+				t.Fatalf("entry still blocks replay: %+v %v", metrics, err)
+			}
+			if n, err := j.QuarantinedEntries(ctx); err != nil || n != 1 {
+				t.Fatalf("entry not kept in quarantine: %d %v", n, err)
 			}
 		})
+	}
+}
+
+// An entry larger than any control batch is quarantined rather than failing
+// every replay attempt.
+func TestReplayQuarantinesOversizedEntry(t *testing.T) {
+	ctx := context.Background()
+	j, _ := openTestJournal(t, DefaultConfig())
+	adapter := &ControlAdapter{Journal: j, GatewayID: "gateway"}
+	big := domain.NewEvent(domain.EventMessage, "session", "org", map[string]any{"text": strings.Repeat("x", 4096)})
+	if _, _, err := adapter.AppendDomainEvent(ctx, big, 1); err != nil {
+		t.Fatal(err)
+	}
+	small := domain.NewEvent(domain.EventMessage, "session", "org", map[string]any{})
+	next, _, err := adapter.AppendDomainEvent(ctx, small, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assignments := map[string]eventAssignment{"session": {organization: "org", epoch: 1}}
+	if _, err := adapter.batch(ctx, 10, 1024, "gateway", 1, decodeJournalEvent, assignments); err != nil {
+		t.Fatalf("oversized entry failed replay: %v", err)
+	}
+	batch, err := adapter.batch(ctx, 10, 1024, "gateway", 1, decodeJournalEvent, assignments)
+	if err != nil || len(batch.Events) != 1 || batch.Events[0].JournalSequence != next.Seq {
+		t.Fatalf("oversized entry blocked replay: %+v %v", batch, err)
+	}
+	if n, err := j.QuarantinedEntries(ctx); err != nil || n != 1 {
+		t.Fatalf("oversized entry not quarantined: %d %v", n, err)
 	}
 }
 

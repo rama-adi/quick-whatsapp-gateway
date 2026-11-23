@@ -296,8 +296,29 @@ the API no longer authorizes that work. STOP assignments retain ownership and
 keep their events. Same-assignment events survive reconnects with a fresh
 connection epoch. A matching API ACK advances mixed batches; an entirely retired
 prefix can advance locally under snapshot authority. Transient transport errors
-never authorize deletion. Malformed journal entries remain visible errors and
-are preserved for operator repair rather than silently discarded.
+never authorize deletion.
+
+**One bad entry never blocks the journal.** Each entry gets its own verdict:
+
+- On the gateway, an entry that cannot be decoded (or lacks its canonical
+  assignment metadata), or that alone exceeds a control batch, moves to the
+  local `journal_quarantine` table with its bytes and reason, is logged at error
+  level, and replay continues with the next entry. Quarantined entries are kept
+  30 days for repair.
+- On the API, `IngestEvents` gives every entry of a batch a verdict, accepted or
+  rejected with a reason. An envelope that cannot be decoded, or a payload whose
+  media descriptor `media.Capture` cannot parse (`store.ErrGatewayEventInvalid`),
+  is rolled back to its own savepoint (no dedupe row, outgoing-echo claim, event
+  log or fan-out), recorded in `gateway_event_rejections` (migration 0031: ids,
+  journal sequence, type, reason, payload size; never the payload, which can
+  carry media keys), and logged. The batch commits and the cumulative ACK covers
+  the rejected entry, so the gateway journal advances past it. A replay of the
+  same batch is idempotent.
+- `Unavailable` (the gateway reconnects and resends the batch) is returned only
+  for a stale ownership fence or a real infrastructure failure (database,
+  transaction). The ACK frame carries no per-entry verdicts: the protobuf
+  `GatewayEventAck` keeps its reserved fields, and rejection details live on the
+  API side.
 
 Reconnects then replay the oldest remaining unacknowledged batch. A critical journal capacity state makes the gateway
 unready, while a failed append backpressures the producing pipeline. Every heartbeat carries optional

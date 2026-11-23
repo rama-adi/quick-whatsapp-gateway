@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
@@ -46,9 +45,14 @@ func TestControlEventSinkFencesAndNormalizesEvent(t *testing.T) {
 	if err := sink.Publish(ctx, domain.Event{ID: "evt_unassigned", Session: "other", Organization: "org_1", Timestamp: time.Now().UnixMilli()}); err == nil {
 		t.Fatal("unassigned event accepted")
 	}
-	if _, err := sink.adapter.Batch(ctx, 1, 1, "gw_1", 11, func([]byte) (*gatewayv1.GatewayEvent, error) {
+	// An entry that alone exceeds a batch is quarantined, not retried forever.
+	oversized, err := sink.adapter.Batch(ctx, 1, 1, "gw_1", 11, func([]byte) (*gatewayv1.GatewayEvent, error) {
 		return &gatewayv1.GatewayEvent{}, nil
-	}); !errors.Is(err, journal.ErrControlEventTooLarge) {
-		t.Fatalf("oversize batch error = %v", err)
+	})
+	if err != nil || len(oversized.Events) != 0 {
+		t.Fatalf("oversize batch = %#v, %v", oversized, err)
+	}
+	if n, err := j.QuarantinedEntries(ctx); err != nil || n != 1 {
+		t.Fatalf("oversized entry not quarantined: %d, %v", n, err)
 	}
 }

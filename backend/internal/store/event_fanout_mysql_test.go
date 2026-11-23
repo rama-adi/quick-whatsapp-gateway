@@ -69,7 +69,7 @@ func TestEventFanoutMySQLSessionSeqFollowsBatchOrder(t *testing.T) {
 		e.JournalSequence = uint64(10 + i)
 		batch = append(batch, e)
 	}
-	if err := NewGatewayEventIngestRepo(db).IngestBatch(ctx, batch, 100); err != nil {
+	if _, err := NewGatewayEventIngestRepo(db).IngestBatch(ctx, batch, 100); err != nil {
 		t.Fatal(err)
 	}
 	claimed := fanoutClaim(t, NewEventFanoutRepo(db), domain.NewULID(), 1000, 10)
@@ -148,7 +148,7 @@ func TestEventFanoutMySQLDeadLetterUnblocksSession(t *testing.T) {
 	poison, next := template, template
 	poison.EventID += "_poison"
 	next.EventID += "_next"
-	if err := ingest.IngestBatch(ctx, []GatewayEvent{poison, next}, 100); err != nil {
+	if _, err := ingest.IngestBatch(ctx, []GatewayEvent{poison, next}, 100); err != nil {
 		t.Fatal(err)
 	}
 	repo := NewEventFanoutRepo(db)

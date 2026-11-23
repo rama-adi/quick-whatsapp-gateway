@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -82,14 +83,21 @@ func (a *ControlAdapter) batch(
 		return nil, err
 	}
 	batch := &gatewayv1.GatewayEventBatch{Events: make([]*gatewayv1.GatewayEvent, 0, len(entries))}
+	var lastRetired uint64
 	for _, entry := range entries {
 		event, decodeErr := metadata(entry.Payload)
 		if decodeErr != nil {
-			return nil, decodeErr
+			// The same bytes can never decode. Keep them in quarantine for
+			// repair and continue, so one bad entry cannot stop replay.
+			if err := a.quarantine(ctx, entry, decodeErr.Error()); err != nil {
+				return nil, err
+			}
+			continue
 		}
 		if assignments != nil {
 			assignment, owned := assignments[event.SessionId]
 			if !owned || assignment.organization != event.OrganizationId || assignment.epoch != event.AssignmentEpoch {
+				lastRetired = entry.Seq
 				continue
 			}
 		}
@@ -100,21 +108,34 @@ func (a *ControlAdapter) batch(
 		batch.Events = append(batch.Events, event)
 		if int64(proto.Size(batch)) > maxBytes {
 			batch.Events = batch.Events[:len(batch.Events)-1]
-			if len(batch.Events) == 0 {
-				return nil, ErrControlEventTooLarge
+			if len(batch.Events) > 0 {
+				break // the entry leads the next batch
 			}
-			break
+			// Alone it still exceeds a batch: it can never be delivered.
+			if err := a.quarantine(ctx, entry, ErrControlEventTooLarge.Error()); err != nil {
+				return nil, err
+			}
+			continue
 		}
 	}
-	// A normal API ACK removes skipped entries preceding the last sent event.
-	// When every entry is retired, advance locally under snapshot authority so
-	// deleted sessions cannot permanently block later journal entries.
-	if len(batch.Events) == 0 && len(entries) > 0 && assignments != nil {
-		if err := a.Journal.Ack(ctx, entries[len(entries)-1].Seq); err != nil {
+	// A normal API ACK removes retired entries preceding the last sent event.
+	// When every remaining entry is retired, advance locally under snapshot
+	// authority so deleted sessions cannot permanently block later entries.
+	if len(batch.Events) == 0 && lastRetired > 0 {
+		if err := a.Journal.Ack(ctx, lastRetired); err != nil {
 			return nil, err
 		}
 	}
 	return batch, nil
+}
+
+func (a *ControlAdapter) quarantine(ctx context.Context, entry Entry, reason string) error {
+	if err := a.Journal.Quarantine(ctx, entry, reason); err != nil {
+		return fmt.Errorf("quarantine journal entry %d: %w", entry.Seq, err)
+	}
+	slog.ErrorContext(ctx, "gateway journal entry quarantined; replay continues",
+		"journal_sequence", entry.Seq, "event_id", entry.EventID, "bytes", len(entry.Payload), "reason", reason)
+	return nil
 }
 
 func (a *ControlAdapter) Ack(ctx context.Context, sequence uint64) error {

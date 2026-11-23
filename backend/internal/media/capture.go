@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"mime"
 	"net/url"
 	"path"
@@ -19,6 +20,12 @@ import (
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/store/storedb"
 )
 
+// invalidPayload marks a payload defect that no retry can fix, so gateway
+// ingest rejects that one event instead of failing its whole batch.
+func invalidPayload(err error) error {
+	return fmt.Errorf("%w: %w", store.ErrGatewayEventInvalid, err)
+}
+
 // Capture shares the ingest transaction: acknowledgement follows both the public
 // event and durable upload intent. Replays cannot allocate another object key.
 func (s *Service) Capture(ctx context.Context, tx storedb.DBTX, e store.GatewayEvent) ([]byte, error) {
@@ -29,7 +36,7 @@ func (s *Service) Capture(ctx context.Context, tx storedb.DBTX, e store.GatewayE
 	e.Payload = captured
 	var payload map[string]json.RawMessage
 	if err := json.Unmarshal(e.Payload, &payload); err != nil {
-		return nil, err
+		return nil, invalidPayload(err)
 	}
 	raw, ok := payload["_mediaSource"]
 	if !ok {
@@ -53,11 +60,11 @@ func (s *Service) Capture(ctx context.Context, tx storedb.DBTX, e store.GatewayE
 	}
 	var encoded string
 	if err = json.Unmarshal(raw, &encoded); err != nil {
-		return nil, err
+		return nil, invalidPayload(err)
 	}
 	source, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
-		return nil, err
+		return nil, invalidPayload(err)
 	}
 	var chatID string
 	_ = json.Unmarshal(payload["chatJid"], &chatID)

@@ -49,6 +49,7 @@ api-key `reference_id`, never by joining `member` on the hot path ([`trust-model
 | `event_log` | `EventLogRepo` | `organization_id` |
 | `outgoing_message_event_claims` | `EventLogRepo` + `GatewayEventIngestRepo` | composite organization/session/chat/WhatsApp-message identity; first committed event owner |
 | `gateway_ingested_events` | `GatewayEventIngestRepo` | gateway journal dedupe + provenance (`gateway_id`, `journal_sequence`) |
+| `gateway_event_rejections` | `GatewayEventIngestRepo` | per-entry rejection verdicts (ids, journal sequence, type, reason; no payload) for journal entries the API can never accept |
 | `event_fanout` + `session_event_sequences` | `EventFanoutRepo` (enqueued by `GatewayEventIngestRepo` and `EventLogRepo`) | via `session_id`; explicit post-commit fan-out work (`pending`/`leased`/`done`/`dead`, claim token, lease, attempts, last error) ordered by a per-session `session_seq`; `ON DELETE CASCADE` with the session |
 | `messages` + `event_log` + `webhook_deliveries` | `RetentionRepo` | global maintenance (bounded retention batches) |
 | `messages` + `outbox` + `webhook_deliveries` (read-only) | `OverviewRepo` | `organization_id`; messages via the org's session ids, deliveries via the org's webhook ids |

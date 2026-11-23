@@ -562,13 +562,7 @@ func (s gatewayControlStore) IngestEvents(
 	}
 	batch := make([]store.GatewayEvent, 0, len(events))
 	for _, event := range events {
-		payload, err := decodeGatewayEventPayload(event)
-		if err != nil {
-			slog.ErrorContext(ctx, "decode gateway event failed",
-				"gateway", gatewayID, "event", event.EventID, "type", event.Type, "err", err)
-			return fmt.Errorf("%w: %w", apigateway.ErrUnavailable, err)
-		}
-		batch = append(batch, store.GatewayEvent{
+		item := store.GatewayEvent{
 			EventID:         event.EventID,
 			GatewayID:       gatewayID,
 			SessionID:       event.SessionID,
@@ -576,14 +570,30 @@ func (s gatewayControlStore) IngestEvents(
 			Type:            event.Type,
 			ConnectionEpoch: epoch,
 			AssignmentEpoch: event.AssignmentEpoch,
-			Payload:         payload,
+			JournalSequence: event.JournalSequence,
 			OccurredAt:      event.OccurredAt.UnixMilli(),
-		})
+		}
+		payload, err := decodeGatewayEventPayload(event)
+		if err != nil {
+			// The same bytes can never decode: reject this entry (recorded
+			// in gateway_event_rejections) so the journal advances past it.
+			item.RejectReason = err.Error()
+			item.Payload = event.Payload
+		} else {
+			item.Payload = payload
+		}
+		batch = append(batch, item)
 	}
-	if err := s.eventIngest.IngestBatch(ctx, batch, s.clock().UnixMilli()); err != nil {
+	rejected, err := s.eventIngest.IngestBatch(ctx, batch, s.clock().UnixMilli())
+	if err != nil {
 		slog.ErrorContext(ctx, "gateway event batch ingest failed",
 			"gateway", gatewayID, "connection_epoch", epoch, "events", len(batch), "err", err)
 		return fmt.Errorf("%w: %w", apigateway.ErrUnavailable, err)
+	}
+	for _, r := range rejected {
+		slog.WarnContext(ctx, "gateway event rejected; acknowledged so the journal advances",
+			"gateway", gatewayID, "journal_sequence", r.JournalSequence, "event", r.EventID,
+			"type", r.Type, "session", r.SessionID, "reason", r.Reason)
 	}
 	return nil
 }

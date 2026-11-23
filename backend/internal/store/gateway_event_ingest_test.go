@@ -26,7 +26,7 @@ func TestGatewayEventIngestBatch_StaleFenceRejects(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(0))
 	mock.ExpectRollback()
 
-	err := repo.IngestBatch(context.Background(), []GatewayEvent{ingestEvent("evt_1"), ingestEvent("evt_2")}, 999)
+	_, err := repo.IngestBatch(context.Background(), []GatewayEvent{ingestEvent("evt_1"), ingestEvent("evt_2")}, 999)
 	if !errors.Is(err, ErrGatewayEventStale) {
 		t.Fatalf("want ErrGatewayEventStale, got %v", err)
 	}
@@ -42,6 +42,7 @@ func TestGatewayEventIngestStripsPrivateMediaDescriptor(t *testing.T) {
 	event.Payload = []byte(`{"_mediaSource":"secret","x":1}`)
 	mock.ExpectBegin()
 	mock.ExpectQuery("SELECT COUNT").WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(1))
+	mock.ExpectExec("SAVEPOINT gateway_event").WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectExec("INSERT IGNORE INTO gateway_ingested_events").WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM event_log").WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(0))
 	mock.ExpectExec("INSERT INTO event_log").WithArgs(event.EventID, event.OrganizationID, event.SessionID, event.Type, []byte(`{"x":1}`), event.OccurredAt).WillReturnResult(sqlmock.NewResult(1, 1))

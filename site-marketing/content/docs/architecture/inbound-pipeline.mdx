@@ -17,14 +17,18 @@ The API durably ingests journal events from the private control stream. Sticker
 capture decodes only `message` and `message.from_me` payloads. Other event schemas
 keep their own field types, including the `"audio"` media string in recording
 presence. Ingestion failures log their cause and, for capture failures, the event
-ID and type without logging payloads. Failed batches remain in the gateway journal
-until committed and acknowledged; recording presence cannot block later messages.
+ID and type without logging payloads. A batch that fails on infrastructure remains in
+the gateway journal until committed and acknowledged. An entry with an undecodable
+envelope or media descriptor is rejected on its own (recorded in
+`gateway_event_rejections`) and acknowledged with its batch, so it cannot block later
+entries; recording presence cannot block later messages either.
 
 Its
 `CommittedEventWorker` runs OAuth login interception, then `EventProjectionConsumer`
 (store writes), then Redis publication and webhook enqueue. Realtime clients use
-WebSockets, not NDJSON. A failed projection leaves durable work incomplete for retry
-and prevents later events for that session from overtaking it.
+WebSockets, not NDJSON. A failed projection leaves the event `pending` with backoff
+and prevents later events for that session from overtaking it; a permanent failure or
+attempt exhaustion dead-letters it so the session continues (see eventing).
 
 Development and hostile E2E scenarios inject WhatsApp events through the standalone
 `internal/fakewhatsapp` service. Its remote client translates them to raw whatsmeow

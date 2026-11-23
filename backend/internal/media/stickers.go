@@ -58,11 +58,11 @@ func (s *Service) captureStickers(ctx context.Context, tx storedb.DBTX, e store.
 	}
 	var payload map[string]json.RawMessage
 	if err := json.Unmarshal(e.Payload, &payload); err != nil {
-		return nil, err
+		return nil, invalidPayload(err)
 	}
 	var identity apitypes.MessagePayload
 	if err := json.Unmarshal(e.Payload, &identity); err != nil {
-		return nil, err
+		return nil, invalidPayload(err)
 	}
 	if identity.Type != domain.SendTypeSticker && identity.QuotedMessageID == "" {
 		return e.Payload, nil
@@ -72,12 +72,12 @@ func (s *Service) captureStickers(ctx context.Context, tx storedb.DBTX, e store.
 	_ = json.Unmarshal(payload["_mediaSource"], &encoded)
 	source, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
-		return nil, err
+		return nil, invalidPayload(err)
 	}
 	var msg waE2E.Message
 	if len(source) > 0 && !json.Valid(source) {
 		if err := proto.Unmarshal(source, &msg); err != nil {
-			return nil, err
+			return nil, invalidPayload(err)
 		}
 	}
 	repo := store.NewStickerRepo(tx)

@@ -171,6 +171,14 @@ CREATE TABLE IF NOT EXISTS journal_meta (
 id INTEGER PRIMARY KEY CHECK (id=1),
 acked_through INTEGER NOT NULL
 ); INSERT OR IGNORE INTO journal_meta (id, acked_through) VALUES (1, 0);
+CREATE TABLE IF NOT EXISTS journal_quarantine (
+seq INTEGER PRIMARY KEY,
+event_id TEXT NOT NULL,
+payload BLOB NOT NULL,
+created_at INTEGER NOT NULL,
+reason TEXT NOT NULL,
+quarantined_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS command_results (
 command_id TEXT PRIMARY KEY,
 session_id TEXT NOT NULL,
@@ -355,11 +363,46 @@ func (j *Journal) Ack(ctx context.Context, through uint64) error {
 	return nil
 }
 
+// quarantineRetention bounds how long quarantined entries stay on disk for
+// operator inspection and repair.
+const quarantineRetention = 30 * 24 * time.Hour
+
+// Quarantine moves one entry that can never be delivered (undecodable, or
+// larger than a control batch) out of the replay queue into
+// journal_quarantine, keeping its bytes for repair. Replay then continues with
+// the next entry instead of failing every batch on the same entry.
+func (j *Journal) Quarantine(ctx context.Context, entry Entry, reason string) error {
+	tx, err := j.db.BeginTx(ctx, nil)
+	if err != nil {
+		return classifySQLiteError(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err = tx.ExecContext(ctx, `INSERT OR IGNORE INTO journal_quarantine
+(seq, event_id, payload, created_at, reason, quarantined_at) VALUES (?,?,?,?,?,?)`,
+		int64(entry.Seq), entry.EventID, entry.Payload, entry.CreatedAt.UnixMilli(), reason,
+		time.Now().UnixMilli()); err != nil {
+		return classifySQLiteError(err)
+	}
+	if _, err = tx.ExecContext(ctx, `DELETE FROM journal_entries WHERE seq=?`, int64(entry.Seq)); err != nil {
+		return classifySQLiteError(err)
+	}
+	return classifySQLiteError(tx.Commit())
+}
+
+// QuarantinedEntries reports how many entries are quarantined.
+func (j *Journal) QuarantinedEntries(ctx context.Context) (int, error) {
+	var n int
+	err := j.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM journal_quarantine`).Scan(&n)
+	return n, classifySQLiteError(err)
+}
+
 func (j *Journal) Metrics(ctx context.Context) (Metrics, error) {
-	// Heartbeat cadence is the natural sweep point for expired command results.
-	// A failed prune only delays space reuse until the next cycle, so it never
-	// masks live pressure metrics or flips readiness.
+	// Heartbeat cadence is the natural sweep point for expired command results
+	// and old quarantined entries. A failed prune only delays space reuse until
+	// the next cycle, so it never masks live pressure metrics or flips readiness.
 	_ = j.PruneCommands(ctx, time.Now())
+	_, _ = j.db.ExecContext(ctx, `DELETE FROM journal_quarantine WHERE quarantined_at < ?`,
+		time.Now().Add(-quarantineRetention).UnixMilli())
 	return metricsDB(ctx, j.db, j.cfg)
 }
 
