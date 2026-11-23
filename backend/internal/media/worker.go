@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sort"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/smithy-go"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/store"
 )
 
 type Asset struct {
@@ -34,16 +36,15 @@ type Asset struct {
 	version         *string
 	source          []byte
 	attempts        int64
-	notification    []byte
 }
 
-const assetWorkColumns = `id,organization_id,session_id,message_id,bucket_id,object_key,access_token,version_id,source,status,expires_at,mimetype,filename,size,attempts,notification,attachment_index`
+const assetWorkColumns = `id,organization_id,session_id,message_id,bucket_id,object_key,access_token,version_id,source,status,expires_at,mimetype,filename,size,attempts,attachment_index`
 
 var assetColumns = strings.Replace(assetWorkColumns, ",source,", ",NULL AS source,", 1)
 
 func scanAsset(row interface{ Scan(...any) error }) (Asset, error) {
 	var a Asset
-	err := row.Scan(&a.ID, &a.org, &a.SessionID, &a.MessageID, &a.BucketID, &a.key, &a.token, &a.version, &a.source, &a.Status, &a.ExpiresAt, &a.Mimetype, &a.Filename, &a.Size, &a.attempts, &a.notification, &a.Index)
+	err := row.Scan(&a.ID, &a.org, &a.SessionID, &a.MessageID, &a.BucketID, &a.key, &a.token, &a.version, &a.source, &a.Status, &a.ExpiresAt, &a.Mimetype, &a.Filename, &a.Size, &a.attempts, &a.Index)
 	return a, err
 }
 func (s *Service) assetURL(a Asset) string {
@@ -75,71 +76,113 @@ func (s *Service) Run(ctx context.Context) error {
 	return ctx.Err()
 }
 
-// Row locks remain held for one bounded I/O operation. SKIP LOCKED lets other
-// API replicas process different assets without overlapping uploads/deletes.
+// errMediaClaimLost reports a fenced write whose claim token no longer owns
+// the asset: its lease expired and another worker claimed it.
+var errMediaClaimLost = errors.New("media asset claim lost")
+
+// mediaLeaseMargin keeps a claim's lease longer than the step deadline that
+// bounds its I/O, so a live worker never loses its lease mid-transfer.
+const mediaLeaseMargin = time.Minute
+
+// step claims one due asset, transfers it without holding any row lock, and
+// records the outcome fenced by the claim token. found reports that an asset
+// was claimed; err is only an infrastructure or bookkeeping failure.
 func (s *Service) step(ctx context.Context) (bool, error) {
-	tx, err := s.DB.BeginTx(ctx, nil)
-	if err != nil {
-		return false, err
-	}
-	defer tx.Rollback()
-	now := time.Now().UnixMilli()
-	a, err := scanAsset(tx.QueryRowContext(ctx, `SELECT `+assetWorkColumns+` FROM media_assets WHERE next_attempt_at<=? ORDER BY next_attempt_at,id LIMIT 1 FOR UPDATE SKIP LOCKED`, now))
+	a, token, err := s.claim(ctx)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
 	if err != nil {
 		return false, err
 	}
-	if a.notification != nil && (a.Status == "expired" || !expired(a, now)) {
-		var event domain.Event
-		err = json.Unmarshal(a.notification, &event)
-		if err == nil && s.Publish != nil {
-			err = s.Publish(ctx, event)
-		}
-		if err == nil {
-			next := int64(1<<63 - 1)
-			if a.Status == "ready" && a.ExpiresAt != nil {
-				next = *a.ExpiresAt
-			}
-			_, err = tx.ExecContext(ctx, `UPDATE media_assets SET notification=NULL,next_attempt_at=? WHERE id=?`, next, a.ID)
-		}
-	} else {
-		err = s.process(ctx, tx, &a)
+	err = s.transfer(ctx, &a)
+	if err == nil {
+		err = s.commitTransfer(ctx, &a, token)
 	}
-	if err != nil {
-		var failure *domain.APIError
-		if errors.As(err, &failure) && failure.Code == domain.CodeValidationError {
-			next := int64(1<<63 - 1)
-			if a.ExpiresAt != nil {
-				next = *a.ExpiresAt
-			}
-			if _, saveErr := tx.ExecContext(ctx, `UPDATE media_assets SET status='failed',next_attempt_at=?,last_error=? WHERE id=?`, next, "Attachment rejected by the gateway media policy", a.ID); saveErr != nil {
-				return true, saveErr
-			}
-			return true, tx.Commit()
-		}
-		// Keep failure text free of credentials and signed URLs.
-		delay := s.BackoffBase
-		for i := int64(0); i < a.attempts && delay < s.BackoffCap; i++ {
-			if delay > s.BackoffCap/2 {
-				delay = s.BackoffCap
-				break
-			}
-			delay *= 2
-		}
-		_, saveErr := tx.ExecContext(ctx, `UPDATE media_assets SET attempts=attempts+1,next_attempt_at=?,last_error=? WHERE id=?`, time.Now().Add(min(delay, s.BackoffCap)).UnixMilli(), "Attachment transfer failed; check connection credentials, permissions and gateway availability", a.ID)
-		if saveErr != nil {
-			return true, saveErr
-		}
+	if err == nil || errors.Is(err, errMediaClaimLost) {
+		return true, nil
 	}
-	if commitErr := tx.Commit(); commitErr != nil {
-		return true, commitErr
+	if saveErr := s.recordFailure(ctx, a, token, err); saveErr != nil && !errors.Is(saveErr, errMediaClaimLost) {
+		return true, saveErr
 	}
 	return true, nil
 }
-func (s *Service) process(ctx context.Context, tx *sql.Tx, a *Asset) error {
-	b, c, err := s.connection(ctx, tx, a.org, a.BucketID)
+
+// claim leases the oldest due asset that no live claim holds. SKIP LOCKED
+// keeps concurrent API replicas on different assets; the lock is released
+// when the claim commits, before any I/O.
+func (s *Service) claim(ctx context.Context) (Asset, string, error) {
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return Asset{}, "", err
+	}
+	defer tx.Rollback()
+	now := time.Now().UnixMilli()
+	a, err := scanAsset(tx.QueryRowContext(ctx, `SELECT `+assetWorkColumns+` FROM media_assets
+		WHERE next_attempt_at<=? AND (lease_until IS NULL OR lease_until<=?)
+		ORDER BY next_attempt_at,id LIMIT 1 FOR UPDATE SKIP LOCKED`, now, now))
+	if err != nil {
+		return Asset{}, "", err
+	}
+	token := domain.NewULID()
+	lease := time.Now().Add(s.Deadline + mediaLeaseMargin).UnixMilli()
+	if _, err = tx.ExecContext(ctx, `UPDATE media_assets SET claim_token=?,lease_until=? WHERE id=?`, token, lease, a.ID); err != nil {
+		return Asset{}, "", err
+	}
+	return a, token, tx.Commit()
+}
+
+// recordFailure classifies a failed transfer. A policy rejection or media
+// that WhatsApp no longer serves (404/410) is terminal at once; any other
+// error is retried with backoff until MaxAttempts, then the asset is failed.
+// A failed asset is still visited at its expiry for cleanup.
+func (s *Service) recordFailure(ctx context.Context, a Asset, token string, cause error) error {
+	attempts := a.attempts + 1
+	reason := ""
+	var apiErr *domain.APIError
+	switch {
+	case errors.As(cause, &apiErr) && apiErr.Code == domain.CodeValidationError:
+		reason = "Attachment rejected by the gateway media policy"
+	case errors.As(cause, &apiErr) && apiErr.Code == domain.CodeConflict && apiErr.Message == domain.MediaGoneMessage:
+		reason = "Attachment is no longer available on WhatsApp servers"
+	case s.MaxAttempts > 0 && attempts >= int64(s.MaxAttempts):
+		reason = fmt.Sprintf("Attachment transfer gave up after %d attempts; check connection credentials, permissions and gateway availability", attempts)
+	}
+	if reason != "" {
+		slog.WarnContext(ctx, "attachment failed", "asset", a.ID, "session", a.SessionID, "attempts", attempts,
+			"reason", reason, "error", cause)
+		// Keep failure text free of credentials and signed URLs.
+		return s.fenced(ctx, `UPDATE media_assets SET status='failed',attempts=?,next_attempt_at=expires_at,last_error=?,
+			claim_token=NULL,lease_until=NULL WHERE id=? AND claim_token=?`, attempts, reason, a.ID, token)
+	}
+	delay := s.BackoffBase
+	for i := int64(0); i < a.attempts && delay < s.BackoffCap; i++ {
+		if delay > s.BackoffCap/2 {
+			delay = s.BackoffCap
+			break
+		}
+		delay *= 2
+	}
+	return s.fenced(ctx, `UPDATE media_assets SET attempts=?,next_attempt_at=?,last_error=?,claim_token=NULL,lease_until=NULL
+		WHERE id=? AND claim_token=?`, attempts, time.Now().Add(min(delay, s.BackoffCap)).UnixMilli(),
+		"Attachment transfer failed; check connection credentials, permissions and gateway availability", a.ID, token)
+}
+
+func (s *Service) fenced(ctx context.Context, query string, args ...any) error {
+	res, err := s.DB.ExecContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return errMediaClaimLost
+	}
+	return nil
+}
+
+// transfer performs the asset's I/O (upload from the stored source, or
+// cleanup at expiry) and updates a in memory. It holds no database lock.
+func (s *Service) transfer(ctx context.Context, a *Asset) error {
+	b, c, err := s.connection(ctx, s.DB, a.org, a.BucketID)
 	if err != nil {
 		return err
 	}
@@ -207,27 +250,50 @@ func (s *Service) process(ctx context.Context, tx *sql.Tx, a *Asset) error {
 		a.source = nil
 	}
 	if a.Status == "ready" && expired(*a, time.Now().UnixMilli()) {
-		return s.process(ctx, tx, a)
+		return s.transfer(ctx, a)
 	}
+	return nil
+}
+
+// commitTransfer records the transfer outcome, its media.ready/media.expired
+// event and the event's durable fan-out in one transaction, fenced by the
+// claim token. A ready asset is next visited at its expiry; an expired one
+// needs no further work.
+func (s *Service) commitTransfer(ctx context.Context, a *Asset, token string) error {
 	typ := domain.EventMediaReady
+	var next *int64
 	if a.Status == "expired" {
 		typ = domain.EventMediaExpired
+	} else {
+		next = a.ExpiresAt
 	}
 	event := domain.NewEvent(typ, a.SessionID, a.org, *a)
-	notification, err := json.Marshal(event)
-	if err != nil {
-		return err
-	}
-	_, err = tx.ExecContext(ctx, `UPDATE media_assets SET status=?,source=NULL,version_id=?,size=?,notification=?,next_attempt_at=?,attempts=0,last_error=NULL WHERE id=?`, a.Status, a.version, a.Size, notification, time.Now().UnixMilli(), a.ID)
-	if err != nil {
-		return err
-	}
 	payload, err := json.Marshal(event.Payload)
 	if err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO event_log(event_id,organization_id,session_id,type,payload,created_at) VALUES(?,?,?,?,?,?)`, event.ID, event.Organization, event.Session, event.Type, payload, event.Timestamp)
-	return err
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `UPDATE media_assets SET status=?,source=NULL,version_id=?,size=?,next_attempt_at=?,
+		attempts=0,last_error=NULL,claim_token=NULL,lease_until=NULL WHERE id=? AND claim_token=?`,
+		a.Status, a.version, a.Size, next, a.ID, token)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return errMediaClaimLost
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO event_log(event_id,organization_id,session_id,type,payload,created_at) VALUES(?,?,?,?,?,?)`,
+		event.ID, event.Organization, event.Session, event.Type, payload, event.Timestamp); err != nil {
+		return err
+	}
+	if err = store.EnqueueAPIFanout(ctx, tx, event.ID, event.Organization, event.Session, event.Timestamp); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 func missingObject(err error) bool {
 	var api smithy.APIError

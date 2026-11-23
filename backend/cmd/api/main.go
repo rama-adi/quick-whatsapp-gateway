@@ -138,7 +138,7 @@ func runWithStorageTransport(storageTransport http.RoundTripper) error {
 	apiHandlers := handlers.New(services, log)
 	mediaStorage := &media.Service{InternalDomains: cfg.S3InternalDomains, Transport: storageTransport, DB: db, Cipher: aes, BaseURL: cfg.PublicURL,
 		Poll: 2 * time.Second, Deadline: cfg.GatewayEngineSendDeadline + time.Minute,
-		BackoffBase: 5 * time.Second, BackoffCap: 10 * time.Minute}
+		BackoffBase: 5 * time.Second, BackoffCap: 10 * time.Minute, MaxAttempts: 10}
 	apiHandlers.Media = mediaStorage
 	services.Chats.EnrichMedia = mediaStorage.Enrich
 	st.GatewayEvents.MediaCapture = mediaStorage.Capture
@@ -169,15 +169,6 @@ func runWithStorageTransport(storageTransport http.RoundTripper) error {
 		service.NewWebhookDeliveryRepoAdapter(st.WebhookDeliveries),
 		nil, log,
 	)
-	mediaStorage.Publish = func(ctx context.Context, event domain.Event) error {
-		if publisher != nil {
-			if err := publisher.Publish(ctx, event); err != nil {
-				return err
-			}
-		}
-		_, err := webhookEnqueuer.Enqueue(ctx, event)
-		return err
-	}
 	var oidpPending *oidp.PendingStore
 	var oidpEvents *service.OIDPEventConsumer
 	if rdb != nil {

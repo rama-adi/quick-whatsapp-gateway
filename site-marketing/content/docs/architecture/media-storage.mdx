@@ -20,7 +20,8 @@ Migration `backend/migrations/0015_media_storage.up.sql` adds:
   a session in another organization returns `not_found`.
 - `media_assets`: stable object key, original connection, message identity and
   album index, encrypted source, upload state, saved S3 version, bearer token,
-  retention deadline, due time, retries, and pending event notification.
+  retention deadline, due time (`NULL` = no further work), attempts, last error,
+  and the claim lease (`claim_token`, `lease_until`).
 
 The frontend uses the public API for these tables. Its read-only database
 introspection excludes all three tables, keeping credentials and media tokens
@@ -64,15 +65,26 @@ client. Source descriptors stay on the private control/engine paths.
 
 ## Scheduling and cleanup
 
-An index on `(next_attempt_at, id)` drives work selection. API replicas claim
-one due row with `FOR UPDATE SKIP LOCKED` and hold its lock during a bounded
-transfer or notification attempt. Other replicas can work on other assets.
-The worker reuses the outbound worker's configured timing: polling every two
-seconds, a transfer deadline based on the engine send deadline plus one minute,
-and retry delays starting at five seconds and doubling to ten minutes.
+An index on `(next_attempt_at, id)` drives work selection. An API replica claims
+one due row whose lease is free with `FOR UPDATE SKIP LOCKED`, stamps a
+`claim_token` and `lease_until` (transfer deadline + 1 min) and commits before
+any I/O (migration 0035), so no row lock is held across S3 or WhatsApp calls.
+Every outcome write is fenced by the claim token; a worker whose lease expired
+and was reclaimed cannot overwrite the newer result. Other replicas skip leased
+rows. The worker reuses the outbound worker's configured timing: polling every
+two seconds, a transfer deadline based on the engine send deadline plus one
+minute, and retry delays starting at five seconds and doubling to ten minutes.
 
-After notification succeeds, the next due time becomes the retention deadline;
-indefinite or fully expired records leave the runnable schedule. The worker
+**Attempt cap.** A gateway media-policy rejection fails the asset at once, and
+so does media WhatsApp no longer serves: the gateway maps a 404/410 download to
+the conflict `domain.MediaGoneMessage`, which crosses the private engine
+boundary verbatim. Any other failure is retried until `MaxAttempts` (10 in the
+API), then the asset becomes `failed` with a reason in `last_error`. A failed
+asset is still visited at its retention deadline (`next_attempt_at =
+expires_at`, `NULL` without retention) so cleanup completes.
+
+After a transfer, the next due time becomes the retention deadline;
+indefinite or fully expired records leave the runnable schedule (`NULL`). The worker
 uses recorded keys, with no bucket listing or full-bucket scan. A failed delete
 keeps its record due for retry. Versioned objects are deleted by saved version
 id. The gateway never deletes unrelated objects or changes bucket lifecycle
@@ -80,9 +92,12 @@ rules. S3 Object Lock and storage-provider permissions can postpone deletion;
 operators restore delete access and let the queued cleanup complete.
 
 `media.ready` and `media.expired` are inserted into the event log in the same
-transaction as the asset state change. Their notifications remain pending until
-realtime publication and webhook enqueueing succeed. Consumers deduplicate by
-event id. The stored notification reuses its id on retry.
+transaction as the asset state change, together with their durable fan-out work
+(`event_fanout`, `source='api'`). The committed-event worker publishes them and
+enqueues webhooks with its own retries and dead-letter state, so a realtime or
+webhook outage never counts against a transfer's attempts. Consumers deduplicate
+by event id. Migration 0035 moved notifications still pending in the former
+`notification` column onto `event_fanout` and dropped the column.
 
 ## URLs and access
 

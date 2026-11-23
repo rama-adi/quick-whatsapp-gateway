@@ -257,7 +257,7 @@ func runE2EExternalScenarios(t *testing.T, infra *e2eInfra, gateway *e2eGateway,
 		capture := gateway.waitCaptureCount(t, before+1)[before]
 		var id string
 		e2eEventually(t, ctx, "bot image stored after ambiguous S3 response", func() bool {
-			return infra.db.QueryRowContext(ctx, `SELECT id FROM media_assets WHERE message_id=? AND status='ready' AND notification IS NULL`, sent.WAMessageID).Scan(&id) == nil
+			return infra.db.QueryRowContext(ctx, `SELECT id FROM media_assets WHERE message_id=? AND status='ready'`, sent.WAMessageID).Scan(&id) == nil
 		})
 		key := "/attachments/qwg-medias/" + e2eGroupJID + "/" + id + ".png"
 		body, err := json.Marshal(map[string]any{"id": sent.WAMessageID, "chat": e2eGroupJID, "sender": e2eDeviceLID, "from_me": true, "message": json.RawMessage(capture.Message)})

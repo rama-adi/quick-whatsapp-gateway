@@ -2,9 +2,12 @@ package wa
 
 import (
 	"context"
+	"errors"
+
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/application"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/wa/outbound"
+	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"google.golang.org/protobuf/proto"
 )
@@ -52,6 +55,9 @@ func (a *ApplicationGatewayAdapter) DownloadMedia(ctx context.Context, q applica
 		return nil, domain.ErrNotFound("session")
 	}
 	data, err := client.DownloadAny(ctx, &msg)
+	if errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith404) || errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith410) {
+		return nil, domain.ErrConflict(domain.MediaGoneMessage)
+	}
 	if err != nil {
 		return nil, err
 	}

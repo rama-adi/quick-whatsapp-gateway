@@ -147,20 +147,20 @@ func TestMySQLAttachmentLifecycle(t *testing.T) {
 	}))
 	defer server.Close()
 	downloader := &fakeDownload{}
-	published := []domain.Event{}
-	failPublish := true
-	var failedEventID string
-	s := &Service{DB: db, Cipher: cipher, BaseURL: "https://api.example.com", Downloader: downloader, BackoffBase: time.Second, BackoffCap: time.Minute, Publish: func(_ context.Context, e domain.Event) error {
-		if failPublish {
-			failPublish = false
-			failedEventID = e.ID
-			return fmt.Errorf("temporary transport outage")
-		}
-		published = append(published, e)
-		return nil
-	}, newClient: func(b Bucket, c Credentials) *s3.Client {
+	s := &Service{DB: db, Cipher: cipher, BaseURL: "https://api.example.com", Downloader: downloader, BackoffBase: time.Second, BackoffCap: time.Minute, MaxAttempts: 3, newClient: func(b Bucket, c Credentials) *s3.Client {
 		return s3.New(s3.Options{Region: b.Region, BaseEndpoint: aws.String(server.URL), UsePathStyle: true, Credentials: credentials.NewStaticCredentialsProvider(c.AccessKey, c.SecretKey, ""), HTTPClient: server.Client()})
 	}}
+	// media.ready/expired events are enqueued for durable fan-out in the
+	// same transaction as the asset's status change.
+	fanoutEvents := func(typ string) int {
+		t.Helper()
+		var n int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM event_fanout f JOIN event_log e ON e.event_id=f.event_id
+			WHERE f.organization_id=? AND f.source='api' AND e.type=?`, org, typ).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
 	input := BucketInput{Name: "First", Endpoint: "https://s3.example.com", Region: "test", Bucket: "files", RetentionDays: ptr(int64(1)), AccessKey: "key", SecretKey: "secret"}
 	first, err := s.Save(ctx, org, "", input)
 	if err != nil {
@@ -251,30 +251,14 @@ func TestMySQLAttachmentLifecycle(t *testing.T) {
 		}
 	}
 	drain()
-	if _, err = db.Exec("UPDATE media_assets SET next_attempt_at=0 WHERE organization_id=? AND notification IS NOT NULL", org); err != nil {
-		t.Fatal(err)
-	}
-	drain()
-	if failedEventID == "" {
-		t.Fatal("notification retry not exercised")
-	}
-	foundRetry := false
-	for _, event := range published {
-		if event.ID == failedEventID {
-			foundRetry = true
-		}
-	}
-	if !foundRetry {
-		t.Fatal("notification retry changed event identity")
-	}
-	if puts != 2 || len(published) != 2 {
-		t.Fatalf("uploads=%d notifications=%d", puts, len(published))
+	if puts != 2 || fanoutEvents(domain.EventMediaReady) != 2 {
+		t.Fatalf("uploads=%d ready events=%d", puts, fanoutEvents(domain.EventMediaReady))
 	}
 	a, err = s.Get(ctx, org, id)
 	if err != nil || a.URL == "" {
 		t.Fatal("ready URL missing", err)
 	}
-	_, err = db.Exec("UPDATE media_assets SET status='pending',source=?,notification=NULL,next_attempt_at=0 WHERE id=?", originalSource, id)
+	_, err = db.Exec("UPDATE media_assets SET status='pending',source=?,next_attempt_at=0 WHERE id=?", originalSource, id)
 	if err != nil {
 		t.Fatal(err)
 	}

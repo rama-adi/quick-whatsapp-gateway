@@ -62,3 +62,10 @@ func ErrConflict(msg string) *APIError       { return NewAPIError(CodeConflict, 
 func ErrNotImplemented(msg string) *APIError { return NewAPIError(CodeNotImplemented, msg) }
 func ErrUnavailable(msg string) *APIError    { return NewAPIError(CodeUnavailable, msg) }
 func ErrInternal(msg string) *APIError       { return NewAPIError(CodeInternal, msg) }
+
+// MediaGoneMessage is the conflict message a gateway returns when WhatsApp's
+// media servers no longer serve an attachment (HTTP 404 or 410). It crosses
+// the private engine boundary verbatim (FailedPrecondition carries the
+// message), so the API media worker can fail the asset at once instead of
+// retrying a download that can never succeed.
+const MediaGoneMessage = "media is no longer available on WhatsApp servers"

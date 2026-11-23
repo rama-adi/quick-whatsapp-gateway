@@ -51,7 +51,9 @@ type Service struct {
 	BaseURL                                 string
 	Downloader                              Downloader
 	Poll, Deadline, BackoffBase, BackoffCap time.Duration
-	Publish                                 func(context.Context, domain.Event) error
+	// MaxAttempts caps retried transfers; the asset then becomes failed.
+	// Zero retries without a cap.
+	MaxAttempts int
 }
 
 func validate(in BucketInput, domains ...string) error {
@@ -206,7 +208,7 @@ func (s *Service) Delete(ctx context.Context, org, id string) error {
 		return err
 	}
 	var active int
-	err = tx.QueryRowContext(ctx, `SELECT (SELECT COUNT(*) FROM session_media_storage WHERE bucket_id=?) + (SELECT COUNT(*) FROM media_assets WHERE bucket_id=? AND (status<>'expired' OR notification IS NOT NULL))`, id, id).Scan(&active)
+	err = tx.QueryRowContext(ctx, `SELECT (SELECT COUNT(*) FROM session_media_storage WHERE bucket_id=?) + (SELECT COUNT(*) FROM media_assets WHERE bucket_id=? AND status<>'expired')`, id, id).Scan(&active)
 	if err != nil {
 		return err
 	}

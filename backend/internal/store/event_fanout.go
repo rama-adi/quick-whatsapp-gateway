@@ -66,6 +66,16 @@ func enqueueFanout(ctx context.Context, tx storedb.DBTX, item fanoutItem) error 
 	return nil
 }
 
+// EnqueueAPIFanout records durable fan-out work (source api) for an event the
+// caller appended to event_log in the same transaction tx. The committed-event
+// worker then publishes it and enqueues its webhooks.
+func EnqueueAPIFanout(ctx context.Context, tx storedb.DBTX, eventID, organizationID, sessionID string, createdAt int64) error {
+	return enqueueFanout(ctx, tx, fanoutItem{
+		eventID: eventID, organizationID: organizationID, sessionID: sessionID,
+		source: FanoutSourceAPI, createdAt: createdAt,
+	})
+}
+
 // FanoutClaim is one multi-replica-safe claim attempt. Token is unique per
 // claim and fences every later write; Owner is diagnostic only.
 type FanoutClaim struct {
