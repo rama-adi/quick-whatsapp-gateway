@@ -267,7 +267,7 @@ func runE2EExternalScenarios(t *testing.T, infra *e2eInfra, gateway *e2eGateway,
 		// Both the original own echo and its transport replay must be acknowledged.
 		for _, phase := range []string{"own echo", "replayed own echo"} {
 			var beforeEvents int
-			if err := infra.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM gateway_ingested_events WHERE session_id=? AND completed_at IS NOT NULL`, e2eSessionID).Scan(&beforeEvents); err != nil {
+			if err := infra.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM gateway_ingested_events WHERE session_id=? AND NOT EXISTS (SELECT 1 FROM event_fanout f WHERE f.event_id=gateway_ingested_events.event_log_id AND f.status<>'done')`, e2eSessionID).Scan(&beforeEvents); err != nil {
 				t.Fatal(err)
 			}
 			response, err := http.Post(gateway.fakeURL+"/v1/numbers/"+e2eFakeNumber+"/messages", "application/json", bytes.NewReader(body))
@@ -278,7 +278,7 @@ func runE2EExternalScenarios(t *testing.T, infra *e2eInfra, gateway *e2eGateway,
 			e2eRequireStatus(t, response.StatusCode, http.StatusOK)
 			e2eEventually(t, ctx, phase+" processed", func() bool {
 				var completed int
-				return infra.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM gateway_ingested_events WHERE session_id=? AND completed_at IS NOT NULL`, e2eSessionID).Scan(&completed) == nil && completed > beforeEvents
+				return infra.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM gateway_ingested_events WHERE session_id=? AND NOT EXISTS (SELECT 1 FROM event_fanout f WHERE f.event_id=gateway_ingested_events.event_log_id AND f.status<>'done')`, e2eSessionID).Scan(&completed) == nil && completed > beforeEvents
 			})
 		}
 		replayStatus, replay := infra.send(t, e2eOrgAKey, "bot-image-storage", request)

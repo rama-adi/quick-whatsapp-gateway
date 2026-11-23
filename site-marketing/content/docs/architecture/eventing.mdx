@@ -226,21 +226,54 @@ dependencies no longer exist on the gateway).
 
 API-owned ingestion hands an envelope to
 `application.CommittedEventConsumer` only **after** its event-log transaction
-commits. `application.CommittedEventWorkStore` is the durable work boundary: its
-store implementation claims only committed, incomplete envelopes and records
-completion only after every consumer accepts the event. `service.CommittedEventWorker`
-uses that port, and its stateless `CommittedEventDispatcher` runs registered
-projections (the API-side WhatsApp-data projections), then realtime Redis
-publication, then webhook enqueue in that order. Failed attempts remain
-incomplete for the store's retry/lease path; durable consumers must still use
-`event.id` as their idempotency key because a crash can occur after a consumer
-accepts an event and before completion is recorded.
+commits. The same transaction records explicit fan-out work in `event_fanout`
+(migration 0030): one row per committed event with `status`
+(`pending` → `leased` → `done` | `dead`), a per-claim `claim_token`,
+`lease_until`, `attempts`, `next_attempt_at` and `last_error`.
+`application.CommittedEventWorkStore` is the durable work boundary and
+`service.CommittedEventWorker` drives it; its stateless
+`CommittedEventDispatcher` runs registered projections (the API-side
+WhatsApp-data projections), then realtime Redis publication, then webhook
+enqueue in that order. Durable consumers must still use `event.id` as their
+idempotency key because a crash can occur after a consumer accepts an event and
+before completion is recorded.
 
-Lease eligibility uses the claim's current time, never its future expiration.
-A session's later events cannot overtake a currently leased predecessor. Within
-a claimed batch, failure holds the remaining events for that session but does
-not block unrelated sessions. Worker failures are logged with the event ID and
-remain incomplete for retry; retention must not remove their event-log payloads.
+**Ordering.** The API assigns every committed event a per-session
+`session_seq` from `session_event_sequences` inside the committing transaction.
+The sequence row lock serializes writers of one session until commit, so
+`session_seq` follows commit order and, within one gateway batch, journal order
+(the batch shares one `committed_at`, so neither the timestamp nor the event ULID
+can order it). `gateway_ingested_events` also stores the gateway's
+`journal_sequence` as provenance. Fan-out processes a session strictly in
+`session_seq` order: only a session's **head** (its lowest `pending`/`leased`
+row) is claimable, only when due, and only when no live lease holds it, so two
+API replicas can never process one session at the same time. A claim leases up
+to `Sessions` heads plus up to `PerSession - 1` contiguous successors each.
+
+**Attempts and dead-letter.** An attempt is counted when it starts (`Start`
+increments `attempts` and renews the per-event lease), so a worker that crashes
+mid-event still uses an attempt. Every write after the claim (`Start`,
+`Complete`, `Fail`, `Release`) is fenced by the claim token; a token is only
+replaced by a new claim after its lease expired, so a matching token proves no
+other claim took the event. A failed attempt returns the head to `pending` with
+exponential backoff (1 s doubling, capped at 10 min) and releases the rest of
+its session's claim, so the session waits behind it while unrelated sessions
+continue. A permanent failure (`application.ErrPermanentEvent`: an undecodable
+payload, a history event without a run id, or an event body missing from
+`event_log`) or the 20th failed attempt (about two hours) moves the event to
+`dead` with its `last_error`; the session then continues with its next event.
+Every dead-lettered event is logged at error level with its event id, type,
+session and error, and the worker logs the backlog (outstanding count, dead
+count, oldest outstanding event with its attempts and last error) every minute
+while either is non-zero. To replay a dead event after a fix, set its row back to
+`status='pending', attempts=0, finished_at=NULL`.
+
+**Sources.** Gateway events (`source='gateway'`) are projected and then
+published. API-originated `message.from_me` events (`source='api'`) were
+already projected by the outbound scheduler, so fan-out only publishes them and
+enqueues webhooks; they go through the same durable path, so a crash after the
+event-log append cannot lose their realtime or webhook delivery. Retention keeps
+the event-log payload of every `pending`/`leased` fan-out row.
 
 
 ### Increment 5/9 durable handoff
@@ -277,7 +310,8 @@ In control mode (the only mode since Increment 9) the gateway does
 not append `event_log`, publish Redis events, or enqueue webhooks: API ingestion owns the single
 event-log transaction and post-commit fan-out.
 The API records successful API-originated sends in the outgoing message row, then appends a
-`message.from_me` event and fans it out to realtime and webhooks. WhatsApp may also echo the
+`message.from_me` event and, in the same transaction, enqueues its durable fan-out
+(`event_fanout`, `source='api'`); the committed-event worker publishes it to realtime and webhooks. WhatsApp may also echo the
 same send through the gateway, including before the API finishes its own projection. API
 publishing and gateway ingestion transactionally claim one public event owner by organization,
 session, chat, and WhatsApp message ID in `outgoing_message_event_claims`. The first committed

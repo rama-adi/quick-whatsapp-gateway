@@ -68,44 +68,159 @@ func (w *recordingCommittedWebhooks) Enqueue(_ context.Context, event domain.Eve
 	return 1, nil
 }
 
-type durableCommittedEventStore struct {
-	mu        sync.Mutex
-	committed map[string]domain.Event
-	completed map[string]bool
-	claims    []application.CommittedEventClaim
+// memoryFanoutStore models event_fanout: per-session sequence order, only a
+// session's head is claimable, tokens fence every write, dead unblocks.
+type memoryFanoutStore struct {
+	mu   sync.Mutex
+	now  func() time.Time
+	rows []*memoryFanoutRow
 }
 
-func (s *durableCommittedEventStore) ClaimCommittedEvents(_ context.Context, claim application.CommittedEventClaim) ([]domain.Event, error) {
+type memoryFanoutRow struct {
+	event     domain.Event
+	source    string
+	seq       uint64
+	status    string
+	attempts  int
+	next      time.Time
+	token     string
+	lease     time.Time
+	lastError string
+}
+
+func newMemoryFanoutStore(now func() time.Time, events ...domain.Event) *memoryFanoutStore {
+	s := &memoryFanoutStore{now: now}
+	seqs := map[string]uint64{}
+	for _, e := range events {
+		seqs[e.Session]++
+		s.rows = append(s.rows, &memoryFanoutRow{event: e, source: application.CommittedEventSourceGateway,
+			seq: seqs[e.Session], status: "pending"})
+	}
+	return s
+}
+
+func (s *memoryFanoutStore) row(id string) *memoryFanoutRow {
+	for _, r := range s.rows {
+		if r.event.ID == id {
+			return r
+		}
+	}
+	return nil
+}
+
+func (s *memoryFanoutStore) ClaimCommittedEvents(_ context.Context, c application.CommittedEventClaim) ([]application.ClaimedCommittedEvent, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.claims = append(s.claims, claim)
-	out := make([]domain.Event, 0, claim.MaxItems)
-	for id, event := range s.committed {
-		if s.completed[id] {
+	open := func(r *memoryFanoutRow) bool { return r.status == "pending" || r.status == "leased" }
+	free := func(r *memoryFanoutRow) bool {
+		return r.status == "pending" || (r.status == "leased" && !r.lease.After(c.ClaimedAt))
+	}
+	var out []application.ClaimedCommittedEvent
+	sessions := 0
+	seen := map[string]bool{}
+	for _, head := range s.rows {
+		if !open(head) || seen[head.event.Session] {
 			continue
 		}
-		out = append(out, event)
-		if len(out) == claim.MaxItems {
-			break
+		seen[head.event.Session] = true // first open row in seq order is the head
+		if !free(head) || head.next.After(c.ClaimedAt) || sessions == c.MaxSessions {
+			continue
+		}
+		sessions++
+		taken := 0
+		for _, r := range s.rows {
+			if r.event.Session != head.event.Session || r.seq < head.seq || taken == c.MaxPerSession {
+				continue
+			}
+			if !free(r) {
+				break
+			}
+			r.status, r.token, r.lease = "leased", c.Token, c.LeaseUntil
+			out = append(out, application.ClaimedCommittedEvent{Event: r.event, Source: r.source,
+				SessionSeq: r.seq, Attempts: r.attempts, LastError: r.lastError})
+			taken++
 		}
 	}
 	return out, nil
 }
 
-func (s *durableCommittedEventStore) CompleteCommittedEvent(_ context.Context, _, id string) error {
+func (s *memoryFanoutStore) fenced(token, id string) (*memoryFanoutRow, error) {
+	r := s.row(id)
+	if r == nil || r.status != "leased" || r.token != token {
+		return nil, application.ErrCommittedEventClaimLost
+	}
+	return r, nil
+}
+
+func (s *memoryFanoutStore) StartCommittedEvent(_ context.Context, token, id string, lease time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.completed[id] = true
+	r, err := s.fenced(token, id)
+	if err != nil {
+		return err
+	}
+	r.attempts++
+	r.lease = lease
 	return nil
 }
 
-func newTestCommittedEventWorker(store application.CommittedEventWorkStore, dispatcher application.CommittedEventConsumer) *CommittedEventWorker {
+func (s *memoryFanoutStore) CompleteCommittedEvent(_ context.Context, token, id string, _ time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, err := s.fenced(token, id)
+	if err != nil {
+		return err
+	}
+	r.status, r.token = "done", ""
+	return nil
+}
+
+func (s *memoryFanoutStore) FailCommittedEvent(_ context.Context, f application.CommittedEventFailure) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, err := s.fenced(f.Token, f.EventID)
+	if err != nil {
+		return err
+	}
+	r.token, r.lastError = "", f.Error
+	if f.Dead {
+		r.status = "dead"
+	} else {
+		r.status, r.next = "pending", f.NextAttemptAt
+	}
+	return nil
+}
+
+func (s *memoryFanoutStore) ReleaseCommittedEvents(_ context.Context, token, session string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, r := range s.rows {
+		if r.token == token && r.event.Session == session && r.status == "leased" {
+			r.status, r.token = "pending", ""
+		}
+	}
+	return nil
+}
+
+func (s *memoryFanoutStore) CommittedEventBacklog(context.Context) (application.CommittedEventBacklog, error) {
+	return application.CommittedEventBacklog{}, nil
+}
+
+func (s *memoryFanoutStore) status(id string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.row(id).status
+}
+
+type testClock struct{ t time.Time }
+
+func (c *testClock) now() time.Time          { return c.t }
+func (c *testClock) advance(d time.Duration) { c.t = c.t.Add(d) }
+
+func newTestCommittedEventWorker(store application.CommittedEventWorkStore, dispatcher committedEventFanout, clock *testClock) *CommittedEventWorker {
 	worker, err := NewCommittedEventWorker(store, dispatcher, CommittedEventWorkerConfig{
-		Owner: "api-test",
-		Lease: time.Minute,
-		Batch: 8,
-		Poll:  time.Second,
-		Now:   func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) },
+		Owner: "api-test", Lease: time.Minute, Sessions: 8, PerSession: 8, Poll: time.Second,
+		MaxAttempts: 3, BackoffBase: time.Second, BackoffCap: time.Minute, Now: clock.now,
 	})
 	if err != nil {
 		panic(err)
@@ -113,94 +228,172 @@ func newTestCommittedEventWorker(store application.CommittedEventWorkStore, disp
 	return worker
 }
 
+// consumerFanout adapts a plain consumer to the worker's dispatch port.
+type consumerFanout struct {
+	application.CommittedEventConsumer
+}
+
+func (c consumerFanout) DispatchCommittedEvent(ctx context.Context, event domain.Event, _ string) error {
+	return c.ConsumeCommittedEvent(ctx, event)
+}
+
 func committedEvent() domain.Event {
 	return domain.Event{ID: "evt_01", Type: domain.EventMessage, Organization: "org_01", Session: "ses_01"}
 }
 
-type orderedCommittedStore struct {
-	events    []domain.Event
-	completed []string
-}
-
-func (s *orderedCommittedStore) ClaimCommittedEvents(context.Context, application.CommittedEventClaim) ([]domain.Event, error) {
-	return s.events, nil
-}
-
-func (s *orderedCommittedStore) CompleteCommittedEvent(_ context.Context, _, id string) error {
-	s.completed = append(s.completed, id)
-	return nil
-}
-
 type selectiveCommittedConsumer struct {
 	seen []string
-	err  error
+	errs map[string]error
 }
 
 func (c *selectiveCommittedConsumer) ConsumeCommittedEvent(_ context.Context, event domain.Event) error {
 	c.seen = append(c.seen, event.ID)
-	if event.ID == "bad" {
-		return c.err
-	}
-	return nil
+	return c.errs[event.ID]
 }
 
 func TestCommittedEventWorkerFailureDoesNotBlockUnrelatedSession(t *testing.T) {
-	store := &orderedCommittedStore{events: []domain.Event{
-		{ID: "bad", Session: "session_a"},
-		{ID: "dependent", Session: "session_a"},
-		{ID: "independent", Session: "session_b"},
-	}}
-	cause := errors.New("malformed external payload")
-	consumer := &selectiveCommittedConsumer{err: cause}
-	worker := newTestCommittedEventWorker(store, consumer)
-	completed, err := worker.RunOnce(context.Background(), len(store.events))
-	if completed != 1 || !errors.Is(err, cause) {
-		t.Fatalf("completed=%d err=%v", completed, err)
+	clock := &testClock{t: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	store := newMemoryFanoutStore(clock.now,
+		domain.Event{ID: "bad", Session: "session_a"},
+		domain.Event{ID: "dependent", Session: "session_a"},
+		domain.Event{ID: "independent", Session: "session_b"},
+	)
+	cause := errors.New("redis unavailable")
+	consumer := &selectiveCommittedConsumer{errs: map[string]error{"bad": cause}}
+	worker := newTestCommittedEventWorker(store, consumerFanout{consumer}, clock)
+	finished, err := worker.RunOnce(context.Background())
+	if finished != 1 || !errors.Is(err, cause) {
+		t.Fatalf("finished=%d err=%v", finished, err)
 	}
-	if len(store.completed) != 1 || store.completed[0] != "independent" {
-		t.Fatalf("failed work was lost: completed=%v", store.completed)
+	if store.status("independent") != "done" || store.status("bad") != "pending" || store.status("dependent") != "pending" {
+		t.Fatalf("statuses bad=%s dependent=%s independent=%s",
+			store.status("bad"), store.status("dependent"), store.status("independent"))
 	}
 	if len(consumer.seen) != 2 || consumer.seen[1] != "independent" {
 		t.Fatalf("dependent work overtook failed event: seen=%v", consumer.seen)
 	}
+	// The failed head is backed off; its session waits until it is due.
+	consumer.seen = nil
+	if _, err := worker.RunOnce(context.Background()); err != nil || len(consumer.seen) != 0 {
+		t.Fatalf("backed-off session was claimed early: seen=%v err=%v", consumer.seen, err)
+	}
+}
+
+func TestCommittedEventWorkerPermanentFailureDeadLettersAndUnblocksSession(t *testing.T) {
+	clock := &testClock{t: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	store := newMemoryFanoutStore(clock.now,
+		domain.Event{ID: "poison", Session: "session_a"},
+		domain.Event{ID: "next", Session: "session_a"},
+	)
+	consumer := &selectiveCommittedConsumer{errs: map[string]error{
+		"poison": application.PermanentEventError(errors.New("undecodable payload")),
+	}}
+	worker := newTestCommittedEventWorker(store, consumerFanout{consumer}, clock)
+	finished, err := worker.RunOnce(context.Background())
+	if err != nil || finished != 2 {
+		t.Fatalf("finished=%d err=%v", finished, err)
+	}
+	if store.status("poison") != "dead" || store.status("next") != "done" {
+		t.Fatalf("poison=%s next=%s", store.status("poison"), store.status("next"))
+	}
+	if store.row("poison").lastError == "" {
+		t.Fatal("dead-lettered event lost its error")
+	}
+}
+
+func TestCommittedEventWorkerDeadLettersAfterMaxAttempts(t *testing.T) {
+	clock := &testClock{t: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	store := newMemoryFanoutStore(clock.now,
+		domain.Event{ID: "flaky", Session: "session_a"},
+		domain.Event{ID: "after", Session: "session_a"},
+	)
+	consumer := &selectiveCommittedConsumer{errs: map[string]error{"flaky": errors.New("still failing")}}
+	worker := newTestCommittedEventWorker(store, consumerFanout{consumer}, clock)
+	for attempt := 1; attempt <= 3; attempt++ {
+		_, _ = worker.RunOnce(context.Background())
+		clock.advance(time.Hour)
+	}
+	if store.status("flaky") != "dead" || store.status("after") != "done" {
+		t.Fatalf("flaky=%s after=%s", store.status("flaky"), store.status("after"))
+	}
+	if got := store.row("flaky").attempts; got != 3 {
+		t.Fatalf("attempts=%d, want 3", got)
+	}
+}
+
+func TestCommittedEventWorkerCountsCrashedAttempts(t *testing.T) {
+	clock := &testClock{t: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	store := newMemoryFanoutStore(clock.now, domain.Event{ID: "crashy", Session: "session_a"})
+	// Three claims that start the event and then "crash" (never record an
+	// outcome) use up every attempt; the next claim dead-letters it.
+	for i := 0; i < 3; i++ {
+		token := domain.NewULID()
+		claimed, _ := store.ClaimCommittedEvents(context.Background(), application.CommittedEventClaim{
+			Token: token, ClaimedAt: clock.now(), LeaseUntil: clock.now().Add(time.Minute), MaxSessions: 1, MaxPerSession: 1,
+		})
+		if len(claimed) != 1 {
+			t.Fatalf("round %d: claimed %d", i, len(claimed))
+		}
+		_ = store.StartCommittedEvent(context.Background(), token, "crashy", clock.now().Add(time.Minute))
+		clock.advance(2 * time.Minute)
+	}
+	consumer := &selectiveCommittedConsumer{}
+	worker := newTestCommittedEventWorker(store, consumerFanout{consumer}, clock)
+	if _, err := worker.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if store.status("crashy") != "dead" || len(consumer.seen) != 0 {
+		t.Fatalf("status=%s dispatched=%v", store.status("crashy"), consumer.seen)
+	}
 }
 
 func TestCommittedEventWorkerFailureReplaysAfterRestart(t *testing.T) {
+	clock := &testClock{t: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
 	publisher := &recordingCommittedPublisher{err: errors.New("redis unavailable")}
-	store := &durableCommittedEventStore{committed: map[string]domain.Event{"evt_01": committedEvent()}, completed: map[string]bool{}}
-	first := newTestCommittedEventWorker(store, NewCommittedEventDispatcher(nil, publisher, nil))
-	if completed, err := first.RunOnce(context.Background(), 1); err == nil || completed != 0 {
-		t.Fatalf("completed, err = %d, %v", completed, err)
+	store := newMemoryFanoutStore(clock.now, committedEvent())
+	first := newTestCommittedEventWorker(store, NewCommittedEventDispatcher(nil, publisher, nil), clock)
+	if finished, err := first.RunOnce(context.Background()); err == nil || finished != 0 {
+		t.Fatalf("finished, err = %d, %v", finished, err)
 	}
-	if store.completed["evt_01"] {
+	if store.status("evt_01") != "pending" {
 		t.Fatal("failed event was completed")
 	}
 
 	publisher.mu.Lock()
 	publisher.err = nil
 	publisher.mu.Unlock()
-	// A new worker models process restart; the durable store exposes the pending
-	// committed event again because the prior worker never marked it complete.
-	restarted := newTestCommittedEventWorker(store, NewCommittedEventDispatcher(nil, publisher, nil))
-	if completed, err := restarted.RunOnce(context.Background(), 1); err != nil || completed != 1 {
-		t.Fatalf("completed, err = %d, %v", completed, err)
+	clock.advance(time.Minute)
+	// A new worker models process restart; the durable store exposes the
+	// pending event again once its backoff is due.
+	restarted := newTestCommittedEventWorker(store, NewCommittedEventDispatcher(nil, publisher, nil), clock)
+	if finished, err := restarted.RunOnce(context.Background()); err != nil || finished != 1 {
+		t.Fatalf("finished, err = %d, %v", finished, err)
 	}
-	store.mu.Lock()
-	defer store.mu.Unlock()
-	if !store.completed["evt_01"] || publisher.count() != 2 {
-		t.Fatalf("completion=%v publish calls=%d", store.completed, publisher.count())
+	if store.status("evt_01") != "done" || publisher.count() != 2 {
+		t.Fatalf("status=%s publish calls=%d", store.status("evt_01"), publisher.count())
+	}
+}
+
+func TestCommittedEventDispatcherSkipsProjectionsForAPIEvents(t *testing.T) {
+	projection := &recordingCommittedConsumer{}
+	publisher := &recordingCommittedPublisher{}
+	webhooks := &recordingCommittedWebhooks{}
+	dispatcher := NewCommittedEventDispatcher([]application.CommittedEventConsumer{projection}, publisher, webhooks)
+	if err := dispatcher.DispatchCommittedEvent(context.Background(), committedEvent(), application.CommittedEventSourceAPI); err != nil {
+		t.Fatal(err)
+	}
+	if projection.count() != 0 || publisher.count() != 1 || len(webhooks.calls) != 1 {
+		t.Fatalf("projection=%d publisher=%d webhooks=%d", projection.count(), publisher.count(), len(webhooks.calls))
 	}
 }
 
 func TestCommittedEventDispatcherStopsFanoutForHandledEvent(t *testing.T) {
+	clock := &testClock{t: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
 	login := &handledCommittedConsumer{handled: true}
 	projection := &recordingCommittedConsumer{}
 	publisher := &recordingCommittedPublisher{}
 	webhooks := &recordingCommittedWebhooks{}
-	store := &durableCommittedEventStore{
-		committed: map[string]domain.Event{"evt_01": committedEvent()},
-		completed: map[string]bool{},
-	}
+	store := newMemoryFanoutStore(clock.now, committedEvent())
 	worker := newTestCommittedEventWorker(
 		store,
 		NewCommittedEventDispatcher(
@@ -210,11 +403,12 @@ func TestCommittedEventDispatcherStopsFanoutForHandledEvent(t *testing.T) {
 			publisher,
 			webhooks,
 		),
+		clock,
 	)
 
-	completed, err := worker.RunOnce(context.Background(), 1)
-	if err != nil || completed != 1 {
-		t.Fatalf("completed, err = %d, %v", completed, err)
+	finished, err := worker.RunOnce(context.Background())
+	if err != nil || finished != 1 {
+		t.Fatalf("finished, err = %d, %v", finished, err)
 	}
 	if projection.count() != 0 || publisher.count() != 0 || len(webhooks.calls) != 0 {
 		t.Fatalf("handled event leaked: projection=%d publisher=%d webhooks=%d", projection.count(), publisher.count(), len(webhooks.calls))

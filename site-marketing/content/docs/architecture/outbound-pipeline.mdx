@@ -182,7 +182,10 @@ sends and async worker drains. The row carries
 and the body/quote/mentions from the request (`type` carries the rest). Sender
 identity columns are left NULL (own messages have no resolved sender name).
 
-The command remains retryable until recording and sent-event fan-out succeed.
+The command remains retryable until recording and the sent-event append succeed.
+The append enqueues durable fan-out (`event_fanout`, `source='api'`) in the same
+transaction, so realtime publication and webhook enqueue no longer run on the send path
+and a Redis outage cannot hold a sent command open.
 A projection failure after WhatsApp acknowledgement returns the pending outbox
 identity and reschedules using the configured base backoff. Retrying uses the
 same command ID, so the gateway replays its durable result without sending again.

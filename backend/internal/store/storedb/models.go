@@ -261,6 +261,128 @@ func AllChatsTypeValues() []ChatsType {
 	}
 }
 
+type EventFanoutSource string
+
+const (
+	EventFanoutSourceGateway EventFanoutSource = "gateway"
+	EventFanoutSourceApi     EventFanoutSource = "api"
+)
+
+func (e *EventFanoutSource) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = EventFanoutSource(s)
+	case string:
+		*e = EventFanoutSource(s)
+	default:
+		return fmt.Errorf("unsupported scan type for EventFanoutSource: %T", src)
+	}
+	return nil
+}
+
+type NullEventFanoutSource struct {
+	EventFanoutSource EventFanoutSource `json:"event_fanout_source"`
+	Valid             bool              `json:"valid"` // Valid is true if EventFanoutSource is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullEventFanoutSource) Scan(value interface{}) error {
+	if value == nil {
+		ns.EventFanoutSource, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.EventFanoutSource.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullEventFanoutSource) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.EventFanoutSource), nil
+}
+
+func (e EventFanoutSource) Valid() bool {
+	switch e {
+	case EventFanoutSourceGateway,
+		EventFanoutSourceApi:
+		return true
+	}
+	return false
+}
+
+func AllEventFanoutSourceValues() []EventFanoutSource {
+	return []EventFanoutSource{
+		EventFanoutSourceGateway,
+		EventFanoutSourceApi,
+	}
+}
+
+type EventFanoutStatus string
+
+const (
+	EventFanoutStatusPending EventFanoutStatus = "pending"
+	EventFanoutStatusLeased  EventFanoutStatus = "leased"
+	EventFanoutStatusDone    EventFanoutStatus = "done"
+	EventFanoutStatusDead    EventFanoutStatus = "dead"
+)
+
+func (e *EventFanoutStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = EventFanoutStatus(s)
+	case string:
+		*e = EventFanoutStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for EventFanoutStatus: %T", src)
+	}
+	return nil
+}
+
+type NullEventFanoutStatus struct {
+	EventFanoutStatus EventFanoutStatus `json:"event_fanout_status"`
+	Valid             bool              `json:"valid"` // Valid is true if EventFanoutStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullEventFanoutStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.EventFanoutStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.EventFanoutStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullEventFanoutStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.EventFanoutStatus), nil
+}
+
+func (e EventFanoutStatus) Valid() bool {
+	switch e {
+	case EventFanoutStatusPending,
+		EventFanoutStatusLeased,
+		EventFanoutStatusDone,
+		EventFanoutStatusDead:
+		return true
+	}
+	return false
+}
+
+func AllEventFanoutStatusValues() []EventFanoutStatus {
+	return []EventFanoutStatus{
+		EventFanoutStatusPending,
+		EventFanoutStatusLeased,
+		EventFanoutStatusDone,
+		EventFanoutStatusDead,
+	}
+}
+
 type GatewayCertificatesIssuanceKind string
 
 const (
@@ -1769,6 +1891,23 @@ type Chat struct {
 	MutedUntil    sql.NullInt64  `db:"muted_until" json:"muted_until"`
 }
 
+type EventFanout struct {
+	EventID        string            `db:"event_id" json:"event_id"`
+	OrganizationID string            `db:"organization_id" json:"organization_id"`
+	SessionID      string            `db:"session_id" json:"session_id"`
+	SessionSeq     uint64            `db:"session_seq" json:"session_seq"`
+	Source         EventFanoutSource `db:"source" json:"source"`
+	Status         EventFanoutStatus `db:"status" json:"status"`
+	Attempts       uint32            `db:"attempts" json:"attempts"`
+	NextAttemptAt  int64             `db:"next_attempt_at" json:"next_attempt_at"`
+	ClaimToken     sql.NullString    `db:"claim_token" json:"claim_token"`
+	ClaimedBy      sql.NullString    `db:"claimed_by" json:"claimed_by"`
+	LeaseUntil     sql.NullInt64     `db:"lease_until" json:"lease_until"`
+	LastError      sql.NullString    `db:"last_error" json:"last_error"`
+	CreatedAt      int64             `db:"created_at" json:"created_at"`
+	FinishedAt     sql.NullInt64     `db:"finished_at" json:"finished_at"`
+}
+
 type EventLog struct {
 	ID             uint64          `db:"id" json:"id"`
 	EventID        string          `db:"event_id" json:"event_id"`
@@ -1852,17 +1991,15 @@ type GatewayEnrollmentToken struct {
 }
 
 type GatewayIngestedEvent struct {
-	GatewayEventID  string         `db:"gateway_event_id" json:"gateway_event_id"`
-	GatewayID       string         `db:"gateway_id" json:"gateway_id"`
-	ConnectionEpoch uint64         `db:"connection_epoch" json:"connection_epoch"`
-	SessionID       string         `db:"session_id" json:"session_id"`
-	AssignmentEpoch uint64         `db:"assignment_epoch" json:"assignment_epoch"`
-	OrganizationID  string         `db:"organization_id" json:"organization_id"`
-	EventLogID      string         `db:"event_log_id" json:"event_log_id"`
-	CommittedAt     int64          `db:"committed_at" json:"committed_at"`
-	ClaimedBy       sql.NullString `db:"claimed_by" json:"claimed_by"`
-	LeaseUntil      sql.NullInt64  `db:"lease_until" json:"lease_until"`
-	CompletedAt     sql.NullInt64  `db:"completed_at" json:"completed_at"`
+	GatewayEventID  string `db:"gateway_event_id" json:"gateway_event_id"`
+	GatewayID       string `db:"gateway_id" json:"gateway_id"`
+	ConnectionEpoch uint64 `db:"connection_epoch" json:"connection_epoch"`
+	SessionID       string `db:"session_id" json:"session_id"`
+	AssignmentEpoch uint64 `db:"assignment_epoch" json:"assignment_epoch"`
+	OrganizationID  string `db:"organization_id" json:"organization_id"`
+	EventLogID      string `db:"event_log_id" json:"event_log_id"`
+	CommittedAt     int64  `db:"committed_at" json:"committed_at"`
+	JournalSequence uint64 `db:"journal_sequence" json:"journal_sequence"`
 }
 
 type GatewayReconciliationResult struct {
@@ -2012,6 +2149,11 @@ type PollVote struct {
 	SelectedOptions json.RawMessage `db:"selected_options" json:"selected_options"`
 	Timestamp       int64           `db:"timestamp" json:"timestamp"`
 	RawJson         json.RawMessage `db:"raw_json" json:"raw_json"`
+}
+
+type SessionEventSequence struct {
+	SessionID string `db:"session_id" json:"session_id"`
+	LastSeq   uint64 `db:"last_seq" json:"last_seq"`
 }
 
 type WaSession struct {

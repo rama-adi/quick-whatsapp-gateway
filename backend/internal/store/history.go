@@ -731,9 +731,15 @@ type HistorySyncUpdate struct {
 	Now           int64
 }
 
+// historyRunTerminal is the SQL predicate for a run that already ended.
+const historyRunTerminal = `status IN ('completed','failed','abandoned')`
+
 // ApplySync records a history.sync event on its run row. Gateway counters are
-// cumulative, so they only grow (GREATEST); status mirrors the latest phase.
-// Replaying the same event writes the same values.
+// cumulative, so they only grow (GREATEST). The run status is monotonic: once
+// a run is terminal (completed, failed, abandoned) a later or replayed
+// started/progress event never moves it back to running, and the first
+// terminal phase wins. MySQL applies ON DUPLICATE KEY assignments in order
+// and later ones see earlier results, so status is assigned last.
 func (r *HistoryRepo) ApplySync(ctx context.Context, u HistorySyncUpdate) error {
 	if u.SessionID == "" || u.RunID == "" {
 		return domain.ErrValidation("history sync requires session and run ids")
@@ -764,18 +770,18 @@ func (r *HistoryRepo) ApplySync(ctx context.Context, u HistorySyncUpdate) error 
 		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		 ON DUPLICATE KEY UPDATE
 		   account_jid=COALESCE(account_jid, VALUES(account_jid)),
-		   status=VALUES(status),
 		   sync_type=COALESCE(VALUES(sync_type), sync_type),
-		   progress=COALESCE(VALUES(progress), progress),
+		   progress=IF(`+historyRunTerminal+`, progress, COALESCE(VALUES(progress), progress)),
 		   cutoff_at=COALESCE(VALUES(cutoff_at), cutoff_at),
 		   chunks=GREATEST(chunks, VALUES(chunks)),
 		   batches=GREATEST(batches, VALUES(batches)),
 		   conversations=GREATEST(conversations, VALUES(conversations)),
 		   messages=GREATEST(messages, VALUES(messages)),
 		   skipped=GREATEST(skipped, VALUES(skipped)),
-		   error=VALUES(error),
+		   error=IF(`+historyRunTerminal+`, error, VALUES(error)),
 		   updated_at=GREATEST(updated_at, VALUES(updated_at)),
-		   finished_at=VALUES(finished_at)`,
+		   finished_at=IF(`+historyRunTerminal+`, finished_at, VALUES(finished_at)),
+		   status=IF(`+historyRunTerminal+`, status, VALUES(status))`,
 		u.SessionID, u.RunID, nullIfEmpty(u.AccountJID), status, nullIfEmpty(u.SyncType), progress, cutoff,
 		u.Chunks, u.Batches, u.Conversations, u.Messages, u.Skipped, errText, u.Now, u.Now, finished,
 	); err != nil {

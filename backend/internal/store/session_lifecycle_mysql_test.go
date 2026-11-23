@@ -6,7 +6,6 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
@@ -113,65 +112,6 @@ func TestSessionLifecycleMySQLAtomicCreationAndDeletion(t *testing.T) {
 	}
 	if err := db.QueryRow(`SELECT COUNT(*) FROM event_log WHERE event_id=?`, event.EventID).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("retained event logs=%d err=%v", count, err)
-	}
-}
-
-func TestCommittedEventMySQLLeaseAndRetention(t *testing.T) {
-	db := lifecycleTestDB(t)
-	gatewayID, session := lifecycleFixture(t, db)
-	ctx := context.Background()
-	if err := NewGatewayAssignmentRepo(db).CreateSession(ctx, session); err != nil {
-		t.Fatal(err)
-	}
-	repo := NewGatewayEventIngestRepo(db)
-	event := ingestEvent("evt_" + session.ID)
-	event.GatewayID, event.SessionID, event.OrganizationID = gatewayID, session.ID, session.OrganizationID
-	event.ConnectionEpoch, event.AssignmentEpoch = 1, 1
-	if err := repo.Ingest(ctx, event, 100); err != nil {
-		t.Fatal(err)
-	}
-	claim := func(owner string, now int64) []domain.Event {
-		t.Helper()
-		events, err := repo.ClaimCommittedEvents(ctx, CommittedEventWork{
-			Owner: owner, ClaimedAt: time.UnixMilli(now), LeaseUntil: time.UnixMilli(now + 1000), MaxItems: 1,
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		return events
-	}
-	// A later event for the same session must not overtake work still leased
-	// by another worker, even when the caller requests a smaller batch.
-	later := event
-	later.EventID += "_next"
-	if err := repo.Ingest(ctx, later, 101); err != nil {
-		t.Fatal(err)
-	}
-	if len(claim("first", 1000)) != 1 || len(claim("second", 1500)) != 0 {
-		t.Fatal("a live lease was claimed twice")
-	}
-	if len(claim("second", 2000)) != 1 {
-		t.Fatal("expired work was not reclaimed")
-	}
-	if err := repo.CompleteCommittedEvent(ctx, "first", event.EventID, time.UnixMilli(2100)); err == nil {
-		t.Fatal("stale owner completed another worker's claim")
-	}
-	retention := NewRetentionRepo(db)
-	if _, err := retention.Prune(ctx, 10_000); err != nil {
-		t.Fatal(err)
-	}
-	var count int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM event_log WHERE event_id=?`, event.EventID).Scan(&count); err != nil || count != 1 {
-		t.Fatalf("retention erased unfinished work: count=%d err=%v", count, err)
-	}
-	if err := repo.CompleteCommittedEvent(ctx, "second", event.EventID, time.UnixMilli(2200)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := retention.Prune(ctx, 10_000); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.QueryRow(`SELECT COUNT(*) FROM event_log WHERE event_id=?`, event.EventID).Scan(&count); err != nil || count != 0 {
-		t.Fatalf("completed event not pruned: count=%d err=%v", count, err)
 	}
 }
 

@@ -3,10 +3,13 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/apitypes"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/application"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/store"
 )
@@ -36,27 +39,22 @@ func (c *EventProjectionConsumer) retentionCutoff(now int64) int64 {
 }
 
 // projectHistoryBatch stores one history.batch. A payload that cannot be
-// decoded or lacks its ids is logged and skipped: the committed-event worker
-// processes a session strictly in order, so returning an error for a bad
-// payload would block every later event of the session forever.
+// decoded or lacks its ids is a permanent failure: the committed-event worker
+// dead-letters the event (status dead, last_error kept on event_fanout) and
+// the session continues, so a rejected batch stays visible instead of being
+// dropped with only a log line.
 func (c *EventProjectionConsumer) projectHistoryBatch(ctx context.Context, event domain.Event) error {
 	var p apitypes.HistoryBatchPayload
 	if err := decodePayload(event, &p); err != nil {
-		slog.WarnContext(ctx, "history batch payload undecodable; skipped",
-			"event_id", event.ID, "session_id", event.Session, "err", err)
-		return nil
+		return err
 	}
 	if p.RunID == "" {
-		slog.WarnContext(ctx, "history batch without run id; skipped",
-			"event_id", event.ID, "session_id", event.Session)
-		return nil
+		return application.PermanentEventError(errors.New("history batch without run id"))
 	}
 	now := c.clock()
 	batch, err := historyBatchFromPayload(event, p, now, c.retentionCutoff(now))
 	if err != nil {
-		slog.WarnContext(ctx, "history batch payload invalid; skipped",
-			"event_id", event.ID, "session_id", event.Session, "err", err)
-		return nil
+		return application.PermanentEventError(fmt.Errorf("history batch payload invalid: %w", err))
 	}
 	res, err := c.store.ApplyHistoryBatch(ctx, batch)
 	if err != nil {
@@ -72,21 +70,15 @@ func (c *EventProjectionConsumer) projectHistoryBatch(ctx context.Context, event
 func (c *EventProjectionConsumer) projectHistorySync(ctx context.Context, event domain.Event) error {
 	var p apitypes.HistorySyncPayload
 	if err := decodePayload(event, &p); err != nil {
-		slog.WarnContext(ctx, "history sync payload undecodable; skipped",
-			"event_id", event.ID, "session_id", event.Session, "err", err)
-		return nil
+		return err
 	}
 	switch p.Phase {
 	case domain.HistoryPhaseStarted, domain.HistoryPhaseProgress, domain.HistoryPhaseCompleted, domain.HistoryPhaseFailed:
 	default:
-		slog.WarnContext(ctx, "history sync with unknown phase; skipped",
-			"event_id", event.ID, "session_id", event.Session, "phase", p.Phase)
-		return nil
+		return application.PermanentEventError(fmt.Errorf("history sync with unknown phase %q", p.Phase))
 	}
 	if p.RunID == "" {
-		slog.WarnContext(ctx, "history sync without run id; skipped",
-			"event_id", event.ID, "session_id", event.Session)
-		return nil
+		return application.PermanentEventError(errors.New("history sync without run id"))
 	}
 	return c.store.ApplyHistorySync(ctx, store.HistorySyncUpdate{
 		SessionID:     event.Session,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/apitypes"
@@ -208,22 +209,30 @@ func payloadJSON(event domain.Event) json.RawMessage {
 	return raw
 }
 
+// decodePayload decodes an event payload into its typed shape. A decode
+// failure is permanent (application.ErrPermanentEvent): retrying the same
+// bytes cannot succeed, so the committed-event worker dead-letters the event
+// instead of blocking its session.
 func decodePayload[T any](event domain.Event, out *T) error {
+	var err error
 	switch p := event.Payload.(type) {
 	case T:
 		*out = p
 		return nil
 	case json.RawMessage:
-		return json.Unmarshal(p, out)
+		err = json.Unmarshal(p, out)
 	case []byte:
-		return json.Unmarshal(p, out)
+		err = json.Unmarshal(p, out)
 	default:
-		raw, err := json.Marshal(p)
-		if err != nil {
-			return err
+		var raw []byte
+		if raw, err = json.Marshal(p); err == nil {
+			err = json.Unmarshal(raw, out)
 		}
-		return json.Unmarshal(raw, out)
 	}
+	if err != nil {
+		return application.PermanentEventError(fmt.Errorf("decode %s payload: %w", event.Type, err))
+	}
+	return nil
 }
 
 // projectMessage upserts chat-before-message (the FK target exists and the

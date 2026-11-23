@@ -239,3 +239,32 @@ func TestHistoryApplySyncMySQL(t *testing.T) {
 		t.Fatal("missing run must be not_found")
 	}
 }
+
+// A progress event processed after completed (out-of-order delivery or a
+// replay) must not move the run back to running, and the first terminal
+// phase wins over a later one.
+func TestHistoryApplySyncMySQLTerminalIsMonotonic(t *testing.T) {
+	db := lifecycleTestDB(t)
+	ctx := context.Background()
+	sessionID := historyFixture(t, db)
+	repo := NewHistoryRepo(db)
+	for _, u := range []HistorySyncUpdate{
+		{Phase: domain.HistoryPhaseStarted, Chunks: 1, Now: 100},
+		{Phase: domain.HistoryPhaseCompleted, Progress: i(100), Chunks: 4, Messages: 80, Now: 300},
+		{Phase: domain.HistoryPhaseProgress, Progress: i(60), Chunks: 3, Messages: 60, Now: 400},
+		{Phase: domain.HistoryPhaseFailed, Error: "late failure", Now: 500},
+	} {
+		u.SessionID, u.RunID = sessionID, "hsr_mono"
+		if err := repo.ApplySync(ctx, u); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run, err := repo.LatestRun(ctx, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != "completed" || run.Progress == nil || *run.Progress != 100 || run.FinishedAt == nil ||
+		*run.FinishedAt != 300 || run.Error != nil || run.Chunks != 4 || run.Messages != 80 {
+		t.Fatalf("terminal run regressed: %+v", run)
+	}
+}

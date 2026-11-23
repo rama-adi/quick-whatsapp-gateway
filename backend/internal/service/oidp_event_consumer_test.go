@@ -93,17 +93,15 @@ func TestOIDPEventConsumerClaimsBeforeProjectionFanout(t *testing.T) {
 		WAMessageID: "wam_1", ChatJID: "628123@s.whatsapp.net", SenderJID: "628123@s.whatsapp.net",
 		SenderLID: "123@lid", Type: "text", Body: "login 123456",
 	})
-	store := &durableCommittedEventStore{
-		committed: map[string]domain.Event{event.ID: event},
-		completed: map[string]bool{},
-	}
+	clock := &testClock{t: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	store := newMemoryFanoutStore(clock.now, event)
 	worker := newTestCommittedEventWorker(store, NewCommittedEventDispatcher(
 		[]application.CommittedEventConsumer{NewCommittedEventConsumers(login, projection)},
 		publisher,
 		webhooks,
-	))
+	), clock)
 
-	completed, err := worker.RunOnce(t.Context(), 1)
+	completed, err := worker.RunOnce(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, 1, completed)
 	require.Equal(t, 0, projection.count())

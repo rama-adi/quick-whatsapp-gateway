@@ -152,8 +152,12 @@ func runWithStorageTransport(storageTransport http.RoundTripper) error {
 	// lease merely makes a crashed worker's claims retryable. ---
 	const (
 		committedEventLease        = 2 * time.Minute
-		committedEventBatch        = 100
+		committedEventSessions     = 32
+		committedEventPerSession   = 50
 		committedEventPollInterval = 2 * time.Second
+		// About two hours of retries (1s doubling, capped at 10m) before a
+		// failing event is dead-lettered and its session moves on.
+		committedEventMaxAttempts = 20
 	)
 	var publisher *stream.Publisher
 	if rdb != nil {
@@ -191,7 +195,7 @@ func runWithStorageTransport(storageTransport http.RoundTripper) error {
 	}
 	committedConsumers := service.NewCommittedEventConsumers(consumers...)
 	committedWorker, err := service.NewCommittedEventWorker(
-		committedEventWorkStore{repo: st.GatewayEvents},
+		committedEventWorkStore{repo: store.NewEventFanoutRepo(db)},
 		service.NewCommittedEventDispatcher(
 			// API-side WhatsApp-data projections (Increment 9): chats, messages,
 			// polls, poll votes, receipt statuses, and identity captures are
@@ -200,11 +204,17 @@ func runWithStorageTransport(storageTransport http.RoundTripper) error {
 			[]application.CommittedEventConsumer{committedConsumers},
 			publisher, webhookEnqueuer),
 		service.CommittedEventWorkerConfig{
-			Owner: processOwner(),
-			Lease: committedEventLease,
-			Batch: committedEventBatch,
-			Poll:  committedEventPollInterval,
-			Now:   time.Now,
+			Owner:       processOwner(),
+			Lease:       committedEventLease,
+			Sessions:    committedEventSessions,
+			PerSession:  committedEventPerSession,
+			Poll:        committedEventPollInterval,
+			MaxAttempts: committedEventMaxAttempts,
+			BackoffBase: time.Second,
+			BackoffCap:  10 * time.Minute,
+			ReportEvery: time.Minute,
+			Now:         time.Now,
+			Log:         log,
 		})
 	if err != nil {
 		return fmt.Errorf("build committed event worker: %w", err)
@@ -427,7 +437,9 @@ func runWithStorageTransport(storageTransport http.RoundTripper) error {
 			if err := json.Unmarshal(payload, &identity); err != nil {
 				return fmt.Errorf("decode sent message identity: %w", err)
 			}
-			apiOwnsEvent, err := st.EventLog.AppendOwnSentOnce(ctx, domain.EventLogEntry{
+			// The append enqueues durable fan-out (event_fanout, source api):
+			// the committed-event worker publishes it and enqueues webhooks.
+			_, err = st.EventLog.AppendOwnSentOnce(ctx, domain.EventLogEntry{
 				EventID:        event.ID,
 				OrganizationID: event.Organization,
 				SessionID:      event.Session,
@@ -435,21 +447,7 @@ func runWithStorageTransport(storageTransport http.RoundTripper) error {
 				Payload:        payload,
 				CreatedAt:      event.Timestamp,
 			}, identity.ChatJID, identity.WAMessageID)
-			if err != nil {
-				return err
-			}
-			if !apiOwnsEvent {
-				return nil
-			}
-			if publisher != nil {
-				if err := publisher.Publish(ctx, event); err != nil {
-					return fmt.Errorf("publish sent message: %w", err)
-				}
-			}
-			if _, err := webhookEnqueuer.Enqueue(ctx, event); err != nil {
-				return fmt.Errorf("enqueue sent message webhooks: %w", err)
-			}
-			return nil
+			return err
 		})
 		schedulerCtx, schedulerStop := context.WithCancel(ctx)
 		defer schedulerStop()
@@ -721,22 +719,70 @@ func startWebhookDispatchLoop(ctx context.Context, d *webhooks.Dispatcher, log *
 	return cancel
 }
 
-// committedEventWorkStore adapts the gateway-event ingest repo to the service
+// committedEventWorkStore adapts the event fan-out repo to the service
 // worker's durable work port. It stays in the composition root so
 // internal/store keeps no application-layer imports.
-type committedEventWorkStore struct{ repo *store.GatewayEventIngestRepo }
+type committedEventWorkStore struct{ repo *store.EventFanoutRepo }
 
 func (a committedEventWorkStore) ClaimCommittedEvents(
 	ctx context.Context,
 	claim application.CommittedEventClaim,
-) ([]domain.Event, error) {
-	return a.repo.ClaimCommittedEvents(ctx, store.CommittedEventWork{
-		Owner: claim.Owner, ClaimedAt: claim.ClaimedAt, LeaseUntil: claim.LeaseUntil, MaxItems: claim.MaxItems,
+) ([]application.ClaimedCommittedEvent, error) {
+	claimed, err := a.repo.Claim(ctx, store.FanoutClaim{
+		Owner: claim.Owner, Token: claim.Token, ClaimedAt: claim.ClaimedAt, LeaseUntil: claim.LeaseUntil,
+		MaxSessions: claim.MaxSessions, MaxPerSession: claim.MaxPerSession,
 	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]application.ClaimedCommittedEvent, 0, len(claimed))
+	for _, c := range claimed {
+		out = append(out, application.ClaimedCommittedEvent{
+			Event: c.Event, Source: c.Source, SessionSeq: c.SessionSeq,
+			Attempts: c.Attempts, LastError: c.LastError, Missing: c.Missing,
+		})
+	}
+	return out, nil
 }
 
-func (a committedEventWorkStore) CompleteCommittedEvent(ctx context.Context, owner, eventID string) error {
-	return a.repo.CompleteCommittedEvent(ctx, owner, eventID, time.Now())
+func (a committedEventWorkStore) StartCommittedEvent(ctx context.Context, token, eventID string, leaseUntil time.Time) error {
+	return fanoutClaimErr(a.repo.Start(ctx, token, eventID, leaseUntil))
+}
+
+func (a committedEventWorkStore) CompleteCommittedEvent(ctx context.Context, token, eventID string, at time.Time) error {
+	return fanoutClaimErr(a.repo.Complete(ctx, token, eventID, at))
+}
+
+func (a committedEventWorkStore) FailCommittedEvent(ctx context.Context, f application.CommittedEventFailure) error {
+	return fanoutClaimErr(a.repo.Fail(ctx, store.FanoutFailure{
+		Token: f.Token, EventID: f.EventID, Error: f.Error, Dead: f.Dead, NextAttemptAt: f.NextAttemptAt, At: f.At,
+	}))
+}
+
+func (a committedEventWorkStore) ReleaseCommittedEvents(ctx context.Context, token, sessionID string) error {
+	return a.repo.Release(ctx, token, sessionID)
+}
+
+func (a committedEventWorkStore) CommittedEventBacklog(ctx context.Context) (application.CommittedEventBacklog, error) {
+	b, err := a.repo.Backlog(ctx)
+	if err != nil {
+		return application.CommittedEventBacklog{}, err
+	}
+	out := application.CommittedEventBacklog{
+		Outstanding: b.Outstanding, Dead: b.Dead, OldestEventID: b.OldestEventID,
+		OldestSessionID: b.OldestSessionID, OldestAttempts: b.OldestAttempts, OldestLastError: b.OldestLastError,
+	}
+	if b.OldestCreatedAt > 0 {
+		out.OldestCreatedAt = time.UnixMilli(b.OldestCreatedAt).UTC()
+	}
+	return out, nil
+}
+
+func fanoutClaimErr(err error) error {
+	if errors.Is(err, store.ErrFanoutClaimLost) {
+		return fmt.Errorf("%w: %w", application.ErrCommittedEventClaimLost, err)
+	}
+	return err
 }
 
 // processOwner identifies this replica in committed-event claims. A hostname is

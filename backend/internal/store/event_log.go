@@ -21,8 +21,10 @@ type EventLogRepo struct {
 func NewEventLogRepo(db storedb.DBTX) *EventLogRepo { return &EventLogRepo{q: storedb.New(db), db: db} }
 
 // AppendOwnSentOnce makes the API's sent event compete atomically with a
-// gateway echo for the same WhatsApp message. Only the claim owner should fan
-// out the public event; retries by the API owner may re-run downstream delivery.
+// gateway echo for the same WhatsApp message. When the API owns the event, the
+// same transaction appends it to event_log and enqueues durable fan-out work
+// (event_fanout, source api), so publication and webhooks survive a crash. A
+// retry by the API owner is a no-op. The result reports API ownership.
 func (r *EventLogRepo) AppendOwnSentOnce(
 	ctx context.Context,
 	e domain.EventLogEntry,
@@ -66,10 +68,19 @@ func (r *EventLogRepo) AppendOwnSentOnce(
 	if claimedID != e.EventID {
 		return false, fmt.Errorf("store: conflicting API sent event claim")
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT IGNORE INTO event_log
+	res, err := tx.ExecContext(ctx, `INSERT IGNORE INTO event_log
 		(event_id,organization_id,session_id,type,payload,created_at) VALUES (?,?,?,?,?,?)`,
-		e.EventID, e.OrganizationID, e.SessionID, e.Type, e.Payload, e.CreatedAt); err != nil {
+		e.EventID, e.OrganizationID, e.SessionID, e.Type, e.Payload, e.CreatedAt)
+	if err != nil {
 		return false, fmt.Errorf("store: append API sent event: %w", err)
+	}
+	if inserted, _ := res.RowsAffected(); inserted == 1 {
+		if err := enqueueFanout(ctx, tx, fanoutItem{
+			eventID: e.EventID, organizationID: e.OrganizationID, sessionID: e.SessionID,
+			source: FanoutSourceAPI, createdAt: e.CreatedAt,
+		}); err != nil {
+			return false, err
+		}
 	}
 	var organizationID, sessionID, typ string
 	if err := tx.QueryRowContext(ctx, `SELECT organization_id,session_id,type FROM event_log WHERE event_id=?`,

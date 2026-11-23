@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/application"
 	"testing"
 
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/apitypes"
@@ -70,10 +72,10 @@ func TestProjectHistoryBatchFlattensPayload(t *testing.T) {
 	}
 }
 
-// TestProjectHistoryEventsSkipBadPayloads makes undecodable or incomplete
-// history events logged no-ops: returning an error would block the session's
-// ordered event stream forever.
-func TestProjectHistoryEventsSkipBadPayloads(t *testing.T) {
+// TestProjectHistoryEventsRejectBadPayloadsPermanently makes undecodable or
+// incomplete history events permanent failures: the committed-event worker
+// dead-letters them (visible on event_fanout) and the session continues.
+func TestProjectHistoryEventsRejectBadPayloadsPermanently(t *testing.T) {
 	fs := &fakeProjectionStore{}
 	c := NewEventProjectionConsumer(fs, func() int64 { return 1 })
 	for _, ev := range []domain.Event{
@@ -82,8 +84,8 @@ func TestProjectHistoryEventsSkipBadPayloads(t *testing.T) {
 		{ID: "e3", Type: domain.EventHistorySync, Session: "s", Payload: json.RawMessage(`[]`)},
 		{ID: "e4", Type: domain.EventHistorySync, Session: "s", Payload: json.RawMessage(`{"runId":"r","phase":"bogus"}`)},
 	} {
-		if err := c.ConsumeCommittedEvent(context.Background(), ev); err != nil {
-			t.Fatalf("%s: %v", ev.ID, err)
+		if err := c.ConsumeCommittedEvent(context.Background(), ev); !errors.Is(err, application.ErrPermanentEvent) {
+			t.Fatalf("%s: want permanent error, got %v", ev.ID, err)
 		}
 	}
 	if len(fs.historyBatches)+len(fs.historySyncs) != 0 {

@@ -19,7 +19,7 @@ func runE2EOwnEcho(t *testing.T, infra *e2eInfra, gateway *e2eGateway) {
 		}
 		var ingestedBefore int
 		if err := infra.db.QueryRow(`SELECT COUNT(*) FROM gateway_ingested_events WHERE session_id=?
-			AND completed_at IS NOT NULL`,
+			AND NOT EXISTS (SELECT 1 FROM event_fanout f WHERE f.event_id=gateway_ingested_events.event_log_id AND f.status<>'done')`,
 			e2eSessionID).Scan(&ingestedBefore); err != nil {
 			t.Fatal(err)
 		}
@@ -44,7 +44,7 @@ func runE2EOwnEcho(t *testing.T, infra *e2eInfra, gateway *e2eGateway) {
 		e2eEventually(t, ctx, "own echo committed", func() bool {
 			var ingested int
 			if err := infra.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM gateway_ingested_events
-				WHERE organization_id=? AND session_id=? AND completed_at IS NOT NULL`,
+				WHERE organization_id=? AND session_id=? AND NOT EXISTS (SELECT 1 FROM event_fanout f WHERE f.event_id=gateway_ingested_events.event_log_id AND f.status<>'done')`,
 				e2eOrgA, e2eSessionID).Scan(&ingested); err != nil {
 				return false
 			}
@@ -61,7 +61,7 @@ func runE2EOwnEcho(t *testing.T, infra *e2eInfra, gateway *e2eGateway) {
 		e2eEventually(t, ctx, "replayed own echo acknowledged", func() bool {
 			var ingested int
 			if err := infra.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM gateway_ingested_events
-				WHERE organization_id=? AND session_id=? AND completed_at IS NOT NULL`,
+				WHERE organization_id=? AND session_id=? AND NOT EXISTS (SELECT 1 FROM event_fanout f WHERE f.event_id=gateway_ingested_events.event_log_id AND f.status<>'done')`,
 				e2eOrgA, e2eSessionID).Scan(&ingested); err != nil {
 				return false
 			}

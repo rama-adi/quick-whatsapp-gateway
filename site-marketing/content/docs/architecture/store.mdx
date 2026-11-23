@@ -48,6 +48,8 @@ api-key `reference_id`, never by joining `member` on the hot path ([`trust-model
 | `outbox` | `OutboxRepo` | `organization_id` (idempotency) |
 | `event_log` | `EventLogRepo` | `organization_id` |
 | `outgoing_message_event_claims` | `EventLogRepo` + `GatewayEventIngestRepo` | composite organization/session/chat/WhatsApp-message identity; first committed event owner |
+| `gateway_ingested_events` | `GatewayEventIngestRepo` | gateway journal dedupe + provenance (`gateway_id`, `journal_sequence`) |
+| `event_fanout` + `session_event_sequences` | `EventFanoutRepo` (enqueued by `GatewayEventIngestRepo` and `EventLogRepo`) | via `session_id`; explicit post-commit fan-out work (`pending`/`leased`/`done`/`dead`, claim token, lease, attempts, last error) ordered by a per-session `session_seq`; `ON DELETE CASCADE` with the session |
 | `messages` + `event_log` + `webhook_deliveries` | `RetentionRepo` | global maintenance (bounded retention batches) |
 | `messages` + `outbox` + `webhook_deliveries` (read-only) | `OverviewRepo` | `organization_id`; messages via the org's session ids, deliveries via the org's webhook ids |
 | `backfill_imports` | `BackfillImportRepo` | via `session_id` (import job status + once/24h quota) |
@@ -426,11 +428,13 @@ interception, no `message` webhooks, no auto-read, and no media capture.
    (`batches_applied`, `messages_imported` / `_existing` / `_dropped`).
 
 `ApplySync` upserts the run row from `history.sync`: gateway counters use `GREATEST`,
-`status` mirrors the latest phase (`completed` / `failed` set `finished_at`), and replaying
-the same event writes the same values. A history payload that cannot be decoded, or lacks
-its run id, is logged and skipped rather than returned as an error: the committed-event
-worker processes a session strictly in order, so an error would block every later event
-of that session.
+and replaying the same event writes the same values. `status` is monotonic: `started` and
+`progress` keep a run `running`, `completed` / `failed` set `finished_at`, and once a run is
+terminal no later or replayed event moves it back to `running` or changes its terminal
+status, `error`, `finished_at` or `progress` (the first terminal phase wins). A history
+payload that cannot be decoded, or lacks its run id, is a permanent failure
+(`application.ErrPermanentEvent`): the committed-event worker dead-letters the event on
+`event_fanout` with its error and the session continues with its next event.
 
 A session pinned to a gateway that is missing / not `active` / has a stale heartbeat is a *stranded*
 session: the router returns the new **`gateway_unavailable` (HTTP 503)** domain error rather than
@@ -518,8 +522,9 @@ read queries can compile without making the API a writer or migration owner for 
   `webhook_deliveries`. It intentionally preserves `pending` and retryable
   `failed` delivery rows regardless of age because their payload, attempts, and
   retry time remain operational state, and retains their referenced event-log
-  rows until those deliveries are terminal. Incomplete `gateway_ingested_events`
-  also retain their event-log payloads, regardless of age. Event-log retention otherwise bounds
+  rows until those deliveries are terminal. Unfinished fan-out work
+  (`event_fanout` rows in `pending` or `leased`) also retains its event-log payload,
+  regardless of age. Event-log retention otherwise bounds
   stream replay: a `since` cursor that is older than the retained history
   replays from the oldest remaining event.
 - **Timestamps** are caller-supplied epoch-ms `int64` (`domain.NowMs()`) — repos never call the
@@ -599,8 +604,8 @@ read queries can compile without making the API a writer or migration owner for 
   `outgoing_message_event_claims` row in the event-log transaction. Its composite
   primary key makes ownership serializable across either arrival order; the
   winning API outbox ID or gateway journal event ID remains the public ULID.
-  Duplicate gateway journal IDs are acknowledged independently and completed
-  without a second event-log row or fan-out. The row follows its session on delete.
+  Duplicate gateway journal IDs are acknowledged independently and recorded in
+  `gateway_ingested_events` without a second event-log row or fan-out. The row follows its session on delete.
   Historical sends predating this table have no claim until a separately verified
   upgrade handles that deployment's existing data.
 - **Retry scheduling lives on the row (migration 0014).** `next_attempt_at` schedules ambiguous
