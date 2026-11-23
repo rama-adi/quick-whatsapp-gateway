@@ -99,6 +99,18 @@ describe("session.status events", () => {
   });
 });
 
+describe("session.status events per row", () => {
+  it("patch an older list row even when the detail row is newer", () => {
+    const qc = new QueryClient();
+    qc.setQueryData(qk.session(SESSION), row({ status: "working", updatedAt: 500 }));
+    qc.setQueryData(qk.sessions(), pages([row({ status: "starting", updatedAt: 100 })]));
+    applyEvent(qc, statusEvent("scan_qr_code", 300));
+    expect(qc.getQueryData<WASession>(qk.session(SESSION))?.status).toBe("working");
+    const list = qc.getQueryData<InfiniteData<Page<WASession>>>(qk.sessions());
+    expect(list?.pages[0]?.data[0]?.status).toBe("scan_qr_code");
+  });
+});
+
 describe("query writes go through the rule", () => {
   let qc: QueryClient;
   beforeEach(() => {

@@ -133,17 +133,19 @@ export function applyEvent(qc: QueryClient, e: EventEnvelope): void {
                 phoneNumber: undefined,
               }
             : { ...row, status };
-        // An event older than the cached row (by updatedAt) changes nothing;
-        // refetch so REST settles it in case the two clocks disagree.
-        const known = cachedSession(qc, s);
-        if (!eventIsCurrent(known, e.timestamp)) {
-          void qc.invalidateQueries({ queryKey: qk.session(s), exact: true });
-          break;
-        }
+        // Each cached row takes the event only if the event is newer than it.
+        const current = eventIsCurrent(cachedSession(qc, s), e.timestamp);
         const apply = (row: WASession): WASession => applySessionEvent(row, e.timestamp, change);
         qc.setQueryData<WASession>(qk.session(s), (cur) => (cur ? apply(cur) : cur));
         patchRow<WASession>(qc, qk.sessions(), (r) => r.id === s, apply);
         patchRow<WASession>(qc, qk.adminSessions(), (r) => r.id === s, apply);
+        if (!current) {
+          // Older than what the page shows: leave the artifacts and failure
+          // reason alone, and refetch so REST settles it in case the two
+          // clocks disagree.
+          void qc.invalidateQueries({ queryKey: qk.session(s), exact: true });
+          break;
+        }
         // QR codes, phone pairing codes and passkey steps belong to one pairing
         // attempt; any status other than scan_qr_code ends it.
         if (status !== "scan_qr_code") clearPairingArtifacts(qc, s);
