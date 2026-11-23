@@ -32,8 +32,13 @@ entry/byte counts, oldest-entry time, acknowledgement watermark, and capacity st
 
 The same SQLite file holds the history-sync inbox (`journal/history.go`):
 `history_inbox` stores each history-sync notification (the protobuf, account, cutoff,
-attempts, next attempt, batch cursor) before the phone is acknowledged, and `history_runs`
-tracks each import run's status and counters. Finished rows are pruned after seven days.
+status, attempts, next attempt, `give_up_at` deadline, batch cursor) before the phone is
+acknowledged, and `history_runs` tracks each import run's status and counters. Inbox states
+are `pending`, `waiting_session` and `retrying` (active, bounded by `give_up_at`) and `done`,
+`failed`, `discarded` and `abandoned` (finished). A journal created before `give_up_at`
+existed gains the column at open, with receipt time + 24 h for stored rows. Finished rows
+are pruned after seven days. The same file also holds `journal_quarantine`: journal entries
+that can never be replayed (undecodable or larger than a control batch), kept 30 days.
 They do not count toward journal capacity, which measures unacknowledged event payloads.
 A history batch is at most about 96 KiB; one oversized message travels alone and is
 truncated so its batch stays well under the 1 MiB replay batch (pinned by

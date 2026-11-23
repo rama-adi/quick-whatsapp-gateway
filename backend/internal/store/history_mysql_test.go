@@ -268,3 +268,54 @@ func TestHistoryApplySyncMySQLTerminalIsMonotonic(t *testing.T) {
 		t.Fatalf("terminal run regressed: %+v", run)
 	}
 }
+
+// A run whose gateway goes silent past expected_by is abandoned by the API;
+// a late progress event cannot revive it, while a late final event still
+// records the gateway's real outcome.
+func TestHistoryAbandonOverdueRunsMySQL(t *testing.T) {
+	db := lifecycleTestDB(t)
+	ctx := context.Background()
+	sessionID := historyFixture(t, db)
+	repo := NewHistoryRepo(db)
+	apply := func(run, phase string, now int64) {
+		t.Helper()
+		if err := repo.ApplySync(ctx, HistorySyncUpdate{SessionID: sessionID, RunID: run, Phase: phase, Now: now}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	status := func(run string) (string, sql.NullInt64) {
+		t.Helper()
+		var s string
+		var expected sql.NullInt64
+		if err := db.QueryRow(`SELECT status, expected_by FROM history_sync_runs WHERE session_id=? AND run_id=?`,
+			sessionID, run).Scan(&s, &expected); err != nil {
+			t.Fatal(err)
+		}
+		return s, expected
+	}
+	limit := HistoryRunSilenceLimit.Milliseconds()
+	apply("hsr_quiet", domain.HistoryPhaseStarted, 1000)
+	apply("hsr_quiet", domain.HistoryPhaseProgress, 2000)
+	apply("hsr_live", domain.HistoryPhaseStarted, 1000+limit)
+	if s, expected := status("hsr_quiet"); s != "running" || expected.Int64 != 2000+limit {
+		t.Fatalf("quiet run = %s expected_by=%v", s, expected)
+	}
+	n, err := repo.AbandonOverdueRuns(ctx, 2000+limit)
+	if err != nil || n != 1 {
+		t.Fatalf("abandoned=%d err=%v", n, err)
+	}
+	if s, expected := status("hsr_quiet"); s != "abandoned" || expected.Valid {
+		t.Fatalf("quiet run = %s expected_by=%v", s, expected)
+	}
+	if s, _ := status("hsr_live"); s != "running" {
+		t.Fatalf("live run = %s", s)
+	}
+	apply("hsr_quiet", domain.HistoryPhaseProgress, 3000+limit)
+	if s, _ := status("hsr_quiet"); s != "abandoned" {
+		t.Fatalf("late progress revived an abandoned run: %s", s)
+	}
+	apply("hsr_quiet", domain.HistoryPhaseCompleted, 4000+limit)
+	if s, _ := status("hsr_quiet"); s != "completed" {
+		t.Fatalf("late final outcome not recorded: %s", s)
+	}
+}

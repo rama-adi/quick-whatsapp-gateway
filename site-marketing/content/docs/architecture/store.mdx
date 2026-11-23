@@ -428,11 +428,22 @@ interception, no `message` webhooks, no auto-read, and no media capture.
 9. **Counters.** Ledger row plus `history_sync_runs` increments
    (`batches_applied`, `messages_imported` / `_existing` / `_dropped`).
 
+**Run deadline (migration 0032).** A running run carries `expected_by`: every
+`started`/`progress` event and every applied batch moves it to now + 26 h
+(`store.HistoryRunSilenceLimit`, longer than the gateway's 24 h notification give-up plus
+its 1 h final-event retry window). The API maintenance loop (`history-runs-abandon`, at boot
+and every 5 min on every replica) sets runs whose `expected_by` passed to `abandoned`, a
+terminal status with `finished_at` and an error. A run therefore never stays `running`
+because the gateway's final event was lost (session moved, gateway gone, journaling
+failures).
+
 `ApplySync` upserts the run row from `history.sync`: gateway counters use `GREATEST`,
 and replaying the same event writes the same values. `status` is monotonic: `started` and
 `progress` keep a run `running`, `completed` / `failed` set `finished_at`, and once a run is
 terminal no later or replayed event moves it back to `running` or changes its terminal
-status, `error`, `finished_at` or `progress` (the first terminal phase wins). A history
+status, `error`, `finished_at` or `progress` (the first gateway outcome wins). The one
+exception: a late `completed`/`failed` event replaces `abandoned`, recording the gateway's
+real outcome. A history
 payload that cannot be decoded, or lacks its run id, is a permanent failure
 (`application.ErrPermanentEvent`): the committed-event worker dead-letters the event on
 `event_fanout` with its error and the session continues with its next event.

@@ -195,6 +195,10 @@ expires_at INTEGER NOT NULL
 		_ = db.Close()
 		return nil, classifySQLiteError(fmt.Errorf("initialize gateway history inbox: %w", err))
 	}
+	if err = migrateHistorySchema(ctx, db); err != nil {
+		_ = db.Close()
+		return nil, classifySQLiteError(fmt.Errorf("migrate gateway history inbox: %w", err))
+	}
 	return &Journal{db: db, cfg: cfg}, nil
 }
 

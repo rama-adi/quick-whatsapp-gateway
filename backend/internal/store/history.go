@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 )
@@ -195,9 +196,10 @@ func (r *HistoryRepo) ApplyBatch(ctx context.Context, b HistoryBatch) (HistoryBa
 	if _, err := tx.ExecContext(ctx,
 		`UPDATE history_sync_runs SET batches_applied=batches_applied+1,
 		 messages_imported=messages_imported+?, messages_existing=messages_existing+?,
-		 messages_dropped=messages_dropped+?, updated_at=GREATEST(updated_at, ?)
+		 messages_dropped=messages_dropped+?, updated_at=GREATEST(updated_at, ?),
+		 expected_by=IF(status='running', GREATEST(COALESCE(expected_by, 0), ?), expected_by)
 		 WHERE session_id=? AND run_id=?`,
-		res.Imported, res.Existing, res.Dropped, b.Now, b.SessionID, b.RunID,
+		res.Imported, res.Existing, res.Dropped, b.Now, b.Now+HistoryRunSilenceLimit.Milliseconds(), b.SessionID, b.RunID,
 	); err != nil {
 		return HistoryBatchResult{}, fmt.Errorf("store: history run counters: %w", err)
 	}
@@ -209,10 +211,10 @@ func (r *HistoryRepo) ApplyBatch(ctx context.Context, b HistoryBatch) (HistoryBa
 
 func ensureHistoryRun(ctx context.Context, db dbExecQuerier, sessionID, runID, accountJID string, now int64) error {
 	if _, err := db.ExecContext(ctx,
-		`INSERT INTO history_sync_runs (session_id, run_id, account_jid, status, started_at, updated_at)
-		 VALUES (?,?,?,'running',?,?)
+		`INSERT INTO history_sync_runs (session_id, run_id, account_jid, status, started_at, updated_at, expected_by)
+		 VALUES (?,?,?,'running',?,?,?)
 		 ON DUPLICATE KEY UPDATE account_jid=COALESCE(account_jid, VALUES(account_jid))`,
-		sessionID, runID, nullIfEmpty(accountJID), now, now,
+		sessionID, runID, nullIfEmpty(accountJID), now, now, now+HistoryRunSilenceLimit.Milliseconds(),
 	); err != nil {
 		return fmt.Errorf("store: ensure history run: %w", err)
 	}
@@ -731,15 +733,27 @@ type HistorySyncUpdate struct {
 	Now           int64
 }
 
-// historyRunTerminal is the SQL predicate for a run that already ended.
-const historyRunTerminal = `status IN ('completed','failed','abandoned')`
+// HistoryRunSilenceLimit is how long a running run may go without any
+// history.sync event or applied batch before the API marks it abandoned. It
+// exceeds the gateway's own give-up deadline for a notification (24h) plus
+// the window in which it retries the run's final event (1h), so a run is only
+// abandoned when the gateway's final event can no longer arrive.
+const HistoryRunSilenceLimit = 26 * time.Hour
+
+// historyRunKeep is the ON DUPLICATE KEY predicate under which a run keeps
+// its current state: it already ended (completed or failed), or the API
+// abandoned it and the incoming event is not a final one. A late final event
+// still records the gateway's real outcome over 'abandoned'.
+const historyRunKeep = `(status IN ('completed','failed') OR (status='abandoned' AND VALUES(status)='running'))`
 
 // ApplySync records a history.sync event on its run row. Gateway counters are
 // cumulative, so they only grow (GREATEST). The run status is monotonic: once
-// a run is terminal (completed, failed, abandoned) a later or replayed
-// started/progress event never moves it back to running, and the first
-// terminal phase wins. MySQL applies ON DUPLICATE KEY assignments in order
-// and later ones see earlier results, so status is assigned last.
+// a run is terminal a later or replayed started/progress event never moves it
+// back to running, and the first gateway outcome (completed or failed) wins.
+// A run the API abandoned still takes a late completed/failed outcome. Each
+// running event moves expected_by forward by HistoryRunSilenceLimit. MySQL
+// applies ON DUPLICATE KEY assignments in order and later ones see earlier
+// results, so status is assigned last.
 func (r *HistoryRepo) ApplySync(ctx context.Context, u HistorySyncUpdate) error {
 	if u.SessionID == "" || u.RunID == "" {
 		return domain.ErrValidation("history sync requires session and run ids")
@@ -763,31 +777,51 @@ func (r *HistoryRepo) ApplySync(ctx context.Context, u HistorySyncUpdate) error 
 	if u.CutoffAt > 0 {
 		cutoff = u.CutoffAt
 	}
+	var expectedBy any
+	if status == "running" {
+		expectedBy = u.Now + HistoryRunSilenceLimit.Milliseconds()
+	}
 	if _, err := r.db.ExecContext(ctx,
 		`INSERT INTO history_sync_runs
 		 (session_id, run_id, account_jid, status, sync_type, progress, cutoff_at, chunks, batches,
-		  conversations, messages, skipped, error, started_at, updated_at, finished_at)
-		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+		  conversations, messages, skipped, error, started_at, updated_at, finished_at, expected_by)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		 ON DUPLICATE KEY UPDATE
 		   account_jid=COALESCE(account_jid, VALUES(account_jid)),
 		   sync_type=COALESCE(VALUES(sync_type), sync_type),
-		   progress=IF(`+historyRunTerminal+`, progress, COALESCE(VALUES(progress), progress)),
+		   progress=IF(`+historyRunKeep+`, progress, COALESCE(VALUES(progress), progress)),
 		   cutoff_at=COALESCE(VALUES(cutoff_at), cutoff_at),
 		   chunks=GREATEST(chunks, VALUES(chunks)),
 		   batches=GREATEST(batches, VALUES(batches)),
 		   conversations=GREATEST(conversations, VALUES(conversations)),
 		   messages=GREATEST(messages, VALUES(messages)),
 		   skipped=GREATEST(skipped, VALUES(skipped)),
-		   error=IF(`+historyRunTerminal+`, error, VALUES(error)),
+		   error=IF(`+historyRunKeep+`, error, VALUES(error)),
 		   updated_at=GREATEST(updated_at, VALUES(updated_at)),
-		   finished_at=IF(`+historyRunTerminal+`, finished_at, VALUES(finished_at)),
-		   status=IF(`+historyRunTerminal+`, status, VALUES(status))`,
+		   finished_at=IF(`+historyRunKeep+`, finished_at, VALUES(finished_at)),
+		   expected_by=IF(`+historyRunKeep+`, expected_by,
+		     IF(VALUES(status)='running', GREATEST(COALESCE(expected_by, 0), VALUES(expected_by)), NULL)),
+		   status=IF(`+historyRunKeep+`, status, VALUES(status))`,
 		u.SessionID, u.RunID, nullIfEmpty(u.AccountJID), status, nullIfEmpty(u.SyncType), progress, cutoff,
-		u.Chunks, u.Batches, u.Conversations, u.Messages, u.Skipped, errText, u.Now, u.Now, finished,
+		u.Chunks, u.Batches, u.Conversations, u.Messages, u.Skipped, errText, u.Now, u.Now, finished, expectedBy,
 	); err != nil {
 		return fmt.Errorf("store: apply history sync: %w", err)
 	}
 	return nil
+}
+
+// AbandonOverdueRuns ends every running run whose expected_by passed: the
+// gateway's final history.sync event did not arrive in time (session moved,
+// gateway gone, or publish retries exhausted). It returns how many runs ended.
+func (r *HistoryRepo) AbandonOverdueRuns(ctx context.Context, now int64) (int64, error) {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE history_sync_runs SET status='abandoned', finished_at=?, expected_by=NULL,
+		 error=COALESCE(error, 'no history sync activity from the gateway before the deadline; the run was abandoned')
+		 WHERE status='running' AND expected_by IS NOT NULL AND expected_by <= ?`, now, now)
+	if err != nil {
+		return 0, fmt.Errorf("store: abandon overdue history runs: %w", err)
+	}
+	return res.RowsAffected()
 }
 
 // LatestRun returns the session's most recently started run, or not_found.

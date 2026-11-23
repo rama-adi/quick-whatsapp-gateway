@@ -381,13 +381,16 @@ session (`GATEWAY_HISTORY_CONCURRENCY` sessions at once, default 1). It starts o
 the first desired-state snapshot is applied. For each notification it:
 
 1. discards it when the session is no longer on this gateway or the device now belongs to a
-   different account; postpones it while the session is disconnected or not owned;
+   different account; abandons it (status `abandoned`, and fails its run) once its
+   `give_up_at` deadline (stored at receipt, receipt time + 24 h) has passed; otherwise moves it
+   to `waiting_session`, counting the attempt, while the session is disconnected or not owned;
 2. calls `DownloadHistorySync(ctx, notif, true)`. This runs even when the import is off
    (`historySyncDays = 0`), because whatsmeow stores message secrets, LID mappings and push
    names from the blob; nothing is journaled in that case;
 3. on 404/410 sends one `SendHistorySyncServerErrorReceipt` (the phone may re-upload as a
-   new notification) and marks the notification failed; on other network errors retries
-   with backoff (5 s doubling, at most 10 min) for up to 24 h, then fails the run;
+   new notification) and marks the notification failed; on other network errors moves it to
+   `retrying` with backoff (5 s doubling, at most 10 min). A failed journal publish or run
+   creation is a counted `retrying` attempt too, so every wait is bounded by `give_up_at`;
 4. converts the blob with `historysync.Convert` and journals the `history.batch` events
    from a persisted cursor (`batches_done`), about 4 per second per session, pausing while
    the journal is not in its healthy capacity band;
@@ -402,9 +405,12 @@ the journal deduplicates them.
 **Runs.** A run (`history_runs`) groups the notifications of one account. It is created by
 the first processed notification, which journals `started`. It completes when a `RECENT`
 notification reports 100% (`FULL` when full sync is enabled) and nothing is pending, or after
-10 minutes without a notification; it fails when a download gives up or the session is
-relinked or logged out. The final `completed`/`failed` event is journaled from the run
-table, so it survives restarts. `PairSuccess` discards pending notifications and fails the
+10 minutes without an active notification; it fails when a notification is abandoned at
+its deadline or the session is relinked or logged out. The final `completed`/`failed` event
+is journaled from the run table, so it survives restarts. When the session has left this
+gateway, or journaling the final event keeps failing for an hour, the gateway logs a
+warning and stops trying; the API does not depend on that event, because it abandons a run
+whose `expected_by` deadline passes (see store). `PairSuccess` discards pending notifications and fails the
 running run of any other account; logout and `Forget` discard everything pending.
 
 **Full sync (operator opt-in).** `GATEWAY_HISTORY_FULL_SYNC=true` asks the phone for full

@@ -3703,11 +3703,11 @@ export interface components {
              */
             startedAt: number;
             /**
-             * @description Run state. **running** = the phone is still sending history or batches are still being stored; **completed** = all history the phone sent was imported; **failed** = the import stopped, see error.
+             * @description Run state. **running** = the phone is still sending history or batches are still being stored; **completed** = all history the phone sent was imported; **failed** = the import stopped, see error; **abandoned** = the gateway reported nothing for 26 hours, so the API stopped waiting (a late completed or failed report still replaces it).
              * @example running
              * @enum {string}
              */
-            status: "running" | "completed" | "failed";
+            status: "running" | "completed" | "failed" | "abandoned";
             /**
              * @description Kind of the latest WhatsApp history notification in this run. Optional.
              * @example recent

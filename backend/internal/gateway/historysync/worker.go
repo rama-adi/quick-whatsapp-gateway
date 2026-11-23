@@ -49,7 +49,7 @@ type Store interface {
 	EnqueueHistory(ctx context.Context, row journal.HistoryInboxRow) (bool, error)
 	PendingHistory(ctx context.Context) ([]journal.HistoryInboxRow, error)
 	HasPendingHistory(ctx context.Context, sessionID string) (bool, error)
-	PostponeHistory(ctx context.Context, id int64, attempts int, next time.Time, errText string) error
+	PostponeHistory(ctx context.Context, id int64, status string, attempts int, next time.Time, errText string) error
 	SetHistoryCursor(ctx context.Context, id int64, batchesDone int) error
 	MarkHistoryServerErrorSent(ctx context.Context, id int64) error
 	FinishHistory(ctx context.Context, id int64, status, errText string, delta *journal.HistoryRunDelta) error
@@ -75,7 +75,9 @@ type Config struct {
 	// IdleComplete completes a run that has had no notification for this
 	// long (default 10 minutes).
 	IdleComplete time.Duration
-	// RetryFor is how long a failing download is retried (default 24h).
+	// RetryFor is how long a notification may stay active (waiting for its
+	// session or retrying) before it is abandoned and its run fails
+	// (default 24h). It is stored per notification as give_up_at.
 	RetryFor time.Duration
 	// FullSync means the gateway asked the phone for full history at link
 	// time; a run then completes when FULL (not RECENT) reaches 100%.
@@ -176,7 +178,7 @@ func (w *Worker) Accept(ctx context.Context, c Client, n Intercepted) error {
 	inserted, err := w.store.EnqueueHistory(ctx, journal.HistoryInboxRow{
 		SessionID: n.SessionID, OrganizationID: n.OrganizationID, NotificationID: n.MessageID,
 		AccountJID: n.AccountJID, Notification: raw, NotifiedAt: notified, CutoffMs: cutoff,
-		ImportEnabled: n.HistorySyncDays > 0,
+		ImportEnabled: n.HistorySyncDays > 0, GiveUpAt: now.Add(w.cfg.RetryFor),
 	})
 	if err != nil {
 		return fmt.Errorf("store history notification: %w", err)
@@ -302,8 +304,13 @@ func (w *Worker) process(ctx context.Context, row journal.HistoryInboxRow) {
 		w.finish(ctx, row, journal.HistoryDiscarded, "device is linked to another account", nil)
 		return
 	}
+	if !row.GiveUpAt.IsZero() && !w.cfg.Now().Before(row.GiveUpAt) {
+		w.abandon(ctx, row)
+		return
+	}
 	if c == nil || (w.cfg.Owns != nil && !w.cfg.Owns(row.OrganizationID, row.SessionID)) {
-		w.postpone(ctx, row, row.Attempts, waitForSession, "waiting for the session to be connected and owned")
+		w.postpone(ctx, row, journal.HistoryWaitingSession, row.Attempts+1, waitForSession,
+			"waiting for the session to be connected and owned")
 		return
 	}
 	var notif waE2E.HistorySyncNotification
@@ -325,14 +332,14 @@ func (w *Worker) process(ctx context.Context, row journal.HistoryInboxRow) {
 	}
 	run, err := w.ensureRun(ctx, row)
 	if err != nil {
-		w.postpone(ctx, row, row.Attempts+1, backoff(row.Attempts+1), err.Error())
+		w.retry(ctx, row, err)
 		return
 	}
 	if run.Chunks == 0 {
 		started := w.lifecycle(*run, domain.HistoryPhaseStarted)
 		if err := w.publish(ctx, run.SessionID, run.OrganizationID,
 			EventID(run.StartedAt, run.SessionID, run.RunID, domain.HistoryPhaseStarted), domain.EventHistorySync, started); err != nil {
-			w.postpone(ctx, row, row.Attempts, waitForSession, err.Error())
+			w.retry(ctx, row, err)
 			return
 		}
 	}
@@ -346,7 +353,7 @@ func (w *Worker) process(ctx context.Context, row journal.HistoryInboxRow) {
 		}
 		batch := res.Batches[i]
 		if err := w.publish(ctx, row.SessionID, row.OrganizationID, batch.EventID, domain.EventHistoryBatch, batch.Payload); err != nil {
-			w.postpone(ctx, row, row.Attempts, waitForSession, err.Error())
+			w.retry(ctx, row, err)
 			return
 		}
 		if err := w.store.SetHistoryCursor(ctx, row.ID, i+1); err != nil {
@@ -362,7 +369,7 @@ func (w *Worker) process(ctx context.Context, row journal.HistoryInboxRow) {
 	if err := w.publish(ctx, row.SessionID, row.OrganizationID,
 		EventID(row.NotifiedAt, row.SessionID, row.NotificationID, domain.HistoryPhaseProgress),
 		domain.EventHistorySync, progress); err != nil {
-		w.postpone(ctx, row, row.Attempts, waitForSession, err.Error())
+		w.retry(ctx, row, err)
 		return
 	}
 	if !w.finish(ctx, row, journal.HistoryDone, "", &delta) {
@@ -498,16 +505,9 @@ func (w *Worker) downloadFailed(ctx context.Context, c Client, row journal.Histo
 	case permanentDownloadError(err):
 		log.WarnContext(ctx, "history blob unusable", "err", err)
 		w.finish(ctx, row, journal.HistoryFailed, err.Error(), nil)
-	case w.cfg.Now().Sub(row.CreatedAt) >= w.cfg.RetryFor:
-		log.WarnContext(ctx, "history download gave up", "attempts", row.Attempts, "err", err)
-		w.finish(ctx, row, journal.HistoryFailed, err.Error(), nil)
-		if run, runErr := w.store.ActiveHistoryRun(ctx, row.SessionID, row.AccountJID); runErr == nil && run != nil {
-			_ = w.store.EndHistoryRun(ctx, run.RunID, journal.HistoryRunFailed, "history download kept failing: "+err.Error())
-		}
 	default:
-		attempts := row.Attempts + 1
-		log.InfoContext(ctx, "history download failed; will retry", "attempts", attempts, "err", err)
-		w.postpone(ctx, row, attempts, backoff(attempts), err.Error())
+		log.InfoContext(ctx, "history download failed; will retry", "attempts", row.Attempts+1, "err", err)
+		w.retry(ctx, row, err)
 	}
 }
 
@@ -529,9 +529,33 @@ func backoff(attempts int) time.Duration {
 	return min(d, maxBackoff)
 }
 
-func (w *Worker) postpone(ctx context.Context, row journal.HistoryInboxRow, attempts int, delay time.Duration, reason string) {
-	if err := w.store.PostponeHistory(ctx, row.ID, attempts, w.cfg.Now().Add(delay), reason); err != nil {
+func (w *Worker) postpone(ctx context.Context, row journal.HistoryInboxRow, status string, attempts int, delay time.Duration, reason string) {
+	if err := w.store.PostponeHistory(ctx, row.ID, status, attempts, w.cfg.Now().Add(delay), reason); err != nil {
 		w.log.WarnContext(ctx, "postpone history notification failed", "session", row.SessionID, "err", err)
+	}
+}
+
+// retry counts a failed attempt and schedules the next one with backoff.
+func (w *Worker) retry(ctx context.Context, row journal.HistoryInboxRow, cause error) {
+	attempts := row.Attempts + 1
+	w.postpone(ctx, row, journal.HistoryRetrying, attempts, backoff(attempts), cause.Error())
+}
+
+// abandon ends a notification whose give_up_at passed while it was still
+// waiting or retrying, and fails its account's running run so the run's final
+// event reaches the API.
+func (w *Worker) abandon(ctx context.Context, row journal.HistoryInboxRow) {
+	reason := fmt.Sprintf("history notification abandoned after %d attempts (state %s): %s",
+		row.Attempts, row.Status, row.Error)
+	w.log.WarnContext(ctx, "history notification abandoned at its deadline", "session", row.SessionID,
+		"notification", row.NotificationID, "attempts", row.Attempts, "state", row.Status, "last_error", row.Error)
+	if !w.finish(ctx, row, journal.HistoryAbandoned, reason, nil) {
+		return
+	}
+	if run, err := w.store.ActiveHistoryRun(ctx, row.SessionID, row.AccountJID); err == nil && run != nil {
+		if err := w.store.EndHistoryRun(ctx, run.RunID, journal.HistoryRunFailed, reason); err != nil {
+			w.log.WarnContext(ctx, "fail abandoned history run failed", "run", run.RunID, "err", err)
+		}
 	}
 }
 
@@ -566,6 +590,10 @@ func (w *Worker) emitFinals(ctx context.Context) {
 	}
 	for _, run := range runs {
 		_, _, known := w.sessions.HistoryClient(run.SessionID)
+		if !known {
+			w.log.WarnContext(ctx, "history run end event not sent: session left this gateway; the API abandons the run at its deadline",
+				"session", run.SessionID, "run", run.RunID)
+		}
 		if known {
 			phase := domain.HistoryPhaseCompleted
 			if run.Status == journal.HistoryRunFailed {
@@ -577,7 +605,8 @@ func (w *Worker) emitFinals(ctx context.Context) {
 				if w.cfg.Now().Sub(run.EndedAt) < emitGiveUp {
 					continue
 				}
-				w.log.WarnContext(ctx, "history run end event dropped", "session", run.SessionID, "run", run.RunID, "err", err)
+				w.log.WarnContext(ctx, "history run end event dropped; the API abandons the run at its deadline",
+					"session", run.SessionID, "run", run.RunID, "err", err)
 			} else {
 				w.log.InfoContext(ctx, "history run ended", "session", run.SessionID, "run", run.RunID, "phase", phase,
 					"messages", run.Messages, "batches", run.Batches)

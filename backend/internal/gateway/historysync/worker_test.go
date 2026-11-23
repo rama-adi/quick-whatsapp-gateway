@@ -464,3 +464,52 @@ func TestMaxSizeBatchSurvivesControlDecode(t *testing.T) {
 		t.Fatal("batch changed through the control decode")
 	}
 }
+
+// A notification whose session never comes back is not postponed forever:
+// it waits in waiting_session with counted attempts, is abandoned at its
+// give_up_at deadline, and its run fails with a final event for the API.
+func TestWorkerAbandonsNotificationWaitingPastDeadline(t *testing.T) {
+	h := newHarness(t)
+	h.client.blobs["/boot"] = dmBlob(waHistorySync.HistorySync_INITIAL_BOOTSTRAP, nil, "B", 3)
+	h.accept("N1", "/boot", waE2E.HistorySyncType_INITIAL_BOOTSTRAP, 30)
+	h.drain()
+	h.owned = false
+	h.accept("N2", "/recent", waE2E.HistorySyncType_RECENT, 30)
+	h.drain()
+	h.clock.Advance(time.Minute)
+	h.drain()
+	rows := h.pending()
+	if len(rows) != 1 || rows[0].Status != journal.HistoryWaitingSession || rows[0].Attempts != 2 {
+		t.Fatalf("waiting state = %+v", rows)
+	}
+	h.clock.Advance(25 * time.Hour)
+	h.drain()
+	if len(h.pending()) != 0 {
+		t.Fatal("notification still active past its deadline")
+	}
+	final := h.sink.last()
+	if final.Phase != domain.HistoryPhaseFailed || !strings.Contains(final.Error, "abandoned") {
+		t.Fatalf("final = %+v", final)
+	}
+}
+
+// A failed publish (journal full or session not owned) is a counted retry in
+// the explicit retrying state, not an uncounted postpone.
+func TestWorkerCountsPublishFailuresAsRetries(t *testing.T) {
+	h := newHarness(t)
+	h.client.blobs["/boot"] = dmBlob(waHistorySync.HistorySync_INITIAL_BOOTSTRAP, nil, "B", 3)
+	h.sink.fail = func(domain.Event) error { return errors.New("journal full") }
+	h.accept("N1", "/boot", waE2E.HistorySyncType_INITIAL_BOOTSTRAP, 30)
+	h.drain()
+	rows := h.pending()
+	if len(rows) != 1 || rows[0].Status != journal.HistoryRetrying || rows[0].Attempts != 1 ||
+		!strings.Contains(rows[0].Error, "journal full") {
+		t.Fatalf("retry state = %+v", rows)
+	}
+	h.sink.fail = nil
+	h.clock.Advance(time.Minute)
+	h.drain()
+	if len(h.pending()) != 0 {
+		t.Fatal("notification not finished after the sink recovered")
+	}
+}

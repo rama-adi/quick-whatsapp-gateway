@@ -14,13 +14,22 @@ import (
 // drains the inbox, journals history.batch events (deduplicated by their
 // deterministic event ids) and advances a per-notification cursor.
 
-// Inbox row statuses.
+// Inbox row statuses. pending, waiting_session and retrying are active: the
+// worker still owns the row. Every active row has a give_up_at deadline; past
+// it the worker ends the row as abandoned and fails its run, so no
+// notification (and no run) stays open indefinitely.
 const (
-	HistoryPending   = "pending"
-	HistoryDone      = "done"
-	HistoryFailed    = "failed"
-	HistoryDiscarded = "discarded"
+	HistoryPending        = "pending"         // stored, not attempted yet
+	HistoryWaitingSession = "waiting_session" // session not connected or not owned here
+	HistoryRetrying       = "retrying"        // an attempt failed; retried with backoff
+	HistoryDone           = "done"
+	HistoryFailed         = "failed"
+	HistoryDiscarded      = "discarded"
+	HistoryAbandoned      = "abandoned" // give_up_at passed while still active
 )
+
+// historyActive is the SQL predicate for an inbox row the worker still owns.
+const historyActive = `status IN ('pending','waiting_session','retrying')`
 
 // Run statuses.
 const (
@@ -49,6 +58,7 @@ next_attempt_at INTEGER NOT NULL DEFAULT 0,
 batches_done INTEGER NOT NULL DEFAULT 0,
 server_error_sent INTEGER NOT NULL DEFAULT 0,
 error TEXT NOT NULL DEFAULT '',
+give_up_at INTEGER NOT NULL DEFAULT 0,
 created_at INTEGER NOT NULL,
 updated_at INTEGER NOT NULL,
 UNIQUE(session_id, notification_id)
@@ -93,6 +103,7 @@ type HistoryInboxRow struct {
 	BatchesDone     int
 	ServerErrorSent bool
 	Error           string
+	GiveUpAt        time.Time // the row is abandoned if still active then
 	CreatedAt       time.Time
 }
 
@@ -144,15 +155,16 @@ func (j *Journal) EnqueueHistory(ctx context.Context, row HistoryInboxRow) (inse
 	if err != nil {
 		return false, err
 	}
-	if row.SessionID == "" || row.NotificationID == "" || len(row.Notification) == 0 {
-		return false, errors.New("history notification session, id and payload are required")
+	if row.SessionID == "" || row.NotificationID == "" || len(row.Notification) == 0 || row.GiveUpAt.IsZero() {
+		return false, errors.New("history notification session, id, payload and give-up deadline are required")
 	}
 	now := time.Now().UnixMilli()
 	res, err := db.ExecContext(ctx, `INSERT OR IGNORE INTO history_inbox
 (session_id, organization_id, notification_id, account_jid, notification, notified_at, cutoff_at,
- import_enabled, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+ import_enabled, status, give_up_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
 		row.SessionID, row.OrganizationID, row.NotificationID, row.AccountJID, row.Notification,
-		row.NotifiedAt.UnixMilli(), row.CutoffMs, boolInt(row.ImportEnabled), HistoryPending, now, now)
+		row.NotifiedAt.UnixMilli(), row.CutoffMs, boolInt(row.ImportEnabled), HistoryPending,
+		row.GiveUpAt.UnixMilli(), now, now)
 	if err != nil {
 		return false, classifySQLiteError(fmt.Errorf("enqueue history notification: %w", err))
 	}
@@ -160,7 +172,7 @@ func (j *Journal) EnqueueHistory(ctx context.Context, row HistoryInboxRow) (inse
 	return n > 0, err
 }
 
-// PendingHistory returns every pending notification in arrival order.
+// PendingHistory returns every active notification in arrival order.
 func (j *Journal) PendingHistory(ctx context.Context) ([]HistoryInboxRow, error) {
 	db, err := j.historyDB()
 	if err != nil {
@@ -168,7 +180,7 @@ func (j *Journal) PendingHistory(ctx context.Context) ([]HistoryInboxRow, error)
 	}
 	rows, err := db.QueryContext(ctx, `SELECT id, session_id, organization_id, notification_id, account_jid,
 notification, notified_at, cutoff_at, import_enabled, status, attempts, next_attempt_at, batches_done,
-server_error_sent, error, created_at FROM history_inbox WHERE status=? ORDER BY id`, HistoryPending)
+server_error_sent, error, give_up_at, created_at FROM history_inbox WHERE `+historyActive+` ORDER BY id`)
 	if err != nil {
 		return nil, classifySQLiteError(err)
 	}
@@ -176,37 +188,41 @@ server_error_sent, error, created_at FROM history_inbox WHERE status=? ORDER BY 
 	var out []HistoryInboxRow
 	for rows.Next() {
 		var r HistoryInboxRow
-		var notified, next, created int64
+		var notified, next, giveUp, created int64
 		var enabled, sent int
 		if err := rows.Scan(&r.ID, &r.SessionID, &r.OrganizationID, &r.NotificationID, &r.AccountJID,
 			&r.Notification, &notified, &r.CutoffMs, &enabled, &r.Status, &r.Attempts, &next, &r.BatchesDone,
-			&sent, &r.Error, &created); err != nil {
+			&sent, &r.Error, &giveUp, &created); err != nil {
 			return nil, classifySQLiteError(err)
 		}
 		r.NotifiedAt, r.NextAttemptAt, r.CreatedAt = msTime(notified), msTime(next), msTime(created)
+		r.GiveUpAt = msTime(giveUp)
 		r.ImportEnabled, r.ServerErrorSent = enabled != 0, sent != 0
 		out = append(out, r)
 	}
 	return out, classifySQLiteError(rows.Err())
 }
 
-// HasPendingHistory reports whether a session still has notifications to
-// process.
+// HasPendingHistory reports whether a session still has active notifications.
 func (j *Journal) HasPendingHistory(ctx context.Context, sessionID string) (bool, error) {
 	db, err := j.historyDB()
 	if err != nil {
 		return false, err
 	}
 	var n int
-	err = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM history_inbox WHERE session_id=? AND status=?`,
-		sessionID, HistoryPending).Scan(&n)
+	err = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM history_inbox WHERE session_id=? AND `+historyActive,
+		sessionID).Scan(&n)
 	return n > 0, classifySQLiteError(err)
 }
 
-// PostponeHistory schedules another attempt. attempts is the new count.
-func (j *Journal) PostponeHistory(ctx context.Context, id int64, attempts int, next time.Time, errText string) error {
-	return j.historyExec(ctx, `UPDATE history_inbox SET attempts=?, next_attempt_at=?, error=?, updated_at=?
-WHERE id=? AND status=?`, attempts, next.UnixMilli(), errText, time.Now().UnixMilli(), id, HistoryPending)
+// PostponeHistory schedules another attempt in an active status
+// (waiting_session or retrying). attempts is the new count.
+func (j *Journal) PostponeHistory(ctx context.Context, id int64, status string, attempts int, next time.Time, errText string) error {
+	if status != HistoryWaitingSession && status != HistoryRetrying {
+		return fmt.Errorf("history notification cannot be postponed as %q", status)
+	}
+	return j.historyExec(ctx, `UPDATE history_inbox SET status=?, attempts=?, next_attempt_at=?, error=?, updated_at=?
+WHERE id=? AND `+historyActive, status, attempts, next.UnixMilli(), errText, time.Now().UnixMilli(), id)
 }
 
 // SetHistoryCursor records how many batches of a notification are journaled.
@@ -235,8 +251,8 @@ func (j *Journal) FinishHistory(ctx context.Context, id int64, status, errText s
 	}
 	defer func() { _ = tx.Rollback() }()
 	now := time.Now().UnixMilli()
-	if _, err = tx.ExecContext(ctx, `UPDATE history_inbox SET status=?, error=?, updated_at=? WHERE id=? AND status=?`,
-		status, errText, now, id, HistoryPending); err != nil {
+	if _, err = tx.ExecContext(ctx, `UPDATE history_inbox SET status=?, error=?, updated_at=? WHERE id=? AND `+historyActive,
+		status, errText, now, id); err != nil {
 		return classifySQLiteError(err)
 	}
 	if delta != nil {
@@ -263,8 +279,8 @@ func (j *Journal) DiscardHistory(ctx context.Context, sessionID, keepAccount, re
 		return 0, err
 	}
 	res, err := db.ExecContext(ctx, `UPDATE history_inbox SET status=?, error=?, updated_at=?
-WHERE session_id=? AND status=? AND (?='' OR account_jid<>?)`,
-		HistoryDiscarded, reason, time.Now().UnixMilli(), sessionID, HistoryPending, keepAccount, keepAccount)
+WHERE session_id=? AND `+historyActive+` AND (?='' OR account_jid<>?)`,
+		HistoryDiscarded, reason, time.Now().UnixMilli(), sessionID, keepAccount, keepAccount)
 	if err != nil {
 		return 0, classifySQLiteError(err)
 	}
@@ -327,18 +343,19 @@ func (j *Journal) MarkHistoryRunEmitted(ctx context.Context, runID string) error
 }
 
 // IdleHistoryRuns returns running runs without activity since before and
-// without pending notifications.
+// without active notifications. Active notifications end by their give_up_at
+// deadline, so this wait is bounded.
 func (j *Journal) IdleHistoryRuns(ctx context.Context, before time.Time) ([]HistoryRun, error) {
 	return j.queryRuns(ctx, `WHERE status=? AND updated_at<? AND NOT EXISTS
-(SELECT 1 FROM history_inbox i WHERE i.session_id=history_runs.session_id AND i.status=?)`,
-		HistoryRunRunning, before.UnixMilli(), HistoryPending)
+(SELECT 1 FROM history_inbox i WHERE i.session_id=history_runs.session_id AND i.`+historyActive+`)`,
+		HistoryRunRunning, before.UnixMilli())
 }
 
 // PruneHistory deletes finished notifications and ended runs older than the
 // retention window.
 func (j *Journal) PruneHistory(ctx context.Context, now time.Time) error {
 	cutoff := now.Add(-historyRetention).UnixMilli()
-	if err := j.historyExec(ctx, `DELETE FROM history_inbox WHERE status<>? AND updated_at<?`, HistoryPending, cutoff); err != nil {
+	if err := j.historyExec(ctx, `DELETE FROM history_inbox WHERE NOT `+historyActive+` AND updated_at<?`, cutoff); err != nil {
 		return err
 	}
 	return j.historyExec(ctx, `DELETE FROM history_runs WHERE status<>? AND final_emitted=1 AND updated_at<?`,
@@ -372,6 +389,26 @@ updated_at, ended_at FROM history_runs `+where, args...)
 		out = append(out, r)
 	}
 	return out, classifySQLiteError(rows.Err())
+}
+
+// migrateHistorySchema adds columns introduced after a journal was created.
+// A notification stored before give_up_at existed gets the default 24h
+// deadline from its creation time.
+func migrateHistorySchema(ctx context.Context, db *sql.DB) error {
+	var n int
+	if err := db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM pragma_table_info('history_inbox') WHERE name='give_up_at'`).Scan(&n); err != nil {
+		return err
+	}
+	if n > 0 {
+		return nil
+	}
+	if _, err := db.ExecContext(ctx, `ALTER TABLE history_inbox ADD COLUMN give_up_at INTEGER NOT NULL DEFAULT 0`); err != nil {
+		return err
+	}
+	_, err := db.ExecContext(ctx, `UPDATE history_inbox SET give_up_at = created_at + ? WHERE give_up_at = 0`,
+		(24 * time.Hour).Milliseconds())
+	return err
 }
 
 func (j *Journal) historyExec(ctx context.Context, query string, args ...any) error {
