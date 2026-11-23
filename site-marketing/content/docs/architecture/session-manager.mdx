@@ -125,6 +125,17 @@ The session lifecycle splits across the trust boundary:
   pairing kickoff, and status persistence are API operations executed over the
   same engine RPCs as any other session.
 
+## WhatsApp client version
+
+WhatsApp rejects clients whose version falls too far behind with `ClientOutdated` (405); every
+session then fails until the gateway is upgraded. This happened from 2026-10-26 until the
+whatsmeow upgrade on 2026-11-23. At boot, before any session connects, the gateway reads WhatsApp
+Web's current client version (`whatsmeow.GetLatestVersion`) and adopts it with
+`store.SetWAVersion` when it is newer than the compiled one. A failed fetch keeps the compiled
+version. It runs only at boot because `SetWAVersion` writes a package global that connecting
+clients read without a lock. It does not replace whatsmeow upgrades, which a protocol change
+still needs. Fake-WhatsApp mode skips it.
+
 ## Pairing recovery
 
 The gateway does not use whatsmeow's `GetQRChannel`. That channel disconnects the client as soon

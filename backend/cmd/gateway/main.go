@@ -203,6 +203,9 @@ func run() error {
 	})
 	if cfg.WhatsAppFakeServer {
 		manager.SetClientFactory(func(device *store.Device) wa.Client { return fakewhatsapp.NewClient(device, cfg.WhatsAppFakeServerURL) })
+	} else {
+		// Before any session connects: WhatsApp rejects outdated client versions.
+		wa.RefreshWAVersion(ctx, log, nil)
 	}
 	inboundPipeline := inbound.NewPipeline(
 		waadapter.NewInboundNormalizer(manager.LiveOps(), nil),
