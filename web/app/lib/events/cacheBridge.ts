@@ -55,6 +55,29 @@ function clearPairingArtifacts(qc: QueryClient, sessionId: string): void {
 }
 
 /**
+ * auth.code carries two different events today (TODO in frontend.mdx: split
+ * the type upstream):
+ *   - pairing_code_issued: phone-number pairing started; the payload has
+ *     `code` (and `phone`) for the user to type on the phone. The published
+ *     schema does not list these fields.
+ *   - pair_succeeded: the device linked; the payload has `jid` (and `lid`,
+ *     `businessName`, `platform`). This is the shape the schema documents.
+ * A payload with neither is ignored, matching the API's projection.
+ */
+export type AuthCodeMeaning =
+  | { kind: "pairing_code_issued"; code: string }
+  | { kind: "pair_succeeded"; jid: string }
+  | { kind: "unknown" };
+
+export function classifyAuthCode(payload: Record<string, unknown>): AuthCodeMeaning {
+  const code = str(payload.code);
+  if (code) return { kind: "pairing_code_issued", code };
+  const jid = str(payload.jid);
+  if (jid) return { kind: "pair_succeeded", jid };
+  return { kind: "unknown" };
+}
+
+/**
  * The cached row for a session: the detail query first, then a list row. Used
  * to decide whether an event is newer than what the cache already shows.
  */
@@ -162,14 +185,17 @@ export function applyEvent(qc: QueryClient, e: EventEnvelope): void {
     }
 
     case "auth.code": {
-      const code = str(p.code);
-      if (s && code) {
-        qc.setQueryData(qk.sessionPairing(s), { code });
-      } else if (s) {
-        qc.removeQueries({ queryKey: qk.sessionQR(s), exact: true });
-        qc.removeQueries({ queryKey: qk.sessionPairing(s), exact: true });
+      if (!s) break;
+      const authCode = classifyAuthCode(p);
+      if (authCode.kind === "pairing_code_issued") {
+        qc.setQueryData(qk.sessionPairing(s), { code: authCode.code });
+      } else if (authCode.kind === "pair_succeeded") {
+        // The device is linked: the attempt's artifacts are spent, and the
+        // API has attached the identity (waJid, phone) to the session row.
+        clearPairingArtifacts(qc, s);
         void qc.invalidateQueries({ queryKey: qk.session(s), exact: true });
         void qc.invalidateQueries({ queryKey: qk.sessions(), exact: true });
+        void qc.invalidateQueries({ queryKey: qk.adminSessions(), exact: true });
       }
       break;
     }
