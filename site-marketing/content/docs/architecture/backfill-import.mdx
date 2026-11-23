@@ -29,10 +29,12 @@ POST /sessions/{session}/backfill         (multipart: file=*.crypt15, key=<hex>)
   → session ownership check
   → decrypt INLINE (internal/backup.DecryptMsgstore)   — bad key/file ⇒ 400 fail-fast
   → concurrency + quota checks
-  → stage plaintext to a temp file, insert a 'running' backfill_imports row
+  → insert a 'running' backfill_imports row (owner = this API process, lease = now + 2 min)
+  → stage plaintext as <tmp>/qwg-backup-imports/<job id>.db
   → return 202 { BackfillImport, status:"running" }
-  → background goroutine: open SQLite, upsert chats/messages/identities/groups/members,
-    record counts + fingerprint, mark succeeded/failed, delete temp file
+  → background goroutine: renew the lease every 30 s; open SQLite, upsert
+    chats/messages/identities/groups/members, record counts + fingerprint,
+    mark succeeded/failed (owner-fenced, retried), delete the staged file
 GET  /sessions/{session}/backfill         → latest BackfillImport (poll while running)
 ```
 
@@ -85,8 +87,16 @@ timeline order instead of sorting as the newest rows.
 
 The `backfill_imports` table is both the job-status surface and the durable quota source of truth.
 
-- **Concurrency:** a `running` row created within the last hour blocks a new import (`409`); an older
-  one is presumed crashed and no longer holds the lock.
+- **Concurrency:** a `running` row with an unexpired lease blocks a new import (`409`).
+- **Leases (migration 0033).** A running row carries `owner`, `heartbeat_at` and `lease_until`
+  (a CHECK ties `running` to a non-null lease). The import renews the lease every 30 s; if a
+  renewal finds the row no longer running under its owner, the import stops. The API
+  maintenance loop (`backup-imports-reap`, at boot and every minute on every replica) marks
+  running rows whose lease expired as `interrupted` (terminal, with `finished_at` and an error)
+  and deletes staged files in the managed directory that no live import owns, so a crash
+  leaves neither a forever-running row nor decrypted plaintext on disk. Recording the outcome
+  is fenced by the owner and retried; if it still fails, the lease reaper ends the row. The
+  real owner may still record a late outcome over `interrupted`.
 - **Quota:** non-`super_admin` callers are limited to one **successful** import per 24h per session
   (`429`). Failed/running attempts don't burn the quota. `super_admin` bypasses both the quota and
   the org-ownership check (may import into any session). Quota is gated on the last *success*, so a
@@ -98,10 +108,11 @@ The `backfill_imports` table is both the job-status surface and the durable quot
   downloaded, consistent with v2).
 - `poll_votes` are not imported.
 - Upload cap 256 MiB (`maxBackupUpload` in the HTTP handler); decryption holds the file in memory, the parse streams.
-- Import work runs in an API-process goroutine, not a durable task queue. A process
-  restart interrupts work; the stale-running rule allows a later retry. The running
-  check and insert are separate operations, so this is not a transactional concurrency
-  lock across simultaneous requests or API replicas.
+- Import work runs in an API-process goroutine, not a durable task queue: the upload is
+  not kept, so a process restart cannot resume an import. The lease reaper marks it
+  `interrupted` within about two minutes and the user imports again. The running check
+  and insert are separate operations, so this is not a transactional concurrency lock
+  across simultaneous requests or API replicas.
 
 ## How it's tested
 

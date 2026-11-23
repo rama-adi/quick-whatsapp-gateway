@@ -1,4 +1,4 @@
-import { mysqlTable, mysqlSchema, index, primaryKey, varchar, mysqlEnum, int, text, bigint, unique, json, check, mediumtext, smallint, tinyint } from "drizzle-orm/mysql-core"
+import { mysqlTable, mysqlSchema, index, primaryKey, check, varchar, mysqlEnum, bigint, int, text, unique, json, mediumtext, smallint, tinyint } from "drizzle-orm/mysql-core"
 import { sql } from "drizzle-orm"
 
 export const backfillImports = mysqlTable("backfill_imports", {
@@ -6,7 +6,10 @@ export const backfillImports = mysqlTable("backfill_imports", {
 	sessionId: varchar("session_id", { length: 64 }).notNull(),
 	organizationId: varchar("organization_id", { length: 64 }).notNull(),
 	source: varchar({ length: 32 }).default('crypt15').notNull(),
-	status: mysqlEnum(['running','succeeded','failed']).default('running').notNull(),
+	status: mysqlEnum(['running','succeeded','failed','interrupted']).default('running').notNull(),
+	owner: varchar({ length: 255 }),
+	heartbeatAt: bigint("heartbeat_at", { mode: "number" }),
+	leaseUntil: bigint("lease_until", { mode: "number" }),
 	chats: int().default(0).notNull(),
 	messages: int().default(0).notNull(),
 	identities: int().default(0).notNull(),
@@ -18,8 +21,10 @@ export const backfillImports = mysqlTable("backfill_imports", {
 	finishedAt: bigint("finished_at", { mode: "number" }),
 },
 (table) => [
+	index("idx_backfill_running").on(table.status, table.leaseUntil),
 	index("idx_backfill_session").on(table.sessionId, table.createdAt),
 	primaryKey({ columns: [table.id], name: "backfill_imports_id"}),
+	check("chk_backfill_running_lease", sql`((\`status\` = _utf8mb4\'running\') = (\`lease_until\` is not null))`),
 ]);
 
 export const chats = mysqlTable("chats", {

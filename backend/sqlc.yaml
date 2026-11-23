@@ -17,6 +17,8 @@ sql:
       - "migrations/0021_history_sync.up.sql"
       - "migrations/0022_session_state.up.sql"
       - "migrations/0030_event_fanout.up.sql"
+      - "migrations/0032_history_run_deadline.up.sql"
+      - "migrations/0033_backfill_import_lease.up.sql"
       - "internal/store/sqlc_schema/auth.sql"
     queries: "internal/store/queries"
     gen:

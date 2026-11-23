@@ -197,11 +197,13 @@ const STATUS_LABEL: Record<BackfillImport["status"], string> = {
   running: "Importing",
   succeeded: "Imported",
   failed: "Failed",
+  interrupted: "Interrupted",
 };
 
 function ImportStatus({ job, loading }: { job: BackfillImport | null; loading: boolean }) {
   if (loading || !job) return null;
-  const failed = job.status === "failed";
+  // An interrupted import stopped when its API process did; show it like a failure.
+  const failed = job.status === "failed" || job.status === "interrupted";
   return (
     <div
       className={cn(

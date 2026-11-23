@@ -475,7 +475,7 @@ type BackfillImport struct {
 	SessionID         string  `json:"sessionId" doc:"Id of the session being backfilled." example:"01J9ZX8K2QHV0M3T6R7P4N5W8C"`
 	OrganizationID    string  `json:"organizationId" doc:"Id of the organization that owns the session." example:"org_01J9ABC..."`
 	Source            string  `json:"source" doc:"The backup source format. Currently always crypt15 (an encrypted WhatsApp chat backup)." example:"crypt15"`
-	Status            string  `json:"status" enum:"running,succeeded,failed" doc:"Current job state. **running** = import in progress; **succeeded** = completed and rows upserted; **failed** = aborted (see error). Progression: running → succeeded, or running → failed." example:"succeeded"`
+	Status            string  `json:"status" enum:"running,succeeded,failed,interrupted" doc:"Current job state. **running** = import in progress; **succeeded** = completed and rows upserted; **failed** = aborted (see error); **interrupted** = the API process running the import stopped (for example a restart) before it finished, so the import is no longer running; start it again. Progression: running → succeeded, failed or interrupted. Rows already upserted by a failed or interrupted import stay, and a new import reconciles them." example:"succeeded"`
 	Chats             int     `json:"chats" doc:"Number of chats upserted." example:"57"`
 	Messages          int     `json:"messages" doc:"Number of messages upserted." example:"12043"`
 	Identities        int     `json:"identities" doc:"Number of identities upserted." example:"310"`
@@ -485,6 +485,10 @@ type BackfillImport struct {
 	Error             string  `json:"error,omitempty" doc:"Failure message when status is failed. Optional; empty otherwise." example:"unsupported backup schema"`
 	CreatedAt         int64   `json:"createdAt" doc:"When the import started, in epoch milliseconds (UTC)." example:"1719662400000"`
 	FinishedAt        *int64  `json:"finishedAt,omitempty" doc:"When the import finished, in epoch milliseconds (UTC). Optional; null while still running." example:"1719662460000"`
+	// Owner and LeaseUntil fence a running import to the API process that runs
+	// it; they are internal and not part of the API response.
+	Owner      string `json:"-"`
+	LeaseUntil int64  `json:"-"`
 }
 
 // Poll mirrors the polls table: the option list of a poll-creation message,

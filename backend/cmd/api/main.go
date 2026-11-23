@@ -548,7 +548,7 @@ func runWithStorageTransport(storageTransport http.RoundTripper) error {
 			log.Warn("committed event worker stopped", "err", err)
 		}
 	}()
-	maintenance, err := service.NewMaintenanceLoop(log, durableMaintenanceTasks(st, log)...)
+	maintenance, err := service.NewMaintenanceLoop(log, durableMaintenanceTasks(st, services, log)...)
 	if err != nil {
 		return fmt.Errorf("build maintenance loop: %w", err)
 	}
@@ -727,8 +727,11 @@ func startWebhookDispatchLoop(ctx context.Context, d *webhooks.Dispatcher, log *
 // durableMaintenanceTasks repairs durable work state that has no live owner:
 // it runs at boot and then periodically on every API replica (each task is an
 // idempotent, fenced UPDATE or bounded DELETE).
-func durableMaintenanceTasks(st *store.Store, log *slog.Logger) []service.MaintenanceTask {
+func durableMaintenanceTasks(st *store.Store, services *service.Services, log *slog.Logger) []service.MaintenanceTask {
 	return []service.MaintenanceTask{{
+		Name: "backup-imports-reap", Every: time.Minute,
+		Run: services.Backup.ReapInterrupted,
+	}, {
 		Name: "history-runs-abandon", Every: 5 * time.Minute,
 		Run: func(ctx context.Context) error {
 			n, err := st.History.AbandonOverdueRuns(ctx, time.Now().UnixMilli())

@@ -136,9 +136,10 @@ func AllAuditEventsOutcomeValues() []AuditEventsOutcome {
 type BackfillImportsStatus string
 
 const (
-	BackfillImportsStatusRunning   BackfillImportsStatus = "running"
-	BackfillImportsStatusSucceeded BackfillImportsStatus = "succeeded"
-	BackfillImportsStatusFailed    BackfillImportsStatus = "failed"
+	BackfillImportsStatusRunning     BackfillImportsStatus = "running"
+	BackfillImportsStatusSucceeded   BackfillImportsStatus = "succeeded"
+	BackfillImportsStatusFailed      BackfillImportsStatus = "failed"
+	BackfillImportsStatusInterrupted BackfillImportsStatus = "interrupted"
 )
 
 func (e *BackfillImportsStatus) Scan(src interface{}) error {
@@ -180,7 +181,8 @@ func (e BackfillImportsStatus) Valid() bool {
 	switch e {
 	case BackfillImportsStatusRunning,
 		BackfillImportsStatusSucceeded,
-		BackfillImportsStatusFailed:
+		BackfillImportsStatusFailed,
+		BackfillImportsStatusInterrupted:
 		return true
 	}
 	return false
@@ -191,6 +193,7 @@ func AllBackfillImportsStatusValues() []BackfillImportsStatus {
 		BackfillImportsStatusRunning,
 		BackfillImportsStatusSucceeded,
 		BackfillImportsStatusFailed,
+		BackfillImportsStatusInterrupted,
 	}
 }
 
@@ -1011,6 +1014,7 @@ const (
 	HistorySyncRunsStatusRunning   HistorySyncRunsStatus = "running"
 	HistorySyncRunsStatusCompleted HistorySyncRunsStatus = "completed"
 	HistorySyncRunsStatusFailed    HistorySyncRunsStatus = "failed"
+	HistorySyncRunsStatusAbandoned HistorySyncRunsStatus = "abandoned"
 )
 
 func (e *HistorySyncRunsStatus) Scan(src interface{}) error {
@@ -1052,7 +1056,8 @@ func (e HistorySyncRunsStatus) Valid() bool {
 	switch e {
 	case HistorySyncRunsStatusRunning,
 		HistorySyncRunsStatusCompleted,
-		HistorySyncRunsStatusFailed:
+		HistorySyncRunsStatusFailed,
+		HistorySyncRunsStatusAbandoned:
 		return true
 	}
 	return false
@@ -1063,6 +1068,7 @@ func AllHistorySyncRunsStatusValues() []HistorySyncRunsStatus {
 		HistorySyncRunsStatusRunning,
 		HistorySyncRunsStatusCompleted,
 		HistorySyncRunsStatusFailed,
+		HistorySyncRunsStatusAbandoned,
 	}
 }
 
@@ -1866,7 +1872,6 @@ type BackfillImport struct {
 	SessionID         string                `db:"session_id" json:"session_id"`
 	OrganizationID    string                `db:"organization_id" json:"organization_id"`
 	Source            string                `db:"source" json:"source"`
-	Status            BackfillImportsStatus `db:"status" json:"status"`
 	Chats             int32                 `db:"chats" json:"chats"`
 	Messages          int32                 `db:"messages" json:"messages"`
 	Identities        int32                 `db:"identities" json:"identities"`
@@ -1876,6 +1881,10 @@ type BackfillImport struct {
 	Error             sql.NullString        `db:"error" json:"error"`
 	CreatedAt         int64                 `db:"created_at" json:"created_at"`
 	FinishedAt        sql.NullInt64         `db:"finished_at" json:"finished_at"`
+	Status            BackfillImportsStatus `db:"status" json:"status"`
+	Owner             sql.NullString        `db:"owner" json:"owner"`
+	HeartbeatAt       sql.NullInt64         `db:"heartbeat_at" json:"heartbeat_at"`
+	LeaseUntil        sql.NullInt64         `db:"lease_until" json:"lease_until"`
 }
 
 type Chat struct {
@@ -2036,7 +2045,6 @@ type HistorySyncRun struct {
 	SessionID        string                `db:"session_id" json:"session_id"`
 	RunID            string                `db:"run_id" json:"run_id"`
 	AccountJid       sql.NullString        `db:"account_jid" json:"account_jid"`
-	Status           HistorySyncRunsStatus `db:"status" json:"status"`
 	SyncType         sql.NullString        `db:"sync_type" json:"sync_type"`
 	Progress         sql.NullInt16         `db:"progress" json:"progress"`
 	CutoffAt         sql.NullInt64         `db:"cutoff_at" json:"cutoff_at"`
@@ -2053,6 +2061,8 @@ type HistorySyncRun struct {
 	StartedAt        int64                 `db:"started_at" json:"started_at"`
 	UpdatedAt        int64                 `db:"updated_at" json:"updated_at"`
 	FinishedAt       sql.NullInt64         `db:"finished_at" json:"finished_at"`
+	Status           HistorySyncRunsStatus `db:"status" json:"status"`
+	ExpectedBy       sql.NullInt64         `db:"expected_by" json:"expected_by"`
 }
 
 type Message struct {

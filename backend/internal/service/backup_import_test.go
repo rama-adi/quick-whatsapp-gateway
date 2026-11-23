@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql/driver"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -25,6 +27,7 @@ func newBackupSvc(t *testing.T) (*BackupImportService, sqlmock.Sqlmock) {
 	t.Cleanup(func() { _ = db.Close() })
 	svc := NewBackupImportService(store.New(db), nil)
 	svc.clock = func() int64 { return testNow }
+	svc.dir = t.TempDir()
 	return svc, mock
 }
 
@@ -73,8 +76,8 @@ func TestStartImport_Concurrency(t *testing.T) {
 	svc, mock := newBackupSvc(t)
 	svc.decrypt = func([]byte, string) ([]byte, error) { return []byte("db"), nil }
 	expectGetSession(mock, "sess_1", "org_1")
-	mock.ExpectQuery("SELECT EXISTS .*FROM backfill_imports.*status = 'running'.*created_at >= .").
-		WithArgs("sess_1", testNow-runningStaleMs).
+	mock.ExpectQuery("SELECT EXISTS .*FROM backfill_imports.*status = 'running'.*lease_until > .").
+		WithArgs("sess_1", testNow).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
 	_, err := svc.StartImport(context.Background(), "org_1", "sess_1", false, []byte("x"), "key")
@@ -90,8 +93,8 @@ func TestStartImport_QuotaExceeded(t *testing.T) {
 	svc, mock := newBackupSvc(t)
 	svc.decrypt = func([]byte, string) ([]byte, error) { return []byte("db"), nil }
 	expectGetSession(mock, "sess_1", "org_1")
-	mock.ExpectQuery("SELECT EXISTS .*FROM backfill_imports.*status = 'running'.*created_at >= .").
-		WithArgs("sess_1", testNow-runningStaleMs).
+	mock.ExpectQuery("SELECT EXISTS .*FROM backfill_imports.*status = 'running'.*lease_until > .").
+		WithArgs("sess_1", testNow).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 	mock.ExpectQuery("SELECT created_at FROM backfill_imports WHERE session_id = . AND status = 'succeeded'").
 		WithArgs("sess_1").WillReturnRows(sqlmock.NewRows([]string{"created_at"}).AddRow(testNow - 1000))
@@ -114,8 +117,8 @@ func TestStartImport_SuperAdminBypassesQuotaAndOrg(t *testing.T) {
 	svc.open = func(string) (backupReader, error) { return &fakeReader{}, nil }
 	// Cross-org session; caller is super_admin from a different org.
 	expectGetSession(mock, "sess_1", "org_2")
-	mock.ExpectQuery("SELECT EXISTS .*FROM backfill_imports.*status = 'running'.*created_at >= .").
-		WithArgs("sess_1", testNow-runningStaleMs).
+	mock.ExpectQuery("SELECT EXISTS .*FROM backfill_imports.*status = 'running'.*lease_until > .").
+		WithArgs("sess_1", testNow).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 	// No LastSuccessAt query expected (super_admin bypasses quota).
 	mock.ExpectExec("INSERT INTO backfill_imports").WillReturnResult(sqlmock.NewResult(0, 1))
@@ -124,8 +127,37 @@ func TestStartImport_SuperAdminBypassesQuotaAndOrg(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartImport: %v", err)
 	}
-	if job.Status != "running" || job.OrganizationID != "org_2" {
+	if job.Status != "running" || job.OrganizationID != "org_2" || job.Owner != svc.owner ||
+		job.LeaseUntil != testNow+importLease.Milliseconds() {
 		t.Fatalf("unexpected job: %+v", job)
+	}
+}
+
+// TestReapInterruptedRemovesOrphanedStagingFiles: the reaper interrupts
+// expired imports and deletes staged plaintext that no live import owns, while
+// a live import's file stays.
+func TestReapInterruptedRemovesOrphanedStagingFiles(t *testing.T) {
+	svc, mock := newBackupSvc(t)
+	for _, name := range []string{"bfi_live.db", "bfi_crashed.db"} {
+		if err := os.WriteFile(filepath.Join(svc.dir, name), []byte("plain"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mock.ExpectExec("UPDATE backfill_imports SET status = 'interrupted'").
+		WithArgs(testNow, testNow).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("SELECT id FROM backfill_imports WHERE status = 'running' AND lease_until > .").
+		WithArgs(testNow).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("bfi_live"))
+	if err := svc.ReapInterrupted(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(svc.dir, "bfi_live.db")); err != nil {
+		t.Fatalf("live import file removed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(svc.dir, "bfi_crashed.db")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("orphaned plaintext kept: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }
 

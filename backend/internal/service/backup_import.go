@@ -3,8 +3,12 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
+	"time"
 
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/backup"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
@@ -14,10 +18,17 @@ import (
 const (
 	// quotaWindowMs is the per-session import cooldown for non-admins (once/24h).
 	quotaWindowMs = 24 * 60 * 60 * 1000
-	// runningStaleMs bounds how long a 'running' row blocks a new import; a job
-	// older than this is presumed crashed and no longer holds the lock.
-	runningStaleMs = 60 * 60 * 1000
+	// importLease is how long a running import's lease lasts without a
+	// heartbeat; importHeartbeat renews it well before it expires. A row
+	// whose lease expired is marked interrupted by the maintenance reaper.
+	importLease     = 2 * time.Minute
+	importHeartbeat = 30 * time.Second
 )
+
+// backupImportDir is the managed directory for decrypted backup databases.
+// Files are named <job id>.db, so the reaper can remove every file whose job
+// no longer holds a live lease (left behind by a crash).
+var backupImportDir = filepath.Join(os.TempDir(), "qwg-backup-imports")
 
 // backupReader is the slice of *backup.DB the importer uses; injectable so the
 // service is testable without a real SQLite file.
@@ -39,13 +50,17 @@ type backupReader interface {
 //
 // Import is idempotent at repository upsert keys, but a failed job may leave a
 // valid partial prefix that a later run reconciles. The request context does not
-// cancel accepted background work, and the temporary plaintext file is removed on
-// every setup, success, and failure path. The running-row/staleness checks are the
-// cross-request concurrency gate and the durable source for the daily quota.
+// cancel accepted background work. The running row names this process as its
+// owner and carries a lease the job renews every importHeartbeat; if the process
+// dies, the maintenance reaper marks the row interrupted once the lease expires
+// and removes the staged plaintext file. A live running row is the per-session
+// concurrency gate; succeeded rows are the durable source for the daily quota.
 type BackupImportService struct {
 	store   *store.Store
 	log     *slog.Logger
 	clock   func() int64
+	owner   string
+	dir     string
 	decrypt func(ciphertext []byte, key string) ([]byte, error)
 	open    func(path string) (backupReader, error)
 }
@@ -60,6 +75,8 @@ func NewBackupImportService(s *store.Store, log *slog.Logger) *BackupImportServi
 		store:   s,
 		log:     log,
 		clock:   domain.NowMs,
+		owner:   "api-" + domain.NewULID(),
+		dir:     backupImportDir,
 		decrypt: backup.DecryptMsgstore,
 		open:    func(path string) (backupReader, error) { return backup.Open(path) },
 	}
@@ -96,7 +113,7 @@ func (s *BackupImportService) StartImport(
 
 	now := s.clock()
 
-	running, err := s.store.BackfillImports.HasRunningSince(ctx, sessionID, now-runningStaleMs)
+	running, err := s.store.BackfillImports.HasLiveRunning(ctx, sessionID, now)
 	if err != nil {
 		return domain.BackfillImport{}, err
 	}
@@ -115,12 +132,6 @@ func (s *BackupImportService) StartImport(
 		}
 	}
 
-	// Persist the decrypted DB to a temp file the background reader opens.
-	path, err := writeTempDB(plain)
-	if err != nil {
-		return domain.BackfillImport{}, domain.ErrInternal("could not stage backup: " + err.Error())
-	}
-
 	job := domain.BackfillImport{
 		ID:             domain.NewPrefixedID("bfi_"),
 		SessionID:      sess.ID,
@@ -128,10 +139,18 @@ func (s *BackupImportService) StartImport(
 		Source:         "crypt15",
 		Status:         "running",
 		CreatedAt:      now,
+		Owner:          s.owner,
+		LeaseUntil:     now + importLease.Milliseconds(),
 	}
 	if err := s.store.BackfillImports.Insert(ctx, job); err != nil {
-		_ = os.Remove(path)
 		return domain.BackfillImport{}, err
+	}
+	// Stage the decrypted DB under the job id only after the leased row exists,
+	// so the reaper never mistakes a file being staged for a leftover.
+	path, err := s.writeTempDB(job.ID, plain)
+	if err != nil {
+		s.finishFailed(context.WithoutCancel(ctx), job, fmt.Errorf("stage backup: %w", err))
+		return domain.BackfillImport{}, domain.ErrInternal("could not stage backup: " + err.Error())
 	}
 
 	go s.runImport(context.Background(), job, path)
@@ -154,31 +173,41 @@ func (s *BackupImportService) ImportStatus(
 	return s.store.BackfillImports.LatestForSession(ctx, sessionID)
 }
 
-// writeTempDB materializes decrypted SQLite bytes for the backup reader. Any
-// write or close failure removes the partial file; ownership of a successful path
-// transfers to runImport, which removes it after opening or completion.
-func writeTempDB(plain []byte) (string, error) {
-	f, err := os.CreateTemp("", "msgstore-*.db")
+// writeTempDB materializes decrypted SQLite bytes for the backup reader in the
+// managed directory. Any write or close failure removes the partial file;
+// ownership of a successful path transfers to runImport, which removes it on
+// completion (the reaper removes it after a crash).
+func (s *BackupImportService) writeTempDB(jobID string, plain []byte) (string, error) {
+	if err := os.MkdirAll(s.dir, 0o700); err != nil {
+		return "", err
+	}
+	path := filepath.Join(s.dir, jobID+".db")
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return "", err
 	}
 	if _, err := f.Write(plain); err != nil {
 		_ = f.Close()
-		_ = os.Remove(f.Name())
+		_ = os.Remove(path)
 		return "", err
 	}
 	if err := f.Close(); err != nil {
-		_ = os.Remove(f.Name())
+		_ = os.Remove(path)
 		return "", err
 	}
-	return f.Name(), nil
+	return path, nil
 }
 
 // runImport owns the accepted job and staged file until one terminal status has
-// been attempted. It continues independently of the initiating HTTP request;
-// parse/upsert failures are captured on the job rather than returned to a caller.
+// been recorded. It continues independently of the initiating HTTP request and
+// renews the job's lease while it works; if the lease is lost (the reaper
+// interrupted the row) the import stops. Parse/upsert failures are captured on
+// the job rather than returned to a caller.
 func (s *BackupImportService) runImport(ctx context.Context, job domain.BackfillImport, path string) {
 	defer func() { _ = os.Remove(path) }()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go s.heartbeat(ctx, cancel, job)
 
 	db, err := s.open(path)
 	if err != nil {
@@ -207,12 +236,52 @@ func (s *BackupImportService) runImport(ctx context.Context, job domain.Backfill
 	s.finishJob(ctx, job)
 }
 
-// finishJob records the terminal job row; a persistence failure is logged and
-// otherwise dropped because the staged file is already gone.
-func (s *BackupImportService) finishJob(ctx context.Context, job domain.BackfillImport) {
-	if e := s.store.BackfillImports.Finish(ctx, job); e != nil {
-		s.log.WarnContext(ctx, "backup import: record result failed", "job", job.ID, "err", e)
+// heartbeat renews the job's lease until ctx ends. A lost lease cancels the
+// import: another process (the reaper) already ended the row.
+func (s *BackupImportService) heartbeat(ctx context.Context, cancel context.CancelFunc, job domain.BackfillImport) {
+	ticker := time.NewTicker(importHeartbeat)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		now := s.clock()
+		owned, err := s.store.BackfillImports.Heartbeat(ctx, job.ID, s.owner, now, now+importLease.Milliseconds())
+		if err != nil {
+			s.log.WarnContext(ctx, "backup import heartbeat failed", "job", job.ID, "err", err)
+			continue
+		}
+		if !owned {
+			s.log.WarnContext(ctx, "backup import lost its lease; stopping", "job", job.ID)
+			cancel()
+			return
+		}
 	}
+}
+
+// finishJob records the terminal job row, retrying briefly. If every attempt
+// fails the lease expires and the reaper marks the row interrupted, so the job
+// never stays running.
+func (s *BackupImportService) finishJob(ctx context.Context, job domain.BackfillImport) {
+	job.Owner = s.owner
+	// The import context may already be cancelled (lost lease); recording
+	// the outcome must still be attempted.
+	ctx = context.WithoutCancel(ctx)
+	var err error
+	for attempt, delay := 0, 500*time.Millisecond; attempt < 4; attempt, delay = attempt+1, delay*2 {
+		if err = s.store.BackfillImports.Finish(ctx, job); err == nil {
+			return
+		}
+		var apiErr *domain.APIError
+		if errors.As(err, &apiErr) && apiErr.Code == domain.CodeNotFound {
+			break // another owner holds the row or it already finished
+		}
+		time.Sleep(delay)
+	}
+	s.log.ErrorContext(ctx, "backup import: record result failed; the lease reaper ends the job",
+		"job", job.ID, "status", job.Status, "err", err)
 }
 
 func (s *BackupImportService) finishFailed(ctx context.Context, job domain.BackfillImport, cause error) {
@@ -221,9 +290,45 @@ func (s *BackupImportService) finishFailed(ctx context.Context, job domain.Backf
 	job.Status = "failed"
 	job.Error = cause.Error()
 	s.log.WarnContext(ctx, "backup import failed", "session", job.SessionID, "job", job.ID, "err", cause)
-	if e := s.store.BackfillImports.Finish(ctx, job); e != nil {
-		s.log.WarnContext(ctx, "backup import: record failure failed", "job", job.ID, "err", e)
+	s.finishJob(ctx, job)
+}
+
+// ReapInterrupted marks running imports whose lease expired as interrupted
+// and removes staged files that no live import owns (left by a crash). It is
+// safe on every replica and at every boot.
+func (s *BackupImportService) ReapInterrupted(ctx context.Context) error {
+	now := s.clock()
+	n, err := s.store.BackfillImports.InterruptExpired(ctx, now)
+	if err != nil {
+		return err
 	}
+	if n > 0 {
+		s.log.WarnContext(ctx, "backup imports interrupted after their lease expired", "imports", n)
+	}
+	live, err := s.store.BackfillImports.LiveIDs(ctx, now)
+	if err != nil {
+		return err
+	}
+	keep := make(map[string]bool, len(live))
+	for _, id := range live {
+		keep[id+".db"] = true
+	}
+	entries, err := os.ReadDir(s.dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || keep[entry.Name()] {
+			continue
+		}
+		if err := os.Remove(filepath.Join(s.dir, entry.Name())); err != nil && !errors.Is(err, os.ErrNotExist) {
+			s.log.WarnContext(ctx, "remove stale backup staging file failed", "file", entry.Name(), "err", err)
+		}
+	}
+	return nil
 }
 
 // importAll upserts every supported entity from the backup, accumulating counts

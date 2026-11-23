@@ -2276,11 +2276,11 @@ export interface components {
              */
             source: string;
             /**
-             * @description Current job state. **running** = import in progress; **succeeded** = completed and rows upserted; **failed** = aborted (see error). Progression: running → succeeded, or running → failed.
+             * @description Current job state. **running** = import in progress; **succeeded** = completed and rows upserted; **failed** = aborted (see error); **interrupted** = the API process running the import stopped (for example a restart) before it finished, so the import is no longer running; start it again. Progression: running → succeeded, failed or interrupted. Rows already upserted by a failed or interrupted import stay, and a new import reconciles them.
              * @example succeeded
              * @enum {string}
              */
-            status: "running" | "succeeded" | "failed";
+            status: "running" | "succeeded" | "failed" | "interrupted";
         };
         BackfillJob: {
             /**

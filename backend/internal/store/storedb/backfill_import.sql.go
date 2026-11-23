@@ -13,8 +13,8 @@ import (
 const finishBackfillImport = `-- name: FinishBackfillImport :execrows
 UPDATE backfill_imports
 SET status = ?, chats = ?, messages = ?, identities = ?, groups_count = ?,
-	group_members = ?, schema_fingerprint = ?, error = ?, finished_at = ?
-WHERE id = ?
+	group_members = ?, schema_fingerprint = ?, error = ?, finished_at = ?, lease_until = NULL
+WHERE id = ? AND owner = ? AND status IN ('running', 'interrupted')
 `
 
 type FinishBackfillImportParams struct {
@@ -28,8 +28,11 @@ type FinishBackfillImportParams struct {
 	Error             sql.NullString        `db:"error" json:"error"`
 	FinishedAt        sql.NullInt64         `db:"finished_at" json:"finished_at"`
 	ID                string                `db:"id" json:"id"`
+	Owner             sql.NullString        `db:"owner" json:"owner"`
 }
 
+// FinishBackfillImport is fenced by the owner. It also accepts a row the
+// reaper already marked interrupted, so a late real outcome is recorded.
 func (q *Queries) FinishBackfillImport(ctx context.Context, arg FinishBackfillImportParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, finishBackfillImport,
 		arg.Status,
@@ -42,6 +45,33 @@ func (q *Queries) FinishBackfillImport(ctx context.Context, arg FinishBackfillIm
 		arg.Error,
 		arg.FinishedAt,
 		arg.ID,
+		arg.Owner,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const heartbeatBackfillImport = `-- name: HeartbeatBackfillImport :execrows
+UPDATE backfill_imports
+SET heartbeat_at = ?, lease_until = ?
+WHERE id = ? AND owner = ? AND status = 'running'
+`
+
+type HeartbeatBackfillImportParams struct {
+	HeartbeatAt sql.NullInt64  `db:"heartbeat_at" json:"heartbeat_at"`
+	LeaseUntil  sql.NullInt64  `db:"lease_until" json:"lease_until"`
+	ID          string         `db:"id" json:"id"`
+	Owner       sql.NullString `db:"owner" json:"owner"`
+}
+
+func (q *Queries) HeartbeatBackfillImport(ctx context.Context, arg HeartbeatBackfillImportParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, heartbeatBackfillImport,
+		arg.HeartbeatAt,
+		arg.LeaseUntil,
+		arg.ID,
+		arg.Owner,
 	)
 	if err != nil {
 		return 0, err
@@ -51,9 +81,9 @@ func (q *Queries) FinishBackfillImport(ctx context.Context, arg FinishBackfillIm
 
 const insertBackfillImport = `-- name: InsertBackfillImport :exec
 INSERT INTO backfill_imports
-(id, session_id, organization_id, source, status, chats, messages, identities,
- groups_count, group_members, schema_fingerprint, error, created_at, finished_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+(id, session_id, organization_id, source, status, owner, heartbeat_at, lease_until, chats, messages,
+ identities, groups_count, group_members, schema_fingerprint, error, created_at, finished_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertBackfillImportParams struct {
@@ -62,6 +92,9 @@ type InsertBackfillImportParams struct {
 	OrganizationID    string                `db:"organization_id" json:"organization_id"`
 	Source            string                `db:"source" json:"source"`
 	Status            BackfillImportsStatus `db:"status" json:"status"`
+	Owner             sql.NullString        `db:"owner" json:"owner"`
+	HeartbeatAt       sql.NullInt64         `db:"heartbeat_at" json:"heartbeat_at"`
+	LeaseUntil        sql.NullInt64         `db:"lease_until" json:"lease_until"`
 	Chats             int32                 `db:"chats" json:"chats"`
 	Messages          int32                 `db:"messages" json:"messages"`
 	Identities        int32                 `db:"identities" json:"identities"`
@@ -80,6 +113,9 @@ func (q *Queries) InsertBackfillImport(ctx context.Context, arg InsertBackfillIm
 		arg.OrganizationID,
 		arg.Source,
 		arg.Status,
+		arg.Owner,
+		arg.HeartbeatAt,
+		arg.LeaseUntil,
 		arg.Chats,
 		arg.Messages,
 		arg.Identities,
@@ -91,6 +127,25 @@ func (q *Queries) InsertBackfillImport(ctx context.Context, arg InsertBackfillIm
 		arg.FinishedAt,
 	)
 	return err
+}
+
+const interruptExpiredBackfillImports = `-- name: InterruptExpiredBackfillImports :execrows
+UPDATE backfill_imports
+SET status = 'interrupted', finished_at = ?, lease_until = NULL,
+	error = 'import interrupted: its API process stopped or lost its lease'
+WHERE status = 'running' AND lease_until <= ?
+`
+
+type InterruptExpiredBackfillImportsParams struct {
+	Now sql.NullInt64 `db:"now" json:"now"`
+}
+
+func (q *Queries) InterruptExpiredBackfillImports(ctx context.Context, arg InterruptExpiredBackfillImportsParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, interruptExpiredBackfillImports, arg.Now, arg.Now)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const lastSuccessfulBackfillImportCreatedAt = `-- name: LastSuccessfulBackfillImportCreatedAt :one
@@ -125,9 +180,26 @@ type LatestBackfillImportForSessionParams struct {
 	SessionID string `db:"session_id" json:"session_id"`
 }
 
-func (q *Queries) LatestBackfillImportForSession(ctx context.Context, arg LatestBackfillImportForSessionParams) (BackfillImport, error) {
+type LatestBackfillImportForSessionRow struct {
+	ID                string                `db:"id" json:"id"`
+	SessionID         string                `db:"session_id" json:"session_id"`
+	OrganizationID    string                `db:"organization_id" json:"organization_id"`
+	Source            string                `db:"source" json:"source"`
+	Status            BackfillImportsStatus `db:"status" json:"status"`
+	Chats             int32                 `db:"chats" json:"chats"`
+	Messages          int32                 `db:"messages" json:"messages"`
+	Identities        int32                 `db:"identities" json:"identities"`
+	GroupsCount       int32                 `db:"groups_count" json:"groups_count"`
+	GroupMembers      int32                 `db:"group_members" json:"group_members"`
+	SchemaFingerprint sql.NullString        `db:"schema_fingerprint" json:"schema_fingerprint"`
+	Error             sql.NullString        `db:"error" json:"error"`
+	CreatedAt         int64                 `db:"created_at" json:"created_at"`
+	FinishedAt        sql.NullInt64         `db:"finished_at" json:"finished_at"`
+}
+
+func (q *Queries) LatestBackfillImportForSession(ctx context.Context, arg LatestBackfillImportForSessionParams) (LatestBackfillImportForSessionRow, error) {
 	row := q.db.QueryRowContext(ctx, latestBackfillImportForSession, arg.SessionID)
-	var i BackfillImport
+	var i LatestBackfillImportForSessionRow
 	err := row.Scan(
 		&i.ID,
 		&i.SessionID,
@@ -147,22 +219,53 @@ func (q *Queries) LatestBackfillImportForSession(ctx context.Context, arg Latest
 	return i, err
 }
 
-const recentRunningBackfillImportExists = `-- name: RecentRunningBackfillImportExists :one
+const liveBackfillImportIDs = `-- name: LiveBackfillImportIDs :many
+SELECT id FROM backfill_imports WHERE status = 'running' AND lease_until > ?
+`
+
+type LiveBackfillImportIDsParams struct {
+	LeaseUntil sql.NullInt64 `db:"lease_until" json:"lease_until"`
+}
+
+func (q *Queries) LiveBackfillImportIDs(ctx context.Context, arg LiveBackfillImportIDsParams) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, liveBackfillImportIDs, arg.LeaseUntil)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const liveRunningBackfillImportExists = `-- name: LiveRunningBackfillImportExists :one
 SELECT EXISTS (
 	SELECT 1
 	FROM backfill_imports
-	WHERE session_id = ? AND status = 'running' AND created_at >= ?
+	WHERE session_id = ? AND status = 'running' AND lease_until > ?
 	LIMIT 1
 )
 `
 
-type RecentRunningBackfillImportExistsParams struct {
-	SessionID string `db:"session_id" json:"session_id"`
-	CreatedAt int64  `db:"created_at" json:"created_at"`
+type LiveRunningBackfillImportExistsParams struct {
+	SessionID  string        `db:"session_id" json:"session_id"`
+	LeaseUntil sql.NullInt64 `db:"lease_until" json:"lease_until"`
 }
 
-func (q *Queries) RecentRunningBackfillImportExists(ctx context.Context, arg RecentRunningBackfillImportExistsParams) (bool, error) {
-	row := q.db.QueryRowContext(ctx, recentRunningBackfillImportExists, arg.SessionID, arg.CreatedAt)
+func (q *Queries) LiveRunningBackfillImportExists(ctx context.Context, arg LiveRunningBackfillImportExistsParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, liveRunningBackfillImportExists, arg.SessionID, arg.LeaseUntil)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
