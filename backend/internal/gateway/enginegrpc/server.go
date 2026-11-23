@@ -11,6 +11,7 @@ import (
 	gatewayv1 "github.com/rama-adi/quick-whatsapp-gateway/gen/gateway/v1"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/application"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/gateway/desiredstate"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -37,10 +38,12 @@ func (s *Server) GetSessionState(
 		return nil, grpcError(err)
 	}
 	return &gatewayv1.GetSessionStateResponse{
-		Target:    target,
-		Status:    sessionStatus(value.Status),
-		Connected: value.Connected,
-		LoggedIn:  value.LoggedIn,
+		Target:        target,
+		Status:        desiredstate.GatewaySessionStatus(value.Status),
+		FailureReason: string(value.FailureReason),
+		StatusSeq:     value.StatusSeq,
+		Connected:     value.Connected,
+		LoggedIn:      value.LoggedIn,
 	}, nil
 }
 
@@ -482,37 +485,38 @@ func (s *Server) BackfillSession(
 	return &gatewayv1.BackfillSessionResponse{Snapshot: backfillSnapshotProto(snapshot)}, nil
 }
 
-func (s *Server) PrepareSession(
+func (s *Server) ApplySession(
 	ctx context.Context,
-	req *gatewayv1.PrepareSessionRequest,
-) (*gatewayv1.PrepareSessionResponse, error) {
-	target, err := s.target(req.GetTarget())
-	if err != nil {
-		return nil, grpcError(err)
-	}
-	if req.GetAssignmentEpoch() == 0 {
-		return nil, status.Error(codes.InvalidArgument, "invalid prepare-session request")
-	}
-	result, err := s.Engine.PrepareSession(ctx, sessionQuery(target, req.GetAssignmentEpoch()))
-	if err != nil {
-		return nil, grpcError(err)
-	}
-	return &gatewayv1.PrepareSessionResponse{Target: target, AssignmentEpoch: result.AssignmentEpoch}, nil
-}
-
-func (s *Server) BeginPairing(
-	ctx context.Context,
-	req *gatewayv1.BeginPairingRequest,
-) (*gatewayv1.BeginPairingResponse, error) {
+	req *gatewayv1.ApplySessionRequest,
+) (*gatewayv1.ApplySessionResponse, error) {
 	query, err := s.queryTarget(req.GetTarget(), req.GetAssignmentEpoch())
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	snapshot, err := s.Engine.BeginPairing(ctx, query)
+	if err := s.Engine.ApplySession(ctx, application.ApplySessionCommand{
+		SessionStateQuery: query,
+		Run:               req.GetRun(),
+		StartGeneration:   req.GetStartGeneration(),
+		DeviceJID:         req.GetDeviceJid(),
+	}); err != nil {
+		return nil, grpcError(err)
+	}
+	return &gatewayv1.ApplySessionResponse{Target: targetProto(query), AssignmentEpoch: query.AssignmentEpoch}, nil
+}
+
+func (s *Server) GetPairingQR(
+	ctx context.Context,
+	req *gatewayv1.GetPairingQRRequest,
+) (*gatewayv1.GetPairingQRResponse, error) {
+	query, err := s.queryTarget(req.GetTarget(), req.GetAssignmentEpoch())
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	response := &gatewayv1.BeginPairingResponse{Target: targetProto(query), AssignmentEpoch: query.AssignmentEpoch}
+	snapshot, err := s.Engine.GetPairingQR(ctx, query)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	response := &gatewayv1.GetPairingQRResponse{Target: targetProto(query), AssignmentEpoch: query.AssignmentEpoch}
 	if snapshot.Code != "" {
 		response.QrCode, response.QrExpiresAtUnixMs = &snapshot.Code, &snapshot.ExpiresAt
 	}
@@ -736,23 +740,6 @@ func backfillSnapshotProto(snapshot domain.BackfillSnapshot) *gatewayv1.Backfill
 		})
 	}
 	return out
-}
-
-func sessionStatus(value domain.SessionStatus) gatewayv1.GatewaySessionStatus {
-	switch value {
-	case domain.SessionStopped:
-		return gatewayv1.GatewaySessionStatus_GATEWAY_SESSION_STATUS_STOPPED
-	case domain.SessionStarting:
-		return gatewayv1.GatewaySessionStatus_GATEWAY_SESSION_STATUS_STARTING
-	case domain.SessionScanQR:
-		return gatewayv1.GatewaySessionStatus_GATEWAY_SESSION_STATUS_SCAN_QR
-	case domain.SessionWorking:
-		return gatewayv1.GatewaySessionStatus_GATEWAY_SESSION_STATUS_WORKING
-	case domain.SessionLoggedOut:
-		return gatewayv1.GatewaySessionStatus_GATEWAY_SESSION_STATUS_LOGGED_OUT
-	default:
-		return gatewayv1.GatewaySessionStatus_GATEWAY_SESSION_STATUS_UNSPECIFIED
-	}
 }
 
 func grpcError(err error) error {

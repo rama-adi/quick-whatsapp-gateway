@@ -165,7 +165,7 @@ WHERE id = ? AND connection_epoch = ? AND deleted_at IS NULL
 LIMIT 1;
 
 -- name: ListGatewayDesiredStateAssignments :many
-SELECT a.session_id, s.organization_id, s.wa_jid, s.status, a.assignment_epoch,
+SELECT a.session_id, s.organization_id, s.wa_jid, s.desired_state, s.start_generation, a.assignment_epoch,
        s.auto_read, s.presence_typing, s.rate_per_min, s.rate_per_hour, s.history_sync_days
 FROM gateway_session_assignments AS a
 JOIN wa_sessions AS s ON s.id = a.session_id
@@ -192,3 +192,8 @@ WHERE s.id=? AND s.organization_id=? AND g.deleted_at IS NULL
   AND g.desired_lifecycle='run' AND g.reconciliation_status='healthy'
   AND g.connected_at IS NOT NULL AND g.grpc_endpoint IS NOT NULL
 LIMIT 1;
+
+-- name: SessionExistsInOrganization :one
+-- Distinguishes "no such session" (404) from "its gateway cannot take
+-- requests right now" (503) when ResolveSessionEngineTarget finds no route.
+SELECT EXISTS(SELECT 1 FROM wa_sessions WHERE id = ? AND organization_id = ?) AS session_exists;

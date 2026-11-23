@@ -8,7 +8,6 @@ import { useMutationState, type UseQueryOptions } from "@tanstack/react-query";
 import {
   sessionMutationKeys,
   useSession,
-  useSessionFailure,
   useSessionPairingCode,
   useSessionPasskey,
   useSessionPendingAction,
@@ -38,8 +37,8 @@ export interface SessionViewResult {
 
 /** Statuses that show each action has taken effect. */
 const EFFECT: Record<SessionAction, ReadonlySet<SessionStatus>> = {
-  start: new Set(["starting", "scan_qr_code", "working"]),
-  restart: new Set(["starting", "scan_qr_code", "working"]),
+  start: new Set(["starting", "scan_qr_code", "working", "reconnecting"]),
+  restart: new Set(["starting", "scan_qr_code", "working", "reconnecting"]),
   stop: new Set(["stopped", "logged_out", "failed"]),
   logout: new Set(["logged_out"]),
 };
@@ -89,7 +88,6 @@ export function useSessionViewFromRow(
   const qr = useSessionQR(sessionId, awaiting).data;
   const pairingCode = useSessionPairingCode(sessionId);
   const passkey = useSessionPasskey(sessionId);
-  const failure = useSessionFailure(sessionId);
   const inFlight = useSessionPendingAction(sessionId);
   const latest = useMutationState({
     filters: {
@@ -120,7 +118,6 @@ export function useSessionViewFromRow(
     qr,
     pairingCode,
     passkey,
-    failure,
     linkingSince: linkingSince.current,
   };
   const renderedAt = Date.now();

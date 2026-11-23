@@ -105,6 +105,10 @@ certificate.
 **Stranded session.** If the owning gateway is missing, disabled, drained, or its control-stream
 liveness is stale or implausibly far in the future, the API returns **`503 gateway_unavailable`**
 with a clear message rather than a silent hang (the `gateway_unavailable` domain error code → HTTP 503).
+`GatewayRepo.ResolveSessionEngineTarget` makes that distinction explicit: when no route exists it
+checks whether the session exists in the caller's organization, and answers 404 only when it does
+not. A gateway that is not active, not `run`, not reconciled `healthy`, or not connected yields
+503 for its sessions instead of the 404 it used to return.
 Rows registered through the control stream use a 15-second freshness window matching the
 advertised heartbeat lease; `connection_mode=legacy` remains only as stored history for
 pre-migration rows — the control stream is the only registration writer. A current-epoch stream disconnect clears

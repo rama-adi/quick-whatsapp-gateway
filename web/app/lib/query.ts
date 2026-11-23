@@ -73,8 +73,6 @@ export const qk = {
   sessionPairing: (s: string) => ["sessions", s, "pairing"] as const,
   /** The live auth.passkey step for a pairing (set only by events). */
   sessionPasskey: (s: string) => ["sessions", s, "passkey"] as const,
-  /** The failureReason of the latest failed session.status (set only by events). */
-  sessionFailure: (s: string) => ["sessions", s, "failure"] as const,
   sessionMe: (s: string) => ["sessions", s, "me"] as const,
 
   adminSessions: () => ["admin", "sessions"] as const,

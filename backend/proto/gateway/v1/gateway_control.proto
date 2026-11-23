@@ -4,6 +4,8 @@ package gateway.v1;
 
 option go_package = "github.com/rama-adi/quick-whatsapp-gateway/gen/gateway/v1;gatewayv1";
 
+import "v1/gateway_engine.proto";
+
 // GatewayControlService is the long-lived private API↔gateway coordination channel.
 // Gateway identity is derived exclusively from the authenticated TLS peer; frames
 // intentionally contain no gateway_id field.
@@ -117,10 +119,34 @@ message DesiredStateReport {
   repeated LocalDeviceInventory local_devices = 4;
   repeated ReconciliationResult results = 5;
   reserved 6 to 15;
+  // The observed runtime of every assigned session. The API stores each one
+  // that is newer than what it has, so a session.status event that was lost
+  // on the way is repaired by the next report.
+  repeated SessionRuntime sessions = 16;
+}
+
+// SessionRuntime is one session's observed runtime on the reporting gateway.
+// status_seq orders observations: it is a hybrid logical clock (wall-clock
+// milliseconds x 1000, then +1 per change), monotonic within a gateway process
+// and above every value the previous process of that gateway produced. 0
+// means the gateway has observed nothing for the session yet.
+message SessionRuntime {
+  string session_id = 1;
+  uint64 assignment_epoch = 2;
+  GatewaySessionStatus status = 3;
+  uint64 status_seq = 4;
+  // domain.SessionFailureReason; set only with GATEWAY_SESSION_STATUS_FAILED.
+  string failure_reason = 5;
+  int64 status_changed_at_unix_ms = 6;
+  reserved 7 to 15;
 }
 
 message KeystoreHealth { KeystoreHealthState state = 1; optional int64 byte_size = 2; optional int64 last_checked_at_unix_ms = 3; reserved 4 to 15; }
 message LocalDeviceInventory { string device_jid = 1; reserved 2 to 15; }
+// ReconciliationResult.device_jid is the device the gateway holds for the
+// session. It differs from the assignment's device only right after a pairing
+// that the API has not attached yet (assignment without device, result with
+// the new one).
 message ReconciliationResult { optional string session_id = 1; uint64 assignment_epoch = 2; string device_jid = 3; ReconciliationResultStatus status = 4; reserved 5 to 15; }
 
 // DesiredStateSnapshot is a complete, authoritative replacement for the
@@ -135,6 +161,10 @@ message DesiredStateSnapshot {
 // SessionAssignment carries organization-scoped identity and a durable
 // assignment fence. assignment_epoch is never zero and increases whenever an
 // assignment changes owner. The lease is an absolute API-clock deadline.
+// desired_action RUN without device_jid asks the gateway to run QR pairing.
+// start_generation counts explicit start/restart requests: a session whose
+// last run failed or was logged out is started again only for a newer
+// generation, and a running session restarts for one.
 message SessionAssignment {
   string session_id = 1;
   string organization_id = 2;
@@ -144,6 +174,7 @@ message SessionAssignment {
   optional string device_jid = 6;
   SessionDesiredAction desired_action = 7;
   reserved 8 to 15;
+  uint64 start_generation = 16;
 }
 
 message SessionConfig {

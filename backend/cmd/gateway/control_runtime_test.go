@@ -20,6 +20,9 @@ func (*controlCountRuntime) Inventory(context.Context) (desiredstate.Inventory, 
 }
 func (*controlCountRuntime) StartAssigned(context.Context, desiredstate.Assignment) error { return nil }
 func (*controlCountRuntime) StopAssigned(context.Context, string) error                   { return nil }
+func (*controlCountRuntime) SessionRuntime(string) desiredstate.SessionRuntime {
+	return desiredstate.SessionRuntime{}
+}
 
 func TestCertificateRenewalDeadlineUsesCertificateExpiryAndConfiguredWindow(t *testing.T) {
 	expiry := time.Date(2026, time.August, 7, 12, 0, 0, 0, time.UTC)

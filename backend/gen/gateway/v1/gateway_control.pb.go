@@ -1349,8 +1349,12 @@ type DesiredStateReport struct {
 	KeystoreHealth    *KeystoreHealth         `protobuf:"bytes,3,opt,name=keystore_health,json=keystoreHealth,proto3" json:"keystore_health,omitempty"`
 	LocalDevices      []*LocalDeviceInventory `protobuf:"bytes,4,rep,name=local_devices,json=localDevices,proto3" json:"local_devices,omitempty"`
 	Results           []*ReconciliationResult `protobuf:"bytes,5,rep,name=results,proto3" json:"results,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// The observed runtime of every assigned session. The API stores each one
+	// that is newer than what it has, so a session.status event that was lost
+	// on the way is repaired by the next report.
+	Sessions      []*SessionRuntime `protobuf:"bytes,16,rep,name=sessions,proto3" json:"sessions,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *DesiredStateReport) Reset() {
@@ -1418,6 +1422,103 @@ func (x *DesiredStateReport) GetResults() []*ReconciliationResult {
 	return nil
 }
 
+func (x *DesiredStateReport) GetSessions() []*SessionRuntime {
+	if x != nil {
+		return x.Sessions
+	}
+	return nil
+}
+
+// SessionRuntime is one session's observed runtime on the reporting gateway.
+// status_seq orders observations: it is a hybrid logical clock (wall-clock
+// milliseconds x 1000, then +1 per change), monotonic within a gateway process
+// and above every value the previous process of that gateway produced. 0
+// means the gateway has observed nothing for the session yet.
+type SessionRuntime struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	SessionId       string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	AssignmentEpoch uint64                 `protobuf:"varint,2,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
+	Status          GatewaySessionStatus   `protobuf:"varint,3,opt,name=status,proto3,enum=gateway.v1.GatewaySessionStatus" json:"status,omitempty"`
+	StatusSeq       uint64                 `protobuf:"varint,4,opt,name=status_seq,json=statusSeq,proto3" json:"status_seq,omitempty"`
+	// domain.SessionFailureReason; set only with GATEWAY_SESSION_STATUS_FAILED.
+	FailureReason         string `protobuf:"bytes,5,opt,name=failure_reason,json=failureReason,proto3" json:"failure_reason,omitempty"`
+	StatusChangedAtUnixMs int64  `protobuf:"varint,6,opt,name=status_changed_at_unix_ms,json=statusChangedAtUnixMs,proto3" json:"status_changed_at_unix_ms,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
+}
+
+func (x *SessionRuntime) Reset() {
+	*x = SessionRuntime{}
+	mi := &file_v1_gateway_control_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SessionRuntime) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SessionRuntime) ProtoMessage() {}
+
+func (x *SessionRuntime) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_control_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SessionRuntime.ProtoReflect.Descriptor instead.
+func (*SessionRuntime) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_control_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *SessionRuntime) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *SessionRuntime) GetAssignmentEpoch() uint64 {
+	if x != nil {
+		return x.AssignmentEpoch
+	}
+	return 0
+}
+
+func (x *SessionRuntime) GetStatus() GatewaySessionStatus {
+	if x != nil {
+		return x.Status
+	}
+	return GatewaySessionStatus_GATEWAY_SESSION_STATUS_UNSPECIFIED
+}
+
+func (x *SessionRuntime) GetStatusSeq() uint64 {
+	if x != nil {
+		return x.StatusSeq
+	}
+	return 0
+}
+
+func (x *SessionRuntime) GetFailureReason() string {
+	if x != nil {
+		return x.FailureReason
+	}
+	return ""
+}
+
+func (x *SessionRuntime) GetStatusChangedAtUnixMs() int64 {
+	if x != nil {
+		return x.StatusChangedAtUnixMs
+	}
+	return 0
+}
+
 type KeystoreHealth struct {
 	state               protoimpl.MessageState `protogen:"open.v1"`
 	State               KeystoreHealthState    `protobuf:"varint,1,opt,name=state,proto3,enum=gateway.v1.KeystoreHealthState" json:"state,omitempty"`
@@ -1429,7 +1530,7 @@ type KeystoreHealth struct {
 
 func (x *KeystoreHealth) Reset() {
 	*x = KeystoreHealth{}
-	mi := &file_v1_gateway_control_proto_msgTypes[10]
+	mi := &file_v1_gateway_control_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1441,7 +1542,7 @@ func (x *KeystoreHealth) String() string {
 func (*KeystoreHealth) ProtoMessage() {}
 
 func (x *KeystoreHealth) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_control_proto_msgTypes[10]
+	mi := &file_v1_gateway_control_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1454,7 +1555,7 @@ func (x *KeystoreHealth) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use KeystoreHealth.ProtoReflect.Descriptor instead.
 func (*KeystoreHealth) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_control_proto_rawDescGZIP(), []int{10}
+	return file_v1_gateway_control_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *KeystoreHealth) GetState() KeystoreHealthState {
@@ -1487,7 +1588,7 @@ type LocalDeviceInventory struct {
 
 func (x *LocalDeviceInventory) Reset() {
 	*x = LocalDeviceInventory{}
-	mi := &file_v1_gateway_control_proto_msgTypes[11]
+	mi := &file_v1_gateway_control_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1499,7 +1600,7 @@ func (x *LocalDeviceInventory) String() string {
 func (*LocalDeviceInventory) ProtoMessage() {}
 
 func (x *LocalDeviceInventory) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_control_proto_msgTypes[11]
+	mi := &file_v1_gateway_control_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1512,7 +1613,7 @@ func (x *LocalDeviceInventory) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LocalDeviceInventory.ProtoReflect.Descriptor instead.
 func (*LocalDeviceInventory) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_control_proto_rawDescGZIP(), []int{11}
+	return file_v1_gateway_control_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *LocalDeviceInventory) GetDeviceJid() string {
@@ -1522,6 +1623,10 @@ func (x *LocalDeviceInventory) GetDeviceJid() string {
 	return ""
 }
 
+// ReconciliationResult.device_jid is the device the gateway holds for the
+// session. It differs from the assignment's device only right after a pairing
+// that the API has not attached yet (assignment without device, result with
+// the new one).
 type ReconciliationResult struct {
 	state           protoimpl.MessageState     `protogen:"open.v1"`
 	SessionId       *string                    `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3,oneof" json:"session_id,omitempty"`
@@ -1534,7 +1639,7 @@ type ReconciliationResult struct {
 
 func (x *ReconciliationResult) Reset() {
 	*x = ReconciliationResult{}
-	mi := &file_v1_gateway_control_proto_msgTypes[12]
+	mi := &file_v1_gateway_control_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1546,7 +1651,7 @@ func (x *ReconciliationResult) String() string {
 func (*ReconciliationResult) ProtoMessage() {}
 
 func (x *ReconciliationResult) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_control_proto_msgTypes[12]
+	mi := &file_v1_gateway_control_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1559,7 +1664,7 @@ func (x *ReconciliationResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReconciliationResult.ProtoReflect.Descriptor instead.
 func (*ReconciliationResult) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_control_proto_rawDescGZIP(), []int{12}
+	return file_v1_gateway_control_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ReconciliationResult) GetSessionId() string {
@@ -1603,7 +1708,7 @@ type DesiredStateSnapshot struct {
 
 func (x *DesiredStateSnapshot) Reset() {
 	*x = DesiredStateSnapshot{}
-	mi := &file_v1_gateway_control_proto_msgTypes[13]
+	mi := &file_v1_gateway_control_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1615,7 +1720,7 @@ func (x *DesiredStateSnapshot) String() string {
 func (*DesiredStateSnapshot) ProtoMessage() {}
 
 func (x *DesiredStateSnapshot) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_control_proto_msgTypes[13]
+	mi := &file_v1_gateway_control_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1628,7 +1733,7 @@ func (x *DesiredStateSnapshot) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DesiredStateSnapshot.ProtoReflect.Descriptor instead.
 func (*DesiredStateSnapshot) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_control_proto_rawDescGZIP(), []int{13}
+	return file_v1_gateway_control_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *DesiredStateSnapshot) GetRevision() uint64 {
@@ -1648,6 +1753,10 @@ func (x *DesiredStateSnapshot) GetAssignments() []*SessionAssignment {
 // SessionAssignment carries organization-scoped identity and a durable
 // assignment fence. assignment_epoch is never zero and increases whenever an
 // assignment changes owner. The lease is an absolute API-clock deadline.
+// desired_action RUN without device_jid asks the gateway to run QR pairing.
+// start_generation counts explicit start/restart requests: a session whose
+// last run failed or was logged out is started again only for a newer
+// generation, and a running session restarts for one.
 type SessionAssignment struct {
 	state                protoimpl.MessageState `protogen:"open.v1"`
 	SessionId            string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
@@ -1657,13 +1766,14 @@ type SessionAssignment struct {
 	Config               *SessionConfig         `protobuf:"bytes,5,opt,name=config,proto3" json:"config,omitempty"`
 	DeviceJid            *string                `protobuf:"bytes,6,opt,name=device_jid,json=deviceJid,proto3,oneof" json:"device_jid,omitempty"`
 	DesiredAction        SessionDesiredAction   `protobuf:"varint,7,opt,name=desired_action,json=desiredAction,proto3,enum=gateway.v1.SessionDesiredAction" json:"desired_action,omitempty"`
+	StartGeneration      uint64                 `protobuf:"varint,16,opt,name=start_generation,json=startGeneration,proto3" json:"start_generation,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
 
 func (x *SessionAssignment) Reset() {
 	*x = SessionAssignment{}
-	mi := &file_v1_gateway_control_proto_msgTypes[14]
+	mi := &file_v1_gateway_control_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1675,7 +1785,7 @@ func (x *SessionAssignment) String() string {
 func (*SessionAssignment) ProtoMessage() {}
 
 func (x *SessionAssignment) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_control_proto_msgTypes[14]
+	mi := &file_v1_gateway_control_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1688,7 +1798,7 @@ func (x *SessionAssignment) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionAssignment.ProtoReflect.Descriptor instead.
 func (*SessionAssignment) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_control_proto_rawDescGZIP(), []int{14}
+	return file_v1_gateway_control_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *SessionAssignment) GetSessionId() string {
@@ -1740,6 +1850,13 @@ func (x *SessionAssignment) GetDesiredAction() SessionDesiredAction {
 	return SessionDesiredAction_SESSION_DESIRED_ACTION_UNKNOWN
 }
 
+func (x *SessionAssignment) GetStartGeneration() uint64 {
+	if x != nil {
+		return x.StartGeneration
+	}
+	return 0
+}
+
 type SessionConfig struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	Revision       uint64                 `protobuf:"varint,1,opt,name=revision,proto3" json:"revision,omitempty"`
@@ -1757,7 +1874,7 @@ type SessionConfig struct {
 
 func (x *SessionConfig) Reset() {
 	*x = SessionConfig{}
-	mi := &file_v1_gateway_control_proto_msgTypes[15]
+	mi := &file_v1_gateway_control_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1769,7 +1886,7 @@ func (x *SessionConfig) String() string {
 func (*SessionConfig) ProtoMessage() {}
 
 func (x *SessionConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_control_proto_msgTypes[15]
+	mi := &file_v1_gateway_control_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1782,7 +1899,7 @@ func (x *SessionConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionConfig.ProtoReflect.Descriptor instead.
 func (*SessionConfig) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_control_proto_rawDescGZIP(), []int{15}
+	return file_v1_gateway_control_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *SessionConfig) GetRevision() uint64 {
@@ -1841,7 +1958,7 @@ type ControlWelcome struct {
 
 func (x *ControlWelcome) Reset() {
 	*x = ControlWelcome{}
-	mi := &file_v1_gateway_control_proto_msgTypes[16]
+	mi := &file_v1_gateway_control_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1853,7 +1970,7 @@ func (x *ControlWelcome) String() string {
 func (*ControlWelcome) ProtoMessage() {}
 
 func (x *ControlWelcome) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_control_proto_msgTypes[16]
+	mi := &file_v1_gateway_control_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1866,7 +1983,7 @@ func (x *ControlWelcome) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ControlWelcome.ProtoReflect.Descriptor instead.
 func (*ControlWelcome) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_control_proto_rawDescGZIP(), []int{16}
+	return file_v1_gateway_control_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ControlWelcome) GetConnectionId() string {
@@ -1924,7 +2041,7 @@ type LifecycleDirective struct {
 
 func (x *LifecycleDirective) Reset() {
 	*x = LifecycleDirective{}
-	mi := &file_v1_gateway_control_proto_msgTypes[17]
+	mi := &file_v1_gateway_control_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1936,7 +2053,7 @@ func (x *LifecycleDirective) String() string {
 func (*LifecycleDirective) ProtoMessage() {}
 
 func (x *LifecycleDirective) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_control_proto_msgTypes[17]
+	mi := &file_v1_gateway_control_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1949,7 +2066,7 @@ func (x *LifecycleDirective) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LifecycleDirective.ProtoReflect.Descriptor instead.
 func (*LifecycleDirective) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_control_proto_rawDescGZIP(), []int{17}
+	return file_v1_gateway_control_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *LifecycleDirective) GetDirectiveId() string {
@@ -1992,7 +2109,7 @@ var File_v1_gateway_control_proto protoreflect.FileDescriptor
 const file_v1_gateway_control_proto_rawDesc = "" +
 	"\n" +
 	"\x18v1/gateway_control.proto\x12\n" +
-	"gateway.v1\"\xc3\x03\n" +
+	"gateway.v1\x1a\x17v1/gateway_engine.proto\"\xc3\x03\n" +
 	"\fGatewayFrame\x12)\n" +
 	"\x10protocol_version\x18\x01 \x01(\rR\x0fprotocolVersion\x12\x1a\n" +
 	"\bsequence\x18\x02 \x01(\x04R\bsequence\x120\n" +
@@ -2064,13 +2181,23 @@ const file_v1_gateway_control_proto_rawDesc = "" +
 	"\x10connection_epoch\x18\x01 \x01(\x04R\x0fconnectionEpoch\x12!\n" +
 	"\fdirective_id\x18\x02 \x01(\tR\vdirectiveId\x125\n" +
 	"\x05state\x18\x03 \x01(\x0e2\x1f.gateway.v1.GatewayRuntimeStateR\x05state\x126\n" +
-	"\afailure\x18\x04 \x01(\x0e2\x1c.gateway.v1.LifecycleFailureR\afailureJ\x04\b\x05\x10\x10\"\xbc\x02\n" +
+	"\afailure\x18\x04 \x01(\x0e2\x1c.gateway.v1.LifecycleFailureR\afailureJ\x04\b\x05\x10\x10\"\xf4\x02\n" +
 	"\x12DesiredStateReport\x12)\n" +
 	"\x10connection_epoch\x18\x01 \x01(\x04R\x0fconnectionEpoch\x12-\n" +
 	"\x12processed_revision\x18\x02 \x01(\x04R\x11processedRevision\x12C\n" +
 	"\x0fkeystore_health\x18\x03 \x01(\v2\x1a.gateway.v1.KeystoreHealthR\x0ekeystoreHealth\x12E\n" +
 	"\rlocal_devices\x18\x04 \x03(\v2 .gateway.v1.LocalDeviceInventoryR\flocalDevices\x12:\n" +
-	"\aresults\x18\x05 \x03(\v2 .gateway.v1.ReconciliationResultR\aresultsJ\x04\b\x06\x10\x10\"\xd4\x01\n" +
+	"\aresults\x18\x05 \x03(\v2 .gateway.v1.ReconciliationResultR\aresults\x126\n" +
+	"\bsessions\x18\x10 \x03(\v2\x1a.gateway.v1.SessionRuntimeR\bsessionsJ\x04\b\x06\x10\x10\"\x9a\x02\n" +
+	"\x0eSessionRuntime\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\x12)\n" +
+	"\x10assignment_epoch\x18\x02 \x01(\x04R\x0fassignmentEpoch\x128\n" +
+	"\x06status\x18\x03 \x01(\x0e2 .gateway.v1.GatewaySessionStatusR\x06status\x12\x1d\n" +
+	"\n" +
+	"status_seq\x18\x04 \x01(\x04R\tstatusSeq\x12%\n" +
+	"\x0efailure_reason\x18\x05 \x01(\tR\rfailureReason\x128\n" +
+	"\x19status_changed_at_unix_ms\x18\x06 \x01(\x03R\x15statusChangedAtUnixMsJ\x04\b\a\x10\x10\"\xd4\x01\n" +
 	"\x0eKeystoreHealth\x125\n" +
 	"\x05state\x18\x01 \x01(\x0e2\x1f.gateway.v1.KeystoreHealthStateR\x05state\x12 \n" +
 	"\tbyte_size\x18\x02 \x01(\x03H\x00R\bbyteSize\x88\x01\x01\x129\n" +
@@ -2091,7 +2218,7 @@ const file_v1_gateway_control_proto_rawDesc = "" +
 	"\v_session_idJ\x04\b\x05\x10\x10\"y\n" +
 	"\x14DesiredStateSnapshot\x12\x1a\n" +
 	"\brevision\x18\x01 \x01(\x04R\brevision\x12?\n" +
-	"\vassignments\x18\x02 \x03(\v2\x1d.gateway.v1.SessionAssignmentR\vassignmentsJ\x04\b\x03\x10\x10\"\xf3\x02\n" +
+	"\vassignments\x18\x02 \x03(\v2\x1d.gateway.v1.SessionAssignmentR\vassignmentsJ\x04\b\x03\x10\x10\"\x9e\x03\n" +
 	"\x11SessionAssignment\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12'\n" +
@@ -2101,7 +2228,8 @@ const file_v1_gateway_control_proto_rawDesc = "" +
 	"\x06config\x18\x05 \x01(\v2\x19.gateway.v1.SessionConfigR\x06config\x12\"\n" +
 	"\n" +
 	"device_jid\x18\x06 \x01(\tH\x00R\tdeviceJid\x88\x01\x01\x12G\n" +
-	"\x0edesired_action\x18\a \x01(\x0e2 .gateway.v1.SessionDesiredActionR\rdesiredActionB\r\n" +
+	"\x0edesired_action\x18\a \x01(\x0e2 .gateway.v1.SessionDesiredActionR\rdesiredAction\x12)\n" +
+	"\x10start_generation\x18\x10 \x01(\x04R\x0fstartGenerationB\r\n" +
 	"\v_device_jidJ\x04\b\b\x10\x10\"\xe9\x01\n" +
 	"\rSessionConfig\x12\x1a\n" +
 	"\brevision\x18\x01 \x01(\x04R\brevision\x12\x1b\n" +
@@ -2191,7 +2319,7 @@ func file_v1_gateway_control_proto_rawDescGZIP() []byte {
 }
 
 var file_v1_gateway_control_proto_enumTypes = make([]protoimpl.EnumInfo, 9)
-var file_v1_gateway_control_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_v1_gateway_control_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_v1_gateway_control_proto_goTypes = []any{
 	(GatewayCapability)(0),          // 0: gateway.v1.GatewayCapability
 	(GatewayRuntimeState)(0),        // 1: gateway.v1.GatewayRuntimeState
@@ -2212,14 +2340,16 @@ var file_v1_gateway_control_proto_goTypes = []any{
 	(*ControlHeartbeatAck)(nil),     // 16: gateway.v1.ControlHeartbeatAck
 	(*GatewayLifecycleReport)(nil),  // 17: gateway.v1.GatewayLifecycleReport
 	(*DesiredStateReport)(nil),      // 18: gateway.v1.DesiredStateReport
-	(*KeystoreHealth)(nil),          // 19: gateway.v1.KeystoreHealth
-	(*LocalDeviceInventory)(nil),    // 20: gateway.v1.LocalDeviceInventory
-	(*ReconciliationResult)(nil),    // 21: gateway.v1.ReconciliationResult
-	(*DesiredStateSnapshot)(nil),    // 22: gateway.v1.DesiredStateSnapshot
-	(*SessionAssignment)(nil),       // 23: gateway.v1.SessionAssignment
-	(*SessionConfig)(nil),           // 24: gateway.v1.SessionConfig
-	(*ControlWelcome)(nil),          // 25: gateway.v1.ControlWelcome
-	(*LifecycleDirective)(nil),      // 26: gateway.v1.LifecycleDirective
+	(*SessionRuntime)(nil),          // 19: gateway.v1.SessionRuntime
+	(*KeystoreHealth)(nil),          // 20: gateway.v1.KeystoreHealth
+	(*LocalDeviceInventory)(nil),    // 21: gateway.v1.LocalDeviceInventory
+	(*ReconciliationResult)(nil),    // 22: gateway.v1.ReconciliationResult
+	(*DesiredStateSnapshot)(nil),    // 23: gateway.v1.DesiredStateSnapshot
+	(*SessionAssignment)(nil),       // 24: gateway.v1.SessionAssignment
+	(*SessionConfig)(nil),           // 25: gateway.v1.SessionConfig
+	(*ControlWelcome)(nil),          // 26: gateway.v1.ControlWelcome
+	(*LifecycleDirective)(nil),      // 27: gateway.v1.LifecycleDirective
+	(GatewaySessionStatus)(0),       // 28: gateway.v1.GatewaySessionStatus
 }
 var file_v1_gateway_control_proto_depIdxs = []int32{
 	14, // 0: gateway.v1.GatewayFrame.hello:type_name -> gateway.v1.GatewayHello
@@ -2227,10 +2357,10 @@ var file_v1_gateway_control_proto_depIdxs = []int32{
 	17, // 2: gateway.v1.GatewayFrame.lifecycle_report:type_name -> gateway.v1.GatewayLifecycleReport
 	18, // 3: gateway.v1.GatewayFrame.desired_state_report:type_name -> gateway.v1.DesiredStateReport
 	11, // 4: gateway.v1.GatewayFrame.event_batch:type_name -> gateway.v1.GatewayEventBatch
-	25, // 5: gateway.v1.ControlFrame.welcome:type_name -> gateway.v1.ControlWelcome
-	26, // 6: gateway.v1.ControlFrame.lifecycle_directive:type_name -> gateway.v1.LifecycleDirective
+	26, // 5: gateway.v1.ControlFrame.welcome:type_name -> gateway.v1.ControlWelcome
+	27, // 6: gateway.v1.ControlFrame.lifecycle_directive:type_name -> gateway.v1.LifecycleDirective
 	16, // 7: gateway.v1.ControlFrame.heartbeat_ack:type_name -> gateway.v1.ControlHeartbeatAck
-	22, // 8: gateway.v1.ControlFrame.desired_state_snapshot:type_name -> gateway.v1.DesiredStateSnapshot
+	23, // 8: gateway.v1.ControlFrame.desired_state_snapshot:type_name -> gateway.v1.DesiredStateSnapshot
 	13, // 9: gateway.v1.ControlFrame.event_ack:type_name -> gateway.v1.GatewayEventAck
 	12, // 10: gateway.v1.GatewayEventBatch.events:type_name -> gateway.v1.GatewayEvent
 	0,  // 11: gateway.v1.GatewayHello.capabilities:type_name -> gateway.v1.GatewayCapability
@@ -2239,24 +2369,26 @@ var file_v1_gateway_control_proto_depIdxs = []int32{
 	6,  // 14: gateway.v1.GatewayHeartbeat.journal_state:type_name -> gateway.v1.GatewayJournalState
 	1,  // 15: gateway.v1.GatewayLifecycleReport.state:type_name -> gateway.v1.GatewayRuntimeState
 	2,  // 16: gateway.v1.GatewayLifecycleReport.failure:type_name -> gateway.v1.LifecycleFailure
-	19, // 17: gateway.v1.DesiredStateReport.keystore_health:type_name -> gateway.v1.KeystoreHealth
-	20, // 18: gateway.v1.DesiredStateReport.local_devices:type_name -> gateway.v1.LocalDeviceInventory
-	21, // 19: gateway.v1.DesiredStateReport.results:type_name -> gateway.v1.ReconciliationResult
-	5,  // 20: gateway.v1.KeystoreHealth.state:type_name -> gateway.v1.KeystoreHealthState
-	7,  // 21: gateway.v1.ReconciliationResult.status:type_name -> gateway.v1.ReconciliationResultStatus
-	23, // 22: gateway.v1.DesiredStateSnapshot.assignments:type_name -> gateway.v1.SessionAssignment
-	24, // 23: gateway.v1.SessionAssignment.config:type_name -> gateway.v1.SessionConfig
-	8,  // 24: gateway.v1.SessionAssignment.desired_action:type_name -> gateway.v1.SessionDesiredAction
-	3,  // 25: gateway.v1.ControlWelcome.desired_lifecycle:type_name -> gateway.v1.LifecycleDirectiveAction
-	3,  // 26: gateway.v1.LifecycleDirective.action:type_name -> gateway.v1.LifecycleDirectiveAction
-	4,  // 27: gateway.v1.LifecycleDirective.reason:type_name -> gateway.v1.LifecycleDirectiveReason
-	9,  // 28: gateway.v1.GatewayControlService.Connect:input_type -> gateway.v1.GatewayFrame
-	10, // 29: gateway.v1.GatewayControlService.Connect:output_type -> gateway.v1.ControlFrame
-	29, // [29:30] is the sub-list for method output_type
-	28, // [28:29] is the sub-list for method input_type
-	28, // [28:28] is the sub-list for extension type_name
-	28, // [28:28] is the sub-list for extension extendee
-	0,  // [0:28] is the sub-list for field type_name
+	20, // 17: gateway.v1.DesiredStateReport.keystore_health:type_name -> gateway.v1.KeystoreHealth
+	21, // 18: gateway.v1.DesiredStateReport.local_devices:type_name -> gateway.v1.LocalDeviceInventory
+	22, // 19: gateway.v1.DesiredStateReport.results:type_name -> gateway.v1.ReconciliationResult
+	19, // 20: gateway.v1.DesiredStateReport.sessions:type_name -> gateway.v1.SessionRuntime
+	28, // 21: gateway.v1.SessionRuntime.status:type_name -> gateway.v1.GatewaySessionStatus
+	5,  // 22: gateway.v1.KeystoreHealth.state:type_name -> gateway.v1.KeystoreHealthState
+	7,  // 23: gateway.v1.ReconciliationResult.status:type_name -> gateway.v1.ReconciliationResultStatus
+	24, // 24: gateway.v1.DesiredStateSnapshot.assignments:type_name -> gateway.v1.SessionAssignment
+	25, // 25: gateway.v1.SessionAssignment.config:type_name -> gateway.v1.SessionConfig
+	8,  // 26: gateway.v1.SessionAssignment.desired_action:type_name -> gateway.v1.SessionDesiredAction
+	3,  // 27: gateway.v1.ControlWelcome.desired_lifecycle:type_name -> gateway.v1.LifecycleDirectiveAction
+	3,  // 28: gateway.v1.LifecycleDirective.action:type_name -> gateway.v1.LifecycleDirectiveAction
+	4,  // 29: gateway.v1.LifecycleDirective.reason:type_name -> gateway.v1.LifecycleDirectiveReason
+	9,  // 30: gateway.v1.GatewayControlService.Connect:input_type -> gateway.v1.GatewayFrame
+	10, // 31: gateway.v1.GatewayControlService.Connect:output_type -> gateway.v1.ControlFrame
+	31, // [31:32] is the sub-list for method output_type
+	30, // [30:31] is the sub-list for method input_type
+	30, // [30:30] is the sub-list for extension type_name
+	30, // [30:30] is the sub-list for extension extendee
+	0,  // [0:30] is the sub-list for field type_name
 }
 
 func init() { file_v1_gateway_control_proto_init() }
@@ -2264,6 +2396,7 @@ func file_v1_gateway_control_proto_init() {
 	if File_v1_gateway_control_proto != nil {
 		return
 	}
+	file_v1_gateway_engine_proto_init()
 	file_v1_gateway_control_proto_msgTypes[0].OneofWrappers = []any{
 		(*GatewayFrame_Hello)(nil),
 		(*GatewayFrame_Heartbeat)(nil),
@@ -2279,17 +2412,17 @@ func file_v1_gateway_control_proto_init() {
 		(*ControlFrame_EventAck)(nil),
 	}
 	file_v1_gateway_control_proto_msgTypes[5].OneofWrappers = []any{}
-	file_v1_gateway_control_proto_msgTypes[10].OneofWrappers = []any{}
-	file_v1_gateway_control_proto_msgTypes[12].OneofWrappers = []any{}
-	file_v1_gateway_control_proto_msgTypes[14].OneofWrappers = []any{}
-	file_v1_gateway_control_proto_msgTypes[17].OneofWrappers = []any{}
+	file_v1_gateway_control_proto_msgTypes[11].OneofWrappers = []any{}
+	file_v1_gateway_control_proto_msgTypes[13].OneofWrappers = []any{}
+	file_v1_gateway_control_proto_msgTypes[15].OneofWrappers = []any{}
+	file_v1_gateway_control_proto_msgTypes[18].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_v1_gateway_control_proto_rawDesc), len(file_v1_gateway_control_proto_rawDesc)),
 			NumEnums:      9,
-			NumMessages:   18,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	gatewayv1 "github.com/rama-adi/quick-whatsapp-gateway/gen/gateway/v1"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 )
 
 // ControlApplier translates the private protobuf into the transport-independent
@@ -40,6 +41,7 @@ func (a *ControlApplier) ApplyDesiredState(
 			AssignmentEpoch: item.GetAssignmentEpoch(),
 			LeaseExpiresAt:  time.UnixMilli(item.GetLeaseExpiresAtUnixMs()).UTC(),
 			DesiredRun:      item.GetDesiredAction() == gatewayv1.SessionDesiredAction_SESSION_DESIRED_ACTION_RUN,
+			StartGeneration: item.GetStartGeneration(),
 		}
 		if config != nil {
 			assignment.Config = Config{
@@ -66,6 +68,7 @@ func (a *ControlApplier) ApplyDesiredState(
 		report.LocalDevices = append(report.LocalDevices, &gatewayv1.LocalDeviceInventory{DeviceJid: device})
 	}
 	report.Results = append(report.Results, assignmentResults(assignments, result)...)
+	report.Sessions = sessionRuntimes(a.Reconciler.runtime, assignments)
 	unexpectedDevice := gatewayv1.ReconciliationResultStatus_RECONCILIATION_RESULT_STATUS_UNEXPECTED_LOCAL_DEVICE
 	corruptKeystore := gatewayv1.ReconciliationResultStatus_RECONCILIATION_RESULT_STATUS_KEYSTORE_CORRUPT
 	report.Results = append(report.Results, jidResults(result.UnexpectedJIDs, unexpectedDevice)...)
@@ -98,14 +101,86 @@ func assignmentResults(assignments []Assignment, result Result) []*gatewayv1.Rec
 			status = gatewayv1.ReconciliationResultStatus_RECONCILIATION_RESULT_STATUS_KEYSTORE_MISSING
 		}
 		id := assignment.SessionID
+		device := assignment.DeviceJID
+		if held := result.HeldDevices[id]; held != "" {
+			device = held
+		}
 		results = append(results, &gatewayv1.ReconciliationResult{
 			SessionId:       &id,
 			AssignmentEpoch: assignment.AssignmentEpoch,
-			DeviceJid:       assignment.DeviceJID,
+			DeviceJid:       device,
 			Status:          status,
 		})
 	}
 	return results
+}
+
+// sessionRuntimes reports the observed runtime of every assigned session, so
+// the API repairs any status event that did not reach it.
+func sessionRuntimes(runtime Runtime, assignments []Assignment) []*gatewayv1.SessionRuntime {
+	out := make([]*gatewayv1.SessionRuntime, 0, len(assignments))
+	for _, assignment := range assignments {
+		observed := runtime.SessionRuntime(assignment.SessionID)
+		item := &gatewayv1.SessionRuntime{
+			SessionId:       assignment.SessionID,
+			AssignmentEpoch: assignment.AssignmentEpoch,
+			Status:          GatewaySessionStatus(observed.Status),
+			StatusSeq:       observed.Seq,
+		}
+		if observed.Status == domain.SessionFailed {
+			item.FailureReason = string(observed.FailureReason)
+		}
+		if !observed.ChangedAt.IsZero() {
+			item.StatusChangedAtUnixMs = observed.ChangedAt.UnixMilli()
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+// GatewaySessionStatus maps a runtime status onto the private wire enum.
+func GatewaySessionStatus(status domain.SessionStatus) gatewayv1.GatewaySessionStatus {
+	switch status {
+	case domain.SessionStopped:
+		return gatewayv1.GatewaySessionStatus_GATEWAY_SESSION_STATUS_STOPPED
+	case domain.SessionStarting:
+		return gatewayv1.GatewaySessionStatus_GATEWAY_SESSION_STATUS_STARTING
+	case domain.SessionScanQR:
+		return gatewayv1.GatewaySessionStatus_GATEWAY_SESSION_STATUS_SCAN_QR
+	case domain.SessionWorking:
+		return gatewayv1.GatewaySessionStatus_GATEWAY_SESSION_STATUS_WORKING
+	case domain.SessionLoggedOut:
+		return gatewayv1.GatewaySessionStatus_GATEWAY_SESSION_STATUS_LOGGED_OUT
+	case domain.SessionFailed:
+		return gatewayv1.GatewaySessionStatus_GATEWAY_SESSION_STATUS_FAILED
+	case domain.SessionReconnecting:
+		return gatewayv1.GatewaySessionStatus_GATEWAY_SESSION_STATUS_RECONNECTING
+	default:
+		return gatewayv1.GatewaySessionStatus_GATEWAY_SESSION_STATUS_UNSPECIFIED
+	}
+}
+
+// SessionStatusFromWire maps the private wire enum back onto a runtime
+// status; ok is false for UNSPECIFIED or unknown values.
+func SessionStatusFromWire(status gatewayv1.GatewaySessionStatus) (domain.SessionStatus, bool) {
+	switch status {
+	case gatewayv1.GatewaySessionStatus_GATEWAY_SESSION_STATUS_STOPPED:
+		return domain.SessionStopped, true
+	case gatewayv1.GatewaySessionStatus_GATEWAY_SESSION_STATUS_STARTING:
+		return domain.SessionStarting, true
+	case gatewayv1.GatewaySessionStatus_GATEWAY_SESSION_STATUS_SCAN_QR:
+		return domain.SessionScanQR, true
+	case gatewayv1.GatewaySessionStatus_GATEWAY_SESSION_STATUS_WORKING:
+		return domain.SessionWorking, true
+	case gatewayv1.GatewaySessionStatus_GATEWAY_SESSION_STATUS_LOGGED_OUT:
+		return domain.SessionLoggedOut, true
+	case gatewayv1.GatewaySessionStatus_GATEWAY_SESSION_STATUS_FAILED:
+		return domain.SessionFailed, true
+	case gatewayv1.GatewaySessionStatus_GATEWAY_SESSION_STATUS_RECONNECTING:
+		return domain.SessionReconnecting, true
+	default:
+		return "", false
+	}
 }
 
 func missingKeystore(missing []string, deviceJID string) bool {

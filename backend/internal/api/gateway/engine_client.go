@@ -219,11 +219,17 @@ func (c *EngineClient) GetSessionState(ctx context.Context, org, session string)
 	if err != nil {
 		return application.SessionState{}, err
 	}
+	failure := domain.SessionFailureReason(response.GetFailureReason())
+	if state != domain.SessionFailed || !failure.Valid() {
+		failure = ""
+	}
 	return application.SessionState{
 		OrganizationID: target.OrganizationID,
 		SessionID:      target.SessionID,
 		GatewayID:      target.GatewayID,
 		Status:         state,
+		FailureReason:  failure,
+		StatusSeq:      response.GetStatusSeq(),
 		Connected:      response.Connected,
 		LoggedIn:       response.LoggedIn,
 	}, nil
@@ -775,53 +781,43 @@ func (c *EngineClient) BackfillSession(
 
 // PrepareSession materializes the gateway-local pairing substrate for an
 // API-created session row. Quick idempotent call: unary deadline.
-func (c *EngineClient) PrepareSession(
+// ApplySession applies a session's recorded intent on its assigned engine now,
+// ahead of the next desired-state snapshot.
+func (c *EngineClient) ApplySession(
 	ctx context.Context,
 	org string,
 	session string,
+	run bool,
+	startGeneration uint64,
+	deviceJID string,
 ) error {
-	// The control stream publishes a new assignment on the next heartbeat;
-	// reserve one heartbeat interval for that publication, then one unary
-	// deadline for the prepare RPC.
-	ctx, cancel := context.WithTimeout(ctx, DefaultHeartbeatInterval+c.deadline)
+	ctx, cancel := context.WithTimeout(ctx, c.deadline)
 	defer cancel()
-	var target domain.SessionEngineTarget
-	for {
-		var err error
-		target, err = c.resolver.ResolveSessionEngineTarget(ctx, org, session)
-		if err == nil && target.DesiredRevision == target.AppliedRevision {
-			break
-		}
-		var apiErr *domain.APIError
-		if err != nil && (!errors.As(err, &apiErr) || apiErr.Code != domain.CodeNotFound) {
-			return err
-		}
-		// A newly committed assignment becomes routable after the gateway
-		// acknowledges its desired-state revision.
-		select {
-		case <-ctx.Done():
-			return domain.ErrUnavailable("gateway did not reconcile the new session")
-		case <-time.After(100 * time.Millisecond):
-		}
+	target, err := c.resolver.ResolveSessionEngineTarget(ctx, org, session)
+	if err != nil {
+		return err
 	}
 	conn, err := c.conn(ctx, target.GatewayID, target.GRPCEndpoint)
 	if err != nil {
 		return err
 	}
-	rpcCtx, cancelRPC := context.WithTimeout(ctx, c.deadline)
-	defer cancelRPC()
-	_, err = gatewayv1.NewGatewayEngineServiceClient(conn).PrepareSession(rpcCtx, &gatewayv1.PrepareSessionRequest{
+	request := &gatewayv1.ApplySessionRequest{
 		Target:          sessionTargetProto(target),
 		AssignmentEpoch: target.AssignmentEpoch,
-	})
+		Run:             run,
+		StartGeneration: startGeneration,
+	}
+	if deviceJID != "" {
+		request.DeviceJid = &deviceJID
+	}
+	_, err = gatewayv1.NewGatewayEngineServiceClient(conn).ApplySession(ctx, request)
 	c.record(target.GatewayID, target.GRPCEndpoint, err)
 	return mapEngineError(err)
 }
 
-// BeginPairing starts QR pairing and returns the current snapshot code. The
-// first code usually arrives asynchronously over the auth.qr event stream, so
-// an empty snapshot is a normal outcome rather than an error.
-func (c *EngineClient) BeginPairing(
+// GetPairingQR reads the session's current pairing QR code. An empty snapshot
+// means the pairing waits for its first code; it never starts pairing.
+func (c *EngineClient) GetPairingQR(
 	ctx context.Context,
 	org string,
 	session string,
@@ -836,7 +832,7 @@ func (c *EngineClient) BeginPairing(
 	if err != nil {
 		return application.PairingSnapshot{}, err
 	}
-	response, err := gatewayv1.NewGatewayEngineServiceClient(conn).BeginPairing(ctx, &gatewayv1.BeginPairingRequest{
+	response, err := gatewayv1.NewGatewayEngineServiceClient(conn).GetPairingQR(ctx, &gatewayv1.GetPairingQRRequest{
 		Target:          sessionTargetProto(target),
 		AssignmentEpoch: target.AssignmentEpoch,
 	})
@@ -1067,6 +1063,10 @@ func sessionStatus(value gatewayv1.GatewaySessionStatus) (domain.SessionStatus, 
 		return domain.SessionWorking, nil
 	case gatewayv1.GatewaySessionStatus_GATEWAY_SESSION_STATUS_LOGGED_OUT:
 		return domain.SessionLoggedOut, nil
+	case gatewayv1.GatewaySessionStatus_GATEWAY_SESSION_STATUS_FAILED:
+		return domain.SessionFailed, nil
+	case gatewayv1.GatewaySessionStatus_GATEWAY_SESSION_STATUS_RECONNECTING:
+		return domain.SessionReconnecting, nil
 	default:
 		return "", domain.ErrValidation("gateway returned unknown session status")
 	}

@@ -15,6 +15,7 @@ func TestGatewayAssignmentReassignFencesBothGatewaysAtomically(t *testing.T) {
 	mock.ExpectQuery("SELECT COUNT.*FROM gateways").WithArgs("gw_new").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	mock.ExpectExec("UPDATE gateway_session_assignments SET gateway_id=.*assignment_epoch=assignment_epoch\\+1").WithArgs("gw_new", int64(100), "session_1").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("UPDATE wa_sessions SET gateway_id").WithArgs("gw_new", int64(100), "session_1").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE wa_session_runtime SET status_seq=0").WithArgs("session_1").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("UPDATE gateways SET desired_revision=desired_revision\\+1").WithArgs(int64(100), "gw_old", "gw_new").WillReturnResult(sqlmock.NewResult(0, 2))
 	mock.ExpectCommit()
 	epoch, err := repo.Reassign(context.Background(), "session_1", "gw_new", 100)
@@ -49,6 +50,7 @@ func TestGatewayAssignmentReassignRollsBackWhenBothRevisionsAreNotAdvanced(t *te
 	mock.ExpectQuery("SELECT COUNT.*FROM gateways").WithArgs("gw_new").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	mock.ExpectExec("UPDATE gateway_session_assignments SET gateway_id=.*assignment_epoch=assignment_epoch\\+1").WithArgs("gw_new", int64(100), "session_1").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("UPDATE wa_sessions SET gateway_id").WithArgs("gw_new", int64(100), "session_1").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE wa_session_runtime SET status_seq=0").WithArgs("session_1").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("UPDATE gateways SET desired_revision=desired_revision\\+1").WithArgs(int64(100), "gw_old", "gw_new").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectRollback()
 	if _, err := repo.Reassign(context.Background(), "session_1", "gw_new", 100); err == nil {

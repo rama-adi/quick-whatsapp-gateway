@@ -15,8 +15,7 @@ import (
 func startTestPairing(t *testing.T) (*Manager, *fakeSink, *fakeClient, *ManagedSession) {
 	t.Helper()
 	manager, sink, _, client := newTestManagerParts(t, Config{})
-	manager.EnsureDevice("session", "org")
-	if err := manager.StartQR(context.Background(), "session"); err != nil {
+	if err := manager.StartAssigned(context.Background(), runAssignment("session", "", 1)); err != nil {
 		t.Fatal(err)
 	}
 	ms := manager.Get("session")

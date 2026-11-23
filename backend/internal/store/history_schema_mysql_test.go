@@ -18,7 +18,7 @@ func TestAttachPairingMySQLTracksDataAccount(t *testing.T) {
 	if err := NewGatewayAssignmentRepo(db).CreateSession(ctx, session); err != nil {
 		t.Fatal(err)
 	}
-	repo := NewSessionRepo(db)
+	repo := NewSessionStateRepo(db)
 	read := func() (sql.NullString, sql.NullInt64) {
 		t.Helper()
 		var account sql.NullString

@@ -31,6 +31,7 @@ import {
 import { isApiError } from "~/lib/api/envelope";
 import type { SessionAction, SessionStatus, WASession } from "~/lib/api/types";
 import { QrCode } from "~/routes/-oauth/QrCode";
+import { failureMessage } from "./passkey-panel";
 import { formatDateTime, formatPhone, sessionTitle } from "~/lib/format";
 
 /** @deprecated Use `<Time>` (components/time) or `formatDateTime` (lib/format); local time. */
@@ -77,7 +78,12 @@ export function normalizePhone(input: string): string {
 
 /** Whether the session is (or is about to be) connected, i.e. "Stop" applies. */
 export function isRunning(status: SessionStatus | undefined): boolean {
-  return status === "working" || status === "starting" || status === "scan_qr_code";
+  return (
+    status === "working" ||
+    status === "starting" ||
+    status === "scan_qr_code" ||
+    status === "reconnecting"
+  );
 }
 
 /** One-line hint for a non-connected state, shown under the session name. */
@@ -90,10 +96,14 @@ export function statusHint(s: WASession): string | undefined {
       return paired ? "Reconnecting to WhatsApp…" : "Connecting to WhatsApp…";
     case "stopped":
       return paired ? "Stopped. Start it to receive new messages." : undefined;
+    case "reconnecting":
+      return "The connection dropped. Reconnecting…";
+    case "unavailable":
+      return "Its gateway is offline. The session resumes when the gateway is back.";
     case "logged_out":
       return "The phone unlinked this session. Link it again to reconnect.";
     case "failed":
-      return "The connection failed. Try restarting the session.";
+      return failureMessage(s.failureReason) ?? "The connection failed. Restart the session to try again.";
     default:
       return undefined;
   }

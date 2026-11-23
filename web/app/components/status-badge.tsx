@@ -53,9 +53,21 @@ export const SESSION_STATUS: Record<SessionStatus, StatusMeta> = {
     tone: "bg-muted text-muted-foreground",
     dot: "bg-muted-foreground/60",
   },
+  reconnecting: {
+    label: "Reconnecting",
+    description: "The connection dropped; the gateway is reconnecting.",
+    tone: "bg-amber-500/12 text-amber-700 dark:text-amber-400",
+    dot: "bg-amber-500 animate-pulse",
+  },
+  unavailable: {
+    label: "Unavailable",
+    description: "The gateway that runs this session is offline, so its state is unknown.",
+    tone: "bg-muted text-muted-foreground",
+    dot: "bg-muted-foreground/60 animate-pulse",
+  },
   failed: {
     label: "Failed",
-    description: "Connection failed; the gateway stopped retrying. Try restarting the session.",
+    description: "The gateway stopped trying; it retries only when you start or restart the session.",
     tone: "bg-destructive/10 text-destructive dark:bg-destructive/20",
     dot: "bg-destructive",
   },

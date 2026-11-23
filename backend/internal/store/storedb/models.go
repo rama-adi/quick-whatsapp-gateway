@@ -1380,73 +1380,210 @@ func AllPkiAuthoritiesStatusValues() []PkiAuthoritiesStatus {
 	}
 }
 
-type WaSessionsStatus string
+type WaSessionRuntimeFailureReason string
 
 const (
-	WaSessionsStatusStarting   WaSessionsStatus = "starting"
-	WaSessionsStatusScanQrCode WaSessionsStatus = "scan_qr_code"
-	WaSessionsStatusWorking    WaSessionsStatus = "working"
-	WaSessionsStatusFailed     WaSessionsStatus = "failed"
-	WaSessionsStatusStopped    WaSessionsStatus = "stopped"
-	WaSessionsStatusLoggedOut  WaSessionsStatus = "logged_out"
+	WaSessionRuntimeFailureReasonPasskeyFailed   WaSessionRuntimeFailureReason = "passkey_failed"
+	WaSessionRuntimeFailureReasonQrTimeout       WaSessionRuntimeFailureReason = "qr_timeout"
+	WaSessionRuntimeFailureReasonPairingError    WaSessionRuntimeFailureReason = "pairing_error"
+	WaSessionRuntimeFailureReasonClientOutdated  WaSessionRuntimeFailureReason = "client_outdated"
+	WaSessionRuntimeFailureReasonStreamReplaced  WaSessionRuntimeFailureReason = "stream_replaced"
+	WaSessionRuntimeFailureReasonTemporaryBan    WaSessionRuntimeFailureReason = "temporary_ban"
+	WaSessionRuntimeFailureReasonConnectRejected WaSessionRuntimeFailureReason = "connect_rejected"
+	WaSessionRuntimeFailureReasonConnectError    WaSessionRuntimeFailureReason = "connect_error"
 )
 
-func (e *WaSessionsStatus) Scan(src interface{}) error {
+func (e *WaSessionRuntimeFailureReason) Scan(src interface{}) error {
 	switch s := src.(type) {
 	case []byte:
-		*e = WaSessionsStatus(s)
+		*e = WaSessionRuntimeFailureReason(s)
 	case string:
-		*e = WaSessionsStatus(s)
+		*e = WaSessionRuntimeFailureReason(s)
 	default:
-		return fmt.Errorf("unsupported scan type for WaSessionsStatus: %T", src)
+		return fmt.Errorf("unsupported scan type for WaSessionRuntimeFailureReason: %T", src)
 	}
 	return nil
 }
 
-type NullWaSessionsStatus struct {
-	WaSessionsStatus WaSessionsStatus `json:"wa_sessions_status"`
-	Valid            bool             `json:"valid"` // Valid is true if WaSessionsStatus is not NULL
+type NullWaSessionRuntimeFailureReason struct {
+	WaSessionRuntimeFailureReason WaSessionRuntimeFailureReason `json:"wa_session_runtime_failure_reason"`
+	Valid                         bool                          `json:"valid"` // Valid is true if WaSessionRuntimeFailureReason is not NULL
 }
 
 // Scan implements the Scanner interface.
-func (ns *NullWaSessionsStatus) Scan(value interface{}) error {
+func (ns *NullWaSessionRuntimeFailureReason) Scan(value interface{}) error {
 	if value == nil {
-		ns.WaSessionsStatus, ns.Valid = "", false
+		ns.WaSessionRuntimeFailureReason, ns.Valid = "", false
 		return nil
 	}
 	ns.Valid = true
-	return ns.WaSessionsStatus.Scan(value)
+	return ns.WaSessionRuntimeFailureReason.Scan(value)
 }
 
 // Value implements the driver Valuer interface.
-func (ns NullWaSessionsStatus) Value() (driver.Value, error) {
+func (ns NullWaSessionRuntimeFailureReason) Value() (driver.Value, error) {
 	if !ns.Valid {
 		return nil, nil
 	}
-	return string(ns.WaSessionsStatus), nil
+	return string(ns.WaSessionRuntimeFailureReason), nil
 }
 
-func (e WaSessionsStatus) Valid() bool {
+func (e WaSessionRuntimeFailureReason) Valid() bool {
 	switch e {
-	case WaSessionsStatusStarting,
-		WaSessionsStatusScanQrCode,
-		WaSessionsStatusWorking,
-		WaSessionsStatusFailed,
-		WaSessionsStatusStopped,
-		WaSessionsStatusLoggedOut:
+	case WaSessionRuntimeFailureReasonPasskeyFailed,
+		WaSessionRuntimeFailureReasonQrTimeout,
+		WaSessionRuntimeFailureReasonPairingError,
+		WaSessionRuntimeFailureReasonClientOutdated,
+		WaSessionRuntimeFailureReasonStreamReplaced,
+		WaSessionRuntimeFailureReasonTemporaryBan,
+		WaSessionRuntimeFailureReasonConnectRejected,
+		WaSessionRuntimeFailureReasonConnectError:
 		return true
 	}
 	return false
 }
 
-func AllWaSessionsStatusValues() []WaSessionsStatus {
-	return []WaSessionsStatus{
-		WaSessionsStatusStarting,
-		WaSessionsStatusScanQrCode,
-		WaSessionsStatusWorking,
-		WaSessionsStatusFailed,
-		WaSessionsStatusStopped,
-		WaSessionsStatusLoggedOut,
+func AllWaSessionRuntimeFailureReasonValues() []WaSessionRuntimeFailureReason {
+	return []WaSessionRuntimeFailureReason{
+		WaSessionRuntimeFailureReasonPasskeyFailed,
+		WaSessionRuntimeFailureReasonQrTimeout,
+		WaSessionRuntimeFailureReasonPairingError,
+		WaSessionRuntimeFailureReasonClientOutdated,
+		WaSessionRuntimeFailureReasonStreamReplaced,
+		WaSessionRuntimeFailureReasonTemporaryBan,
+		WaSessionRuntimeFailureReasonConnectRejected,
+		WaSessionRuntimeFailureReasonConnectError,
+	}
+}
+
+type WaSessionRuntimeStatus string
+
+const (
+	WaSessionRuntimeStatusStarting     WaSessionRuntimeStatus = "starting"
+	WaSessionRuntimeStatusScanQrCode   WaSessionRuntimeStatus = "scan_qr_code"
+	WaSessionRuntimeStatusWorking      WaSessionRuntimeStatus = "working"
+	WaSessionRuntimeStatusReconnecting WaSessionRuntimeStatus = "reconnecting"
+	WaSessionRuntimeStatusFailed       WaSessionRuntimeStatus = "failed"
+	WaSessionRuntimeStatusStopped      WaSessionRuntimeStatus = "stopped"
+	WaSessionRuntimeStatusLoggedOut    WaSessionRuntimeStatus = "logged_out"
+)
+
+func (e *WaSessionRuntimeStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = WaSessionRuntimeStatus(s)
+	case string:
+		*e = WaSessionRuntimeStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for WaSessionRuntimeStatus: %T", src)
+	}
+	return nil
+}
+
+type NullWaSessionRuntimeStatus struct {
+	WaSessionRuntimeStatus WaSessionRuntimeStatus `json:"wa_session_runtime_status"`
+	Valid                  bool                   `json:"valid"` // Valid is true if WaSessionRuntimeStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullWaSessionRuntimeStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.WaSessionRuntimeStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.WaSessionRuntimeStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullWaSessionRuntimeStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.WaSessionRuntimeStatus), nil
+}
+
+func (e WaSessionRuntimeStatus) Valid() bool {
+	switch e {
+	case WaSessionRuntimeStatusStarting,
+		WaSessionRuntimeStatusScanQrCode,
+		WaSessionRuntimeStatusWorking,
+		WaSessionRuntimeStatusReconnecting,
+		WaSessionRuntimeStatusFailed,
+		WaSessionRuntimeStatusStopped,
+		WaSessionRuntimeStatusLoggedOut:
+		return true
+	}
+	return false
+}
+
+func AllWaSessionRuntimeStatusValues() []WaSessionRuntimeStatus {
+	return []WaSessionRuntimeStatus{
+		WaSessionRuntimeStatusStarting,
+		WaSessionRuntimeStatusScanQrCode,
+		WaSessionRuntimeStatusWorking,
+		WaSessionRuntimeStatusReconnecting,
+		WaSessionRuntimeStatusFailed,
+		WaSessionRuntimeStatusStopped,
+		WaSessionRuntimeStatusLoggedOut,
+	}
+}
+
+type WaSessionsDesiredState string
+
+const (
+	WaSessionsDesiredStateRun  WaSessionsDesiredState = "run"
+	WaSessionsDesiredStateStop WaSessionsDesiredState = "stop"
+)
+
+func (e *WaSessionsDesiredState) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = WaSessionsDesiredState(s)
+	case string:
+		*e = WaSessionsDesiredState(s)
+	default:
+		return fmt.Errorf("unsupported scan type for WaSessionsDesiredState: %T", src)
+	}
+	return nil
+}
+
+type NullWaSessionsDesiredState struct {
+	WaSessionsDesiredState WaSessionsDesiredState `json:"wa_sessions_desired_state"`
+	Valid                  bool                   `json:"valid"` // Valid is true if WaSessionsDesiredState is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullWaSessionsDesiredState) Scan(value interface{}) error {
+	if value == nil {
+		ns.WaSessionsDesiredState, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.WaSessionsDesiredState.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullWaSessionsDesiredState) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.WaSessionsDesiredState), nil
+}
+
+func (e WaSessionsDesiredState) Valid() bool {
+	switch e {
+	case WaSessionsDesiredStateRun,
+		WaSessionsDesiredStateStop:
+		return true
+	}
+	return false
+}
+
+func AllWaSessionsDesiredStateValues() []WaSessionsDesiredState {
+	return []WaSessionsDesiredState{
+		WaSessionsDesiredStateRun,
+		WaSessionsDesiredStateStop,
 	}
 }
 
@@ -1878,26 +2015,35 @@ type PollVote struct {
 }
 
 type WaSession struct {
-	ID               string           `db:"id" json:"id"`
-	OrganizationID   string           `db:"organization_id" json:"organization_id"`
-	CreatedByUserID  sql.NullString   `db:"created_by_user_id" json:"created_by_user_id"`
-	GatewayID        string           `db:"gateway_id" json:"gateway_id"`
-	Label            sql.NullString   `db:"label" json:"label"`
-	Status           WaSessionsStatus `db:"status" json:"status"`
-	WaJid            sql.NullString   `db:"wa_jid" json:"wa_jid"`
-	WaLid            sql.NullString   `db:"wa_lid" json:"wa_lid"`
-	PhoneNumber      sql.NullString   `db:"phone_number" json:"phone_number"`
-	IsAdminSession   bool             `db:"is_admin_session" json:"is_admin_session"`
-	AutoRead         bool             `db:"auto_read" json:"auto_read"`
-	PresenceTyping   bool             `db:"presence_typing" json:"presence_typing"`
-	RatePerMin       int32            `db:"rate_per_min" json:"rate_per_min"`
-	RatePerHour      int32            `db:"rate_per_hour" json:"rate_per_hour"`
-	LastConnectedAt  sql.NullInt64    `db:"last_connected_at" json:"last_connected_at"`
-	CreatedAt        int64            `db:"created_at" json:"created_at"`
-	UpdatedAt        int64            `db:"updated_at" json:"updated_at"`
-	HistorySyncDays  uint16           `db:"history_sync_days" json:"history_sync_days"`
-	DataAccountJid   sql.NullString   `db:"data_account_jid" json:"data_account_jid"`
-	AccountChangedAt sql.NullInt64    `db:"account_changed_at" json:"account_changed_at"`
+	ID               string                 `db:"id" json:"id"`
+	OrganizationID   string                 `db:"organization_id" json:"organization_id"`
+	CreatedByUserID  sql.NullString         `db:"created_by_user_id" json:"created_by_user_id"`
+	GatewayID        string                 `db:"gateway_id" json:"gateway_id"`
+	Label            sql.NullString         `db:"label" json:"label"`
+	WaJid            sql.NullString         `db:"wa_jid" json:"wa_jid"`
+	WaLid            sql.NullString         `db:"wa_lid" json:"wa_lid"`
+	PhoneNumber      sql.NullString         `db:"phone_number" json:"phone_number"`
+	IsAdminSession   bool                   `db:"is_admin_session" json:"is_admin_session"`
+	AutoRead         bool                   `db:"auto_read" json:"auto_read"`
+	PresenceTyping   bool                   `db:"presence_typing" json:"presence_typing"`
+	RatePerMin       int32                  `db:"rate_per_min" json:"rate_per_min"`
+	RatePerHour      int32                  `db:"rate_per_hour" json:"rate_per_hour"`
+	LastConnectedAt  sql.NullInt64          `db:"last_connected_at" json:"last_connected_at"`
+	CreatedAt        int64                  `db:"created_at" json:"created_at"`
+	UpdatedAt        int64                  `db:"updated_at" json:"updated_at"`
+	HistorySyncDays  uint16                 `db:"history_sync_days" json:"history_sync_days"`
+	DataAccountJid   sql.NullString         `db:"data_account_jid" json:"data_account_jid"`
+	AccountChangedAt sql.NullInt64          `db:"account_changed_at" json:"account_changed_at"`
+	DesiredState     WaSessionsDesiredState `db:"desired_state" json:"desired_state"`
+	StartGeneration  uint64                 `db:"start_generation" json:"start_generation"`
+}
+
+type WaSessionRuntime struct {
+	SessionID       string                            `db:"session_id" json:"session_id"`
+	Status          WaSessionRuntimeStatus            `db:"status" json:"status"`
+	FailureReason   NullWaSessionRuntimeFailureReason `db:"failure_reason" json:"failure_reason"`
+	StatusSeq       uint64                            `db:"status_seq" json:"status_seq"`
+	StatusChangedAt int64                             `db:"status_changed_at" json:"status_changed_at"`
 }
 
 type Webhook struct {

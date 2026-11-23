@@ -24,6 +24,8 @@ function row(over: Partial<WASession> = {}): WASession {
     gatewayId: "gw_1",
     status: "stopped",
     isAdminSession: false,
+    desiredState: "stop",
+    statusChangedAt: 1,
     autoRead: false,
     presenceTyping: false,
     ratePerMin: 10,

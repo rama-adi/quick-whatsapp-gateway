@@ -3,6 +3,7 @@ package desiredstate
 import (
 	"context"
 	"errors"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 	"testing"
 	"time"
 )
@@ -17,6 +18,9 @@ func (f *fakeRuntime) Inventory(context.Context) (Inventory, error) { return f.i
 func (f *fakeRuntime) StartAssigned(_ context.Context, a Assignment) error {
 	f.started = append(f.started, a)
 	return nil
+}
+func (*fakeRuntime) SessionRuntime(string) SessionRuntime {
+	return SessionRuntime{Status: domain.SessionStopped, Seq: 1}
 }
 func (f *fakeRuntime) StopAssigned(_ context.Context, id string) error {
 	f.stopped = append(f.stopped, id)
@@ -46,6 +50,9 @@ func (f *fencingRuntime) StartAssigned(_ context.Context, a Assignment) error {
 		return errors.New("candidate assignment was not published")
 	}
 	return nil
+}
+func (*fencingRuntime) SessionRuntime(string) SessionRuntime {
+	return SessionRuntime{Status: domain.SessionStopped, Seq: 1}
 }
 func (f *fencingRuntime) StopAssigned(_ context.Context, id string) error {
 	_, present := f.reconciler.CurrentEpoch(id)
@@ -135,6 +142,9 @@ func (f *partialRuntime) StartAssigned(_ context.Context, a Assignment) error {
 		return errors.New("start failed")
 	}
 	return nil
+}
+func (*partialRuntime) SessionRuntime(string) SessionRuntime {
+	return SessionRuntime{Status: domain.SessionStopped, Seq: 1}
 }
 func (f *partialRuntime) StopAssigned(_ context.Context, id string) error {
 	f.stopped = append(f.stopped, id)

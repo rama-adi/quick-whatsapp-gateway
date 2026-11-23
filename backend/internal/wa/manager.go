@@ -100,6 +100,14 @@ type Manager struct {
 
 	mu       sync.RWMutex
 	sessions map[string]*ManagedSession // keyed by app session id
+
+	// seqMu guards lastSeq, the status_seq clock (nextSeq).
+	seqMu   sync.Mutex
+	lastSeq uint64
+	// bootSeq and bootAt describe "stopped" for a session this process has
+	// not touched: newer than anything an earlier process reported.
+	bootSeq uint64
+	bootAt  int64
 }
 
 // NewManager constructs a Manager with all collaborators injected (no globals).
@@ -153,7 +161,26 @@ func NewManager(
 	m.newClient = func(device *store.Device) waClient {
 		return whatsmeow.NewClient(device, m.waLogger)
 	}
+	m.bootAt = clock.NowMs()
+	m.bootSeq = m.nextSeq()
 	return m
+}
+
+// nextSeq returns the next status_seq. It is a hybrid logical clock:
+// wall-clock milliseconds x 1000, or the previous value + 1 when that is not
+// larger. It increases strictly within the process, and a restarted gateway
+// starts above every value its previous process produced (unless that process
+// produced more than 1000 status changes per millisecond). The value stays
+// below 2^53, so JavaScript clients read it exactly.
+func (m *Manager) nextSeq() uint64 {
+	now := uint64(max(m.clock.NowMs(), 0)) * 1000
+	m.seqMu.Lock()
+	defer m.seqMu.Unlock()
+	if now <= m.lastSeq {
+		now = m.lastSeq + 1
+	}
+	m.lastSeq = now
+	return now
 }
 
 func normalizedDeviceName(name, gatewayID string) string {
@@ -191,59 +218,162 @@ func (m *Manager) Inventory(ctx context.Context) (desiredstate.Inventory, error)
 	if err != nil {
 		return desiredstate.Inventory{}, err
 	}
-	result := desiredstate.Inventory{PairedJIDs: make([]string, 0, len(devices))}
+	result := desiredstate.Inventory{
+		PairedJIDs:     make([]string, 0, len(devices)),
+		SessionDevices: map[string]string{},
+	}
 	for _, device := range devices {
 		if device == nil || device.ID == nil {
 			continue
 		}
 		result.PairedJIDs = append(result.PairedJIDs, device.ID.String())
 	}
+	m.mu.RLock()
+	for id, ms := range m.sessions {
+		ms.mu.Lock()
+		if ms.device != nil && ms.device.ID != nil {
+			result.SessionDevices[id] = ms.device.ID.String()
+		}
+		ms.mu.Unlock()
+	}
+	m.mu.RUnlock()
 	return result, nil
 }
 
-// StartAssigned materializes an assignment directly from control-plane metadata
-// and its mapped local device. In particular, it never reads wa_sessions or an
-// organization during boot/reconciliation. A session that is already running
-// keeps its connection; only its settings refresh.
-func (m *Manager) StartAssigned(ctx context.Context, assignment desiredstate.Assignment) error {
-	devices, err := m.keystore.GetAllDevices(ctx)
-	if err != nil {
-		return fmt.Errorf("load local devices: %w", err)
-	}
-	var device *store.Device
-	for _, candidate := range devices {
-		if candidate != nil && candidate.ID != nil && candidate.ID.String() == assignment.DeviceJID {
-			device = candidate
-			break
-		}
-	}
-	if device == nil {
-		return domain.ErrNotFound("assigned local device not found")
-	}
-	m.mu.Lock()
-	ms := m.sessions[assignment.SessionID]
+// SessionRuntime reports a session's observed runtime for the desired-state
+// report. A session this process has not touched reads as stopped at the
+// process's boot sequence.
+func (m *Manager) SessionRuntime(id string) desiredstate.SessionRuntime {
+	ms := m.Get(id)
 	if ms == nil {
-		ms = &ManagedSession{
-			SessionID:      assignment.SessionID,
-			OrganizationID: assignment.OrganizationID,
-			device:         device,
-			status:         domain.SessionStopped,
+		return desiredstate.SessionRuntime{
+			Status: domain.SessionStopped, Seq: m.bootSeq, ChangedAt: time.UnixMilli(m.bootAt),
 		}
-		m.sessions[assignment.SessionID] = ms
 	}
-	m.mu.Unlock()
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+	seq, changedAt := ms.seq, ms.changedAt
+	if seq == 0 {
+		seq, changedAt = m.bootSeq, m.bootAt
+	}
+	return desiredstate.SessionRuntime{
+		Status: ms.status, FailureReason: ms.failure, Seq: seq, ChangedAt: time.UnixMilli(changedAt),
+	}
+}
 
+// StartAssigned materializes a RUN assignment directly from control-plane
+// metadata and its mapped local device; it never reads wa_sessions or an
+// organization. An assignment without a device runs QR pairing. Whether a run
+// starts follows the assignment's start generation:
+//
+//   - older than the session's: a stale request, ignored;
+//   - newer: the user asked again; the session (re)starts even after a
+//     terminal failure, and a running session restarts;
+//   - equal: the session starts only when it is neither running nor latched
+//     on a terminal failure. Heartbeat snapshots repeat the same generation,
+//     so they resume a session stopped by lease expiry or a gateway restart
+//     but never restart one that failed.
+func (m *Manager) StartAssigned(ctx context.Context, assignment desiredstate.Assignment) error {
+	ms, err := m.materialize(ctx, assignment)
+	if err != nil {
+		return err
+	}
 	ms.op.Lock()
 	defer ms.op.Unlock()
-	config := assignment.Config
 	ms.mu.Lock()
-	ms.assignedConfig = &config
-	running := ms.conn != nil
-	ms.mu.Unlock()
-	if !running {
-		m.beginRun(ms)
+	if assignment.Config.Revision != 0 {
+		// A snapshot carries the settings; a direct apply (revision 0) keeps
+		// the last snapshot's.
+		config := assignment.Config
+		ms.assignedConfig = &config
 	}
+	running := ms.conn != nil
+	generation, latched := ms.generation, ms.latched
+	switch {
+	case assignment.StartGeneration < generation:
+		ms.mu.Unlock()
+		return nil
+	case assignment.StartGeneration > generation:
+		ms.generation = assignment.StartGeneration
+		ms.latched = false
+	case running || latched:
+		ms.mu.Unlock()
+		return nil
+	}
+	ms.mu.Unlock()
+	if running {
+		m.stopRun(ms)
+	}
+	if err := m.useAssignedDevice(ctx, ms, assignment.DeviceJID); err != nil {
+		return err
+	}
+	m.beginRun(ms)
 	return nil
+}
+
+// materialize returns the managed session for an assignment, registering it
+// on first sight with its keystore device (or a fresh one for pairing).
+func (m *Manager) materialize(ctx context.Context, assignment desiredstate.Assignment) (*ManagedSession, error) {
+	if ms := m.Get(assignment.SessionID); ms != nil {
+		return ms, nil
+	}
+	device := m.keystore.NewDevice()
+	if assignment.DeviceJID != "" {
+		found, err := m.localDevice(ctx, assignment.DeviceJID)
+		if err != nil {
+			return nil, err
+		}
+		device = found
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if ms := m.sessions[assignment.SessionID]; ms != nil {
+		return ms, nil
+	}
+	ms := &ManagedSession{
+		SessionID:      assignment.SessionID,
+		OrganizationID: assignment.OrganizationID,
+		device:         device,
+		status:         domain.SessionStopped,
+	}
+	m.sessions[assignment.SessionID] = ms
+	return ms, nil
+}
+
+// useAssignedDevice points a session that is about to start at its assigned
+// keystore device when it holds a different one (for example a fresh
+// unpaired device after a logout that the API has since re-paired).
+func (m *Manager) useAssignedDevice(ctx context.Context, ms *ManagedSession, deviceJID string) error {
+	if deviceJID == "" {
+		return nil
+	}
+	ms.mu.Lock()
+	current := ms.device != nil && ms.device.ID != nil && ms.device.ID.String() == deviceJID
+	ms.mu.Unlock()
+	if current {
+		return nil
+	}
+	device, err := m.localDevice(ctx, deviceJID)
+	if err != nil {
+		return err
+	}
+	ms.mu.Lock()
+	ms.device = device
+	ms.mu.Unlock()
+	return nil
+}
+
+func (m *Manager) localDevice(ctx context.Context, deviceJID string) (*store.Device, error) {
+	devices, err := m.keystore.GetAllDevices(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("load local devices: %w", err)
+	}
+	for _, candidate := range devices {
+		if candidate != nil && candidate.ID != nil && candidate.ID.String() == deviceJID {
+			return candidate, nil
+		}
+	}
+	return nil, domain.ErrNotFound("assigned local device not found")
 }
 
 // AssignedConfig exposes the last control-plane session configuration. It is
@@ -263,7 +393,10 @@ func (m *Manager) AssignedConfig(id string) (desiredstate.Config, bool) {
 }
 
 // StopAssigned stops only a locally materialized assignment. A missing runtime
-// is already reconciled and is intentionally not treated as an error.
+// is already reconciled and is intentionally not treated as an error. A
+// session that is not running keeps a terminal status (failed, logged out):
+// stopping it changes nothing, and overwriting the failure would hide why it
+// ended.
 func (m *Manager) StopAssigned(ctx context.Context, sessionID string) error {
 	ms := m.Get(sessionID)
 	if ms == nil {
@@ -271,6 +404,13 @@ func (m *Manager) StopAssigned(ctx context.Context, sessionID string) error {
 	}
 	ms.op.Lock()
 	defer ms.op.Unlock()
+	ms.mu.Lock()
+	running := ms.conn != nil
+	terminal := ms.status == domain.SessionFailed || ms.status == domain.SessionLoggedOut
+	ms.mu.Unlock()
+	if !running && terminal {
+		return nil
+	}
 	m.stopRun(ms)
 	m.setState(ctx, ms, nil, domain.SessionStopped, "")
 	return nil
@@ -287,45 +427,36 @@ func (m *Manager) Get(id string) *ManagedSession {
 	return m.sessions[id]
 }
 
-// EnsureDevice registers a ManagedSession with a fresh keystore device for an
-// API-created session row, without inserting anything into wa_sessions — the
-// API owns rows. Idempotent: an already-known session is left untouched (its
-// existing device, if any, stays).
-func (m *Manager) EnsureDevice(id, organizationID string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if _, exists := m.sessions[id]; exists {
-		return
-	}
-	m.sessions[id] = &ManagedSession{
-		SessionID:      id,
-		OrganizationID: organizationID,
-		device:         m.keystore.NewDevice(),
-		status:         domain.SessionStopped,
-	}
+// RuntimeState is a point-in-time snapshot of one session's runtime. Status
+// and socket/login state are separate because a working status outlives a
+// lost transport during the reconnect grace period.
+type RuntimeState struct {
+	Status        domain.SessionStatus
+	FailureReason domain.SessionFailureReason
+	StatusSeq     uint64
+	Connected     bool
+	LoggedIn      bool
 }
 
-// ConnectionState returns a point-in-time, non-identifying runtime snapshot for
-// request-failure telemetry. Status and socket/login state are reported
-// separately because a working status can briefly outlive a lost transport
-// connection (during the reconnect grace period).
-func (m *Manager) ConnectionState(id string) (status domain.SessionStatus, connected, loggedIn, found bool) {
+// RuntimeState returns the session's runtime snapshot; found is false for a
+// session this gateway does not hold.
+func (m *Manager) RuntimeState(id string) (RuntimeState, bool) {
 	ms := m.Get(id)
 	if ms == nil {
-		return "", false, false, false
+		return RuntimeState{}, false
 	}
 	ms.mu.Lock()
-	status = ms.status
+	state := RuntimeState{Status: ms.status, FailureReason: ms.failure, StatusSeq: ms.seq}
 	var client waClient
 	if ms.conn != nil {
 		client = ms.conn.client
 	}
 	ms.mu.Unlock()
 	if client != nil {
-		connected = client.IsConnected()
-		loggedIn = client.IsLoggedIn()
+		state.Connected = client.IsConnected()
+		state.LoggedIn = client.IsLoggedIn()
 	}
-	return status, connected, loggedIn, true
+	return state, true
 }
 
 // readyClient returns the client of a session that is connected and working.
@@ -433,13 +564,14 @@ func (m *Manager) beginRun(ms *ManagedSession) *connection {
 	c := newConnection(ms.nextGen, m.buildClient(ms.device))
 	c.handlerID = c.client.AddEventHandler(m.eventHandlerFor(ms, c))
 	ms.conn = c
+	ms.latched = false
 	ms.attempt, ms.lastErr = 0, ""
 	ms.lastQR, ms.lastQRExpires = "", 0
 	ms.passkey = nil
-	event, changed := m.stateLocked(ms, domain.SessionStarting, "")
+	event := m.stateLocked(ms, domain.SessionStarting, "", false)
 	ms.mu.Unlock()
-	if changed {
-		m.publish(c.ctx, event)
+	if event != nil {
+		m.publish(c.ctx, *event)
 	}
 	go m.drive(ms, c)
 	return c
@@ -483,7 +615,12 @@ func (m *Manager) endRun(
 	if status == domain.SessionLoggedOut {
 		m.resetDeviceLocked(ms)
 	}
-	event, changed := m.stateLocked(ms, status, reason)
+	if status == domain.SessionFailed || status == domain.SessionLoggedOut {
+		ms.latched = true
+	}
+	// logged_out is republished even when unchanged (with a new sequence):
+	// the API's identity clear then repeats, repairing a stale row.
+	event := m.stateLocked(ms, status, reason, status == domain.SessionLoggedOut)
 	ms.mu.Unlock()
 
 	if fromHandler {
@@ -494,12 +631,9 @@ func (m *Manager) endRun(
 	}
 	if status == domain.SessionLoggedOut {
 		m.discardHistory(ctx, ms)
-		// Republished even when unchanged: the API projection repeats its
-		// identity clear, repairing rows left stale by older versions.
-		changed = true
 	}
-	if changed {
-		m.publish(ctx, event)
+	if event != nil {
+		m.publish(ctx, *event)
 	}
 	return true
 }
@@ -638,17 +772,18 @@ func (m *Manager) markDownLocked(ms *ManagedSession, c *connection) {
 // current run and still down after the grace period.
 func (m *Manager) reportReconnecting(ms *ManagedSession, c *connection, drop uint64) {
 	ms.mu.Lock()
+	// A run that never connected yet is still starting, not reconnecting.
 	if ms.conn != c || !c.down || c.downSeq != drop || ms.status == domain.SessionStarting {
 		ms.mu.Unlock()
 		return
 	}
-	event, changed := m.stateLocked(ms, domain.SessionStarting, "")
+	event := m.stateLocked(ms, domain.SessionReconnecting, "", false)
 	attempt, lastErr := ms.attempt, ms.lastErr
 	ms.mu.Unlock()
-	if changed {
+	if event != nil {
 		m.log.Info("whatsapp connection still down after grace period", "session", ms.SessionID,
 			"attempt", attempt, "err", lastErr, "grace", m.cfg.ReconnectGrace.String())
-		m.publish(c.ctx, event)
+		m.publish(c.ctx, *event)
 	}
 }
 
@@ -676,43 +811,10 @@ func retryableConnectError(err error) bool {
 // Pairing (§6, recon §3)
 // ----------------------------------------------------------------------------
 
-// StartQR begins QR pairing for an unpaired session. The pairing driver
-// (pairing.go) publishes each QR code as an auth.qr event, moves the status to
-// SCAN_QR_CODE once a code exists, and runs a passkey verification if WhatsApp
-// asks for one. Repeating it while the pairing runs is idempotent.
-func (m *Manager) StartQR(ctx context.Context, id string) error {
-	ms := m.Get(id)
-	if ms == nil {
-		return domain.ErrNotFound("session not found")
-	}
-	ms.op.Lock()
-	defer ms.op.Unlock()
-	ms.mu.Lock()
-	running := ms.conn != nil
-	unpaired := ms.device == nil || ms.device.ID == nil
-	status := ms.status
-	ms.mu.Unlock()
-	if running {
-		if !unpaired {
-			return domain.ErrConflict("session already running")
-		}
-		// Replay the observed state even when unchanged, repairing API/UI
-		// state after a missed event.
-		m.publish(ctx, domain.NewEvent(domain.EventSessionStatus, ms.SessionID, ms.OrganizationID, map[string]any{
-			"status": string(status),
-		}))
-		return nil
-	}
-	if !unpaired {
-		return domain.ErrConflict("session is already paired")
-	}
-	m.beginRun(ms)
-	return nil
-}
-
 // StartPairingCode begins phone-number pairing and returns the linking code
-// (recon §3). When a QR pairing already runs for the unpaired device, the code
-// is requested on that same connection: whatsmeow's PairPhone runs on a
+// (recon §3). QR pairing itself starts from an assignment without a device
+// (StartAssigned). When that pairing runs, the code is requested on the same
+// connection: whatsmeow's PairPhone runs on a
 // connected pairing client, which also receives QR codes. Otherwise it starts
 // the pairing run itself and waits for its socket before asking.
 func (m *Manager) StartPairingCode(ctx context.Context, id, phone string) (string, error) {
@@ -802,10 +904,10 @@ func (m *Manager) Logout(ctx context.Context, id string) error {
 		m.stopRun(ms)
 		ms.mu.Lock()
 		m.resetDeviceLocked(ms)
-		event, _ := m.stateLocked(ms, domain.SessionLoggedOut, "")
+		event := m.stateLocked(ms, domain.SessionLoggedOut, "", true)
 		ms.mu.Unlock()
 		m.discardHistory(publishCtx, ms)
-		m.publish(publishCtx, event)
+		m.publish(publishCtx, *event)
 		return nil
 	}
 
@@ -1011,34 +1113,47 @@ func (m *Manager) setState(
 		ms.mu.Unlock()
 		return false
 	}
-	event, changed := m.stateLocked(ms, status, reason)
+	event := m.stateLocked(ms, status, reason, false)
 	ms.mu.Unlock()
-	if changed {
-		m.publish(ctx, event)
+	if event != nil {
+		m.publish(ctx, *event)
 	}
 	return true
 }
 
-// stateLocked applies status and builds its session.status event. changed is
-// false when neither the status nor the failure reason changed. The reason is
-// kept only for the failed status. Call with ms.mu held; publish the event
-// after releasing it.
+// stateLocked applies status and builds its session.status event. The event is
+// nil when neither the status nor the failure reason changed, unless force is
+// set. Every published status gets a new status_seq. The reason is kept only
+// for the failed status. Call with ms.mu held; publish the event after
+// releasing it.
 func (m *Manager) stateLocked(
 	ms *ManagedSession,
 	status domain.SessionStatus,
 	reason domain.SessionFailureReason,
-) (domain.Event, bool) {
+	force bool,
+) *domain.Event {
 	if status != domain.SessionFailed {
 		reason = ""
 	}
-	changed := ms.status != status || ms.failure != reason
+	if ms.status == status && ms.failure == reason && !force {
+		return nil
+	}
 	ms.status = status
 	ms.failure = reason
-	payload := map[string]any{"status": string(status)}
+	ms.seq = m.nextSeq()
+	ms.changedAt = m.clock.NowMs()
+	payload := map[string]any{"status": string(status), "statusSeq": ms.seq}
 	if reason != "" {
 		payload["failureReason"] = string(reason)
 	}
-	return domain.NewEvent(domain.EventSessionStatus, ms.SessionID, ms.OrganizationID, payload), changed
+	if status == domain.SessionReconnecting {
+		payload["attempt"] = ms.attempt
+		if ms.lastErr != "" {
+			payload["lastError"] = ms.lastErr
+		}
+	}
+	event := domain.NewEvent(domain.EventSessionStatus, ms.SessionID, ms.OrganizationID, payload)
+	return &event
 }
 
 // publish hands an event to the sink. Failure paths end the run first, which

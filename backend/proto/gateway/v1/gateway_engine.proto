@@ -26,8 +26,24 @@ service GatewayEngineService {
   rpc GetChatPresence(GetChatPresenceRequest) returns (GetChatPresenceResponse);
   rpc SetChatPresence(SetChatPresenceRequest) returns (SetChatPresenceResponse);
   rpc BackfillSession(BackfillSessionRequest) returns (BackfillSessionResponse);
-  rpc PrepareSession(PrepareSessionRequest) returns (PrepareSessionResponse);
-  rpc BeginPairing(BeginPairingRequest) returns (BeginPairingResponse);
+  // Deprecated: desired-state assignments materialize sessions; the gateway
+  // answers Unimplemented. Kept only so the wire contract stays additive.
+  rpc PrepareSession(PrepareSessionRequest) returns (PrepareSessionResponse) {
+    option deprecated = true;
+  }
+  // Deprecated: replaced by GetPairingQR (read-only) and ApplySession (start).
+  // The gateway answers Unimplemented.
+  rpc BeginPairing(BeginPairingRequest) returns (BeginPairingResponse) {
+    option deprecated = true;
+  }
+  // ApplySession applies one session's desired state now, ahead of the next
+  // desired-state snapshot that carries the same intent. The API calls it
+  // after recording a start, stop or restart so the user sees the effect
+  // without waiting for a heartbeat. The snapshot stays authoritative.
+  rpc ApplySession(ApplySessionRequest) returns (ApplySessionResponse);
+  // GetPairingQR reads the current pairing QR code. It never starts or
+  // changes anything.
+  rpc GetPairingQR(GetPairingQRRequest) returns (GetPairingQRResponse);
   rpc PairPhone(PairPhoneRequest) returns (PairPhoneResponse);
   // SubmitPasskey forwards the user's WebAuthn assertion for a passkey
   // verification WhatsApp requested during pairing.
@@ -52,9 +68,26 @@ message GetSessionStateResponse {
   bool connected = 3;
   bool logged_in = 4;
   reserved 5 to 15;
+  // Why the session failed (domain.SessionFailureReason); set only with
+  // GATEWAY_SESSION_STATUS_FAILED.
+  string failure_reason = 16;
+  // The gateway's ordering key for this status (see SessionRuntime).
+  uint64 status_seq = 17;
 }
 
-enum GatewaySessionStatus { GATEWAY_SESSION_STATUS_UNSPECIFIED = 0; GATEWAY_SESSION_STATUS_STOPPED = 1; GATEWAY_SESSION_STATUS_STARTING = 2; GATEWAY_SESSION_STATUS_SCAN_QR = 3; GATEWAY_SESSION_STATUS_WORKING = 4; GATEWAY_SESSION_STATUS_LOGGED_OUT = 5; }
+enum GatewaySessionStatus {
+  GATEWAY_SESSION_STATUS_UNSPECIFIED = 0;
+  GATEWAY_SESSION_STATUS_STOPPED = 1;
+  GATEWAY_SESSION_STATUS_STARTING = 2;
+  GATEWAY_SESSION_STATUS_SCAN_QR = 3;
+  GATEWAY_SESSION_STATUS_WORKING = 4;
+  GATEWAY_SESSION_STATUS_LOGGED_OUT = 5;
+  // The run ended for a reason carried next to the status; the gateway
+  // retries only for a newer start generation.
+  GATEWAY_SESSION_STATUS_FAILED = 6;
+  // The connection dropped and is still down after the grace period.
+  GATEWAY_SESSION_STATUS_RECONNECTING = 7;
+}
 enum AccountPresence { ACCOUNT_PRESENCE_UNSPECIFIED = 0; ACCOUNT_PRESENCE_ONLINE = 1; ACCOUNT_PRESENCE_OFFLINE = 2; }
 message SetAccountPresenceRequest {
   SessionTarget target = 1;
@@ -359,6 +392,37 @@ message PrepareSessionResponse {
 // stream. Not a command: re-reading the current code is safe by construction.
 message BeginPairingRequest { SessionTarget target = 1; uint64 assignment_epoch = 2; reserved 3 to 15; }
 message BeginPairingResponse {
+  SessionTarget target = 1;
+  uint64 assignment_epoch = 2;
+  optional string qr_code = 3;
+  optional int64 qr_expires_at_unix_ms = 4;
+  reserved 5 to 15;
+}
+
+// ApplySessionRequest carries one session's desired state as the API recorded
+// it. run=false stops the session. With run=true, a start_generation newer
+// than the session's last one starts it even after a terminal failure and
+// restarts it when running; an equal generation starts it only when it is
+// neither running nor failed. device_jid is empty for an unpaired session,
+// which runs QR pairing.
+message ApplySessionRequest {
+  SessionTarget target = 1;
+  uint64 assignment_epoch = 2;
+  bool run = 3;
+  uint64 start_generation = 4;
+  optional string device_jid = 5;
+  reserved 6 to 15;
+}
+message ApplySessionResponse {
+  SessionTarget target = 1;
+  uint64 assignment_epoch = 2;
+  reserved 3 to 15;
+}
+
+// GetPairingQRResponse carries the current QR code; neither field is set
+// while the pairing waits for its first code.
+message GetPairingQRRequest { SessionTarget target = 1; uint64 assignment_epoch = 2; reserved 3 to 15; }
+message GetPairingQRResponse {
   SessionTarget target = 1;
   uint64 assignment_epoch = 2;
   optional string qr_code = 3;

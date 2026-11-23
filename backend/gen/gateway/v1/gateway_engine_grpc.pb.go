@@ -40,6 +40,8 @@ const (
 	GatewayEngineService_BackfillSession_FullMethodName         = "/gateway.v1.GatewayEngineService/BackfillSession"
 	GatewayEngineService_PrepareSession_FullMethodName          = "/gateway.v1.GatewayEngineService/PrepareSession"
 	GatewayEngineService_BeginPairing_FullMethodName            = "/gateway.v1.GatewayEngineService/BeginPairing"
+	GatewayEngineService_ApplySession_FullMethodName            = "/gateway.v1.GatewayEngineService/ApplySession"
+	GatewayEngineService_GetPairingQR_FullMethodName            = "/gateway.v1.GatewayEngineService/GetPairingQR"
 	GatewayEngineService_PairPhone_FullMethodName               = "/gateway.v1.GatewayEngineService/PairPhone"
 	GatewayEngineService_SubmitPasskey_FullMethodName           = "/gateway.v1.GatewayEngineService/SubmitPasskey"
 	GatewayEngineService_ConfirmPasskey_FullMethodName          = "/gateway.v1.GatewayEngineService/ConfirmPasskey"
@@ -73,8 +75,22 @@ type GatewayEngineServiceClient interface {
 	GetChatPresence(ctx context.Context, in *GetChatPresenceRequest, opts ...grpc.CallOption) (*GetChatPresenceResponse, error)
 	SetChatPresence(ctx context.Context, in *SetChatPresenceRequest, opts ...grpc.CallOption) (*SetChatPresenceResponse, error)
 	BackfillSession(ctx context.Context, in *BackfillSessionRequest, opts ...grpc.CallOption) (*BackfillSessionResponse, error)
+	// Deprecated: Do not use.
+	// Deprecated: desired-state assignments materialize sessions; the gateway
+	// answers Unimplemented. Kept only so the wire contract stays additive.
 	PrepareSession(ctx context.Context, in *PrepareSessionRequest, opts ...grpc.CallOption) (*PrepareSessionResponse, error)
+	// Deprecated: Do not use.
+	// Deprecated: replaced by GetPairingQR (read-only) and ApplySession (start).
+	// The gateway answers Unimplemented.
 	BeginPairing(ctx context.Context, in *BeginPairingRequest, opts ...grpc.CallOption) (*BeginPairingResponse, error)
+	// ApplySession applies one session's desired state now, ahead of the next
+	// desired-state snapshot that carries the same intent. The API calls it
+	// after recording a start, stop or restart so the user sees the effect
+	// without waiting for a heartbeat. The snapshot stays authoritative.
+	ApplySession(ctx context.Context, in *ApplySessionRequest, opts ...grpc.CallOption) (*ApplySessionResponse, error)
+	// GetPairingQR reads the current pairing QR code. It never starts or
+	// changes anything.
+	GetPairingQR(ctx context.Context, in *GetPairingQRRequest, opts ...grpc.CallOption) (*GetPairingQRResponse, error)
 	PairPhone(ctx context.Context, in *PairPhoneRequest, opts ...grpc.CallOption) (*PairPhoneResponse, error)
 	// SubmitPasskey forwards the user's WebAuthn assertion for a passkey
 	// verification WhatsApp requested during pairing.
@@ -283,6 +299,7 @@ func (c *gatewayEngineServiceClient) BackfillSession(ctx context.Context, in *Ba
 	return out, nil
 }
 
+// Deprecated: Do not use.
 func (c *gatewayEngineServiceClient) PrepareSession(ctx context.Context, in *PrepareSessionRequest, opts ...grpc.CallOption) (*PrepareSessionResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(PrepareSessionResponse)
@@ -293,10 +310,31 @@ func (c *gatewayEngineServiceClient) PrepareSession(ctx context.Context, in *Pre
 	return out, nil
 }
 
+// Deprecated: Do not use.
 func (c *gatewayEngineServiceClient) BeginPairing(ctx context.Context, in *BeginPairingRequest, opts ...grpc.CallOption) (*BeginPairingResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(BeginPairingResponse)
 	err := c.cc.Invoke(ctx, GatewayEngineService_BeginPairing_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *gatewayEngineServiceClient) ApplySession(ctx context.Context, in *ApplySessionRequest, opts ...grpc.CallOption) (*ApplySessionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ApplySessionResponse)
+	err := c.cc.Invoke(ctx, GatewayEngineService_ApplySession_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *gatewayEngineServiceClient) GetPairingQR(ctx context.Context, in *GetPairingQRRequest, opts ...grpc.CallOption) (*GetPairingQRResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetPairingQRResponse)
+	err := c.cc.Invoke(ctx, GatewayEngineService_GetPairingQR_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -379,8 +417,22 @@ type GatewayEngineServiceServer interface {
 	GetChatPresence(context.Context, *GetChatPresenceRequest) (*GetChatPresenceResponse, error)
 	SetChatPresence(context.Context, *SetChatPresenceRequest) (*SetChatPresenceResponse, error)
 	BackfillSession(context.Context, *BackfillSessionRequest) (*BackfillSessionResponse, error)
+	// Deprecated: Do not use.
+	// Deprecated: desired-state assignments materialize sessions; the gateway
+	// answers Unimplemented. Kept only so the wire contract stays additive.
 	PrepareSession(context.Context, *PrepareSessionRequest) (*PrepareSessionResponse, error)
+	// Deprecated: Do not use.
+	// Deprecated: replaced by GetPairingQR (read-only) and ApplySession (start).
+	// The gateway answers Unimplemented.
 	BeginPairing(context.Context, *BeginPairingRequest) (*BeginPairingResponse, error)
+	// ApplySession applies one session's desired state now, ahead of the next
+	// desired-state snapshot that carries the same intent. The API calls it
+	// after recording a start, stop or restart so the user sees the effect
+	// without waiting for a heartbeat. The snapshot stays authoritative.
+	ApplySession(context.Context, *ApplySessionRequest) (*ApplySessionResponse, error)
+	// GetPairingQR reads the current pairing QR code. It never starts or
+	// changes anything.
+	GetPairingQR(context.Context, *GetPairingQRRequest) (*GetPairingQRResponse, error)
 	PairPhone(context.Context, *PairPhoneRequest) (*PairPhoneResponse, error)
 	// SubmitPasskey forwards the user's WebAuthn assertion for a passkey
 	// verification WhatsApp requested during pairing.
@@ -461,6 +513,12 @@ func (UnimplementedGatewayEngineServiceServer) PrepareSession(context.Context, *
 }
 func (UnimplementedGatewayEngineServiceServer) BeginPairing(context.Context, *BeginPairingRequest) (*BeginPairingResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method BeginPairing not implemented")
+}
+func (UnimplementedGatewayEngineServiceServer) ApplySession(context.Context, *ApplySessionRequest) (*ApplySessionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ApplySession not implemented")
+}
+func (UnimplementedGatewayEngineServiceServer) GetPairingQR(context.Context, *GetPairingQRRequest) (*GetPairingQRResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetPairingQR not implemented")
 }
 func (UnimplementedGatewayEngineServiceServer) PairPhone(context.Context, *PairPhoneRequest) (*PairPhoneResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PairPhone not implemented")
@@ -876,6 +934,42 @@ func _GatewayEngineService_BeginPairing_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _GatewayEngineService_ApplySession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ApplySessionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayEngineServiceServer).ApplySession(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GatewayEngineService_ApplySession_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayEngineServiceServer).ApplySession(ctx, req.(*ApplySessionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _GatewayEngineService_GetPairingQR_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetPairingQRRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayEngineServiceServer).GetPairingQR(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GatewayEngineService_GetPairingQR_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayEngineServiceServer).GetPairingQR(ctx, req.(*GetPairingQRRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _GatewayEngineService_PairPhone_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(PairPhoneRequest)
 	if err := dec(in); err != nil {
@@ -1056,6 +1150,14 @@ var GatewayEngineService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "BeginPairing",
 			Handler:    _GatewayEngineService_BeginPairing_Handler,
+		},
+		{
+			MethodName: "ApplySession",
+			Handler:    _GatewayEngineService_ApplySession_Handler,
+		},
+		{
+			MethodName: "GetPairingQR",
+			Handler:    _GatewayEngineService_GetPairingQR_Handler,
 		},
 		{
 			MethodName: "PairPhone",

@@ -149,3 +149,6 @@ func (*emptyRuntime) Inventory(context.Context) (desiredstate.Inventory, error) 
 }
 func (*emptyRuntime) StartAssigned(context.Context, desiredstate.Assignment) error { return nil }
 func (*emptyRuntime) StopAssigned(context.Context, string) error                   { return nil }
+func (*emptyRuntime) SessionRuntime(string) desiredstate.SessionRuntime {
+	return desiredstate.SessionRuntime{}
+}

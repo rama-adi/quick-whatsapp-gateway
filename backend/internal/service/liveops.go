@@ -125,12 +125,15 @@ type GatewayBackfillFacade interface {
 }
 
 // GatewaySessionFacade is the API-facing session-lifecycle port (Increment 7):
-// the five live engine calls behind create/QR/pairing/logout/delete. Row,
-// placement, and assignment ownership stays with the SessionService; an empty
-// PairingSnapshot means no QR code is ready yet (the caller polls or subscribes
-// to auth.qr events).
+// the live engine calls behind start/stop/QR/pairing/logout/delete. Row,
+// placement, assignment and intent ownership stays with the SessionService;
+// an empty PairingSnapshot means no QR code is ready yet (the caller polls or
+// subscribes to auth.qr events).
 type GatewaySessionFacade interface {
-	Prepare(ctx context.Context, organizationID, sessionID string) error
+	// Apply applies recorded intent on the assigned gateway now (run with a
+	// start generation and the paired device JID, or stop).
+	Apply(ctx context.Context, organizationID, sessionID string, run bool, startGeneration uint64, deviceJID string) error
+	// QR reads the current pairing QR code; it never starts pairing.
 	QR(ctx context.Context, organizationID, sessionID string) (application.PairingSnapshot, error)
 	PairingCode(ctx context.Context, organizationID, sessionID, phone string) (string, error)
 	SubmitPasskey(ctx context.Context, organizationID, sessionID string, response []byte) error

@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
@@ -17,14 +16,35 @@ type SessionRepo struct {
 // NewSessionRepo constructs a SessionRepo.
 func NewSessionRepo(db storedb.DBTX) *SessionRepo { return &SessionRepo{q: storedb.New(db)} }
 
-func sessionFromRow(row storedb.WaSession) domain.WASession {
+// sessionRow is the shape every session read returns: the intent columns of
+// wa_sessions, the observed runtime, and whether the session's gateway is
+// connected. sqlc emits one identical struct per query; they convert to it.
+type sessionRow = storedb.GetSessionRow
+
+// sessionFromRow resolves the effective status at read time: a live observed
+// status (starting, scan_qr_code, working, reconnecting) on a gateway that is
+// not connected reads as unavailable, since nothing can confirm it.
+func sessionFromRow(row sessionRow) domain.WASession {
+	status := domain.SessionStatus(row.RuntimeStatus)
+	if status.Live() && !row.GatewayConnected {
+		status = domain.SessionUnavailable
+	}
+	var failure *domain.SessionFailureReason
+	if status == domain.SessionFailed && row.RuntimeFailureReason.Valid {
+		reason := domain.SessionFailureReason(row.RuntimeFailureReason.WaSessionRuntimeFailureReason)
+		failure = &reason
+	}
 	return domain.WASession{
 		ID:               row.ID,
 		OrganizationID:   row.OrganizationID,
 		CreatedByUserID:  stringPtrFromNull(row.CreatedByUserID),
 		GatewayID:        row.GatewayID,
 		Label:            stringPtrFromNull(row.Label),
-		Status:           domain.SessionStatus(row.Status),
+		Status:           status,
+		FailureReason:    failure,
+		StatusChangedAt:  row.RuntimeStatusChangedAt,
+		DesiredState:     domain.DesiredState(row.DesiredState),
+		StartGeneration:  row.StartGeneration,
 		WAJID:            stringPtrFromNull(row.WaJid),
 		WALID:            stringPtrFromNull(row.WaLid),
 		PhoneNumber:      stringPtrFromNull(row.PhoneNumber),
@@ -42,15 +62,21 @@ func sessionFromRow(row storedb.WaSession) domain.WASession {
 	}
 }
 
-// Create inserts a new session row.
+// Create inserts a new session row and its runtime row (stopped, no gateway
+// observation yet). Run it inside a transaction (GatewayAssignmentRepo.CreateSession).
 func (r *SessionRepo) Create(ctx context.Context, s domain.WASession) error {
+	desired := s.DesiredState
+	if desired == "" {
+		desired = domain.DesiredStop
+	}
 	err := r.q.CreateSession(ctx, storedb.CreateSessionParams{
 		ID:              s.ID,
 		OrganizationID:  s.OrganizationID,
 		CreatedByUserID: nullString(s.CreatedByUserID),
 		GatewayID:       s.GatewayID,
 		Label:           nullString(s.Label),
-		Status:          storedb.WaSessionsStatus(s.Status),
+		DesiredState:    storedb.WaSessionsDesiredState(desired),
+		StartGeneration: s.StartGeneration,
 		WaJid:           nullString(s.WAJID),
 		WaLid:           nullString(s.WALID),
 		PhoneNumber:     nullString(s.PhoneNumber),
@@ -67,6 +93,11 @@ func (r *SessionRepo) Create(ctx context.Context, s domain.WASession) error {
 	if err != nil {
 		return fmt.Errorf("store: create session: %w", err)
 	}
+	if err := r.q.CreateSessionRuntime(ctx, storedb.CreateSessionRuntimeParams{
+		SessionID: s.ID, StatusChangedAt: s.CreatedAt,
+	}); err != nil {
+		return fmt.Errorf("store: create session runtime: %w", err)
+	}
 	return nil
 }
 
@@ -76,7 +107,7 @@ func (r *SessionRepo) Get(ctx context.Context, id string) (domain.WASession, err
 	if err != nil {
 		return domain.WASession{}, notFound(err, "session")
 	}
-	return sessionFromRow(row), nil
+	return sessionFromRow(sessionRow(row)), nil
 }
 
 // GetByJID fetches a session by its (unique) phone JID. Maps no-rows to not_found.
@@ -85,7 +116,7 @@ func (r *SessionRepo) GetByJID(ctx context.Context, jid string) (domain.WASessio
 	if err != nil {
 		return domain.WASession{}, notFound(err, "session")
 	}
-	return sessionFromRow(row), nil
+	return sessionFromRow(sessionRow(row)), nil
 }
 
 // ListByOrg returns all sessions for an organization ordered by created_at desc.
@@ -97,7 +128,7 @@ func (r *SessionRepo) ListByOrg(ctx context.Context, organizationID string) ([]d
 	}
 	out := make([]domain.WASession, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, sessionFromRow(row))
+		out = append(out, sessionFromRow(sessionRow(row)))
 	}
 	return out, nil
 }
@@ -111,7 +142,7 @@ func (r *SessionRepo) ListAll(ctx context.Context) ([]domain.WASession, error) {
 	}
 	out := make([]domain.WASession, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, sessionFromRow(row))
+		out = append(out, sessionFromRow(sessionRow(row)))
 	}
 	return out, nil
 }
@@ -126,7 +157,7 @@ func (r *SessionRepo) ListByGateway(ctx context.Context, gatewayID string) ([]do
 	}
 	out := make([]domain.WASession, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, sessionFromRow(row))
+		out = append(out, sessionFromRow(sessionRow(row)))
 	}
 	return out, nil
 }
@@ -142,89 +173,8 @@ func (r *SessionRepo) CountByGateway(ctx context.Context, gatewayID string) (int
 	return int(n), nil
 }
 
-// Update writes the mutable fields of a session (settings + WA identity), keying
-// on id and refreshing updated_at from the struct.
-func (r *SessionRepo) Update(ctx context.Context, s domain.WASession) error {
-	n, err := r.q.UpdateSession(ctx, storedb.UpdateSessionParams{
-		Label:           nullString(s.Label),
-		Status:          storedb.WaSessionsStatus(s.Status),
-		WaJid:           nullString(s.WAJID),
-		WaLid:           nullString(s.WALID),
-		PhoneNumber:     nullString(s.PhoneNumber),
-		AutoRead:        s.AutoRead,
-		PresenceTyping:  s.PresenceTyping,
-		RatePerMin:      int32(s.RatePerMin),
-		RatePerHour:     int32(s.RatePerHour),
-		LastConnectedAt: nullInt64(s.LastConnectedAt),
-		UpdatedAt:       s.UpdatedAt,
-		ID:              s.ID,
-	})
-	if err != nil {
-		return fmt.Errorf("store: update session: %w", err)
-	}
-	return rowsAffectedOrNotFound(n, "session")
-}
-
-// UpdateStatus is the hot path for the session lifecycle (§3): flip status and
-// touch updated_at without rewriting the whole row.
-func (r *SessionRepo) UpdateStatus(ctx context.Context, id string, status domain.SessionStatus, updatedAt int64) error {
-	n, err := r.q.UpdateSessionStatus(ctx, storedb.UpdateSessionStatusParams{
-		Status:    storedb.WaSessionsStatus(status),
-		UpdatedAt: updatedAt,
-		ID:        id,
-	})
-	if err != nil {
-		return fmt.Errorf("store: update session status: %w", err)
-	}
-	return rowsAffectedOrNotFound(n, "session")
-}
-
-// ClearPairing atomically marks a session logged out and removes the WhatsApp
-// identity that made it appear paired. Keeping these fields in one write avoids
-// a state where lifecycle endpoints see an unpaired keystore while pairing
-// endpoints still see a non-null wa_jid.
-func (r *SessionRepo) ClearPairing(ctx context.Context, id string, updatedAt int64) error {
-	n, err := r.q.ClearSessionPairing(ctx, storedb.ClearSessionPairingParams{
-		UpdatedAt: updatedAt,
-		ID:        id,
-	})
-	if err != nil {
-		return fmt.Errorf("store: clear session pairing: %w", err)
-	}
-	return rowsAffectedOrNotFound(n, "session")
-}
-
-// AttachPairing persists the WhatsApp identity observed at PairSuccess: the
-// device JID, its LID, and the phone number derived from the JID. It is the
-// write-side of pairing on this branch — desired-state reconciliation derives
-// each assignment's DeviceJID from wa_jid, so without it a freshly paired
-// session never starts. Idempotent by event replay: rewriting the same identity
-// is a no-op on the row. It also records data_account_jid (kept across logout)
-// and stamps account_changed_at when the pairing attaches a different phone
-// number than the one the session's stored data belongs to.
-func (r *SessionRepo) AttachPairing(ctx context.Context, in AttachPairingInput) error {
-	// The account is the phone JID without the device suffix, so relinking
-	// the same number as a new device does not count as an account change.
-	var account sql.NullString
-	if in.PhoneNumber != "" {
-		account = sql.NullString{String: in.PhoneNumber + "@s.whatsapp.net", Valid: true}
-	}
-	n, err := r.q.AttachSessionPairing(ctx, storedb.AttachSessionPairingParams{
-		AccountJid:  account,
-		ChangedAt:   sql.NullInt64{Int64: in.UpdatedAt, Valid: true},
-		WaJid:       nullStringFromValue(in.WaJID),
-		WaLid:       nullStringFromValue(in.WaLID),
-		PhoneNumber: nullStringFromValue(in.PhoneNumber),
-		UpdatedAt:   in.UpdatedAt,
-		ID:          in.SessionID,
-	})
-	if err != nil {
-		return fmt.Errorf("store: attach session pairing: %w", err)
-	}
-	return rowsAffectedOrNotFound(n, "session")
-}
-
-// AttachPairingInput carries the PairSuccess identity for AttachPairing.
+// AttachPairingInput carries the PairSuccess identity for
+// SessionStateRepo.AttachPairing.
 type AttachPairingInput struct {
 	SessionID   string
 	WaJID       string

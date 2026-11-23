@@ -200,10 +200,19 @@ type ManagedSession struct {
 	conn           *connection // the current run; nil when not running
 	nextGen        uint64      // last connection generation issued
 
-	status  domain.SessionStatus
-	failure domain.SessionFailureReason // set only while status is failed
-	attempt int                         // consecutive failed connection attempts in this run
-	lastErr string                      // the last connection error of this run
+	status    domain.SessionStatus
+	failure   domain.SessionFailureReason // set only while status is failed
+	seq       uint64                      // status_seq of the current status (0 = never changed)
+	changedAt int64                       // epoch-ms of the last status change
+	attempt   int                         // consecutive failed connection attempts in this run
+	lastErr   string                      // the last connection error of this run
+
+	// generation is the start generation of the current or last run; latched
+	// is set when that run ended terminally (failed, logged out). A latched
+	// session starts again only for a newer generation, i.e. when a user
+	// asked again; heartbeat snapshots alone never restart it.
+	generation uint64
+	latched    bool
 
 	lastQR        string // most recent QR code streamed during pairing (for GET /qr)
 	lastQRExpires int64  // epoch-ms when lastQR stops being valid (0 = unknown)

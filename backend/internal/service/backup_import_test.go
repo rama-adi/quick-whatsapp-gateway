@@ -29,21 +29,16 @@ func newBackupSvc(t *testing.T) (*BackupImportService, sqlmock.Sqlmock) {
 }
 
 func sessionRows(id, orgID string) *sqlmock.Rows {
-	cols := []string{
-		"id", "organization_id", "created_by_user_id", "gateway_id", "label", "status",
-		"wa_jid", "wa_lid", "phone_number", "is_admin_session", "auto_read", "presence_typing",
-		"rate_per_min", "rate_per_hour", "last_connected_at", "created_at", "updated_at",
-		"history_sync_days", "data_account_jid", "account_changed_at",
-	}
-	return sqlmock.NewRows(cols).AddRow(
+	cols := sessionTestColumns
+	return sqlmock.NewRows(cols).AddRow(sessionTestRow(
 		id, orgID, nil, "gw_1", nil, "working",
 		nil, nil, nil, 0, 1, 0,
 		20, 200, nil, int64(1), int64(1), 30, nil, nil,
-	)
+	)...)
 }
 
 func expectGetSession(mock sqlmock.Sqlmock, id, orgID string) {
-	mock.ExpectQuery("SELECT .* FROM wa_sessions WHERE id = .").
+	mock.ExpectQuery("FROM wa_sessions .* WHERE s.id = .").
 		WithArgs(id).WillReturnRows(sessionRows(id, orgID))
 }
 

@@ -116,7 +116,9 @@ CREATE TABLE wa_sessions (
   organization_id    VARCHAR(64) NOT NULL,   -- better-auth org id (owner)
   created_by_user_id VARCHAR(64) NULL,       -- audit
   gateway_id         VARCHAR(64) NOT NULL,   -- which gateway holds this session's keystore
-  ... status / wa_jid / is_admin_session / rate_per_min / ...
+  desired_state ENUM('run','stop') NOT NULL DEFAULT 'stop',   -- intent (0022)
+  start_generation BIGINT UNSIGNED NOT NULL DEFAULT 0,         -- intent (0022)
+  ... wa_jid / is_admin_session / rate_per_min / ...
   KEY idx_sessions_org (organization_id),
   KEY idx_sessions_gateway (gateway_id),
   UNIQUE KEY uq_sessions_jid (wa_jid)
@@ -642,10 +644,10 @@ name starts with `qwg_store_test` and `STORE_TEST_DISPOSABLE=1` is set.
 
 ## Session lifecycle transaction boundary
 
-`GatewayAssignmentRepo.CreateSession` commits the session row, epoch-1 assignment,
-and gateway revision together. A failed assignment cannot leave an unusable session.
-The API performs live preparation only after that commit, so preparation failure
-leaves an assigned session that can be retried.
+`GatewayAssignmentRepo.CreateSession` commits the session row, its runtime row,
+the epoch-1 assignment, and the gateway revision together. A failed assignment
+cannot leave an unusable session. There is no separate live preparation step:
+the gateway materializes the session from its next desired-state snapshot.
 
 `GatewayAssignmentRepo.DeleteSession` removes session event-work records and the
 session in one transaction, retaining event-log bodies for webhook delivery and
@@ -656,6 +658,54 @@ ledger restricts deletion, and the assignment would already have cascaded away.
 
 Pairing projections keep the full device JID but derive the phone from its user
 part; a `:device` suffix is never stored as part of the phone number.
+
+## Session intent and observed runtime (`migration 0022_session_state`)
+
+`wa_sessions.status` used to mix what users asked for with what the gateway
+observed. Migration 0022 splits them into two facts with one writer each:
+
+| Column | Writer | Meaning |
+|---|---|---|
+| `wa_sessions.desired_state ENUM('run','stop')` | user actions (`SessionStateRepo.SetDesired`, `ClearPairing`) | what was asked of the session |
+| `wa_sessions.start_generation BIGINT UNSIGNED` | user actions | counts explicit start/restart requests; a gateway restarts a failed session only for a newer one |
+| `wa_session_runtime.status` | gateway observations only | `starting`, `scan_qr_code`, `working`, `reconnecting`, `failed`, `stopped`, `logged_out` |
+| `wa_session_runtime.failure_reason` | gateway observations only | set only with `failed` (CHECK) |
+| `wa_session_runtime.status_seq BIGINT UNSIGNED` | gateway observations only | the gateway's ordering key; 0 = no observation yet |
+| `wa_session_runtime.status_changed_at BIGINT` | gateway observations only | when the gateway observed the change |
+
+`wa_sessions.status` is dropped. `SessionStateRepo` owns all writes:
+
+- **Intent.** `SetDesired` and `ClearPairing` lock the assignment row, write the
+  intent columns and advance the owning gateway's `desired_revision` in one
+  transaction. `AttachPairing` does the same for `wa_jid`, because the device JID
+  is part of the snapshot. A desired revision therefore always names one snapshot
+  content; `ListGatewayDesiredStateAssignments` reads `desired_state`,
+  `start_generation`, `wa_jid` and settings, never observed status.
+- **Observation.** `ApplyObservedStatus` (committed `session.status` events) and
+  `ApplyRuntimeReport` (desired-state reports) lock the runtime row and apply an
+  observation only when its `status_seq` is greater than the stored one. A newer
+  `logged_out` also clears the identity and advances the revision. A report entry
+  applies only for the reporting gateway's current connection epoch and the
+  session's current assignment epoch. `GatewayAssignmentRepo.Reassign` resets
+  `status_seq` to 0, since sequences of two gateways are not comparable.
+- **Reads.** Every session query joins `wa_session_runtime` and the session's
+  gateway. `sessionFromRow` reports a live observed status as `unavailable` when
+  the gateway has no connected control stream (`connected_at IS NULL`); the value
+  is resolved at read time, never stored.
+
+The migration keeps existing rows usable: `desired_state` is `run` for rows whose
+old status was `starting`, `scan_qr_code` or `working` (an unpaired one among them
+resumes QR pairing), `stop` otherwise; the old status becomes the runtime status
+with `status_seq` 0, so the first gateway observation replaces it. A `failed` row
+keeps `failed` without a reason. The migration touches only `wa_sessions` and the
+new table. The down migration restores `wa_sessions.status` from the runtime
+(`reconnecting` becomes `starting`).
+
+`GatewayReconciliationRepo.Persist` reads the same intent columns plus the
+assignment epoch. A report for a superseded revision returns `persisted=false`
+without an error (the next snapshot brings a fresh report), and an assigned result
+may name a device the row does not have yet when the row has none (a pairing the
+API has not attached).
 
 ## Attachment storage tables
 

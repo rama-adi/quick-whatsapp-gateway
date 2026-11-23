@@ -450,12 +450,11 @@ func (r *GatewayRepo) DesiredStateForEpoch(
 	}
 	out := make([]domain.GatewayDesiredSession, 0, len(rows))
 	for _, row := range rows {
-		// Pairing can report starting or scan_qr_code before the device JID
-		// exists. A RUN assignment without that identity violates the control
-		// protocol and cannot be reconciled against a local keystore device.
-		desiredRun := row.WaJid.Valid && row.WaJid.String != "" && (row.Status == storedb.WaSessionsStatusWorking ||
-			row.Status == storedb.WaSessionsStatusStarting ||
-			row.Status == storedb.WaSessionsStatusScanQrCode)
+		// Only intent columns feed the snapshot: desired_state and the start
+		// generation are written by user actions alone, never by observed
+		// status. A RUN assignment without a device JID asks the gateway to
+		// run QR pairing for the session.
+		desiredRun := row.DesiredState == storedb.WaSessionsDesiredStateRun
 		out = append(out, domain.GatewayDesiredSession{
 			SessionID:       row.SessionID,
 			OrganizationID:  row.OrganizationID,
@@ -468,6 +467,7 @@ func (r *GatewayRepo) DesiredStateForEpoch(
 			RatePerHour:     uint32(row.RatePerHour),
 			HistorySyncDays: uint32(row.HistorySyncDays),
 			DesiredRun:      desiredRun,
+			StartGeneration: row.StartGeneration,
 			LeaseExpiresAt:  leaseExpiresAt,
 		})
 	}
@@ -639,8 +639,24 @@ func (r *GatewayRepo) ResolveSessionEngineTarget(
 		ID:             sessionID,
 		OrganizationID: organizationID,
 	})
+	if errors.Is(err, sql.ErrNoRows) {
+		// No route: either the session does not exist in this organization
+		// (404), or its gateway cannot take requests right now — draining,
+		// degraded, disconnected or not yet reconciled (503, retry later).
+		exists, existsErr := r.q.SessionExistsInOrganization(ctx, storedb.SessionExistsInOrganizationParams{
+			ID: sessionID, OrganizationID: organizationID,
+		})
+		if existsErr != nil {
+			return domain.SessionEngineTarget{}, fmt.Errorf("store: check session for engine target: %w", existsErr)
+		}
+		if exists {
+			return domain.SessionEngineTarget{}, domain.ErrUnavailable(
+				"the gateway that holds this session is not available right now; retry later")
+		}
+		return domain.SessionEngineTarget{}, domain.ErrNotFound("session not found")
+	}
 	if err != nil {
-		return domain.SessionEngineTarget{}, notFound(err, "session engine target")
+		return domain.SessionEngineTarget{}, fmt.Errorf("store: resolve session engine target: %w", err)
 	}
 	return domain.SessionEngineTarget{
 		SessionID:       row.SessionID,

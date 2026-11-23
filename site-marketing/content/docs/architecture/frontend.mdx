@@ -135,9 +135,12 @@ the work Redis. API processes subscribe and revoke cached authorization and live
   mutation, while blank write-only secrets remain omitted during edits.
 - **Pairing state is attachment-driven.** The session detail shows pairing controls whenever
   `waJid` is absent (including `logged_out`) and treats a stopped session with a `waJid` as still
-  paired. The QR query is enabled only after status reaches `scan_qr_code`, because `GET /qr` starts
-  a QR flow as a side effect; this lets users choose phone-code pairing without an automatic QR
-  client racing it. A `logged_out` event clears cached identity. Pairing artifacts (QR code, phone
+  paired. The QR query runs once status reaches `scan_qr_code`; `GET /qr` only reads, answering
+  `state: "pending"` until a code exists and a 409 (shown as text) when the session is not
+  pairing. The failure reason comes from the session row (`failureReason`), which
+  `session.status` events keep in step; there is no separate failure cache. A session with
+  `desiredState: run` and status `stopped` shows "Starting…" while its gateway applies the
+  request. A `logged_out` event clears cached identity. Pairing artifacts (QR code, phone
   pairing code, passkey step) belong to one attempt: any `session.status` other than
   `scan_qr_code` removes all three, so a restart never shows the previous run's code. `auth.qr`
   stores `expiresAt = timestamp + timeoutMs` when the payload carries `timeoutMs`. Pages read the
@@ -162,8 +165,8 @@ the work Redis. API processes subscribe and revoke cached authorization and live
   `useSessionView.ts`. Pages render one explicit state per session instead of reading status,
   artifacts, and mutation flags separately: `loading | unreachable | stopped | connecting |
   awaiting_pairing | qr | pairing_code | passkey | linking | working | failed | logged_out`. The
-  input is the merged session row plus the cached artifacts (QR, phone pairing code, passkey step,
-  failure reason). Rules: artifacts count only in `scan_qr_code` and only before their `expiresAt`
+  input is the merged session row plus the cached artifacts (QR, phone pairing code, passkey step;
+  the failure reason comes from the row). Rules: artifacts count only in `scan_qr_code` and only before their `expiresAt`
   (the hook re-renders at the next expiry); a passkey step outranks a phone code, which outranks
   the QR the same attempt keeps rotating; a cached row wins over a failed refetch (`unreachable`
   only when nothing is cached); `working` without `waJid` is `linking`, which reports `stalled`

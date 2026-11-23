@@ -33,8 +33,12 @@ type SessionState struct {
 	SessionID      string
 	GatewayID      string
 	Status         domain.SessionStatus
-	Connected      bool
-	LoggedIn       bool
+	// FailureReason is set only with domain.SessionFailed.
+	FailureReason domain.SessionFailureReason
+	// StatusSeq is the gateway's ordering key for Status.
+	StatusSeq uint64
+	Connected bool
+	LoggedIn  bool
 }
 
 // SetPresenceCommand requests an account-wide presence mutation.
@@ -363,19 +367,21 @@ type BackfillReader interface {
 	BackfillSession(ctx context.Context, query SessionStateQuery) (domain.BackfillSnapshot, error)
 }
 
-// PrepareSessionResult echoes the routing metadata of a successful prepare.
-// The gateway-local keystore device + managed-session entry it materializes are
-// deliberately invisible to the API: only their absence (an error) is.
-type PrepareSessionResult struct {
-	MutationResult
+// ApplySessionCommand carries one session's desired state as the API
+// recorded it: run or stop, the start generation, and the paired device (""
+// for an unpaired session, which runs QR pairing).
+type ApplySessionCommand struct {
+	SessionStateQuery
+	Run             bool
+	StartGeneration uint64
+	DeviceJID       string
 }
 
-// SessionPreparer is the pairing-substrate boundary: it creates the gateway-
-// local keystore device and managed-session entry for an API-created session
-// row. Idempotent by construction — preparing an already-known session is a
-// success — so no command_id or ledger is involved.
-type SessionPreparer interface {
-	PrepareSession(context.Context, SessionStateQuery) (PrepareSessionResult, error)
+// SessionApplier applies a session's desired state ahead of the next
+// desired-state snapshot carrying the same intent. Idempotent: applying the
+// same intent twice changes nothing.
+type SessionApplier interface {
+	ApplySession(ctx context.Context, command ApplySessionCommand) error
 }
 
 // PairingSnapshot is one QR-pairing read outcome. Code empty means no code is
@@ -385,11 +391,10 @@ type PairingSnapshot struct {
 	ExpiresAt int64 // epoch-ms; 0 = unknown
 }
 
-// PairingBeginner starts QR pairing and returns the current snapshot code. A
-// repeated call re-reads the live code instead of restarting anything, so it is
-// not ledger-backed.
-type PairingBeginner interface {
-	BeginPairing(ctx context.Context, query SessionStateQuery) (PairingSnapshot, error)
+// PairingQRReader reads the current pairing QR code. It never starts or
+// changes anything.
+type PairingQRReader interface {
+	GetPairingQR(ctx context.Context, query SessionStateQuery) (PairingSnapshot, error)
 }
 
 // PhonePairer requests a phone-number pairing code. Each call yields a fresh
@@ -436,8 +441,8 @@ type GatewayEngine interface {
 	InviteLinkReader
 	ChatPresenceBoundary
 	BackfillReader
-	SessionPreparer
-	PairingBeginner
+	SessionApplier
+	PairingQRReader
 	PhonePairer
 	PasskeyVerifier
 	SessionLogout

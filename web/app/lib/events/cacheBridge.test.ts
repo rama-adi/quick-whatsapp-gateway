@@ -35,6 +35,8 @@ describe("applyEvent", () => {
       organizationId: "org_1",
       gatewayId: "gw_1",
       status: "starting",
+      desiredState: "run",
+      statusChangedAt: 1,
       isAdminSession: false,
       autoRead: false,
       presenceTyping: false,
@@ -60,6 +62,8 @@ describe("applyEvent", () => {
       organizationId: "org_1",
       gatewayId: "gw_1",
       status: "working",
+      desiredState: "run",
+      statusChangedAt: 1,
       waJid: "628111@s.whatsapp.net",
       waLid: "777@lid",
       phoneNumber: "628111",
@@ -90,7 +94,7 @@ describe("applyEvent", () => {
 
   it("auth.qr seeds the live QR query", () => {
     applyEvent(qc, evt("auth.qr", { code: "2@abc" }));
-    expect(qc.getQueryData(qk.sessionQR(SESSION))).toEqual({ code: "2@abc" });
+    expect(qc.getQueryData(qk.sessionQR(SESSION))).toEqual({ state: "ready", code: "2@abc" });
   });
 
   it.each(["auth.qr", "auth.code"])("%s stores the artifact without guessing a status", (event) => {
@@ -104,7 +108,9 @@ describe("applyEvent", () => {
 
     expect(qc.getQueryData<WASession>(qk.session(SESSION))?.status).toBe("starting");
     expect(qc.getQueryData<InfiniteData<Page<WASession>>>(qk.sessions())?.pages[0]?.data[0]?.status).toBe("starting");
-    expect(qc.getQueryData(event === "auth.qr" ? qk.sessionQR(SESSION) : qk.sessionPairing(SESSION))).toEqual({ code: "new-code" });
+    expect(qc.getQueryData(event === "auth.qr" ? qk.sessionQR(SESSION) : qk.sessionPairing(SESSION))).toEqual(
+      event === "auth.qr" ? { state: "ready", code: "new-code" } : { code: "new-code" },
+    );
   });
 
   it.each(["auth.qr", "auth.code"])("%s does not regress an already working session", (event) => {

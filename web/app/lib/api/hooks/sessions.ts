@@ -19,7 +19,6 @@ import type {
   PasskeyStep,
   QRCode,
   SessionAction,
-  SessionFailureReason,
   SessionMe,
   WASession,
 } from "../types";
@@ -75,6 +74,9 @@ export function useSessionQR(
   enabled = true,
 ): UseQueryResult<QRCode, ApiError> {
   // The live value arrives via the auth.qr event; this seeds the initial value.
+  // GET /qr only reads (it never starts pairing), so polling it is safe:
+  // state "pending" means the session is pairing but has no code yet, and a
+  // 409 says why it is not pairing (for example a failed pairing's reason).
   return useQuery({
     queryKey: qk.sessionQR(s),
     enabled: Boolean(s) && enabled,
@@ -200,17 +202,6 @@ export function useSessionPasskey(s: string): PasskeyStep | undefined {
 export function useSessionPairingCode(s: string): { code: string } | undefined {
   const { data } = useQuery<{ code: string } | null>({
     queryKey: qk.sessionPairing(s),
-    queryFn: () => null,
-    enabled: false,
-    staleTime: Infinity,
-  });
-  return data ?? undefined;
-}
-
-/** The failureReason carried by the latest failed session.status event. */
-export function useSessionFailure(s: string): SessionFailureReason | undefined {
-  const { data } = useQuery<SessionFailureReason | null>({
-    queryKey: qk.sessionFailure(s),
     queryFn: () => null,
     enabled: false,
     staleTime: Infinity,

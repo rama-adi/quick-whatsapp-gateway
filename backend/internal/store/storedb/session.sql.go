@@ -52,25 +52,6 @@ func (q *Queries) AttachSessionPairing(ctx context.Context, arg AttachSessionPai
 	return result.RowsAffected()
 }
 
-const clearSessionPairing = `-- name: ClearSessionPairing :execrows
-UPDATE wa_sessions
-SET status = 'logged_out', wa_jid = NULL, wa_lid = NULL, phone_number = NULL, updated_at = ?
-WHERE id = ?
-`
-
-type ClearSessionPairingParams struct {
-	UpdatedAt int64  `db:"updated_at" json:"updated_at"`
-	ID        string `db:"id" json:"id"`
-}
-
-func (q *Queries) ClearSessionPairing(ctx context.Context, arg ClearSessionPairingParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, clearSessionPairing, arg.UpdatedAt, arg.ID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
 const countSessionsByGateway = `-- name: CountSessionsByGateway :one
 SELECT COUNT(*) FROM wa_sessions WHERE gateway_id = ?
 `
@@ -87,34 +68,39 @@ func (q *Queries) CountSessionsByGateway(ctx context.Context, arg CountSessionsB
 }
 
 const createSession = `-- name: CreateSession :exec
+
 INSERT INTO wa_sessions
-(id, organization_id, created_by_user_id, gateway_id, label, status, wa_jid, wa_lid,
- phone_number, is_admin_session, auto_read, presence_typing, rate_per_min, rate_per_hour,
- last_connected_at, created_at, updated_at, history_sync_days)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+(id, organization_id, created_by_user_id, gateway_id, label, desired_state, start_generation,
+ wa_jid, wa_lid, phone_number, is_admin_session, auto_read, presence_typing, rate_per_min,
+ rate_per_hour, last_connected_at, created_at, updated_at, history_sync_days)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type CreateSessionParams struct {
-	ID              string           `db:"id" json:"id"`
-	OrganizationID  string           `db:"organization_id" json:"organization_id"`
-	CreatedByUserID sql.NullString   `db:"created_by_user_id" json:"created_by_user_id"`
-	GatewayID       string           `db:"gateway_id" json:"gateway_id"`
-	Label           sql.NullString   `db:"label" json:"label"`
-	Status          WaSessionsStatus `db:"status" json:"status"`
-	WaJid           sql.NullString   `db:"wa_jid" json:"wa_jid"`
-	WaLid           sql.NullString   `db:"wa_lid" json:"wa_lid"`
-	PhoneNumber     sql.NullString   `db:"phone_number" json:"phone_number"`
-	IsAdminSession  bool             `db:"is_admin_session" json:"is_admin_session"`
-	AutoRead        bool             `db:"auto_read" json:"auto_read"`
-	PresenceTyping  bool             `db:"presence_typing" json:"presence_typing"`
-	RatePerMin      int32            `db:"rate_per_min" json:"rate_per_min"`
-	RatePerHour     int32            `db:"rate_per_hour" json:"rate_per_hour"`
-	LastConnectedAt sql.NullInt64    `db:"last_connected_at" json:"last_connected_at"`
-	CreatedAt       int64            `db:"created_at" json:"created_at"`
-	UpdatedAt       int64            `db:"updated_at" json:"updated_at"`
-	HistorySyncDays uint16           `db:"history_sync_days" json:"history_sync_days"`
+	ID              string                 `db:"id" json:"id"`
+	OrganizationID  string                 `db:"organization_id" json:"organization_id"`
+	CreatedByUserID sql.NullString         `db:"created_by_user_id" json:"created_by_user_id"`
+	GatewayID       string                 `db:"gateway_id" json:"gateway_id"`
+	Label           sql.NullString         `db:"label" json:"label"`
+	DesiredState    WaSessionsDesiredState `db:"desired_state" json:"desired_state"`
+	StartGeneration uint64                 `db:"start_generation" json:"start_generation"`
+	WaJid           sql.NullString         `db:"wa_jid" json:"wa_jid"`
+	WaLid           sql.NullString         `db:"wa_lid" json:"wa_lid"`
+	PhoneNumber     sql.NullString         `db:"phone_number" json:"phone_number"`
+	IsAdminSession  bool                   `db:"is_admin_session" json:"is_admin_session"`
+	AutoRead        bool                   `db:"auto_read" json:"auto_read"`
+	PresenceTyping  bool                   `db:"presence_typing" json:"presence_typing"`
+	RatePerMin      int32                  `db:"rate_per_min" json:"rate_per_min"`
+	RatePerHour     int32                  `db:"rate_per_hour" json:"rate_per_hour"`
+	LastConnectedAt sql.NullInt64          `db:"last_connected_at" json:"last_connected_at"`
+	CreatedAt       int64                  `db:"created_at" json:"created_at"`
+	UpdatedAt       int64                  `db:"updated_at" json:"updated_at"`
+	HistorySyncDays uint16                 `db:"history_sync_days" json:"history_sync_days"`
 }
 
+// Session reads join the observed runtime and the liveness of the session's
+// gateway: the effective status a client sees is resolved from these at read
+// time (store.sessionFromRow), never copied onto wa_sessions.
 func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) error {
 	_, err := q.db.ExecContext(ctx, createSession,
 		arg.ID,
@@ -122,7 +108,8 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) er
 		arg.CreatedByUserID,
 		arg.GatewayID,
 		arg.Label,
-		arg.Status,
+		arg.DesiredState,
+		arg.StartGeneration,
 		arg.WaJid,
 		arg.WaLid,
 		arg.PhoneNumber,
@@ -136,6 +123,21 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) er
 		arg.UpdatedAt,
 		arg.HistorySyncDays,
 	)
+	return err
+}
+
+const createSessionRuntime = `-- name: CreateSessionRuntime :exec
+INSERT INTO wa_session_runtime (session_id, status, failure_reason, status_seq, status_changed_at)
+VALUES (?, 'stopped', NULL, 0, ?)
+`
+
+type CreateSessionRuntimeParams struct {
+	SessionID       string `db:"session_id" json:"session_id"`
+	StatusChangedAt int64  `db:"status_changed_at" json:"status_changed_at"`
+}
+
+func (q *Queries) CreateSessionRuntime(ctx context.Context, arg CreateSessionRuntimeParams) error {
+	_, err := q.db.ExecContext(ctx, createSessionRuntime, arg.SessionID, arg.StatusChangedAt)
 	return err
 }
 
@@ -156,28 +158,62 @@ func (q *Queries) DeleteSession(ctx context.Context, arg DeleteSessionParams) (i
 }
 
 const getSession = `-- name: GetSession :one
-SELECT id, organization_id, created_by_user_id, gateway_id, label, status,
-	wa_jid, wa_lid, phone_number, is_admin_session, auto_read, presence_typing,
-	rate_per_min, rate_per_hour, last_connected_at, created_at, updated_at,
-	history_sync_days, data_account_jid, account_changed_at
-FROM wa_sessions
-WHERE id = ?
+SELECT s.id, s.organization_id, s.created_by_user_id, s.gateway_id, s.label, s.desired_state,
+	s.start_generation, s.wa_jid, s.wa_lid, s.phone_number, s.is_admin_session, s.auto_read,
+	s.presence_typing, s.rate_per_min, s.rate_per_hour, s.last_connected_at, s.created_at,
+	s.updated_at, s.history_sync_days, s.data_account_jid, s.account_changed_at,
+	r.status AS runtime_status, r.failure_reason AS runtime_failure_reason,
+	r.status_changed_at AS runtime_status_changed_at,
+	(g.connected_at IS NOT NULL) AS gateway_connected
+FROM wa_sessions AS s
+JOIN wa_session_runtime AS r ON r.session_id = s.id
+LEFT JOIN gateways AS g ON g.id = s.gateway_id AND g.deleted_at IS NULL
+WHERE s.id = ?
 `
 
 type GetSessionParams struct {
 	ID string `db:"id" json:"id"`
 }
 
-func (q *Queries) GetSession(ctx context.Context, arg GetSessionParams) (WaSession, error) {
+type GetSessionRow struct {
+	ID                     string                            `db:"id" json:"id"`
+	OrganizationID         string                            `db:"organization_id" json:"organization_id"`
+	CreatedByUserID        sql.NullString                    `db:"created_by_user_id" json:"created_by_user_id"`
+	GatewayID              string                            `db:"gateway_id" json:"gateway_id"`
+	Label                  sql.NullString                    `db:"label" json:"label"`
+	DesiredState           WaSessionsDesiredState            `db:"desired_state" json:"desired_state"`
+	StartGeneration        uint64                            `db:"start_generation" json:"start_generation"`
+	WaJid                  sql.NullString                    `db:"wa_jid" json:"wa_jid"`
+	WaLid                  sql.NullString                    `db:"wa_lid" json:"wa_lid"`
+	PhoneNumber            sql.NullString                    `db:"phone_number" json:"phone_number"`
+	IsAdminSession         bool                              `db:"is_admin_session" json:"is_admin_session"`
+	AutoRead               bool                              `db:"auto_read" json:"auto_read"`
+	PresenceTyping         bool                              `db:"presence_typing" json:"presence_typing"`
+	RatePerMin             int32                             `db:"rate_per_min" json:"rate_per_min"`
+	RatePerHour            int32                             `db:"rate_per_hour" json:"rate_per_hour"`
+	LastConnectedAt        sql.NullInt64                     `db:"last_connected_at" json:"last_connected_at"`
+	CreatedAt              int64                             `db:"created_at" json:"created_at"`
+	UpdatedAt              int64                             `db:"updated_at" json:"updated_at"`
+	HistorySyncDays        uint16                            `db:"history_sync_days" json:"history_sync_days"`
+	DataAccountJid         sql.NullString                    `db:"data_account_jid" json:"data_account_jid"`
+	AccountChangedAt       sql.NullInt64                     `db:"account_changed_at" json:"account_changed_at"`
+	RuntimeStatus          WaSessionRuntimeStatus            `db:"runtime_status" json:"runtime_status"`
+	RuntimeFailureReason   NullWaSessionRuntimeFailureReason `db:"runtime_failure_reason" json:"runtime_failure_reason"`
+	RuntimeStatusChangedAt int64                             `db:"runtime_status_changed_at" json:"runtime_status_changed_at"`
+	GatewayConnected       bool                              `db:"gateway_connected" json:"gateway_connected"`
+}
+
+func (q *Queries) GetSession(ctx context.Context, arg GetSessionParams) (GetSessionRow, error) {
 	row := q.db.QueryRowContext(ctx, getSession, arg.ID)
-	var i WaSession
+	var i GetSessionRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrganizationID,
 		&i.CreatedByUserID,
 		&i.GatewayID,
 		&i.Label,
-		&i.Status,
+		&i.DesiredState,
+		&i.StartGeneration,
 		&i.WaJid,
 		&i.WaLid,
 		&i.PhoneNumber,
@@ -192,33 +228,71 @@ func (q *Queries) GetSession(ctx context.Context, arg GetSessionParams) (WaSessi
 		&i.HistorySyncDays,
 		&i.DataAccountJid,
 		&i.AccountChangedAt,
+		&i.RuntimeStatus,
+		&i.RuntimeFailureReason,
+		&i.RuntimeStatusChangedAt,
+		&i.GatewayConnected,
 	)
 	return i, err
 }
 
 const getSessionByJID = `-- name: GetSessionByJID :one
-SELECT id, organization_id, created_by_user_id, gateway_id, label, status,
-	wa_jid, wa_lid, phone_number, is_admin_session, auto_read, presence_typing,
-	rate_per_min, rate_per_hour, last_connected_at, created_at, updated_at,
-	history_sync_days, data_account_jid, account_changed_at
-FROM wa_sessions
-WHERE wa_jid = ?
+SELECT s.id, s.organization_id, s.created_by_user_id, s.gateway_id, s.label, s.desired_state,
+	s.start_generation, s.wa_jid, s.wa_lid, s.phone_number, s.is_admin_session, s.auto_read,
+	s.presence_typing, s.rate_per_min, s.rate_per_hour, s.last_connected_at, s.created_at,
+	s.updated_at, s.history_sync_days, s.data_account_jid, s.account_changed_at,
+	r.status AS runtime_status, r.failure_reason AS runtime_failure_reason,
+	r.status_changed_at AS runtime_status_changed_at,
+	(g.connected_at IS NOT NULL) AS gateway_connected
+FROM wa_sessions AS s
+JOIN wa_session_runtime AS r ON r.session_id = s.id
+LEFT JOIN gateways AS g ON g.id = s.gateway_id AND g.deleted_at IS NULL
+WHERE s.wa_jid = ?
 `
 
 type GetSessionByJIDParams struct {
 	WaJid sql.NullString `db:"wa_jid" json:"wa_jid"`
 }
 
-func (q *Queries) GetSessionByJID(ctx context.Context, arg GetSessionByJIDParams) (WaSession, error) {
+type GetSessionByJIDRow struct {
+	ID                     string                            `db:"id" json:"id"`
+	OrganizationID         string                            `db:"organization_id" json:"organization_id"`
+	CreatedByUserID        sql.NullString                    `db:"created_by_user_id" json:"created_by_user_id"`
+	GatewayID              string                            `db:"gateway_id" json:"gateway_id"`
+	Label                  sql.NullString                    `db:"label" json:"label"`
+	DesiredState           WaSessionsDesiredState            `db:"desired_state" json:"desired_state"`
+	StartGeneration        uint64                            `db:"start_generation" json:"start_generation"`
+	WaJid                  sql.NullString                    `db:"wa_jid" json:"wa_jid"`
+	WaLid                  sql.NullString                    `db:"wa_lid" json:"wa_lid"`
+	PhoneNumber            sql.NullString                    `db:"phone_number" json:"phone_number"`
+	IsAdminSession         bool                              `db:"is_admin_session" json:"is_admin_session"`
+	AutoRead               bool                              `db:"auto_read" json:"auto_read"`
+	PresenceTyping         bool                              `db:"presence_typing" json:"presence_typing"`
+	RatePerMin             int32                             `db:"rate_per_min" json:"rate_per_min"`
+	RatePerHour            int32                             `db:"rate_per_hour" json:"rate_per_hour"`
+	LastConnectedAt        sql.NullInt64                     `db:"last_connected_at" json:"last_connected_at"`
+	CreatedAt              int64                             `db:"created_at" json:"created_at"`
+	UpdatedAt              int64                             `db:"updated_at" json:"updated_at"`
+	HistorySyncDays        uint16                            `db:"history_sync_days" json:"history_sync_days"`
+	DataAccountJid         sql.NullString                    `db:"data_account_jid" json:"data_account_jid"`
+	AccountChangedAt       sql.NullInt64                     `db:"account_changed_at" json:"account_changed_at"`
+	RuntimeStatus          WaSessionRuntimeStatus            `db:"runtime_status" json:"runtime_status"`
+	RuntimeFailureReason   NullWaSessionRuntimeFailureReason `db:"runtime_failure_reason" json:"runtime_failure_reason"`
+	RuntimeStatusChangedAt int64                             `db:"runtime_status_changed_at" json:"runtime_status_changed_at"`
+	GatewayConnected       bool                              `db:"gateway_connected" json:"gateway_connected"`
+}
+
+func (q *Queries) GetSessionByJID(ctx context.Context, arg GetSessionByJIDParams) (GetSessionByJIDRow, error) {
 	row := q.db.QueryRowContext(ctx, getSessionByJID, arg.WaJid)
-	var i WaSession
+	var i GetSessionByJIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrganizationID,
 		&i.CreatedByUserID,
 		&i.GatewayID,
 		&i.Label,
-		&i.Status,
+		&i.DesiredState,
+		&i.StartGeneration,
 		&i.WaJid,
 		&i.WaLid,
 		&i.PhoneNumber,
@@ -233,35 +307,73 @@ func (q *Queries) GetSessionByJID(ctx context.Context, arg GetSessionByJIDParams
 		&i.HistorySyncDays,
 		&i.DataAccountJid,
 		&i.AccountChangedAt,
+		&i.RuntimeStatus,
+		&i.RuntimeFailureReason,
+		&i.RuntimeStatusChangedAt,
+		&i.GatewayConnected,
 	)
 	return i, err
 }
 
 const listAllSessions = `-- name: ListAllSessions :many
-SELECT id, organization_id, created_by_user_id, gateway_id, label, status,
-	wa_jid, wa_lid, phone_number, is_admin_session, auto_read, presence_typing,
-	rate_per_min, rate_per_hour, last_connected_at, created_at, updated_at,
-	history_sync_days, data_account_jid, account_changed_at
-FROM wa_sessions
-ORDER BY created_at DESC
+SELECT s.id, s.organization_id, s.created_by_user_id, s.gateway_id, s.label, s.desired_state,
+	s.start_generation, s.wa_jid, s.wa_lid, s.phone_number, s.is_admin_session, s.auto_read,
+	s.presence_typing, s.rate_per_min, s.rate_per_hour, s.last_connected_at, s.created_at,
+	s.updated_at, s.history_sync_days, s.data_account_jid, s.account_changed_at,
+	r.status AS runtime_status, r.failure_reason AS runtime_failure_reason,
+	r.status_changed_at AS runtime_status_changed_at,
+	(g.connected_at IS NOT NULL) AS gateway_connected
+FROM wa_sessions AS s
+JOIN wa_session_runtime AS r ON r.session_id = s.id
+LEFT JOIN gateways AS g ON g.id = s.gateway_id AND g.deleted_at IS NULL
+ORDER BY s.created_at DESC
 `
 
-func (q *Queries) ListAllSessions(ctx context.Context) ([]WaSession, error) {
+type ListAllSessionsRow struct {
+	ID                     string                            `db:"id" json:"id"`
+	OrganizationID         string                            `db:"organization_id" json:"organization_id"`
+	CreatedByUserID        sql.NullString                    `db:"created_by_user_id" json:"created_by_user_id"`
+	GatewayID              string                            `db:"gateway_id" json:"gateway_id"`
+	Label                  sql.NullString                    `db:"label" json:"label"`
+	DesiredState           WaSessionsDesiredState            `db:"desired_state" json:"desired_state"`
+	StartGeneration        uint64                            `db:"start_generation" json:"start_generation"`
+	WaJid                  sql.NullString                    `db:"wa_jid" json:"wa_jid"`
+	WaLid                  sql.NullString                    `db:"wa_lid" json:"wa_lid"`
+	PhoneNumber            sql.NullString                    `db:"phone_number" json:"phone_number"`
+	IsAdminSession         bool                              `db:"is_admin_session" json:"is_admin_session"`
+	AutoRead               bool                              `db:"auto_read" json:"auto_read"`
+	PresenceTyping         bool                              `db:"presence_typing" json:"presence_typing"`
+	RatePerMin             int32                             `db:"rate_per_min" json:"rate_per_min"`
+	RatePerHour            int32                             `db:"rate_per_hour" json:"rate_per_hour"`
+	LastConnectedAt        sql.NullInt64                     `db:"last_connected_at" json:"last_connected_at"`
+	CreatedAt              int64                             `db:"created_at" json:"created_at"`
+	UpdatedAt              int64                             `db:"updated_at" json:"updated_at"`
+	HistorySyncDays        uint16                            `db:"history_sync_days" json:"history_sync_days"`
+	DataAccountJid         sql.NullString                    `db:"data_account_jid" json:"data_account_jid"`
+	AccountChangedAt       sql.NullInt64                     `db:"account_changed_at" json:"account_changed_at"`
+	RuntimeStatus          WaSessionRuntimeStatus            `db:"runtime_status" json:"runtime_status"`
+	RuntimeFailureReason   NullWaSessionRuntimeFailureReason `db:"runtime_failure_reason" json:"runtime_failure_reason"`
+	RuntimeStatusChangedAt int64                             `db:"runtime_status_changed_at" json:"runtime_status_changed_at"`
+	GatewayConnected       bool                              `db:"gateway_connected" json:"gateway_connected"`
+}
+
+func (q *Queries) ListAllSessions(ctx context.Context) ([]ListAllSessionsRow, error) {
 	rows, err := q.db.QueryContext(ctx, listAllSessions)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []WaSession{}
+	items := []ListAllSessionsRow{}
 	for rows.Next() {
-		var i WaSession
+		var i ListAllSessionsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.OrganizationID,
 			&i.CreatedByUserID,
 			&i.GatewayID,
 			&i.Label,
-			&i.Status,
+			&i.DesiredState,
+			&i.StartGeneration,
 			&i.WaJid,
 			&i.WaLid,
 			&i.PhoneNumber,
@@ -276,6 +388,10 @@ func (q *Queries) ListAllSessions(ctx context.Context) ([]WaSession, error) {
 			&i.HistorySyncDays,
 			&i.DataAccountJid,
 			&i.AccountChangedAt,
+			&i.RuntimeStatus,
+			&i.RuntimeFailureReason,
+			&i.RuntimeStatusChangedAt,
+			&i.GatewayConnected,
 		); err != nil {
 			return nil, err
 		}
@@ -291,35 +407,69 @@ func (q *Queries) ListAllSessions(ctx context.Context) ([]WaSession, error) {
 }
 
 const listSessionsByGateway = `-- name: ListSessionsByGateway :many
-SELECT id, organization_id, created_by_user_id, gateway_id, label, status,
-	wa_jid, wa_lid, phone_number, is_admin_session, auto_read, presence_typing,
-	rate_per_min, rate_per_hour, last_connected_at, created_at, updated_at,
-	history_sync_days, data_account_jid, account_changed_at
-FROM wa_sessions
-WHERE gateway_id = ?
-ORDER BY created_at ASC
+SELECT s.id, s.organization_id, s.created_by_user_id, s.gateway_id, s.label, s.desired_state,
+	s.start_generation, s.wa_jid, s.wa_lid, s.phone_number, s.is_admin_session, s.auto_read,
+	s.presence_typing, s.rate_per_min, s.rate_per_hour, s.last_connected_at, s.created_at,
+	s.updated_at, s.history_sync_days, s.data_account_jid, s.account_changed_at,
+	r.status AS runtime_status, r.failure_reason AS runtime_failure_reason,
+	r.status_changed_at AS runtime_status_changed_at,
+	(g.connected_at IS NOT NULL) AS gateway_connected
+FROM wa_sessions AS s
+JOIN wa_session_runtime AS r ON r.session_id = s.id
+LEFT JOIN gateways AS g ON g.id = s.gateway_id AND g.deleted_at IS NULL
+WHERE s.gateway_id = ?
+ORDER BY s.created_at ASC
 `
 
 type ListSessionsByGatewayParams struct {
 	GatewayID string `db:"gateway_id" json:"gateway_id"`
 }
 
-func (q *Queries) ListSessionsByGateway(ctx context.Context, arg ListSessionsByGatewayParams) ([]WaSession, error) {
+type ListSessionsByGatewayRow struct {
+	ID                     string                            `db:"id" json:"id"`
+	OrganizationID         string                            `db:"organization_id" json:"organization_id"`
+	CreatedByUserID        sql.NullString                    `db:"created_by_user_id" json:"created_by_user_id"`
+	GatewayID              string                            `db:"gateway_id" json:"gateway_id"`
+	Label                  sql.NullString                    `db:"label" json:"label"`
+	DesiredState           WaSessionsDesiredState            `db:"desired_state" json:"desired_state"`
+	StartGeneration        uint64                            `db:"start_generation" json:"start_generation"`
+	WaJid                  sql.NullString                    `db:"wa_jid" json:"wa_jid"`
+	WaLid                  sql.NullString                    `db:"wa_lid" json:"wa_lid"`
+	PhoneNumber            sql.NullString                    `db:"phone_number" json:"phone_number"`
+	IsAdminSession         bool                              `db:"is_admin_session" json:"is_admin_session"`
+	AutoRead               bool                              `db:"auto_read" json:"auto_read"`
+	PresenceTyping         bool                              `db:"presence_typing" json:"presence_typing"`
+	RatePerMin             int32                             `db:"rate_per_min" json:"rate_per_min"`
+	RatePerHour            int32                             `db:"rate_per_hour" json:"rate_per_hour"`
+	LastConnectedAt        sql.NullInt64                     `db:"last_connected_at" json:"last_connected_at"`
+	CreatedAt              int64                             `db:"created_at" json:"created_at"`
+	UpdatedAt              int64                             `db:"updated_at" json:"updated_at"`
+	HistorySyncDays        uint16                            `db:"history_sync_days" json:"history_sync_days"`
+	DataAccountJid         sql.NullString                    `db:"data_account_jid" json:"data_account_jid"`
+	AccountChangedAt       sql.NullInt64                     `db:"account_changed_at" json:"account_changed_at"`
+	RuntimeStatus          WaSessionRuntimeStatus            `db:"runtime_status" json:"runtime_status"`
+	RuntimeFailureReason   NullWaSessionRuntimeFailureReason `db:"runtime_failure_reason" json:"runtime_failure_reason"`
+	RuntimeStatusChangedAt int64                             `db:"runtime_status_changed_at" json:"runtime_status_changed_at"`
+	GatewayConnected       bool                              `db:"gateway_connected" json:"gateway_connected"`
+}
+
+func (q *Queries) ListSessionsByGateway(ctx context.Context, arg ListSessionsByGatewayParams) ([]ListSessionsByGatewayRow, error) {
 	rows, err := q.db.QueryContext(ctx, listSessionsByGateway, arg.GatewayID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []WaSession{}
+	items := []ListSessionsByGatewayRow{}
 	for rows.Next() {
-		var i WaSession
+		var i ListSessionsByGatewayRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.OrganizationID,
 			&i.CreatedByUserID,
 			&i.GatewayID,
 			&i.Label,
-			&i.Status,
+			&i.DesiredState,
+			&i.StartGeneration,
 			&i.WaJid,
 			&i.WaLid,
 			&i.PhoneNumber,
@@ -334,6 +484,10 @@ func (q *Queries) ListSessionsByGateway(ctx context.Context, arg ListSessionsByG
 			&i.HistorySyncDays,
 			&i.DataAccountJid,
 			&i.AccountChangedAt,
+			&i.RuntimeStatus,
+			&i.RuntimeFailureReason,
+			&i.RuntimeStatusChangedAt,
+			&i.GatewayConnected,
 		); err != nil {
 			return nil, err
 		}
@@ -349,35 +503,69 @@ func (q *Queries) ListSessionsByGateway(ctx context.Context, arg ListSessionsByG
 }
 
 const listSessionsByOrg = `-- name: ListSessionsByOrg :many
-SELECT id, organization_id, created_by_user_id, gateway_id, label, status,
-	wa_jid, wa_lid, phone_number, is_admin_session, auto_read, presence_typing,
-	rate_per_min, rate_per_hour, last_connected_at, created_at, updated_at,
-	history_sync_days, data_account_jid, account_changed_at
-FROM wa_sessions
-WHERE organization_id = ?
-ORDER BY created_at DESC
+SELECT s.id, s.organization_id, s.created_by_user_id, s.gateway_id, s.label, s.desired_state,
+	s.start_generation, s.wa_jid, s.wa_lid, s.phone_number, s.is_admin_session, s.auto_read,
+	s.presence_typing, s.rate_per_min, s.rate_per_hour, s.last_connected_at, s.created_at,
+	s.updated_at, s.history_sync_days, s.data_account_jid, s.account_changed_at,
+	r.status AS runtime_status, r.failure_reason AS runtime_failure_reason,
+	r.status_changed_at AS runtime_status_changed_at,
+	(g.connected_at IS NOT NULL) AS gateway_connected
+FROM wa_sessions AS s
+JOIN wa_session_runtime AS r ON r.session_id = s.id
+LEFT JOIN gateways AS g ON g.id = s.gateway_id AND g.deleted_at IS NULL
+WHERE s.organization_id = ?
+ORDER BY s.created_at DESC
 `
 
 type ListSessionsByOrgParams struct {
 	OrganizationID string `db:"organization_id" json:"organization_id"`
 }
 
-func (q *Queries) ListSessionsByOrg(ctx context.Context, arg ListSessionsByOrgParams) ([]WaSession, error) {
+type ListSessionsByOrgRow struct {
+	ID                     string                            `db:"id" json:"id"`
+	OrganizationID         string                            `db:"organization_id" json:"organization_id"`
+	CreatedByUserID        sql.NullString                    `db:"created_by_user_id" json:"created_by_user_id"`
+	GatewayID              string                            `db:"gateway_id" json:"gateway_id"`
+	Label                  sql.NullString                    `db:"label" json:"label"`
+	DesiredState           WaSessionsDesiredState            `db:"desired_state" json:"desired_state"`
+	StartGeneration        uint64                            `db:"start_generation" json:"start_generation"`
+	WaJid                  sql.NullString                    `db:"wa_jid" json:"wa_jid"`
+	WaLid                  sql.NullString                    `db:"wa_lid" json:"wa_lid"`
+	PhoneNumber            sql.NullString                    `db:"phone_number" json:"phone_number"`
+	IsAdminSession         bool                              `db:"is_admin_session" json:"is_admin_session"`
+	AutoRead               bool                              `db:"auto_read" json:"auto_read"`
+	PresenceTyping         bool                              `db:"presence_typing" json:"presence_typing"`
+	RatePerMin             int32                             `db:"rate_per_min" json:"rate_per_min"`
+	RatePerHour            int32                             `db:"rate_per_hour" json:"rate_per_hour"`
+	LastConnectedAt        sql.NullInt64                     `db:"last_connected_at" json:"last_connected_at"`
+	CreatedAt              int64                             `db:"created_at" json:"created_at"`
+	UpdatedAt              int64                             `db:"updated_at" json:"updated_at"`
+	HistorySyncDays        uint16                            `db:"history_sync_days" json:"history_sync_days"`
+	DataAccountJid         sql.NullString                    `db:"data_account_jid" json:"data_account_jid"`
+	AccountChangedAt       sql.NullInt64                     `db:"account_changed_at" json:"account_changed_at"`
+	RuntimeStatus          WaSessionRuntimeStatus            `db:"runtime_status" json:"runtime_status"`
+	RuntimeFailureReason   NullWaSessionRuntimeFailureReason `db:"runtime_failure_reason" json:"runtime_failure_reason"`
+	RuntimeStatusChangedAt int64                             `db:"runtime_status_changed_at" json:"runtime_status_changed_at"`
+	GatewayConnected       bool                              `db:"gateway_connected" json:"gateway_connected"`
+}
+
+func (q *Queries) ListSessionsByOrg(ctx context.Context, arg ListSessionsByOrgParams) ([]ListSessionsByOrgRow, error) {
 	rows, err := q.db.QueryContext(ctx, listSessionsByOrg, arg.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []WaSession{}
+	items := []ListSessionsByOrgRow{}
 	for rows.Next() {
-		var i WaSession
+		var i ListSessionsByOrgRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.OrganizationID,
 			&i.CreatedByUserID,
 			&i.GatewayID,
 			&i.Label,
-			&i.Status,
+			&i.DesiredState,
+			&i.StartGeneration,
 			&i.WaJid,
 			&i.WaLid,
 			&i.PhoneNumber,
@@ -392,6 +580,10 @@ func (q *Queries) ListSessionsByOrg(ctx context.Context, arg ListSessionsByOrgPa
 			&i.HistorySyncDays,
 			&i.DataAccountJid,
 			&i.AccountChangedAt,
+			&i.RuntimeStatus,
+			&i.RuntimeFailureReason,
+			&i.RuntimeStatusChangedAt,
+			&i.GatewayConnected,
 		); err != nil {
 			return nil, err
 		}
@@ -404,68 +596,4 @@ func (q *Queries) ListSessionsByOrg(ctx context.Context, arg ListSessionsByOrgPa
 		return nil, err
 	}
 	return items, nil
-}
-
-const updateSession = `-- name: UpdateSession :execrows
-UPDATE wa_sessions SET
-	label = ?, status = ?, wa_jid = ?, wa_lid = ?, phone_number = ?, auto_read = ?,
-	presence_typing = ?, rate_per_min = ?, rate_per_hour = ?, last_connected_at = ?,
-	updated_at = ?
-WHERE id = ?
-`
-
-type UpdateSessionParams struct {
-	Label           sql.NullString   `db:"label" json:"label"`
-	Status          WaSessionsStatus `db:"status" json:"status"`
-	WaJid           sql.NullString   `db:"wa_jid" json:"wa_jid"`
-	WaLid           sql.NullString   `db:"wa_lid" json:"wa_lid"`
-	PhoneNumber     sql.NullString   `db:"phone_number" json:"phone_number"`
-	AutoRead        bool             `db:"auto_read" json:"auto_read"`
-	PresenceTyping  bool             `db:"presence_typing" json:"presence_typing"`
-	RatePerMin      int32            `db:"rate_per_min" json:"rate_per_min"`
-	RatePerHour     int32            `db:"rate_per_hour" json:"rate_per_hour"`
-	LastConnectedAt sql.NullInt64    `db:"last_connected_at" json:"last_connected_at"`
-	UpdatedAt       int64            `db:"updated_at" json:"updated_at"`
-	ID              string           `db:"id" json:"id"`
-}
-
-func (q *Queries) UpdateSession(ctx context.Context, arg UpdateSessionParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, updateSession,
-		arg.Label,
-		arg.Status,
-		arg.WaJid,
-		arg.WaLid,
-		arg.PhoneNumber,
-		arg.AutoRead,
-		arg.PresenceTyping,
-		arg.RatePerMin,
-		arg.RatePerHour,
-		arg.LastConnectedAt,
-		arg.UpdatedAt,
-		arg.ID,
-	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
-const updateSessionStatus = `-- name: UpdateSessionStatus :execrows
-UPDATE wa_sessions
-SET status = ?, updated_at = ?
-WHERE id = ?
-`
-
-type UpdateSessionStatusParams struct {
-	Status    WaSessionsStatus `db:"status" json:"status"`
-	UpdatedAt int64            `db:"updated_at" json:"updated_at"`
-	ID        string           `db:"id" json:"id"`
-}
-
-func (q *Queries) UpdateSessionStatus(ctx context.Context, arg UpdateSessionStatusParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, updateSessionStatus, arg.Status, arg.UpdatedAt, arg.ID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
 }

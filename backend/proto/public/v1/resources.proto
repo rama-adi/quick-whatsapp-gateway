@@ -17,6 +17,8 @@ enum SessionStatus {
   SESSION_STATUS_FAILED = 4;
   SESSION_STATUS_STOPPED = 5;
   SESSION_STATUS_LOGGED_OUT = 6;
+  SESSION_STATUS_RECONNECTING = 7;
+  SESSION_STATUS_UNAVAILABLE = 8;
 }
 
 // MessageDirection mirrors messages.direction.
@@ -68,6 +70,12 @@ message Session {
   int64 updated_at_unix_ms = 17;
   // Days of chat history imported when the device is (re)linked; 0 = off.
   int32 history_sync_days = 18;
+  // Why the session failed; set only when status is FAILED.
+  optional string failure_reason = 19;
+  // What was asked of the session: "run" or "stop".
+  string desired_state = 20;
+  // When the gateway observed the current status.
+  int64 status_changed_at_unix_ms = 21;
 }
 
 // Me is the attached WhatsApp identity of a paired session
@@ -82,9 +90,12 @@ message Me {
 }
 
 // QR is a pairing QR snapshot (GET /sessions/{id}/qr equivalent).
+// QrCode is the pairing QR snapshot. state is "ready" with a code, or
+// "pending" while the pairing waits for its first code (code is empty).
 message QrCode {
   string code = 1;
   optional int64 expires_at_unix_ms = 2;
+  string state = 3;
 }
 
 // SendResult is the outcome of an outbound send or message operation. mode is

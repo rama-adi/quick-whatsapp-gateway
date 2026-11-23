@@ -536,7 +536,7 @@ export interface paths {
          * Create a session
          * @description Create a new session record for the caller's organization.
          *
-         *     Behavior: session starts **unpaired**. Set `start` to true to begin pairing immediately; pairing then proceeds asynchronously.
+         *     Behavior: session starts **unpaired** with status `stopped`. Set `start` to true to ask for pairing right away (`desiredState: run`); the gateway begins QR pairing within a few seconds, asynchronously.
          *
          *     Requires `manage` capability. Unknown or invalid request data returns `validation_error` (400). Auth errors are `unauthorized` (401) and `forbidden` (403).
          *
@@ -1580,6 +1580,8 @@ export interface paths {
          *
          *     Pass `phone` in E.164 digits (no plus sign). The returned code is short-lived and must be used from the phone.
          *
+         *     Requesting a code asks for the session to run (`desiredState: run`): a session that is not pairing yet starts pairing first, and the code is requested on that pairing connection.
+         *
          *     Requires `manage` capability; session must be unpaired.
          *
          *     Errors: `validation_error` (400), `not_found` (404), `unauthorized` (401), `forbidden` (403).
@@ -1680,13 +1682,16 @@ export interface paths {
         };
         /**
          * Get the current pairing QR code
-         * @description Return the current pairing QR code for the session.
+         * @description Read the session's current pairing QR code. This only reads; it never starts pairing (use `:start` or create with `start: true`).
          *
-         *     If a code is not ready yet, pairing starts and the route returns `not_found` (404) until one is available.
+         *     - `state: ready` with `code` (and `expiresAt`) while a code exists.
+         *     - `state: pending` while the session is pairing but WhatsApp has not sent a code yet; poll again or wait for the `auth.qr` event.
+         *     - `409 conflict` when the session is not pairing: already paired, not started (`desiredState: stop`), logged out, or its pairing failed. A failed pairing carries `details.failureReason` (for example `qr_timeout`); start the session again for new codes.
+         *     - `503 gateway_unavailable` when the session's gateway is not connected.
          *
-         *     Requires `manage` capability. Response body is raw QR string.
+         *     Requires `manage` capability.
          *
-         *     Errors: `not_found` (404), `unauthorized` (401), `forbidden` (403).
+         *     Errors: `not_found` (404), `conflict` (409), `gateway_unavailable` (503), `unauthorized` (401), `forbidden` (403).
          */
         get: operations["sessionQR"];
         put?: never;
@@ -1754,13 +1759,15 @@ export interface paths {
         put?: never;
         /**
          * Log out a session (unpair the device)
-         * @description Unlink the device and clear the attached WhatsApp number.
+         * @description Unlink the device on WhatsApp and clear the attached WhatsApp number; the session's desired state becomes `stop`.
+         *
+         *     Unlinking is a request to WhatsApp: a stopped session is connected for the duration of the call. When WhatsApp does not confirm the unlink, the call fails and the device stays linked, so you can retry.
          *
          *     To delete session metadata, call `DELETE /sessions/{session}`.
          *
-         *     Response is refreshed session row; repeated calls are idempotent when already logged out.
+         *     Response is the session row; repeated calls are idempotent when already logged out.
          *
-         *     Errors: `not_found` (404), `unauthorized` (401), `forbidden` (403).
+         *     Errors: `not_found` (404), `gateway_unavailable` (503), `unauthorized` (401), `forbidden` (403).
          */
         post: operations["logoutSession"];
         delete?: never;
@@ -1780,9 +1787,9 @@ export interface paths {
         put?: never;
         /**
          * Restart a session
-         * @description Restart a session by performing stop then start. A paired session keeps its attachment and reconnects; an unpaired session begins a fresh QR pairing flow.
+         * @description Ask for a fresh run: the gateway ends the current connection (if any) and starts again. A paired session keeps its attachment and reconnects; an unpaired session begins a fresh QR pairing flow.
          *
-         *     Use this for transient failed/reconnecting states or to reset an in-progress QR flow. The action is idempotent.
+         *     Use this to retry a `failed` session or to reset an in-progress QR flow. Each call starts a new run.
          *
          *     Errors: `not_found` (404), `unauthorized` (401), `forbidden` (403).
          */
@@ -1804,13 +1811,15 @@ export interface paths {
         put?: never;
         /**
          * Start a session
-         * @description Start the session. A paired session connects to WhatsApp; an unpaired or logged-out session begins QR pairing.
+         * @description Ask for the session to run (`desiredState: run`). A paired session connects to WhatsApp; an unpaired or logged-out session begins QR pairing.
+         *
+         *     A session that is already starting, pairing, working or reconnecting is left as it is. A session whose last run ended (`failed`, `logged_out`, `stopped`) starts again: a failed session is retried only after an explicit start or restart, never on its own.
+         *
+         *     The request is recorded before the gateway is told, so it succeeds even when the gateway is briefly unreachable; the gateway applies it within a few seconds of coming back. Watch `status`, or the `session.status` event.
          *
          *     To use a phone pairing code instead, request the code directly without calling `:start` first.
          *
-         *     The session must be owned by your organization.
-         *
-         *     Returns updated session row. Calling start repeatedly is idempotent.
+         *     Returns the session row. Calling start repeatedly is idempotent.
          *
          *     Errors: `not_found` (404), `unauthorized` (401), `forbidden` (403).
          */
@@ -1832,11 +1841,11 @@ export interface paths {
         put?: never;
         /**
          * Stop a session
-         * @description Disconnect a paired session from WhatsApp while keeping device pairing in place.
+         * @description Ask for the session to stop (`desiredState: stop`): its gateway disconnects it from WhatsApp (or ends a running pairing) while keeping device pairing in place. A session that already ended with `failed` or `logged_out` keeps that status.
          *
          *     Use `:logout` to fully unlink the device and clear attachment.
          *
-         *     Response is the refreshed session row. Repeating stop is safe and idempotent.
+         *     Response is the session row. Repeating stop is safe and idempotent.
          *
          *     Errors: `not_found` (404), `unauthorized` (401), `forbidden` (403).
          */
@@ -2705,7 +2714,7 @@ export interface components {
              */
             presenceTyping?: boolean;
             /**
-             * @description If true, begin QR pairing immediately. If false, create the session in stopped/unpaired state and pair later.
+             * @description If true, the session is created with desiredState run and its gateway begins QR pairing within a few seconds (watch status move to scan_qr_code, or the auth.qr event). If false, it is created with desiredState stop and pairs later.
              * @example true
              */
             start?: boolean;
@@ -3881,9 +3890,18 @@ export interface components {
         };
         Me: {
             connected: boolean;
+            /**
+             * @description Why the session failed; present only when status is failed.
+             * @enum {string}
+             */
+            failureReason?: "passkey_failed" | "qr_timeout" | "pairing_error" | "client_outdated" | "stream_replaced" | "temporary_ban" | "connect_rejected" | "connect_error";
             phoneNumber?: string;
             sessionId: string;
-            status: string;
+            /**
+             * @description The session's live status on its gateway.
+             * @enum {string}
+             */
+            status: "starting" | "scan_qr_code" | "working" | "reconnecting" | "failed" | "stopped" | "logged_out";
             waJid?: string;
             waLid?: string;
         };
@@ -5211,9 +5229,23 @@ export interface components {
             url?: string;
         };
         QR: {
-            code: string;
-            /** Format: int64 */
+            /**
+             * @description The QR code content to render as a QR image. Present only when state is ready.
+             * @example 2@abc123...
+             */
+            code?: string;
+            /**
+             * Format: int64
+             * @description When the code stops being valid, in epoch milliseconds (UTC). Present only when state is ready and the expiry is known.
+             * @example 1719662460000
+             */
             expiresAt?: number;
+            /**
+             * @description ready: code holds the current QR code. pending: the session is pairing but WhatsApp has not sent a code yet (the gateway may still be connecting); poll again or wait for the auth.qr event.
+             * @example ready
+             * @enum {string}
+             */
+            state: "pending" | "ready";
         };
         ReactionInputBody: {
             /**
@@ -5436,17 +5468,34 @@ export interface components {
         };
         SessionStatusPayload: {
             /**
-             * @description Why the session failed. Present only when status is failed. passkey_failed = WhatsApp asked for the account passkey while linking and the verification failed or was not finished in time; qr_timeout = every QR code expired before a scan; pairing_error = WhatsApp rejected the linking handshake; client_outdated = WhatsApp rejected the gateway's client version (the operator must upgrade); stream_replaced = another client took over this device; temporary_ban = WhatsApp temporarily banned the account; connect_rejected = WhatsApp refused the connection; connect_error = the gateway could not reach WhatsApp.
+             * Format: int64
+             * @description Present when status is reconnecting: how many reconnection attempts have failed so far.
+             * @example 3
+             */
+            attempt?: number;
+            /**
+             * @description Why the session failed. Present only when status is failed. passkey_failed = WhatsApp asked for the account passkey while linking and the verification failed or was not finished in time; qr_timeout = every QR code expired before a scan; pairing_error = WhatsApp rejected the linking handshake; client_outdated = WhatsApp rejected the gateway's client version (the operator must upgrade); stream_replaced = another client took over this device; temporary_ban = WhatsApp temporarily banned the account; connect_rejected = WhatsApp refused the connection; connect_error = the gateway could not reach WhatsApp after repeated attempts.
              * @example passkey_failed
              * @enum {string}
              */
             failureReason?: "passkey_failed" | "qr_timeout" | "pairing_error" | "client_outdated" | "stream_replaced" | "temporary_ban" | "connect_rejected" | "connect_error";
             /**
-             * @description New session status. One of: starting (connecting), scan_qr_code (waiting for a QR scan or pairing code), working (connected and ready to send/receive), failed (the gateway stopped trying; see failureReason), stopped (intentionally stopped), logged_out (the WhatsApp account unlinked the device — must re-pair).
+             * @description Present when status is reconnecting: the last connection error the gateway saw.
+             * @example dial tcp: i/o timeout
+             */
+            lastError?: string;
+            /**
+             * @description New session status. One of: starting (connecting), scan_qr_code (waiting for a QR scan or pairing code), working (connected and ready to send/receive), reconnecting (the connection dropped and is still down after a short grace period; the gateway retries with backoff — drops that recover within the grace period are not reported), failed (the gateway stopped trying; see failureReason), stopped (stopped on request), logged_out (the WhatsApp account unlinked the device — must re-pair).
              * @example working
              * @enum {string}
              */
-            status: "starting" | "scan_qr_code" | "working" | "failed" | "stopped" | "logged_out";
+            status: "starting" | "scan_qr_code" | "working" | "reconnecting" | "failed" | "stopped" | "logged_out";
+            /**
+             * Format: int64
+             * @description Orders the status events of one session: a status with a higher statusSeq is newer. Events can arrive out of order or be repeated; keep the status with the highest statusSeq. Below 2^53, so JavaScript reads it exactly.
+             * @example 1719662400000000
+             */
+            statusSeq?: number;
         };
         SetPresenceInputBody: {
             /**
@@ -5564,6 +5613,18 @@ export interface components {
              */
             createdByUserId?: string;
             /**
+             * @description What was asked of the session: run (by create with start, :start, :restart or a pairing-code request) or stop (by :stop or :logout). The gateway converges status toward it; a session that failed stays failed until it is started or restarted again.
+             * @example run
+             * @enum {string}
+             */
+            desiredState: "run" | "stop";
+            /**
+             * @description Why the session failed. Present only when status is failed and the gateway reported a reason. passkey_failed = WhatsApp asked for the account passkey while linking and the verification failed or was not finished in time; qr_timeout = every QR code expired before a scan; pairing_error = WhatsApp rejected the linking handshake; client_outdated = WhatsApp rejected the gateway's client version (the operator must upgrade); stream_replaced = another client took over this device; temporary_ban = WhatsApp temporarily banned the account; connect_rejected = WhatsApp refused the connection; connect_error = the gateway could not reach WhatsApp.
+             * @example qr_timeout
+             * @enum {string}
+             */
+            failureReason?: "passkey_failed" | "qr_timeout" | "pairing_error" | "client_outdated" | "stream_replaced" | "temporary_ban" | "connect_rejected" | "connect_error";
+            /**
              * @description Id of the gateway that holds this session's WhatsApp keystore and live connection. The session is pinned here; a dashboard uses it (and the embedded gateway object on responses that include it) to show where the session runs.
              * @example gw-sg-1
              */
@@ -5623,11 +5684,17 @@ export interface components {
              */
             ratePerMin: number;
             /**
-             * @description Where the session is in its lifecycle. **starting** = connecting (also used after a transient disconnect, since the gateway auto-reconnects); **scan_qr_code** = waiting for the pairing QR code to be scanned (fetch it via the QR endpoint); **working** = connected and usable for sending/receiving; **failed** = the connection broke (e.g. the number was linked to another device); **stopped** = deliberately stopped by an operator; **logged_out** = unpaired on the phone, requires a fresh QR scan to recover. Typical pairing path: starting → scan_qr_code → working.
+             * @description What the session's gateway last observed. **starting** = connecting; **scan_qr_code** = waiting for the pairing QR code or phone code (fetch the code via the QR endpoint); **working** = connected and usable for sending/receiving; **reconnecting** = the connection dropped and is still down after a short grace period, the gateway retries with backoff; **failed** = the gateway stopped trying, see failureReason (it retries only after a new start or restart); **stopped** = not running; **logged_out** = unlinked on the phone, requires pairing again; **unavailable** = the session should be live but its gateway is not connected, so its real state is unknown. Typical pairing path: starting → scan_qr_code → starting → working. Compare with desiredState: desiredState run with status stopped means the gateway has not started the session yet.
              * @example working
              * @enum {string}
              */
-            status: "starting" | "scan_qr_code" | "working" | "failed" | "stopped" | "logged_out";
+            status: "starting" | "scan_qr_code" | "working" | "reconnecting" | "failed" | "stopped" | "logged_out" | "unavailable";
+            /**
+             * Format: int64
+             * @description When the gateway observed the current status, in epoch milliseconds (UTC).
+             * @example 1719662400000
+             */
+            statusChangedAt: number;
             /**
              * Format: int64
              * @description When the session was last updated, in epoch milliseconds (UTC).

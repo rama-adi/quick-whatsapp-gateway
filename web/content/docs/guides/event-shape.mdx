@@ -136,13 +136,16 @@ optional or nullable.
 
 <Accordion title="session.status — connection state changed" id="sessionstatus">
 
-`payload.status` is one of six values. Pick a tab to see each.
+`payload.status` is one of seven values. Pick a tab to see each.
 
-<Tabs items={["starting", "scan_qr_code", "working", "failed", "stopped", "logged_out"]}>
+Events can arrive late, twice, or out of order. Every event carries `statusSeq`: keep the
+status with the highest `statusSeq` for each session and ignore older ones.
+
+<Tabs items={["starting", "scan_qr_code", "working", "reconnecting", "failed", "stopped", "logged_out"]}>
 
 <Tab value="starting">
 
-The session is connecting (or reconnecting after a transient disconnect).
+The session is connecting.
 
 ```json
 {
@@ -153,7 +156,8 @@ The session is connecting (or reconnecting after a transient disconnect).
   "organization": "org_abc",
   "timestamp": 1719400000000,
   "payload": {
-    "status": "starting"
+    "status": "starting",
+    "statusSeq": 1719400000000000
   }
 }
 ```
@@ -174,7 +178,8 @@ carries the actual code to render.
   "organization": "org_abc",
   "timestamp": 1719400001000,
   "payload": {
-    "status": "scan_qr_code"
+    "status": "scan_qr_code",
+    "statusSeq": 1719400001000000
   }
 }
 ```
@@ -194,7 +199,33 @@ The session is connected and authenticated — ready to send and receive.
   "organization": "org_abc",
   "timestamp": 1719400002000,
   "payload": {
-    "status": "working"
+    "status": "working",
+    "statusSeq": 1719400002000000
+  }
+}
+```
+
+</Tab>
+
+<Tab value="reconnecting">
+
+The connection dropped and is still down after a short grace period (10 seconds); the gateway
+keeps retrying with backoff. Drops that recover within the grace period are not reported.
+`attempt` counts the failed attempts so far and `lastError` is the last connection error.
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9RECONNECTING000000001",
+  "event": "session.status",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400002500,
+  "payload": {
+    "status": "reconnecting",
+    "statusSeq": 1719400002500000,
+    "attempt": 2,
+    "lastError": "dial tcp: i/o timeout"
   }
 }
 ```
@@ -203,7 +234,9 @@ The session is connected and authenticated — ready to send and receive.
 
 <Tab value="failed">
 
-The session failed — e.g. the stream was replaced by a newer connection elsewhere.
+The gateway stopped trying. `failureReason` says why, for example `stream_replaced` (another
+client took over the device) or `qr_timeout` (no one scanned the QR codes). The session stays
+failed until it is started or restarted again.
 
 ```json
 {
@@ -214,7 +247,9 @@ The session failed — e.g. the stream was replaced by a newer connection elsewh
   "organization": "org_abc",
   "timestamp": 1719400003000,
   "payload": {
-    "status": "failed"
+    "status": "failed",
+    "failureReason": "stream_replaced",
+    "statusSeq": 1719400003000000
   }
 }
 ```
@@ -234,7 +269,8 @@ The session was stopped (e.g. via `:stop`). It will not reconnect until started 
   "organization": "org_abc",
   "timestamp": 1719400004000,
   "payload": {
-    "status": "stopped"
+    "status": "stopped",
+    "statusSeq": 1719400004000000
   }
 }
 ```
@@ -255,7 +291,8 @@ a fresh QR/pairing.
   "organization": "org_abc",
   "timestamp": 1719400005000,
   "payload": {
-    "status": "logged_out"
+    "status": "logged_out",
+    "statusSeq": 1719400005000000
   }
 }
 ```
@@ -266,7 +303,11 @@ a fresh QR/pairing.
 
 **Fields**
 
-- `status` (string, required) — one of `starting`, `scan_qr_code`, `working`, `failed`, `stopped`, `logged_out`.
+- `status` (string, required) — one of `starting`, `scan_qr_code`, `working`, `reconnecting`, `failed`, `stopped`, `logged_out`.
+- `statusSeq` (integer) — orders the statuses of one session; a higher value is newer.
+- `failureReason` (string) — only with `failed`: `passkey_failed`, `qr_timeout`, `pairing_error`,
+  `client_outdated`, `stream_replaced`, `temporary_ban`, `connect_rejected` or `connect_error`.
+- `attempt` (integer), `lastError` (string) — only with `reconnecting`.
 
 </Accordion>
 
@@ -706,6 +747,31 @@ A voice note / view-once media was played (ack level 4). Driven by a played rece
     "messageIds": ["3EB0A1B2C3D4E5F6A7BF"],
     "status": "played",
     "timestamp": 1719400019000
+  }
+}
+```
+
+</Tab>
+
+<Tab value="reconnecting">
+
+The connection dropped and is still down after a short grace period (10 seconds); the gateway
+keeps retrying with backoff. Drops that recover within the grace period are not reported.
+`attempt` counts the failed attempts so far and `lastError` is the last connection error.
+
+```json
+{
+  "schema": "v1",
+  "id": "evt_01J9RECONNECTING000000001",
+  "event": "session.status",
+  "session": "sess_01J8ABCDEF0123456789",
+  "organization": "org_abc",
+  "timestamp": 1719400002500,
+  "payload": {
+    "status": "reconnecting",
+    "statusSeq": 1719400002500000,
+    "attempt": 2,
+    "lastError": "dial tcp: i/o timeout"
   }
 }
 ```

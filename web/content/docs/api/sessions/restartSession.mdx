@@ -11,13 +11,13 @@ _openapi:
     headings: []
     contents:
       - content: >-
-          Restart a session by performing stop then start. A paired session
-          keeps its attachment and reconnects; an unpaired session begins a
-          fresh QR pairing flow.
+          Ask for a fresh run: the gateway ends the current connection (if any)
+          and starts again. A paired session keeps its attachment and
+          reconnects; an unpaired session begins a fresh QR pairing flow.
 
 
-          Use this for transient failed/reconnecting states or to reset an
-          in-progress QR flow. The action is idempotent.
+          Use this to retry a `failed` session or to reset an in-progress QR
+          flow. Each call starts a new run.
 
 
           Errors: `not_found` (404), `unauthorized` (401), `forbidden` (403).

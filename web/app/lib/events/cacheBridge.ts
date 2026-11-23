@@ -123,16 +123,23 @@ export function applyEvent(qc: QueryClient, e: EventEnvelope): void {
     case "session.status": {
       const status = str(p.status) as WASession["status"] | undefined;
       if (status && s) {
+        // The row carries failureReason too (set only while failed), so the
+        // event keeps both in step with what GET /sessions/{id} returns.
+        const failureReason =
+          status === "failed"
+            ? (str(p.failureReason) as WASession["failureReason"])
+            : undefined;
         const change = (row: WASession): WASession =>
           status === "logged_out"
             ? {
                 ...row,
                 status,
+                failureReason,
                 waJid: undefined,
                 waLid: undefined,
                 phoneNumber: undefined,
               }
-            : { ...row, status };
+            : { ...row, status, failureReason };
         // Each cached row takes the event only if the event is newer than it.
         const current = eventIsCurrent(cachedSession(qc, s), e.timestamp);
         const apply = (row: WASession): WASession => applySessionEvent(row, e.timestamp, change);
@@ -140,21 +147,14 @@ export function applyEvent(qc: QueryClient, e: EventEnvelope): void {
         patchRow<WASession>(qc, qk.sessions(), (r) => r.id === s, apply);
         patchRow<WASession>(qc, qk.adminSessions(), (r) => r.id === s, apply);
         if (!current) {
-          // Older than what the page shows: leave the artifacts and failure
-          // reason alone, and refetch so REST settles it in case the two
-          // clocks disagree.
+          // Older than what the page shows: leave the pairing artifacts alone,
+          // and refetch so REST settles it in case the two clocks disagree.
           void qc.invalidateQueries({ queryKey: qk.session(s), exact: true });
           break;
         }
         // QR codes, phone pairing codes and passkey steps belong to one pairing
         // attempt; any status other than scan_qr_code ends it.
         if (status !== "scan_qr_code") clearPairingArtifacts(qc, s);
-        const reason = str(p.failureReason);
-        if (status === "failed" && reason) {
-          qc.setQueryData(qk.sessionFailure(s), reason);
-        } else {
-          qc.removeQueries({ queryKey: qk.sessionFailure(s), exact: true });
-        }
         if (status === "working") {
           // PairSuccess persists the JID before Connected emits WORKING. Refresh
           // rows now so the UI switches from pairing controls to the attached
@@ -178,7 +178,9 @@ export function applyEvent(qc: QueryClient, e: EventEnvelope): void {
       if (s && code) {
         // timeoutMs (when sent) is how long this code stays scannable.
         const timeoutMs = typeof p.timeoutMs === "number" && p.timeoutMs > 0 ? p.timeoutMs : undefined;
-        const qr: QRCode = timeoutMs ? { code, expiresAt: e.timestamp + timeoutMs } : { code };
+        const qr: QRCode = timeoutMs
+          ? { state: "ready", code, expiresAt: e.timestamp + timeoutMs }
+          : { state: "ready", code };
         qc.setQueryData(qk.sessionQR(s), qr);
       }
       break;

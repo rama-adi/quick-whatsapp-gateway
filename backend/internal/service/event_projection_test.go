@@ -26,9 +26,7 @@ type fakeProjectionStore struct {
 	insertedPollVotes []ProjectionPollVoteInsert
 	upsertMembers     []ProjectionGroupMemberUpsert
 	attachedPairings  []store.AttachPairingInput
-	clearedSessions   []string
-	clearedAt         []int64
-	sessionStatuses   []domain.SessionStatus
+	observed          []store.ObservedStatus
 	deleteErr         error
 	historyBatches    []store.HistoryBatch
 	historySyncs      []store.HistorySyncUpdate
@@ -36,12 +34,6 @@ type fakeProjectionStore struct {
 
 func (f *fakeProjectionStore) AttachPairing(_ context.Context, in store.AttachPairingInput) error {
 	f.attachedPairings = append(f.attachedPairings, in)
-	return nil
-}
-
-func (f *fakeProjectionStore) ClearPairing(_ context.Context, sessionID string, updatedAt int64) error {
-	f.clearedSessions = append(f.clearedSessions, sessionID)
-	f.clearedAt = append(f.clearedAt, updatedAt)
 	return nil
 }
 
@@ -235,53 +227,45 @@ func TestProjectionPairSuccessWithoutJIDIsNoOp(t *testing.T) {
 	}
 }
 
-// TestProjectionLoggedOutClearsPairing consumes the terminal logged_out status
-// event. The row's WhatsApp identity is cleared so QR/pairing-code preconditions
-// immediately see an unpaired session; other statuses update state without clearing identity.
-func TestProjectionLoggedOutClearsPairing(t *testing.T) {
-	store := &fakeProjectionStore{}
-	consumer := newTestProjectionConsumer(store)
+// TestProjectionSessionStatusCarriesSequence: a session.status event reaches
+// the store with its gateway sequence, failure reason and event time; the
+// store applies it only when newer (store.SessionStateRepo). An event without
+// a sequence comes from a gateway older than the projection and is left to
+// the next desired-state report.
+func TestProjectionSessionStatusCarriesSequence(t *testing.T) {
+	st := &fakeProjectionStore{}
+	consumer := newTestProjectionConsumer(st)
 
-	for _, status := range []string{"working", "starting", "scan_qr_code", "failed", "stopped"} {
-		event := domain.Event{Schema: domain.Schema, ID: "evt_" + status, Type: domain.EventSessionStatus,
-			Session: "sess_1", Organization: "org_1", Timestamp: 1000,
-			Payload: apitypes.SessionStatusPayload{Status: status}}
-		if err := consumer.ConsumeCommittedEvent(context.Background(), event); err != nil {
-			t.Fatalf("%s: %v", status, err)
-		}
+	failed := domain.Event{Schema: domain.Schema, ID: "evt_failed", Type: domain.EventSessionStatus,
+		Session: "sess_1", Organization: "org_1", Timestamp: 1000,
+		Payload: apitypes.SessionStatusPayload{Status: "failed", FailureReason: "qr_timeout", StatusSeq: 42}}
+	if err := consumer.ConsumeCommittedEvent(context.Background(), failed); err != nil {
+		t.Fatal(err)
 	}
-	if len(store.sessionStatuses) != 5 {
-		t.Fatalf("observed statuses not persisted: %v", store.sessionStatuses)
-	}
-	if !reflect.DeepEqual(store.sessionStatuses, []domain.SessionStatus{domain.SessionWorking, domain.SessionStarting, domain.SessionScanQR, domain.SessionFailed, domain.SessionStopped}) {
-		t.Fatalf("wrong observed statuses: %v", store.sessionStatuses)
-	}
-	if len(store.clearedSessions) != 0 {
-		t.Fatalf("non-terminal statuses cleared pairing: %v", store.clearedSessions)
-	}
-
-	loggedOut := domain.Event{Schema: domain.Schema, ID: "evt_lo", Type: domain.EventSessionStatus,
+	unsequenced := domain.Event{Schema: domain.Schema, ID: "evt_old", Type: domain.EventSessionStatus,
 		Session: "sess_1", Organization: "org_1", Timestamp: 2000,
-		Payload: apitypes.SessionStatusPayload{Status: string(domain.SessionLoggedOut)}}
-	if err := consumer.ConsumeCommittedEvent(context.Background(), loggedOut); err != nil {
+		Payload: apitypes.SessionStatusPayload{Status: "starting"}}
+	if err := consumer.ConsumeCommittedEvent(context.Background(), unsequenced); err != nil {
 		t.Fatal(err)
 	}
-	if len(store.clearedSessions) != 1 || store.clearedSessions[0] != "sess_1" || store.clearedAt[0] != 1234 {
-		t.Fatalf("logged-out clear = %v @ %v", store.clearedSessions, store.clearedAt)
+	want := []store.ObservedStatus{{
+		SessionID: "sess_1", Status: domain.SessionFailed, FailureReason: domain.FailureQRTimeout, Seq: 42, ChangedAt: 1000,
+	}}
+	if !reflect.DeepEqual(st.observed, want) {
+		t.Fatalf("observed = %+v, want %+v", st.observed, want)
 	}
 
-	// A replayed or repeated logout clears again (repair semantics).
-	if err := consumer.ConsumeCommittedEvent(context.Background(), loggedOut); err != nil {
-		t.Fatal(err)
-	}
-	if len(store.clearedSessions) != 2 {
-		t.Fatalf("repeat clear did not run: %v", store.clearedSessions)
+	unknown := domain.Event{Schema: domain.Schema, ID: "evt_bad", Type: domain.EventSessionStatus,
+		Session: "sess_1", Organization: "org_1", Timestamp: 3000,
+		Payload: apitypes.SessionStatusPayload{Status: "unavailable", StatusSeq: 43}}
+	if err := consumer.ConsumeCommittedEvent(context.Background(), unknown); err == nil {
+		t.Fatal("a gateway cannot report the API-derived unavailable status")
 	}
 }
 
-func (f *fakeProjectionStore) UpdateSessionStatus(_ context.Context, sessionID string, status domain.SessionStatus, updatedAt int64) error {
-	f.sessionStatuses = append(f.sessionStatuses, status)
-	return nil
+func (f *fakeProjectionStore) ApplyObservedStatus(_ context.Context, observed store.ObservedStatus) (bool, error) {
+	f.observed = append(f.observed, observed)
+	return true, nil
 }
 
 // A missing revoke target must not block later session lifecycle projections;
@@ -310,12 +294,12 @@ func TestProjectionRevokeMissingMessageAllowsSessionProgress(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			status := domain.Event{ID: "connected", Type: domain.EventSessionStatus, Session: "session", Payload: apitypes.SessionStatusPayload{Status: "working"}}
+			status := domain.Event{ID: "connected", Type: domain.EventSessionStatus, Session: "session", Timestamp: 5, Payload: apitypes.SessionStatusPayload{Status: "working", StatusSeq: 1}}
 			if err := consumer.ConsumeCommittedEvent(context.Background(), status); err != nil {
 				t.Fatal(err)
 			}
-			if !reflect.DeepEqual(st.sessionStatuses, []domain.SessionStatus{domain.SessionWorking}) {
-				t.Fatalf("status not projected: %v", st.sessionStatuses)
+			if len(st.observed) != 1 || st.observed[0].Status != domain.SessionWorking {
+				t.Fatalf("status not projected: %v", st.observed)
 			}
 		})
 	}

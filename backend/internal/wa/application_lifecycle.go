@@ -5,23 +5,24 @@ import (
 
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/application"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/gateway/desiredstate"
 )
 
 // Session lifecycle bridges API-owned assignments and the local runtime.
 //
 // The API owns session rows, placement, and assignments; the gateway executes
-// only the live parts. PrepareSession and ForgetSession validate the target
-// alone: prepare is idempotent by construction and forget must still work when
-// the row (and its assignment) is already deleted API-side. BeginPairing and
-// PairPhone run behind the ownership fence but stay outside the ledger — a
-// repeated QR read re-reads the live code, and each pairing code is a fresh
-// one-time secret with nothing durable to replay. LogoutSession is destructive
-// on WhatsApp's side, so it reuses the shared durable command executor.
+// only the live parts. ForgetSession validates the target alone: it must still
+// work when the row (and its assignment) is already deleted API-side.
+// ApplySession, GetPairingQR and PairPhone run behind the ownership fence but
+// stay outside the ledger — applying the same intent twice changes nothing, a
+// QR read only reads, and each pairing code is a fresh one-time secret with
+// nothing durable to replay. LogoutSession is destructive on WhatsApp's side,
+// so it reuses the shared durable command executor.
 
 // sessionController is the manager surface the lifecycle slices drive.
 type sessionController interface {
-	EnsureDevice(id, organizationID string)
-	StartQR(ctx context.Context, id string) error
+	StartAssigned(ctx context.Context, assignment desiredstate.Assignment) error
+	StopAssigned(ctx context.Context, sessionID string) error
 	StartPairingCode(ctx context.Context, id, phone string) (string, error)
 	SubmitPasskey(ctx context.Context, id string, response []byte) error
 	ConfirmPasskey(ctx context.Context, id string) error
@@ -30,34 +31,37 @@ type sessionController interface {
 	LatestQR(id string) (code string, expiresAt int64)
 }
 
-// PrepareSession materializes the keystore device + managed-session entry for
-// an API-created session row. Idempotent; not ledger-backed.
-func (a *ApplicationGatewayAdapter) PrepareSession(
-	_ context.Context,
-	query application.SessionStateQuery,
-) (application.PrepareSessionResult, error) {
-	if err := a.validateTarget(query.OrganizationID, query.SessionID, query.GatewayID); err != nil {
-		return application.PrepareSessionResult{}, err
+// ApplySession applies a session's desired state now: run starts it under
+// the start-generation rules of Manager.StartAssigned (a newer generation
+// starts a failed session and restarts a running one), stop ends its run. The
+// next desired-state snapshot carries the same intent; this only saves the
+// wait for it.
+func (a *ApplicationGatewayAdapter) ApplySession(ctx context.Context, command application.ApplySessionCommand) error {
+	query := command.SessionStateQuery
+	if err := a.fencePairing(query); err != nil {
+		return err
 	}
-	a.controller.EnsureDevice(query.SessionID, query.OrganizationID)
-	return application.PrepareSessionResult{
-		MutationResult: mutationResult("", query.OrganizationID, query.SessionID, query.GatewayID, query.AssignmentEpoch),
-	}, nil
+	if !command.Run {
+		return a.controller.StopAssigned(ctx, query.SessionID)
+	}
+	return a.controller.StartAssigned(ctx, desiredstate.Assignment{
+		SessionID:       query.SessionID,
+		OrganizationID:  query.OrganizationID,
+		DeviceJID:       command.DeviceJID,
+		AssignmentEpoch: query.AssignmentEpoch,
+		DesiredRun:      true,
+		StartGeneration: command.StartGeneration,
+		// Config.Revision 0: keep the settings of the last snapshot.
+	})
 }
 
-// BeginPairing starts (or resumes) QR pairing and returns the current snapshot
-// code when one exists. Read-classified: no command_id, no ledger.
-func (a *ApplicationGatewayAdapter) BeginPairing(
-	ctx context.Context,
+// GetPairingQR returns the current pairing QR code, if one exists. It never
+// starts pairing: that is ApplySession's (and the snapshot's) job.
+func (a *ApplicationGatewayAdapter) GetPairingQR(
+	_ context.Context,
 	query application.SessionStateQuery,
 ) (application.PairingSnapshot, error) {
 	if err := a.fencePairing(query); err != nil {
-		return application.PairingSnapshot{}, err
-	}
-	if code, exp := a.controller.LatestQR(query.SessionID); code != "" {
-		return application.PairingSnapshot{Code: code, ExpiresAt: exp}, nil
-	}
-	if err := a.controller.StartQR(ctx, query.SessionID); err != nil {
 		return application.PairingSnapshot{}, err
 	}
 	code, exp := a.controller.LatestQR(query.SessionID)

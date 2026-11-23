@@ -28,8 +28,8 @@ type fakeEngine struct {
 	subscribed     []string
 	backfillCalled bool
 
-	prepared    []application.SessionStateQuery
-	beginPair   application.SessionStateQuery
+	applied     []application.ApplySessionCommand
+	qrRead      application.SessionStateQuery
 	pairSnap    application.PairingSnapshot
 	pairPhones  []string
 	pairingCode string
@@ -121,13 +121,13 @@ func (f *fakeEngine) BackfillSession(context.Context, application.SessionStateQu
 	}, nil
 }
 
-func (f *fakeEngine) PrepareSession(_ context.Context, query application.SessionStateQuery) (application.PrepareSessionResult, error) {
-	f.prepared = append(f.prepared, query)
-	return application.PrepareSessionResult{MutationResult: application.MutationResult{OrganizationID: query.OrganizationID, SessionID: query.SessionID, GatewayID: query.GatewayID, AssignmentEpoch: query.AssignmentEpoch}}, nil
+func (f *fakeEngine) ApplySession(_ context.Context, command application.ApplySessionCommand) error {
+	f.applied = append(f.applied, command)
+	return nil
 }
 
-func (f *fakeEngine) BeginPairing(_ context.Context, query application.SessionStateQuery) (application.PairingSnapshot, error) {
-	f.beginPair = query
+func (f *fakeEngine) GetPairingQR(_ context.Context, query application.SessionStateQuery) (application.PairingSnapshot, error) {
+	f.qrRead = query
 	return f.pairSnap, nil
 }
 
@@ -266,4 +266,29 @@ func (f *fakeEngine) SubmitPasskey(context.Context, application.SessionStateQuer
 
 func (f *fakeEngine) ConfirmPasskey(context.Context, application.SessionStateQuery) error {
 	return nil
+}
+
+// TestApplySessionAndPairingQRWire maps the ApplySession and GetPairingQR
+// requests onto the engine and back.
+func TestApplySessionAndPairingQRWire(t *testing.T) {
+	engine := &fakeEngine{pairSnap: application.PairingSnapshot{Code: "QR", ExpiresAt: 9}}
+	server := &Server{GatewayID: "gateway-1", Engine: engine}
+	target := &gatewayv1.SessionTarget{OrganizationId: "org_1", SessionId: "ses_1", GatewayId: "gateway-1"}
+	device := "628111@s.whatsapp.net"
+	if _, err := server.ApplySession(context.Background(), &gatewayv1.ApplySessionRequest{
+		Target: target, AssignmentEpoch: 3, Run: true, StartGeneration: 7, DeviceJid: &device,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got := engine.applied[0]
+	if !got.Run || got.StartGeneration != 7 || got.DeviceJID != device || got.AssignmentEpoch != 3 {
+		t.Fatalf("applied = %+v", got)
+	}
+	response, err := server.GetPairingQR(context.Background(), &gatewayv1.GetPairingQRRequest{Target: target, AssignmentEpoch: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.GetQrCode() != "QR" || response.GetQrExpiresAtUnixMs() != 9 || engine.qrRead.SessionID != "ses_1" {
+		t.Fatalf("qr response = %+v", response)
+	}
 }

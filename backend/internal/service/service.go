@@ -98,6 +98,9 @@ func New(d Deps) *Services {
 		),
 	}
 	services.Sessions.SetOAuthCascader(services.OAuthApps)
+	if d.Store.SessionState != nil {
+		services.Sessions.SetSessionStateStore(d.Store.SessionState)
+	}
 	services.Sessions.SetHistorySync(d.Store.History, d.HistorySyncDefaultDays, d.HistorySyncMaxDays)
 	return services
 }

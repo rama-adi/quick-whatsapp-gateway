@@ -233,7 +233,9 @@ const BUCKET_OF: Record<WASession["status"], Bucket> = {
   working: "connected",
   starting: "connecting",
   scan_qr_code: "connecting",
+  reconnecting: "connecting",
   failed: "attention",
+  unavailable: "attention",
   logged_out: "attention",
   stopped: "stopped",
 };

@@ -53,11 +53,11 @@ describe("pairing artifacts", () => {
 
   it("auth.qr records when the code expires when the event says how long it lives", () => {
     applyEvent(qc, evt("auth.qr", { code: "2@new", timeoutMs: 20_000 }, 5_000));
-    expect(qc.getQueryData(qk.sessionQR(SESSION))).toEqual({ code: "2@new", expiresAt: 25_000 });
+    expect(qc.getQueryData(qk.sessionQR(SESSION))).toEqual({ state: "ready", code: "2@new", expiresAt: 25_000 });
   });
 
   it("auth.qr without a timeout stores a code with no known expiry", () => {
     applyEvent(qc, evt("auth.qr", { code: "2@new" }));
-    expect(qc.getQueryData(qk.sessionQR(SESSION))).toEqual({ code: "2@new" });
+    expect(qc.getQueryData(qk.sessionQR(SESSION))).toEqual({ state: "ready", code: "2@new" });
   });
 });

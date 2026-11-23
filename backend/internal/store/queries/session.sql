@@ -1,71 +1,87 @@
+-- Session reads join the observed runtime and the liveness of the session's
+-- gateway: the effective status a client sees is resolved from these at read
+-- time (store.sessionFromRow), never copied onto wa_sessions.
+
 -- name: CreateSession :exec
 INSERT INTO wa_sessions
-(id, organization_id, created_by_user_id, gateway_id, label, status, wa_jid, wa_lid,
- phone_number, is_admin_session, auto_read, presence_typing, rate_per_min, rate_per_hour,
- last_connected_at, created_at, updated_at, history_sync_days)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+(id, organization_id, created_by_user_id, gateway_id, label, desired_state, start_generation,
+ wa_jid, wa_lid, phone_number, is_admin_session, auto_read, presence_typing, rate_per_min,
+ rate_per_hour, last_connected_at, created_at, updated_at, history_sync_days)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: CreateSessionRuntime :exec
+INSERT INTO wa_session_runtime (session_id, status, failure_reason, status_seq, status_changed_at)
+VALUES (?, 'stopped', NULL, 0, ?);
 
 -- name: GetSession :one
-SELECT id, organization_id, created_by_user_id, gateway_id, label, status,
-	wa_jid, wa_lid, phone_number, is_admin_session, auto_read, presence_typing,
-	rate_per_min, rate_per_hour, last_connected_at, created_at, updated_at,
-	history_sync_days, data_account_jid, account_changed_at
-FROM wa_sessions
-WHERE id = ?;
+SELECT s.id, s.organization_id, s.created_by_user_id, s.gateway_id, s.label, s.desired_state,
+	s.start_generation, s.wa_jid, s.wa_lid, s.phone_number, s.is_admin_session, s.auto_read,
+	s.presence_typing, s.rate_per_min, s.rate_per_hour, s.last_connected_at, s.created_at,
+	s.updated_at, s.history_sync_days, s.data_account_jid, s.account_changed_at,
+	r.status AS runtime_status, r.failure_reason AS runtime_failure_reason,
+	r.status_changed_at AS runtime_status_changed_at,
+	(g.connected_at IS NOT NULL) AS gateway_connected
+FROM wa_sessions AS s
+JOIN wa_session_runtime AS r ON r.session_id = s.id
+LEFT JOIN gateways AS g ON g.id = s.gateway_id AND g.deleted_at IS NULL
+WHERE s.id = ?;
 
 -- name: GetSessionByJID :one
-SELECT id, organization_id, created_by_user_id, gateway_id, label, status,
-	wa_jid, wa_lid, phone_number, is_admin_session, auto_read, presence_typing,
-	rate_per_min, rate_per_hour, last_connected_at, created_at, updated_at,
-	history_sync_days, data_account_jid, account_changed_at
-FROM wa_sessions
-WHERE wa_jid = ?;
+SELECT s.id, s.organization_id, s.created_by_user_id, s.gateway_id, s.label, s.desired_state,
+	s.start_generation, s.wa_jid, s.wa_lid, s.phone_number, s.is_admin_session, s.auto_read,
+	s.presence_typing, s.rate_per_min, s.rate_per_hour, s.last_connected_at, s.created_at,
+	s.updated_at, s.history_sync_days, s.data_account_jid, s.account_changed_at,
+	r.status AS runtime_status, r.failure_reason AS runtime_failure_reason,
+	r.status_changed_at AS runtime_status_changed_at,
+	(g.connected_at IS NOT NULL) AS gateway_connected
+FROM wa_sessions AS s
+JOIN wa_session_runtime AS r ON r.session_id = s.id
+LEFT JOIN gateways AS g ON g.id = s.gateway_id AND g.deleted_at IS NULL
+WHERE s.wa_jid = ?;
 
 -- name: ListSessionsByOrg :many
-SELECT id, organization_id, created_by_user_id, gateway_id, label, status,
-	wa_jid, wa_lid, phone_number, is_admin_session, auto_read, presence_typing,
-	rate_per_min, rate_per_hour, last_connected_at, created_at, updated_at,
-	history_sync_days, data_account_jid, account_changed_at
-FROM wa_sessions
-WHERE organization_id = ?
-ORDER BY created_at DESC;
+SELECT s.id, s.organization_id, s.created_by_user_id, s.gateway_id, s.label, s.desired_state,
+	s.start_generation, s.wa_jid, s.wa_lid, s.phone_number, s.is_admin_session, s.auto_read,
+	s.presence_typing, s.rate_per_min, s.rate_per_hour, s.last_connected_at, s.created_at,
+	s.updated_at, s.history_sync_days, s.data_account_jid, s.account_changed_at,
+	r.status AS runtime_status, r.failure_reason AS runtime_failure_reason,
+	r.status_changed_at AS runtime_status_changed_at,
+	(g.connected_at IS NOT NULL) AS gateway_connected
+FROM wa_sessions AS s
+JOIN wa_session_runtime AS r ON r.session_id = s.id
+LEFT JOIN gateways AS g ON g.id = s.gateway_id AND g.deleted_at IS NULL
+WHERE s.organization_id = ?
+ORDER BY s.created_at DESC;
 
 -- name: ListAllSessions :many
-SELECT id, organization_id, created_by_user_id, gateway_id, label, status,
-	wa_jid, wa_lid, phone_number, is_admin_session, auto_read, presence_typing,
-	rate_per_min, rate_per_hour, last_connected_at, created_at, updated_at,
-	history_sync_days, data_account_jid, account_changed_at
-FROM wa_sessions
-ORDER BY created_at DESC;
+SELECT s.id, s.organization_id, s.created_by_user_id, s.gateway_id, s.label, s.desired_state,
+	s.start_generation, s.wa_jid, s.wa_lid, s.phone_number, s.is_admin_session, s.auto_read,
+	s.presence_typing, s.rate_per_min, s.rate_per_hour, s.last_connected_at, s.created_at,
+	s.updated_at, s.history_sync_days, s.data_account_jid, s.account_changed_at,
+	r.status AS runtime_status, r.failure_reason AS runtime_failure_reason,
+	r.status_changed_at AS runtime_status_changed_at,
+	(g.connected_at IS NOT NULL) AS gateway_connected
+FROM wa_sessions AS s
+JOIN wa_session_runtime AS r ON r.session_id = s.id
+LEFT JOIN gateways AS g ON g.id = s.gateway_id AND g.deleted_at IS NULL
+ORDER BY s.created_at DESC;
 
 -- name: ListSessionsByGateway :many
-SELECT id, organization_id, created_by_user_id, gateway_id, label, status,
-	wa_jid, wa_lid, phone_number, is_admin_session, auto_read, presence_typing,
-	rate_per_min, rate_per_hour, last_connected_at, created_at, updated_at,
-	history_sync_days, data_account_jid, account_changed_at
-FROM wa_sessions
-WHERE gateway_id = ?
-ORDER BY created_at ASC;
+SELECT s.id, s.organization_id, s.created_by_user_id, s.gateway_id, s.label, s.desired_state,
+	s.start_generation, s.wa_jid, s.wa_lid, s.phone_number, s.is_admin_session, s.auto_read,
+	s.presence_typing, s.rate_per_min, s.rate_per_hour, s.last_connected_at, s.created_at,
+	s.updated_at, s.history_sync_days, s.data_account_jid, s.account_changed_at,
+	r.status AS runtime_status, r.failure_reason AS runtime_failure_reason,
+	r.status_changed_at AS runtime_status_changed_at,
+	(g.connected_at IS NOT NULL) AS gateway_connected
+FROM wa_sessions AS s
+JOIN wa_session_runtime AS r ON r.session_id = s.id
+LEFT JOIN gateways AS g ON g.id = s.gateway_id AND g.deleted_at IS NULL
+WHERE s.gateway_id = ?
+ORDER BY s.created_at ASC;
 
 -- name: CountSessionsByGateway :one
 SELECT COUNT(*) FROM wa_sessions WHERE gateway_id = ?;
-
--- name: UpdateSession :execrows
-UPDATE wa_sessions SET
-	label = ?, status = ?, wa_jid = ?, wa_lid = ?, phone_number = ?, auto_read = ?,
-	presence_typing = ?, rate_per_min = ?, rate_per_hour = ?, last_connected_at = ?,
-	updated_at = ?
-WHERE id = ?;
-
--- name: UpdateSessionStatus :execrows
-UPDATE wa_sessions
-SET status = ?, updated_at = ?
-WHERE id = ?;
-
--- name: ClearSessionPairing :execrows
-UPDATE wa_sessions
-SET status = 'logged_out', wa_jid = NULL, wa_lid = NULL, phone_number = NULL, updated_at = ?
-WHERE id = ?;
 
 -- name: AttachSessionPairing :execrows
 -- account_changed_at is assigned before data_account_jid (MySQL applies SET

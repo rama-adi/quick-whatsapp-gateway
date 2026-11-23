@@ -59,7 +59,7 @@ func Normalize(evt any, sessionID, organizationID string) (domain.Event, Persist
 | timed poll close (`PollRecapWorker`) | `poll.recap` | synthetic / no inbound persist |
 | `*events.Receipt` (delivered/read/played) | `message.status` | `PersistMessageStatus` |
 | `*events.Connected` | `session.status` (working), published by the session manager | none |
-| `*events.Disconnected` | `session.status` (starting) only if still down after the reconnect grace period, published by the session manager | none |
+| `*events.Disconnected` | `session.status` (reconnecting) only if still down after the reconnect grace period, published by the session manager | none |
 | `*events.LoggedOut` | `session.status` (logged_out), published by the session manager | none |
 | `*events.StreamReplaced` | `session.status` (failed, `failureReason: stream_replaced`), published by the session manager | none |
 | `*events.PairPasskeyRequest` | `auth.passkey` (`step: verify`, WebAuthn options), published by the session manager | none |
@@ -167,8 +167,12 @@ unclassifiable data is worse than persisting an odd JID downstream can still rec
 - **`PersistResult` is the pipeline contract**, not the wire payload. It tags a
   `PersistKind` so the inbound pipeline dispatches without re-inspecting the event, and
   carries the parsed `*NormalizedMessage` for message-bearing kinds.
+- **`session.status` payload.** `status`, `failureReason` (only with `failed`), `statusSeq`
+  (orders a session's statuses; keep the highest), and with `reconnecting` the failed `attempt`
+  count and `lastError`. The API projects a status only when its `statusSeq` is newer than the
+  stored one; an event without `statusSeq` is left to the next desired-state report.
 - **The session manager is the only `session.status` producer.** `Normalize` returns `ok=false`
-  for connection lifecycle events. The manager reports a `Disconnected` as `starting` only when
+  for connection lifecycle events. The manager reports a `Disconnected` as `reconnecting` only when
   the connection is still down after its grace period; `LoggedOut`/`StreamReplaced` are terminal
   → `logged_out`/`failed`.
 - **Non-lifecycle receipts** (sender/retry/server-error/etc.) → `ok=false`.
@@ -243,7 +247,9 @@ remain incomplete for retry; retention must not remove their event-log payloads.
 
 Private-control gateways require an absolute `GATEWAY_JOURNAL_PATH` for a separate SQLite journal.
 The journal accepts the normalized `domain.Event` JSON only while the current desired-state assignment
-owns its organization/session, preserving that assignment epoch with the entry. It replays entries in
+owns its organization/session (organization, epoch and live lease; the assignment's desired action
+does not matter, so a session the API started with `ApplySession` keeps its first messages before
+the RUN snapshot arrives), preserving that assignment epoch with the entry. It replays entries in
 committed sequence order as protobuf `Struct` payloads over the control stream; exactly one batch is
 in flight and the API acknowledgement must equal that batch's last journal sequence before deletion.
 The API decodes each protobuf envelope, validates its identity against the control-frame metadata,

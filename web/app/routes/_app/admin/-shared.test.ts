@@ -14,6 +14,8 @@ const row: WASession = {
   gatewayId: "gw_1",
   status: "working",
   isAdminSession: true,
+  desiredState: "run",
+  statusChangedAt: 1,
   autoRead: false,
   presenceTyping: false,
   ratePerMin: 10,

@@ -474,9 +474,6 @@ func runWithStorageTransport(storageTransport http.RoundTripper) error {
 			)
 			oidpEvents.SetInterceptor(oidpInterceptor)
 		}
-		services.Sessions.SetSessionDesiredController(sessionDesiredController{
-			assignments: store.NewGatewayAssignmentRepo(db),
-		})
 		tlsConfig := privateGatewayTLSConfig(identity, clientRoots)
 		enrollment, enrollmentErr := service.NewEnrollmentService(db, signer, service.DefaultEnrollmentConfig())
 		if enrollmentErr != nil {
@@ -510,6 +507,7 @@ func runWithStorageTransport(storageTransport http.RoundTripper) error {
 			Store: gatewayControlStore{
 				repo:           st.Gateways,
 				reconciliation: store.NewGatewayReconciliationRepo(db),
+				sessionState:   st.SessionState,
 				eventIngest:    st.GatewayEvents,
 				// Validate caps HISTORY_SYNC_MAX_DAYS at 65535.
 				historySyncMaxDays: uint32(cfg.HistorySyncMaxDays), //nolint:gosec // validated non-negative and <= 65535

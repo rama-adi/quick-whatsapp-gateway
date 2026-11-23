@@ -235,11 +235,20 @@ function bannerFor(view: SessionView, pending: SessionActionOverlay): BannerEntr
       };
     case "failed":
       return {
-        text: "The connection failed and the gateway stopped retrying. Restart the session to try again.",
+        text:
+          failureMessage(view.reason) ??
+          "The connection failed and the gateway stopped retrying. Restart the session to try again.",
         action: "restart",
       };
     case "connecting":
       return { text: "Reconnecting to WhatsApp…", busy: true };
+    case "reconnecting":
+      return { text: "The connection dropped. Reconnecting to WhatsApp…", busy: true };
+    case "unavailable":
+      return {
+        text: "The gateway that runs this session is offline. The session resumes when it is back.",
+        busy: true,
+      };
     case "awaiting_pairing":
     case "qr":
     case "pairing_code":
@@ -831,9 +840,8 @@ function QrPanel({
   actions: ReturnType<typeof useSessionActions>;
 }) {
   const ready = session.status === "scan_qr_code";
-  // GET /qr starts QR pairing when none exists, so only issue it once the
-  // session is waiting for a scan. That lets the user choose phone-code pairing
-  // without an accidental QR client competing with PairPhone.
+  // GET /qr only reads the current code; fetch it once the session waits for
+  // a scan (the auth.qr event keeps it fresh after that).
   const qr = useSessionQR(session.id, ready);
   const poll = usePollingInterval();
   const failure = view.kind === "failed" ? failureMessage(view.reason) : undefined;
@@ -847,7 +855,12 @@ function QrPanel({
     return () => window.clearInterval(t);
   }, [poll, qr, ready]);
 
-  if (view.kind === "connecting" || pending === "start" || pending === "restart") {
+  if (
+    view.kind === "connecting" ||
+    view.kind === "reconnecting" ||
+    pending === "start" ||
+    pending === "restart"
+  ) {
     return (
       <ConnectingFrame
         // Remount on each new attempt so the slow-start timer starts over.
@@ -855,6 +868,17 @@ function QrPanel({
         canRestart={!pending}
         onRestart={() => void actions.run(session, "restart")}
       />
+    );
+  }
+
+  if (view.kind === "unavailable") {
+    return (
+      <QrFrame>
+        <TriangleAlertIcon className="size-6 text-muted-foreground" aria-hidden />
+        <p className="text-sm text-pretty text-muted-foreground">
+          The gateway that runs this session is offline. Pairing resumes when it is back.
+        </p>
+      </QrFrame>
     );
   }
 
@@ -887,12 +911,17 @@ function QrPanel({
 
   // A code from an auth.qr event wins over a fetch that failed around it.
   if (!liveQr) {
-    // 404 means "no code yet"; the next auth.qr event brings it.
-    const notYet = !qr.isError || (isApiError(qr.error) && qr.error.status === 404);
+    // GET /qr answers state "pending" until a code exists, and the next
+    // auth.qr event brings it. A 409 says why the session is not pairing.
+    const notYet = !qr.isError;
     return (
       <QrFrame>
         <p className="text-sm text-muted-foreground">
-          {notYet ? "Waiting for a QR code…" : "Couldn't load the QR code."}
+          {notYet
+            ? "Waiting for a QR code…"
+            : isApiError(qr.error) && qr.error.status === 409
+              ? qr.error.message
+              : "Couldn't load the QR code."}
         </p>
         <Button variant="outline" size="sm" onClick={() => void qr.refetch()}>
           <RefreshCwIcon aria-hidden data-icon="inline-start" />

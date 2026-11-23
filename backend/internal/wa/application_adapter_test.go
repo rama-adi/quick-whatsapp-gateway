@@ -8,6 +8,7 @@ import (
 
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/application"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/gateway/desiredstate"
 )
 
 var errFakeLiveOp = errors.New("live operation failed")
@@ -18,8 +19,8 @@ type fakeSessionStateSource struct {
 	found               bool
 }
 
-func (f fakeSessionStateSource) ConnectionState(string) (domain.SessionStatus, bool, bool, bool) {
-	return f.status, f.connected, f.loggedIn, f.found
+func (f fakeSessionStateSource) RuntimeState(string) (RuntimeState, bool) {
+	return RuntimeState{Status: f.status, Connected: f.connected, LoggedIn: f.loggedIn}, f.found
 }
 
 type fakeEngineLiveOps struct {
@@ -299,8 +300,8 @@ func (b *blockedDispatcher) Dispatch(ctx context.Context, req domain.SendRequest
 // ---- Increment 7 live resource slices ----
 
 type fakeController struct {
-	devicesEnsured  [][2]string // {id, organizationID}
-	qrStarted       []string
+	started         []desiredstate.Assignment
+	stopped         []string
 	pairingRequests [][2]string // {id, phone}
 	logouts         []string
 	forgotten       []string
@@ -308,19 +309,13 @@ type fakeController struct {
 	err             error
 }
 
-func (f *fakeController) EnsureDevice(id, organizationID string) {
-	f.devicesEnsured = append(f.devicesEnsured, [2]string{id, organizationID})
+func (f *fakeController) StartAssigned(_ context.Context, assignment desiredstate.Assignment) error {
+	f.started = append(f.started, assignment)
+	return f.err
 }
 
-func (f *fakeController) StartQR(_ context.Context, id string) error {
-	f.qrStarted = append(f.qrStarted, id)
-	// Mirror the real manager: once QR pairing starts, a code becomes available.
-	if f.latestQR == nil {
-		f.latestQR = map[string]application.PairingSnapshot{}
-	}
-	if f.latestQR[id].Code == "" {
-		f.latestQR[id] = application.PairingSnapshot{Code: "QR_FRESH", ExpiresAt: 777}
-	}
+func (f *fakeController) StopAssigned(_ context.Context, id string) error {
+	f.stopped = append(f.stopped, id)
 	return f.err
 }
 
@@ -419,3 +414,47 @@ func TestMutateGroupValidationFailureIsTerminalButTransientFailureIsNot(t *testi
 func (f *fakeController) SubmitPasskey(context.Context, string, []byte) error { return nil }
 
 func (f *fakeController) ConfirmPasskey(context.Context, string) error { return nil }
+
+// TestGetPairingQRNeverStartsPairing: reading the QR code only reads; a
+// session without a code answers an empty snapshot instead of starting a
+// WhatsApp connection.
+func TestGetPairingQRNeverStartsPairing(t *testing.T) {
+	controller := &fakeController{}
+	adapter := lifecycleTestAdapter(controller, &fakeLedger{}, true)
+	query := application.SessionStateQuery{OrganizationID: "org_1", SessionID: "ses_1", GatewayID: "gateway-1", AssignmentEpoch: 4}
+	snapshot, err := adapter.GetPairingQR(context.Background(), query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Code != "" || len(controller.started) != 0 {
+		t.Fatalf("QR read started pairing: snapshot=%+v started=%d", snapshot, len(controller.started))
+	}
+	controller.latestQR = map[string]application.PairingSnapshot{"ses_1": {Code: "QR", ExpiresAt: 5}}
+	if snapshot, _ := adapter.GetPairingQR(context.Background(), query); snapshot.Code != "QR" {
+		t.Fatalf("snapshot = %+v", snapshot)
+	}
+}
+
+// TestApplySessionCarriesGeneration: a run carries its start generation and
+// device to the manager without overwriting the snapshot's settings; a stop
+// stops.
+func TestApplySessionCarriesGeneration(t *testing.T) {
+	controller := &fakeController{}
+	adapter := lifecycleTestAdapter(controller, &fakeLedger{}, true)
+	query := application.SessionStateQuery{OrganizationID: "org_1", SessionID: "ses_1", GatewayID: "gateway-1", AssignmentEpoch: 4}
+	if err := adapter.ApplySession(context.Background(), application.ApplySessionCommand{
+		SessionStateQuery: query, Run: true, StartGeneration: 3, DeviceJID: "628@s.whatsapp.net",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got := controller.started[0]
+	if !got.DesiredRun || got.StartGeneration != 3 || got.DeviceJID != "628@s.whatsapp.net" || got.Config.Revision != 0 {
+		t.Fatalf("started = %+v", got)
+	}
+	if err := adapter.ApplySession(context.Background(), application.ApplySessionCommand{SessionStateQuery: query}); err != nil {
+		t.Fatal(err)
+	}
+	if len(controller.stopped) != 1 || controller.stopped[0] != "ses_1" {
+		t.Fatalf("stopped = %v", controller.stopped)
+	}
+}

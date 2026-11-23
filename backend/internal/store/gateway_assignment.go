@@ -7,7 +7,6 @@ import (
 	"fmt"
 
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
-	"github.com/rama-adi/quick-whatsapp-gateway/internal/store/storedb"
 )
 
 // GatewayAssignmentRepo is the sole mutation path for control-stream desired
@@ -70,6 +69,13 @@ func (r *GatewayAssignmentRepo) Reassign(
 		newGatewayID, at, sessionID,
 	); err != nil {
 		return 0, fmt.Errorf("store: update session gateway pin: %w", err)
+	}
+	// Status sequences are only ordered within one gateway's clock. The new
+	// owner's first observation must win over the old owner's last one.
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE wa_session_runtime SET status_seq=0 WHERE session_id=?`, sessionID,
+	); err != nil {
+		return 0, fmt.Errorf("store: reset session runtime order: %w", err)
 	}
 	result, err = tx.ExecContext(ctx,
 		`UPDATE gateways SET desired_revision=desired_revision+1, updated_at=? WHERE id IN (?, ?) AND deleted_at IS NULL`,
@@ -255,50 +261,6 @@ func (r *GatewayAssignmentRepo) Unassign(ctx context.Context, sessionID string, 
 		at, gatewayID,
 	); err != nil {
 		return fmt.Errorf("store: advance unassignment revision: %w", err)
-	}
-	return tx.Commit()
-}
-
-// SetSessionDesired flips one session's desired run state and advances the
-// owning gateway's desired revision in one transaction, so the next desired
-// state push starts or stops the session on the assigned gateway. It is the
-// API-local replacement for direct gateway Start/Stop RPCs (gRPC Increment 7).
-func (r *GatewayAssignmentRepo) SetSessionDesired(ctx context.Context, sessionID string, run bool, at int64) error {
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("store: begin session desired update: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-	var gatewayID string
-	if err := tx.QueryRowContext(ctx,
-		`SELECT gateway_id FROM gateway_session_assignments WHERE session_id=? FOR UPDATE`,
-		sessionID,
-	).Scan(&gatewayID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return domain.ErrNotFound("session assignment not found")
-		}
-		return fmt.Errorf("store: lock session assignment: %w", err)
-	}
-	status := storedb.WaSessionsStatusStopped
-	if run {
-		status = storedb.WaSessionsStatusStarting
-	}
-	// Unpaired sessions are started directly by BeginPairing before this
-	// write. Preserve their gateway-projected status; only paired sessions
-	// need starting to express RUN to the reconciler. Stop is unconditional.
-	if _, err := tx.ExecContext(ctx,
-		`UPDATE wa_sessions
-		 SET status=CASE WHEN ? AND wa_jid IS NULL THEN status ELSE ? END, updated_at=?
-		 WHERE id=?`,
-		run, status, at, sessionID,
-	); err != nil {
-		return fmt.Errorf("store: update session desired state: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx,
-		`UPDATE gateways SET desired_revision=desired_revision+1, updated_at=? WHERE id=? AND deleted_at IS NULL`,
-		at, gatewayID,
-	); err != nil {
-		return fmt.Errorf("store: advance desired revision: %w", err)
 	}
 	return tx.Commit()
 }

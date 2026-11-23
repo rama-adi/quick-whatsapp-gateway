@@ -18,7 +18,7 @@ import (
 // matching the chi handler's behavior.
 type createSessionInputBody struct {
 	Label           *string `json:"label,omitempty" doc:"Optional human-friendly session label." example:"Sales line"`
-	Start           bool    `json:"start,omitempty" doc:"If true, begin QR pairing immediately. If false, create the session in stopped/unpaired state and pair later." example:"true"`
+	Start           bool    `json:"start,omitempty" doc:"If true, the session is created with desiredState run and its gateway begins QR pairing within a few seconds (watch status move to scan_qr_code, or the auth.qr event). If false, it is created with desiredState stop and pairs later." example:"true"`
 	AutoRead        *bool   `json:"autoRead,omitempty" doc:"If true, mark incoming messages as read automatically." example:"false"`
 	PresenceTyping  *bool   `json:"presenceTyping,omitempty" doc:"If true, send typing indicator while a message is sent from this session." example:"true"`
 	HistorySyncDays *int    `json:"historySyncDays,omitempty" minimum:"0" doc:"How many days of chat history to import when the phone is linked. The phone sends the history it still has; older messages are skipped. 0 turns the import off. Omit to use the deployment default (30 days unless the operator changed it). Values above the deployment maximum are rejected." example:"30"`
@@ -81,7 +81,7 @@ func RegisterSessionOps(api huma.API, h *Handlers) {
 		OperationID: "createSession", Method: "POST", Path: "/api/v1/sessions",
 		Summary: "Create a session",
 		Description: "Create a new session record for the caller's organization.\n\n" +
-			"Behavior: session starts **unpaired**. Set `start` to true to begin pairing immediately; pairing then proceeds asynchronously.\n\n" +
+			"Behavior: session starts **unpaired** with status `stopped`. Set `start` to true to ask for pairing right away (`desiredState: run`); the gateway begins QR pairing within a few seconds, asynchronously.\n\n" +
 			"Requires `manage` capability. Unknown or invalid request data returns `validation_error` (400). Auth errors are `unauthorized` (401) and `forbidden` (403).\n\n" +
 			"Returns **201 Created** with the new session. This endpoint is not idempotent.",
 		Tags:          []string{"Sessions"},
@@ -192,28 +192,30 @@ func RegisterSessionOps(api huma.API, h *Handlers) {
 	// The action is selected inside the closure (not as a method value here) so
 	// registration never dereferences h.Sessions.
 	registerSessionAction(api, h, manage, "startSession", "/api/v1/sessions/{session}:start", "Start a session",
-		"Start the session. A paired session connects to WhatsApp; an unpaired or logged-out session begins QR pairing.\n\n"+
+		"Ask for the session to run (`desiredState: run`). A paired session connects to WhatsApp; an unpaired or logged-out session begins QR pairing.\n\n"+
+			"A session that is already starting, pairing, working or reconnecting is left as it is. A session whose last run ended (`failed`, `logged_out`, `stopped`) starts again: a failed session is retried only after an explicit start or restart, never on its own.\n\n"+
+			"The request is recorded before the gateway is told, so it succeeds even when the gateway is briefly unreachable; the gateway applies it within a few seconds of coming back. Watch `status`, or the `session.status` event.\n\n"+
 			"To use a phone pairing code instead, request the code directly without calling `:start` first.\n\n"+
-			"The session must be owned by your organization.\n\n"+
-			"Returns updated session row. Calling start repeatedly is idempotent.\n\n"+
+			"Returns the session row. Calling start repeatedly is idempotent.\n\n"+
 			"Errors: `not_found` (404), `unauthorized` (401), `forbidden` (403).",
 		func(ctx context.Context, org, id string) error { return h.Sessions.Start(ctx, org, id) })
 	registerSessionAction(api, h, manage, "stopSession", "/api/v1/sessions/{session}:stop", "Stop a session",
-		"Disconnect a paired session from WhatsApp while keeping device pairing in place.\n\n"+
+		"Ask for the session to stop (`desiredState: stop`): its gateway disconnects it from WhatsApp (or ends a running pairing) while keeping device pairing in place. A session that already ended with `failed` or `logged_out` keeps that status.\n\n"+
 			"Use `:logout` to fully unlink the device and clear attachment.\n\n"+
-			"Response is the refreshed session row. Repeating stop is safe and idempotent.\n\n"+
+			"Response is the session row. Repeating stop is safe and idempotent.\n\n"+
 			"Errors: `not_found` (404), `unauthorized` (401), `forbidden` (403).",
 		func(ctx context.Context, org, id string) error { return h.Sessions.Stop(ctx, org, id) })
 	registerSessionAction(api, h, manage, "restartSession", "/api/v1/sessions/{session}:restart", "Restart a session",
-		"Restart a session by performing stop then start. A paired session keeps its attachment and reconnects; an unpaired session begins a fresh QR pairing flow.\n\n"+
-			"Use this for transient failed/reconnecting states or to reset an in-progress QR flow. The action is idempotent.\n\n"+
+		"Ask for a fresh run: the gateway ends the current connection (if any) and starts again. A paired session keeps its attachment and reconnects; an unpaired session begins a fresh QR pairing flow.\n\n"+
+			"Use this to retry a `failed` session or to reset an in-progress QR flow. Each call starts a new run.\n\n"+
 			"Errors: `not_found` (404), `unauthorized` (401), `forbidden` (403).",
 		func(ctx context.Context, org, id string) error { return h.Sessions.Restart(ctx, org, id) })
 	registerSessionAction(api, h, manage, "logoutSession", "/api/v1/sessions/{session}:logout", "Log out a session (unpair the device)",
-		"Unlink the device and clear the attached WhatsApp number.\n\n"+
+		"Unlink the device on WhatsApp and clear the attached WhatsApp number; the session's desired state becomes `stop`.\n\n"+
+			"Unlinking is a request to WhatsApp: a stopped session is connected for the duration of the call. When WhatsApp does not confirm the unlink, the call fails and the device stays linked, so you can retry.\n\n"+
 			"To delete session metadata, call `DELETE /sessions/{session}`.\n\n"+
-			"Response is refreshed session row; repeated calls are idempotent when already logged out.\n\n"+
-			"Errors: `not_found` (404), `unauthorized` (401), `forbidden` (403).",
+			"Response is the session row; repeated calls are idempotent when already logged out.\n\n"+
+			"Errors: `not_found` (404), `gateway_unavailable` (503), `unauthorized` (401), `forbidden` (403).",
 		func(ctx context.Context, org, id string) error { return h.Sessions.Logout(ctx, org, id) })
 
 	huma.Register(api, huma.Operation{
@@ -259,10 +261,13 @@ func RegisterSessionOps(api huma.API, h *Handlers) {
 	huma.Register(api, huma.Operation{
 		OperationID: "sessionQR", Method: "GET", Path: "/api/v1/sessions/{session}/qr",
 		Summary: "Get the current pairing QR code",
-		Description: "Return the current pairing QR code for the session.\n\n" +
-			"If a code is not ready yet, pairing starts and the route returns `not_found` (404) until one is available.\n\n" +
-			"Requires `manage` capability. Response body is raw QR string.\n\n" +
-			"Errors: `not_found` (404), `unauthorized` (401), `forbidden` (403).",
+		Description: "Read the session's current pairing QR code. This only reads; it never starts pairing (use `:start` or create with `start: true`).\n\n" +
+			"- `state: ready` with `code` (and `expiresAt`) while a code exists.\n" +
+			"- `state: pending` while the session is pairing but WhatsApp has not sent a code yet; poll again or wait for the `auth.qr` event.\n" +
+			"- `409 conflict` when the session is not pairing: already paired, not started (`desiredState: stop`), logged out, or its pairing failed. A failed pairing carries `details.failureReason` (for example `qr_timeout`); start the session again for new codes.\n" +
+			"- `503 gateway_unavailable` when the session's gateway is not connected.\n\n" +
+			"Requires `manage` capability.\n\n" +
+			"Errors: `not_found` (404), `conflict` (409), `gateway_unavailable` (503), `unauthorized` (401), `forbidden` (403).",
 		Tags: []string{"Sessions"}, Middlewares: manage,
 	}, func(ctx context.Context, in *sessionIDInput) (*sessionQROutput, error) {
 		org, err := humax.Org(ctx)
@@ -281,6 +286,7 @@ func RegisterSessionOps(api huma.API, h *Handlers) {
 		Summary: "Request a phone pairing code",
 		Description: "Get a phone pairing code so the session can be linked without QR scanning.\n\n" +
 			"Pass `phone` in E.164 digits (no plus sign). The returned code is short-lived and must be used from the phone.\n\n" +
+			"Requesting a code asks for the session to run (`desiredState: run`): a session that is not pairing yet starts pairing first, and the code is requested on that pairing connection.\n\n" +
 			"Requires `manage` capability; session must be unpaired.\n\n" +
 			"Errors: `validation_error` (400), `not_found` (404), `unauthorized` (401), `forbidden` (403).",
 		Tags: []string{"Sessions"}, Middlewares: manage,

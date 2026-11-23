@@ -1,9 +1,9 @@
 // The session-lifecycle facade adapts the private engine client onto the
-// SessionService's resolved lifecycle port (Increment 7). Row, placement, and
-// assignment ownership stays with the API; this type only re-shapes the five
-// live engine calls (prepare, QR begin, phone pairing, logout, forget) onto
-// org/session signatures. Logout is a durable ledgered command; the rest are
-// idempotent or read-classified on the wire.
+// SessionService's resolved lifecycle port (Increment 7). Row, placement,
+// assignment and intent ownership stays with the API; this type only re-shapes
+// the live engine calls (apply, QR read, phone pairing, passkey, logout,
+// forget) onto org/session signatures. Logout is a durable ledgered command;
+// the rest are idempotent or read-classified on the wire.
 package gateway
 
 import (
@@ -23,21 +23,25 @@ func NewSessionLifecycleFacade(client *EngineClient) *SessionLifecycleFacade {
 	return &SessionLifecycleFacade{client: client}
 }
 
-// Prepare materializes the gateway-local keystore device for an API-created
-// session row.
-func (f *SessionLifecycleFacade) Prepare(ctx context.Context, organizationID, sessionID string) error {
-	return f.client.PrepareSession(ctx, organizationID, sessionID)
+// Apply applies a session's recorded intent on its gateway now.
+func (f *SessionLifecycleFacade) Apply(
+	ctx context.Context,
+	organizationID, sessionID string,
+	run bool,
+	startGeneration uint64,
+	deviceJID string,
+) error {
+	return f.client.ApplySession(ctx, organizationID, sessionID, run, startGeneration, deviceJID)
 }
 
-// QR starts (or resumes) QR pairing and returns the current snapshot code. An
-// empty Code means no code is ready yet — the caller polls again or subscribes
-// to auth.qr events.
+// QR reads the current pairing QR code. An empty Code means no code is ready
+// yet — the caller polls again or subscribes to auth.qr events.
 func (f *SessionLifecycleFacade) QR(
 	ctx context.Context,
 	organizationID string,
 	sessionID string,
 ) (application.PairingSnapshot, error) {
-	return f.client.BeginPairing(ctx, organizationID, sessionID)
+	return f.client.GetPairingQR(ctx, organizationID, sessionID)
 }
 
 // PairingCode requests a phone-number pairing code through the assigned engine.

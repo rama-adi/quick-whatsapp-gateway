@@ -4,10 +4,11 @@ package domain
 // newtypes (not iota ints) so the wire/DB representation is the literal string
 // the DDL specifies — no mapping table to drift out of sync.
 
-// SessionStatus mirrors wa_sessions.status. §3 lists the familiar UPPERCASE
-// status names (STARTING, SCAN_QR_CODE, …); the DDL stores their lowercase
-// forms. These constants are the stored/wire values; FromStatusName maps the
-// §3 names onto them.
+// SessionStatus is a session's observed runtime status. The gateway reports
+// every value except unavailable, which the API derives at read time; the
+// observed values are stored in wa_session_runtime.status. §3 lists the
+// familiar UPPERCASE status names (STARTING, SCAN_QR_CODE, …); these constants
+// are their lowercase stored/wire values.
 type SessionStatus string
 
 const (
@@ -17,6 +18,47 @@ const (
 	SessionFailed    SessionStatus = "failed"
 	SessionStopped   SessionStatus = "stopped"
 	SessionLoggedOut SessionStatus = "logged_out"
+	// SessionReconnecting: the connection dropped and is still down after the
+	// gateway's grace period; the gateway keeps retrying with backoff.
+	SessionReconnecting SessionStatus = "reconnecting"
+	// SessionUnavailable is never reported by a gateway: the API reads it for
+	// a session that should be live (starting, pairing, working, reconnecting)
+	// while its gateway is not connected, so its real state is unknown.
+	SessionUnavailable SessionStatus = "unavailable"
+)
+
+// Observed reports whether s is a status a gateway may report (every status
+// except the API-derived unavailable).
+func (s SessionStatus) Observed() bool {
+	switch s {
+	case SessionStarting, SessionScanQR, SessionWorking, SessionReconnecting,
+		SessionFailed, SessionStopped, SessionLoggedOut:
+		return true
+	default:
+		return false
+	}
+}
+
+// Live reports whether s describes a session with an active connection or
+// connection attempt, whose truth therefore depends on its gateway being up.
+func (s SessionStatus) Live() bool {
+	switch s {
+	case SessionStarting, SessionScanQR, SessionWorking, SessionReconnecting:
+		return true
+	default:
+		return false
+	}
+}
+
+// DesiredState is what the session's users asked for: run or stop. It is
+// written only by user actions (create with start, start, stop, restart,
+// logout, pairing-code request) and is the only input the desired-state
+// snapshot reads besides pairing identity and settings.
+type DesiredState string
+
+const (
+	DesiredRun  DesiredState = "run"
+	DesiredStop DesiredState = "stop"
 )
 
 // SessionFailureReason says why a session is in the failed status. It is set
@@ -63,6 +105,8 @@ var statusNameMap = map[string]SessionStatus{
 	"FAILED":       SessionFailed,
 	"STOPPED":      SessionStopped,
 	"LOGGED_OUT":   SessionLoggedOut,
+	"RECONNECTING": SessionReconnecting,
+	"UNAVAILABLE":  SessionUnavailable,
 }
 
 // SessionStatusFromName resolves a §3 familiar status name (e.g. "WORKING")

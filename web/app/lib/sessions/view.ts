@@ -1,21 +1,14 @@
 // The session view model: one explicit state per session, derived from the
 // merged session row (lib/sessions/merge.ts) plus the pairing artifacts the
-// cache holds (QR code, phone pairing code, passkey step, failure reason).
+// cache holds (QR code, phone pairing code, passkey step). The failure reason
+// and the desired lifecycle come from the row itself.
 //
 // Panels switch on `kind`. A pending lifecycle action is an overlay the hook
 // returns next to the view; it never changes `kind`.
-//
-// To swap inputs later (a failureReason on the REST row, a side-effect-free
-// GET /qr with an explicit pending/ready answer, a status sequence), change
-// SessionViewInput and its builder in useSessionView.ts; deriveSessionView's
-// rules stay the same.
 
-import type {
-  PasskeyStep,
-  QRCode,
-  SessionFailureReason,
-  WASession,
-} from "../api/types";
+import type { PasskeyStep, QRCode, WASession } from "../api/types";
+
+type SessionFailureReason = NonNullable<WASession["failureReason"]>;
 
 /** A code the user acts on, with the epoch-ms instant it stops working (if known). */
 export type PairingArtifact = { code: string; expiresAt?: number };
@@ -28,8 +21,15 @@ export type SessionView =
   /** The row could not be loaded and nothing is cached. */
   | { kind: "unreachable"; error: unknown }
   | { kind: "stopped"; paired: boolean }
-  /** status starting: connecting, or reconnecting when paired. */
+  /**
+   * status starting, or the user asked the session to run (desiredState run)
+   * and its gateway has not started it yet.
+   */
   | { kind: "connecting"; paired: boolean }
+  /** A paired session's connection dropped for longer than the gateway's grace period. */
+  | { kind: "reconnecting" }
+  /** The gateway that runs the session is offline. */
+  | { kind: "unavailable"; paired: boolean }
   /** scan_qr_code with no live code yet (or the last one expired). */
   | { kind: "awaiting_pairing"; artifacts: PairingArtifacts }
   | { kind: "qr"; code: string; expiresAt?: number; artifacts: PairingArtifacts }
@@ -53,7 +53,6 @@ export interface SessionViewInput {
   qr: QRCode | undefined;
   pairingCode: PairingArtifact | undefined;
   passkey: PasskeyStep | undefined;
-  failure: SessionFailureReason | undefined;
   /** When the session was first seen working without an identity (epoch ms). */
   linkingSince: number | undefined;
   now: number;
@@ -64,12 +63,12 @@ export const LINKING_STALL_MS = 10_000;
 
 /** An artifact is live while it has a code and has not expired. */
 export function liveArtifact(
-  artifact: PairingArtifact | undefined,
+  artifact: { code?: string; expiresAt?: number } | undefined,
   now: number,
 ): PairingArtifact | undefined {
   if (!artifact?.code) return undefined;
   if (artifact.expiresAt !== undefined && now >= artifact.expiresAt) return undefined;
-  return artifact;
+  return { code: artifact.code, expiresAt: artifact.expiresAt };
 }
 
 export function deriveSessionView(input: SessionViewInput): SessionView {
@@ -81,11 +80,17 @@ export function deriveSessionView(input: SessionViewInput): SessionView {
   const paired = Boolean(row.waJid);
   switch (row.status) {
     case "stopped":
+      // Start records desiredState run; the gateway applies it within seconds.
+      if (row.desiredState === "run") return { kind: "connecting", paired };
       return { kind: "stopped", paired };
     case "starting":
       return { kind: "connecting", paired };
+    case "reconnecting":
+      return { kind: "reconnecting" };
+    case "unavailable":
+      return { kind: "unavailable", paired };
     case "failed":
-      return { kind: "failed", reason: input.failure };
+      return { kind: "failed", reason: row.failureReason };
     case "logged_out":
       return { kind: "logged_out" };
     case "working":

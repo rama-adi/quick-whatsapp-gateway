@@ -16,6 +16,8 @@ function row(over: Partial<WASession> = {}): WASession {
     gatewayId: "g1",
     status: "stopped",
     isAdminSession: false,
+    desiredState: "stop",
+    statusChangedAt: 1,
     autoRead: false,
     presenceTyping: false,
     ratePerMin: 0,
@@ -35,7 +37,6 @@ function input(over: Partial<SessionViewInput> = {}): SessionViewInput {
     qr: undefined,
     pairingCode: undefined,
     passkey: undefined,
-    failure: undefined,
     linkingSince: undefined,
     now: 1_000,
     ...over,
@@ -56,7 +57,7 @@ describe("deriveSessionView", () => {
   it("maps lifecycle statuses", () => {
     expect(deriveSessionView(input({ session: row({ status: "stopped", waJid: "j" }) }))).toEqual({ kind: "stopped", paired: true });
     expect(deriveSessionView(input({ session: row({ status: "starting" }) }))).toEqual({ kind: "connecting", paired: false });
-    expect(deriveSessionView(input({ session: row({ status: "failed" }), failure: "qr_timeout" }))).toEqual({ kind: "failed", reason: "qr_timeout" });
+    expect(deriveSessionView(input({ session: row({ status: "failed", failureReason: "qr_timeout" }) }))).toEqual({ kind: "failed", reason: "qr_timeout" });
     expect(deriveSessionView(input({ session: row({ status: "logged_out" }) })).kind).toBe("logged_out");
     expect(deriveSessionView(input({ session: row({ status: "working", waJid: "j" }) })).kind).toBe("working");
   });
@@ -64,19 +65,19 @@ describe("deriveSessionView", () => {
   it("awaits pairing until a live code exists", () => {
     const awaiting = row({ status: "scan_qr_code" });
     expect(deriveSessionView(input({ session: awaiting })).kind).toBe("awaiting_pairing");
-    expect(deriveSessionView(input({ session: awaiting, qr: { code: "2@a" } }))).toMatchObject({ kind: "qr", code: "2@a" });
+    expect(deriveSessionView(input({ session: awaiting, qr: { state: "ready", code: "2@a" } }))).toMatchObject({ kind: "qr", code: "2@a" });
   });
 
   it("drops an expired QR code", () => {
     const awaiting = row({ status: "scan_qr_code" });
-    const qr = { code: "2@a", expiresAt: 2_000 };
+    const qr = { state: "ready" as const, code: "2@a", expiresAt: 2_000 };
     expect(deriveSessionView(input({ session: awaiting, qr, now: 1_999 })).kind).toBe("qr");
     expect(deriveSessionView(input({ session: awaiting, qr, now: 2_000 })).kind).toBe("awaiting_pairing");
   });
 
   it("prefers a requested phone code, and a passkey step over both", () => {
     const awaiting = row({ status: "scan_qr_code" });
-    const both = { session: awaiting, qr: { code: "2@a" }, pairingCode: { code: "ABCD1234" } };
+    const both = { session: awaiting, qr: { state: "ready" as const, code: "2@a" }, pairingCode: { code: "ABCD1234" } };
     const view = deriveSessionView(input(both));
     expect(view).toMatchObject({ kind: "pairing_code", code: "ABCD1234", artifacts: { qr: { code: "2@a" } } });
     const passkey = { step: "verify" as const, expiresAt: 9 };
@@ -84,8 +85,14 @@ describe("deriveSessionView", () => {
     expect(isAwaitingPairing(view)).toBe(true);
   });
 
+  it("maps the desired lifecycle and the new runtime statuses", () => {
+    expect(deriveSessionView(input({ session: row({ status: "stopped", desiredState: "run" }) }))).toEqual({ kind: "connecting", paired: false });
+    expect(deriveSessionView(input({ session: row({ status: "reconnecting", waJid: "j" }) }))).toEqual({ kind: "reconnecting" });
+    expect(deriveSessionView(input({ session: row({ status: "unavailable", waJid: "j" }) }))).toEqual({ kind: "unavailable", paired: true });
+  });
+
   it("ignores artifacts outside scan_qr_code", () => {
-    const view = deriveSessionView(input({ session: row({ status: "starting" }), qr: { code: "2@old" } }));
+    const view = deriveSessionView(input({ session: row({ status: "starting" }), qr: { state: "ready", code: "2@old" } }));
     expect(view.kind).toBe("connecting");
   });
 
@@ -99,7 +106,7 @@ describe("deriveSessionView", () => {
 describe("nextViewDeadline", () => {
   it("is the earliest artifact expiry or linking stall still ahead", () => {
     const awaiting = row({ status: "scan_qr_code" });
-    expect(nextViewDeadline(input({ session: awaiting, qr: { code: "q", expiresAt: 5_000 }, pairingCode: { code: "c", expiresAt: 3_000 } }))).toBe(3_000);
+    expect(nextViewDeadline(input({ session: awaiting, qr: { state: "ready", code: "q", expiresAt: 5_000 }, pairingCode: { code: "c", expiresAt: 3_000 } }))).toBe(3_000);
     expect(nextViewDeadline(input({ session: row({ status: "working" }), linkingSince: 0 }))).toBe(LINKING_STALL_MS);
     expect(nextViewDeadline(input())).toBeUndefined();
   });

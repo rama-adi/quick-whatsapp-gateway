@@ -196,8 +196,11 @@ function actionsFor(status: SessionStatus | undefined, paired: boolean): Session
     case "working":
       return ["restart", "stop", "logout"];
     case "starting":
+    case "reconnecting":
     case "scan_qr_code":
       return paired ? ["restart", "stop", "logout"] : ["restart", "stop"];
+    case "unavailable":
+      return [];
     case "failed":
       return paired ? ["restart", "stop", "logout"] : ["restart", "stop"];
     case "stopped":

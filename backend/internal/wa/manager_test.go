@@ -15,6 +15,7 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/gateway/desiredstate"
 )
 
 func quietLogger() *slog.Logger { return slog.New(slog.DiscardHandler) }
@@ -545,7 +546,8 @@ func TestTransientDisconnectWithinGraceIsNotPublished(t *testing.T) {
 }
 
 // TestDisconnectBeyondGraceIsPublished: a drop that outlasts the grace period
-// is reported once, then the recovery is reported as working.
+// is reported once as reconnecting (with attempt and last error), then the
+// recovery is reported as working.
 func TestDisconnectBeyondGraceIsPublished(t *testing.T) {
 	m, sink, _, fc := newTestManagerParts(t, Config{
 		ReconnectGrace: 30 * time.Millisecond,
@@ -564,7 +566,7 @@ func TestDisconnectBeyondGraceIsPublished(t *testing.T) {
 	fc.connectErr = errors.New("network is unreachable")
 	fc.mu.Unlock()
 	fc.emit(&events.Disconnected{})
-	waitFor(t, func() bool { return ms.Status() == domain.SessionStarting })
+	waitFor(t, func() bool { return ms.Status() == domain.SessionReconnecting })
 
 	fc.mu.Lock()
 	fc.connectErr = nil
@@ -572,8 +574,11 @@ func TestDisconnectBeyondGraceIsPublished(t *testing.T) {
 	waitFor(t, func() bool { fc.mu.Lock(); defer fc.mu.Unlock(); return fc.connected })
 	fc.emit(&events.Connected{})
 	got := statusPayloads(sink)[before:]
-	if len(got) != 2 || got[0]["status"] != "starting" || got[1]["status"] != "working" {
+	if len(got) != 2 || got[0]["status"] != "reconnecting" || got[1]["status"] != "working" {
 		t.Fatalf("status events after a long drop = %+v", got)
+	}
+	if got[0]["attempt"] == nil || got[0]["lastError"] == nil {
+		t.Fatalf("reconnecting event lacks attempt/lastError: %+v", got[0])
 	}
 }
 
@@ -589,7 +594,7 @@ func TestLifecycleOperationsAreSerialized(t *testing.T) {
 	fc.pairCode = "ABCD1234"
 	gate := make(chan struct{})
 	fc.connectGate = gate
-	m.EnsureDevice("session", "org")
+	register(m, &ManagedSession{SessionID: "session", OrganizationID: "org", device: &store.Device{}, status: domain.SessionStopped})
 
 	pairDone := make(chan error, 1)
 	go func() {
@@ -599,10 +604,10 @@ func TestLifecycleOperationsAreSerialized(t *testing.T) {
 	waitFor(t, func() bool { return currentRun(m.Get("session")) != nil })
 
 	qrDone := make(chan error, 1)
-	go func() { qrDone <- m.StartQR(context.Background(), "session") }()
+	go func() { qrDone <- m.StartAssigned(context.Background(), runAssignment("session", "", 0)) }()
 	select {
 	case <-qrDone:
-		t.Fatal("StartQR ran while StartPairingCode held the session")
+		t.Fatal("a start ran while StartPairingCode held the session")
 	case <-time.After(50 * time.Millisecond):
 	}
 	close(gate)
@@ -689,8 +694,7 @@ func TestLiveOpsRequireWorkingSession(t *testing.T) {
 
 func TestQRTimeoutReleasesRuntimeAndCachedCode(t *testing.T) {
 	manager, _, _, client := newTestManagerParts(t, Config{})
-	manager.EnsureDevice("session", "org")
-	ms := manager.Get("session")
+	ms := register(manager, &ManagedSession{SessionID: "session", OrganizationID: "org", device: &store.Device{}, status: domain.SessionStopped})
 	c := attachRun(manager, ms, client)
 	ms.lastQR, ms.lastQRExpires = "expired-code", time.Now().Add(time.Minute).UnixMilli()
 	// No codes left: the emitter reaches the end of the run at once.
@@ -704,11 +708,11 @@ func TestQRTimeoutReleasesRuntimeAndCachedCode(t *testing.T) {
 	if status != domain.SessionFailed || reason != domain.FailureQRTimeout {
 		t.Fatalf("status = %s, reason = %q; want failed qr_timeout", status, reason)
 	}
-	// A new request starts a fresh run rather than reporting an idempotent
-	// success for the timed-out one.
+	// A new start (generation) starts a fresh run rather than reporting an
+	// idempotent success for the timed-out one.
 	fresh := &fakeClient{}
 	manager.SetClientFactory(func(*store.Device) waClient { return fresh })
-	if err := manager.StartQR(context.Background(), "session"); err != nil {
+	if err := manager.StartAssigned(context.Background(), runAssignment("session", "", 1)); err != nil {
 		t.Fatal(err)
 	}
 	if run := currentRun(ms); run == nil || run.client != fresh {
@@ -718,36 +722,10 @@ func TestQRTimeoutReleasesRuntimeAndCachedCode(t *testing.T) {
 
 func TestManagerLatestQRDoesNotReturnExpiredCode(t *testing.T) {
 	manager := NewManager(&fakeKeystore{}, nil, nil, nil, quietLogger(), Config{})
-	manager.EnsureDevice("session", "org")
-	ms := manager.Get("session")
+	ms := register(manager, &ManagedSession{SessionID: "session", OrganizationID: "org", device: &store.Device{}, status: domain.SessionStopped})
 	ms.lastQR, ms.lastQRExpires = "old-code", time.Now().Add(-time.Second).UnixMilli()
 	if code, expiry := manager.LatestQR("session"); code != "" || expiry != 0 {
 		t.Fatalf("expired QR = %q, %d", code, expiry)
-	}
-}
-
-// A repeated QR start while the pairing runs replays the observed status
-// instead of opening a second connection.
-func TestStartQRRunningUnpairedClientRepublishesStatus(t *testing.T) {
-	manager, sink, _, client := newTestManagerParts(t, Config{})
-	manager.EnsureDevice("session", "org")
-	ms := manager.Get("session")
-	c := attachRun(manager, ms, client)
-	manager.setState(context.Background(), ms, c, domain.SessionScanQR, "")
-
-	if err := manager.StartQR(context.Background(), "session"); err != nil {
-		t.Fatal(err)
-	}
-	if got := sink.typeCount(domain.EventSessionStatus); got != 2 {
-		t.Fatalf("status events = %d; want initial status and replay", got)
-	}
-	event := sink.events[1]
-	payload, ok := event.Payload.(map[string]any)
-	if !ok || payload["status"] != string(domain.SessionScanQR) || event.Session != "session" {
-		t.Fatalf("replayed status = %+v", event)
-	}
-	if currentRun(ms) != c || client.disconnects != 0 {
-		t.Fatal("repeated pairing replaced or disconnected the running client")
 	}
 }
 
@@ -756,8 +734,7 @@ func TestStartQRRunningUnpairedClientRepublishesStatus(t *testing.T) {
 func TestStartPairingCodeReusesRunningQRClient(t *testing.T) {
 	manager, sink, _, client := newTestManagerParts(t, Config{})
 	client.pairCode = "ABCD1234"
-	manager.EnsureDevice("session", "org")
-	ms := manager.Get("session")
+	ms := register(manager, &ManagedSession{SessionID: "session", OrganizationID: "org", device: &store.Device{}, status: domain.SessionStopped})
 	c := attachRun(manager, ms, client)
 	c.markReady()
 
@@ -782,5 +759,131 @@ func TestStartPairingCodeReusesRunningQRClient(t *testing.T) {
 	}
 	if currentRun(ms) != c || ms.Status() == domain.SessionFailed {
 		t.Fatal("a failed code request tore down the QR flow")
+	}
+}
+
+// ----------------------------------------------------------------------------
+// Start generations and the failure latch
+// ----------------------------------------------------------------------------
+
+func runAssignment(id, device string, generation uint64) desiredstate.Assignment {
+	return desiredstate.Assignment{
+		SessionID: id, OrganizationID: "org", DeviceJID: device, AssignmentEpoch: 1,
+		DesiredRun: true, StartGeneration: generation, Config: desiredstate.Config{Revision: 1},
+	}
+}
+
+// TestFailureLatchHoldsUntilANewGeneration: a run that ended terminally is not
+// restarted by heartbeat snapshots (same generation); a newer generation (the
+// user asked again) starts it, and an older one is ignored.
+func TestFailureLatchHoldsUntilANewGeneration(t *testing.T) {
+	m, _, _, fc := newTestManagerParts(t, Config{})
+	jid := types.NewJID("628111", types.DefaultUserServer)
+	m.keystore.(*fakeKeystore).devices = []*store.Device{{ID: &jid}}
+	ctx := context.Background()
+
+	if err := m.StartAssigned(ctx, runAssignment("sess_1", jid.String(), 1)); err != nil {
+		t.Fatal(err)
+	}
+	ms := m.Get("sess_1")
+	run := currentRun(ms)
+	<-run.ready
+	fc.emit(&events.StreamReplaced{})
+	waitFor(t, func() bool { return ms.Status() == domain.SessionFailed && currentRun(ms) == nil })
+
+	for range 3 { // heartbeat snapshots repeat the generation
+		if err := m.StartAssigned(ctx, runAssignment("sess_1", jid.String(), 1)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if currentRun(ms) != nil || ms.Status() != domain.SessionFailed {
+		t.Fatal("a snapshot restarted a session whose run failed")
+	}
+	if err := m.StopAssigned(ctx, "sess_1"); err != nil {
+		t.Fatal(err)
+	}
+	if ms.Status() != domain.SessionFailed {
+		t.Fatal("stopping a failed session overwrote its failure")
+	}
+	if err := m.StartAssigned(ctx, runAssignment("sess_1", jid.String(), 0)); err != nil || currentRun(ms) != nil {
+		t.Fatal("an older generation started the session")
+	}
+	if err := m.StartAssigned(ctx, runAssignment("sess_1", jid.String(), 2)); err != nil {
+		t.Fatal(err)
+	}
+	if currentRun(ms) == nil || ms.Status() != domain.SessionStarting {
+		t.Fatalf("a new generation did not start the failed session: %s", ms.Status())
+	}
+}
+
+// TestNewGenerationRestartsRunningSession: restart is a new generation; a
+// running session ends its run and starts a fresh one.
+func TestNewGenerationRestartsRunningSession(t *testing.T) {
+	m, _, _, _ := newTestManagerParts(t, Config{})
+	ctx := context.Background()
+	if err := m.StartAssigned(ctx, runAssignment("sess_1", "", 1)); err != nil {
+		t.Fatal(err)
+	}
+	ms := m.Get("sess_1")
+	first := currentRun(ms)
+	if err := m.StartAssigned(ctx, runAssignment("sess_1", "", 1)); err != nil || currentRun(ms) != first {
+		t.Fatal("a repeated snapshot restarted a running session")
+	}
+	if err := m.StartAssigned(ctx, runAssignment("sess_1", "", 2)); err != nil {
+		t.Fatal(err)
+	}
+	if second := currentRun(ms); second == nil || second == first || first.ctx.Err() == nil {
+		t.Fatal("a new generation did not replace the running session's run")
+	}
+}
+
+// TestUnpairedRunAssignmentResumesPairing: a RUN assignment without a device
+// is QR pairing, so a gateway that restarted mid-pairing starts a fresh
+// pairing run instead of leaving the session starting forever.
+func TestUnpairedRunAssignmentResumesPairing(t *testing.T) {
+	m, sink, _, fc := newTestManagerParts(t, Config{})
+	if err := m.StartAssigned(context.Background(), runAssignment("sess_1", "", 3)); err != nil {
+		t.Fatal(err)
+	}
+	ms := m.Get("sess_1")
+	run := currentRun(ms)
+	if run == nil || ms.device == nil || ms.device.ID != nil {
+		t.Fatal("no pairing run for an unpaired RUN assignment")
+	}
+	<-run.ready
+	fc.emit(&events.QR{Codes: []string{"c1", "c2", "c3", "c4", "c5", "c6"}})
+	waitFor(t, func() bool { return len(eventsOfType(sink, domain.EventAuthQR)) == 1 })
+	if ms.Status() != domain.SessionScanQR {
+		t.Fatalf("status = %s", ms.Status())
+	}
+}
+
+// TestStatusSequenceIsMonotonic: every published status carries a strictly
+// larger statusSeq, also across a manager restart on the same clock, and the
+// report returns the current one.
+func TestStatusSequenceIsMonotonic(t *testing.T) {
+	m, sink, _, fc := newTestManagerParts(t, Config{})
+	ms := register(m, &ManagedSession{SessionID: "sess_1", OrganizationID: "org"})
+	attachRun(m, ms, fc)
+	for _, status := range []domain.SessionStatus{domain.SessionStarting, domain.SessionWorking, domain.SessionStarting, domain.SessionWorking} {
+		m.setState(context.Background(), ms, nil, status, "")
+	}
+	var last uint64
+	for _, payload := range statusPayloads(sink) {
+		seq := payload["statusSeq"].(uint64)
+		if seq <= last {
+			t.Fatalf("statusSeq %d after %d", seq, last)
+		}
+		last = seq
+	}
+	if got := m.SessionRuntime("sess_1"); got.Seq != last || got.Status != domain.SessionWorking {
+		t.Fatalf("runtime = %+v, want seq %d", got, last)
+	}
+	// A restarted gateway (same wall clock here) starts above the old values
+	// as long as its clock moved on; an untouched session reads as stopped at
+	// the new process's boot sequence.
+	restarted := NewManager(&fakeKeystore{}, nil, nil, fixedClock{ms: 2000}, quietLogger(), Config{})
+	if got := restarted.SessionRuntime("sess_1"); got.Status != domain.SessionStopped || got.Seq <= last {
+		t.Fatalf("restarted runtime = %+v, want stopped above %d", got, last)
 	}
 }

@@ -9,6 +9,8 @@ import (
 	"slices"
 	"sync"
 	"time"
+
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 )
 
 var ErrInvalidSnapshot = errors.New("desired state: invalid snapshot")
@@ -24,6 +26,11 @@ type Config struct {
 	HistorySyncDays uint32
 }
 
+// Assignment is one session the API assigned to this gateway. DesiredRun
+// without DeviceJID asks for QR pairing. StartGeneration counts explicit
+// start/restart requests: the runtime starts a session whose last run failed
+// or was logged out only for a newer generation, and restarts a running
+// session for one.
 type Assignment struct {
 	SessionID       string
 	OrganizationID  string
@@ -31,6 +38,7 @@ type Assignment struct {
 	AssignmentEpoch uint64
 	LeaseExpiresAt  time.Time
 	DesiredRun      bool
+	StartGeneration uint64
 	Config          Config
 }
 
@@ -39,9 +47,13 @@ type Snapshot struct {
 	Assignments []Assignment
 }
 
+// Inventory is the gateway's local device state. SessionDevices maps a
+// session to the paired device its runtime holds; it covers a pairing that
+// completed after the snapshot was built, before the API attached the device.
 type Inventory struct {
-	PairedJIDs  []string
-	CorruptJIDs []string
+	PairedJIDs     []string
+	CorruptJIDs    []string
+	SessionDevices map[string]string
 }
 
 type Result struct {
@@ -51,6 +63,19 @@ type Result struct {
 	UnexpectedJIDs    []string
 	CorruptJIDs       []string
 	LocalDeviceJIDs   []string
+	// HeldDevices is the device each assigned session holds when it differs
+	// from its assignment (a fresh pairing); results report this device.
+	HeldDevices map[string]string
+}
+
+// SessionRuntime is one session's observed runtime, reported to the API with
+// every desired-state report. Seq orders observations (see the
+// SessionRuntime proto message); ChangedAt is when the status changed.
+type SessionRuntime struct {
+	Status        domain.SessionStatus
+	FailureReason domain.SessionFailureReason
+	Seq           uint64
+	ChangedAt     time.Time
 }
 
 // Runtime is the gateway-local session engine. Start must use only the supplied
@@ -59,6 +84,9 @@ type Runtime interface {
 	Inventory(context.Context) (Inventory, error)
 	StartAssigned(context.Context, Assignment) error
 	StopAssigned(context.Context, string) error
+	// SessionRuntime reports a session's observed runtime; a session the
+	// runtime does not know reads as stopped.
+	SessionRuntime(sessionID string) SessionRuntime
 }
 
 type Reconciler struct {
@@ -120,6 +148,7 @@ func (r *Reconciler) Apply(ctx context.Context, snapshot Snapshot) (Result, erro
 		Healthy:         true,
 		CorruptJIDs:     sorted(inventory.CorruptJIDs),
 		LocalDeviceJIDs: sorted(slices.Clone(inventory.PairedJIDs)),
+		HeldDevices:     map[string]string{},
 	}
 	startAssignments := make([]Assignment, 0, len(snapshot.Assignments))
 	stopIDs := make([]string, 0, len(previousAssignments))
@@ -135,6 +164,11 @@ func (r *Reconciler) Apply(ctx context.Context, snapshot Snapshot) (Result, erro
 	for _, assignment := range snapshot.Assignments {
 		if assignment.DeviceJID != "" {
 			wantedDevices[assignment.DeviceJID] = struct{}{}
+		} else if held := inventory.SessionDevices[assignment.SessionID]; held != "" {
+			// The session paired after the API built this snapshot: its new
+			// device belongs to it, not to nobody.
+			wantedDevices[held] = struct{}{}
+			result.HeldDevices[assignment.SessionID] = held
 		}
 		if !assignment.DesiredRun || !assignment.LeaseExpiresAt.After(now) {
 			previous, owned := previousAssignments[assignment.SessionID]
@@ -151,6 +185,11 @@ func (r *Reconciler) Apply(ctx context.Context, snapshot Snapshot) (Result, erro
 			continue
 		}
 		next[assignment.SessionID] = assignment
+		if assignment.DeviceJID == "" {
+			// RUN without a device: the runtime runs QR pairing.
+			startAssignments = append(startAssignments, assignment)
+			continue
+		}
 		if _, found := paired[assignment.DeviceJID]; !found {
 			result.MissingDeviceJIDs = append(result.MissingDeviceJIDs, assignment.DeviceJID)
 			continue
@@ -356,7 +395,6 @@ func validate(snapshot Snapshot) error {
 	for _, a := range snapshot.Assignments {
 		invalid := a.SessionID == "" ||
 			a.OrganizationID == "" ||
-			(a.DesiredRun && a.DeviceJID == "") ||
 			a.AssignmentEpoch == 0 ||
 			a.LeaseExpiresAt.IsZero()
 		if invalid {

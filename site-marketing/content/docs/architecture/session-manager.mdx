@@ -32,80 +32,77 @@ per assigned session, each holding a live WebSocket. Responsibilities:
 The session lifecycle splits across the trust boundary:
 
 - **The API owns durable state**: it picks the placement
-  (`GatewayRepo.PickForPlacement`), inserts the `wa_sessions` row
-  (`status=stopped`, rates left unset), inserts the assignment at epoch 1
-  (`GatewayAssignmentRepo.Assign`, which advances the owning gateway's desired
-  revision; an existing assignment is kept so retries never re-epoch a live
-  session), and deletes both on teardown (`repo.Delete`, then
-  `Unassign`, which advances the revision so the gateway stops reconciling).
-- **Observed status is API-projected.** Every committed `session.status` event updates
-  `wa_sessions.status`, including `working` after connection. Non-logout transitions preserve
-  pairing identity; logout also clears it. REST reads therefore reflect the gateway lifecycle
-  rather than remaining at the API's initial `starting` state. The API writes
-  `starting` on desired RUN only for paired sessions (`wa_jid IS NOT NULL`),
-  whose connection is driven by reconciliation. For unpaired sessions the
-  gateway owns the pairing status, including `scan_qr_code`; the desired-state
-  write preserves it even when projection completes before Start returns.
-  Desired STOP still writes `stopped` for both paired and unpaired sessions.
-- **Pairing identity is API-projected.** The gateway records the paired JIDs
-  only in memory; the committed `auth.code` event (PairSuccess) is what the API
-  projects onto `wa_sessions` (`SessionRepo.AttachPairing`: `wa_jid`, `wa_lid`,
-  phone derived from the JID). Desired-state reconciliation derives each
-  assignment's `DeviceJID` from `wa_jid`, so this projection — not a gateway
-  write — is what lets a freshly paired session start. Until `wa_jid` exists,
-  pairing statuses still produce a STOP assignment; RUN requires both an
-  active status and the paired device JID.
+  (`GatewayRepo.PickForPlacement`), inserts the `wa_sessions` row, its
+  `wa_session_runtime` row (`stopped`, no observation) and the assignment at
+  epoch 1 in one transaction (`GatewayAssignmentRepo.CreateSession`, which
+  advances the owning gateway's desired revision), and deletes them on teardown.
+- **Intent and observation are separate facts with one writer each.**
+  - *Intent* lives on `wa_sessions`: `desired_state` (`run`/`stop`) and
+    `start_generation`. Only user actions write it, through
+    `SessionStateRepo.SetDesired` and `ClearPairing`: create with `start`,
+    `:start`, `:stop`, `:restart`, `:logout`, and a pairing-code request. Start
+    bumps the generation when the desired state was `stop` or the last run ended
+    (failed, logged out, stopped); restart always bumps it.
+  - *Observation* lives in `wa_session_runtime` (status, failure reason,
+    `status_seq`, `status_changed_at`). Only the gateway writes it, through
+    committed `session.status` events and through every desired-state report
+    (`SessionStateRepo.ApplyObservedStatus` / `ApplyRuntimeReport`). A write
+    applies only when its `status_seq` is newer than the stored one, so a late or
+    replayed status never overwrites a newer one. A newer `logged_out` also clears
+    the pairing identity.
+  - The desired-state snapshot reads intent only (`desired_state`,
+    `start_generation`, `wa_jid`, settings). A projected `failed` therefore no
+    longer turns RUN into STOP, a late `stopped` no longer undoes a Start, and a
+    pairing no longer makes a session RUN without a user action.
+  - REST reads resolve the effective status at read time: a live observed status
+    (`starting`, `scan_qr_code`, `working`, `reconnecting`) reads as
+    `unavailable` while the session's gateway has no connected control stream
+    (`gateways.connected_at IS NULL`, cleared by `DisconnectForEpoch`). Nothing is
+    copied onto rows when a gateway goes away.
+- **Pairing identity is API-projected.** The committed `auth.code` event
+  (PairSuccess) is projected onto `wa_sessions` (`SessionStateRepo.AttachPairing`:
+  `wa_jid`, `wa_lid`, phone derived from the JID). `wa_jid` is part of the
+  snapshot, so attaching (and clearing) it advances the gateway's desired
+  revision in the same transaction: a revision always names one snapshot content.
+- **Applying intent now.** After recording intent, `:start`, `:stop` and
+  `:restart` call the gateway's `ApplySession` RPC with the run flag, start
+  generation and device JID, so the user does not wait up to one heartbeat for
+  the next snapshot. The call is an accelerator: its failure is logged and the
+  action still succeeds, because the snapshot carries the same intent. A
+  pairing-code request records a run, applies it (this one must succeed) and then
+  asks for the code on the running pairing connection.
 - **Logout is a full pairing reset across the boundary.** The engine unlink runs
-  as a durable command; then the row is atomically marked `logged_out` with
-  `wa_jid`, `wa_lid`, and `phone_number` cleared (`SessionRepo.ClearPairing`)
-  — synchronously in `SessionService.Logout`, and again from the terminal
-  `session.status` projection when WhatsApp force-logs-out a session or when a
-  repeated logout replays, which repairs stale rows idempotently. The managed
-  session swaps its deleted device for a fresh unpaired one and clears its QR
-  cache, so re-pairing starts immediately.
-- **Start covers unpaired sessions.** `Manager.Start` begins QR pairing for an
-  unpaired device instead of failing validation, and repeats are idempotent;
-  `Restart` completes stop plus that same transition rather than partially
-  stopping. API-side, an unpaired Start/Restart prepares the gateway-local
-  device and kicks pairing through the facade before flipping desired run state
-  (desired run alone cannot express the unpaired case — reconciliation skips
-  assignments without a device JID). Pairing setup remains before the desired
-  write so a failed setup does not change desired state. Repeating StartQR on
-  an already-running unpaired client republishes its current `session.status`,
-  bypassing transition deduplication so the API and dashboard can resynchronize.
-  Restart first forgets the live runtime
-  synchronously, preserving the SQLite device, then performs the same start
-  sequence; it does not rely on stop/start desired-state writes, which can
-  coalesce before reconciliation. Start, Stop, and Restart return a
-  live-unavailable error when the desired-state or live control-plane seams are
-  not configured instead of dereferencing a nil controller.
+  as a durable command and must be confirmed by WhatsApp; then
+  `SessionStateRepo.ClearPairing` clears `wa_jid`, `wa_lid` and `phone_number`
+  and sets `desired_state=stop`, so the session stays logged out until a user
+  starts it again. The gateway's `logged_out` status repeats the identity clear
+  when it is projected.
+- **GET /qr only reads.** `SessionService.QR` answers from intent and observation
+  first: 409 for a paired session, a session not asked to run, a logged-out
+  session, or a failed pairing (with `details.failureReason`); 503 when the
+  gateway is not connected. Otherwise it reads the gateway's current code through
+  `GetPairingQR` and answers `{state: "ready", code, expiresAt}` or
+  `{state: "pending"}`. It never starts pairing; polling a failed session no
+  longer reopens a doomed WhatsApp connection.
 - **The gateway executes only live parts**, through private engine RPCs served
   by `wa.ApplicationGatewayAdapter` (see [`grpc-contracts.md`](/docs/architecture/grpc-contracts)):
-  - `PrepareSession` — creates the local keystore device + managed-session entry
-    for an API-created row (`Manager.EnsureDevice`). The API waits for the next
-    gateway desired-state acknowledgement before routing this call, bounded by
-    one control heartbeat interval plus the configured unary RPC deadline.
-    Idempotent; not ledger-backed.
-  - `BeginPairing` / `PairPhone` — QR snapshot-with-kick and phone-number
-    pairing behind the assignment fence, including stopped sessions. The fence
-    still checks organization, assignment epoch, and lease; other live operations
-    require a running assignment. Pairing calls are not ledger-backed.
+  - `ApplySession` — runs (`Manager.StartAssigned` with the request's generation;
+    settings stay those of the last snapshot) or stops (`StopAssigned`) a session
+    behind the assignment fence.
+  - `GetPairingQR` — reads the current QR code; never starts anything.
+  - `PairPhone` — phone-number pairing on the running pairing connection (it
+    starts the pairing run itself when none runs).
+  - `SubmitPasskey` / `ConfirmPasskey` — passkey steps of a running pairing.
   - `LogoutSession` — destructive unlink as a durable command with full send-style
     ledger replay (records `CommandSent` only). It accepts a stopped session
-    under the same organization/epoch/lease assignment fence, so stop then
-    logout remains valid.
+    under the same organization/epoch/lease assignment fence.
   - `ForgetSession` — in-memory runtime drop during delete; idempotent, no epoch
     requirement (the row may already be deleted API-side).
-- **Keystore device creation is an explicit PrepareSession step.** The device is
-  minted only when the API asks the assigned engine to prepare; reconciliation
-  keeps its fail-closed `keystore_missing` policy for sessions whose expected
-  device was never prepared or has vanished.
-- The API-side `SessionService` has no in-process fallback paths any more:
-  Create/Logout/Delete/QR/PairingCode always go through the engine facade. Start
-  and Stop flip desired state (`SessionDesiredController`); Restart forgets the
-  runtime synchronously, then starts through the same prepare/QR path and sets
-  desired run. Delete order: OAuth cascade → engine forget → repo delete →
-  unassign. Logout order: engine logout → pairing clear → OAuth cascade.
+  - `PrepareSession` and `BeginPairing` are deprecated and answer `Unimplemented`;
+    they stay in the proto only so the contract remains additive.
+- Delete order: OAuth cascade → engine forget → repo delete (the assignment and
+  runtime rows cascade). Logout order: engine logout → pairing clear → OAuth
+  cascade.
 - **Registry writes are gone from the gateway.** There is no `joining`/`active`
   registration, no heartbeat timer, and no shutdown draining/drained write to
   `wa_gateways`: liveness is the acknowledged control-stream heartbeat itself.
@@ -242,7 +239,8 @@ than 408 or 5xx, or a deleted device) ends the run at once as `failed` with `con
 
 **Reconnect grace period.** WhatsApp drops connections several times a day and they come back
 within one or two seconds. The status stays `working` while the transport is down; only when it
-is still down after `ReconnectGrace` (default 10 seconds) does the session report `starting`.
+is still down after `ReconnectGrace` (default 10 seconds) does the session report `reconnecting`,
+with the failed `attempt` count and the `lastError`. A run that never connected stays `starting`.
 A drop that recovers within the grace period publishes nothing, so users and webhooks do not
 see an outage that did not happen. The session reports `working` again on the next `Connected`.
 
@@ -267,6 +265,59 @@ message. `501 not_implemented` is reserved for client types that cannot perform 
 **Single status producer.** Only the manager publishes `session.status`. The inbound normalizer
 no longer turns `Connected`, `Disconnected` or `LoggedOut` into status events; a second,
 undebounced producer contradicted the manager (for example a `starting` for every transient drop).
+
+## Start generations, the failure latch and runtime reports
+
+**Unpaired RUN is pairing.** A RUN assignment without a device JID asks the
+gateway to run QR pairing: `StartAssigned` registers the session with a fresh
+unpaired device and starts a pairing run. This is also how interrupted pairing
+resumes: after a gateway restart, the next snapshot still says RUN without a
+device, so the gateway starts a new pairing run (new QR codes) instead of leaving
+the row `starting` forever. Resuming was chosen over ending the pairing because
+the user asked for the session to run and has not changed that; a resumed pairing
+nobody scans ends as `failed` with `qr_timeout` after its codes run out.
+
+**Start generations.** Each assignment carries `start_generation`, which the API
+bumps for every explicit start or restart. `StartAssigned` compares it with the
+generation of the session's current or last run:
+
+| Assignment generation | Effect |
+|---|---|
+| older | stale request, ignored |
+| newer | the user asked again: a running session restarts, a failed or logged-out one starts |
+| equal | starts only when the session is neither running nor latched |
+
+**Failure latch.** A run that ends terminally (`failed`, `logged_out`) latches the
+session. Heartbeat snapshots repeat the same generation, so they never restart a
+latched session: a `stream_replaced`, `temporary_ban` or `client_outdated` session
+stays failed instead of reconnecting within seconds and erasing the failure. They
+do resume a session stopped by lease expiry, which is not latched. `StopAssigned`
+leaves a latched session's status alone. The latch is in memory: after a gateway
+restart every RUN session gets one new attempt.
+
+**Status sequence.** Every published status carries `statusSeq` from a hybrid
+logical clock (`Manager.nextSeq`): wall-clock milliseconds × 1000, or the previous
+value + 1 when that is not larger. It increases strictly within the process, a
+restarted gateway starts above its previous process's values, and it stays below
+2^53 so JavaScript clients read it exactly. A reassignment resets the stored
+sequence, since sequences of different gateways are not comparable.
+
+**Runtime in every report.** Each desired-state report carries the observed
+runtime (status, failure reason, `statusSeq`, change time) of every assigned
+session (`desiredstate.Runtime.SessionRuntime`). A session this process never
+touched reads as `stopped` at the process's boot sequence. The API stores every
+entry that is newer than what it has, fenced by connection epoch and assignment.
+A status event the sink dropped (assignment not live yet), the journal replay
+skipped (older epoch), or `setState` never emitted is therefore repaired within
+one heartbeat.
+
+**Fresh pairings are not unexpected devices.** The inventory reports the paired
+device each managed session holds. A RUN assignment without a device whose
+session already holds one (it paired after the snapshot was built) reports that
+device as its result, so it is not classified `unexpected_local_device` and the
+gateway does not turn `degraded`. The API accepts that result while the row has
+no `wa_jid`; a report for a superseded revision is skipped instead of resetting
+the control stream.
 
 ## Desired-state assignment foundation
 
@@ -506,7 +557,7 @@ Core types:
 - Runs: events of a replaced run change nothing (`TestStaleRunEventsAreDropped`); whatsmeow
   auto-reconnect is off on built clients; `ErrAlreadyConnected` is success; exhausted attempts
   fail with `connect_error`; a refusal fails at once with `connect_rejected`; a drop within the
-  grace period publishes nothing and a longer one publishes `starting` then `working`; lifecycle
+  grace period publishes nothing and a longer one publishes `reconnecting` then `working`; lifecycle
   operations wait for each other; a failed unlink fails `Logout` and keeps the device; live
   operations on a non-working session answer `session_not_ready`.
 - Online presence: the manager announces `PresenceAvailable` on `Connected`, but

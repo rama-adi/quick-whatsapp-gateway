@@ -12,6 +12,7 @@ import (
 	"time"
 
 	gatewayv1 "github.com/rama-adi/quick-whatsapp-gateway/gen/gateway/v1"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -95,6 +96,19 @@ type ReconciliationReport struct {
 	KeystoreBytes, CheckedAt *int64
 	LocalDevices             []string
 	Results                  []ReconciliationResult
+	// Sessions is the observed runtime of every assigned session.
+	Sessions []SessionRuntime
+}
+
+// SessionRuntime is one session's observed runtime from a desired-state
+// report. Seq 0 means the gateway has no observation of its own yet.
+type SessionRuntime struct {
+	SessionID       string
+	AssignmentEpoch uint64
+	Status          domain.SessionStatus
+	FailureReason   domain.SessionFailureReason
+	Seq             uint64
+	ChangedAt       time.Time
 }
 type ReconciliationResult struct {
 	SessionID         *string
@@ -471,6 +485,26 @@ func reconciliationReport(report *gatewayv1.DesiredStateReport) ReconciliationRe
 	}
 	for _, device := range report.LocalDevices {
 		out.LocalDevices = append(out.LocalDevices, device.DeviceJid)
+	}
+	for _, runtime := range report.Sessions {
+		status, err := sessionStatus(runtime.GetStatus())
+		if err != nil || runtime.GetSessionId() == "" {
+			// An unknown status from a newer gateway is skipped, not fatal:
+			// the rest of the report is still valid.
+			continue
+		}
+		reason := domain.SessionFailureReason(runtime.GetFailureReason())
+		if status != domain.SessionFailed || !reason.Valid() {
+			reason = ""
+		}
+		out.Sessions = append(out.Sessions, SessionRuntime{
+			SessionID:       runtime.GetSessionId(),
+			AssignmentEpoch: runtime.GetAssignmentEpoch(),
+			Status:          status,
+			FailureReason:   reason,
+			Seq:             runtime.GetStatusSeq(),
+			ChangedAt:       time.UnixMilli(runtime.GetStatusChangedAtUnixMs()).UTC(),
+		})
 	}
 	for _, r := range report.Results {
 		resultStatus := strings.TrimPrefix(strings.ToLower(r.Status.String()), "reconciliation_result_status_")

@@ -38,9 +38,11 @@ flag. See [create a session](/docs/api/sessions/createSession). If the session
 was created without starting, call `POST /sessions/{id}:start` to begin QR
 pairing. Calling `:start` on an already paired session connects it normally.
 
-A new session created with `start: true` moves to `scan_qr_code`, meaning it is
-waiting for a phone to link. With `start: false`, it stays `stopped` until you
-start it or request a phone pairing code directly.
+A new session created with `start: true` has `desiredState: run`. Within a few
+seconds its gateway starts pairing and the session moves to `scan_qr_code`,
+meaning it is waiting for a phone to link. With `start: false`, it stays
+`stopped` (`desiredState: stop`) until you start it or request a phone pairing
+code directly.
 
 ## 2. Link the phone
 
@@ -60,8 +62,12 @@ On the phone, open **WhatsApp → Settings → Linked devices → Link a device*
 then point the camera at the QR code.
 
 To fetch the current code from code instead, call
-[get the QR code](/docs/api/sessions/sessionQR). The endpoint returns JSON with a
-`code` string — your client renders the QR image from that string.
+[get the QR code](/docs/api/sessions/sessionQR). It returns `{"state": "ready",
+"code": "…"}` while a code exists — your client renders the QR image from the
+`code` string — and `{"state": "pending"}` while the session waits for its first
+code. The endpoint only reads: it never starts pairing. A session that is not
+pairing answers `409`; if its pairing failed, `details.failureReason` says why
+(for example `qr_timeout`). Start the session again for new codes.
 
 Starting chooses the QR flow. If you prefer a phone pairing code, request it
 directly without calling `:start` first.
@@ -132,9 +138,14 @@ A session can be in any of these statuses:
 | `starting` | Connecting | Connecting to WhatsApp. |
 | `scan_qr_code` | Waiting for QR scan | Waiting for you to scan the QR code or enter the pairing code. |
 | `working` | Connected | Linked and live — ready to send and receive. |
+| `reconnecting` | Reconnecting | The connection dropped and the gateway is reconnecting. Short drops are not shown. |
 | `stopped` | Stopped | Stopped on purpose; reconnects when you start it. |
-| `failed` | Failed | Connection failed; the gateway stopped retrying. |
+| `failed` | Failed | The gateway stopped trying; `failureReason` says why. It retries only when you start or restart the session. |
 | `logged_out` | Logged out | The link was removed (from the phone or by a ban); needs re-linking. |
+| `unavailable` | Unavailable | The gateway that runs the session is offline, so its state is unknown. |
+
+`desiredState` (`run` or `stop`) shows what was last asked of the session. A
+session with `desiredState: run` and status `stopped` is about to start.
 
 The dashboard updates the status live. From code, you can
 [poll the session](/docs/api/sessions/getSession) or subscribe to `session.status`

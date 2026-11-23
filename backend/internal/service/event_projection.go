@@ -37,8 +37,9 @@ type projectionStore interface {
 	// Session pairing lifecycle: the wa_sessions row is API-owned, so PairSuccess
 	// and logout events are the durable signals that attach or clear identity.
 	AttachPairing(ctx context.Context, in store.AttachPairingInput) error
-	ClearPairing(ctx context.Context, sessionID string, updatedAt int64) error
-	UpdateSessionStatus(ctx context.Context, sessionID string, status domain.SessionStatus, updatedAt int64) error
+	// ApplyObservedStatus stores a gateway-observed session status only when
+	// its sequence is newer than the stored one.
+	ApplyObservedStatus(ctx context.Context, observed store.ObservedStatus) (bool, error)
 	// History sync (history.batch / history.sync); see history_projection.go.
 	ApplyHistoryBatch(ctx context.Context, in store.HistoryBatch) (store.HistoryBatchResult, error)
 	ApplyHistorySync(ctx context.Context, in store.HistorySyncUpdate) error
@@ -452,22 +453,37 @@ func (c *EventProjectionConsumer) projectPairSuccess(ctx context.Context, event 
 	})
 }
 
-// projectSessionStatus persists the observed gateway lifecycle for REST reads.
-// Logout also clears pairing identity; other states preserve it.
+// projectSessionStatus stores the gateway-observed lifecycle for REST reads.
+// The gateway stamps every status with a sequence; the store applies it only
+// when newer than the stored one, so a late or replayed event never
+// overwrites a newer status (or re-clears a newer pairing). An event without a
+// sequence (from a gateway older than this projection) is ignored: the
+// gateway's next desired-state report carries the current status. A newer
+// logged_out also clears the pairing identity.
 func (c *EventProjectionConsumer) projectSessionStatus(ctx context.Context, event domain.Event) error {
 	var p apitypes.SessionStatusPayload
 	if err := decodePayload(event, &p); err != nil {
 		return err
 	}
 	status := domain.SessionStatus(p.Status)
-	switch status {
-	case domain.SessionLoggedOut:
-		return c.store.ClearPairing(ctx, event.Session, c.clock())
-	case domain.SessionStarting, domain.SessionWorking, domain.SessionScanQR, domain.SessionFailed, domain.SessionStopped:
-		return c.store.UpdateSessionStatus(ctx, event.Session, status, c.clock())
-	default:
+	if !status.Observed() {
 		return domain.ErrValidation("unknown session status")
 	}
+	if p.StatusSeq == 0 {
+		return nil
+	}
+	changedAt := event.Timestamp
+	if changedAt <= 0 {
+		changedAt = c.clock()
+	}
+	_, err := c.store.ApplyObservedStatus(ctx, store.ObservedStatus{
+		SessionID:     event.Session,
+		Status:        status,
+		FailureReason: domain.SessionFailureReason(p.FailureReason),
+		Seq:           p.StatusSeq,
+		ChangedAt:     changedAt,
+	})
+	return err
 }
 
 // captureSenderOnly runs the identity half of capture for message-family

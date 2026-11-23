@@ -11,15 +11,16 @@ _openapi:
     headings: []
     contents:
       - content: >-
-          Disconnect a paired session from WhatsApp while keeping device pairing
-          in place.
+          Ask for the session to stop (`desiredState: stop`): its gateway
+          disconnects it from WhatsApp (or ends a running pairing) while keeping
+          device pairing in place. A session that already ended with `failed` or
+          `logged_out` keeps that status.
 
 
           Use `:logout` to fully unlink the device and clear attachment.
 
 
-          Response is the refreshed session row. Repeating stop is safe and
-          idempotent.
+          Response is the session row. Repeating stop is safe and idempotent.
 
 
           Errors: `not_found` (404), `unauthorized` (401), `forbidden` (403).

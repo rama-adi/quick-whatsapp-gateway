@@ -13,7 +13,7 @@ import (
 )
 
 type sessionStateSource interface {
-	ConnectionState(string) (domain.SessionStatus, bool, bool, bool)
+	RuntimeState(string) (RuntimeState, bool)
 }
 
 type engineLiveOps interface {
@@ -141,7 +141,7 @@ func (a *ApplicationGatewayAdapter) GetSessionState(
 			return application.SessionState{}, domain.ErrConflict("session assignment is not live")
 		}
 	}
-	status, connected, loggedIn, found := a.sessions.ConnectionState(query.SessionID)
+	state, found := a.sessions.RuntimeState(query.SessionID)
 	if !found {
 		return application.SessionState{}, domain.ErrNotFound("session not found")
 	}
@@ -149,9 +149,11 @@ func (a *ApplicationGatewayAdapter) GetSessionState(
 		OrganizationID: query.OrganizationID,
 		SessionID:      query.SessionID,
 		GatewayID:      query.GatewayID,
-		Status:         status,
-		Connected:      connected,
-		LoggedIn:       loggedIn,
+		Status:         state.Status,
+		FailureReason:  state.FailureReason,
+		StatusSeq:      state.StatusSeq,
+		Connected:      state.Connected,
+		LoggedIn:       state.LoggedIn,
 	}, nil
 }
 

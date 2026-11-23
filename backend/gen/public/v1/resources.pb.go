@@ -32,6 +32,8 @@ const (
 	SessionStatus_SESSION_STATUS_FAILED       SessionStatus = 4
 	SessionStatus_SESSION_STATUS_STOPPED      SessionStatus = 5
 	SessionStatus_SESSION_STATUS_LOGGED_OUT   SessionStatus = 6
+	SessionStatus_SESSION_STATUS_RECONNECTING SessionStatus = 7
+	SessionStatus_SESSION_STATUS_UNAVAILABLE  SessionStatus = 8
 )
 
 // Enum value maps for SessionStatus.
@@ -44,6 +46,8 @@ var (
 		4: "SESSION_STATUS_FAILED",
 		5: "SESSION_STATUS_STOPPED",
 		6: "SESSION_STATUS_LOGGED_OUT",
+		7: "SESSION_STATUS_RECONNECTING",
+		8: "SESSION_STATUS_UNAVAILABLE",
 	}
 	SessionStatus_value = map[string]int32{
 		"SESSION_STATUS_UNSPECIFIED":  0,
@@ -53,6 +57,8 @@ var (
 		"SESSION_STATUS_FAILED":       4,
 		"SESSION_STATUS_STOPPED":      5,
 		"SESSION_STATUS_LOGGED_OUT":   6,
+		"SESSION_STATUS_RECONNECTING": 7,
+		"SESSION_STATUS_UNAVAILABLE":  8,
 	}
 )
 
@@ -276,8 +282,14 @@ type Session struct {
 	UpdatedAtUnixMs       int64                  `protobuf:"varint,17,opt,name=updated_at_unix_ms,json=updatedAtUnixMs,proto3" json:"updated_at_unix_ms,omitempty"`
 	// Days of chat history imported when the device is (re)linked; 0 = off.
 	HistorySyncDays int32 `protobuf:"varint,18,opt,name=history_sync_days,json=historySyncDays,proto3" json:"history_sync_days,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Why the session failed; set only when status is FAILED.
+	FailureReason *string `protobuf:"bytes,19,opt,name=failure_reason,json=failureReason,proto3,oneof" json:"failure_reason,omitempty"`
+	// What was asked of the session: "run" or "stop".
+	DesiredState string `protobuf:"bytes,20,opt,name=desired_state,json=desiredState,proto3" json:"desired_state,omitempty"`
+	// When the gateway observed the current status.
+	StatusChangedAtUnixMs int64 `protobuf:"varint,21,opt,name=status_changed_at_unix_ms,json=statusChangedAtUnixMs,proto3" json:"status_changed_at_unix_ms,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *Session) Reset() {
@@ -436,6 +448,27 @@ func (x *Session) GetHistorySyncDays() int32 {
 	return 0
 }
 
+func (x *Session) GetFailureReason() string {
+	if x != nil && x.FailureReason != nil {
+		return *x.FailureReason
+	}
+	return ""
+}
+
+func (x *Session) GetDesiredState() string {
+	if x != nil {
+		return x.DesiredState
+	}
+	return ""
+}
+
+func (x *Session) GetStatusChangedAtUnixMs() int64 {
+	if x != nil {
+		return x.StatusChangedAtUnixMs
+	}
+	return 0
+}
+
 // Me is the attached WhatsApp identity of a paired session
 // (GET /sessions/{id}/me equivalent).
 type Me struct {
@@ -523,10 +556,13 @@ func (x *Me) GetConnected() bool {
 }
 
 // QR is a pairing QR snapshot (GET /sessions/{id}/qr equivalent).
+// QrCode is the pairing QR snapshot. state is "ready" with a code, or
+// "pending" while the pairing waits for its first code (code is empty).
 type QrCode struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	Code            string                 `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`
 	ExpiresAtUnixMs *int64                 `protobuf:"varint,2,opt,name=expires_at_unix_ms,json=expiresAtUnixMs,proto3,oneof" json:"expires_at_unix_ms,omitempty"`
+	State           string                 `protobuf:"bytes,3,opt,name=state,proto3" json:"state,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -573,6 +609,13 @@ func (x *QrCode) GetExpiresAtUnixMs() int64 {
 		return *x.ExpiresAtUnixMs
 	}
 	return 0
+}
+
+func (x *QrCode) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
 }
 
 // SendResult is the outcome of an outbound send or message operation. mode is
@@ -1366,7 +1409,7 @@ var File_v1_resources_proto protoreflect.FileDescriptor
 
 const file_v1_resources_proto_rawDesc = "" +
 	"\n" +
-	"\x12v1/resources.proto\x12\tpublic.v1\"\xa1\x06\n" +
+	"\x12v1/resources.proto\x12\tpublic.v1\"\xbf\a\n" +
 	"\aSession\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12'\n" +
 	"\x0forganization_id\x18\x02 \x01(\tR\x0eorganizationId\x120\n" +
@@ -1388,13 +1431,17 @@ const file_v1_resources_proto_rawDesc = "" +
 	"\x19last_connected_at_unix_ms\x18\x0f \x01(\x03H\x05R\x15lastConnectedAtUnixMs\x88\x01\x01\x12+\n" +
 	"\x12created_at_unix_ms\x18\x10 \x01(\x03R\x0fcreatedAtUnixMs\x12+\n" +
 	"\x12updated_at_unix_ms\x18\x11 \x01(\x03R\x0fupdatedAtUnixMs\x12*\n" +
-	"\x11history_sync_days\x18\x12 \x01(\x05R\x0fhistorySyncDaysB\x15\n" +
+	"\x11history_sync_days\x18\x12 \x01(\x05R\x0fhistorySyncDays\x12*\n" +
+	"\x0efailure_reason\x18\x13 \x01(\tH\x06R\rfailureReason\x88\x01\x01\x12#\n" +
+	"\rdesired_state\x18\x14 \x01(\tR\fdesiredState\x128\n" +
+	"\x19status_changed_at_unix_ms\x18\x15 \x01(\x03R\x15statusChangedAtUnixMsB\x15\n" +
 	"\x13_created_by_user_idB\b\n" +
 	"\x06_labelB\t\n" +
 	"\a_wa_jidB\t\n" +
 	"\a_wa_lidB\x0f\n" +
 	"\r_phone_numberB\x1c\n" +
-	"\x1a_last_connected_at_unix_ms\"\xfa\x01\n" +
+	"\x1a_last_connected_at_unix_msB\x11\n" +
+	"\x0f_failure_reason\"\xfa\x01\n" +
 	"\x02Me\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x120\n" +
@@ -1405,10 +1452,11 @@ const file_v1_resources_proto_rawDesc = "" +
 	"\tconnected\x18\x06 \x01(\bR\tconnectedB\t\n" +
 	"\a_wa_jidB\t\n" +
 	"\a_wa_lidB\x0f\n" +
-	"\r_phone_number\"e\n" +
+	"\r_phone_number\"{\n" +
 	"\x06QrCode\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\tR\x04code\x120\n" +
-	"\x12expires_at_unix_ms\x18\x02 \x01(\x03H\x00R\x0fexpiresAtUnixMs\x88\x01\x01B\x15\n" +
+	"\x12expires_at_unix_ms\x18\x02 \x01(\x03H\x00R\x0fexpiresAtUnixMs\x88\x01\x01\x12\x14\n" +
+	"\x05state\x18\x03 \x01(\tR\x05stateB\x15\n" +
 	"\x13_expires_at_unix_ms\"\xa0\x02\n" +
 	"\n" +
 	"SendResult\x12\x12\n" +
@@ -1522,7 +1570,7 @@ const file_v1_resources_proto_rawDesc = "" +
 	"\x06_error\"'\n" +
 	"\x04Page\x12\x1f\n" +
 	"\vnext_cursor\x18\x01 \x01(\tR\n" +
-	"nextCursor*\xdf\x01\n" +
+	"nextCursor*\xa0\x02\n" +
 	"\rSessionStatus\x12\x1e\n" +
 	"\x1aSESSION_STATUS_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17SESSION_STATUS_STARTING\x10\x01\x12\x1f\n" +
@@ -1530,7 +1578,9 @@ const file_v1_resources_proto_rawDesc = "" +
 	"\x16SESSION_STATUS_WORKING\x10\x03\x12\x19\n" +
 	"\x15SESSION_STATUS_FAILED\x10\x04\x12\x1a\n" +
 	"\x16SESSION_STATUS_STOPPED\x10\x05\x12\x1d\n" +
-	"\x19SESSION_STATUS_LOGGED_OUT\x10\x06*j\n" +
+	"\x19SESSION_STATUS_LOGGED_OUT\x10\x06\x12\x1f\n" +
+	"\x1bSESSION_STATUS_RECONNECTING\x10\a\x12\x1e\n" +
+	"\x1aSESSION_STATUS_UNAVAILABLE\x10\b*j\n" +
 	"\x10MessageDirection\x12!\n" +
 	"\x1dMESSAGE_DIRECTION_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14MESSAGE_DIRECTION_IN\x10\x01\x12\x19\n" +

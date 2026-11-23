@@ -177,48 +177,155 @@ func TestCommittedEventMySQLLeaseAndRetention(t *testing.T) {
 
 // Force the projection-before-intent interleaving directly: process E2E cannot
 // schedule the MySQL projection commit relative to the desired-state write.
-// Real MySQL evaluates the conditional UPDATE; sqlmock cannot prove row state.
-func TestSessionDesiredMySQLPreservesPairingStatus(t *testing.T) {
+// TestSessionIntentMySQLNeverTouchesRuntime: user actions write only intent,
+// each write advances the gateway revision, and only a new start bumps the
+// start generation.
+func TestSessionIntentMySQLNeverTouchesRuntime(t *testing.T) {
 	db := lifecycleTestDB(t)
-	for _, tc := range []struct {
-		name    string
-		jid     any
-		initial string
-		run     bool
-		want    string
-	}{
-		{name: "unpaired_scan_before_desired", initial: "scan_qr_code", run: true, want: "scan_qr_code"},
-		{name: "paired_start", jid: "123@s.whatsapp.net", initial: "stopped", run: true, want: "starting"},
-		{name: "unpaired_stop", initial: "scan_qr_code", want: "stopped"},
-		{name: "paired_stop", jid: "123@s.whatsapp.net", initial: "working", want: "stopped"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			gatewayID, session := lifecycleFixture(t, db)
-			ctx := context.Background()
-			repo := NewGatewayAssignmentRepo(db)
-			if err := repo.CreateSession(ctx, session); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := db.Exec(`UPDATE wa_sessions SET wa_jid=?, status=? WHERE id=?`, tc.jid, tc.initial, session.ID); err != nil {
-				t.Fatal(err)
-			}
-			if err := repo.SetSessionDesired(ctx, session.ID, tc.run, 200); err != nil {
-				t.Fatal(err)
-			}
-			var status string
-			if err := db.QueryRow(`SELECT status FROM wa_sessions WHERE id=?`, session.ID).Scan(&status); err != nil {
-				t.Fatal(err)
-			}
-			if status != tc.want {
-				t.Fatalf("status = %q; want %q", status, tc.want)
-			}
-			var revision uint64
-			if err := db.QueryRow(`SELECT desired_revision FROM gateways WHERE id=?`, gatewayID).Scan(&revision); err != nil {
-				t.Fatal(err)
-			}
-			if revision != 2 {
-				t.Fatalf("desired revision = %d; want creation plus lifecycle update", revision)
-			}
+	ctx := context.Background()
+	gatewayID, session := lifecycleFixture(t, db)
+	if err := NewGatewayAssignmentRepo(db).CreateSession(ctx, session); err != nil {
+		t.Fatal(err)
+	}
+	state := NewSessionStateRepo(db)
+	if applied, err := state.ApplyObservedStatus(ctx, ObservedStatus{
+		SessionID: session.ID, Status: domain.SessionFailed, FailureReason: domain.FailureStreamReplaced, Seq: 5, ChangedAt: 50,
+	}); err != nil || !applied {
+		t.Fatalf("observed failure: applied=%v err=%v", applied, err)
+	}
+	generation, err := state.SetDesired(ctx, session.ID, domain.DesiredRun, true, 100)
+	if err != nil || generation != 1 {
+		t.Fatalf("start generation = %d, %v", generation, err)
+	}
+	if generation, err = state.SetDesired(ctx, session.ID, domain.DesiredRun, false, 110); err != nil || generation != 1 {
+		t.Fatalf("repeated start generation = %d, %v", generation, err)
+	}
+	var desired, status string
+	var reason sql.NullString
+	if err := db.QueryRow(`SELECT s.desired_state, r.status, r.failure_reason FROM wa_sessions s JOIN wa_session_runtime r ON r.session_id=s.id WHERE s.id=?`, session.ID).
+		Scan(&desired, &status, &reason); err != nil {
+		t.Fatal(err)
+	}
+	if desired != "run" || status != "failed" || reason.String != "stream_replaced" {
+		t.Fatalf("desired=%s status=%s reason=%v; intent must not touch the observed failure", desired, status, reason)
+	}
+	var revision uint64
+	if err := db.QueryRow(`SELECT desired_revision FROM gateways WHERE id=?`, gatewayID).Scan(&revision); err != nil {
+		t.Fatal(err)
+	}
+	if revision != 3 {
+		t.Fatalf("desired revision = %d; want creation plus two intent writes", revision)
+	}
+	// The snapshot reads intent only: the observed failure does not turn RUN
+	// into STOP.
+	assignments, current, err := NewGatewayRepo(db).DesiredStateForEpoch(ctx,
+		domain.GatewayConnection{GatewayID: gatewayID, ConnectionEpoch: 1}, revision, 1000)
+	if err != nil || !current || len(assignments) != 1 || !assignments[0].DesiredRun || assignments[0].StartGeneration != 1 {
+		t.Fatalf("snapshot = %+v current=%v err=%v", assignments, current, err)
+	}
+}
+
+// TestObservedStatusMySQLAppliesOnlyNewer: an older or repeated status never
+// overwrites a newer one, and only a newer logged_out clears the identity.
+func TestObservedStatusMySQLAppliesOnlyNewer(t *testing.T) {
+	db := lifecycleTestDB(t)
+	ctx := context.Background()
+	gatewayID, session := lifecycleFixture(t, db)
+	jid := "62899" + session.ID[len(session.ID)-8:] + ":1@s.whatsapp.net"
+	session.WAJID = &jid
+	if err := NewGatewayAssignmentRepo(db).CreateSession(ctx, session); err != nil {
+		t.Fatal(err)
+	}
+	state := NewSessionStateRepo(db)
+	apply := func(status domain.SessionStatus, reason domain.SessionFailureReason, seq uint64) bool {
+		t.Helper()
+		applied, err := state.ApplyObservedStatus(ctx, ObservedStatus{
+			SessionID: session.ID, Status: status, FailureReason: reason, Seq: seq, ChangedAt: int64(seq),
 		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return applied
+	}
+	read := func() (string, sql.NullString, int64, sql.NullString) {
+		t.Helper()
+		var status string
+		var reason, waJID sql.NullString
+		var changed int64
+		if err := db.QueryRow(`SELECT r.status, r.failure_reason, r.status_changed_at, s.wa_jid FROM wa_session_runtime r JOIN wa_sessions s ON s.id=r.session_id WHERE r.session_id=?`, session.ID).
+			Scan(&status, &reason, &changed, &waJID); err != nil {
+			t.Fatal(err)
+		}
+		return status, reason, changed, waJID
+	}
+	if !apply(domain.SessionWorking, "", 20) {
+		t.Fatal("first observation not applied")
+	}
+	if apply(domain.SessionStarting, "", 10) || apply(domain.SessionStopped, "", 20) {
+		t.Fatal("an older or equal sequence was applied")
+	}
+	if status, _, changed, _ := read(); status != "working" || changed != 20 {
+		t.Fatalf("status = %s @ %d after stale observations", status, changed)
+	}
+	if apply(domain.SessionLoggedOut, "", 15) {
+		t.Fatal("a stale logged_out applied")
+	}
+	if _, _, _, waJID := read(); !waJID.Valid {
+		t.Fatal("a stale logged_out cleared the pairing identity")
+	}
+	if !apply(domain.SessionFailed, domain.FailureTemporaryBan, 30) {
+		t.Fatal("newer failure not applied")
+	}
+	if status, reason, _, _ := read(); status != "failed" || reason.String != "temporary_ban" {
+		t.Fatalf("failure = %s %v", status, reason)
+	}
+	var before uint64
+	if err := db.QueryRow(`SELECT desired_revision FROM gateways WHERE id=?`, gatewayID).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	if !apply(domain.SessionLoggedOut, "", 40) {
+		t.Fatal("newer logged_out not applied")
+	}
+	if status, reason, _, waJID := read(); status != "logged_out" || reason.Valid || waJID.Valid {
+		t.Fatalf("logged out row = %s %v %v", status, reason, waJID)
+	}
+	var after uint64
+	if err := db.QueryRow(`SELECT desired_revision FROM gateways WHERE id=?`, gatewayID).Scan(&after); err != nil {
+		t.Fatal(err)
+	}
+	if after != before+1 {
+		t.Fatalf("identity clear did not advance the revision: %d -> %d", before, after)
+	}
+}
+
+// TestRuntimeReportMySQLIsFenced: a report heals a lost status event, but only
+// for the gateway's current connection and the session's current assignment.
+func TestRuntimeReportMySQLIsFenced(t *testing.T) {
+	db := lifecycleTestDB(t)
+	ctx := context.Background()
+	gatewayID, session := lifecycleFixture(t, db)
+	if err := NewGatewayAssignmentRepo(db).CreateSession(ctx, session); err != nil {
+		t.Fatal(err)
+	}
+	state := NewSessionStateRepo(db)
+	report := func(connectionEpoch, assignmentEpoch, seq uint64) int {
+		t.Helper()
+		applied, err := state.ApplyRuntimeReport(ctx, gatewayID, connectionEpoch, []RuntimeObservation{{
+			AssignmentEpoch: assignmentEpoch,
+			ObservedStatus:  ObservedStatus{SessionID: session.ID, Status: domain.SessionWorking, Seq: seq, ChangedAt: 9},
+		}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return applied
+	}
+	if report(2, 1, 50) != 0 || report(1, 7, 50) != 0 {
+		t.Fatal("a report from a stale connection or assignment applied")
+	}
+	if report(1, 1, 0) != 0 {
+		t.Fatal("a report without an observation applied")
+	}
+	if report(1, 1, 50) != 1 || report(1, 1, 50) != 0 {
+		t.Fatal("report did not apply exactly once")
 	}
 }

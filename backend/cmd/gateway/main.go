@@ -175,6 +175,12 @@ func run() error {
 		},
 		log: log,
 	}}
+	// Events are facts a session this gateway holds under its current
+	// assignment observed, so the journal accepts them on the assignment fence
+	// (organization, epoch, live lease) regardless of the assignment's desired
+	// action. A session the API started directly (ApplySession) runs before the
+	// snapshot that says RUN arrives; requiring RUN here would drop the offline
+	// backlog WhatsApp delivers right after it connects.
 	inboundSink := controlEventSink{
 		adapter: controlAdapter,
 		assignment: func(event domain.Event) (uint64, bool) {
@@ -182,15 +188,7 @@ func run() error {
 				return 0, false
 			}
 			epoch, ok := desiredReconciler.CurrentEpoch(event.Session)
-			if !ok {
-				return 0, false
-			}
-			switch event.Type {
-			case domain.EventSessionStatus, domain.EventAuthQR, domain.EventAuthCode:
-				return epoch, desiredReconciler.OwnsAssignment(event.Organization, event.Session, epoch)
-			default:
-				return epoch, desiredReconciler.OwnsSession(event.Organization, event.Session, epoch)
-			}
+			return epoch, ok && desiredReconciler.OwnsAssignment(event.Organization, event.Session, epoch)
 		},
 		log: log,
 	}

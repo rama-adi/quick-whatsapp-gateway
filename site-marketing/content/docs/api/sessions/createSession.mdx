@@ -14,8 +14,9 @@ _openapi:
           Create a new session record for the caller's organization.
 
 
-          Behavior: session starts **unpaired**. Set `start` to true to begin
-          pairing immediately; pairing then proceeds asynchronously.
+          Behavior: session starts **unpaired** with status `stopped`. Set
+          `start` to true to ask for pairing right away (`desiredState: run`);
+          the gateway begins QR pairing within a few seconds, asynchronously.
 
 
           Requires `manage` capability. Unknown or invalid request data returns

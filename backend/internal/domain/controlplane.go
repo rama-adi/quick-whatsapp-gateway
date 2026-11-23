@@ -65,6 +65,7 @@ type GatewayDesiredSession struct {
 	AssignmentEpoch, ConfigRevision      uint64
 	AutoRead, PresenceTyping             bool
 	DesiredRun                           bool
+	StartGeneration                      uint64
 	RatePerMin, RatePerHour              uint32
 	HistorySyncDays                      uint32
 	LeaseExpiresAt                       int64

@@ -67,6 +67,21 @@ e2e smoke against a live WhatsApp number.
 
 ## Key v2 decisions (locked this session)
 
+- **Session intent and observed runtime are separate facts (migration 0022).**
+  `wa_sessions.desired_state`/`start_generation` are written only by user actions;
+  `wa_session_runtime` only from gateway observations ordered by a gateway-stamped
+  `status_seq` (hybrid logical clock). The desired-state snapshot reads intent
+  only; every report carries each session's runtime so a lost status event heals
+  within one heartbeat. A failed run latches on the gateway until a newer start
+  generation; an unpaired RUN assignment is QR pairing, so interrupted pairing
+  resumes after a gateway restart. `GET /qr` only reads. `unavailable` is derived
+  at read time from the gateway's control-stream connection. Spec:
+  `session-manager.mdx` (start generations), `store.mdx` (0022).
+- **One reconnect driver per session.** whatsmeow auto-reconnect is off; the
+  manager's per-run driver reconnects, fails with `connect_error` after 10 failed
+  attempts, and reports `reconnecting` only after a 10s grace period. Each run is
+  a generation-tagged connection whose late events are dropped.
+
 - **Durable outbound status and deadline:** An authenticated, send-capable
   caller can read an accepted outbox row by organization/session-scoped
   idempotency key without dispatching. Terminal `unknown` replays as HTTP 200
@@ -214,6 +229,15 @@ e2e smoke against a live WhatsApp number.
   architecture specs `resources.mdx` (Workspace overview) and `store.mdx`.
 
 ## Open risks / follow-ups
+
+- **Session state model follow-ups.** The gateway's failure latch is in memory,
+  so a gateway restart gives every RUN session one new attempt (a
+  `stream_replaced` session reconnects once per gateway restart). `unavailable`
+  relies on `gateways.connected_at`, which an API crash leaves set until the
+  gateway reconnects. No `session.status` event is emitted when a gateway goes
+  away; dashboards learn `unavailable` from REST reads. The deprecated
+  `PrepareSession`/`BeginPairing` RPCs can be deleted once a breaking proto
+  change is accepted.
 
 - **Dashboards/alerts for the control plane (deployment work, deferred from Increment 10).**
   The plan's observability targets still need operator-facing dashboards and alerts: control-stream

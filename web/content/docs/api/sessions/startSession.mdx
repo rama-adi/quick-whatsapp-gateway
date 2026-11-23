@@ -11,18 +11,28 @@ _openapi:
     headings: []
     contents:
       - content: >-
-          Start the session. A paired session connects to WhatsApp; an unpaired
-          or logged-out session begins QR pairing.
+          Ask for the session to run (`desiredState: run`). A paired session
+          connects to WhatsApp; an unpaired or logged-out session begins QR
+          pairing.
+
+
+          A session that is already starting, pairing, working or reconnecting
+          is left as it is. A session whose last run ended (`failed`,
+          `logged_out`, `stopped`) starts again: a failed session is retried
+          only after an explicit start or restart, never on its own.
+
+
+          The request is recorded before the gateway is told, so it succeeds
+          even when the gateway is briefly unreachable; the gateway applies it
+          within a few seconds of coming back. Watch `status`, or the
+          `session.status` event.
 
 
           To use a phone pairing code instead, request the code directly without
           calling `:start` first.
 
 
-          The session must be owned by your organization.
-
-
-          Returns updated session row. Calling start repeatedly is idempotent.
+          Returns the session row. Calling start repeatedly is idempotent.
 
 
           Errors: `not_found` (404), `unauthorized` (401), `forbidden` (403).

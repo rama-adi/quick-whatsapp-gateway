@@ -462,7 +462,7 @@ func (q *Queries) ListActiveGateways(ctx context.Context, arg ListActiveGateways
 }
 
 const listGatewayDesiredStateAssignments = `-- name: ListGatewayDesiredStateAssignments :many
-SELECT a.session_id, s.organization_id, s.wa_jid, s.status, a.assignment_epoch,
+SELECT a.session_id, s.organization_id, s.wa_jid, s.desired_state, s.start_generation, a.assignment_epoch,
        s.auto_read, s.presence_typing, s.rate_per_min, s.rate_per_hour, s.history_sync_days
 FROM gateway_session_assignments AS a
 JOIN wa_sessions AS s ON s.id = a.session_id
@@ -479,16 +479,17 @@ type ListGatewayDesiredStateAssignmentsParams struct {
 }
 
 type ListGatewayDesiredStateAssignmentsRow struct {
-	SessionID       string           `db:"session_id" json:"session_id"`
-	OrganizationID  string           `db:"organization_id" json:"organization_id"`
-	WaJid           sql.NullString   `db:"wa_jid" json:"wa_jid"`
-	Status          WaSessionsStatus `db:"status" json:"status"`
-	AssignmentEpoch uint64           `db:"assignment_epoch" json:"assignment_epoch"`
-	AutoRead        bool             `db:"auto_read" json:"auto_read"`
-	PresenceTyping  bool             `db:"presence_typing" json:"presence_typing"`
-	RatePerMin      int32            `db:"rate_per_min" json:"rate_per_min"`
-	RatePerHour     int32            `db:"rate_per_hour" json:"rate_per_hour"`
-	HistorySyncDays uint16           `db:"history_sync_days" json:"history_sync_days"`
+	SessionID       string                 `db:"session_id" json:"session_id"`
+	OrganizationID  string                 `db:"organization_id" json:"organization_id"`
+	WaJid           sql.NullString         `db:"wa_jid" json:"wa_jid"`
+	DesiredState    WaSessionsDesiredState `db:"desired_state" json:"desired_state"`
+	StartGeneration uint64                 `db:"start_generation" json:"start_generation"`
+	AssignmentEpoch uint64                 `db:"assignment_epoch" json:"assignment_epoch"`
+	AutoRead        bool                   `db:"auto_read" json:"auto_read"`
+	PresenceTyping  bool                   `db:"presence_typing" json:"presence_typing"`
+	RatePerMin      int32                  `db:"rate_per_min" json:"rate_per_min"`
+	RatePerHour     int32                  `db:"rate_per_hour" json:"rate_per_hour"`
+	HistorySyncDays uint16                 `db:"history_sync_days" json:"history_sync_days"`
 }
 
 func (q *Queries) ListGatewayDesiredStateAssignments(ctx context.Context, arg ListGatewayDesiredStateAssignmentsParams) ([]ListGatewayDesiredStateAssignmentsRow, error) {
@@ -504,7 +505,8 @@ func (q *Queries) ListGatewayDesiredStateAssignments(ctx context.Context, arg Li
 			&i.SessionID,
 			&i.OrganizationID,
 			&i.WaJid,
-			&i.Status,
+			&i.DesiredState,
+			&i.StartGeneration,
 			&i.AssignmentEpoch,
 			&i.AutoRead,
 			&i.PresenceTyping,
@@ -782,6 +784,24 @@ func (q *Queries) ResolveSessionEngineTarget(ctx context.Context, arg ResolveSes
 		&i.AppliedRevision,
 	)
 	return i, err
+}
+
+const sessionExistsInOrganization = `-- name: SessionExistsInOrganization :one
+SELECT EXISTS(SELECT 1 FROM wa_sessions WHERE id = ? AND organization_id = ?) AS session_exists
+`
+
+type SessionExistsInOrganizationParams struct {
+	ID             string `db:"id" json:"id"`
+	OrganizationID string `db:"organization_id" json:"organization_id"`
+}
+
+// Distinguishes "no such session" (404) from "its gateway cannot take
+// requests right now" (503) when ResolveSessionEngineTarget finds no route.
+func (q *Queries) SessionExistsInOrganization(ctx context.Context, arg SessionExistsInOrganizationParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, sessionExistsInOrganization, arg.ID, arg.OrganizationID)
+	var session_exists bool
+	err := row.Scan(&session_exists)
+	return session_exists, err
 }
 
 const setGatewayDesiredLifecycle = `-- name: SetGatewayDesiredLifecycle :execrows

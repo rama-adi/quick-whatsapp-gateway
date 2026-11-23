@@ -38,14 +38,10 @@ func (p *StoreProjections) FillIdentityName(ctx context.Context, jid, name strin
 	return p.st.Identities.FillNameByJID(ctx, jid, name, nowMs)
 }
 
-// AttachPairing routes a PairSuccess projection onto the session repo.
+// AttachPairing routes a PairSuccess projection onto the session-state repo,
+// which also advances the gateway's desired revision.
 func (p *StoreProjections) AttachPairing(ctx context.Context, in store.AttachPairingInput) error {
-	return p.st.Sessions.AttachPairing(ctx, in)
-}
-
-// ClearPairing routes a logged-out projection onto the session repo.
-func (p *StoreProjections) ClearPairing(ctx context.Context, sessionID string, updatedAt int64) error {
-	return p.st.Sessions.ClearPairing(ctx, sessionID, updatedAt)
+	return p.st.SessionState.AttachPairing(ctx, in)
 }
 
 func (p *StoreProjections) UpsertGroup(ctx context.Context, in ProjectionGroupUpsert) error {
@@ -168,7 +164,8 @@ func (p *StoreProjections) ApplyHistorySync(ctx context.Context, in store.Histor
 	return p.st.History.ApplySync(ctx, in)
 }
 
-// UpdateSessionStatus projects observed lifecycle state without changing pairing.
-func (p *StoreProjections) UpdateSessionStatus(ctx context.Context, sessionID string, status domain.SessionStatus, updatedAt int64) error {
-	return p.st.Sessions.UpdateStatus(ctx, sessionID, status, updatedAt)
+// ApplyObservedStatus stores a gateway-observed status when it is newer than
+// the stored one (a newer logged_out also clears the pairing identity).
+func (p *StoreProjections) ApplyObservedStatus(ctx context.Context, observed store.ObservedStatus) (bool, error) {
+	return p.st.SessionState.ApplyObservedStatus(ctx, observed)
 }

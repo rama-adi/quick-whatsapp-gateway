@@ -344,6 +344,7 @@ type gatewayControlRepo interface {
 type gatewayControlStore struct {
 	repo           gatewayControlRepo
 	reconciliation *store.GatewayReconciliationRepo
+	sessionState   *store.SessionStateRepo
 	eventIngest    *store.GatewayEventIngestRepo
 	now            func() time.Time
 	// historySyncMaxDays caps each session's stored history_sync_days, so
@@ -519,9 +520,33 @@ func (s gatewayControlStore) PersistDesiredStateReport(
 		LocalDevices:  report.LocalDevices,
 		Results:       results,
 	}
-	err := s.reconciliation.Persist(ctx, stored, s.clock().UnixMilli())
+	// Runtime first: it is ordered by status_seq and fenced by assignment,
+	// so it applies even when the report's revision is already stale.
+	if s.sessionState != nil && len(report.Sessions) > 0 {
+		observations := make([]store.RuntimeObservation, 0, len(report.Sessions))
+		for _, runtime := range report.Sessions {
+			observations = append(observations, store.RuntimeObservation{
+				AssignmentEpoch: runtime.AssignmentEpoch,
+				ObservedStatus: store.ObservedStatus{
+					SessionID:     runtime.SessionID,
+					Status:        runtime.Status,
+					FailureReason: runtime.FailureReason,
+					Seq:           runtime.Seq,
+					ChangedAt:     max(runtime.ChangedAt.UnixMilli(), 1),
+				},
+			})
+		}
+		if _, err := s.sessionState.ApplyRuntimeReport(ctx, gatewayID, epoch, observations); err != nil {
+			return fmt.Errorf("%w: %w", apigateway.ErrUnavailable, err)
+		}
+	}
+	persisted, err := s.reconciliation.Persist(ctx, stored, s.clock().UnixMilli())
 	if err != nil {
 		return fmt.Errorf("%w: %w", apigateway.ErrUnavailable, err)
+	}
+	if !persisted {
+		slog.DebugContext(ctx, "skipped a desired-state report for a superseded revision",
+			"gateway_id", gatewayID, "revision", report.Revision)
 	}
 	return nil
 }
@@ -723,13 +748,4 @@ func renewAPIIdentity(ctx context.Context, manager *apiidentity.Manager, renewBe
 			}
 		}
 	}
-}
-
-// sessionDesiredController implements service.SessionDesiredController over
-// the assignment repo: flipping desired run state advances the owning
-// gateway's revision so its reconciler starts or stops the session.
-type sessionDesiredController struct{ assignments *store.GatewayAssignmentRepo }
-
-func (c sessionDesiredController) SetSessionDesired(ctx context.Context, sessionID string, run bool) error {
-	return c.assignments.SetSessionDesired(ctx, sessionID, run, time.Now().UnixMilli())
 }

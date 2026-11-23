@@ -242,6 +242,10 @@ func sessionStatusToProto(s domain.SessionStatus) publicv1.SessionStatus {
 		return publicv1.SessionStatus_SESSION_STATUS_STOPPED
 	case domain.SessionLoggedOut:
 		return publicv1.SessionStatus_SESSION_STATUS_LOGGED_OUT
+	case domain.SessionReconnecting:
+		return publicv1.SessionStatus_SESSION_STATUS_RECONNECTING
+	case domain.SessionUnavailable:
+		return publicv1.SessionStatus_SESSION_STATUS_UNAVAILABLE
 	default:
 		return publicv1.SessionStatus_SESSION_STATUS_UNSPECIFIED
 	}
@@ -267,6 +271,9 @@ func sessionToProto(s domain.WASession) *publicv1.Session {
 		CreatedAtUnixMs:       s.CreatedAt,
 		UpdatedAtUnixMs:       s.UpdatedAt,
 		HistorySyncDays:       int32(min(s.HistorySyncDays, 65535)), //nolint:gosec // bounded by the column range
+		FailureReason:         (*string)(s.FailureReason),
+		DesiredState:          string(s.DesiredState),
+		StatusChangedAtUnixMs: s.StatusChangedAt,
 	}
 }
 
@@ -287,7 +294,7 @@ func qrToProto(qr service.QR) *publicv1.QrCode {
 		v := qr.ExpiresAt
 		expires = &v
 	}
-	return &publicv1.QrCode{Code: qr.Code, ExpiresAtUnixMs: expires}
+	return &publicv1.QrCode{Code: qr.Code, ExpiresAtUnixMs: expires, State: qr.State}
 }
 
 // requireOrg is humax.Org plus the capability gate, expressed as a gRPC error:

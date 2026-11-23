@@ -31,6 +31,7 @@ type Store struct {
 	db                *sql.DB
 	Gateways          *GatewayRepo
 	Sessions          *SessionRepo
+	SessionState      *SessionStateRepo
 	APIKeys           *APIKeyRepo
 	Webhooks          *WebhookRepo
 	WebhookDeliveries *WebhookDeliveryRepo
@@ -62,6 +63,7 @@ func New(db *sql.DB) *Store {
 		db:                db,
 		Gateways:          NewGatewayRepo(db),
 		Sessions:          NewSessionRepo(db),
+		SessionState:      NewSessionStateRepo(db),
 		APIKeys:           NewAPIKeyRepo(db),
 		Webhooks:          NewWebhookRepo(db),
 		WebhookDeliveries: NewWebhookDeliveryRepo(db),
