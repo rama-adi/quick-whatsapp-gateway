@@ -84,7 +84,7 @@ func TestMySQLAttachmentLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = db.Exec(`INSERT INTO wa_sessions(id,organization_id,gateway_id,status,created_at,updated_at) VALUES(?,?,?,'stopped',1,1)`, session, org, gateway)
+	_, err = db.Exec(`INSERT INTO wa_sessions(id,organization_id,gateway_id,created_at,updated_at) VALUES(?,?,?,1,1)`, session, org, gateway)
 	if err != nil {
 		t.Fatal(err)
 	}

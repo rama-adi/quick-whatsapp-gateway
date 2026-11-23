@@ -180,11 +180,15 @@ func (r *EventFanoutRepo) Claim(ctx context.Context, c FanoutClaim) ([]ClaimedFa
 		}
 		return out, rows.Err()
 	}
-	// The derived head table is a consistent read; the outer rows are locking
-	// (current) reads. A stale snapshot can only name an older head, which
-	// then fails the outer predicate, so the race is conservative.
-	rows, err := tx.QueryContext(ctx,
-		`SELECT f.event_id, f.session_id, f.session_seq, f.source, f.attempts, f.last_error
+	// Two steps, because MariaDB (production) rejects FOR UPDATE OF <table>:
+	//  1. a consistent (non-locking) read names each due session head;
+	//  2. a single-table locking read claims those rows, re-checking that they
+	//     are still unfinished, due and not under a live lease.
+	// A stale snapshot can only name an older head, which then fails the
+	// step-2 predicate, so the race is conservative: no event is claimed ahead
+	// of an unfinished predecessor.
+	candidates, err := tx.QueryContext(ctx,
+		`SELECT f.event_id
 		 FROM event_fanout f
 		 JOIN (SELECT session_id, MIN(session_seq) AS head FROM event_fanout
 		       WHERE status IN ('pending','leased') GROUP BY session_id) h
@@ -192,10 +196,40 @@ func (r *EventFanoutRepo) Claim(ctx context.Context, c FanoutClaim) ([]ClaimedFa
 		 WHERE f.status IN ('pending','leased') AND (f.status = 'pending' OR f.lease_until <= ?)
 		   AND f.next_attempt_at <= ?
 		 ORDER BY f.next_attempt_at, f.session_id
-		 LIMIT ? FOR UPDATE OF f SKIP LOCKED`,
+		 LIMIT ?`,
 		now, now, c.MaxSessions)
 	if err != nil {
 		return nil, fmt.Errorf("store: select fan-out heads: %w", err)
+	}
+	var headIDs []any
+	for candidates.Next() {
+		var id string
+		if err := candidates.Scan(&id); err != nil {
+			_ = candidates.Close()
+			return nil, fmt.Errorf("store: scan fan-out head ids: %w", err)
+		}
+		headIDs = append(headIDs, id)
+	}
+	if err := candidates.Err(); err != nil {
+		_ = candidates.Close()
+		return nil, fmt.Errorf("store: read fan-out head ids: %w", err)
+	}
+	_ = candidates.Close()
+	if len(headIDs) == 0 {
+		return nil, commit()
+	}
+	args := append(headIDs, now, now)
+	rows, err := tx.QueryContext(ctx,
+		`SELECT event_id, session_id, session_seq, source, attempts, last_error
+		 FROM event_fanout
+		 WHERE event_id IN (?`+strings.Repeat(",?", len(headIDs)-1)+`)
+		   AND status IN ('pending','leased') AND (status = 'pending' OR lease_until <= ?)
+		   AND next_attempt_at <= ?
+		 ORDER BY next_attempt_at, session_id
+		 FOR UPDATE SKIP LOCKED`,
+		args...)
+	if err != nil {
+		return nil, fmt.Errorf("store: lock fan-out heads: %w", err)
 	}
 	heads, err := scan(rows)
 	if err != nil {

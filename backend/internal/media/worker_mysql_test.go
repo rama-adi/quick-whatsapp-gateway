@@ -56,7 +56,7 @@ func mediaWorkerFixture(t *testing.T, downloader Downloader) (*Service, *sql.DB,
 	if _, err = db.Exec(`INSERT INTO gateways(id,status,created_at,updated_at) VALUES(?,'active',1,1)`, gateway); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.Exec(`INSERT INTO wa_sessions(id,organization_id,gateway_id,status,created_at,updated_at) VALUES(?,?,?,'stopped',1,1)`, session, org, gateway); err != nil {
+	if _, err = db.Exec(`INSERT INTO wa_sessions(id,organization_id,gateway_id,created_at,updated_at) VALUES(?,?,?,1,1)`, session, org, gateway); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
