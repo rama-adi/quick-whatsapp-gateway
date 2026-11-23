@@ -1,4 +1,4 @@
-ALTER TABLE backfill_imports DROP CHECK chk_backfill_running_lease, DROP KEY idx_backfill_running;
+ALTER TABLE backfill_imports DROP CONSTRAINT chk_backfill_running_lease, DROP KEY idx_backfill_running;
 UPDATE backfill_imports SET status = 'failed' WHERE status = 'interrupted';
 ALTER TABLE backfill_imports
   DROP COLUMN lease_until, DROP COLUMN heartbeat_at, DROP COLUMN owner,

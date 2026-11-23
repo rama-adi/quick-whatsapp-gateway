@@ -1,7 +1,7 @@
 ALTER TABLE outbox
-  DROP CHECK chk_outbox_acknowledged,
-  DROP CHECK chk_outbox_lease,
-  DROP CHECK chk_outbox_terminal,
+  DROP CONSTRAINT chk_outbox_acknowledged,
+  DROP CONSTRAINT chk_outbox_lease,
+  DROP CONSTRAINT chk_outbox_terminal,
   DROP KEY idx_outbox_lease;
 UPDATE outbox SET status = 'queued' WHERE status = 'acknowledged';
 UPDATE outbox SET updated_at = lease_until - 360000 WHERE status = 'sending' AND lease_until IS NOT NULL;
