@@ -233,12 +233,14 @@ type WebhookDelivery struct {
 	ID           uint64                `json:"id" doc:"The delivery attempt-record id (monotonic)." example:"4821"`
 	WebhookID    string                `json:"webhookId" doc:"Id of the webhook this delivery belongs to." example:"wh_01J9..."`
 	EventID      string                `json:"eventId" doc:"Id of the event being delivered (the Event envelope's id). Echoed to the receiver so duplicate redeliveries can be dropped." example:"evt_01J9..."`
-	Status       WebhookDeliveryStatus `json:"status" enum:"pending,delivered,failed,dead" doc:"Delivery state. **pending** = queued, not yet attempted (or awaiting a scheduled retry); **delivered** = the receiver returned a 2xx; **failed** = the last attempt failed and a retry is still scheduled (see nextRetryAt); **dead** = all retries exhausted, the delivery is given up. Progression: pending → delivered, or pending → failed → … → dead." example:"delivered"`
+	Status       WebhookDeliveryStatus `json:"status" enum:"pending,delivering,delivered,failed,dead" doc:"Delivery state. **pending** = queued, not yet attempted; **delivering** = an attempt is in progress; **delivered** = the receiver returned a 2xx; **failed** = the last attempt failed and a retry is still scheduled (see nextRetryAt); **dead** = all retries exhausted, the delivery is given up. Progression: pending → delivering → delivered, or → failed → delivering → … → dead." example:"delivered"`
 	Attempts     int                   `json:"attempts" doc:"How many delivery attempts have been made so far." example:"1"`
 	ResponseCode *int                  `json:"responseCode,omitempty" doc:"HTTP status code returned by the receiver on the last attempt. Optional; null if no response was received (e.g. connection error/timeout)." example:"200"`
 	NextRetryAt  *int64                `json:"nextRetryAt,omitempty" doc:"When the next retry is scheduled, in epoch milliseconds (UTC). Optional; null when delivered or dead (no further retries)." example:"1719662460000"`
 	LastError    *string               `json:"lastError,omitempty" doc:"Error message from the last failed attempt (HTTP error or transport failure). Optional; null when the latest attempt succeeded." example:"received status 503"`
 	CreatedAt    int64                 `json:"createdAt" doc:"When the delivery record was created, in epoch milliseconds (UTC)." example:"1719662400000"`
+	// ClaimToken fences the outcome of a claimed attempt; internal only.
+	ClaimToken string `json:"-"`
 }
 
 // Identity mirrors the whatsapp_identities table — global LID->phone/name

@@ -96,17 +96,18 @@ func (d *Dispatcher) DeliverDue(ctx context.Context, limit int) (int, error) {
 // Deliver attempts a single claimed delivery: load the webhook + event, build
 // and sign the request, POST it, then record the outcome (delivered / failed
 // +reschedule / dead). The returned error is non-nil only when recording the
-// outcome failed (i.e. the delivery state is now uncertain); a failed POST is a
-// normal, non-error result captured on the row.
+// outcome failed (i.e. the delivery state is now uncertain, or the claim was
+// lost to a newer claim after the lease expired); a failed POST is a normal,
+// non-error result captured on the row.
 func (d *Dispatcher) Deliver(ctx context.Context, del domain.WebhookDelivery) error {
-	attempts := del.Attempts + 1 // this is attempt number `attempts`
+	attempts := max(del.Attempts, 1) // the claim already counted this attempt
 
 	hook, err := d.webhooks.Get(ctx, del.WebhookID)
 	if err != nil {
 		// Webhook deleted out from under a pending delivery: it can never
 		// succeed, so dead-letter it immediately rather than retry forever.
 		if isNotFound(err) {
-			return d.deliveries.MarkDead(ctx, del.ID, attempts, nil,
+			return d.deliveries.MarkDead(ctx, del, nil,
 				fmt.Sprintf("webhook %s not found", del.WebhookID))
 		}
 		return d.fail(ctx, del, hook, attempts, nil, fmt.Sprintf("load webhook: %v", err))
@@ -115,7 +116,7 @@ func (d *Dispatcher) Deliver(ctx context.Context, del domain.WebhookDelivery) er
 	evt, err := d.events.GetEvent(ctx, del.EventID)
 	if err != nil {
 		if isNotFound(err) {
-			return d.deliveries.MarkDead(ctx, del.ID, attempts, nil,
+			return d.deliveries.MarkDead(ctx, del, nil,
 				fmt.Sprintf("event %s not found", del.EventID))
 		}
 		return d.fail(ctx, del, hook, attempts, nil, fmt.Sprintf("load event: %v", err))
@@ -124,7 +125,7 @@ func (d *Dispatcher) Deliver(ctx context.Context, del domain.WebhookDelivery) er
 	body, err := json.Marshal(evt)
 	if err != nil {
 		// A non-serializable payload will never serialize — dead-letter it.
-		return d.deliveries.MarkDead(ctx, del.ID, attempts, nil,
+		return d.deliveries.MarkDead(ctx, del, nil,
 			fmt.Sprintf("marshal event: %v", err))
 	}
 
@@ -144,7 +145,7 @@ func (d *Dispatcher) Deliver(ctx context.Context, del domain.WebhookDelivery) er
 		// Discard the complete success body so net/http can reuse the connection.
 		// The configured HTTP client timeout bounds a peer that never finishes.
 		_, _ = io.Copy(io.Discard, resp.Body)
-		return d.deliveries.MarkDelivered(ctx, del.ID, attempts, code)
+		return d.deliveries.MarkDelivered(ctx, del, code)
 	}
 
 	// Non-2xx: capture a bounded slice of the body for diagnostics.
@@ -164,14 +165,14 @@ func (d *Dispatcher) fail(
 	lastErr string,
 ) error {
 	if attempts >= maxAttempts(hook.RetryPolicy) {
-		return d.deliveries.MarkDead(ctx, del.ID, attempts, responseCode, lastErr)
+		return d.deliveries.MarkDead(ctx, del, responseCode, lastErr)
 	}
 	// attempts is 1-based and is the number of the attempt that just failed;
 	// the delay before the next attempt uses that same index so the first retry
 	// waits delaySeconds, the second 2*delaySeconds, etc.
 	delay := backoffSeconds(hook.RetryPolicy.Policy, hook.RetryPolicy.DelaySeconds, attempts)
 	next := d.clock.NowMs() + delay*1000
-	return d.deliveries.MarkFailed(ctx, del.ID, attempts, next, responseCode, lastErr)
+	return d.deliveries.MarkFailed(ctx, del, next, responseCode, lastErr)
 }
 
 // buildRequest constructs the signed POST for a delivery.

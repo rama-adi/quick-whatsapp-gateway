@@ -19,6 +19,7 @@ sql:
       - "migrations/0030_event_fanout.up.sql"
       - "migrations/0032_history_run_deadline.up.sql"
       - "migrations/0033_backfill_import_lease.up.sql"
+      - "migrations/0034_webhook_delivery_lease.up.sql"
       - "internal/store/sqlc_schema/auth.sql"
     queries: "internal/store/queries"
     gen:

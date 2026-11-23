@@ -234,7 +234,7 @@ func TestRetentionWorkerPrune(t *testing.T) {
 		WithArgs(cutoff, int32(1000)).
 		WillReturnResult(sqlmock.NewResult(0, 3))
 	mock.ExpectExec("DELETE FROM event_log").
-		WithArgs(cutoff, "pending", "failed", int32(1000)).
+		WithArgs(cutoff, int32(1000)).
 		WillReturnResult(sqlmock.NewResult(0, 4))
 
 	worker := NewRetentionWorker(store.New(db), nil)

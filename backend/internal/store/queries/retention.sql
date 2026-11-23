@@ -18,7 +18,7 @@ WHERE event_log.created_at < ?
     SELECT 1
     FROM webhook_deliveries
     WHERE webhook_deliveries.event_id = event_log.event_id
-      AND webhook_deliveries.status IN (?, ?)
+      AND webhook_deliveries.status IN ('pending', 'failed', 'delivering')
   )
   AND NOT EXISTS (
     SELECT 1

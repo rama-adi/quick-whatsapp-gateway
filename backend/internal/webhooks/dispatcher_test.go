@@ -93,8 +93,8 @@ func TestDeliver_FailureReschedulesWithBackoff(t *testing.T) {
 	clk := &fixedClock{ms: 100000}
 
 	d := newDispatcher(wr, dr, es, doer, nil, clk)
-	// Already 1 prior attempt -> this is attempt 2 -> next delay = 2*2^(2-1)=4s.
-	del := domain.WebhookDelivery{ID: 9, WebhookID: "wh_a", EventID: "evt_001", Attempts: 1}
+	// The claim counted this as attempt 2 -> next delay = 2*2^(2-1)=4s.
+	del := domain.WebhookDelivery{ID: 9, WebhookID: "wh_a", EventID: "evt_001", Attempts: 2}
 	if err := d.Deliver(context.Background(), del); err != nil {
 		t.Fatalf("Deliver: %v", err)
 	}
@@ -128,8 +128,8 @@ func TestDeliver_ExhaustionMarksDead(t *testing.T) {
 	doer := &fakeHTTPDoer{resp: resp(503, "down")}
 
 	d := newDispatcher(wr, dr, es, doer, nil, &fixedClock{ms: 1})
-	// Attempts=2 -> this is attempt 3 -> reaches the budget -> dead.
-	del := domain.WebhookDelivery{ID: 4, WebhookID: "wh_a", EventID: "evt_001", Attempts: 2}
+	// The claim counted this as attempt 3 -> reaches the budget -> dead.
+	del := domain.WebhookDelivery{ID: 4, WebhookID: "wh_a", EventID: "evt_001", Attempts: 3}
 	if err := d.Deliver(context.Background(), del); err != nil {
 		t.Fatalf("Deliver: %v", err)
 	}

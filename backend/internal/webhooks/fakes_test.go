@@ -100,19 +100,19 @@ func (r *fakeDeliveryRepo) ClaimDue(_ context.Context, _ int64, limit int) ([]do
 	return r.due, nil
 }
 
-func (r *fakeDeliveryRepo) MarkDelivered(_ context.Context, id uint64, attempts, responseCode int) error {
+func (r *fakeDeliveryRepo) MarkDelivered(_ context.Context, del domain.WebhookDelivery, responseCode int) error {
 	rc := responseCode
-	r.calls = append(r.calls, markCall{kind: "delivered", id: id, attempts: attempts, responseCode: &rc})
+	r.calls = append(r.calls, markCall{kind: "delivered", id: del.ID, attempts: del.Attempts, responseCode: &rc})
 	return nil
 }
 
-func (r *fakeDeliveryRepo) MarkFailed(_ context.Context, id uint64, attempts int, nextRetryAt int64, responseCode *int, lastErr string) error {
-	r.calls = append(r.calls, markCall{kind: "failed", id: id, attempts: attempts, nextRetryAt: nextRetryAt, responseCode: responseCode, lastErr: lastErr})
+func (r *fakeDeliveryRepo) MarkFailed(_ context.Context, del domain.WebhookDelivery, nextRetryAt int64, responseCode *int, lastErr string) error {
+	r.calls = append(r.calls, markCall{kind: "failed", id: del.ID, attempts: del.Attempts, nextRetryAt: nextRetryAt, responseCode: responseCode, lastErr: lastErr})
 	return nil
 }
 
-func (r *fakeDeliveryRepo) MarkDead(_ context.Context, id uint64, attempts int, responseCode *int, lastErr string) error {
-	r.calls = append(r.calls, markCall{kind: "dead", id: id, attempts: attempts, responseCode: responseCode, lastErr: lastErr})
+func (r *fakeDeliveryRepo) MarkDead(_ context.Context, del domain.WebhookDelivery, responseCode *int, lastErr string) error {
+	r.calls = append(r.calls, markCall{kind: "dead", id: del.ID, attempts: del.Attempts, responseCode: responseCode, lastErr: lastErr})
 	return nil
 }
 

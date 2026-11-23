@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 )
 
 func TestWebhookDeliveryRepo_ClaimDueRollsBackOnLeaseFailure(t *testing.T) {
@@ -17,10 +16,10 @@ func TestWebhookDeliveryRepo_ClaimDueRollsBackOnLeaseFailure(t *testing.T) {
 
 	mock.ExpectBegin()
 	mock.ExpectQuery("SELECT .*FOR UPDATE SKIP LOCKED").
-		WithArgs(domain.DeliveryPending, domain.DeliveryFailed, int64(200), 1).
+		WithArgs(int64(200), int64(200), 1).
 		WillReturnRows(rows)
 	mock.ExpectExec("UPDATE webhook_deliveries").
-		WithArgs(int64(200+webhookAttemptLeaseMs), uint64(55)).
+		WithArgs(sqlmock.AnyArg(), int64(200+webhookAttemptLeaseMs), uint64(55)).
 		WillReturnError(context.DeadlineExceeded)
 	mock.ExpectRollback()
 

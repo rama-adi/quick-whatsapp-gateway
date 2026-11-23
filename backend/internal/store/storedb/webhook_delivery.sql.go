@@ -13,33 +13,42 @@ import (
 const claimDueWebhookDeliveries = `-- name: ClaimDueWebhookDeliveries :many
 SELECT id, webhook_id, event_id, status, attempts, response_code, next_retry_at, last_error, created_at
 FROM webhook_deliveries
-WHERE status IN (?, ?) AND next_retry_at IS NOT NULL AND next_retry_at <= ?
-ORDER BY next_retry_at ASC
+WHERE (status IN ('pending', 'failed') AND next_retry_at IS NOT NULL AND next_retry_at <= ?)
+   OR (status = 'delivering' AND lease_until <= ?)
+ORDER BY next_retry_at ASC, id ASC
 LIMIT ?
 FOR UPDATE SKIP LOCKED
 `
 
 type ClaimDueWebhookDeliveriesParams struct {
-	Status      WebhookDeliveriesStatus `db:"status" json:"status"`
-	Status_2    WebhookDeliveriesStatus `db:"status_2" json:"status_2"`
-	NextRetryAt sql.NullInt64           `db:"next_retry_at" json:"next_retry_at"`
-	Limit       int32                   `db:"limit" json:"limit"`
+	Now   sql.NullInt64 `db:"now" json:"now"`
+	Limit int32         `db:"limit" json:"limit"`
 }
 
-func (q *Queries) ClaimDueWebhookDeliveries(ctx context.Context, arg ClaimDueWebhookDeliveriesParams) ([]WebhookDelivery, error) {
-	rows, err := q.db.QueryContext(ctx, claimDueWebhookDeliveries,
-		arg.Status,
-		arg.Status_2,
-		arg.NextRetryAt,
-		arg.Limit,
-	)
+type ClaimDueWebhookDeliveriesRow struct {
+	ID           uint64                  `db:"id" json:"id"`
+	WebhookID    string                  `db:"webhook_id" json:"webhook_id"`
+	EventID      string                  `db:"event_id" json:"event_id"`
+	Status       WebhookDeliveriesStatus `db:"status" json:"status"`
+	Attempts     int32                   `db:"attempts" json:"attempts"`
+	ResponseCode sql.NullInt32           `db:"response_code" json:"response_code"`
+	NextRetryAt  sql.NullInt64           `db:"next_retry_at" json:"next_retry_at"`
+	LastError    sql.NullString          `db:"last_error" json:"last_error"`
+	CreatedAt    int64                   `db:"created_at" json:"created_at"`
+}
+
+// ClaimDueWebhookDeliveries selects due work: pending/failed rows whose
+// next_retry_at passed, plus delivering rows whose lease expired (a worker
+// crashed mid-attempt). The id tie-breaker makes the order deterministic.
+func (q *Queries) ClaimDueWebhookDeliveries(ctx context.Context, arg ClaimDueWebhookDeliveriesParams) ([]ClaimDueWebhookDeliveriesRow, error) {
+	rows, err := q.db.QueryContext(ctx, claimDueWebhookDeliveries, arg.Now, arg.Now, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []WebhookDelivery{}
+	items := []ClaimDueWebhookDeliveriesRow{}
 	for rows.Next() {
-		var i WebhookDelivery
+		var i ClaimDueWebhookDeliveriesRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.WebhookID,
@@ -91,17 +100,20 @@ func (q *Queries) EnqueueWebhookDelivery(ctx context.Context, arg EnqueueWebhook
 
 const leaseWebhookDelivery = `-- name: LeaseWebhookDelivery :execrows
 UPDATE webhook_deliveries
-SET next_retry_at = ?
+SET status = 'delivering', claim_token = ?, lease_until = ?, attempts = attempts + 1
 WHERE id = ?
 `
 
 type LeaseWebhookDeliveryParams struct {
-	NextRetryAt sql.NullInt64 `db:"next_retry_at" json:"next_retry_at"`
-	ID          uint64        `db:"id" json:"id"`
+	ClaimToken sql.NullString `db:"claim_token" json:"claim_token"`
+	LeaseUntil sql.NullInt64  `db:"lease_until" json:"lease_until"`
+	ID         uint64         `db:"id" json:"id"`
 }
 
+// The attempt is counted when it is claimed, so a worker that crashes
+// mid-attempt still uses one.
 func (q *Queries) LeaseWebhookDelivery(ctx context.Context, arg LeaseWebhookDeliveryParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, leaseWebhookDelivery, arg.NextRetryAt, arg.ID)
+	result, err := q.db.ExecContext(ctx, leaseWebhookDelivery, arg.ClaimToken, arg.LeaseUntil, arg.ID)
 	if err != nil {
 		return 0, err
 	}
@@ -110,23 +122,24 @@ func (q *Queries) LeaseWebhookDelivery(ctx context.Context, arg LeaseWebhookDeli
 
 const markWebhookDeliveryDead = `-- name: MarkWebhookDeliveryDead :execrows
 UPDATE webhook_deliveries
-SET status = ?, attempts = attempts + 1, response_code = ?, last_error = ?, next_retry_at = NULL
-WHERE id = ?
+SET status = 'dead', response_code = ?, last_error = ?, next_retry_at = NULL,
+    claim_token = NULL, lease_until = NULL
+WHERE id = ? AND claim_token = ? AND status = 'delivering'
 `
 
 type MarkWebhookDeliveryDeadParams struct {
-	Status       WebhookDeliveriesStatus `db:"status" json:"status"`
-	ResponseCode sql.NullInt32           `db:"response_code" json:"response_code"`
-	LastError    sql.NullString          `db:"last_error" json:"last_error"`
-	ID           uint64                  `db:"id" json:"id"`
+	ResponseCode sql.NullInt32  `db:"response_code" json:"response_code"`
+	LastError    sql.NullString `db:"last_error" json:"last_error"`
+	ID           uint64         `db:"id" json:"id"`
+	ClaimToken   sql.NullString `db:"claim_token" json:"claim_token"`
 }
 
 func (q *Queries) MarkWebhookDeliveryDead(ctx context.Context, arg MarkWebhookDeliveryDeadParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, markWebhookDeliveryDead,
-		arg.Status,
 		arg.ResponseCode,
 		arg.LastError,
 		arg.ID,
+		arg.ClaimToken,
 	)
 	if err != nil {
 		return 0, err
@@ -136,18 +149,19 @@ func (q *Queries) MarkWebhookDeliveryDead(ctx context.Context, arg MarkWebhookDe
 
 const markWebhookDeliveryDelivered = `-- name: MarkWebhookDeliveryDelivered :execrows
 UPDATE webhook_deliveries
-SET status = ?, attempts = attempts + 1, response_code = ?, next_retry_at = NULL, last_error = NULL
-WHERE id = ?
+SET status = 'delivered', response_code = ?, next_retry_at = NULL, last_error = NULL,
+    claim_token = NULL, lease_until = NULL
+WHERE id = ? AND claim_token = ? AND status = 'delivering'
 `
 
 type MarkWebhookDeliveryDeliveredParams struct {
-	Status       WebhookDeliveriesStatus `db:"status" json:"status"`
-	ResponseCode sql.NullInt32           `db:"response_code" json:"response_code"`
-	ID           uint64                  `db:"id" json:"id"`
+	ResponseCode sql.NullInt32  `db:"response_code" json:"response_code"`
+	ID           uint64         `db:"id" json:"id"`
+	ClaimToken   sql.NullString `db:"claim_token" json:"claim_token"`
 }
 
 func (q *Queries) MarkWebhookDeliveryDelivered(ctx context.Context, arg MarkWebhookDeliveryDeliveredParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, markWebhookDeliveryDelivered, arg.Status, arg.ResponseCode, arg.ID)
+	result, err := q.db.ExecContext(ctx, markWebhookDeliveryDelivered, arg.ResponseCode, arg.ID, arg.ClaimToken)
 	if err != nil {
 		return 0, err
 	}
@@ -156,25 +170,26 @@ func (q *Queries) MarkWebhookDeliveryDelivered(ctx context.Context, arg MarkWebh
 
 const markWebhookDeliveryFailed = `-- name: MarkWebhookDeliveryFailed :execrows
 UPDATE webhook_deliveries
-SET status = ?, attempts = attempts + 1, response_code = ?, last_error = ?, next_retry_at = ?
-WHERE id = ?
+SET status = 'failed', response_code = ?, last_error = ?, next_retry_at = ?,
+    claim_token = NULL, lease_until = NULL
+WHERE id = ? AND claim_token = ? AND status = 'delivering'
 `
 
 type MarkWebhookDeliveryFailedParams struct {
-	Status       WebhookDeliveriesStatus `db:"status" json:"status"`
-	ResponseCode sql.NullInt32           `db:"response_code" json:"response_code"`
-	LastError    sql.NullString          `db:"last_error" json:"last_error"`
-	NextRetryAt  sql.NullInt64           `db:"next_retry_at" json:"next_retry_at"`
-	ID           uint64                  `db:"id" json:"id"`
+	ResponseCode sql.NullInt32  `db:"response_code" json:"response_code"`
+	LastError    sql.NullString `db:"last_error" json:"last_error"`
+	NextRetryAt  sql.NullInt64  `db:"next_retry_at" json:"next_retry_at"`
+	ID           uint64         `db:"id" json:"id"`
+	ClaimToken   sql.NullString `db:"claim_token" json:"claim_token"`
 }
 
 func (q *Queries) MarkWebhookDeliveryFailed(ctx context.Context, arg MarkWebhookDeliveryFailedParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, markWebhookDeliveryFailed,
-		arg.Status,
 		arg.ResponseCode,
 		arg.LastError,
 		arg.NextRetryAt,
 		arg.ID,
+		arg.ClaimToken,
 	)
 	if err != nil {
 		return 0, err

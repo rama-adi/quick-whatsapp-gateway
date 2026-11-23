@@ -60,22 +60,19 @@ type WebhookDeliveryRepo interface {
 	// EventID, Status=pending, Attempts=0, NextRetryAt (when it first becomes
 	// due) and CreatedAt.
 	Create(ctx context.Context, d *domain.WebhookDelivery) error
-	// ClaimDue atomically claims up to limit deliveries that are pending/failed
-	// and due (next_retry_at <= now), returning them for sending. The
-	// implementation should mark them in-flight (e.g. via SELECT ... FOR UPDATE
-	// SKIP LOCKED or a CAS on a claim column) so concurrent dispatchers don't
-	// double-send.
+	// ClaimDue atomically claims up to limit due deliveries (pending/failed
+	// rows whose next_retry_at passed, and delivering rows whose lease
+	// expired). Each claimed row is 'delivering' with a claim token and a
+	// lease, and its Attempts already counts this attempt.
 	ClaimDue(ctx context.Context, now int64, limit int) ([]domain.WebhookDelivery, error)
-	// MarkDelivered transitions a delivery to delivered, recording the HTTP
-	// response code and bumping attempts.
-	MarkDelivered(ctx context.Context, id uint64, attempts int, responseCode int) error
-	// MarkFailed transitions a delivery to failed and schedules nextRetryAt,
-	// bumping attempts and recording the response code (nil when no response)
-	// and last error.
-	MarkFailed(ctx context.Context, id uint64, attempts int, nextRetryAt int64, responseCode *int, lastErr string) error
-	// MarkDead transitions a delivery to dead (retries exhausted), bumping
-	// attempts and recording the last response code and error.
-	MarkDead(ctx context.Context, id uint64, attempts int, responseCode *int, lastErr string) error
+	// MarkDelivered records a 2xx outcome. Every Mark* is fenced by the
+	// claimed delivery's ClaimToken and fails when a newer claim owns the row.
+	MarkDelivered(ctx context.Context, del domain.WebhookDelivery, responseCode int) error
+	// MarkFailed records a failed attempt and schedules nextRetryAt, with the
+	// response code (nil when no response) and last error.
+	MarkFailed(ctx context.Context, del domain.WebhookDelivery, nextRetryAt int64, responseCode *int, lastErr string) error
+	// MarkDead records retry exhaustion (or a delivery that can never succeed).
+	MarkDead(ctx context.Context, del domain.WebhookDelivery, responseCode *int, lastErr string) error
 	// ExistsTerminal reports whether a delivery for this webhook_id+event_id is
 	// already in a terminal state (delivered or dead) — used for dedup so the
 	// same event is not re-enqueued/re-sent after success or dead-lettering.

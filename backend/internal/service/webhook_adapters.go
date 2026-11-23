@@ -50,8 +50,8 @@ func (a *WebhookRepoAdapter) Get(ctx context.Context, id string) (domain.Webhook
 }
 
 // WebhookDeliveryRepoAdapter adapts *store.WebhookDeliveryRepo to
-// webhooks.WebhookDeliveryRepo. The store repo computes attempts++ itself, so the
-// adapter drops the caller-supplied attempts count.
+// webhooks.WebhookDeliveryRepo. The store counts attempts at claim time and
+// fences every outcome write by the claimed delivery's token.
 type WebhookDeliveryRepoAdapter struct {
 	repo *store.WebhookDeliveryRepo
 }
@@ -75,29 +75,27 @@ func (a *WebhookDeliveryRepoAdapter) ClaimDue(
 	return a.repo.ClaimDue(ctx, now, limit)
 }
 
-func (a *WebhookDeliveryRepoAdapter) MarkDelivered(ctx context.Context, id uint64, _ int, responseCode int) error {
-	return a.repo.MarkDelivered(ctx, id, responseCode)
+func (a *WebhookDeliveryRepoAdapter) MarkDelivered(ctx context.Context, del domain.WebhookDelivery, responseCode int) error {
+	return a.repo.MarkDelivered(ctx, del.ID, del.ClaimToken, responseCode)
 }
 
 func (a *WebhookDeliveryRepoAdapter) MarkFailed(
 	ctx context.Context,
-	id uint64,
-	_ int,
+	del domain.WebhookDelivery,
 	nextRetryAt int64,
 	responseCode *int,
 	lastErr string,
 ) error {
-	return a.repo.MarkFailed(ctx, id, responseCode, lastErr, nextRetryAt)
+	return a.repo.MarkFailed(ctx, del.ID, del.ClaimToken, responseCode, lastErr, nextRetryAt)
 }
 
 func (a *WebhookDeliveryRepoAdapter) MarkDead(
 	ctx context.Context,
-	id uint64,
-	_ int,
+	del domain.WebhookDelivery,
 	responseCode *int,
 	lastErr string,
 ) error {
-	return a.repo.MarkDead(ctx, id, responseCode, lastErr)
+	return a.repo.MarkDead(ctx, del.ID, del.ClaimToken, responseCode, lastErr)
 }
 
 func (a *WebhookDeliveryRepoAdapter) ExistsTerminal(ctx context.Context, webhookID, eventID string) (bool, error) {

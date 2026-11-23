@@ -91,8 +91,6 @@ func (r *RetentionRepo) deleteUnreferencedEvents(ctx context.Context, cutoffMs i
 	return deleteBatches(func() (int64, error) {
 		n, err := r.q.DeleteUnreferencedEventLogBefore(ctx, storedb.DeleteUnreferencedEventLogBeforeParams{
 			CreatedAt: cutoffMs,
-			Status:    storedb.WebhookDeliveriesStatus(domain.DeliveryPending),
-			Status_2:  storedb.WebhookDeliveriesStatus(domain.DeliveryFailed),
 			Limit:     retentionDeleteBatchSize,
 		})
 		if err != nil {

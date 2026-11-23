@@ -64,7 +64,7 @@ WHERE event_log.created_at < ?
     SELECT 1
     FROM webhook_deliveries
     WHERE webhook_deliveries.event_id = event_log.event_id
-      AND webhook_deliveries.status IN (?, ?)
+      AND webhook_deliveries.status IN ('pending', 'failed', 'delivering')
   )
   AND NOT EXISTS (
     SELECT 1
@@ -77,19 +77,12 @@ LIMIT ?
 `
 
 type DeleteUnreferencedEventLogBeforeParams struct {
-	CreatedAt int64                   `db:"created_at" json:"created_at"`
-	Status    WebhookDeliveriesStatus `db:"status" json:"status"`
-	Status_2  WebhookDeliveriesStatus `db:"status_2" json:"status_2"`
-	Limit     int32                   `db:"limit" json:"limit"`
+	CreatedAt int64 `db:"created_at" json:"created_at"`
+	Limit     int32 `db:"limit" json:"limit"`
 }
 
 func (q *Queries) DeleteUnreferencedEventLogBefore(ctx context.Context, arg DeleteUnreferencedEventLogBeforeParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteUnreferencedEventLogBefore,
-		arg.CreatedAt,
-		arg.Status,
-		arg.Status_2,
-		arg.Limit,
-	)
+	result, err := q.db.ExecContext(ctx, deleteUnreferencedEventLogBefore, arg.CreatedAt, arg.Limit)
 	if err != nil {
 		return 0, err
 	}

@@ -34,11 +34,11 @@ func TestRetentionRepoPrune_BatchesAndPreservesActiveWebhookEvents(t *testing.T)
 
 	// The correlated NOT EXISTS is the critical retention guard: webhook workers
 	// reload the event body from event_log, so pending/failed deliveries retain it.
-	mock.ExpectExec("(?s)DELETE FROM event_log.*NOT EXISTS.*FROM webhook_deliveries.*webhook_deliveries.event_id = event_log.event_id.*status IN .., ..*ORDER BY created_at, id.*LIMIT .").
-		WithArgs(cutoff, "pending", "failed", int32(retentionDeleteBatchSize)).
+	mock.ExpectExec("(?s)DELETE FROM event_log.*NOT EXISTS.*FROM webhook_deliveries.*webhook_deliveries.event_id = event_log.event_id.*status IN .'pending', 'failed', 'delivering'..*ORDER BY created_at, id.*LIMIT .").
+		WithArgs(cutoff, int32(retentionDeleteBatchSize)).
 		WillReturnResult(sqlmock.NewResult(0, int64(retentionDeleteBatchSize)))
-	mock.ExpectExec("(?s)DELETE FROM event_log.*NOT EXISTS.*FROM webhook_deliveries.*webhook_deliveries.event_id = event_log.event_id.*status IN .., ..*ORDER BY created_at, id.*LIMIT .").
-		WithArgs(cutoff, "pending", "failed", int32(retentionDeleteBatchSize)).
+	mock.ExpectExec("(?s)DELETE FROM event_log.*NOT EXISTS.*FROM webhook_deliveries.*webhook_deliveries.event_id = event_log.event_id.*status IN .'pending', 'failed', 'delivering'..*ORDER BY created_at, id.*LIMIT .").
+		WithArgs(cutoff, int32(retentionDeleteBatchSize)).
 		WillReturnResult(sqlmock.NewResult(0, 3))
 
 	got, err := repo.Prune(context.Background(), cutoff)

@@ -1,4 +1,4 @@
-import { mysqlTable, mysqlSchema, index, primaryKey, check, varchar, mysqlEnum, bigint, int, text, unique, json, mediumtext, smallint, tinyint } from "drizzle-orm/mysql-core"
+import { mysqlTable, mysqlSchema, index, primaryKey, check, varchar, mysqlEnum, bigint, int, text, unique, json, mediumtext, smallint, char, tinyint } from "drizzle-orm/mysql-core"
 import { sql } from "drizzle-orm"
 
 export const backfillImports = mysqlTable("backfill_imports", {
@@ -232,12 +232,14 @@ export const webhookDeliveries = mysqlTable("webhook_deliveries", {
 	id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
 	webhookId: varchar("webhook_id", { length: 64 }).notNull(),
 	eventId: varchar("event_id", { length: 64 }).notNull(),
-	status: mysqlEnum(['pending','delivered','failed','dead']).default('pending').notNull(),
+	status: mysqlEnum(['pending','delivered','failed','dead','delivering']).default('pending').notNull(),
 	attempts: int().default(0).notNull(),
 	responseCode: int("response_code"),
 	nextRetryAt: bigint("next_retry_at", { mode: "number" }),
 	lastError: text("last_error"),
 	createdAt: bigint("created_at", { mode: "number" }).notNull(),
+	claimToken: char("claim_token", { length: 26 }),
+	leaseUntil: bigint("lease_until", { mode: "number" }),
 },
 (table) => [
 	index("idx_deliv_activity").on(table.webhookId, table.status, table.createdAt),

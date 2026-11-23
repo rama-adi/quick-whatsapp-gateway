@@ -86,6 +86,19 @@ Pure helpers: `EventMatches(events, type)`, `SignHMAC(secret, body)`,
   `WEBHOOK_RETRIES_ATTEMPTS` / `WEBHOOK_RETRIES_DELAY` (default 5 attempts, 2s).
 - **Exhaustion.** When the just-run attempt number reaches `attempts`, the
   delivery is marked `dead` instead of rescheduled.
+- **Claims and leases (migration 0034).** An attempt in progress is explicit:
+  `ClaimDue` selects `pending`/`failed` rows whose `next_retry_at` passed plus
+  `delivering` rows whose `lease_until` passed (a dispatcher crashed mid-attempt),
+  ordered by `(next_retry_at, id)` with `FOR UPDATE SKIP LOCKED`, and moves each to
+  `delivering` with a per-claim `claim_token`, a `lease_until` staggered by batch
+  position (60 s per item), and `attempts + 1`. Counting at claim means a dispatcher
+  that crashes mid-POST still uses an attempt. `MarkDelivered`, `MarkFailed` and
+  `MarkDead` take the claimed delivery and update only `WHERE id = ? AND claim_token = ?
+  AND status = 'delivering'`; a worker whose lease expired and was reclaimed gets
+  `store.ErrWebhookClaimLost` and cannot overwrite `delivered` or double-mark. The
+  POST itself can still be repeated after a lease expiry (at-least-once); receivers
+  dedupe on the request id header, which is the event id. Retention keeps the event
+  body of `pending`, `failed` and `delivering` deliveries.
 - **Error vs. failure.** A non-2xx response or transport error is a normal
   *failed* delivery recorded on the row (with the response code when present and
   a bounded body snippet in `last_error`) — `Deliver` returns `nil`. `Deliver`
@@ -137,8 +150,8 @@ Build/test commands:
 ## Current production wiring
 
 - A `WebhookRepo` + `WebhookDeliveryRepo` over MySQL (`store` package). `ClaimDue`
-  is required to be atomic (`SELECT … FOR UPDATE SKIP LOCKED` or a CAS claim column) so
-  concurrent dispatchers don't double-send.
+  is atomic (`SELECT … FOR UPDATE SKIP LOCKED` plus the `delivering` claim token) so
+  concurrent dispatchers receive disjoint batches.
 - An `EventStore` over `event_log` (`GetEvent` by `event_id`).
 - An `*http.Client` with the configured per-request timeout as the `HTTPDoer`.
 - The AES-GCM `Decryptor` keyed by `APP_ENCRYPTION_KEY`.

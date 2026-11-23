@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
@@ -67,11 +68,16 @@ func (r *WebhookDeliveryRepo) Enqueue(ctx context.Context, webhookID, eventID st
 	return uint64(id), nil
 }
 
-// ClaimDue returns up to limit deliveries that are due for a (re)attempt: status
-// pending or failed with next_retry_at <= now. Ordered by next_retry_at so the
-// oldest-due fire first. Selection and leasing happen in one transaction with
-// row locks and SKIP LOCKED, so concurrent dispatchers receive disjoint batches.
-// The lease expires after a worker crash, preserving retry durability.
+// ErrWebhookClaimLost reports a fenced outcome write whose claim token no
+// longer owns the delivery: its lease expired and another claim took it.
+var ErrWebhookClaimLost = errors.New("webhook delivery claim lost")
+
+// ClaimDue claims up to limit due deliveries: pending/failed rows whose
+// next_retry_at passed, plus delivering rows whose lease expired. Each claimed
+// row becomes 'delivering' with a fresh claim token and lease, and its attempt
+// is counted. Selection and leasing happen in one transaction with SKIP LOCKED,
+// so concurrent dispatchers receive disjoint batches. Order is
+// (next_retry_at, id).
 func (r *WebhookDeliveryRepo) ClaimDue(ctx context.Context, now int64, limit int) ([]domain.WebhookDelivery, error) {
 	limit = normLimit(limit)
 	if _, ok := r.db.(*sql.Tx); ok {
@@ -100,63 +106,74 @@ func (r *WebhookDeliveryRepo) ClaimDue(ctx context.Context, now int64, limit int
 }
 
 // claimDue runs inside a transaction owned either by ClaimDue or its caller.
-// Selected rows stay locked while every lease is written; any error aborts the
-// batch so another worker can retry the complete set instead of observing a
-// partially claimed page.
+// Leases are staggered by batch position so later items do not expire while
+// earlier requests of the same sequential batch are still running.
 func (r *WebhookDeliveryRepo) claimDue(ctx context.Context, q *storedb.Queries, now int64, limit int) ([]domain.WebhookDelivery, error) {
 	rows, err := q.ClaimDueWebhookDeliveries(ctx, storedb.ClaimDueWebhookDeliveriesParams{
-		Status:      storedb.WebhookDeliveriesStatus(domain.DeliveryPending),
-		Status_2:    storedb.WebhookDeliveriesStatus(domain.DeliveryFailed),
-		NextRetryAt: sqlNullInt64(now),
-		Limit:       int32(limit),
+		Now:   sqlNullInt64(now),
+		Limit: int32(limit),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("store: claim due deliveries: %w", err)
 	}
+	token := domain.NewULID()
 	out := make([]domain.WebhookDelivery, 0, len(rows))
 	for i, row := range rows {
 		leaseUntil := now + webhookAttemptLeaseMs*int64(i+1)
 		if _, err := q.LeaseWebhookDelivery(ctx, storedb.LeaseWebhookDeliveryParams{
-			NextRetryAt: sqlNullInt64(leaseUntil),
-			ID:          row.ID,
+			ClaimToken: sqlString(token),
+			LeaseUntil: sqlNullInt64(leaseUntil),
+			ID:         row.ID,
 		}); err != nil {
 			return nil, fmt.Errorf("store: lease webhook delivery %d: %w", row.ID, err)
 		}
-		out = append(out, deliveryFromRow(row))
+		d := deliveryFromRow(storedb.WebhookDelivery{
+			ID: row.ID, WebhookID: row.WebhookID, EventID: row.EventID, Status: row.Status,
+			Attempts: row.Attempts, ResponseCode: row.ResponseCode, NextRetryAt: row.NextRetryAt,
+			LastError: row.LastError, CreatedAt: row.CreatedAt,
+		})
+		d.Status = domain.DeliveryDelivering
+		d.Attempts++
+		d.ClaimToken = token
+		out = append(out, d)
 	}
 	return out, nil
 }
 
-// MarkDelivered records a successful delivery: status delivered, attempts++,
-// response code stamped, retry cleared.
-func (r *WebhookDeliveryRepo) MarkDelivered(ctx context.Context, id uint64, responseCode int) error {
+// MarkDelivered records a successful attempt, fenced by its claim token.
+func (r *WebhookDeliveryRepo) MarkDelivered(ctx context.Context, id uint64, token string, responseCode int) error {
 	n, err := r.q.MarkWebhookDeliveryDelivered(ctx, storedb.MarkWebhookDeliveryDeliveredParams{
-		Status:       storedb.WebhookDeliveriesStatus(domain.DeliveryDelivered),
 		ResponseCode: sqlNullInt32(responseCode),
 		ID:           id,
+		ClaimToken:   sqlString(token),
 	})
 	if err != nil {
 		return fmt.Errorf("store: mark delivered: %w", err)
 	}
-	return rowsAffectedOrNotFound(n, "webhook delivery")
+	return claimedOrLost(n)
 }
 
-// MarkFailed records a failed attempt that will be retried: status failed,
-// attempts++, error/response stamped, and the next_retry_at the dispatcher
-// computed from the retry policy. responseCode may be nil (e.g. connection
-// error with no HTTP response).
-func (r *WebhookDeliveryRepo) MarkFailed(ctx context.Context, id uint64, responseCode *int, lastError string, nextRetryAt int64) error {
+// MarkFailed records a failed attempt that will be retried at nextRetryAt,
+// fenced by its claim token. responseCode may be nil (no HTTP response).
+func (r *WebhookDeliveryRepo) MarkFailed(ctx context.Context, id uint64, token string, responseCode *int, lastError string, nextRetryAt int64) error {
 	n, err := r.q.MarkWebhookDeliveryFailed(ctx, storedb.MarkWebhookDeliveryFailedParams{
-		Status:       storedb.WebhookDeliveriesStatus(domain.DeliveryFailed),
 		ResponseCode: nullInt32FromPtr(responseCode),
 		LastError:    sqlString(lastError),
 		NextRetryAt:  sqlNullInt64(nextRetryAt),
 		ID:           id,
+		ClaimToken:   sqlString(token),
 	})
 	if err != nil {
 		return fmt.Errorf("store: mark failed: %w", err)
 	}
-	return rowsAffectedOrNotFound(n, "webhook delivery")
+	return claimedOrLost(n)
+}
+
+func claimedOrLost(n int64) error {
+	if n != 1 {
+		return ErrWebhookClaimLost
+	}
+	return nil
 }
 
 // Create inserts a pending delivery from a domain.WebhookDelivery, populating
@@ -187,17 +204,17 @@ func (r *WebhookDeliveryRepo) ExistsTerminal(ctx context.Context, webhookID, eve
 	return ok, nil
 }
 
-// MarkDead records retry exhaustion: status dead, attempts++, error stamped,
-// retry cleared so it is never picked up again.
-func (r *WebhookDeliveryRepo) MarkDead(ctx context.Context, id uint64, responseCode *int, lastError string) error {
+// MarkDead records retry exhaustion (or a delivery that can never succeed),
+// fenced by its claim token.
+func (r *WebhookDeliveryRepo) MarkDead(ctx context.Context, id uint64, token string, responseCode *int, lastError string) error {
 	n, err := r.q.MarkWebhookDeliveryDead(ctx, storedb.MarkWebhookDeliveryDeadParams{
-		Status:       storedb.WebhookDeliveriesStatus(domain.DeliveryDead),
 		ResponseCode: nullInt32FromPtr(responseCode),
 		LastError:    sqlString(lastError),
 		ID:           id,
+		ClaimToken:   sqlString(token),
 	})
 	if err != nil {
 		return fmt.Errorf("store: mark dead: %w", err)
 	}
-	return rowsAffectedOrNotFound(n, "webhook delivery")
+	return claimedOrLost(n)
 }

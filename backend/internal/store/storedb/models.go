@@ -1718,10 +1718,11 @@ func AllWaSessionsDesiredStateValues() []WaSessionsDesiredState {
 type WebhookDeliveriesStatus string
 
 const (
-	WebhookDeliveriesStatusPending   WebhookDeliveriesStatus = "pending"
-	WebhookDeliveriesStatusDelivered WebhookDeliveriesStatus = "delivered"
-	WebhookDeliveriesStatusFailed    WebhookDeliveriesStatus = "failed"
-	WebhookDeliveriesStatusDead      WebhookDeliveriesStatus = "dead"
+	WebhookDeliveriesStatusPending    WebhookDeliveriesStatus = "pending"
+	WebhookDeliveriesStatusDelivered  WebhookDeliveriesStatus = "delivered"
+	WebhookDeliveriesStatusFailed     WebhookDeliveriesStatus = "failed"
+	WebhookDeliveriesStatusDead       WebhookDeliveriesStatus = "dead"
+	WebhookDeliveriesStatusDelivering WebhookDeliveriesStatus = "delivering"
 )
 
 func (e *WebhookDeliveriesStatus) Scan(src interface{}) error {
@@ -1764,7 +1765,8 @@ func (e WebhookDeliveriesStatus) Valid() bool {
 	case WebhookDeliveriesStatusPending,
 		WebhookDeliveriesStatusDelivered,
 		WebhookDeliveriesStatusFailed,
-		WebhookDeliveriesStatusDead:
+		WebhookDeliveriesStatusDead,
+		WebhookDeliveriesStatusDelivering:
 		return true
 	}
 	return false
@@ -1776,6 +1778,7 @@ func AllWebhookDeliveriesStatusValues() []WebhookDeliveriesStatus {
 		WebhookDeliveriesStatusDelivered,
 		WebhookDeliveriesStatusFailed,
 		WebhookDeliveriesStatusDead,
+		WebhookDeliveriesStatusDelivering,
 	}
 }
 
@@ -2216,12 +2219,14 @@ type WebhookDelivery struct {
 	ID           uint64                  `db:"id" json:"id"`
 	WebhookID    string                  `db:"webhook_id" json:"webhook_id"`
 	EventID      string                  `db:"event_id" json:"event_id"`
-	Status       WebhookDeliveriesStatus `db:"status" json:"status"`
 	Attempts     int32                   `db:"attempts" json:"attempts"`
 	ResponseCode sql.NullInt32           `db:"response_code" json:"response_code"`
 	NextRetryAt  sql.NullInt64           `db:"next_retry_at" json:"next_retry_at"`
 	LastError    sql.NullString          `db:"last_error" json:"last_error"`
 	CreatedAt    int64                   `db:"created_at" json:"created_at"`
+	Status       WebhookDeliveriesStatus `db:"status" json:"status"`
+	ClaimToken   sql.NullString          `db:"claim_token" json:"claim_token"`
+	LeaseUntil   sql.NullInt64           `db:"lease_until" json:"lease_until"`
 }
 
 type WhatsappGroup struct {

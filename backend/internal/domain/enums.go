@@ -198,14 +198,15 @@ const (
 )
 
 // WebhookDeliveryStatus mirrors webhook_deliveries.status. "dead" = retries
-// exhausted.
+// exhausted; "delivering" = claimed by a dispatcher with a live lease.
 type WebhookDeliveryStatus string
 
 const (
-	DeliveryPending   WebhookDeliveryStatus = "pending"
-	DeliveryDelivered WebhookDeliveryStatus = "delivered"
-	DeliveryFailed    WebhookDeliveryStatus = "failed"
-	DeliveryDead      WebhookDeliveryStatus = "dead"
+	DeliveryPending    WebhookDeliveryStatus = "pending"
+	DeliveryDelivering WebhookDeliveryStatus = "delivering"
+	DeliveryDelivered  WebhookDeliveryStatus = "delivered"
+	DeliveryFailed     WebhookDeliveryStatus = "failed"
+	DeliveryDead       WebhookDeliveryStatus = "dead"
 )
 
 // OutboxStatus mirrors outbox.status.
