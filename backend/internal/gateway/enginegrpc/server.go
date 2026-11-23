@@ -741,7 +741,9 @@ func grpcError(err error) error {
 		case domain.CodeNotFound:
 			return status.Error(codes.NotFound, "not found")
 		case domain.CodeConflict:
-			return status.Error(codes.FailedPrecondition, "assignment precondition failed")
+			// Carry the gateway's reason ("session is already paired", "session
+			// assignment is not live", ...); the API shows it instead of guessing.
+			return status.Error(codes.FailedPrecondition, apiErr.Message)
 		case domain.CodeForbidden:
 			return status.Error(codes.PermissionDenied, "permission denied")
 		}

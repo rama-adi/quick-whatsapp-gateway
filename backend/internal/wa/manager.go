@@ -677,6 +677,11 @@ func (m *Manager) pumpQR(ctx context.Context, ms *ManagedSession, qrChan <-chan 
 // StartPairingCode begins phone-number pairing and returns the linking code
 // (recon §3). It builds the client, connects, requests the code, emits auth.code,
 // and keeps the reconnect loop running so the eventual PairSuccess sticks.
+//
+// When a QR flow is already running for the unpaired device, the code is
+// requested on that same connection: whatsmeow's PairPhone runs on a connected
+// pairing client, which also receives QR codes. Starting a session always opens
+// a QR flow, so refusing here would make phone pairing unreachable.
 func (m *Manager) StartPairingCode(ctx context.Context, id, phone string) (string, error) {
 	ms := m.Get(id)
 	if ms == nil {
@@ -685,8 +690,13 @@ func (m *Manager) StartPairingCode(ctx context.Context, id, phone string) (strin
 
 	ms.mu.Lock()
 	if ms.client != nil {
+		existing := ms.client
+		paired := ms.device != nil && ms.device.ID != nil
 		ms.mu.Unlock()
-		return "", domain.ErrConflict("session already running")
+		if paired {
+			return "", domain.ErrConflict("session is already paired")
+		}
+		return m.pairPhoneOnRunningClient(ctx, ms, existing, phone)
 	}
 	loopCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	ms.cancel = cancel
@@ -726,8 +736,23 @@ func (m *Manager) StartPairingCode(ctx context.Context, id, phone string) (strin
 	return code, nil
 }
 
-// pairDisplayName is the "Browser (OS)" string whatsmeow validates for pairing
-// codes; the server 400s on a malformed value.
+// pairPhoneOnRunningClient requests a pairing code on the session's running,
+// unpaired client (an active QR flow). The QR flow keeps its own lifecycle: a
+// failed code request leaves it running, so the user can still scan.
+func (m *Manager) pairPhoneOnRunningClient(ctx context.Context, ms *ManagedSession, client waClient, phone string) (string, error) {
+	code, err := client.PairPhone(ctx, phone, true, whatsmeow.PairClientChrome, pairDisplayName())
+	if err != nil {
+		return "", fmt.Errorf("pair phone: %w", err)
+	}
+	publishCtx := context.WithoutCancel(ctx)
+	m.setStatus(publishCtx, ms, domain.SessionScanQR)
+	m.sink.Publish(publishCtx, domain.NewEvent(domain.EventAuthCode, ms.SessionID, ms.OrganizationID, map[string]any{
+		"code":  code,
+		"phone": phone,
+	}))
+	return code, nil
+}
+
 // pairDisplayName is the companion name sent with a phone-number pairing
 // request. WhatsApp validates it as "Browser (OS)" with a common browser and OS
 // and answers 400 bad-request for anything else, so it cannot carry the

@@ -349,3 +349,36 @@ func TestStartQRRunningUnpairedClientRepublishesStatus(t *testing.T) {
 		t.Fatal("repeated pairing replaced or disconnected the running client")
 	}
 }
+
+// Starting a session opens a QR flow, so phone-number pairing must reuse that
+// running unpaired client instead of refusing it as "already running".
+func TestStartPairingCodeReusesRunningQRClient(t *testing.T) {
+	manager, sink, _, client := newTestManagerParts(t, Config{})
+	client.pairCode = "ABCD1234"
+	manager.EnsureDevice("session", "org")
+	ms := manager.Get("session")
+	ms.client = client
+
+	code, err := manager.StartPairingCode(context.Background(), "session", "6281234567890")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code != "ABCD1234" || client.pairDisplay != "Chrome (Linux)" {
+		t.Fatalf("code = %q, display = %q", code, client.pairDisplay)
+	}
+	if ms.client != client || client.disconnects != 0 {
+		t.Fatal("phone pairing replaced or disconnected the running QR client")
+	}
+	if sink.typeCount(domain.EventAuthCode) != 1 || ms.Status() != domain.SessionScanQR {
+		t.Fatalf("auth.code events = %d, status = %q", sink.typeCount(domain.EventAuthCode), ms.Status())
+	}
+
+	// A failed code request leaves the QR flow running.
+	client.pairErr = errors.New("bad-request")
+	if _, err := manager.StartPairingCode(context.Background(), "session", "6281234567890"); err == nil {
+		t.Fatal("pair error was not returned")
+	}
+	if ms.client != client || ms.Status() == domain.SessionFailed {
+		t.Fatal("a failed code request tore down the QR flow")
+	}
+}

@@ -991,7 +991,7 @@ func mapEngineError(err error) error {
 	case codes.NotFound:
 		return domain.ErrNotFound("gateway session not found")
 	case codes.FailedPrecondition:
-		return domain.ErrConflict("gateway assignment changed")
+		return domain.ErrConflict(status.Convert(err).Message())
 	case codes.Unavailable:
 		return domain.ErrUnavailable("gateway unavailable")
 	case codes.InvalidArgument:

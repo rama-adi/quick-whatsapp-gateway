@@ -144,6 +144,14 @@ with:
   is told to link with a phone number instead;
 - `connect_error` when the gateway could not open the pairing connection.
 
+Starting an unpaired session always opens a QR flow. A phone-number pairing request while
+that flow runs asks for the code on the same connection (whatsmeow's `PairPhone` runs on a
+connected pairing client, which also receives QR codes) instead of refusing with a conflict.
+A failed code request leaves the QR flow running.
+
+Gateway conflicts keep their own message across the engine RPC: the gateway returns
+`FailedPrecondition` with the domain error's message and the API returns it as `409 conflict`.
+
 Phone-number pairing sends the fixed companion name `Chrome (Linux)`. WhatsApp validates it as
 `Browser (OS)` with a common browser and OS and answers `400 bad-request` otherwise, so the
 configured device name (shown in the phone's Linked devices list through `store.SetOSInfo`)
