@@ -137,7 +137,12 @@ the work Redis. API processes subscribe and revoke cached authorization and live
   `waJid` is absent (including `logged_out`) and treats a stopped session with a `waJid` as still
   paired. The QR query is enabled only after status reaches `scan_qr_code`, because `GET /qr` starts
   a QR flow as a side effect; this lets users choose phone-code pairing without an automatic QR
-  client racing it. A `logged_out` event clears cached identity/old codes, while `working`
+  client racing it. A `logged_out` event clears cached identity. Pairing artifacts (QR code, phone
+  pairing code, passkey step) belong to one attempt: any `session.status` other than
+  `scan_qr_code` removes all three, so a restart never shows the previous run's code. `auth.qr`
+  stores `expiresAt = timestamp + timeoutMs` when the payload carries `timeoutMs`. Pages read the
+  phone pairing code only from the cache (`useSessionPairingCode`); the request mutation writes
+  the cache in `onSuccess` instead of being read directly, so a newer event or clear wins. `working`
   invalidates session rows so the newly persisted JID appears immediately after PairSuccess.
   A live `auth.qr` or code-bearing `auth.code` event advances cached `starting` rows to
   `scan_qr_code` across detail, user-list, and admin-list caches. Code-bearing `auth.code`

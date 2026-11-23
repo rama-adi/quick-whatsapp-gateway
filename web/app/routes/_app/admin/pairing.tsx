@@ -8,10 +8,8 @@
 // returns JSON, so a plain <img src> can't work.
 
 import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { CheckCircle2Icon, QrCodeIcon, RefreshCwIcon, SmartphoneIcon } from "lucide-react";
-import { qk } from "~/lib/query";
 import { StreamIndicator, OrgLabel, useOrgNames } from "./-shared";
 import { useAdminSessions } from "~/lib/api/hooks/admin";
 import { useEventStreamSubscription } from "~/lib/events/useEventStream";
@@ -19,6 +17,7 @@ import {
   useSessionQR,
   useSessionLifecycle,
   usePairingCode,
+  useSessionPairingCode,
   useSessionPasskey,
 } from "~/lib/api/hooks/sessions";
 import type { SessionAction, SessionStatus, WASession } from "~/lib/api/types";
@@ -382,17 +381,10 @@ function PairingCodePanel({ sessionId, adminPhone }: { sessionId: string; adminP
   }, [adminPhone]);
 
   // The code the gateway prints to its console on boot is also pushed as an
-  // `auth.code` event; cacheBridge writes it here. Read it so it shows on the
-  // dashboard without anyone tailing the logs. A manually requested code lands
-  // in the same place (usePairingCode's onSuccess), so this covers both.
-  const live = useQuery<{ code?: string } | undefined>({
-    queryKey: qk.sessionPairing(sessionId),
-    queryFn: () => undefined,
-    enabled: false,
-    staleTime: Infinity,
-  }).data;
-
-  const code = pairing.data?.code ?? live?.code;
+  // `auth.code` event; cacheBridge writes it to the cache. A manually requested
+  // code lands in the same place (usePairingCode's onSuccess). Read only the
+  // cache, so a newer event or a status that ends the attempt always wins.
+  const code = useSessionPairingCode(sessionId)?.code;
   const digits = digitsOnly(phone);
 
   const submit = (e: React.FormEvent): void => {

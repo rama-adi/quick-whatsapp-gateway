@@ -139,6 +139,22 @@ export function useSessionPasskey(s: string): PasskeyStep | undefined {
   return data ?? undefined;
 }
 
+/**
+ * The phone pairing code of the current pairing attempt. It exists only in the
+ * cache: usePairingCode's onSuccess and auth.code events write it, and any
+ * status other than scan_qr_code clears it (cacheBridge). Read the code here,
+ * never from the mutation result, so a newer event or a clear always wins.
+ */
+export function useSessionPairingCode(s: string): { code: string } | undefined {
+  const { data } = useQuery<{ code: string } | null>({
+    queryKey: qk.sessionPairing(s),
+    queryFn: () => null,
+    enabled: false,
+    staleTime: Infinity,
+  });
+  return data ?? undefined;
+}
+
 /** The failureReason carried by the latest failed session.status event. */
 export function useSessionFailure(s: string): SessionFailureReason | undefined {
   const { data } = useQuery<SessionFailureReason | null>({

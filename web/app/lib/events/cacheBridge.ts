@@ -9,6 +9,7 @@ import type {
   Chat,
   EventEnvelope,
   Message,
+  QRCode,
   WASession,
 } from "../api/types";
 import type { Page } from "../api/envelope";
@@ -43,6 +44,13 @@ function patchRow<T>(
   qc.setQueryData<Infinite<T>>(key, (data) =>
     mapPages(data, (items) => items.map((it) => (match(it) ? patch(it) : it))),
   );
+}
+
+/** Drop the QR code, phone pairing code and passkey step of a pairing attempt. */
+function clearPairingArtifacts(qc: QueryClient, sessionId: string): void {
+  qc.removeQueries({ queryKey: qk.sessionQR(sessionId), exact: true });
+  qc.removeQueries({ queryKey: qk.sessionPairing(sessionId), exact: true });
+  qc.removeQueries({ queryKey: qk.sessionPasskey(sessionId), exact: true });
 }
 
 /** A live pairing artifact also proves the gateway has left starting. */
@@ -80,15 +88,9 @@ export function applyEvent(qc: QueryClient, e: EventEnvelope): void {
           row.id === s ? applyStatus(row) : row;
         patchRow<WASession>(qc, qk.sessions(), (r) => r.id === s, patch);
         patchRow<WASession>(qc, qk.adminSessions(), (r) => r.id === s, patch);
-        if (status === "logged_out") {
-          qc.removeQueries({ queryKey: qk.sessionQR(s), exact: true });
-          qc.removeQueries({ queryKey: qk.sessionPairing(s), exact: true });
-        }
-        // A passkey step belongs to one pairing attempt; any status other than
-        // scan_qr_code ends it.
-        if (status !== "scan_qr_code") {
-          qc.removeQueries({ queryKey: qk.sessionPasskey(s), exact: true });
-        }
+        // QR codes, phone pairing codes and passkey steps belong to one pairing
+        // attempt; any status other than scan_qr_code ends it.
+        if (status !== "scan_qr_code") clearPairingArtifacts(qc, s);
         const reason = str(p.failureReason);
         if (status === "failed" && reason) {
           qc.setQueryData(qk.sessionFailure(s), reason);
@@ -119,7 +121,10 @@ export function applyEvent(qc: QueryClient, e: EventEnvelope): void {
       const code = str(p.code);
       if (s && code) {
         markPairingReady(qc, s);
-        qc.setQueryData(qk.sessionQR(s), { code });
+        // timeoutMs (when sent) is how long this code stays scannable.
+        const timeoutMs = typeof p.timeoutMs === "number" && p.timeoutMs > 0 ? p.timeoutMs : undefined;
+        const qr: QRCode = timeoutMs ? { code, expiresAt: e.timestamp + timeoutMs } : { code };
+        qc.setQueryData(qk.sessionQR(s), qr);
       }
       break;
     }

@@ -32,6 +32,7 @@ import {
   useSessionPasskey,
   useSessionQR,
   usePairingCode,
+  useSessionPairingCode,
 } from "~/lib/api/hooks/sessions";
 import { isApiError } from "~/lib/api/envelope";
 import type { WASession } from "~/lib/api/types";
@@ -691,7 +692,7 @@ function PairingCard({
                 <span className="pt-0.5 text-pretty">{step}</span>
               </li>
             ))}
-            {(isRunning(session.status) || mode === "code") && (
+            {session.status === "scan_qr_code" && (
               <li className="flex items-center gap-2 pt-1 text-xs text-muted-foreground">
                 <Spinner className="size-3.5" />
                 This page updates by itself once the phone is linked.
@@ -866,7 +867,7 @@ function PairingCodePanel({ sessionId }: { sessionId: string }) {
     );
   };
 
-  const code = pairing.data?.code;
+  const code = useSessionPairingCode(sessionId)?.code;
 
   return (
     <div className="grid w-full max-w-72 gap-4">
