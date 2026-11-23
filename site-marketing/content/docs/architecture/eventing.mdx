@@ -61,7 +61,8 @@ func Normalize(evt any, sessionID, organizationID string) (domain.Event, Persist
 | `*events.Connected` | `session.status` (working) | `PersistSessionStatus` |
 | `*events.Disconnected` | `session.status` (starting) | `PersistSessionStatus` |
 | `*events.LoggedOut` | `session.status` (logged_out) | `PersistSessionStatus` |
-| `*events.StreamReplaced` | `session.status` (failed) | `PersistSessionStatus` |
+| `*events.StreamReplaced` | `session.status` (failed, `failureReason: stream_replaced`) | `PersistSessionStatus` |
+| `*events.PairPasskeyRequest` | `session.status` (failed, `failureReason: passkey_required`) | `PersistSessionStatus` |
 | `*events.QR` | `auth.qr` | `PersistNone` |
 | `*events.PairSuccess` | `auth.code` | `PersistNone` |
 | `*events.Presence` / `*events.ChatPresence` | `presence.update` | `PersistNone` |

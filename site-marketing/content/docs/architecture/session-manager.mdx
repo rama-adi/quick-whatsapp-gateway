@@ -127,6 +127,31 @@ The session lifecycle splits across the trust boundary:
 
 ## Pairing recovery
 
+The status moves to `scan_qr_code` only once there is something to scan or enter: after the
+first QR code is stored (so `GET /qr` returns it), or after WhatsApp returns a phone-number
+pairing code. Until then the session keeps its previous status.
+
+Every failed status carries a `failureReason` in the `session.status` payload. Pairing can end
+with:
+
+- `qr_timeout` when every QR code expired without a scan;
+- `pairing_error` when WhatsApp rejected or aborted the handshake, or the QR channel ended with
+  `err-unexpected-state` or `error` (the client is released so the session does not sit in
+  `scan_qr_code`);
+- `passkey_required` when WhatsApp sends `PairPasskeyRequest`. Accounts with a passkey must
+  sign a WebAuthn challenge for WhatsApp's own origin to link a device. The gateway cannot
+  produce that assertion, so it stops pairing instead of waiting for the QR to expire. The user
+  is told to link with a phone number instead;
+- `connect_error` when the gateway could not open the pairing connection.
+
+Phone-number pairing sends the fixed companion name `Chrome (Linux)`. WhatsApp validates it as
+`Browser (OS)` with a common browser and OS and answers `400 bad-request` otherwise, so the
+configured device name (shown in the phone's Linked devices list through `store.SetOSInfo`)
+cannot be used there.
+
+The failed status is published with a context that teardown cannot cancel, because failure
+paths tear the run down before they record the status.
+
 QR timeout marks the session failed, cancels its reconnect loop, releases the expired client,
 and clears the cached QR. A subsequent pairing request creates a fresh flow instead of reusing
 an exhausted QR channel. Stopping a flow and successful QR pairing also clear its cache, and
@@ -332,7 +357,8 @@ Core types:
   - `classifyEvent(evt any) transition` — maps a whatsmeow event to
     `(status, changed, terminal, keepReconnect)`. `Connected→WORKING`,
     `PairSuccess→STARTING`, terminal events→`FAILED`/`LOGGED_OUT` with reconnect
-    stopped; `Disconnected` and transient `ConnectFailure` cause no status change
+    stopped. A `FAILED` transition carries its reason (`stream_replaced`,
+    `temporary_ban`, `client_outdated`, `passkey_required`, `connect_rejected`); `Disconnected` and transient `ConnectFailure` cause no status change
     (the reconnect loop retries).
   - `isFatalConnectFailure(reason)` — distinguishes permanent
     (logged-out/banned/locked/outdated/bad-UA) from transient connect failures.

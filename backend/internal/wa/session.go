@@ -125,6 +125,7 @@ type ManagedSession struct {
 
 	mu        sync.Mutex
 	status    domain.SessionStatus
+	failure   domain.SessionFailureReason // set only while status is failed
 	attempt   int                // consecutive reconnect attempts (resets on Connected)
 	reconnect bool               // whether the reconnect loop should keep running
 	cancel    context.CancelFunc // cancels the per-session goroutine context
@@ -164,6 +165,8 @@ type transition struct {
 	status domain.SessionStatus
 	// changed reports whether status carries a meaningful value.
 	changed bool
+	// reason says why, when status is failed. It is "" for every other status.
+	reason domain.SessionFailureReason
 	// keepReconnect reports whether the reconnect loop should continue after this
 	// event. It is only consulted when terminal is true.
 	keepReconnect bool
@@ -183,6 +186,9 @@ type transition struct {
 //   - ConnectFailure       -> FAILED for fatal reasons (logged-out/banned/locked/
 //     outdated/bad-UA) STOP; otherwise transient (no status change, keep retrying).
 //   - PairSuccess          -> STARTING (handshake done, awaiting Connected).
+//   - PairPasskeyRequest   -> FAILED(passkey_required), STOP (terminal). The
+//     gateway cannot produce a WebAuthn assertion for WhatsApp's origin, so
+//     linking cannot finish; this covers both QR and phone-code pairing.
 //   - QR/QRScanned...       -> handled by the QR pump, not here.
 //
 // Events not relevant to status return changed=false, terminal=false.
@@ -196,19 +202,39 @@ func classifyEvent(evt any) transition {
 	case *events.LoggedOut:
 		return transition{status: domain.SessionLoggedOut, changed: true, terminal: true, keepReconnect: false}
 	case *events.StreamReplaced:
-		return transition{status: domain.SessionFailed, changed: true, terminal: true, keepReconnect: false}
+		return failedTransition(domain.FailureStreamReplaced)
 	case *events.TemporaryBan:
-		return transition{status: domain.SessionFailed, changed: true, terminal: true, keepReconnect: false}
+		return failedTransition(domain.FailureTemporaryBan)
 	case *events.ClientOutdated:
-		return transition{status: domain.SessionFailed, changed: true, terminal: true, keepReconnect: false}
+		return failedTransition(domain.FailureClientOutdated)
+	case *events.PairPasskeyRequest:
+		return failedTransition(domain.FailurePasskeyRequired)
 	case *events.ConnectFailure:
 		if isFatalConnectFailure(e.Reason) {
-			return transition{status: domain.SessionFailed, changed: true, terminal: true, keepReconnect: false}
+			return failedTransition(connectFailureReason(e.Reason))
 		}
 		// Transient failure: let the reconnect loop keep trying.
 		return transition{}
 	default:
 		return transition{}
+	}
+}
+
+// failedTransition is the terminal FAILED transition for reason.
+func failedTransition(reason domain.SessionFailureReason) transition {
+	return transition{status: domain.SessionFailed, reason: reason, changed: true, terminal: true, keepReconnect: false}
+}
+
+// connectFailureReason maps a fatal ConnectFailure onto the failure reason the
+// API and UI show.
+func connectFailureReason(r events.ConnectFailureReason) domain.SessionFailureReason {
+	switch r {
+	case events.ConnectFailureTempBanned:
+		return domain.FailureTemporaryBan
+	case events.ConnectFailureClientOutdated:
+		return domain.FailureClientOutdated
+	default:
+		return domain.FailureConnectRejected
 	}
 }
 

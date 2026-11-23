@@ -19,6 +19,42 @@ const (
 	SessionLoggedOut SessionStatus = "logged_out"
 )
 
+// SessionFailureReason says why a session is in the failed status. It is set
+// only while status is failed and cleared on every other status, so a reader
+// never sees a stale reason next to a healthy status.
+type SessionFailureReason string
+
+const (
+	// FailurePasskeyRequired: WhatsApp asked for the account's passkey during
+	// linking. The gateway cannot answer a WebAuthn challenge, so pairing stops.
+	FailurePasskeyRequired SessionFailureReason = "passkey_required"
+	// FailureQRTimeout: every QR code expired without a successful scan.
+	FailureQRTimeout SessionFailureReason = "qr_timeout"
+	// FailurePairingError: WhatsApp rejected or aborted the linking handshake.
+	FailurePairingError SessionFailureReason = "pairing_error"
+	// FailureClientOutdated: WhatsApp rejected the gateway's client version.
+	FailureClientOutdated SessionFailureReason = "client_outdated"
+	// FailureStreamReplaced: another client took over this device's connection.
+	FailureStreamReplaced SessionFailureReason = "stream_replaced"
+	// FailureTemporaryBan: WhatsApp temporarily banned the account.
+	FailureTemporaryBan SessionFailureReason = "temporary_ban"
+	// FailureConnectRejected: WhatsApp refused the connection for a permanent reason.
+	FailureConnectRejected SessionFailureReason = "connect_rejected"
+	// FailureConnectError: the gateway could not open a connection to WhatsApp.
+	FailureConnectError SessionFailureReason = "connect_error"
+)
+
+// Valid reports whether r is one of the known failure reasons.
+func (r SessionFailureReason) Valid() bool {
+	switch r {
+	case FailurePasskeyRequired, FailureQRTimeout, FailurePairingError, FailureClientOutdated,
+		FailureStreamReplaced, FailureTemporaryBan, FailureConnectRejected, FailureConnectError:
+		return true
+	default:
+		return false
+	}
+}
+
 // statusNameMap maps the §3 UPPERCASE familiar names onto stored values.
 var statusNameMap = map[string]SessionStatus{
 	"STARTING":     SessionStarting,

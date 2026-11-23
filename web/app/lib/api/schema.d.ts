@@ -5319,7 +5319,13 @@ export interface components {
         };
         SessionStatusPayload: {
             /**
-             * @description New session status. One of: starting (connecting), scan_qr_code (waiting for a QR scan or pairing code), working (connected and ready to send/receive), failed (connection failed; will retry), stopped (intentionally stopped), logged_out (the WhatsApp account unlinked the device — must re-pair).
+             * @description Why the session failed. Present only when status is failed. passkey_required = WhatsApp asked for the account passkey while linking, which the gateway cannot provide (link with a phone number instead); qr_timeout = every QR code expired before a scan; pairing_error = WhatsApp rejected the linking handshake; client_outdated = WhatsApp rejected the gateway's client version (the operator must upgrade); stream_replaced = another client took over this device; temporary_ban = WhatsApp temporarily banned the account; connect_rejected = WhatsApp refused the connection; connect_error = the gateway could not reach WhatsApp.
+             * @example passkey_required
+             * @enum {string}
+             */
+            failureReason?: "passkey_required" | "qr_timeout" | "pairing_error" | "client_outdated" | "stream_replaced" | "temporary_ban" | "connect_rejected" | "connect_error";
+            /**
+             * @description New session status. One of: starting (connecting), scan_qr_code (waiting for a QR scan or pairing code), working (connected and ready to send/receive), failed (the gateway stopped trying; see failureReason), stopped (intentionally stopped), logged_out (the WhatsApp account unlinked the device — must re-pair).
              * @example working
              * @enum {string}
              */

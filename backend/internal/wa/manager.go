@@ -602,14 +602,14 @@ func (m *Manager) StartQR(ctx context.Context, id string) error {
 	qrChan, err := client.GetQRChannel(loopCtx)
 	if err != nil {
 		m.teardown(ms)
-		m.setStatus(loopCtx, ms, domain.SessionFailed)
+		m.setFailed(loopCtx, ms, domain.FailurePairingError)
 		return fmt.Errorf("get qr channel: %w", err)
 	}
-	m.setStatus(loopCtx, ms, domain.SessionScanQR)
-
+	// The status stays where it is until the first code arrives: pumpQR moves it
+	// to scan_qr_code only once there is a code to scan.
 	if err := client.Connect(); err != nil {
 		m.teardown(ms)
-		m.setStatus(loopCtx, ms, domain.SessionFailed)
+		m.setFailed(loopCtx, ms, domain.FailureConnectError)
 		return fmt.Errorf("connect for qr: %w", err)
 	}
 	go m.pumpQR(loopCtx, ms, qrChan)
@@ -636,6 +636,9 @@ func (m *Manager) pumpQR(ctx context.Context, ms *ManagedSession, qrChan <-chan 
 				ms.lastQR = item.Code
 				ms.lastQRExpires = m.clock.NowMs() + item.Timeout.Milliseconds()
 				ms.mu.Unlock()
+				// scan_qr_code means "a code exists to scan": publish it only after
+				// the code is stored, so GET /qr answers with it.
+				m.setStatus(ctx, ms, domain.SessionScanQR)
 				m.sink.Publish(ctx, domain.NewEvent(domain.EventAuthQR, ms.SessionID, ms.OrganizationID, map[string]any{
 					"code":      item.Code,
 					"timeoutMs": item.Timeout.Milliseconds(),
@@ -648,16 +651,24 @@ func (m *Manager) pumpQR(ctx context.Context, ms *ManagedSession, qrChan <-chan 
 				return
 			case "timeout":
 				m.log.Warn("qr pairing timed out", "session", ms.SessionID)
-				m.setStatus(ctx, ms, domain.SessionFailed)
+				m.setFailed(ctx, ms, domain.FailureQRTimeout)
 				// A timed-out client cannot produce another QR channel. Release it and
 				// its reconnect loop so a subsequent pairing request starts a fresh flow.
 				m.teardown(ms)
 				return
-			default:
-				// err-client-outdated, err-unexpected-state, err-scanned-without-multidevice
-				// and error end the QR flow without a code. Log every one: a nil
-				// item.Error (as with err-client-outdated) still means pairing stopped.
+			case whatsmeow.QRChannelErrUnexpectedEvent.Event, whatsmeow.QRChannelEventError:
+				// The QR flow is over and no code will come. Fail with a reason and
+				// release the client, so the session does not sit in scan_qr_code.
 				m.log.Warn("qr pairing error", "session", ms.SessionID, "event", item.Event, "err", item.Error)
+				m.setFailed(ctx, ms, domain.FailurePairingError)
+				m.teardown(ms)
+				return
+			default:
+				// err-client-outdated and passkey-request also arrive as whatsmeow
+				// events (ClientOutdated, PairPasskeyRequest), which the event handler
+				// turns into a terminal failure with a reason. After
+				// err-scanned-without-multidevice the same code can be scanned again.
+				m.log.Warn("qr pairing event", "session", ms.SessionID, "event", item.Event, "err", item.Error)
 			}
 		}
 	}
@@ -688,10 +699,9 @@ func (m *Manager) StartPairingCode(ctx context.Context, id, phone string) (strin
 	ms.handlerID = client.AddEventHandler(m.eventHandlerFor(ms))
 	ms.mu.Unlock()
 
-	m.setStatus(loopCtx, ms, domain.SessionScanQR)
 	if err := client.Connect(); err != nil {
 		m.teardown(ms)
-		m.setStatus(loopCtx, ms, domain.SessionFailed)
+		m.setFailed(loopCtx, ms, domain.FailureConnectError)
 		return "", fmt.Errorf("connect for pairing: %w", err)
 	}
 	code, err := client.PairPhone(
@@ -699,13 +709,15 @@ func (m *Manager) StartPairingCode(ctx context.Context, id, phone string) (strin
 		phone,
 		true,
 		whatsmeow.PairClientChrome,
-		pairDisplayName(m.cfg.DeviceName),
+		pairDisplayName(),
 	)
 	if err != nil {
 		m.teardown(ms)
-		m.setStatus(loopCtx, ms, domain.SessionFailed)
+		m.setFailed(loopCtx, ms, domain.FailurePairingError)
 		return "", fmt.Errorf("pair phone: %w", err)
 	}
+	// The session waits for the user to enter the code on the phone.
+	m.setStatus(loopCtx, ms, domain.SessionScanQR)
 	m.sink.Publish(loopCtx, domain.NewEvent(domain.EventAuthCode, ms.SessionID, ms.OrganizationID, map[string]any{
 		"code":  code,
 		"phone": phone,
@@ -716,8 +728,13 @@ func (m *Manager) StartPairingCode(ctx context.Context, id, phone string) (strin
 
 // pairDisplayName is the "Browser (OS)" string whatsmeow validates for pairing
 // codes; the server 400s on a malformed value.
-func pairDisplayName(deviceName string) string {
-	return fmt.Sprintf("Chrome (%s)", deviceName)
+// pairDisplayName is the companion name sent with a phone-number pairing
+// request. WhatsApp validates it as "Browser (OS)" with a common browser and OS
+// and answers 400 bad-request for anything else, so it cannot carry the
+// configured device name (e.g. "Chrome (Linux - gw-1)" is rejected). The name in
+// the phone's Linked devices list comes from store.SetOSInfo instead.
+func pairDisplayName() string {
+	return "Chrome (Linux)"
 }
 
 // reconnectLoopAfterPair keeps a freshly-connected pairing session alive: once
@@ -798,7 +815,7 @@ func (m *Manager) applyEvent(ctx context.Context, ms *ManagedSession, evt any) {
 	if t.status == domain.SessionLoggedOut {
 		m.setLoggedOut(ctx, ms)
 	} else if t.changed {
-		m.setStatus(ctx, ms, t.status)
+		m.setState(ctx, ms, t.status, t.reason)
 	}
 }
 
@@ -849,6 +866,7 @@ func (m *Manager) recordPairedJID(_ context.Context, ms *ManagedSession, jid, li
 func (m *Manager) setLoggedOut(ctx context.Context, ms *ManagedSession) {
 	ms.mu.Lock()
 	ms.status = domain.SessionLoggedOut
+	ms.failure = ""
 	ms.device = m.keystore.NewDevice()
 	ms.lastQR = ""
 	ms.lastQRExpires = 0
@@ -864,23 +882,44 @@ func (m *Manager) setLoggedOut(ctx context.Context, ms *ManagedSession) {
 	}
 }
 
-// setStatus updates the in-memory status and emits a session.status event —
-// but only when the status actually changed, so we don't spam duplicates.
-// Persistence is API-owned: status history derives from these events after the
-// API commits them.
+// setStatus records a non-failed status. Use setFailed for the failed status,
+// which always carries a reason.
 func (m *Manager) setStatus(ctx context.Context, ms *ManagedSession, status domain.SessionStatus) {
+	m.setState(ctx, ms, status, "")
+}
+
+// setFailed records the failed status together with why it failed.
+func (m *Manager) setFailed(ctx context.Context, ms *ManagedSession, reason domain.SessionFailureReason) {
+	m.setState(ctx, ms, domain.SessionFailed, reason)
+}
+
+// setState updates the in-memory status and failure reason and emits a
+// session.status event, but only when either changed, so we don't spam
+// duplicates. The reason is kept only for the failed status. Persistence is
+// API-owned: status history derives from these events after the API commits
+// them.
+func (m *Manager) setState(ctx context.Context, ms *ManagedSession, status domain.SessionStatus, reason domain.SessionFailureReason) {
+	if status != domain.SessionFailed {
+		reason = ""
+	}
 	ms.mu.Lock()
-	if ms.status == status {
+	if ms.status == status && ms.failure == reason {
 		ms.mu.Unlock()
 		return
 	}
 	ms.status = status
+	ms.failure = reason
 	ms.mu.Unlock()
 
 	if m.sink != nil {
-		m.sink.Publish(ctx, domain.NewEvent(domain.EventSessionStatus, ms.SessionID, ms.OrganizationID, map[string]any{
-			"status": string(status),
-		}))
+		payload := map[string]any{"status": string(status)}
+		if reason != "" {
+			payload["failureReason"] = string(reason)
+		}
+		// Failure paths call teardown first, which cancels the session's loop
+		// context; publishing with it would drop the failed status. The status
+		// must reach the journal even when the run that produced it is over.
+		m.sink.Publish(context.WithoutCancel(ctx), domain.NewEvent(domain.EventSessionStatus, ms.SessionID, ms.OrganizationID, payload))
 	}
 }
 

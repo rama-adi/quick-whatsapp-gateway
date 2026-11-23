@@ -169,3 +169,41 @@ func TestBackoffFor_NeverExceedsMax(t *testing.T) {
 		}
 	}
 }
+
+func TestClassifyEventFailureReasons(t *testing.T) {
+	tests := []struct {
+		evt  any
+		want domain.SessionFailureReason
+	}{
+		{&events.PairPasskeyRequest{}, domain.FailurePasskeyRequired},
+		{&events.ClientOutdated{}, domain.FailureClientOutdated},
+		{&events.StreamReplaced{}, domain.FailureStreamReplaced},
+		{&events.TemporaryBan{}, domain.FailureTemporaryBan},
+		{&events.ConnectFailure{Reason: events.ConnectFailureTempBanned}, domain.FailureTemporaryBan},
+		{&events.ConnectFailure{Reason: events.ConnectFailureClientOutdated}, domain.FailureClientOutdated},
+		{&events.ConnectFailure{Reason: events.ConnectFailureMainDeviceGone}, domain.FailureConnectRejected},
+	}
+	for _, tt := range tests {
+		got := classifyEvent(tt.evt)
+		if got.status != domain.SessionFailed || !got.terminal || got.keepReconnect {
+			t.Errorf("%T: got %+v, want terminal failed without reconnect", tt.evt, got)
+		}
+		if got.reason != tt.want {
+			t.Errorf("%T: reason = %q, want %q", tt.evt, got.reason, tt.want)
+		}
+		if !got.reason.Valid() {
+			t.Errorf("%T: reason %q is not a valid failure reason", tt.evt, got.reason)
+		}
+	}
+	if got := classifyEvent(&events.Connected{}); got.reason != "" {
+		t.Errorf("connected carries reason %q, want none", got.reason)
+	}
+}
+
+func TestPairDisplayNameIsAcceptedFormat(t *testing.T) {
+	// WhatsApp answers 400 bad-request unless the name is "Browser (OS)" with a
+	// common browser and OS; a configured device name must not leak in.
+	if got := pairDisplayName(); got != "Chrome (Linux)" {
+		t.Fatalf("pairDisplayName() = %q, want %q", got, "Chrome (Linux)")
+	}
+}
