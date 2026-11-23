@@ -160,6 +160,12 @@ the work Redis. API processes subscribe and revoke cached authorization and live
   independently of degraded-stream fallback polling.
   Shared lifecycle controls disable logout for unpaired sessions and confirm before unlinking a
   paired device; list and detail views use the same labels, pending state, and destructive styling.
+  Lifecycle and delete mutations carry `sessionMutationKeys`, and `usePendingSessionActions` reads
+  every pending one through `useMutationState`, so the list, the session layout, and the overview
+  see an action any of them started. Pending state is an overlay for buttons and spinners; it
+  never decides the session status. Session-row refreshes (`refreshSessionRows`) use exact keys, so
+  a lifecycle action or a `working` event refetches the detail row and the two lists, not every
+  chat, contact, and QR query nested under `["sessions", id]`.
 - **Chats** — chat list + message timeline with a composer (text, poll, location, contact card);
   one pane at a time below `md`. Stored attachments render inline or as downloads after
   `media.ready`.

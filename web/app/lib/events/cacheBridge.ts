@@ -14,7 +14,7 @@ import type {
 } from "../api/types";
 import type { Page } from "../api/envelope";
 import { publishEvent } from "./eventBus";
-import { applySessionEvent, eventIsCurrent } from "../sessions/merge";
+import { applySessionEvent, eventIsCurrent, refreshSessionRows } from "../sessions/merge";
 
 type Infinite<T> = InfiniteData<Page<T>, string | undefined>;
 
@@ -157,9 +157,7 @@ export function applyEvent(qc: QueryClient, e: EventEnvelope): void {
           // PairSuccess persists the JID before Connected emits WORKING. Refresh
           // rows now so the UI switches from pairing controls to the attached
           // identity without requiring degraded-stream polling.
-          void qc.invalidateQueries({ queryKey: qk.session(s), exact: true });
-          void qc.invalidateQueries({ queryKey: qk.sessions() });
-          void qc.invalidateQueries({ queryKey: qk.adminSessions() });
+          refreshSessionRows(qc, s);
         }
       }
       break;
@@ -193,9 +191,7 @@ export function applyEvent(qc: QueryClient, e: EventEnvelope): void {
         // The device is linked: the attempt's artifacts are spent, and the
         // API has attached the identity (waJid, phone) to the session row.
         clearPairingArtifacts(qc, s);
-        void qc.invalidateQueries({ queryKey: qk.session(s), exact: true });
-        void qc.invalidateQueries({ queryKey: qk.sessions(), exact: true });
-        void qc.invalidateQueries({ queryKey: qk.adminSessions(), exact: true });
+        refreshSessionRows(qc, s);
       }
       break;
     }

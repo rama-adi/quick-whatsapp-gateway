@@ -10,6 +10,7 @@ import {
   mergeSession,
   mergeSessionPages,
   sessionPagesStructuralSharing,
+  refreshSessionRows,
   sessionStructuralSharing,
   writeSessionResponse,
 } from "./merge";
@@ -155,5 +156,15 @@ describe("lifecycle responses", () => {
     expect(qc.getQueryData<WASession>(qk.session(SESSION))?.status).toBe("scan_qr_code");
     const admin = qc.getQueryData<InfiniteData<Page<WASession>>>(qk.adminSessions());
     expect(admin?.pages[0]?.data[0]?.status).toBe("scan_qr_code");
+  });
+});
+
+describe("refreshSessionRows", () => {
+  it("refetches the rows only, not the queries nested under a session", () => {
+    const qc = new QueryClient();
+    const keys = [qk.sessions(), qk.session(SESSION), qk.adminSessions(), qk.chats(SESSION), qk.sessionQR(SESSION), ["admin", "sessions", SESSION, "backfill"]];
+    for (const key of keys) qc.setQueryData(key, { seeded: true });
+    refreshSessionRows(qc, SESSION);
+    expect(keys.map((key) => qc.getQueryState(key)?.isInvalidated)).toEqual([true, true, true, false, false, false]);
   });
 });

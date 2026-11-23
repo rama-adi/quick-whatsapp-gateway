@@ -23,7 +23,11 @@ import {
   DropdownMenuTrigger,
 } from "~/components/ui/dropdown-menu";
 import { useConfirm } from "~/components/confirm-dialog";
-import { useDeleteSession, useSessionLifecycle } from "~/lib/api/hooks/sessions";
+import {
+  useDeleteSession,
+  usePendingSessionActions,
+  useSessionLifecycle,
+} from "~/lib/api/hooks/sessions";
 import { isApiError } from "~/lib/api/envelope";
 import type { SessionAction, SessionStatus, WASession } from "~/lib/api/types";
 import { QrCode } from "~/routes/-oauth/QrCode";
@@ -116,6 +120,10 @@ export function useSessionActions() {
   const lifecycle = useSessionLifecycle();
   const del = useDeleteSession();
   const confirm = useConfirm();
+  // Shared across components via mutation keys, so the list, the layout and
+  // the overview all see an action any of them started.
+  const pendingAction = usePendingSessionActions();
+  // The delete flow spans a logout and retries; this covers its gaps.
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const run = async (s: WASession, action: SessionAction): Promise<void> => {
@@ -204,11 +212,7 @@ export function useSessionActions() {
     remove,
     /** The action in flight for `sessionId`, if any. */
     pendingFor: (sessionId: string): SessionAction | "delete" | undefined =>
-      deletingId === sessionId
-        ? "delete"
-        : lifecycle.isPending && lifecycle.variables?.sessionId === sessionId
-          ? lifecycle.variables.action
-          : undefined,
+      deletingId === sessionId ? "delete" : pendingAction(sessionId),
   };
 }
 

@@ -1,9 +1,10 @@
 // Session resource hooks (list/get/create/lifecycle/QR/pairing).
-// FROZEN — owned by the foundation agent. sessionId is always the first arg.
+// sessionId is always the first arg. Session rows obey lib/sessions/merge.ts.
 
 import {
   useInfiniteQuery,
   useMutation,
+  useMutationState,
   useQuery,
   useQueryClient,
   type UseInfiniteQueryResult,
@@ -25,6 +26,7 @@ import type {
 import { apiUrl, fetchJSON, listPageFetcher, nextCursor } from "./_shared";
 import {
   sessionPagesStructuralSharing,
+  refreshSessionRows,
   sessionStructuralSharing,
   writeSessionResponse,
 } from "../../sessions/merge";
@@ -94,23 +96,61 @@ export function useCreateSession(): UseMutationResult<
         method: "POST",
         body: JSON.stringify(body),
       }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: qk.sessions() });
-    },
+    onSuccess: () => refreshSessionRows(qc),
   });
 }
 
 export function useDeleteSession(): UseMutationResult<void, ApiError, { sessionId: string }> {
   const qc = useQueryClient();
   return useMutation({
+    mutationKey: sessionMutationKeys.delete,
     mutationFn: ({ sessionId }) =>
       fetchJSON<void>(apiUrl(`/sessions/${encodeURIComponent(sessionId)}`), {
         method: "DELETE",
       }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: qk.sessions() });
-    },
+    onSuccess: () => refreshSessionRows(qc),
   });
+}
+
+/**
+ * Mutation keys for session actions, so any component can see an action that
+ * another component started (useSessionPendingAction).
+ */
+export const sessionMutationKeys = {
+  lifecycle: ["sessions", "lifecycle"] as const,
+  delete: ["sessions", "delete"] as const,
+};
+
+type LifecycleVars = { sessionId: string; action: SessionAction };
+
+/**
+ * The lifecycle actions and deletes in flight, from any component, as a lookup
+ * by session id. An overlay for buttons and spinners: it never decides the
+ * session status.
+ */
+export function usePendingSessionActions(): (sessionId: string) => SessionAction | "delete" | undefined {
+  const lifecycle = useMutationState({
+    filters: { mutationKey: sessionMutationKeys.lifecycle, status: "pending" },
+    select: (m) => m.state.variables as LifecycleVars | undefined,
+  });
+  const deletes = useMutationState({
+    filters: { mutationKey: sessionMutationKeys.delete, status: "pending" },
+    select: (m) => m.state.variables as { sessionId: string } | undefined,
+  });
+  return (sessionId) => {
+    if (deletes.some((v) => v?.sessionId === sessionId)) return "delete";
+    // The newest pending action wins when several are queued.
+    for (let i = lifecycle.length - 1; i >= 0; i--) {
+      const v = lifecycle[i];
+      if (v?.sessionId === sessionId) return v.action;
+    }
+    return undefined;
+  };
+}
+
+/** The lifecycle action or delete in flight for one session, from any component. */
+export function useSessionPendingAction(sessionId: string): SessionAction | "delete" | undefined {
+  return usePendingSessionActions()(sessionId);
 }
 
 /** start/stop/restart/logout via the POST /sessions/{id}:{action} endpoints. */
@@ -121,6 +161,7 @@ export function useSessionLifecycle(): UseMutationResult<
 > {
   const qc = useQueryClient();
   return useMutation({
+    mutationKey: sessionMutationKeys.lifecycle,
     mutationFn: ({ sessionId, action }) =>
       fetchJSON<WASession>(
         apiUrl(`/sessions/${encodeURIComponent(sessionId)}:${action}`),
@@ -130,7 +171,7 @@ export function useSessionLifecycle(): UseMutationResult<
       // Events can advance the cache before the action response arrives;
       // mergeSession keeps whichever side is newer.
       writeSessionResponse(qc, data);
-      void qc.invalidateQueries({ queryKey: qk.sessions() });
+      refreshSessionRows(qc, data.id);
     },
   });
 }

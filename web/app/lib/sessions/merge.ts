@@ -116,3 +116,14 @@ export function writeSessionResponse(qc: QueryClient, data: WASession): void {
     );
   }
 }
+
+/**
+ * Refetch session rows: both lists and, when given, one session's detail row.
+ * Keys are exact, so this never refetches the chats, contacts, QR or identity
+ * queries that live under ["sessions", id, ...].
+ */
+export function refreshSessionRows(qc: QueryClient, sessionId?: string): void {
+  if (sessionId) void qc.invalidateQueries({ queryKey: qk.session(sessionId), exact: true });
+  void qc.invalidateQueries({ queryKey: qk.sessions(), exact: true });
+  void qc.invalidateQueries({ queryKey: qk.adminSessions(), exact: true });
+}
