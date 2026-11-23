@@ -71,6 +71,26 @@ function cachedSession(qc: QueryClient, sessionId: string): WASession | undefine
   return undefined;
 }
 
+/**
+ * Refetch every session-scoped query: session rows (detail, user list, admin
+ * list), the QR code and the account identity. Chat history and contacts are
+ * left alone. The provider calls this on every `connected` frame, because
+ * events published while the socket was down (or before the first connect,
+ * which has no since cursor) never arrive.
+ */
+export function resyncSessionState(qc: QueryClient): void {
+  void qc.invalidateQueries({ predicate: (query) => isSessionStateKey(query.queryKey) });
+}
+
+const SESSION_STATE_PARTS: ReadonlySet<unknown> = new Set(["qr", "me"]);
+
+/** ["sessions"], ["sessions", s], ["sessions", s, "qr"|"me"], ["admin", "sessions"]. */
+export function isSessionStateKey(key: readonly unknown[]): boolean {
+  if (key[0] === "admin") return key[1] === "sessions" && key.length === 2;
+  if (key[0] !== "sessions") return false;
+  return key.length <= 2 || (key.length === 3 && SESSION_STATE_PARTS.has(key[2]));
+}
+
 /** Apply one event to the cache. Pure w.r.t. its inputs aside from qc mutation. */
 export function applyEvent(qc: QueryClient, e: EventEnvelope): void {
   const s = e.session;

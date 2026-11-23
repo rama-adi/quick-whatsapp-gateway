@@ -17,8 +17,14 @@ export type PingFrame = { event: "ping" };
 /** In-band error frame emitted after the stream opens (e.g. since-replay failed). */
 export type ErrorFrame = { event: "error"; error: string };
 
-/** One decoded frame: a data envelope, a connected/ping signal, or an error. */
-export type StreamFrame = EventEnvelope | ConnectedFrame | PingFrame | ErrorFrame;
+/**
+ * Sent after a ?since replay that hit the server's replay cap: some events
+ * were skipped, so state must be refetched over REST. The stream continues.
+ */
+export type ResyncFrame = { event: "resync"; reason?: string };
+
+/** One decoded frame: a data envelope, a connected/ping/resync signal, or an error. */
+export type StreamFrame = EventEnvelope | ConnectedFrame | PingFrame | ResyncFrame | ErrorFrame;
 
 export function isConnectedFrame(f: StreamFrame): f is ConnectedFrame {
   return (f as ConnectedFrame).event === "connected" && !("id" in f);
@@ -26,6 +32,10 @@ export function isConnectedFrame(f: StreamFrame): f is ConnectedFrame {
 
 export function isPingFrame(f: StreamFrame): f is PingFrame {
   return (f as PingFrame).event === "ping" && !("id" in f);
+}
+
+export function isResyncFrame(f: StreamFrame): f is ResyncFrame {
+  return (f as ResyncFrame).event === "resync" && !("id" in f);
 }
 
 export function isErrorFrame(f: StreamFrame): f is ErrorFrame {
@@ -37,6 +47,7 @@ export function isDataFrame(f: StreamFrame): f is EventEnvelope {
   return (
     !isConnectedFrame(f) &&
     !isPingFrame(f) &&
+    !isResyncFrame(f) &&
     !isErrorFrame(f) &&
     frame.schema === "v1" &&
     typeof frame.id === "string" &&

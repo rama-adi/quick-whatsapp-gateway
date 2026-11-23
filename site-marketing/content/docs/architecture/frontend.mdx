@@ -250,6 +250,14 @@ surface can read connection status, but it stays **idle** until a surface opts i
 - **Fallback recovery** — after repeated stream failures switch live surfaces to polling, the
   first healthy WebSocket frame atomically restores `open` status and disables polling, so the
   temporary refetch intervals do not continue alongside the recovered stream.
+- **Recovery after missed events** — events published while no socket is subscribed never
+  arrive: a first connect has no `since` cursor, and a `since` replay can end early. So every
+  `connected` frame calls `resyncSessionState` (`lib/events/cacheBridge.ts`), which invalidates the
+  session-scoped queries (`["sessions"]`, `["sessions", id]`, its `qr` and `me`, and
+  `["admin", "sessions"]`) but not chats, timelines, or contacts. A `resync` frame (the server's
+  replay hit its cap and skipped events, see `stream.mdx`) invalidates every query, the same as
+  `replay_failed`. The admin pairing page also polls its rows every three seconds while an admin
+  session is `starting`, and at the degraded-stream interval while polling.
 - **One ordering rule for session rows** — `web/app/lib/sessions/merge.ts`. A session row reaches
   the cache from REST reads, lifecycle action responses, and `session.status` events, in any order.
   Every writer keeps the newer side: a REST row is as new as its `updatedAt` (the API stamps it when

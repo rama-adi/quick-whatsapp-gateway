@@ -12,7 +12,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { CheckCircle2Icon, QrCodeIcon, RefreshCwIcon, SmartphoneIcon } from "lucide-react";
 import { StreamIndicator, OrgLabel, useOrgNames } from "./-shared";
 import { useAdminSessions } from "~/lib/api/hooks/admin";
-import { useEventStreamSubscription } from "~/lib/events/useEventStream";
+import { useEventStreamSubscription, usePollingInterval } from "~/lib/events/useEventStream";
 import {
   useSessionQR,
   useSessionLifecycle,
@@ -58,7 +58,15 @@ function AdminPairing() {
   // Keep the shared event stream open: auth.qr / auth.code / status events
   // refresh the QR, the pairing code and the badge live.
   useEventStreamSubscription();
-  const q = useAdminSessions();
+  // Poll while an admin session is connecting (the next state usually comes
+  // within seconds) and whenever the stream is down, so the page never waits
+  // on an event that will not arrive.
+  const poll = usePollingInterval();
+  const q = useAdminSessions((data) =>
+    data?.pages.some((p) => p.data.some((s) => s.isAdminSession && s.status === "starting"))
+      ? 3000
+      : poll,
+  );
   const orgNames = useOrgNames();
   const [selectedId, setSelectedId] = useState<string | null>(null);
 

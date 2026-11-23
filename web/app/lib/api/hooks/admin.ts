@@ -15,14 +15,18 @@ import type { ApiError, Page } from "../envelope";
 import type { BackfillJob, WASession } from "../types";
 import type { components } from "../schema";
 import { apiUrl, fetchJSON, listPageFetcher, nextCursor } from "./_shared";
-import { sessionPagesStructuralSharing } from "../../sessions/merge";
+import { sessionPagesStructuralSharing, type SessionPages } from "../../sessions/merge";
 
-export function useAdminSessions(): UseInfiniteQueryResult<
+/** `pollEvery` gets the cached list and returns a refetch interval, or false. */
+export function useAdminSessions(
+  pollEvery?: (data: SessionPages | undefined) => number | false,
+): UseInfiniteQueryResult<
   InfiniteData<Page<WASession>, string | undefined>,
   ApiError
 > {
   return useInfiniteQuery({
     queryKey: qk.adminSessions(),
+    refetchInterval: pollEvery ? (query) => pollEvery(query.state.data) : undefined,
     initialPageParam: undefined as string | undefined,
     queryFn: listPageFetcher<WASession>("/admin/sessions"),
     getNextPageParam: nextCursor,

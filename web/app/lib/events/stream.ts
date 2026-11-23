@@ -15,6 +15,7 @@
 //   - opens with {"event":"connected","heartbeatSeconds":N}
 //   - heartbeat {"event":"ping"} (~20s)
 //   - in-band {"event":"error"} signals replay/stream failure
+//   - {"event":"resync"} after a replay that hit the server's cap (events skipped)
 //   - data frames are full event envelopes (carry an id used as the ?since cursor)
 
 import { apiUrl, ApiError, fetchJSON } from "../api/client";
@@ -23,6 +24,7 @@ import {
   isConnectedFrame,
   isDataFrame,
   isPingFrame,
+  isResyncFrame,
   isErrorFrame,
   type StreamFrame,
 } from "./frames";
@@ -45,6 +47,14 @@ export interface OpenEventStreamOptions {
    * Resets the watchdog and marks the connection healthy; never updates `since`.
    */
   onPing: () => void;
+  /**
+   * The leading `connected` frame of a newly opened socket (called after
+   * onPing). Events published before the server subscribed are not replayed
+   * without a since cursor, so the caller refetches state here.
+   */
+  onConnected?: () => void;
+  /** A `resync` frame: the replay skipped events; refetch state over REST. */
+  onResync?: () => void;
   /** Called once when the stream terminates for any reason. */
   onError: (kind: StreamErrorKind, status?: number) => void;
 }
@@ -125,8 +135,17 @@ export async function openEventStream(o: OpenEventStreamOptions): Promise<void> 
       if (settled) return;
       const frame = tryParse(typeof ev.data === "string" ? ev.data : "");
       if (!frame) return;
-      if (isConnectedFrame(frame) || isPingFrame(frame)) {
+      if (isConnectedFrame(frame)) {
         o.onPing();
+        o.onConnected?.();
+        return;
+      }
+      if (isPingFrame(frame)) {
+        o.onPing();
+        return;
+      }
+      if (isResyncFrame(frame)) {
+        o.onResync?.();
         return;
       }
       if (isErrorFrame(frame)) {

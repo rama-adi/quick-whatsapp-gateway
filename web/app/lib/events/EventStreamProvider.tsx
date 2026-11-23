@@ -9,6 +9,8 @@
 //     between two live surfaces keeps the count >0 so the connection is reused.
 //   - reconnects use full-jitter backoff, capped at 30s, reset on clean open.
 //   - `since` tracks the last DATA-frame id; the server dedups the boundary.
+//   - every `connected` frame refetches session-scoped queries (missed events
+//     are not replayed on a first connect); a `resync` frame refetches all.
 //   - a 45s watchdog (server pings ~20s) catches dead-but-open TCP.
 //   - visibilitychange→visible and `online` trigger an immediate reconnect.
 //   - after 3 failed reconnects (or offline) we enter polling: surfaces flip
@@ -17,7 +19,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { openEventStream, type StreamErrorKind } from "./stream";
-import { applyEvent } from "./cacheBridge";
+import { applyEvent, resyncSessionState } from "./cacheBridge";
 import { onTokenRefresh } from "../api/token-provider";
 import {
   EventStreamContext,
@@ -129,6 +131,12 @@ export function EventStreamProvider({
         attempts.current = 0;
         resetWatchdog();
       },
+      // Events published while no socket was subscribed never arrive (a first
+      // connect has no since cursor; a replay can end early). Refetch session
+      // state on every new connection so the cache cannot stay stale.
+      onConnected: () => resyncSessionState(qc),
+      // The replay hit the server's cap and skipped events: refetch everything.
+      onResync: () => void qc.invalidateQueries(),
       onError: (kind: StreamErrorKind, statusCode?: number) => {
         clearWatchdog();
         if (ac.signal.aborted) return;
