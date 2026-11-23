@@ -14,6 +14,7 @@ import type {
 } from "../api/types";
 import type { Page } from "../api/envelope";
 import { publishEvent } from "./eventBus";
+import { applySessionEvent, eventIsCurrent } from "../sessions/merge";
 
 type Infinite<T> = InfiniteData<Page<T>, string | undefined>;
 
@@ -53,13 +54,21 @@ function clearPairingArtifacts(qc: QueryClient, sessionId: string): void {
   qc.removeQueries({ queryKey: qk.sessionPasskey(sessionId), exact: true });
 }
 
-/** A live pairing artifact also proves the gateway has left starting. */
-function markPairingReady(qc: QueryClient, sessionId: string): void {
-  const patch = (row: WASession): WASession =>
-    row.status === "starting" ? { ...row, status: "scan_qr_code" } : row;
-  qc.setQueryData<WASession>(qk.session(sessionId), (cur) => cur ? patch(cur) : cur);
-  patchRow<WASession>(qc, qk.sessions(), (row) => row.id === sessionId, patch);
-  patchRow<WASession>(qc, qk.adminSessions(), (row) => row.id === sessionId, patch);
+/**
+ * The cached row for a session: the detail query first, then a list row. Used
+ * to decide whether an event is newer than what the cache already shows.
+ */
+function cachedSession(qc: QueryClient, sessionId: string): WASession | undefined {
+  const detail = qc.getQueryData<WASession>(qk.session(sessionId));
+  if (detail) return detail;
+  for (const key of [qk.sessions(), qk.adminSessions()]) {
+    const data = qc.getQueryData<Infinite<WASession>>(key);
+    for (const page of data?.pages ?? []) {
+      const row = page.data.find((r) => r.id === sessionId);
+      if (row) return row;
+    }
+  }
+  return undefined;
 }
 
 /** Apply one event to the cache. Pure w.r.t. its inputs aside from qc mutation. */
@@ -71,7 +80,7 @@ export function applyEvent(qc: QueryClient, e: EventEnvelope): void {
     case "session.status": {
       const status = str(p.status) as WASession["status"] | undefined;
       if (status && s) {
-        const applyStatus = (row: WASession): WASession =>
+        const change = (row: WASession): WASession =>
           status === "logged_out"
             ? {
                 ...row,
@@ -81,13 +90,17 @@ export function applyEvent(qc: QueryClient, e: EventEnvelope): void {
                 phoneNumber: undefined,
               }
             : { ...row, status };
-        qc.setQueryData<WASession>(qk.session(s), (cur) =>
-          cur ? applyStatus(cur) : cur,
-        );
-        const patch = (row: WASession): WASession =>
-          row.id === s ? applyStatus(row) : row;
-        patchRow<WASession>(qc, qk.sessions(), (r) => r.id === s, patch);
-        patchRow<WASession>(qc, qk.adminSessions(), (r) => r.id === s, patch);
+        // An event older than the cached row (by updatedAt) changes nothing;
+        // refetch so REST settles it in case the two clocks disagree.
+        const known = cachedSession(qc, s);
+        if (!eventIsCurrent(known, e.timestamp)) {
+          void qc.invalidateQueries({ queryKey: qk.session(s), exact: true });
+          break;
+        }
+        const apply = (row: WASession): WASession => applySessionEvent(row, e.timestamp, change);
+        qc.setQueryData<WASession>(qk.session(s), (cur) => (cur ? apply(cur) : cur));
+        patchRow<WASession>(qc, qk.sessions(), (r) => r.id === s, apply);
+        patchRow<WASession>(qc, qk.adminSessions(), (r) => r.id === s, apply);
         // QR codes, phone pairing codes and passkey steps belong to one pairing
         // attempt; any status other than scan_qr_code ends it.
         if (status !== "scan_qr_code") clearPairingArtifacts(qc, s);
@@ -120,7 +133,6 @@ export function applyEvent(qc: QueryClient, e: EventEnvelope): void {
     case "auth.qr": {
       const code = str(p.code);
       if (s && code) {
-        markPairingReady(qc, s);
         // timeoutMs (when sent) is how long this code stays scannable.
         const timeoutMs = typeof p.timeoutMs === "number" && p.timeoutMs > 0 ? p.timeoutMs : undefined;
         const qr: QRCode = timeoutMs ? { code, expiresAt: e.timestamp + timeoutMs } : { code };
@@ -132,7 +144,6 @@ export function applyEvent(qc: QueryClient, e: EventEnvelope): void {
     case "auth.code": {
       const code = str(p.code);
       if (s && code) {
-        markPairingReady(qc, s);
         qc.setQueryData(qk.sessionPairing(s), { code });
       } else if (s) {
         qc.removeQueries({ queryKey: qk.sessionQR(s), exact: true });

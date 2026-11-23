@@ -144,12 +144,11 @@ the work Redis. API processes subscribe and revoke cached authorization and live
   phone pairing code only from the cache (`useSessionPairingCode`); the request mutation writes
   the cache in `onSuccess` instead of being read directly, so a newer event or clear wins. `working`
   invalidates session rows so the newly persisted JID appears immediately after PairSuccess.
-  A live `auth.qr` or code-bearing `auth.code` event advances cached `starting` rows to
-  `scan_qr_code` across detail, user-list, and admin-list caches. Code-bearing `auth.code`
-  stores the phone pairing code; the pairing-success form with identity fields clears old
-  pairing artifacts and refreshes the attached identity. Lifecycle responses preserve an
-  existing cache row and refetch it, so a late action response cannot replace a newer event
-  status. The overview polls every three seconds while starting or an action is pending,
+  Code-bearing `auth.code` stores the phone pairing code; the pairing-success form with identity
+  fields clears old pairing artifacts and refreshes the attached identity. A pairing artifact never
+  changes the session status: the gateway publishes `session.status` `scan_qr_code` before every
+  code, and a reconnect refetches session rows, so the old "an artifact implies `scan_qr_code`"
+  guess is gone. The overview polls every three seconds while starting or an action is pending,
   independently of degraded-stream fallback polling.
   Shared lifecycle controls disable logout for unpaired sessions and confirm before unlinking a
   paired device; list and detail views use the same labels, pending state, and destructive styling.
@@ -251,6 +250,18 @@ surface can read connection status, but it stays **idle** until a surface opts i
 - **Fallback recovery** — after repeated stream failures switch live surfaces to polling, the
   first healthy WebSocket frame atomically restores `open` status and disables polling, so the
   temporary refetch intervals do not continue alongside the recovered stream.
+- **One ordering rule for session rows** — `web/app/lib/sessions/merge.ts`. A session row reaches
+  the cache from REST reads, lifecycle action responses, and `session.status` events, in any order.
+  Every writer keeps the newer side: a REST row is as new as its `updatedAt` (the API stamps it when
+  it projects a status event), an event is as new as its envelope `timestamp`, and applying an event
+  sets the row's `updatedAt` to that timestamp. Fetches go through the rule as the queries'
+  `structuralSharing` (`useSession`, `useSessions`, `useAdminSessions`), action responses through
+  `writeSessionResponse`, and events through `applySessionEvent` in the cache bridge. Because
+  `updatedAt` and event timestamps come from different hosts' clocks, an older REST row whose
+  status matches the cache is still taken (keeping the newer `updatedAt`), and an event older than
+  the cached row is dropped and the row refetched. An older event also leaves pairing artifacts and
+  the failure reason alone. When the backend adds a per-session status sequence, `merge.ts` is the
+  one place to compare it instead of timestamps.
 - **Admin session status** — the admin `sessions` and `pairing` pages read status from the cached
   `qk.adminSessions()` rows, which the cache bridge patches only from `session.status` events. They
   do not scan other events for a `status` field: `message.status` carries `status: "failed"` for a

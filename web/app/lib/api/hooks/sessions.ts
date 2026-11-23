@@ -23,6 +23,11 @@ import type {
   WASession,
 } from "../types";
 import { apiUrl, fetchJSON, listPageFetcher, nextCursor } from "./_shared";
+import {
+  sessionPagesStructuralSharing,
+  sessionStructuralSharing,
+  writeSessionResponse,
+} from "../../sessions/merge";
 
 export function useSessions(): UseInfiniteQueryResult<
   { pages: Page<WASession>[]; pageParams: (string | undefined)[] },
@@ -33,6 +38,9 @@ export function useSessions(): UseInfiniteQueryResult<
     initialPageParam: undefined as string | undefined,
     queryFn: listPageFetcher<WASession>("/sessions"),
     getNextPageParam: nextCursor,
+    // A list read that started before a session.status event must not roll
+    // the row back (lib/sessions/merge.ts).
+    structuralSharing: sessionPagesStructuralSharing,
   });
 }
 
@@ -46,6 +54,8 @@ export function useSession(
     enabled: Boolean(s),
     queryFn: ({ signal }) =>
       fetchJSON<WASession>(apiUrl(`/sessions/${encodeURIComponent(s)}`), { signal }),
+    // Every write keeps the newer row (lib/sessions/merge.ts).
+    structuralSharing: sessionStructuralSharing,
   });
 }
 
@@ -116,9 +126,10 @@ export function useSessionLifecycle(): UseMutationResult<
         apiUrl(`/sessions/${encodeURIComponent(sessionId)}:${action}`),
         { method: "POST" },
       ),
-    onSuccess: (data, { sessionId }) => {
-      // Events can advance the cache before the action response arrives.
-      qc.setQueryData<WASession>(qk.session(sessionId), (current) => current ?? data);
+    onSuccess: (data) => {
+      // Events can advance the cache before the action response arrives;
+      // mergeSession keeps whichever side is newer.
+      writeSessionResponse(qc, data);
       void qc.invalidateQueries({ queryKey: qk.sessions() });
     },
   });

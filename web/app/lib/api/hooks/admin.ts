@@ -15,6 +15,7 @@ import type { ApiError, Page } from "../envelope";
 import type { BackfillJob, WASession } from "../types";
 import type { components } from "../schema";
 import { apiUrl, fetchJSON, listPageFetcher, nextCursor } from "./_shared";
+import { sessionPagesStructuralSharing } from "../../sessions/merge";
 
 export function useAdminSessions(): UseInfiniteQueryResult<
   InfiniteData<Page<WASession>, string | undefined>,
@@ -25,6 +26,9 @@ export function useAdminSessions(): UseInfiniteQueryResult<
     initialPageParam: undefined as string | undefined,
     queryFn: listPageFetcher<WASession>("/admin/sessions"),
     getNextPageParam: nextCursor,
+    // A list read that started before a session.status event must not roll
+    // the row back (lib/sessions/merge.ts).
+    structuralSharing: sessionPagesStructuralSharing,
   });
 }
 
