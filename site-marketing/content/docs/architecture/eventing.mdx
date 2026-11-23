@@ -62,7 +62,9 @@ func Normalize(evt any, sessionID, organizationID string) (domain.Event, Persist
 | `*events.Disconnected` | `session.status` (starting) | `PersistSessionStatus` |
 | `*events.LoggedOut` | `session.status` (logged_out) | `PersistSessionStatus` |
 | `*events.StreamReplaced` | `session.status` (failed, `failureReason: stream_replaced`) | `PersistSessionStatus` |
-| `*events.PairPasskeyRequest` | `session.status` (failed, `failureReason: passkey_required`) | `PersistSessionStatus` |
+| `*events.PairPasskeyRequest` | `auth.passkey` (`step: verify`, WebAuthn options), published by the session manager | none |
+| `*events.PairPasskeyConfirmation` | `auth.passkey` (`step: confirm`, code), unless WhatsApp lets the gateway confirm by itself | none |
+| `*events.PairPasskeyError` | `session.status` (failed, `failureReason: passkey_failed`) | `PersistSessionStatus` |
 | `*events.QR` | `auth.qr` | `PersistNone` |
 | `*events.PairSuccess` | `auth.code` | `PersistNone` |
 | `*events.Presence` / `*events.ChatPresence` | `presence.update` | `PersistNone` |

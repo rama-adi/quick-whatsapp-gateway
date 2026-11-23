@@ -77,7 +77,8 @@ type waClient interface {
 	IsLoggedIn() bool
 	Logout(ctx context.Context) error
 	AddEventHandler(handler whatsmeow.EventHandler) uint32
-	GetQRChannel(ctx context.Context) (<-chan whatsmeow.QRChannelItem, error)
+	SendPasskeyResponse(ctx context.Context, response *types.WebAuthnResponse) error
+	SendPasskeyConfirmation(ctx context.Context) error
 	PairPhone(
 		ctx context.Context,
 		phone string,
@@ -126,13 +127,23 @@ type ManagedSession struct {
 	mu        sync.Mutex
 	status    domain.SessionStatus
 	failure   domain.SessionFailureReason // set only while status is failed
-	attempt   int                // consecutive reconnect attempts (resets on Connected)
-	reconnect bool               // whether the reconnect loop should keep running
-	cancel    context.CancelFunc // cancels the per-session goroutine context
-	handlerID uint32             // whatsmeow event-handler registration id
+	attempt   int                         // consecutive reconnect attempts (resets on Connected)
+	reconnect bool                        // whether the reconnect loop should keep running
+	cancel    context.CancelFunc          // cancels the per-session goroutine context
+	handlerID uint32                      // whatsmeow event-handler registration id
 
 	lastQR        string // most recent QR code streamed during pairing (for GET /qr)
 	lastQRExpires int64  // epoch-ms when lastQR stops being valid (0 = unknown)
+
+	// pairCtx is the context of the current pairing run (cancelled by teardown).
+	// The QR emitter and passkey deadline run under it.
+	pairCtx context.Context
+	// qrRotate carries ADV-secret rotations to the running QR emitter.
+	qrRotate chan *events.RotateADVSecret
+	// passkey is non-nil while WhatsApp waits for passkey verification of this
+	// pairing. QR codes stop while it is pending; the connection stays open
+	// until it completes, fails, or passes its deadline.
+	passkey *pendingPasskey
 
 	pairedJID string // device JID observed at PairSuccess ("" until paired)
 	pairedLID string // LID observed at PairSuccess ("" until known)
@@ -186,9 +197,9 @@ type transition struct {
 //   - ConnectFailure       -> FAILED for fatal reasons (logged-out/banned/locked/
 //     outdated/bad-UA) STOP; otherwise transient (no status change, keep retrying).
 //   - PairSuccess          -> STARTING (handshake done, awaiting Connected).
-//   - PairPasskeyRequest   -> FAILED(passkey_required), STOP (terminal). The
-//     gateway cannot produce a WebAuthn assertion for WhatsApp's origin, so
-//     linking cannot finish; this covers both QR and phone-code pairing.
+//   - PairError            -> FAILED(pairing_error), STOP (terminal).
+//   - PairPasskeyError     -> FAILED(passkey_failed), STOP (terminal).
+//   - PairPasskeyRequest/Confirmation, QR -> the pairing driver (pairing.go).
 //   - QR/QRScanned...       -> handled by the QR pump, not here.
 //
 // Events not relevant to status return changed=false, terminal=false.
@@ -207,8 +218,10 @@ func classifyEvent(evt any) transition {
 		return failedTransition(domain.FailureTemporaryBan)
 	case *events.ClientOutdated:
 		return failedTransition(domain.FailureClientOutdated)
-	case *events.PairPasskeyRequest:
-		return failedTransition(domain.FailurePasskeyRequired)
+	case *events.PairError:
+		return failedTransition(domain.FailurePairingError)
+	case *events.PairPasskeyError:
+		return failedTransition(domain.FailurePasskeyFailed)
 	case *events.ConnectFailure:
 		if isFatalConnectFailure(e.Reason) {
 			return failedTransition(connectFailureReason(e.Reason))
@@ -291,4 +304,13 @@ func backoffFor(cfg backoffConfig, attempt int, rng *rand.Rand) time.Duration {
 	}
 	// Full jitter: uniform in [0, d].
 	return time.Duration(rng.Int63n(int64(d) + 1))
+}
+
+// pendingPasskey is one passkey verification WhatsApp requested during pairing.
+type pendingPasskey struct {
+	options   *types.WebAuthnPublicKey
+	expiresAt int64 // epoch-ms; the pairing fails with passkey_failed after it
+	// confirmCode is set once WhatsApp asks the user to compare a code with the
+	// phone ("" until then).
+	confirmCode string
 }

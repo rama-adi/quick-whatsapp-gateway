@@ -15,7 +15,12 @@ import { qk } from "~/lib/query";
 import { StreamIndicator, useLiveSessionStatus, withLiveStatus, OrgLabel, useOrgNames } from "./-shared";
 import { useAdminSessions } from "~/lib/api/hooks/admin";
 import { useEventStreamSubscription } from "~/lib/events/useEventStream";
-import { useSessionQR, useSessionLifecycle, usePairingCode } from "~/lib/api/hooks/sessions";
+import {
+  useSessionQR,
+  useSessionLifecycle,
+  usePairingCode,
+  useSessionPasskey,
+} from "~/lib/api/hooks/sessions";
 import type { SessionAction, SessionStatus, WASession } from "~/lib/api/types";
 import { isApiError } from "~/lib/api/envelope";
 import { Button } from "~/components/ui/button";
@@ -33,6 +38,7 @@ import { titleHead } from "~/lib/head";
 import { cn } from "~/lib/utils";
 import { toast } from "sonner";
 import { QrImage } from "~/routes/_app/user/-components/user-ui";
+import { PasskeyPanel } from "~/routes/_app/user/-components/passkey-panel";
 
 export const Route = createFileRoute("/_app/admin/pairing")({
   head: () => titleHead("Number pairing"),
@@ -212,6 +218,7 @@ function PairingPanel({
   const confirm = useConfirm();
   const [pending, setPending] = useState<SessionAction | null>(null);
   const needsScan = liveStatus === "scan_qr_code";
+  const passkey = useSessionPasskey(session.id);
   const connected = liveStatus === "working";
   const paired = connected || Boolean(session.waJid);
   const phone = phoneLabel(session.phoneNumber);
@@ -280,6 +287,10 @@ function PairingPanel({
                 It's linked and live. There's nothing else to do here.
               </p>
             </div>
+          </div>
+        ) : passkey ? (
+          <div className="mx-auto max-w-2xl">
+            <PasskeyPanel sessionId={session.id} />
           </div>
         ) : (
           <div className="grid gap-8 md:grid-cols-2 md:gap-0 md:divide-x">

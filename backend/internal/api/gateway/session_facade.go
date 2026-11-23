@@ -50,6 +50,17 @@ func (f *SessionLifecycleFacade) PairingCode(
 	return f.client.PairPhone(ctx, organizationID, sessionID, phone)
 }
 
+// SubmitPasskey forwards the user's WebAuthn assertion for a pending passkey
+// verification.
+func (f *SessionLifecycleFacade) SubmitPasskey(ctx context.Context, organizationID, sessionID string, response []byte) error {
+	return f.client.SubmitPasskey(ctx, organizationID, sessionID, response)
+}
+
+// ConfirmPasskey confirms the passkey pairing code the user compared with the phone.
+func (f *SessionLifecycleFacade) ConfirmPasskey(ctx context.Context, organizationID, sessionID string) error {
+	return f.client.ConfirmPasskey(ctx, organizationID, sessionID)
+}
+
 // Logout unlinks the device as a durable ledgered command.
 func (f *SessionLifecycleFacade) Logout(ctx context.Context, organizationID, sessionID string) error {
 	return f.client.LogoutSession(ctx, organizationID, sessionID)

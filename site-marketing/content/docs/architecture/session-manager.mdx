@@ -127,22 +127,51 @@ The session lifecycle splits across the trust boundary:
 
 ## Pairing recovery
 
-The status moves to `scan_qr_code` only once there is something to scan or enter: after the
-first QR code is stored (so `GET /qr` returns it), or after WhatsApp returns a phone-number
-pairing code. Until then the session keeps its previous status.
+The gateway does not use whatsmeow's `GetQRChannel`. That channel disconnects the client as soon
+as its QR codes run out, which would end a passkey verification still in progress, and it
+confirms passkey pairings by itself. The manager's pairing driver (`internal/wa/pairing.go`)
+handles the raw events instead:
+
+- `events.QR` starts an emitter that stores each code for `GET /qr`, publishes it as `auth.qr`
+  (60 s for the first code, 20 s for the rest) and replaces the ADV secret in the remaining codes
+  on `events.RotateADVSecret`. When the codes run out the session fails with `qr_timeout`, unless
+  a passkey verification is pending.
+- The status moves to `scan_qr_code` only once there is something to scan or enter: after the
+  first QR code is stored, or after WhatsApp returns a phone-number pairing code. Until then the
+  session keeps its previous status.
+
+### Passkey verification
+
+WhatsApp asks accounts that have a passkey to sign a WebAuthn challenge before it links a new
+device, after a QR scan or a phone-number code alike. Removing the passkey from the account does
+not stop it. WebAuthn only accepts WhatsApp's own origin for the `whatsapp.com` relying party, so
+neither the gateway nor the dashboard can request the signature. The user signs it on
+`web.whatsapp.com`:
+
+1. `events.PairPasskeyRequest` stops the QR codes (WhatsApp rotates the ADV secret, so the old
+   codes are dead), records the request on the managed session and publishes `auth.passkey` with
+   `step: verify`, the WebAuthn request options in `publicKey`, and `expiresAt`. The connection
+   stays open until the verification completes, fails, or passes `expiresAt`: the larger of
+   3 minutes and the options' timeout, capped at 10 minutes. After that the session fails with
+   `passkey_failed`.
+2. The dashboard gives the user a script to paste into the console on `web.whatsapp.com`. It adds
+   a button (a passkey prompt needs a click on a focused page), calls
+   `navigator.credentials.get()` with the options, and copies the credential JSON. The user pastes
+   it into the dashboard, which sends it to `POST /sessions/{session}/passkey`; the engine RPC
+   `SubmitPasskey` passes it to whatsmeow's `SendPasskeyResponse`. A rejected assertion leaves the
+   verification pending.
+3. `events.PairPasskeyConfirmation` either confirms by itself (`SkipHandoffUX`, when the QR scan
+   already proved the handoff) or publishes `auth.passkey` with `step: confirm` and the `code` to
+   compare with the phone. `POST /sessions/{session}/passkey/confirm` (engine RPC
+   `ConfirmPasskey`) sends `SendPasskeyConfirmation`. `PairSuccess` follows.
+4. `events.PairPasskeyError` fails the session with `passkey_failed`.
+
+### Failure reasons
 
 Every failed status carries a `failureReason` in the `session.status` payload. Pairing can end
-with:
-
-- `qr_timeout` when every QR code expired without a scan;
-- `pairing_error` when WhatsApp rejected or aborted the handshake, or the QR channel ended with
-  `err-unexpected-state` or `error` (the client is released so the session does not sit in
-  `scan_qr_code`);
-- `passkey_required` when WhatsApp sends `PairPasskeyRequest`. Accounts with a passkey must
-  sign a WebAuthn challenge for WhatsApp's own origin to link a device. The gateway cannot
-  produce that assertion, so it stops pairing instead of waiting for the QR to expire. The user
-  is told to link with a phone number instead;
-- `connect_error` when the gateway could not open the pairing connection.
+with `qr_timeout`, `passkey_failed`, `pairing_error` (WhatsApp rejected the handshake:
+`events.PairError`, or a failed code request on a fresh connection) or `connect_error` (the
+gateway could not open the pairing connection).
 
 Starting an unpaired session always opens a QR flow. A phone-number pairing request while
 that flow runs asks for the code on the same connection (whatsmeow's `PairPhone` runs on a
@@ -366,7 +395,7 @@ Core types:
     `(status, changed, terminal, keepReconnect)`. `Connected→WORKING`,
     `PairSuccess→STARTING`, terminal events→`FAILED`/`LOGGED_OUT` with reconnect
     stopped. A `FAILED` transition carries its reason (`stream_replaced`,
-    `temporary_ban`, `client_outdated`, `passkey_required`, `connect_rejected`); `Disconnected` and transient `ConnectFailure` cause no status change
+    `temporary_ban`, `client_outdated`, `pairing_error`, `passkey_failed`, `connect_rejected`); `Disconnected` and transient `ConnectFailure` cause no status change
     (the reconnect loop retries).
   - `isFatalConnectFailure(reason)` — distinguishes permanent
     (logged-out/banned/locked/outdated/bad-UA) from transient connect failures.

@@ -35,10 +35,9 @@ func Normalize(evt any, sessionID, organizationID string) (domain.Event, Persist
 		return sessionStatus(domain.SessionStarting, sessionID, organizationID)
 	case *events.LoggedOut:
 		return sessionStatus(domain.SessionLoggedOut, sessionID, organizationID)
-	case *events.StreamReplaced:
-		return sessionStatus(domain.SessionFailed, sessionID, organizationID)
-	case *events.QR:
-		return normalizeQR(e, sessionID, organizationID)
+	// StreamReplaced (failed with a reason) and QR codes (auth.qr) are published
+	// by the session manager; emitting them here too would duplicate them and,
+	// for StreamReplaced, overwrite the failure reason.
 	case *events.PairSuccess:
 		return normalizePairSuccess(e, sessionID, organizationID)
 	case *events.Presence:
@@ -73,17 +72,6 @@ func sessionStatus(status domain.SessionStatus, sessionID, organizationID string
 	payload := SessionStatusPayload{Status: string(status)}
 	ev := domain.NewEvent(domain.EventSessionStatus, sessionID, organizationID, payload)
 	return ev, PersistResult{Kind: PersistSessionStatus, SessionStatus: status}, true
-}
-
-func normalizeQR(e *events.QR, sessionID, organizationID string) (domain.Event, PersistResult, bool) {
-	var code string
-	if len(e.Codes) > 0 {
-		code = e.Codes[0]
-	}
-	payload := AuthQRPayload{Code: code}
-	ev := domain.NewEvent(domain.EventAuthQR, sessionID, organizationID, payload)
-	// QR/pair are transient auth signals, not persisted rows.
-	return ev, PersistResult{Kind: PersistNone}, true
 }
 
 func normalizePairSuccess(e *events.PairSuccess, sessionID, organizationID string) (domain.Event, PersistResult, bool) {

@@ -19,13 +19,22 @@ import "github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 // connection lifecycle changed.
 type SessionStatusPayload struct {
 	Status        string `json:"status" doc:"New session status. One of: starting (connecting), scan_qr_code (waiting for a QR scan or pairing code), working (connected and ready to send/receive), failed (the gateway stopped trying; see failureReason), stopped (intentionally stopped), logged_out (the WhatsApp account unlinked the device — must re-pair)." enum:"starting,scan_qr_code,working,failed,stopped,logged_out" example:"working"`
-	FailureReason string `json:"failureReason,omitempty" doc:"Why the session failed. Present only when status is failed. passkey_required = WhatsApp asked for the account passkey while linking, which the gateway cannot provide (link with a phone number instead); qr_timeout = every QR code expired before a scan; pairing_error = WhatsApp rejected the linking handshake; client_outdated = WhatsApp rejected the gateway's client version (the operator must upgrade); stream_replaced = another client took over this device; temporary_ban = WhatsApp temporarily banned the account; connect_rejected = WhatsApp refused the connection; connect_error = the gateway could not reach WhatsApp." enum:"passkey_required,qr_timeout,pairing_error,client_outdated,stream_replaced,temporary_ban,connect_rejected,connect_error" example:"passkey_required"`
+	FailureReason string `json:"failureReason,omitempty" doc:"Why the session failed. Present only when status is failed. passkey_failed = WhatsApp asked for the account passkey while linking and the verification failed or was not finished in time; qr_timeout = every QR code expired before a scan; pairing_error = WhatsApp rejected the linking handshake; client_outdated = WhatsApp rejected the gateway's client version (the operator must upgrade); stream_replaced = another client took over this device; temporary_ban = WhatsApp temporarily banned the account; connect_rejected = WhatsApp refused the connection; connect_error = the gateway could not reach WhatsApp." enum:"passkey_failed,qr_timeout,pairing_error,client_outdated,stream_replaced,temporary_ban,connect_rejected,connect_error" example:"passkey_failed"`
 }
 
 // AuthQRPayload is the payload of an `auth.qr` event: a fresh QR code to render so
 // the user can link the device. A new code arrives roughly every 20s until paired.
 type AuthQRPayload struct {
 	Code string `json:"code" doc:"The QR code content to render as a QR image for the user to scan in WhatsApp → Linked devices." example:"2@abc123..."`
+}
+
+// AuthPasskeyPayload is the payload of an `auth.passkey` event: WhatsApp asked
+// for the account's passkey while linking the device.
+type AuthPasskeyPayload struct {
+	Step      string         `json:"step" enum:"verify,confirm" doc:"verify = sign publicKey with navigator.credentials.get() on web.whatsapp.com and send the credential to POST /sessions/{session}/passkey; confirm = show code and, once the user sees the same code on the phone, call POST /sessions/{session}/passkey/confirm." example:"verify"`
+	PublicKey map[string]any `json:"publicKey,omitempty" doc:"Present for step verify: the WebAuthn PublicKeyCredentialRequestOptions WhatsApp sent (challenge, rpId, allowCredentials, userVerification, timeout, extensions), with binary fields as base64url strings."`
+	Code      string         `json:"code,omitempty" doc:"Present for step confirm: the code to compare with the one shown on the phone." example:"ABCD-EFGH"`
+	ExpiresAt int64          `json:"expiresAt" doc:"Epoch milliseconds after which the gateway gives up and the session fails with failureReason passkey_failed." example:"1795406400000"`
 }
 
 // AuthCodePayload is the payload of an `auth.code` event: pairing succeeded and the
@@ -238,6 +247,13 @@ type AuthCodeEvent struct {
 	Payload AuthCodePayload `json:"payload"`
 }
 
+// AuthPasskeyEvent is the envelope for a passkey-verification event.
+type AuthPasskeyEvent struct {
+	EventMeta
+	Event   string             `json:"event" enum:"auth.passkey" example:"auth.passkey"`
+	Payload AuthPasskeyPayload `json:"payload"`
+}
+
 // PresenceEvent is the envelope for a presence-update event.
 type PresenceEvent struct {
 	EventMeta
@@ -286,7 +302,7 @@ type NewsletterEvent struct {
 func EventTypeSchemas() []any {
 	return []any{
 		MediaEvent{}, MessageEvent{}, PollRecapEvent{}, MessageStatusEvent{}, SessionStatusEvent{},
-		AuthQREvent{}, AuthCodeEvent{}, PresenceEvent{}, GroupEvent{},
+		AuthQREvent{}, AuthCodeEvent{}, AuthPasskeyEvent{}, PresenceEvent{}, GroupEvent{},
 		ChatUpdateEvent{}, ContactUpdateEvent{}, CallEvent{}, NewsletterEvent{},
 		HistorySyncEvent{}, HistoryBatchEvent{},
 	}

@@ -27,7 +27,9 @@ import {
 } from "lucide-react";
 import {
   useSession,
+  useSessionFailure,
   useSessionMe,
+  useSessionPasskey,
   useSessionQR,
   usePairingCode,
 } from "~/lib/api/hooks/sessions";
@@ -82,6 +84,7 @@ import {
 } from "./user-ui";
 import { SessionStorageCard } from "./session-storage-card";
 import { BackupImportCard } from "./backup-import-card";
+import { PasskeyPanel, failureMessage } from "./passkey-panel";
 
 export function SessionOverview({ sessionId }: { sessionId: string }) {
   const poll = usePollingInterval();
@@ -638,6 +641,7 @@ function PairingCard({
   actions: ReturnType<typeof useSessionActions>;
 }) {
   const [mode, setMode] = useState<PairMode>("qr");
+  const passkey = useSessionPasskey(session.id);
 
   return (
     <Card>
@@ -672,6 +676,11 @@ function PairingCard({
         </Tabs>
       </CardHeader>
       <CardContent>
+        {passkey ? (
+          <div className="mx-auto max-w-2xl">
+            <PasskeyPanel sessionId={session.id} />
+          </div>
+        ) : (
         <div className="grid items-center gap-8 rounded-xl border bg-muted/30 p-5 md:grid-cols-[minmax(0,28rem)_18rem] md:justify-center md:gap-x-16 md:p-8">
           <ol className="grid gap-4 md:max-w-md">
             {STEPS[mode].map((step, i) => (
@@ -697,6 +706,7 @@ function PairingCard({
             )}
           </div>
         </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -760,6 +770,7 @@ function QrPanel({
   const qr = useSessionQR(session.id, ready);
   const poll = usePollingInterval();
   const pending = actions.pendingFor(session.id);
+  const failure = failureMessage(useSessionFailure(session.id));
 
   useEffect(() => {
     if (!poll || !ready) return;
@@ -781,9 +792,15 @@ function QrPanel({
   if (!isRunning(session.status)) {
     return (
       <QrFrame>
-        <QrCodeIcon className="size-8 text-muted-foreground/60" aria-hidden />
-        <p className="text-sm text-muted-foreground">
-          Start the session to show a QR code.
+        {session.status === "failed" && failure ? (
+          <TriangleAlertIcon className="size-6 text-destructive" aria-hidden />
+        ) : (
+          <QrCodeIcon className="size-8 text-muted-foreground/60" aria-hidden />
+        )}
+        <p className="text-sm text-pretty text-muted-foreground">
+          {session.status === "failed" && failure
+            ? failure
+            : "Start the session to show a QR code."}
         </p>
         <Button onClick={() => void actions.run(session, "start")}>
           <PlayIcon aria-hidden data-icon="inline-start" />
@@ -797,13 +814,14 @@ function QrPanel({
     return <Skeleton className="size-56 rounded-xl" />;
   }
 
-  if (qr.isError || !qr.data?.code) {
+  // A code from an auth.qr event wins over a fetch that failed around it.
+  if (!qr.data?.code) {
+    // 404 means "no code yet"; the next auth.qr event brings it.
+    const notYet = !qr.isError || (isApiError(qr.error) && qr.error.status === 404);
     return (
       <QrFrame>
         <p className="text-sm text-muted-foreground">
-          {qr.isError && isApiError(qr.error)
-            ? qr.error.message
-            : "Waiting for a QR code…"}
+          {notYet ? "Waiting for a QR code…" : "Couldn't load the QR code."}
         </p>
         <Button variant="outline" size="sm" onClick={() => void qr.refetch()}>
           <RefreshCwIcon aria-hidden data-icon="inline-start" />

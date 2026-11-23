@@ -15,8 +15,10 @@ import { qk } from "../../query";
 import type { ApiError, Page } from "../envelope";
 import type {
   CreateSessionRequest,
+  PasskeyStep,
   QRCode,
   SessionAction,
+  SessionFailureReason,
   SessionMe,
   WASession,
 } from "../types";
@@ -119,6 +121,62 @@ export function useSessionLifecycle(): UseMutationResult<
       qc.setQueryData<WASession>(qk.session(sessionId), (current) => current ?? data);
       void qc.invalidateQueries({ queryKey: qk.sessions() });
     },
+  });
+}
+
+/**
+ * The pending passkey step of a pairing, if WhatsApp asked for one. It exists
+ * only in the cache: auth.passkey events write it and any status other than
+ * scan_qr_code clears it (cacheBridge).
+ */
+export function useSessionPasskey(s: string): PasskeyStep | undefined {
+  const { data } = useQuery<PasskeyStep | null>({
+    queryKey: qk.sessionPasskey(s),
+    queryFn: () => null,
+    enabled: false,
+    staleTime: Infinity,
+  });
+  return data ?? undefined;
+}
+
+/** The failureReason carried by the latest failed session.status event. */
+export function useSessionFailure(s: string): SessionFailureReason | undefined {
+  const { data } = useQuery<SessionFailureReason | null>({
+    queryKey: qk.sessionFailure(s),
+    queryFn: () => null,
+    enabled: false,
+    staleTime: Infinity,
+  });
+  return data ?? undefined;
+}
+
+/** POST /sessions/{id}/passkey: forward the WebAuthn credential JSON. */
+export function useSubmitPasskey(): UseMutationResult<
+  { accepted: boolean },
+  ApiError,
+  { sessionId: string; response: unknown }
+> {
+  return useMutation({
+    mutationFn: ({ sessionId, response }) =>
+      fetchJSON<{ accepted: boolean }>(
+        apiUrl(`/sessions/${encodeURIComponent(sessionId)}/passkey`),
+        { method: "POST", body: JSON.stringify({ response }) },
+      ),
+  });
+}
+
+/** POST /sessions/{id}/passkey/confirm: the codes on screen and phone match. */
+export function useConfirmPasskey(): UseMutationResult<
+  { accepted: boolean },
+  ApiError,
+  { sessionId: string }
+> {
+  return useMutation({
+    mutationFn: ({ sessionId }) =>
+      fetchJSON<{ accepted: boolean }>(
+        apiUrl(`/sessions/${encodeURIComponent(sessionId)}/passkey/confirm`),
+        { method: "POST" },
+      ),
   });
 }
 

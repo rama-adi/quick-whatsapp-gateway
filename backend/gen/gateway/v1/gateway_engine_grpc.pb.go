@@ -41,6 +41,8 @@ const (
 	GatewayEngineService_PrepareSession_FullMethodName          = "/gateway.v1.GatewayEngineService/PrepareSession"
 	GatewayEngineService_BeginPairing_FullMethodName            = "/gateway.v1.GatewayEngineService/BeginPairing"
 	GatewayEngineService_PairPhone_FullMethodName               = "/gateway.v1.GatewayEngineService/PairPhone"
+	GatewayEngineService_SubmitPasskey_FullMethodName           = "/gateway.v1.GatewayEngineService/SubmitPasskey"
+	GatewayEngineService_ConfirmPasskey_FullMethodName          = "/gateway.v1.GatewayEngineService/ConfirmPasskey"
 	GatewayEngineService_LogoutSession_FullMethodName           = "/gateway.v1.GatewayEngineService/LogoutSession"
 	GatewayEngineService_ForgetSession_FullMethodName           = "/gateway.v1.GatewayEngineService/ForgetSession"
 )
@@ -74,6 +76,11 @@ type GatewayEngineServiceClient interface {
 	PrepareSession(ctx context.Context, in *PrepareSessionRequest, opts ...grpc.CallOption) (*PrepareSessionResponse, error)
 	BeginPairing(ctx context.Context, in *BeginPairingRequest, opts ...grpc.CallOption) (*BeginPairingResponse, error)
 	PairPhone(ctx context.Context, in *PairPhoneRequest, opts ...grpc.CallOption) (*PairPhoneResponse, error)
+	// SubmitPasskey forwards the user's WebAuthn assertion for a passkey
+	// verification WhatsApp requested during pairing.
+	SubmitPasskey(ctx context.Context, in *SubmitPasskeyRequest, opts ...grpc.CallOption) (*SubmitPasskeyResponse, error)
+	// ConfirmPasskey confirms the user saw the same code on the phone.
+	ConfirmPasskey(ctx context.Context, in *ConfirmPasskeyRequest, opts ...grpc.CallOption) (*ConfirmPasskeyResponse, error)
 	LogoutSession(ctx context.Context, in *LogoutSessionRequest, opts ...grpc.CallOption) (*LogoutSessionResponse, error)
 	ForgetSession(ctx context.Context, in *ForgetSessionRequest, opts ...grpc.CallOption) (*ForgetSessionResponse, error)
 }
@@ -306,6 +313,26 @@ func (c *gatewayEngineServiceClient) PairPhone(ctx context.Context, in *PairPhon
 	return out, nil
 }
 
+func (c *gatewayEngineServiceClient) SubmitPasskey(ctx context.Context, in *SubmitPasskeyRequest, opts ...grpc.CallOption) (*SubmitPasskeyResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SubmitPasskeyResponse)
+	err := c.cc.Invoke(ctx, GatewayEngineService_SubmitPasskey_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *gatewayEngineServiceClient) ConfirmPasskey(ctx context.Context, in *ConfirmPasskeyRequest, opts ...grpc.CallOption) (*ConfirmPasskeyResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ConfirmPasskeyResponse)
+	err := c.cc.Invoke(ctx, GatewayEngineService_ConfirmPasskey_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *gatewayEngineServiceClient) LogoutSession(ctx context.Context, in *LogoutSessionRequest, opts ...grpc.CallOption) (*LogoutSessionResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(LogoutSessionResponse)
@@ -355,6 +382,11 @@ type GatewayEngineServiceServer interface {
 	PrepareSession(context.Context, *PrepareSessionRequest) (*PrepareSessionResponse, error)
 	BeginPairing(context.Context, *BeginPairingRequest) (*BeginPairingResponse, error)
 	PairPhone(context.Context, *PairPhoneRequest) (*PairPhoneResponse, error)
+	// SubmitPasskey forwards the user's WebAuthn assertion for a passkey
+	// verification WhatsApp requested during pairing.
+	SubmitPasskey(context.Context, *SubmitPasskeyRequest) (*SubmitPasskeyResponse, error)
+	// ConfirmPasskey confirms the user saw the same code on the phone.
+	ConfirmPasskey(context.Context, *ConfirmPasskeyRequest) (*ConfirmPasskeyResponse, error)
 	LogoutSession(context.Context, *LogoutSessionRequest) (*LogoutSessionResponse, error)
 	ForgetSession(context.Context, *ForgetSessionRequest) (*ForgetSessionResponse, error)
 	mustEmbedUnimplementedGatewayEngineServiceServer()
@@ -432,6 +464,12 @@ func (UnimplementedGatewayEngineServiceServer) BeginPairing(context.Context, *Be
 }
 func (UnimplementedGatewayEngineServiceServer) PairPhone(context.Context, *PairPhoneRequest) (*PairPhoneResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PairPhone not implemented")
+}
+func (UnimplementedGatewayEngineServiceServer) SubmitPasskey(context.Context, *SubmitPasskeyRequest) (*SubmitPasskeyResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SubmitPasskey not implemented")
+}
+func (UnimplementedGatewayEngineServiceServer) ConfirmPasskey(context.Context, *ConfirmPasskeyRequest) (*ConfirmPasskeyResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ConfirmPasskey not implemented")
 }
 func (UnimplementedGatewayEngineServiceServer) LogoutSession(context.Context, *LogoutSessionRequest) (*LogoutSessionResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method LogoutSession not implemented")
@@ -856,6 +894,42 @@ func _GatewayEngineService_PairPhone_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _GatewayEngineService_SubmitPasskey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SubmitPasskeyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayEngineServiceServer).SubmitPasskey(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GatewayEngineService_SubmitPasskey_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayEngineServiceServer).SubmitPasskey(ctx, req.(*SubmitPasskeyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _GatewayEngineService_ConfirmPasskey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ConfirmPasskeyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayEngineServiceServer).ConfirmPasskey(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GatewayEngineService_ConfirmPasskey_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayEngineServiceServer).ConfirmPasskey(ctx, req.(*ConfirmPasskeyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _GatewayEngineService_LogoutSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(LogoutSessionRequest)
 	if err := dec(in); err != nil {
@@ -986,6 +1060,14 @@ var GatewayEngineService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "PairPhone",
 			Handler:    _GatewayEngineService_PairPhone_Handler,
+		},
+		{
+			MethodName: "SubmitPasskey",
+			Handler:    _GatewayEngineService_SubmitPasskey_Handler,
+		},
+		{
+			MethodName: "ConfirmPasskey",
+			Handler:    _GatewayEngineService_ConfirmPasskey_Handler,
 		},
 		{
 			MethodName: "LogoutSession",

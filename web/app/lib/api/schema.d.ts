@@ -1591,6 +1591,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sessions/{session}/passkey": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit a passkey verification
+         * @description Answer the passkey verification WhatsApp asks for while linking a device to an account that has a passkey.
+         *
+         *     When it does, the session emits an `auth.passkey` event with `step: verify` and the WebAuthn request options in `publicKey`. Sign them with `navigator.credentials.get()` on a page served from `web.whatsapp.com` (WebAuthn only accepts WhatsApp's own origin for its relying party), then send the resulting credential here within the event's `expiresAt`. A rejected assertion leaves the verification open, so it can be retried.
+         *
+         *     WhatsApp may then ask the user to compare a code with the phone: an `auth.passkey` event with `step: confirm` and `code`. Answer it with the confirm route.
+         *
+         *     Requires `manage` capability; session must be unpaired.
+         *
+         *     Errors: `validation_error` (400), `not_found` (404), `conflict` (409, no verification pending), `unauthorized` (401), `forbidden` (403).
+         */
+        post: operations["sessionSubmitPasskey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session}/passkey/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm the passkey pairing code
+         * @description Confirm that the code from the `auth.passkey` event with `step: confirm` matches the code shown on the phone. Linking completes after this.
+         *
+         *     Requires `manage` capability; session must be unpaired.
+         *
+         *     Errors: `not_found` (404), `conflict` (409, no code waiting for confirmation), `unauthorized` (401), `forbidden` (403).
+         */
+        post: operations["sessionConfirmPasskey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sessions/{session}/presence": {
         parameters: {
             query?: never;
@@ -2040,6 +2092,64 @@ export interface components {
             lid?: string;
             /** @description The device platform WhatsApp reports (e.g. android, iphone, web). */
             platform?: string;
+        };
+        AuthPasskeyEvent: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            event: "auth.passkey";
+            /**
+             * @description Unique event id. Webhook deliveries repeat it in the X-Webhook-Request-Id header so receivers can drop duplicate redeliveries; the realtime client uses it as the ?since resume cursor.
+             * @example evt_01J9ZX...
+             */
+            id: string;
+            /**
+             * @description Id of the organization that owns the session.
+             * @example org_01J9...
+             */
+            organization: string;
+            payload: components["schemas"]["AuthPasskeyPayload"];
+            /**
+             * @description Envelope schema version, so consumers can adapt if the shape changes.
+             * @example v1
+             * @enum {string}
+             */
+            schema: "v1";
+            /**
+             * @description Id of the WhatsApp session the event came from.
+             * @example wa_sess_01J9...
+             */
+            session: string;
+            /**
+             * Format: int64
+             * @description When the event happened, in epoch milliseconds.
+             * @example 1719400000000
+             */
+            timestamp: number;
+        };
+        AuthPasskeyPayload: {
+            /**
+             * @description Present for step confirm: the code to compare with the one shown on the phone.
+             * @example ABCD-EFGH
+             */
+            code?: string;
+            /**
+             * Format: int64
+             * @description Epoch milliseconds after which the gateway gives up and the session fails with failureReason passkey_failed.
+             * @example 1795406400000
+             */
+            expiresAt: number;
+            /** @description Present for step verify: the WebAuthn PublicKeyCredentialRequestOptions WhatsApp sent (challenge, rpId, allowCredentials, userVerification, timeout, extensions), with binary fields as base64url strings. */
+            publicKey?: {
+                [key: string]: unknown;
+            };
+            /**
+             * @description verify = sign publicKey with navigator.credentials.get() on web.whatsapp.com and send the credential to POST /sessions/{session}/passkey; confirm = show code and, once the user sees the same code on the phone, call POST /sessions/{session}/passkey/confirm.
+             * @example verify
+             * @enum {string}
+             */
+            step: "verify" | "confirm";
         };
         AuthQREvent: {
             /**
@@ -4892,6 +5002,13 @@ export interface components {
         PairingCodeOutputBody: {
             code: string;
         };
+        PasskeyAcceptedOutputBody: {
+            /**
+             * @description Always true. WhatsApp accepted the step; the next step arrives as an auth.passkey event or the pairing completes.
+             * @example true
+             */
+            accepted: boolean;
+        };
         PollData: {
             /**
              * Format: int64
@@ -5319,11 +5436,11 @@ export interface components {
         };
         SessionStatusPayload: {
             /**
-             * @description Why the session failed. Present only when status is failed. passkey_required = WhatsApp asked for the account passkey while linking, which the gateway cannot provide (link with a phone number instead); qr_timeout = every QR code expired before a scan; pairing_error = WhatsApp rejected the linking handshake; client_outdated = WhatsApp rejected the gateway's client version (the operator must upgrade); stream_replaced = another client took over this device; temporary_ban = WhatsApp temporarily banned the account; connect_rejected = WhatsApp refused the connection; connect_error = the gateway could not reach WhatsApp.
-             * @example passkey_required
+             * @description Why the session failed. Present only when status is failed. passkey_failed = WhatsApp asked for the account passkey while linking and the verification failed or was not finished in time; qr_timeout = every QR code expired before a scan; pairing_error = WhatsApp rejected the linking handshake; client_outdated = WhatsApp rejected the gateway's client version (the operator must upgrade); stream_replaced = another client took over this device; temporary_ban = WhatsApp temporarily banned the account; connect_rejected = WhatsApp refused the connection; connect_error = the gateway could not reach WhatsApp.
+             * @example passkey_failed
              * @enum {string}
              */
-            failureReason?: "passkey_required" | "qr_timeout" | "pairing_error" | "client_outdated" | "stream_replaced" | "temporary_ban" | "connect_rejected" | "connect_error";
+            failureReason?: "passkey_failed" | "qr_timeout" | "pairing_error" | "client_outdated" | "stream_replaced" | "temporary_ban" | "connect_rejected" | "connect_error";
             /**
              * @description New session status. One of: starting (connecting), scan_qr_code (waiting for a QR scan or pairing code), working (connected and ready to send/receive), failed (the gateway stopped trying; see failureReason), stopped (intentionally stopped), logged_out (the WhatsApp account unlinked the device — must re-pair).
              * @example working
@@ -5351,6 +5468,10 @@ export interface components {
              * @enum {string}
              */
             status: "available" | "unavailable";
+        };
+        SubmitPasskeyInputBody: {
+            /** @description The PublicKeyCredential from navigator.credentials.get() on web.whatsapp.com, as JSON with base64url fields: id, rawId, type, and response {clientDataJSON, authenticatorData, signature, userHandle}. */
+            response: unknown;
         };
         UpdateChatInputBody: {
             /**
@@ -8402,6 +8523,74 @@ export interface operations {
             };
         };
     };
+    sessionSubmitPasskey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Session ID whose pairing is waiting for passkey verification. Must belong to your organization and be unpaired. */
+                session: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubmitPasskeyInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasskeyAcceptedOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    sessionConfirmPasskey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Session ID within your organization. Unknown or cross-organization sessions return not_found (404). */
+                session: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasskeyAcceptedOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
     setPresence: {
         parameters: {
             query?: never;
@@ -8994,7 +9183,7 @@ export interface operations {
         /** @description The event envelope. Exactly one of the listed event shapes, selected by `event`. */
         requestBody: {
             content: {
-                "application/json": components["schemas"]["MediaEvent"] | components["schemas"]["MessageEvent"] | components["schemas"]["PollRecapEvent"] | components["schemas"]["MessageStatusEvent"] | components["schemas"]["SessionStatusEvent"] | components["schemas"]["AuthQREvent"] | components["schemas"]["AuthCodeEvent"] | components["schemas"]["PresenceEvent"] | components["schemas"]["GroupEvent"] | components["schemas"]["ChatUpdateEvent"] | components["schemas"]["ContactUpdateEvent"] | components["schemas"]["CallEvent"] | components["schemas"]["NewsletterEvent"] | components["schemas"]["HistorySyncEvent"] | components["schemas"]["HistoryBatchEvent"];
+                "application/json": components["schemas"]["MediaEvent"] | components["schemas"]["MessageEvent"] | components["schemas"]["PollRecapEvent"] | components["schemas"]["MessageStatusEvent"] | components["schemas"]["SessionStatusEvent"] | components["schemas"]["AuthQREvent"] | components["schemas"]["AuthCodeEvent"] | components["schemas"]["AuthPasskeyEvent"] | components["schemas"]["PresenceEvent"] | components["schemas"]["GroupEvent"] | components["schemas"]["ChatUpdateEvent"] | components["schemas"]["ContactUpdateEvent"] | components["schemas"]["CallEvent"] | components["schemas"]["NewsletterEvent"] | components["schemas"]["HistorySyncEvent"] | components["schemas"]["HistoryBatchEvent"];
             };
         };
         responses: {

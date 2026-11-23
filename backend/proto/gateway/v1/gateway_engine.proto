@@ -29,6 +29,11 @@ service GatewayEngineService {
   rpc PrepareSession(PrepareSessionRequest) returns (PrepareSessionResponse);
   rpc BeginPairing(BeginPairingRequest) returns (BeginPairingResponse);
   rpc PairPhone(PairPhoneRequest) returns (PairPhoneResponse);
+  // SubmitPasskey forwards the user's WebAuthn assertion for a passkey
+  // verification WhatsApp requested during pairing.
+  rpc SubmitPasskey(SubmitPasskeyRequest) returns (SubmitPasskeyResponse);
+  // ConfirmPasskey confirms the user saw the same code on the phone.
+  rpc ConfirmPasskey(ConfirmPasskeyRequest) returns (ConfirmPasskeyResponse);
   rpc LogoutSession(LogoutSessionRequest) returns (LogoutSessionResponse);
   rpc ForgetSession(ForgetSessionRequest) returns (ForgetSessionResponse);
 }
@@ -363,6 +368,28 @@ message BeginPairingResponse {
 
 // PairPhoneRequest requests a phone-number pairing code. Not a command: the
 // code is a fresh one-time secret per call, so there is nothing to replay.
+message SubmitPasskeyRequest {
+  SessionTarget target = 1;
+  uint64 assignment_epoch = 2;
+  // The PublicKeyCredential JSON (id, rawId, type, response) with base64url fields.
+  bytes response_json = 3;
+  reserved 4 to 15;
+}
+message SubmitPasskeyResponse {
+  SessionTarget target = 1;
+  uint64 assignment_epoch = 2;
+  reserved 3 to 15;
+}
+message ConfirmPasskeyRequest {
+  SessionTarget target = 1;
+  uint64 assignment_epoch = 2;
+  reserved 3 to 15;
+}
+message ConfirmPasskeyResponse {
+  SessionTarget target = 1;
+  uint64 assignment_epoch = 2;
+  reserved 3 to 15;
+}
 message PairPhoneRequest {
   SessionTarget target = 1;
   uint64 assignment_epoch = 2;

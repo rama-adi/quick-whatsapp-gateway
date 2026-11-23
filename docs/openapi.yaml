@@ -166,6 +166,84 @@ components:
           description: The device platform WhatsApp reports (e.g. android, iphone, web).
           type: string
       type: object
+    AuthPasskeyEvent:
+      additionalProperties: false
+      properties:
+        event:
+          enum:
+            - auth.passkey
+          examples:
+            - auth.passkey
+          type: string
+        id:
+          description: Unique event id. Webhook deliveries repeat it in the X-Webhook-Request-Id header so receivers can drop duplicate redeliveries; the realtime client uses it as the ?since resume cursor.
+          examples:
+            - evt_01J9ZX...
+          type: string
+        organization:
+          description: Id of the organization that owns the session.
+          examples:
+            - org_01J9...
+          type: string
+        payload:
+          $ref: "#/components/schemas/AuthPasskeyPayload"
+        schema:
+          description: Envelope schema version, so consumers can adapt if the shape changes.
+          enum:
+            - v1
+          examples:
+            - v1
+          type: string
+        session:
+          description: Id of the WhatsApp session the event came from.
+          examples:
+            - wa_sess_01J9...
+          type: string
+        timestamp:
+          description: When the event happened, in epoch milliseconds.
+          examples:
+            - 1719400000000
+          format: int64
+          type: integer
+      required:
+        - event
+        - payload
+        - schema
+        - id
+        - session
+        - organization
+        - timestamp
+      type: object
+    AuthPasskeyPayload:
+      additionalProperties: false
+      properties:
+        code:
+          description: "Present for step confirm: the code to compare with the one shown on the phone."
+          examples:
+            - ABCD-EFGH
+          type: string
+        expiresAt:
+          description: Epoch milliseconds after which the gateway gives up and the session fails with failureReason passkey_failed.
+          examples:
+            - 1795406400000
+          format: int64
+          type: integer
+        publicKey:
+          additionalProperties: {}
+          description: "Present for step verify: the WebAuthn PublicKeyCredentialRequestOptions WhatsApp sent (challenge, rpId, allowCredentials, userVerification, timeout, extensions), with binary fields as base64url strings."
+          type: object
+        step:
+          description: verify = sign publicKey with navigator.credentials.get() on web.whatsapp.com and send the credential to POST /sessions/{session}/passkey; confirm = show code and, once the user sees the same code on the phone, call POST /sessions/{session}/passkey/confirm.
+          enum:
+            - verify
+            - confirm
+          examples:
+            - verify
+          type: string
+      required:
+        - step
+        - expiresAt
+      type: object
     AuthQREvent:
       additionalProperties: false
       properties:
@@ -4239,6 +4317,17 @@ components:
       required:
         - code
       type: object
+    PasskeyAcceptedOutputBody:
+      additionalProperties: false
+      properties:
+        accepted:
+          description: Always true. WhatsApp accepted the step; the next step arrives as an auth.passkey event or the pairing completes.
+          examples:
+            - true
+          type: boolean
+      required:
+        - accepted
+      type: object
     PollData:
       additionalProperties: false
       properties:
@@ -4870,9 +4959,9 @@ components:
       additionalProperties: false
       properties:
         failureReason:
-          description: Why the session failed. Present only when status is failed. passkey_required = WhatsApp asked for the account passkey while linking, which the gateway cannot provide (link with a phone number instead); qr_timeout = every QR code expired before a scan; pairing_error = WhatsApp rejected the linking handshake; client_outdated = WhatsApp rejected the gateway's client version (the operator must upgrade); stream_replaced = another client took over this device; temporary_ban = WhatsApp temporarily banned the account; connect_rejected = WhatsApp refused the connection; connect_error = the gateway could not reach WhatsApp.
+          description: Why the session failed. Present only when status is failed. passkey_failed = WhatsApp asked for the account passkey while linking and the verification failed or was not finished in time; qr_timeout = every QR code expired before a scan; pairing_error = WhatsApp rejected the linking handshake; client_outdated = WhatsApp rejected the gateway's client version (the operator must upgrade); stream_replaced = another client took over this device; temporary_ban = WhatsApp temporarily banned the account; connect_rejected = WhatsApp refused the connection; connect_error = the gateway could not reach WhatsApp.
           enum:
-            - passkey_required
+            - passkey_failed
             - qr_timeout
             - pairing_error
             - client_outdated
@@ -4881,7 +4970,7 @@ components:
             - connect_rejected
             - connect_error
           examples:
-            - passkey_required
+            - passkey_failed
           type: string
         status:
           description: "New session status. One of: starting (connecting), scan_qr_code (waiting for a QR scan or pairing code), working (connected and ready to send/receive), failed (the gateway stopped trying; see failureReason), stopped (intentionally stopped), logged_out (the WhatsApp account unlinked the device — must re-pair)."
@@ -4931,6 +5020,14 @@ components:
       required:
         - mimetype
         - status
+      type: object
+    SubmitPasskeyInputBody:
+      additionalProperties: false
+      properties:
+        response:
+          description: "The PublicKeyCredential from navigator.credentials.get() on web.whatsapp.com, as JSON with base64url fields: id, rawId, type, and response {clientDataJSON, authenticatorData, signature, userHandle}."
+      required:
+        - response
       type: object
     UpdateChatInputBody:
       additionalProperties: false
@@ -8626,6 +8723,86 @@ paths:
       summary: Request a phone pairing code
       tags:
         - Sessions
+  /api/v1/sessions/{session}/passkey:
+    post:
+      description: |-
+        Answer the passkey verification WhatsApp asks for while linking a device to an account that has a passkey.
+
+        When it does, the session emits an `auth.passkey` event with `step: verify` and the WebAuthn request options in `publicKey`. Sign them with `navigator.credentials.get()` on a page served from `web.whatsapp.com` (WebAuthn only accepts WhatsApp's own origin for its relying party), then send the resulting credential here within the event's `expiresAt`. A rejected assertion leaves the verification open, so it can be retried.
+
+        WhatsApp may then ask the user to compare a code with the phone: an `auth.passkey` event with `step: confirm` and `code`. Answer it with the confirm route.
+
+        Requires `manage` capability; session must be unpaired.
+
+        Errors: `validation_error` (400), `not_found` (404), `conflict` (409, no verification pending), `unauthorized` (401), `forbidden` (403).
+      operationId: sessionSubmitPasskey
+      parameters:
+        - description: Session ID whose pairing is waiting for passkey verification. Must belong to your organization and be unpaired.
+          in: path
+          name: session
+          required: true
+          schema:
+            description: Session ID whose pairing is waiting for passkey verification. Must belong to your organization and be unpaired.
+            examples:
+              - sess_01HZX8K3M9
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitPasskeyInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PasskeyAcceptedOutputBody"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Submit a passkey verification
+      tags:
+        - Sessions
+  /api/v1/sessions/{session}/passkey/confirm:
+    post:
+      description: |-
+        Confirm that the code from the `auth.passkey` event with `step: confirm` matches the code shown on the phone. Linking completes after this.
+
+        Requires `manage` capability; session must be unpaired.
+
+        Errors: `not_found` (404), `conflict` (409, no code waiting for confirmation), `unauthorized` (401), `forbidden` (403).
+      operationId: sessionConfirmPasskey
+      parameters:
+        - description: Session ID within your organization. Unknown or cross-organization sessions return not_found (404).
+          in: path
+          name: session
+          required: true
+          schema:
+            description: Session ID within your organization. Unknown or cross-organization sessions return not_found (404).
+            examples:
+              - sess_01HZX8K3M9
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PasskeyAcceptedOutputBody"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+          description: Error
+      summary: Confirm the passkey pairing code
+      tags:
+        - Sessions
   /api/v1/sessions/{session}/presence:
     put:
       description: |-
@@ -9253,6 +9430,7 @@ webhooks:
               discriminator:
                 mapping:
                   auth.code: "#/components/schemas/AuthCodeEvent"
+                  auth.passkey: "#/components/schemas/AuthPasskeyEvent"
                   auth.qr: "#/components/schemas/AuthQREvent"
                   call.incoming: "#/components/schemas/CallEvent"
                   chat.update: "#/components/schemas/ChatUpdateEvent"
@@ -9284,6 +9462,7 @@ webhooks:
                 - $ref: "#/components/schemas/SessionStatusEvent"
                 - $ref: "#/components/schemas/AuthQREvent"
                 - $ref: "#/components/schemas/AuthCodeEvent"
+                - $ref: "#/components/schemas/AuthPasskeyEvent"
                 - $ref: "#/components/schemas/PresenceEvent"
                 - $ref: "#/components/schemas/GroupEvent"
                 - $ref: "#/components/schemas/ChatUpdateEvent"

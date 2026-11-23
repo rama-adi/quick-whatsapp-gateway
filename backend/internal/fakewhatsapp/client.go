@@ -40,7 +40,6 @@ type Client struct {
 	connected       bool
 	pairedPersisted bool
 	handler         whatsmeow.EventHandler
-	qr              chan whatsmeow.QRChannelItem
 	cancel          context.CancelFunc
 	generation      uint64
 	after           uint64
@@ -134,6 +133,17 @@ func (c *Client) Connect() error {
 	c.connected = true
 	c.mu.Unlock()
 	go c.events(ctx, generation)
+	if c.device.ID == nil {
+		// Like real WhatsApp, an unpaired connection receives QR codes
+		// (events.QR) without any further request.
+		var pair PairResponse
+		if err := c.request(ctx, http.MethodPost, c.endpoint("/pair"), PairRequest{Method: "qr"}, &pair); err != nil {
+			return err
+		}
+		if pair.Error != "" {
+			return errors.New(pair.Error)
+		}
+	}
 	return nil
 }
 
@@ -167,21 +177,14 @@ func (c *Client) AddEventHandler(handler whatsmeow.EventHandler) uint32 {
 	return 1
 }
 
-func (c *Client) GetQRChannel(ctx context.Context) (<-chan whatsmeow.QRChannelItem, error) {
-	c.mu.Lock()
-	c.qr = make(chan whatsmeow.QRChannelItem, 1)
-	ch := c.qr
-	c.mu.Unlock()
-	var response PairResponse
-	if err := c.request(ctx, http.MethodPost, c.endpoint("/pair"), PairRequest{Method: "qr"}, &response); err != nil {
-		return nil, err
-	}
-	if response.Error != "" {
-		return nil, errors.New(response.Error)
-	}
-	// The server queues the code as a QR event. The event loop starts after
-	// Connect, matching whatsmeow's QR-channel-before-connect ordering.
-	return ch, nil
+// SendPasskeyResponse is unsupported: the fake server never asks for a passkey.
+func (c *Client) SendPasskeyResponse(context.Context, *types.WebAuthnResponse) error {
+	return errors.New("fake WhatsApp does not request passkeys")
+}
+
+// SendPasskeyConfirmation is unsupported: the fake server never asks for a passkey.
+func (c *Client) SendPasskeyConfirmation(context.Context) error {
+	return errors.New("fake WhatsApp does not request passkeys")
 }
 
 func (c *Client) PairPhone(ctx context.Context, phone string, _ bool, _ whatsmeow.PairClientType, _ string) (string, error) {
@@ -367,15 +370,7 @@ func (c *Client) handleEvent(ctx context.Context, event Event) {
 		}
 		c.emit(&info)
 	case "qr":
-		c.mu.Lock()
-		qr := c.qr
-		c.mu.Unlock()
-		if qr != nil {
-			select {
-			case qr <- whatsmeow.QRChannelItem{Event: whatsmeow.QRChannelEventCode, Code: event.Code, Timeout: time.Minute}:
-			default:
-			}
-		}
+		c.emit(&events.QR{Codes: []string{event.Code}})
 	case "message":
 		var message waE2E.Message
 		if err := protojson.Unmarshal(event.Message, &message); err != nil {

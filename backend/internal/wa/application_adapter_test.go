@@ -415,3 +415,7 @@ func TestMutateGroupValidationFailureIsTerminalButTransientFailureIsNot(t *testi
 		t.Fatalf("transient failure was recorded as terminal: %#v", ledger2.saved)
 	}
 }
+
+func (f *fakeController) SubmitPasskey(context.Context, string, []byte) error { return nil }
+
+func (f *fakeController) ConfirmPasskey(context.Context, string) error { return nil }

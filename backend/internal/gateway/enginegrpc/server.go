@@ -541,6 +541,37 @@ func (s *Server) PairPhone(
 	}, nil
 }
 
+func (s *Server) SubmitPasskey(
+	ctx context.Context,
+	req *gatewayv1.SubmitPasskeyRequest,
+) (*gatewayv1.SubmitPasskeyResponse, error) {
+	query, err := s.queryTarget(req.GetTarget(), req.GetAssignmentEpoch())
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	if len(req.GetResponseJson()) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "invalid submit-passkey request")
+	}
+	if err := s.Engine.SubmitPasskey(ctx, query, req.GetResponseJson()); err != nil {
+		return nil, grpcError(err)
+	}
+	return &gatewayv1.SubmitPasskeyResponse{Target: targetProto(query), AssignmentEpoch: query.AssignmentEpoch}, nil
+}
+
+func (s *Server) ConfirmPasskey(
+	ctx context.Context,
+	req *gatewayv1.ConfirmPasskeyRequest,
+) (*gatewayv1.ConfirmPasskeyResponse, error) {
+	query, err := s.queryTarget(req.GetTarget(), req.GetAssignmentEpoch())
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	if err := s.Engine.ConfirmPasskey(ctx, query); err != nil {
+		return nil, grpcError(err)
+	}
+	return &gatewayv1.ConfirmPasskeyResponse{Target: targetProto(query), AssignmentEpoch: query.AssignmentEpoch}, nil
+}
+
 func (s *Server) LogoutSession(
 	ctx context.Context,
 	req *gatewayv1.LogoutSessionRequest,

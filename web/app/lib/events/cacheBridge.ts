@@ -84,6 +84,17 @@ export function applyEvent(qc: QueryClient, e: EventEnvelope): void {
           qc.removeQueries({ queryKey: qk.sessionQR(s), exact: true });
           qc.removeQueries({ queryKey: qk.sessionPairing(s), exact: true });
         }
+        // A passkey step belongs to one pairing attempt; any status other than
+        // scan_qr_code ends it.
+        if (status !== "scan_qr_code") {
+          qc.removeQueries({ queryKey: qk.sessionPasskey(s), exact: true });
+        }
+        const reason = str(p.failureReason);
+        if (status === "failed" && reason) {
+          qc.setQueryData(qk.sessionFailure(s), reason);
+        } else {
+          qc.removeQueries({ queryKey: qk.sessionFailure(s), exact: true });
+        }
         if (status === "working") {
           // PairSuccess persists the JID before Connected emits WORKING. Refresh
           // rows now so the UI switches from pairing controls to the attached
@@ -92,6 +103,14 @@ export function applyEvent(qc: QueryClient, e: EventEnvelope): void {
           void qc.invalidateQueries({ queryKey: qk.sessions() });
           void qc.invalidateQueries({ queryKey: qk.adminSessions() });
         }
+      }
+      break;
+    }
+
+    case "auth.passkey": {
+      const step = str(p.step);
+      if (s && (step === "verify" || step === "confirm")) {
+        qc.setQueryData(qk.sessionPasskey(s), p);
       }
       break;
     }

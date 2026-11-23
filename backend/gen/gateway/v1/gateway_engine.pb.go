@@ -3459,6 +3459,223 @@ func (x *BeginPairingResponse) GetQrExpiresAtUnixMs() int64 {
 
 // PairPhoneRequest requests a phone-number pairing code. Not a command: the
 // code is a fresh one-time secret per call, so there is nothing to replay.
+type SubmitPasskeyRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Target          *SessionTarget         `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
+	AssignmentEpoch uint64                 `protobuf:"varint,2,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
+	// The PublicKeyCredential JSON (id, rawId, type, response) with base64url fields.
+	ResponseJson  []byte `protobuf:"bytes,3,opt,name=response_json,json=responseJson,proto3" json:"response_json,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SubmitPasskeyRequest) Reset() {
+	*x = SubmitPasskeyRequest{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[49]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SubmitPasskeyRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SubmitPasskeyRequest) ProtoMessage() {}
+
+func (x *SubmitPasskeyRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[49]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SubmitPasskeyRequest.ProtoReflect.Descriptor instead.
+func (*SubmitPasskeyRequest) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{49}
+}
+
+func (x *SubmitPasskeyRequest) GetTarget() *SessionTarget {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *SubmitPasskeyRequest) GetAssignmentEpoch() uint64 {
+	if x != nil {
+		return x.AssignmentEpoch
+	}
+	return 0
+}
+
+func (x *SubmitPasskeyRequest) GetResponseJson() []byte {
+	if x != nil {
+		return x.ResponseJson
+	}
+	return nil
+}
+
+type SubmitPasskeyResponse struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Target          *SessionTarget         `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
+	AssignmentEpoch uint64                 `protobuf:"varint,2,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *SubmitPasskeyResponse) Reset() {
+	*x = SubmitPasskeyResponse{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[50]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SubmitPasskeyResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SubmitPasskeyResponse) ProtoMessage() {}
+
+func (x *SubmitPasskeyResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[50]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SubmitPasskeyResponse.ProtoReflect.Descriptor instead.
+func (*SubmitPasskeyResponse) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{50}
+}
+
+func (x *SubmitPasskeyResponse) GetTarget() *SessionTarget {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *SubmitPasskeyResponse) GetAssignmentEpoch() uint64 {
+	if x != nil {
+		return x.AssignmentEpoch
+	}
+	return 0
+}
+
+type ConfirmPasskeyRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Target          *SessionTarget         `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
+	AssignmentEpoch uint64                 `protobuf:"varint,2,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ConfirmPasskeyRequest) Reset() {
+	*x = ConfirmPasskeyRequest{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[51]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConfirmPasskeyRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConfirmPasskeyRequest) ProtoMessage() {}
+
+func (x *ConfirmPasskeyRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[51]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConfirmPasskeyRequest.ProtoReflect.Descriptor instead.
+func (*ConfirmPasskeyRequest) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{51}
+}
+
+func (x *ConfirmPasskeyRequest) GetTarget() *SessionTarget {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *ConfirmPasskeyRequest) GetAssignmentEpoch() uint64 {
+	if x != nil {
+		return x.AssignmentEpoch
+	}
+	return 0
+}
+
+type ConfirmPasskeyResponse struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Target          *SessionTarget         `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
+	AssignmentEpoch uint64                 `protobuf:"varint,2,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ConfirmPasskeyResponse) Reset() {
+	*x = ConfirmPasskeyResponse{}
+	mi := &file_v1_gateway_engine_proto_msgTypes[52]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConfirmPasskeyResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConfirmPasskeyResponse) ProtoMessage() {}
+
+func (x *ConfirmPasskeyResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_gateway_engine_proto_msgTypes[52]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConfirmPasskeyResponse.ProtoReflect.Descriptor instead.
+func (*ConfirmPasskeyResponse) Descriptor() ([]byte, []int) {
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{52}
+}
+
+func (x *ConfirmPasskeyResponse) GetTarget() *SessionTarget {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *ConfirmPasskeyResponse) GetAssignmentEpoch() uint64 {
+	if x != nil {
+		return x.AssignmentEpoch
+	}
+	return 0
+}
+
 type PairPhoneRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	Target          *SessionTarget         `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
@@ -3470,7 +3687,7 @@ type PairPhoneRequest struct {
 
 func (x *PairPhoneRequest) Reset() {
 	*x = PairPhoneRequest{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[49]
+	mi := &file_v1_gateway_engine_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3482,7 +3699,7 @@ func (x *PairPhoneRequest) String() string {
 func (*PairPhoneRequest) ProtoMessage() {}
 
 func (x *PairPhoneRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[49]
+	mi := &file_v1_gateway_engine_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3495,7 +3712,7 @@ func (x *PairPhoneRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PairPhoneRequest.ProtoReflect.Descriptor instead.
 func (*PairPhoneRequest) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{49}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *PairPhoneRequest) GetTarget() *SessionTarget {
@@ -3530,7 +3747,7 @@ type PairPhoneResponse struct {
 
 func (x *PairPhoneResponse) Reset() {
 	*x = PairPhoneResponse{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[50]
+	mi := &file_v1_gateway_engine_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3542,7 +3759,7 @@ func (x *PairPhoneResponse) String() string {
 func (*PairPhoneResponse) ProtoMessage() {}
 
 func (x *PairPhoneResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[50]
+	mi := &file_v1_gateway_engine_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3555,7 +3772,7 @@ func (x *PairPhoneResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PairPhoneResponse.ProtoReflect.Descriptor instead.
 func (*PairPhoneResponse) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{50}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *PairPhoneResponse) GetTarget() *SessionTarget {
@@ -3593,7 +3810,7 @@ type LogoutSessionRequest struct {
 
 func (x *LogoutSessionRequest) Reset() {
 	*x = LogoutSessionRequest{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[51]
+	mi := &file_v1_gateway_engine_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3605,7 +3822,7 @@ func (x *LogoutSessionRequest) String() string {
 func (*LogoutSessionRequest) ProtoMessage() {}
 
 func (x *LogoutSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[51]
+	mi := &file_v1_gateway_engine_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3618,7 +3835,7 @@ func (x *LogoutSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogoutSessionRequest.ProtoReflect.Descriptor instead.
 func (*LogoutSessionRequest) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{51}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *LogoutSessionRequest) GetTarget() *SessionTarget {
@@ -3653,7 +3870,7 @@ type LogoutSessionResponse struct {
 
 func (x *LogoutSessionResponse) Reset() {
 	*x = LogoutSessionResponse{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[52]
+	mi := &file_v1_gateway_engine_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3665,7 +3882,7 @@ func (x *LogoutSessionResponse) String() string {
 func (*LogoutSessionResponse) ProtoMessage() {}
 
 func (x *LogoutSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[52]
+	mi := &file_v1_gateway_engine_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3678,7 +3895,7 @@ func (x *LogoutSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogoutSessionResponse.ProtoReflect.Descriptor instead.
 func (*LogoutSessionResponse) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{52}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *LogoutSessionResponse) GetCommandId() string {
@@ -3716,7 +3933,7 @@ type ForgetSessionRequest struct {
 
 func (x *ForgetSessionRequest) Reset() {
 	*x = ForgetSessionRequest{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[53]
+	mi := &file_v1_gateway_engine_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3728,7 +3945,7 @@ func (x *ForgetSessionRequest) String() string {
 func (*ForgetSessionRequest) ProtoMessage() {}
 
 func (x *ForgetSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[53]
+	mi := &file_v1_gateway_engine_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3741,7 +3958,7 @@ func (x *ForgetSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ForgetSessionRequest.ProtoReflect.Descriptor instead.
 func (*ForgetSessionRequest) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{53}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{57}
 }
 
 func (x *ForgetSessionRequest) GetTarget() *SessionTarget {
@@ -3760,7 +3977,7 @@ type ForgetSessionResponse struct {
 
 func (x *ForgetSessionResponse) Reset() {
 	*x = ForgetSessionResponse{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[54]
+	mi := &file_v1_gateway_engine_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3772,7 +3989,7 @@ func (x *ForgetSessionResponse) String() string {
 func (*ForgetSessionResponse) ProtoMessage() {}
 
 func (x *ForgetSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[54]
+	mi := &file_v1_gateway_engine_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3785,7 +4002,7 @@ func (x *ForgetSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ForgetSessionResponse.ProtoReflect.Descriptor instead.
 func (*ForgetSessionResponse) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{54}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{58}
 }
 
 func (x *ForgetSessionResponse) GetTarget() *SessionTarget {
@@ -3807,7 +4024,7 @@ type DownloadMediaRequest struct {
 
 func (x *DownloadMediaRequest) Reset() {
 	*x = DownloadMediaRequest{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[55]
+	mi := &file_v1_gateway_engine_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3819,7 +4036,7 @@ func (x *DownloadMediaRequest) String() string {
 func (*DownloadMediaRequest) ProtoMessage() {}
 
 func (x *DownloadMediaRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[55]
+	mi := &file_v1_gateway_engine_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3832,7 +4049,7 @@ func (x *DownloadMediaRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DownloadMediaRequest.ProtoReflect.Descriptor instead.
 func (*DownloadMediaRequest) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{55}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{59}
 }
 
 func (x *DownloadMediaRequest) GetTarget() *SessionTarget {
@@ -3865,7 +4082,7 @@ type DownloadMediaResponse struct {
 
 func (x *DownloadMediaResponse) Reset() {
 	*x = DownloadMediaResponse{}
-	mi := &file_v1_gateway_engine_proto_msgTypes[56]
+	mi := &file_v1_gateway_engine_proto_msgTypes[60]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3877,7 +4094,7 @@ func (x *DownloadMediaResponse) String() string {
 func (*DownloadMediaResponse) ProtoMessage() {}
 
 func (x *DownloadMediaResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_gateway_engine_proto_msgTypes[56]
+	mi := &file_v1_gateway_engine_proto_msgTypes[60]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3890,7 +4107,7 @@ func (x *DownloadMediaResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DownloadMediaResponse.ProtoReflect.Descriptor instead.
 func (*DownloadMediaResponse) Descriptor() ([]byte, []int) {
-	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{56}
+	return file_v1_gateway_engine_proto_rawDescGZIP(), []int{60}
 }
 
 func (x *DownloadMediaResponse) GetData() []byte {
@@ -4177,7 +4394,20 @@ const file_v1_gateway_engine_proto_rawDesc = "" +
 	"\x15qr_expires_at_unix_ms\x18\x04 \x01(\x03H\x01R\x11qrExpiresAtUnixMs\x88\x01\x01B\n" +
 	"\n" +
 	"\b_qr_codeB\x18\n" +
-	"\x16_qr_expires_at_unix_msJ\x04\b\x05\x10\x10\"\x8c\x01\n" +
+	"\x16_qr_expires_at_unix_msJ\x04\b\x05\x10\x10\"\x9f\x01\n" +
+	"\x14SubmitPasskeyRequest\x121\n" +
+	"\x06target\x18\x01 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
+	"\x10assignment_epoch\x18\x02 \x01(\x04R\x0fassignmentEpoch\x12#\n" +
+	"\rresponse_json\x18\x03 \x01(\fR\fresponseJsonJ\x04\b\x04\x10\x10\"{\n" +
+	"\x15SubmitPasskeyResponse\x121\n" +
+	"\x06target\x18\x01 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
+	"\x10assignment_epoch\x18\x02 \x01(\x04R\x0fassignmentEpochJ\x04\b\x03\x10\x10\"{\n" +
+	"\x15ConfirmPasskeyRequest\x121\n" +
+	"\x06target\x18\x01 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
+	"\x10assignment_epoch\x18\x02 \x01(\x04R\x0fassignmentEpochJ\x04\b\x03\x10\x10\"|\n" +
+	"\x16ConfirmPasskeyResponse\x121\n" +
+	"\x06target\x18\x01 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
+	"\x10assignment_epoch\x18\x02 \x01(\x04R\x0fassignmentEpochJ\x04\b\x03\x10\x10\"\x8c\x01\n" +
 	"\x10PairPhoneRequest\x121\n" +
 	"\x06target\x18\x01 \x01(\v2\x19.gateway.v1.SessionTargetR\x06target\x12)\n" +
 	"\x10assignment_epoch\x18\x02 \x01(\x04R\x0fassignmentEpoch\x12\x14\n" +
@@ -4222,7 +4452,7 @@ const file_v1_gateway_engine_proto_rawDesc = "" +
 	"\x1cGROUP_PARTICIPANT_CHANGE_ADD\x10\x01\x12#\n" +
 	"\x1fGROUP_PARTICIPANT_CHANGE_REMOVE\x10\x02\x12$\n" +
 	" GROUP_PARTICIPANT_CHANGE_PROMOTE\x10\x03\x12#\n" +
-	"\x1fGROUP_PARTICIPANT_CHANGE_DEMOTE\x10\x042\xcd\x10\n" +
+	"\x1fGROUP_PARTICIPANT_CHANGE_DEMOTE\x10\x042\xfc\x11\n" +
 	"\x14GatewayEngineService\x12T\n" +
 	"\rDownloadMedia\x12 .gateway.v1.DownloadMediaRequest\x1a!.gateway.v1.DownloadMediaResponse\x12Z\n" +
 	"\x0fGetSessionState\x12\".gateway.v1.GetSessionStateRequest\x1a#.gateway.v1.GetSessionStateResponse\x12c\n" +
@@ -4248,6 +4478,8 @@ const file_v1_gateway_engine_proto_rawDesc = "" +
 	"\x0ePrepareSession\x12!.gateway.v1.PrepareSessionRequest\x1a\".gateway.v1.PrepareSessionResponse\x12Q\n" +
 	"\fBeginPairing\x12\x1f.gateway.v1.BeginPairingRequest\x1a .gateway.v1.BeginPairingResponse\x12H\n" +
 	"\tPairPhone\x12\x1c.gateway.v1.PairPhoneRequest\x1a\x1d.gateway.v1.PairPhoneResponse\x12T\n" +
+	"\rSubmitPasskey\x12 .gateway.v1.SubmitPasskeyRequest\x1a!.gateway.v1.SubmitPasskeyResponse\x12W\n" +
+	"\x0eConfirmPasskey\x12!.gateway.v1.ConfirmPasskeyRequest\x1a\".gateway.v1.ConfirmPasskeyResponse\x12T\n" +
 	"\rLogoutSession\x12 .gateway.v1.LogoutSessionRequest\x1a!.gateway.v1.LogoutSessionResponse\x12T\n" +
 	"\rForgetSession\x12 .gateway.v1.ForgetSessionRequest\x1a!.gateway.v1.ForgetSessionResponseBEZCgithub.com/rama-adi/quick-whatsapp-gateway/gen/gateway/v1;gatewayv1b\x06proto3"
 
@@ -4264,7 +4496,7 @@ func file_v1_gateway_engine_proto_rawDescGZIP() []byte {
 }
 
 var file_v1_gateway_engine_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_v1_gateway_engine_proto_msgTypes = make([]protoimpl.MessageInfo, 57)
+var file_v1_gateway_engine_proto_msgTypes = make([]protoimpl.MessageInfo, 61)
 var file_v1_gateway_engine_proto_goTypes = []any{
 	(GatewaySessionStatus)(0),               // 0: gateway.v1.GatewaySessionStatus
 	(AccountPresence)(0),                    // 1: gateway.v1.AccountPresence
@@ -4318,14 +4550,18 @@ var file_v1_gateway_engine_proto_goTypes = []any{
 	(*PrepareSessionResponse)(nil),          // 49: gateway.v1.PrepareSessionResponse
 	(*BeginPairingRequest)(nil),             // 50: gateway.v1.BeginPairingRequest
 	(*BeginPairingResponse)(nil),            // 51: gateway.v1.BeginPairingResponse
-	(*PairPhoneRequest)(nil),                // 52: gateway.v1.PairPhoneRequest
-	(*PairPhoneResponse)(nil),               // 53: gateway.v1.PairPhoneResponse
-	(*LogoutSessionRequest)(nil),            // 54: gateway.v1.LogoutSessionRequest
-	(*LogoutSessionResponse)(nil),           // 55: gateway.v1.LogoutSessionResponse
-	(*ForgetSessionRequest)(nil),            // 56: gateway.v1.ForgetSessionRequest
-	(*ForgetSessionResponse)(nil),           // 57: gateway.v1.ForgetSessionResponse
-	(*DownloadMediaRequest)(nil),            // 58: gateway.v1.DownloadMediaRequest
-	(*DownloadMediaResponse)(nil),           // 59: gateway.v1.DownloadMediaResponse
+	(*SubmitPasskeyRequest)(nil),            // 52: gateway.v1.SubmitPasskeyRequest
+	(*SubmitPasskeyResponse)(nil),           // 53: gateway.v1.SubmitPasskeyResponse
+	(*ConfirmPasskeyRequest)(nil),           // 54: gateway.v1.ConfirmPasskeyRequest
+	(*ConfirmPasskeyResponse)(nil),          // 55: gateway.v1.ConfirmPasskeyResponse
+	(*PairPhoneRequest)(nil),                // 56: gateway.v1.PairPhoneRequest
+	(*PairPhoneResponse)(nil),               // 57: gateway.v1.PairPhoneResponse
+	(*LogoutSessionRequest)(nil),            // 58: gateway.v1.LogoutSessionRequest
+	(*LogoutSessionResponse)(nil),           // 59: gateway.v1.LogoutSessionResponse
+	(*ForgetSessionRequest)(nil),            // 60: gateway.v1.ForgetSessionRequest
+	(*ForgetSessionResponse)(nil),           // 61: gateway.v1.ForgetSessionResponse
+	(*DownloadMediaRequest)(nil),            // 62: gateway.v1.DownloadMediaRequest
+	(*DownloadMediaResponse)(nil),           // 63: gateway.v1.DownloadMediaResponse
 }
 var file_v1_gateway_engine_proto_depIdxs = []int32{
 	3,  // 0: gateway.v1.GetSessionStateRequest.target:type_name -> gateway.v1.SessionTarget
@@ -4371,66 +4607,74 @@ var file_v1_gateway_engine_proto_depIdxs = []int32{
 	3,  // 40: gateway.v1.PrepareSessionResponse.target:type_name -> gateway.v1.SessionTarget
 	3,  // 41: gateway.v1.BeginPairingRequest.target:type_name -> gateway.v1.SessionTarget
 	3,  // 42: gateway.v1.BeginPairingResponse.target:type_name -> gateway.v1.SessionTarget
-	3,  // 43: gateway.v1.PairPhoneRequest.target:type_name -> gateway.v1.SessionTarget
-	3,  // 44: gateway.v1.PairPhoneResponse.target:type_name -> gateway.v1.SessionTarget
-	3,  // 45: gateway.v1.LogoutSessionRequest.target:type_name -> gateway.v1.SessionTarget
-	3,  // 46: gateway.v1.LogoutSessionResponse.target:type_name -> gateway.v1.SessionTarget
-	3,  // 47: gateway.v1.ForgetSessionRequest.target:type_name -> gateway.v1.SessionTarget
-	3,  // 48: gateway.v1.ForgetSessionResponse.target:type_name -> gateway.v1.SessionTarget
-	3,  // 49: gateway.v1.DownloadMediaRequest.target:type_name -> gateway.v1.SessionTarget
-	58, // 50: gateway.v1.GatewayEngineService.DownloadMedia:input_type -> gateway.v1.DownloadMediaRequest
-	4,  // 51: gateway.v1.GatewayEngineService.GetSessionState:input_type -> gateway.v1.GetSessionStateRequest
-	6,  // 52: gateway.v1.GatewayEngineService.SetAccountPresence:input_type -> gateway.v1.SetAccountPresenceRequest
-	7,  // 53: gateway.v1.GatewayEngineService.MarkRead:input_type -> gateway.v1.MarkReadRequest
-	10, // 54: gateway.v1.GatewayEngineService.SendMessage:input_type -> gateway.v1.SendMessageRequest
-	13, // 55: gateway.v1.GatewayEngineService.MessageOp:input_type -> gateway.v1.MessageOpRequest
-	15, // 56: gateway.v1.GatewayEngineService.LookupContact:input_type -> gateway.v1.LookupContactRequest
-	18, // 57: gateway.v1.GatewayEngineService.GetContactPicture:input_type -> gateway.v1.GetContactPictureRequest
-	20, // 58: gateway.v1.GatewayEngineService.GetContactAbout:input_type -> gateway.v1.GetContactAboutRequest
-	22, // 59: gateway.v1.GatewayEngineService.SetBlocked:input_type -> gateway.v1.SetBlockedRequest
-	24, // 60: gateway.v1.GatewayEngineService.CreateGroup:input_type -> gateway.v1.CreateGroupRequest
-	27, // 61: gateway.v1.GatewayEngineService.UpdateGroupSettings:input_type -> gateway.v1.UpdateGroupSettingsRequest
-	29, // 62: gateway.v1.GatewayEngineService.UpdateGroupParticipants:input_type -> gateway.v1.UpdateGroupParticipantsRequest
-	31, // 63: gateway.v1.GatewayEngineService.GetGroupInviteLink:input_type -> gateway.v1.GetGroupInviteLinkRequest
-	33, // 64: gateway.v1.GatewayEngineService.JoinGroup:input_type -> gateway.v1.JoinGroupRequest
-	35, // 65: gateway.v1.GatewayEngineService.LeaveGroup:input_type -> gateway.v1.LeaveGroupRequest
-	37, // 66: gateway.v1.GatewayEngineService.GetChatPresence:input_type -> gateway.v1.GetChatPresenceRequest
-	40, // 67: gateway.v1.GatewayEngineService.SetChatPresence:input_type -> gateway.v1.SetChatPresenceRequest
-	42, // 68: gateway.v1.GatewayEngineService.BackfillSession:input_type -> gateway.v1.BackfillSessionRequest
-	48, // 69: gateway.v1.GatewayEngineService.PrepareSession:input_type -> gateway.v1.PrepareSessionRequest
-	50, // 70: gateway.v1.GatewayEngineService.BeginPairing:input_type -> gateway.v1.BeginPairingRequest
-	52, // 71: gateway.v1.GatewayEngineService.PairPhone:input_type -> gateway.v1.PairPhoneRequest
-	54, // 72: gateway.v1.GatewayEngineService.LogoutSession:input_type -> gateway.v1.LogoutSessionRequest
-	56, // 73: gateway.v1.GatewayEngineService.ForgetSession:input_type -> gateway.v1.ForgetSessionRequest
-	59, // 74: gateway.v1.GatewayEngineService.DownloadMedia:output_type -> gateway.v1.DownloadMediaResponse
-	5,  // 75: gateway.v1.GatewayEngineService.GetSessionState:output_type -> gateway.v1.GetSessionStateResponse
-	8,  // 76: gateway.v1.GatewayEngineService.SetAccountPresence:output_type -> gateway.v1.SetAccountPresenceResponse
-	9,  // 77: gateway.v1.GatewayEngineService.MarkRead:output_type -> gateway.v1.MarkReadResponse
-	12, // 78: gateway.v1.GatewayEngineService.SendMessage:output_type -> gateway.v1.SendMessageResponse
-	14, // 79: gateway.v1.GatewayEngineService.MessageOp:output_type -> gateway.v1.MessageOpResponse
-	16, // 80: gateway.v1.GatewayEngineService.LookupContact:output_type -> gateway.v1.LookupContactResponse
-	19, // 81: gateway.v1.GatewayEngineService.GetContactPicture:output_type -> gateway.v1.GetContactPictureResponse
-	21, // 82: gateway.v1.GatewayEngineService.GetContactAbout:output_type -> gateway.v1.GetContactAboutResponse
-	23, // 83: gateway.v1.GatewayEngineService.SetBlocked:output_type -> gateway.v1.SetBlockedResponse
-	26, // 84: gateway.v1.GatewayEngineService.CreateGroup:output_type -> gateway.v1.CreateGroupResponse
-	28, // 85: gateway.v1.GatewayEngineService.UpdateGroupSettings:output_type -> gateway.v1.UpdateGroupSettingsResponse
-	30, // 86: gateway.v1.GatewayEngineService.UpdateGroupParticipants:output_type -> gateway.v1.UpdateGroupParticipantsResponse
-	32, // 87: gateway.v1.GatewayEngineService.GetGroupInviteLink:output_type -> gateway.v1.GetGroupInviteLinkResponse
-	34, // 88: gateway.v1.GatewayEngineService.JoinGroup:output_type -> gateway.v1.JoinGroupResponse
-	36, // 89: gateway.v1.GatewayEngineService.LeaveGroup:output_type -> gateway.v1.LeaveGroupResponse
-	39, // 90: gateway.v1.GatewayEngineService.GetChatPresence:output_type -> gateway.v1.GetChatPresenceResponse
-	41, // 91: gateway.v1.GatewayEngineService.SetChatPresence:output_type -> gateway.v1.SetChatPresenceResponse
-	47, // 92: gateway.v1.GatewayEngineService.BackfillSession:output_type -> gateway.v1.BackfillSessionResponse
-	49, // 93: gateway.v1.GatewayEngineService.PrepareSession:output_type -> gateway.v1.PrepareSessionResponse
-	51, // 94: gateway.v1.GatewayEngineService.BeginPairing:output_type -> gateway.v1.BeginPairingResponse
-	53, // 95: gateway.v1.GatewayEngineService.PairPhone:output_type -> gateway.v1.PairPhoneResponse
-	55, // 96: gateway.v1.GatewayEngineService.LogoutSession:output_type -> gateway.v1.LogoutSessionResponse
-	57, // 97: gateway.v1.GatewayEngineService.ForgetSession:output_type -> gateway.v1.ForgetSessionResponse
-	74, // [74:98] is the sub-list for method output_type
-	50, // [50:74] is the sub-list for method input_type
-	50, // [50:50] is the sub-list for extension type_name
-	50, // [50:50] is the sub-list for extension extendee
-	0,  // [0:50] is the sub-list for field type_name
+	3,  // 43: gateway.v1.SubmitPasskeyRequest.target:type_name -> gateway.v1.SessionTarget
+	3,  // 44: gateway.v1.SubmitPasskeyResponse.target:type_name -> gateway.v1.SessionTarget
+	3,  // 45: gateway.v1.ConfirmPasskeyRequest.target:type_name -> gateway.v1.SessionTarget
+	3,  // 46: gateway.v1.ConfirmPasskeyResponse.target:type_name -> gateway.v1.SessionTarget
+	3,  // 47: gateway.v1.PairPhoneRequest.target:type_name -> gateway.v1.SessionTarget
+	3,  // 48: gateway.v1.PairPhoneResponse.target:type_name -> gateway.v1.SessionTarget
+	3,  // 49: gateway.v1.LogoutSessionRequest.target:type_name -> gateway.v1.SessionTarget
+	3,  // 50: gateway.v1.LogoutSessionResponse.target:type_name -> gateway.v1.SessionTarget
+	3,  // 51: gateway.v1.ForgetSessionRequest.target:type_name -> gateway.v1.SessionTarget
+	3,  // 52: gateway.v1.ForgetSessionResponse.target:type_name -> gateway.v1.SessionTarget
+	3,  // 53: gateway.v1.DownloadMediaRequest.target:type_name -> gateway.v1.SessionTarget
+	62, // 54: gateway.v1.GatewayEngineService.DownloadMedia:input_type -> gateway.v1.DownloadMediaRequest
+	4,  // 55: gateway.v1.GatewayEngineService.GetSessionState:input_type -> gateway.v1.GetSessionStateRequest
+	6,  // 56: gateway.v1.GatewayEngineService.SetAccountPresence:input_type -> gateway.v1.SetAccountPresenceRequest
+	7,  // 57: gateway.v1.GatewayEngineService.MarkRead:input_type -> gateway.v1.MarkReadRequest
+	10, // 58: gateway.v1.GatewayEngineService.SendMessage:input_type -> gateway.v1.SendMessageRequest
+	13, // 59: gateway.v1.GatewayEngineService.MessageOp:input_type -> gateway.v1.MessageOpRequest
+	15, // 60: gateway.v1.GatewayEngineService.LookupContact:input_type -> gateway.v1.LookupContactRequest
+	18, // 61: gateway.v1.GatewayEngineService.GetContactPicture:input_type -> gateway.v1.GetContactPictureRequest
+	20, // 62: gateway.v1.GatewayEngineService.GetContactAbout:input_type -> gateway.v1.GetContactAboutRequest
+	22, // 63: gateway.v1.GatewayEngineService.SetBlocked:input_type -> gateway.v1.SetBlockedRequest
+	24, // 64: gateway.v1.GatewayEngineService.CreateGroup:input_type -> gateway.v1.CreateGroupRequest
+	27, // 65: gateway.v1.GatewayEngineService.UpdateGroupSettings:input_type -> gateway.v1.UpdateGroupSettingsRequest
+	29, // 66: gateway.v1.GatewayEngineService.UpdateGroupParticipants:input_type -> gateway.v1.UpdateGroupParticipantsRequest
+	31, // 67: gateway.v1.GatewayEngineService.GetGroupInviteLink:input_type -> gateway.v1.GetGroupInviteLinkRequest
+	33, // 68: gateway.v1.GatewayEngineService.JoinGroup:input_type -> gateway.v1.JoinGroupRequest
+	35, // 69: gateway.v1.GatewayEngineService.LeaveGroup:input_type -> gateway.v1.LeaveGroupRequest
+	37, // 70: gateway.v1.GatewayEngineService.GetChatPresence:input_type -> gateway.v1.GetChatPresenceRequest
+	40, // 71: gateway.v1.GatewayEngineService.SetChatPresence:input_type -> gateway.v1.SetChatPresenceRequest
+	42, // 72: gateway.v1.GatewayEngineService.BackfillSession:input_type -> gateway.v1.BackfillSessionRequest
+	48, // 73: gateway.v1.GatewayEngineService.PrepareSession:input_type -> gateway.v1.PrepareSessionRequest
+	50, // 74: gateway.v1.GatewayEngineService.BeginPairing:input_type -> gateway.v1.BeginPairingRequest
+	56, // 75: gateway.v1.GatewayEngineService.PairPhone:input_type -> gateway.v1.PairPhoneRequest
+	52, // 76: gateway.v1.GatewayEngineService.SubmitPasskey:input_type -> gateway.v1.SubmitPasskeyRequest
+	54, // 77: gateway.v1.GatewayEngineService.ConfirmPasskey:input_type -> gateway.v1.ConfirmPasskeyRequest
+	58, // 78: gateway.v1.GatewayEngineService.LogoutSession:input_type -> gateway.v1.LogoutSessionRequest
+	60, // 79: gateway.v1.GatewayEngineService.ForgetSession:input_type -> gateway.v1.ForgetSessionRequest
+	63, // 80: gateway.v1.GatewayEngineService.DownloadMedia:output_type -> gateway.v1.DownloadMediaResponse
+	5,  // 81: gateway.v1.GatewayEngineService.GetSessionState:output_type -> gateway.v1.GetSessionStateResponse
+	8,  // 82: gateway.v1.GatewayEngineService.SetAccountPresence:output_type -> gateway.v1.SetAccountPresenceResponse
+	9,  // 83: gateway.v1.GatewayEngineService.MarkRead:output_type -> gateway.v1.MarkReadResponse
+	12, // 84: gateway.v1.GatewayEngineService.SendMessage:output_type -> gateway.v1.SendMessageResponse
+	14, // 85: gateway.v1.GatewayEngineService.MessageOp:output_type -> gateway.v1.MessageOpResponse
+	16, // 86: gateway.v1.GatewayEngineService.LookupContact:output_type -> gateway.v1.LookupContactResponse
+	19, // 87: gateway.v1.GatewayEngineService.GetContactPicture:output_type -> gateway.v1.GetContactPictureResponse
+	21, // 88: gateway.v1.GatewayEngineService.GetContactAbout:output_type -> gateway.v1.GetContactAboutResponse
+	23, // 89: gateway.v1.GatewayEngineService.SetBlocked:output_type -> gateway.v1.SetBlockedResponse
+	26, // 90: gateway.v1.GatewayEngineService.CreateGroup:output_type -> gateway.v1.CreateGroupResponse
+	28, // 91: gateway.v1.GatewayEngineService.UpdateGroupSettings:output_type -> gateway.v1.UpdateGroupSettingsResponse
+	30, // 92: gateway.v1.GatewayEngineService.UpdateGroupParticipants:output_type -> gateway.v1.UpdateGroupParticipantsResponse
+	32, // 93: gateway.v1.GatewayEngineService.GetGroupInviteLink:output_type -> gateway.v1.GetGroupInviteLinkResponse
+	34, // 94: gateway.v1.GatewayEngineService.JoinGroup:output_type -> gateway.v1.JoinGroupResponse
+	36, // 95: gateway.v1.GatewayEngineService.LeaveGroup:output_type -> gateway.v1.LeaveGroupResponse
+	39, // 96: gateway.v1.GatewayEngineService.GetChatPresence:output_type -> gateway.v1.GetChatPresenceResponse
+	41, // 97: gateway.v1.GatewayEngineService.SetChatPresence:output_type -> gateway.v1.SetChatPresenceResponse
+	47, // 98: gateway.v1.GatewayEngineService.BackfillSession:output_type -> gateway.v1.BackfillSessionResponse
+	49, // 99: gateway.v1.GatewayEngineService.PrepareSession:output_type -> gateway.v1.PrepareSessionResponse
+	51, // 100: gateway.v1.GatewayEngineService.BeginPairing:output_type -> gateway.v1.BeginPairingResponse
+	57, // 101: gateway.v1.GatewayEngineService.PairPhone:output_type -> gateway.v1.PairPhoneResponse
+	53, // 102: gateway.v1.GatewayEngineService.SubmitPasskey:output_type -> gateway.v1.SubmitPasskeyResponse
+	55, // 103: gateway.v1.GatewayEngineService.ConfirmPasskey:output_type -> gateway.v1.ConfirmPasskeyResponse
+	59, // 104: gateway.v1.GatewayEngineService.LogoutSession:output_type -> gateway.v1.LogoutSessionResponse
+	61, // 105: gateway.v1.GatewayEngineService.ForgetSession:output_type -> gateway.v1.ForgetSessionResponse
+	80, // [80:106] is the sub-list for method output_type
+	54, // [54:80] is the sub-list for method input_type
+	54, // [54:54] is the sub-list for extension type_name
+	54, // [54:54] is the sub-list for extension extendee
+	0,  // [0:54] is the sub-list for field type_name
 }
 
 func init() { file_v1_gateway_engine_proto_init() }
@@ -4448,7 +4692,7 @@ func file_v1_gateway_engine_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_v1_gateway_engine_proto_rawDesc), len(file_v1_gateway_engine_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   57,
+			NumMessages:   61,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

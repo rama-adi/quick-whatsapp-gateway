@@ -26,9 +26,13 @@ type Event struct {
 // Event catalog (§9 v1). Typed string constants for every event type so
 // producers and consumers reference one source of truth instead of bare strings.
 const (
-	EventSessionStatus           = "session.status"
-	EventAuthQR                  = "auth.qr"
-	EventAuthCode                = "auth.code"
+	EventSessionStatus = "session.status"
+	EventAuthQR        = "auth.qr"
+	EventAuthCode      = "auth.code"
+	// EventAuthPasskey: WhatsApp asked for the account passkey while linking.
+	// Step verify carries the WebAuthn request options to sign; step confirm
+	// carries a code to compare with the phone.
+	EventAuthPasskey             = "auth.passkey"
 	EventMessage                 = "message"
 	EventMessageFromMe           = "message.from_me"
 	EventMessageStatus           = "message.status"

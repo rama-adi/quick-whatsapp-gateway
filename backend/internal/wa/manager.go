@@ -549,6 +549,7 @@ func (m *Manager) teardown(ms *ManagedSession) {
 	ms.attempt = 0
 	ms.lastQR = ""
 	ms.lastQRExpires = 0
+	ms.passkey = nil
 	ms.mu.Unlock()
 
 	if client != nil {
@@ -560,9 +561,10 @@ func (m *Manager) teardown(ms *ManagedSession) {
 // Pairing (§6, recon §3)
 // ----------------------------------------------------------------------------
 
-// StartQR begins QR pairing for a session: it builds a fresh client, opens the
-// QR channel BEFORE Connect (recon §3), connects, and pumps each refreshed code
-// out as an auth.qr event. The status moves to SCAN_QR_CODE while codes stream.
+// StartQR begins QR pairing for a session: it builds a fresh client and
+// connects it. The pairing driver (pairing.go) publishes each QR code as an
+// auth.qr event, moves the status to SCAN_QR_CODE once a code exists, and runs
+// a passkey verification if WhatsApp asks for one.
 func (m *Manager) StartQR(ctx context.Context, id string) error {
 	ms := m.Get(id)
 	if ms == nil {
@@ -592,86 +594,24 @@ func (m *Manager) StartQR(ctx context.Context, id string) error {
 	ms.cancel = cancel
 	ms.reconnect = true
 	ms.attempt = 0
-	ms.lastQR = ""
-	ms.lastQRExpires = 0
+	ms.beginPairingRun(loopCtx)
 	client := m.buildClient(ms.device)
 	ms.client = client
 	ms.handlerID = client.AddEventHandler(m.eventHandlerFor(ms))
 	ms.mu.Unlock()
 
-	qrChan, err := client.GetQRChannel(loopCtx)
-	if err != nil {
-		m.teardown(ms)
-		m.setFailed(loopCtx, ms, domain.FailurePairingError)
-		return fmt.Errorf("get qr channel: %w", err)
-	}
-	// The status stays where it is until the first code arrives: pumpQR moves it
-	// to scan_qr_code only once there is a code to scan.
+	// An unpaired client receives events.QR after Connect; the pairing driver
+	// (pairing.go) publishes the codes and moves the status to scan_qr_code once
+	// the first one exists.
 	if err := client.Connect(); err != nil {
 		m.teardown(ms)
 		m.setFailed(loopCtx, ms, domain.FailureConnectError)
 		return fmt.Errorf("connect for qr: %w", err)
 	}
-	go m.pumpQR(loopCtx, ms, qrChan)
 	// Once paired, PairSuccess+Connected flow through the event handler and the
 	// reconnect loop keeps the session alive.
 	go m.reconnectLoopAfterPair(loopCtx, ms)
 	return nil
-}
-
-// pumpQR streams QR codes from whatsmeow as auth.qr events until the channel
-// closes (success/timeout) or the context is cancelled.
-func (m *Manager) pumpQR(ctx context.Context, ms *ManagedSession, qrChan <-chan whatsmeow.QRChannelItem) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case item, ok := <-qrChan:
-			if !ok {
-				return
-			}
-			switch item.Event {
-			case whatsmeow.QRChannelEventCode:
-				ms.mu.Lock()
-				ms.lastQR = item.Code
-				ms.lastQRExpires = m.clock.NowMs() + item.Timeout.Milliseconds()
-				ms.mu.Unlock()
-				// scan_qr_code means "a code exists to scan": publish it only after
-				// the code is stored, so GET /qr answers with it.
-				m.setStatus(ctx, ms, domain.SessionScanQR)
-				m.sink.Publish(ctx, domain.NewEvent(domain.EventAuthQR, ms.SessionID, ms.OrganizationID, map[string]any{
-					"code":      item.Code,
-					"timeoutMs": item.Timeout.Milliseconds(),
-				}))
-			case "success":
-				ms.mu.Lock()
-				ms.lastQR, ms.lastQRExpires = "", 0
-				ms.mu.Unlock()
-				m.log.Info("qr pairing success", "session", ms.SessionID)
-				return
-			case "timeout":
-				m.log.Warn("qr pairing timed out", "session", ms.SessionID)
-				m.setFailed(ctx, ms, domain.FailureQRTimeout)
-				// A timed-out client cannot produce another QR channel. Release it and
-				// its reconnect loop so a subsequent pairing request starts a fresh flow.
-				m.teardown(ms)
-				return
-			case whatsmeow.QRChannelErrUnexpectedEvent.Event, whatsmeow.QRChannelEventError:
-				// The QR flow is over and no code will come. Fail with a reason and
-				// release the client, so the session does not sit in scan_qr_code.
-				m.log.Warn("qr pairing error", "session", ms.SessionID, "event", item.Event, "err", item.Error)
-				m.setFailed(ctx, ms, domain.FailurePairingError)
-				m.teardown(ms)
-				return
-			default:
-				// err-client-outdated and passkey-request also arrive as whatsmeow
-				// events (ClientOutdated, PairPasskeyRequest), which the event handler
-				// turns into a terminal failure with a reason. After
-				// err-scanned-without-multidevice the same code can be scanned again.
-				m.log.Warn("qr pairing event", "session", ms.SessionID, "event", item.Event, "err", item.Error)
-			}
-		}
-	}
 }
 
 // StartPairingCode begins phone-number pairing and returns the linking code
@@ -702,8 +642,7 @@ func (m *Manager) StartPairingCode(ctx context.Context, id, phone string) (strin
 	ms.cancel = cancel
 	ms.reconnect = true
 	ms.attempt = 0
-	ms.lastQR = ""
-	ms.lastQRExpires = 0
+	ms.beginPairingRun(loopCtx)
 	client := m.buildClient(ms.device)
 	ms.client = client
 	ms.handlerID = client.AddEventHandler(m.eventHandlerFor(ms))
@@ -791,6 +730,10 @@ func (m *Manager) eventHandlerFor(ms *ManagedSession) whatsmeow.EventHandler {
 			m.acceptHistory(ctx, ms, msg, notif)
 			return
 		}
+		// QR rotation and the passkey flow are lifecycle work, not inbound data.
+		if m.handlePairingEvent(ms, evt) {
+			return
+		}
 		m.applyEvent(ctx, ms, evt)
 		if m.inbound != nil {
 			m.inbound.Handle(ctx, ms.SessionID, ms.OrganizationID, ms.IsAdmin, evt)
@@ -876,6 +819,8 @@ func (m *Manager) sendOnlinePresence(ms *ManagedSession) {
 func (m *Manager) recordPairedJID(_ context.Context, ms *ManagedSession, jid, lid types.JID) {
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
+	ms.passkey = nil
+	ms.lastQR, ms.lastQRExpires = "", 0
 	ms.pairedJID = jid.String()
 	if !lid.IsEmpty() {
 		ms.pairedLID = lid.String()

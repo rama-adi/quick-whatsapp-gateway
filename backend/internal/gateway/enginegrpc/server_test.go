@@ -259,3 +259,11 @@ func TestLiveResourceReadsCarryTargetsAndRejectZeroEpoch(t *testing.T) {
 		}
 	}
 }
+
+func (f *fakeEngine) SubmitPasskey(context.Context, application.SessionStateQuery, []byte) error {
+	return nil
+}
+
+func (f *fakeEngine) ConfirmPasskey(context.Context, application.SessionStateQuery) error {
+	return nil
+}

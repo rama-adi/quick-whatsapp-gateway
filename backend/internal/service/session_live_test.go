@@ -187,3 +187,11 @@ func TestSessionServiceLifecycleWithoutDesiredControllerReturnsUnavailable(t *te
 		t.Fatal(err)
 	}
 }
+
+func (f *fakeLifecycleFacade) SubmitPasskey(context.Context, string, string, []byte) error {
+	return nil
+}
+
+func (f *fakeLifecycleFacade) ConfirmPasskey(context.Context, string, string) error {
+	return nil
+}

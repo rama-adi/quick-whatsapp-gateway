@@ -390,6 +390,40 @@ func (s *SessionService) QR(ctx context.Context, organizationID, id string) (QR,
 	return QR{Code: snapshot.Code, ExpiresAt: snapshot.ExpiresAt}, nil
 }
 
+// SubmitPasskey forwards the user's WebAuthn assertion for the passkey
+// verification WhatsApp requested while linking the session.
+func (s *SessionService) SubmitPasskey(ctx context.Context, organizationID, id string, response []byte) error {
+	if len(response) == 0 {
+		return domain.ErrValidation("response is required")
+	}
+	sess, err := s.Get(ctx, organizationID, id)
+	if err != nil {
+		return err
+	}
+	if sess.WAJID != nil {
+		return domain.ErrConflict("session is already paired")
+	}
+	if s.gatewayFacade == nil {
+		return errLiveUnavailable()
+	}
+	return s.gatewayFacade.SubmitPasskey(ctx, organizationID, sess.ID, response)
+}
+
+// ConfirmPasskey confirms the user saw the same passkey pairing code on the phone.
+func (s *SessionService) ConfirmPasskey(ctx context.Context, organizationID, id string) error {
+	sess, err := s.Get(ctx, organizationID, id)
+	if err != nil {
+		return err
+	}
+	if sess.WAJID != nil {
+		return domain.ErrConflict("session is already paired")
+	}
+	if s.gatewayFacade == nil {
+		return errLiveUnavailable()
+	}
+	return s.gatewayFacade.ConfirmPasskey(ctx, organizationID, sess.ID)
+}
+
 // PairingCode requests a phone-number pairing code for a session.
 func (s *SessionService) PairingCode(ctx context.Context, organizationID, id, phone string) (string, error) {
 	if phone == "" {

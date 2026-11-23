@@ -25,9 +25,9 @@ const (
 type SessionFailureReason string
 
 const (
-	// FailurePasskeyRequired: WhatsApp asked for the account's passkey during
-	// linking. The gateway cannot answer a WebAuthn challenge, so pairing stops.
-	FailurePasskeyRequired SessionFailureReason = "passkey_required"
+	// FailurePasskeyFailed: WhatsApp asked for the account's passkey during
+	// linking and the verification failed or was not finished in time.
+	FailurePasskeyFailed SessionFailureReason = "passkey_failed"
 	// FailureQRTimeout: every QR code expired without a successful scan.
 	FailureQRTimeout SessionFailureReason = "qr_timeout"
 	// FailurePairingError: WhatsApp rejected or aborted the linking handshake.
@@ -47,7 +47,7 @@ const (
 // Valid reports whether r is one of the known failure reasons.
 func (r SessionFailureReason) Valid() bool {
 	switch r {
-	case FailurePasskeyRequired, FailureQRTimeout, FailurePairingError, FailureClientOutdated,
+	case FailurePasskeyFailed, FailureQRTimeout, FailurePairingError, FailureClientOutdated,
 		FailureStreamReplaced, FailureTemporaryBan, FailureConnectRejected, FailureConnectError:
 		return true
 	default:

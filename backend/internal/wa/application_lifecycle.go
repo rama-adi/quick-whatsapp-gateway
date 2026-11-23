@@ -23,6 +23,8 @@ type sessionController interface {
 	EnsureDevice(id, organizationID string)
 	StartQR(ctx context.Context, id string) error
 	StartPairingCode(ctx context.Context, id, phone string) (string, error)
+	SubmitPasskey(ctx context.Context, id string, response []byte) error
+	ConfirmPasskey(ctx context.Context, id string) error
 	Logout(ctx context.Context, id string) error
 	Forget(id string)
 	LatestQR(id string) (code string, expiresAt int64)
@@ -76,6 +78,32 @@ func (a *ApplicationGatewayAdapter) PairPhone(
 		return "", domain.ErrValidation("phone is required")
 	}
 	return a.controller.StartPairingCode(ctx, query.SessionID, phone)
+}
+
+// SubmitPasskey forwards the user's WebAuthn assertion to the pairing client.
+func (a *ApplicationGatewayAdapter) SubmitPasskey(
+	ctx context.Context,
+	query application.SessionStateQuery,
+	response []byte,
+) error {
+	if err := a.fencePairing(query); err != nil {
+		return err
+	}
+	if len(response) == 0 {
+		return domain.ErrValidation("passkey response is required")
+	}
+	return a.controller.SubmitPasskey(ctx, query.SessionID, response)
+}
+
+// ConfirmPasskey confirms the user saw the same code on the phone.
+func (a *ApplicationGatewayAdapter) ConfirmPasskey(
+	ctx context.Context,
+	query application.SessionStateQuery,
+) error {
+	if err := a.fencePairing(query); err != nil {
+		return err
+	}
+	return a.controller.ConfirmPasskey(ctx, query.SessionID)
 }
 
 func (a *ApplicationGatewayAdapter) fencePairing(query application.SessionStateQuery) error {

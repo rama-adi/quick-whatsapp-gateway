@@ -10,6 +10,10 @@ export type BackfillImport = components["schemas"]["BackfillImport"];
 export type CreateSessionRequest = components["schemas"]["CreateSessionInputBody"];
 export type SessionMe = components["schemas"]["Me"]; // WA own profile (NOT actor)
 export type QRCode = components["schemas"]["QR"];
+export type PasskeyStep = components["schemas"]["AuthPasskeyPayload"];
+export type SessionFailureReason = NonNullable<
+  components["schemas"]["SessionStatusPayload"]["failureReason"]
+>;
 
 export type Message = components["schemas"]["Message"];
 export type SendRequest = components["schemas"]["SendRequest"];
@@ -45,6 +49,7 @@ export type EventEnvelope =
   | components["schemas"]["SessionStatusEvent"]
   | components["schemas"]["AuthQREvent"]
   | components["schemas"]["AuthCodeEvent"]
+  | components["schemas"]["AuthPasskeyEvent"]
   | components["schemas"]["PresenceEvent"]
   | components["schemas"]["GroupEvent"]
   | components["schemas"]["ChatUpdateEvent"]

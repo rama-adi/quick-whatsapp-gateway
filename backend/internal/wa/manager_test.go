@@ -99,6 +99,10 @@ type fakeClient struct {
 	handler     whatsmeow.EventHandler
 	pairCode    string
 	pairErr     error
+
+	passkeyResponses []*types.WebAuthnResponse
+	passkeyConfirms  int
+	passkeyErr       error
 }
 
 func (f *fakeClient) Connect() error { return nil }
@@ -121,8 +125,17 @@ func (f *fakeClient) AddEventHandler(h whatsmeow.EventHandler) uint32 {
 	f.handler = h
 	return 1
 }
-func (f *fakeClient) GetQRChannel(context.Context) (<-chan whatsmeow.QRChannelItem, error) {
-	return nil, errors.New("not implemented in fake")
+func (f *fakeClient) SendPasskeyResponse(_ context.Context, resp *types.WebAuthnResponse) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.passkeyResponses = append(f.passkeyResponses, resp)
+	return f.passkeyErr
+}
+func (f *fakeClient) SendPasskeyConfirmation(context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.passkeyConfirms++
+	return f.passkeyErr
 }
 func (f *fakeClient) PairPhone(_ context.Context, _ string, _ bool, _ whatsmeow.PairClientType, display string) (string, error) {
 	f.mu.Lock()
@@ -298,20 +311,29 @@ func TestQRTimeoutReleasesRuntimeAndCachedCode(t *testing.T) {
 	defer cancel()
 	ms.client, ms.cancel, ms.reconnect = client, cancel, true
 	ms.lastQR, ms.lastQRExpires = "expired-code", time.Now().Add(time.Minute).UnixMilli()
-	items := make(chan whatsmeow.QRChannelItem, 1)
-	items <- whatsmeow.QRChannelItem{Event: "timeout"}
-	manager.pumpQR(ctx, ms, items)
+	// No codes left: the emitter reaches the end of the run at once.
+	manager.emitQRCodes(ctx, ms, nil, nil)
 	if ms.client != nil || ms.reconnect || ms.lastQR != "" || ms.lastQRExpires != 0 {
 		t.Fatal("timed-out pairing retained its client, reconnect loop, or QR code")
 	}
 	if ms.Status() != domain.SessionFailed || ctx.Err() == nil {
 		t.Fatal("timeout did not fail the session and cancel its loop")
 	}
-	// A new request must attempt a fresh client, rather than reporting an
-	// idempotent success for the timed-out client (the fake rejects QR setup).
-	manager.SetClientFactory(func(*store.Device) waClient { return &fakeClient{} })
-	if err := manager.StartQR(context.Background(), "session"); err == nil {
-		t.Fatal("pairing retry did not attempt a fresh QR channel")
+	ms.mu.Lock()
+	reason := ms.failure
+	ms.mu.Unlock()
+	if reason != domain.FailureQRTimeout {
+		t.Fatalf("failure reason = %q, want qr_timeout", reason)
+	}
+	// A new request must start a fresh client, rather than reporting an
+	// idempotent success for the timed-out client.
+	fresh := &fakeClient{}
+	manager.SetClientFactory(func(*store.Device) waClient { return fresh })
+	if err := manager.StartQR(context.Background(), "session"); err != nil {
+		t.Fatal(err)
+	}
+	if ms.client != fresh {
+		t.Fatal("pairing retry did not start a fresh client")
 	}
 }
 

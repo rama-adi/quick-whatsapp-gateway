@@ -133,6 +133,8 @@ type GatewaySessionFacade interface {
 	Prepare(ctx context.Context, organizationID, sessionID string) error
 	QR(ctx context.Context, organizationID, sessionID string) (application.PairingSnapshot, error)
 	PairingCode(ctx context.Context, organizationID, sessionID, phone string) (string, error)
+	SubmitPasskey(ctx context.Context, organizationID, sessionID string, response []byte) error
+	ConfirmPasskey(ctx context.Context, organizationID, sessionID string) error
 	Logout(ctx context.Context, organizationID, sessionID string) error
 	Forget(ctx context.Context, organizationID, sessionID string) error
 }

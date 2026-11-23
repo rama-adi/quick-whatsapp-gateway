@@ -10,6 +10,8 @@
     "getSessionHistorySync",
     "sessionMe",
     "sessionPairingCode",
+    "sessionSubmitPasskey",
+    "sessionConfirmPasskey",
     "sessionQR",
     "logoutSession",
     "restartSession",

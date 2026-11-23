@@ -398,6 +398,14 @@ type PhonePairer interface {
 	PairPhone(ctx context.Context, query SessionStateQuery, phone string) (string, error)
 }
 
+// PasskeyVerifier answers a passkey verification WhatsApp requested during
+// pairing. Each assertion and confirmation belongs to one live pairing
+// handshake, so there is nothing durable to replay; not ledger-backed.
+type PasskeyVerifier interface {
+	SubmitPasskey(ctx context.Context, query SessionStateQuery, response []byte) error
+	ConfirmPasskey(ctx context.Context, query SessionStateQuery) error
+}
+
 // SessionLogout is the destructive logout mutation boundary with full ledger
 // deduplication: a repeated CommandID returns the stored terminal outcome
 // without unlinking the device twice.
@@ -431,6 +439,7 @@ type GatewayEngine interface {
 	SessionPreparer
 	PairingBeginner
 	PhonePairer
+	PasskeyVerifier
 	SessionLogout
 	SessionForgetter
 }

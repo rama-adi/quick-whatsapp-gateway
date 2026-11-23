@@ -175,7 +175,8 @@ func TestClassifyEventFailureReasons(t *testing.T) {
 		evt  any
 		want domain.SessionFailureReason
 	}{
-		{&events.PairPasskeyRequest{}, domain.FailurePasskeyRequired},
+		{&events.PairPasskeyError{}, domain.FailurePasskeyFailed},
+		{&events.PairError{}, domain.FailurePairingError},
 		{&events.ClientOutdated{}, domain.FailureClientOutdated},
 		{&events.StreamReplaced{}, domain.FailureStreamReplaced},
 		{&events.TemporaryBan{}, domain.FailureTemporaryBan},

@@ -877,6 +877,47 @@ func (c *EngineClient) PairPhone(
 	return response.GetPairingCode(), nil
 }
 
+// SubmitPasskey forwards the user's WebAuthn assertion to the assigned engine.
+func (c *EngineClient) SubmitPasskey(ctx context.Context, org, session string, response []byte) error {
+	ctx, cancel := context.WithTimeout(ctx, c.sendDeadline)
+	defer cancel()
+	target, err := c.resolver.ResolveSessionEngineTarget(ctx, org, session)
+	if err != nil {
+		return err
+	}
+	conn, err := c.conn(ctx, target.GatewayID, target.GRPCEndpoint)
+	if err != nil {
+		return err
+	}
+	_, err = gatewayv1.NewGatewayEngineServiceClient(conn).SubmitPasskey(ctx, &gatewayv1.SubmitPasskeyRequest{
+		Target:          sessionTargetProto(target),
+		AssignmentEpoch: target.AssignmentEpoch,
+		ResponseJson:    response,
+	})
+	c.record(target.GatewayID, target.GRPCEndpoint, err)
+	return mapEngineError(err)
+}
+
+// ConfirmPasskey confirms the passkey pairing code through the assigned engine.
+func (c *EngineClient) ConfirmPasskey(ctx context.Context, org, session string) error {
+	ctx, cancel := context.WithTimeout(ctx, c.sendDeadline)
+	defer cancel()
+	target, err := c.resolver.ResolveSessionEngineTarget(ctx, org, session)
+	if err != nil {
+		return err
+	}
+	conn, err := c.conn(ctx, target.GatewayID, target.GRPCEndpoint)
+	if err != nil {
+		return err
+	}
+	_, err = gatewayv1.NewGatewayEngineServiceClient(conn).ConfirmPasskey(ctx, &gatewayv1.ConfirmPasskeyRequest{
+		Target:          sessionTargetProto(target),
+		AssignmentEpoch: target.AssignmentEpoch,
+	})
+	c.record(target.GatewayID, target.GRPCEndpoint, err)
+	return mapEngineError(err)
+}
+
 // LogoutSession unlinks the device as a durable command; the engine mints its
 // own stable command id from the request's ULID and the ledger replays it on
 // retry. Destructive but quick: unary deadline.

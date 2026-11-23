@@ -92,6 +92,33 @@ no spaces.
 
 See [request a pairing code](/docs/api/sessions/sessionPairingCode).
 
+### If WhatsApp asks for your passkey
+
+If your WhatsApp account has a passkey, WhatsApp asks for it before it links a new device,
+after the QR scan or the pairing code. Removing the passkey from the account does not stop
+this. Your browser only shows the passkey prompt on `web.whatsapp.com`, so the dashboard
+walks you through approving it there:
+
+1. The dashboard replaces the QR code with **Verify with your passkey**. Select **Copy script**.
+2. Open [web.whatsapp.com](https://web.whatsapp.com) in the same browser. You don't need to log in.
+   Open the developer console (F12, or Cmd+Option+J on a Mac), paste the script and press Enter.
+   Chrome may ask you to type `allow pasting` first.
+3. Click the green **Verify with passkey** button at the top right and approve with your passkey.
+   The result is copied for you.
+4. Paste the result into the dashboard and select **Send to WhatsApp**.
+5. If your phone shows a code, check that it matches the one in the dashboard and select
+   **The codes match**.
+
+You have at least 3 minutes from the passkey request. If the time runs out, the session shows
+why it failed; start it again to retry.
+
+From your own code, listen for the `auth.passkey` event. With `step: verify`, sign its
+`publicKey` options with `navigator.credentials.get()` on a `web.whatsapp.com` page and send the
+credential to [submit a passkey verification](/docs/api/sessions/sessionSubmitPasskey). With
+`step: confirm`, show its `code` and call
+[confirm the passkey pairing code](/docs/api/sessions/sessionConfirmPasskey) once the user sees
+the same code on the phone.
+
 ## 3. Confirm it linked
 
 Once the phone accepts, the session moves to the `working` status. The dashboard

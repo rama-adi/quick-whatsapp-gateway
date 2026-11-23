@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -42,6 +43,19 @@ type pairingCodeInput struct {
 	Session string `path:"session" doc:"Session ID to generate a pairing code for. Must belong to your organization and be unpaired." example:"sess_01HZX8K3M9"`
 	Body    struct {
 		Phone string `json:"phone,omitempty" doc:"Phone number to pair in E.164 digits only (country code + number, no + or spaces)." example:"628123456789"`
+	}
+}
+
+type submitPasskeyInput struct {
+	Session string `path:"session" doc:"Session ID whose pairing is waiting for passkey verification. Must belong to your organization and be unpaired." example:"sess_01HZX8K3M9"`
+	Body    struct {
+		Response json.RawMessage `json:"response" doc:"The PublicKeyCredential from navigator.credentials.get() on web.whatsapp.com, as JSON with base64url fields: id, rawId, type, and response {clientDataJSON, authenticatorData, signature, userHandle}." required:"true"`
+	}
+}
+
+type passkeyAcceptedOutput struct {
+	Body struct {
+		Accepted bool `json:"accepted" doc:"Always true. WhatsApp accepted the step; the next step arrives as an auth.passkey event or the pairing completes." example:"true"`
 	}
 }
 
@@ -281,6 +295,50 @@ func RegisterSessionOps(api huma.API, h *Handlers) {
 		}
 		out := &pairingCodeOutput{}
 		out.Body.Code = code
+		return out, nil
+	})
+
+	huma.Register(api, huma.Operation{
+		OperationID: "sessionSubmitPasskey", Method: "POST", Path: "/api/v1/sessions/{session}/passkey",
+		Summary: "Submit a passkey verification",
+		Description: "Answer the passkey verification WhatsApp asks for while linking a device to an account that has a passkey.\n\n" +
+			"When it does, the session emits an `auth.passkey` event with `step: verify` and the WebAuthn request options in `publicKey`. " +
+			"Sign them with `navigator.credentials.get()` on a page served from `web.whatsapp.com` (WebAuthn only accepts WhatsApp's own origin for its relying party), " +
+			"then send the resulting credential here within the event's `expiresAt`. A rejected assertion leaves the verification open, so it can be retried.\n\n" +
+			"WhatsApp may then ask the user to compare a code with the phone: an `auth.passkey` event with `step: confirm` and `code`. Answer it with the confirm route.\n\n" +
+			"Requires `manage` capability; session must be unpaired.\n\n" +
+			"Errors: `validation_error` (400), `not_found` (404), `conflict` (409, no verification pending), `unauthorized` (401), `forbidden` (403).",
+		Tags: []string{"Sessions"}, Middlewares: manage,
+	}, func(ctx context.Context, in *submitPasskeyInput) (*passkeyAcceptedOutput, error) {
+		org, err := humax.Org(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if err := h.Sessions.SubmitPasskey(ctx, org, in.Session, in.Body.Response); err != nil {
+			return nil, humax.ErrContext(ctx, err)
+		}
+		out := &passkeyAcceptedOutput{}
+		out.Body.Accepted = true
+		return out, nil
+	})
+
+	huma.Register(api, huma.Operation{
+		OperationID: "sessionConfirmPasskey", Method: "POST", Path: "/api/v1/sessions/{session}/passkey/confirm",
+		Summary: "Confirm the passkey pairing code",
+		Description: "Confirm that the code from the `auth.passkey` event with `step: confirm` matches the code shown on the phone. Linking completes after this.\n\n" +
+			"Requires `manage` capability; session must be unpaired.\n\n" +
+			"Errors: `not_found` (404), `conflict` (409, no code waiting for confirmation), `unauthorized` (401), `forbidden` (403).",
+		Tags: []string{"Sessions"}, Middlewares: manage,
+	}, func(ctx context.Context, in *sessionIDInput) (*passkeyAcceptedOutput, error) {
+		org, err := humax.Org(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if err := h.Sessions.ConfirmPasskey(ctx, org, in.Session); err != nil {
+			return nil, humax.ErrContext(ctx, err)
+		}
+		out := &passkeyAcceptedOutput{}
+		out.Body.Accepted = true
 		return out, nil
 	})
 }

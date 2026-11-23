@@ -23,7 +23,6 @@ func TestNormalizeSessionStatusEvents(t *testing.T) {
 		{"connected", &events.Connected{}, domain.EventSessionStatus, domain.SessionWorking},
 		{"disconnected", &events.Disconnected{}, domain.EventSessionStatus, domain.SessionStarting},
 		{"logged out", &events.LoggedOut{}, domain.EventSessionStatus, domain.SessionLoggedOut},
-		{"stream replaced", &events.StreamReplaced{}, domain.EventSessionStatus, domain.SessionFailed},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -107,16 +106,12 @@ func TestNormalizeReceipt(t *testing.T) {
 // TestNormalizeQRAndPair converts QR refreshes and successful pairings into their session events, including
 // the paired device JID. Neither event may enter message persistence, preserving the login UI contract.
 func TestNormalizeQRAndPair(t *testing.T) {
-	qr := &events.QR{Codes: []string{"qr-code-1", "qr-code-2"}}
-	ev, pr, ok := Normalize(qr, testSession, testOrganization)
-	if !ok || ev.Type != domain.EventAuthQR {
-		t.Fatalf("qr event wrong: %v %q", ok, ev.Type)
-	}
-	if ev.Payload.(AuthQRPayload).Code != "qr-code-1" {
-		t.Errorf("qr code = %q", ev.Payload.(AuthQRPayload).Code)
-	}
-	if pr.Kind != PersistNone {
-		t.Errorf("qr persist kind = %d", pr.Kind)
+	// The session manager publishes QR codes (auth.qr) and the stream-replaced
+	// failure with its reason; the normalizer must not emit duplicates.
+	for _, evt := range []any{&events.QR{Codes: []string{"qr-code-1"}}, &events.StreamReplaced{}} {
+		if _, _, ok := Normalize(evt, testSession, testOrganization); ok {
+			t.Errorf("%T normalized; the manager owns it", evt)
+		}
 	}
 
 	pair := &events.PairSuccess{
@@ -125,7 +120,7 @@ func TestNormalizeQRAndPair(t *testing.T) {
 		BusinessName: "Biz",
 		Platform:     "android",
 	}
-	ev, _, ok = Normalize(pair, testSession, testOrganization)
+	ev, _, ok := Normalize(pair, testSession, testOrganization)
 	if !ok || ev.Type != domain.EventAuthCode {
 		t.Fatalf("pair event wrong")
 	}

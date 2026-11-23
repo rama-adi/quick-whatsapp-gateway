@@ -77,6 +77,7 @@ export const EVENT_GROUPS: EventGroup[] = [
       { name: "session.status", title: "Session status", description: "The number connects, disconnects, fails or is logged out." },
       { name: "auth.qr", title: "New QR code", description: "A new QR code is ready to scan." },
       { name: "auth.code", title: "Pairing succeeded", description: "The number was linked successfully." },
+      { name: "auth.passkey", title: "Passkey requested", description: "WhatsApp asked for the account's passkey while linking." },
     ],
   },
   {
