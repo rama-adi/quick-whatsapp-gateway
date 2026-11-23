@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -1034,6 +1035,12 @@ func mapEngineError(err error) error {
 	case codes.FailedPrecondition:
 		return domain.ErrConflict(status.Convert(err).Message())
 	case codes.Unavailable:
+		// The gateway reports a session that is not working yet as
+		// Unavailable with its reason; a transport failure carries no such
+		// message.
+		if message := status.Convert(err).Message(); strings.HasPrefix(message, sessionNotReadyPrefix) {
+			return domain.ErrUnavailable(message).WithDetails(map[string]any{"reason": "session_not_ready"})
+		}
 		return domain.ErrUnavailable("gateway unavailable")
 	case codes.InvalidArgument:
 		return domain.ErrValidation("gateway rejected request")
@@ -1043,6 +1050,10 @@ func mapEngineError(err error) error {
 		return fmt.Errorf("gateway engine: %w", err)
 	}
 }
+
+// sessionNotReadyPrefix starts the message of the gateway's session_not_ready
+// error (wa.Manager.readyClient).
+const sessionNotReadyPrefix = "session is not ready"
 
 func sessionStatus(value gatewayv1.GatewaySessionStatus) (domain.SessionStatus, error) {
 	switch value {

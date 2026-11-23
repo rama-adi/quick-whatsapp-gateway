@@ -27,17 +27,10 @@ func Normalize(evt any, sessionID, organizationID string) (domain.Event, Persist
 		return normalizeMessage(e, sessionID, organizationID)
 	case *events.Receipt:
 		return normalizeReceipt(e, sessionID, organizationID)
-	case *events.Connected:
-		return sessionStatus(domain.SessionWorking, sessionID, organizationID)
-	case *events.Disconnected:
-		// A plain disconnect is transient (the manager reconnects); report it as a
-		// status change so dashboards can reflect it, but it's not terminal.
-		return sessionStatus(domain.SessionStarting, sessionID, organizationID)
-	case *events.LoggedOut:
-		return sessionStatus(domain.SessionLoggedOut, sessionID, organizationID)
-	// StreamReplaced (failed with a reason) and QR codes (auth.qr) are published
-	// by the session manager; emitting them here too would duplicate them and,
-	// for StreamReplaced, overwrite the failure reason.
+	// Connection lifecycle (Connected, Disconnected, LoggedOut, StreamReplaced,
+	// QR codes, …) is published only by the session manager (internal/wa),
+	// which debounces transient disconnects and carries failure reasons. A
+	// second producer here would race it with contradicting statuses.
 	case *events.PairSuccess:
 		return normalizePairSuccess(e, sessionID, organizationID)
 	case *events.Presence:
@@ -65,13 +58,6 @@ func Normalize(evt any, sessionID, organizationID string) (domain.Event, Persist
 	default:
 		return domain.Event{}, PersistResult{}, false
 	}
-}
-
-// sessionStatus is the shared builder for the session.status events.
-func sessionStatus(status domain.SessionStatus, sessionID, organizationID string) (domain.Event, PersistResult, bool) {
-	payload := SessionStatusPayload{Status: string(status)}
-	ev := domain.NewEvent(domain.EventSessionStatus, sessionID, organizationID, payload)
-	return ev, PersistResult{Kind: PersistSessionStatus, SessionStatus: status}, true
 }
 
 func normalizePairSuccess(e *events.PairSuccess, sessionID, organizationID string) (domain.Event, PersistResult, bool) {

@@ -44,11 +44,10 @@ func (a *ApplicationGatewayAdapter) DownloadMedia(ctx context.Context, q applica
 	if session == nil {
 		return nil, domain.ErrNotFound("session")
 	}
-	session.mu.Lock()
-	client, ok := session.client.(interface {
+	raw, _ := session.runningClient()
+	client, ok := raw.(interface {
 		DownloadAny(context.Context, *waE2E.Message) ([]byte, error)
 	})
-	session.mu.Unlock()
 	if !ok {
 		return nil, domain.ErrNotFound("session")
 	}

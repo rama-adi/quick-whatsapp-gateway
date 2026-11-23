@@ -88,11 +88,11 @@ func TestHistoryNotificationBypassesInboundPipeline(t *testing.T) {
 	jid := types.NewJID("15550000001", types.DefaultUserServer)
 	jid.Device = 7
 	client := &historyFakeClient{}
-	ms := &ManagedSession{
-		SessionID: "sess_1", OrganizationID: "org_1", client: client, device: &store.Device{ID: &jid},
+	ms := register(m, &ManagedSession{
+		SessionID: "sess_1", OrganizationID: "org_1", device: &store.Device{ID: &jid},
 		assignedConfig: &desiredstate.Config{HistorySyncDays: 30},
-	}
-	h := m.eventHandlerFor(ms)
+	})
+	h := m.eventHandlerFor(ms, attachRun(m, ms, client))
 	h(historyEvent(true))
 	if inbound.countValue() != 0 {
 		t.Fatal("history notification reached the inbound pipeline")
@@ -121,11 +121,8 @@ func TestHistoryHooksOnPairLogoutAndForget(t *testing.T) {
 	m, _, _, fc := newTestManagerParts(t, Config{})
 	inbox := &recordingInbox{}
 	m.SetHistoryInbox(inbox)
-	ms := &ManagedSession{SessionID: "sess_1", OrganizationID: "org_1", client: fc, cancel: func() {}}
-	m.mu.Lock()
-	m.sessions["sess_1"] = ms
-	m.mu.Unlock()
-	h := m.eventHandlerFor(ms)
+	ms := register(m, &ManagedSession{SessionID: "sess_1", OrganizationID: "org_1"})
+	h := m.eventHandlerFor(ms, attachRun(m, ms, fc))
 	h(&events.PairSuccess{ID: types.JID{User: "15550000009", Server: types.DefaultUserServer, Device: 3}})
 	h(&events.LoggedOut{})
 	m.Forget("sess_1")

@@ -777,6 +777,10 @@ func grpcError(err error) error {
 			return status.Error(codes.FailedPrecondition, apiErr.Message)
 		case domain.CodeForbidden:
 			return status.Error(codes.PermissionDenied, "permission denied")
+		case domain.CodeUnavailable:
+			// A temporary session condition ("session is not ready: ...");
+			// the API answers 503 with this message so the caller retries.
+			return status.Error(codes.Unavailable, apiErr.Message)
 		}
 	}
 	return status.Error(codes.Internal, "gateway engine unavailable")

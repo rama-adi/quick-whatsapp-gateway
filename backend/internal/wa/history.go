@@ -47,12 +47,17 @@ func (m *Manager) historyInbox() HistoryInbox {
 	return nil
 }
 
-// buildClient is the single client construction point (QR, pairing code and
-// reconnect all use it), so every real client gets the same history setup.
+// buildClient is the single client construction point (every run uses it), so
+// every real client gets the same reconnect and history setup.
 func (m *Manager) buildClient(device *store.Device) waClient {
 	c := m.newClient(device)
-	if cli, ok := c.(*whatsmeow.Client); ok && m.historyInbox() != nil {
-		configureHistoryClient(cli, device, m.cfg)
+	if cli, ok := c.(*whatsmeow.Client); ok {
+		// The manager is the only reconnect driver (manager.drive): two
+		// drivers race each other's Connect calls.
+		cli.EnableAutoReconnect = false
+		if m.historyInbox() != nil {
+			configureHistoryClient(cli, device, m.cfg)
+		}
 	}
 	return c
 }
@@ -104,14 +109,15 @@ func historyNotification(evt any) (*events.Message, *waE2E.HistorySyncNotificati
 }
 
 // acceptHistory hands an intercepted notification to the inbox.
-func (m *Manager) acceptHistory(ctx context.Context, ms *ManagedSession, msg *events.Message,
+func (m *Manager) acceptHistory(ctx context.Context, ms *ManagedSession, c *connection, msg *events.Message,
 	notif *waE2E.HistorySyncNotification) {
 	inbox := m.historyInbox()
 	if inbox == nil {
 		return
 	}
+	// The receipt goes out on the client that received the notification.
+	client := c.client
 	ms.mu.Lock()
-	client := ms.client
 	device := ms.device
 	var days uint32
 	if ms.assignedConfig != nil {
@@ -140,7 +146,10 @@ func (m *Manager) HistoryClient(id string) (historysync.Client, string, bool) {
 		return nil, "", false
 	}
 	ms.mu.Lock()
-	client := ms.client
+	var client waClient
+	if ms.conn != nil {
+		client = ms.conn.client
+	}
 	device := ms.device
 	ms.mu.Unlock()
 	account := ""

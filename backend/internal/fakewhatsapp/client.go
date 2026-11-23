@@ -40,6 +40,7 @@ type Client struct {
 	connected       bool
 	pairedPersisted bool
 	handler         whatsmeow.EventHandler
+	handlerID       uint32
 	cancel          context.CancelFunc
 	generation      uint64
 	after           uint64
@@ -170,11 +171,27 @@ func (c *Client) IsLoggedIn() bool {
 	return c.pairedPersisted && c.connected
 }
 func (c *Client) Logout(ctx context.Context) error { c.Disconnect(); return nil }
+
+// AddEventHandler installs the single event handler the gateway registers per
+// client; a later registration replaces it.
 func (c *Client) AddEventHandler(handler whatsmeow.EventHandler) uint32 {
 	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.handler = handler
-	c.mu.Unlock()
-	return 1
+	c.handlerID++
+	return c.handlerID
+}
+
+// RemoveEventHandler unregisters the handler registered under id, so a torn
+// down client delivers no further events.
+func (c *Client) RemoveEventHandler(id uint32) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.handler == nil || id != c.handlerID {
+		return false
+	}
+	c.handler = nil
+	return true
 }
 
 // SendPasskeyResponse is unsupported: the fake server never asks for a passkey.

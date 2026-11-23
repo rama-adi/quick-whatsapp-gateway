@@ -105,9 +105,6 @@ func TestClassifyEvent(t *testing.T) {
 			if got.terminal != tt.wantTerminal {
 				t.Fatalf("terminal = %v, want %v", got.terminal, tt.wantTerminal)
 			}
-			if got.terminal && got.keepReconnect {
-				t.Fatalf("terminal events must stop reconnect, keepReconnect = true")
-			}
 		})
 	}
 }
@@ -186,7 +183,7 @@ func TestClassifyEventFailureReasons(t *testing.T) {
 	}
 	for _, tt := range tests {
 		got := classifyEvent(tt.evt)
-		if got.status != domain.SessionFailed || !got.terminal || got.keepReconnect {
+		if got.status != domain.SessionFailed || !got.terminal {
 			t.Errorf("%T: got %+v, want terminal failed without reconnect", tt.evt, got)
 		}
 		if got.reason != tt.want {

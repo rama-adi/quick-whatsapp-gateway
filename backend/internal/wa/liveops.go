@@ -85,18 +85,14 @@ func (m *Manager) LiveOps() *LiveOps { return &LiveOps{m: m} }
 // services' live-ops ports.
 type LiveOps struct{ m *Manager }
 
-// client resolves the connected live client for a session, or an error mapped to
-// the API not_implemented/unavailable envelope when the session is not connected.
+// client resolves the live client of a working session. A session that is not
+// working (starting, reconnecting, stopped, failed…) is a temporary condition
+// answered with 503 session_not_ready; not_implemented is kept for a client
+// type that cannot perform live operations at all.
 func (l *LiveOps) client(id string) (liveClient, error) {
-	ms := l.m.Get(id)
-	if ms == nil {
-		return nil, domain.ErrNotFound("session not found")
-	}
-	ms.mu.Lock()
-	c := ms.client
-	ms.mu.Unlock()
-	if c == nil {
-		return nil, domain.ErrNotImplemented("live WhatsApp client is not available for this session")
+	c, err := l.m.readyClient(id)
+	if err != nil {
+		return nil, err
 	}
 	lc, ok := c.(liveClient)
 	if !ok {
@@ -106,15 +102,9 @@ func (l *LiveOps) client(id string) (liveClient, error) {
 }
 
 func (l *LiveOps) receiptClient(id string) (readReceiptClient, error) {
-	ms := l.m.Get(id)
-	if ms == nil {
-		return nil, domain.ErrNotFound("session not found")
-	}
-	ms.mu.Lock()
-	c := ms.client
-	ms.mu.Unlock()
-	if c == nil {
-		return nil, domain.ErrNotImplemented("live WhatsApp client is not available for this session")
+	c, err := l.m.readyClient(id)
+	if err != nil {
+		return nil, err
 	}
 	rc, ok := c.(readReceiptClient)
 	if !ok {
@@ -208,9 +198,7 @@ func (l *LiveOps) rawClient(sessionID string) (*whatsmeow.Client, *store.Device)
 	if ms == nil {
 		return nil, nil
 	}
-	ms.mu.Lock()
-	raw, device := ms.client, ms.device
-	ms.mu.Unlock()
+	raw, device := ms.runningClient()
 	c, ok := raw.(*whatsmeow.Client)
 	if !ok || c == nil {
 		return nil, device
@@ -225,9 +213,7 @@ func (l *LiveOps) pollCryptoClient(sessionID string) *whatsmeow.Client {
 	if ms == nil {
 		return nil
 	}
-	ms.mu.Lock()
-	raw := ms.client
-	ms.mu.Unlock()
+	raw, _ := ms.runningClient()
 	if c, ok := raw.(*whatsmeow.Client); ok {
 		return c
 	}

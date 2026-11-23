@@ -20,7 +20,6 @@ func startTestPairing(t *testing.T) (*Manager, *fakeSink, *fakeClient, *ManagedS
 		t.Fatal(err)
 	}
 	ms := manager.Get("session")
-	t.Cleanup(func() { manager.teardown(ms) })
 	return manager, sink, client, ms
 }
 
@@ -52,7 +51,7 @@ func TestQREventPublishesCodeAndScanStatus(t *testing.T) {
 	if ms.Status() == domain.SessionScanQR {
 		t.Fatal("scan_qr_code published before any code existed")
 	}
-	manager.handlePairingEvent(ms, &events.QR{Codes: []string{"c1", "c2", "c3", "c4", "c5", "c6"}})
+	manager.handlePairingEvent(ms, currentRun(ms), &events.QR{Codes: []string{"c1", "c2", "c3", "c4", "c5", "c6"}})
 	waitFor(t, func() bool { return len(eventsOfType(sink, domain.EventAuthQR)) == 1 })
 	if code, _ := manager.LatestQR("session"); code != "c1" {
 		t.Fatalf("latest QR = %q, want c1", code)
@@ -64,11 +63,12 @@ func TestQREventPublishesCodeAndScanStatus(t *testing.T) {
 
 func TestPasskeyRequestStopsQRAndPublishesOptions(t *testing.T) {
 	manager, sink, client, ms := startTestPairing(t)
-	manager.handlePairingEvent(ms, &events.QR{Codes: []string{"c1", "c2", "c3", "c4", "c5", "c6"}})
+	run := currentRun(ms)
+	manager.handlePairingEvent(ms, run, &events.QR{Codes: []string{"c1", "c2", "c3", "c4", "c5", "c6"}})
 	waitFor(t, func() bool { code, _ := manager.LatestQR("session"); return code == "c1" })
 
 	options := &types.WebAuthnPublicKey{Challenge: []byte("challenge"), RelyingPartID: "whatsapp.com", Timeout: 60000}
-	manager.handlePairingEvent(ms, &events.PairPasskeyRequest{PublicKey: options})
+	manager.handlePairingEvent(ms, run, &events.PairPasskeyRequest{PublicKey: options})
 
 	passkeyEvents := eventsOfType(sink, domain.EventAuthPasskey)
 	if len(passkeyEvents) != 1 {
@@ -83,8 +83,8 @@ func TestPasskeyRequestStopsQRAndPublishesOptions(t *testing.T) {
 	}
 
 	// Running out of QR codes must not end a pending passkey verification.
-	manager.emitQRCodes(ms.pairCtx, ms, nil, nil, nil)
-	if ms.client == nil || ms.Status() == domain.SessionFailed {
+	manager.emitQRCodes(run.ctx, ms, run, nil)
+	if currentRun(ms) != run || ms.Status() == domain.SessionFailed {
 		t.Fatal("QR exhaustion tore down a pending passkey verification")
 	}
 
@@ -104,7 +104,7 @@ func TestPasskeyRequestStopsQRAndPublishesOptions(t *testing.T) {
 	if err := manager.ConfirmPasskey(context.Background(), "session"); err == nil {
 		t.Fatal("confirmation accepted before a code was shown")
 	}
-	manager.handlePairingEvent(ms, &events.PairPasskeyConfirmation{Code: "ABCD-EFGH"})
+	manager.handlePairingEvent(ms, run, &events.PairPasskeyConfirmation{Code: "ABCD-EFGH"})
 	confirm := eventsOfType(sink, domain.EventAuthPasskey)
 	if len(confirm) != 2 || confirm[1].Payload.(map[string]any)["code"] != "ABCD-EFGH" {
 		t.Fatalf("confirm event = %+v", confirm)
@@ -119,8 +119,9 @@ func TestPasskeyRequestStopsQRAndPublishesOptions(t *testing.T) {
 
 func TestPasskeySkipHandoffConfirmsAutomatically(t *testing.T) {
 	manager, sink, client, ms := startTestPairing(t)
-	manager.handlePairingEvent(ms, &events.PairPasskeyRequest{PublicKey: &types.WebAuthnPublicKey{}})
-	manager.handlePairingEvent(ms, &events.PairPasskeyConfirmation{Code: "ABCD-EFGH", SkipHandoffUX: true})
+	run := currentRun(ms)
+	manager.handlePairingEvent(ms, run, &events.PairPasskeyRequest{PublicKey: &types.WebAuthnPublicKey{}})
+	manager.handlePairingEvent(ms, run, &events.PairPasskeyConfirmation{Code: "ABCD-EFGH", SkipHandoffUX: true})
 	waitFor(t, func() bool {
 		client.mu.Lock()
 		defer client.mu.Unlock()
@@ -144,13 +145,14 @@ func TestSubmitPasskeyRejectsWithoutPendingVerification(t *testing.T) {
 
 func TestPasskeyErrorFailsPairing(t *testing.T) {
 	manager, _, _, ms := startTestPairing(t)
-	manager.handlePairingEvent(ms, &events.PairPasskeyRequest{PublicKey: &types.WebAuthnPublicKey{}})
-	manager.applyEvent(context.Background(), ms, &events.PairPasskeyError{})
+	run := currentRun(ms)
+	manager.handlePairingEvent(ms, run, &events.PairPasskeyRequest{PublicKey: &types.WebAuthnPublicKey{}})
+	manager.applyEvent(context.Background(), ms, run, &events.PairPasskeyError{})
 	ms.mu.Lock()
-	reason, client, pending := ms.failure, ms.client, ms.passkey
+	reason, conn, pending := ms.failure, ms.conn, ms.passkey
 	ms.mu.Unlock()
-	if reason != domain.FailurePasskeyFailed || client != nil || pending != nil {
-		t.Fatalf("after passkey error: reason=%q client=%v pending=%v", reason, client, pending)
+	if reason != domain.FailurePasskeyFailed || conn != nil || pending != nil {
+		t.Fatalf("after passkey error: reason=%q run=%v pending=%v", reason, conn, pending)
 	}
 }
 
@@ -171,19 +173,14 @@ func TestPasskeyWindowBounds(t *testing.T) {
 // once its codes ran out, tore the paired client down with qr_timeout.
 func TestPairSuccessStopsQREmitterWithoutTeardown(t *testing.T) {
 	manager, sink, _, ms := startTestPairing(t)
-	manager.handlePairingEvent(ms, &events.QR{Codes: []string{"c1", "c2"}})
+	run := currentRun(ms)
+	manager.handlePairingEvent(ms, run, &events.QR{Codes: []string{"c1", "c2"}})
 	waitFor(t, func() bool { return len(eventsOfType(sink, domain.EventAuthQR)) == 1 })
 
-	manager.applyEvent(context.Background(), ms, &events.PairSuccess{ID: types.NewJID("6281", types.DefaultUserServer)})
-	manager.applyEvent(context.Background(), ms, &events.Connected{})
-
-	// The emitter must stop at once instead of waiting out the code's timeout.
-	waitFor(t, func() bool {
-		ms.mu.Lock()
-		defer ms.mu.Unlock()
-		return ms.qrStopped
-	})
+	manager.applyEvent(context.Background(), ms, run, &events.PairSuccess{ID: types.NewJID("6281", types.DefaultUserServer)})
+	manager.applyEvent(context.Background(), ms, run, &events.Connected{})
 	time.Sleep(20 * time.Millisecond)
+
 	if ms.Status() != domain.SessionWorking {
 		t.Fatalf("status = %q, want working", ms.Status())
 	}
@@ -191,8 +188,8 @@ func TestPairSuccessStopsQREmitterWithoutTeardown(t *testing.T) {
 		t.Fatalf("QR code %q still served after pairing", code)
 	}
 	// Running out of codes after pairing must not tear the client down.
-	manager.emitQRCodes(ms.pairCtx, ms, nil, nil, nil)
-	if ms.client == nil || ms.Status() != domain.SessionWorking {
+	manager.emitQRCodes(run.ctx, ms, run, nil)
+	if currentRun(ms) != run || ms.Status() != domain.SessionWorking {
 		t.Fatal("QR exhaustion after pairing tore down the working session")
 	}
 	if n := len(eventsOfType(sink, domain.EventAuthQR)); n != 1 {

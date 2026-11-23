@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/socket"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
@@ -93,10 +94,17 @@ func (f *fakeInbound) countValue() int {
 type fakeClient struct {
 	mu          sync.Mutex
 	presence    []types.Presence
+	connects    int
+	connected   bool
+	connectErr  error
+	connectGate chan struct{} // when set, Connect waits for it to close
 	disconnects int
 	loggedOut   bool
+	logoutErr   error
 	pairDisplay string
 	handler     whatsmeow.EventHandler
+	handlerID   uint32
+	removed     []uint32
 	pairCode    string
 	pairErr     error
 
@@ -105,26 +113,73 @@ type fakeClient struct {
 	passkeyErr       error
 }
 
-func (f *fakeClient) Connect() error { return nil }
+func (f *fakeClient) Connect() error {
+	f.mu.Lock()
+	gate := f.connectGate
+	f.mu.Unlock()
+	if gate != nil {
+		<-gate
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.connects++
+	if f.connectErr != nil {
+		return f.connectErr
+	}
+	f.connected = true
+	return nil
+}
 func (f *fakeClient) Disconnect() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.disconnects++
+	f.connected = false
 }
-func (f *fakeClient) IsConnected() bool { return false }
-func (f *fakeClient) IsLoggedIn() bool  { return false }
+func (f *fakeClient) IsConnected() bool { f.mu.Lock(); defer f.mu.Unlock(); return f.connected }
+func (f *fakeClient) IsLoggedIn() bool  { return f.IsConnected() }
 func (f *fakeClient) Logout(context.Context) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.logoutErr != nil {
+		return f.logoutErr
+	}
 	f.loggedOut = true
 	return nil
 }
 func (f *fakeClient) AddEventHandler(h whatsmeow.EventHandler) uint32 {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.handlerID++
 	f.handler = h
-	return 1
+	return f.handlerID
 }
+func (f *fakeClient) RemoveEventHandler(id uint32) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.handler == nil || id != f.handlerID {
+		return false
+	}
+	f.handler = nil
+	f.removed = append(f.removed, id)
+	return true
+}
+
+// emit delivers evt the way whatsmeow does: to the registered handler, if any.
+func (f *fakeClient) emit(evt any) {
+	f.mu.Lock()
+	h := f.handler
+	f.mu.Unlock()
+	if h != nil {
+		h(evt)
+	}
+}
+
+func (f *fakeClient) handlerRemoved() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.removed) > 0 && f.handler == nil
+}
+
 func (f *fakeClient) SendPasskeyResponse(_ context.Context, resp *types.WebAuthnResponse) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -164,126 +219,8 @@ type fixedClock struct{ ms int64 }
 func (c fixedClock) NowMs() int64 { return c.ms }
 
 // ----------------------------------------------------------------------------
-// Status emission via the event handler / state machine.
+// Helpers
 // ----------------------------------------------------------------------------
-
-func TestEventHandler_TerminalEventStopsReconnect(t *testing.T) {
-	m, sink, inbound, fc := newTestManagerParts(t, Config{})
-	jid := types.NewJID("628111", types.DefaultUserServer)
-	ms := &ManagedSession{
-		SessionID:      "sess_1",
-		OrganizationID: "ten_1",
-		status:         domain.SessionWorking,
-		reconnect:      true,
-		client:         fc,
-		device:         &store.Device{ID: &jid},
-		cancel:         func() {},
-	}
-	m.mu.Lock()
-	m.sessions["sess_1"] = ms
-	m.mu.Unlock()
-
-	h := m.eventHandlerFor(ms)
-	h(&events.LoggedOut{})
-
-	if ms.Status() != domain.SessionLoggedOut {
-		t.Fatalf("status = %s, want logged_out", ms.Status())
-	}
-	ms.mu.Lock()
-	reconnect := ms.reconnect
-	client := ms.client
-	ms.mu.Unlock()
-	if reconnect {
-		t.Fatal("reconnect should be cleared after LoggedOut")
-	}
-	if client != nil {
-		t.Fatal("client should be torn down after LoggedOut")
-	}
-	if ms.device == nil || ms.device.ID != nil {
-		t.Fatal("logged-out session should receive a fresh unpaired device")
-	}
-	if fc.disconnects == 0 {
-		t.Fatal("client should have been disconnected")
-	}
-	if sink.typeCount(domain.EventSessionStatus) != 1 {
-		t.Fatalf("expected 1 session.status event, got %d", sink.typeCount(domain.EventSessionStatus))
-	}
-	// Every event is forwarded to inbound, including terminal ones.
-	if inbound.countValue() != 1 {
-		t.Fatalf("expected event forwarded to inbound, got %d", inbound.countValue())
-	}
-}
-
-// TestEventHandler_BoundsBackgroundWork proves a stalled inbound dependency
-// cannot hold a database connection or whatsmeow callback forever. Processing
-// remains synchronous, but the callback receives and observes its configured
-// deadline.
-func TestEventHandler_BoundsBackgroundWork(t *testing.T) {
-	m, _, inbound, _ := newTestManagerParts(t, Config{InboundEventTimeout: 20 * time.Millisecond})
-	ms := &ManagedSession{SessionID: "sess_1", OrganizationID: "ten_1"}
-	deadlineSeen := make(chan bool, 1)
-	errSeen := make(chan error, 1)
-	inbound.handle = func(ctx context.Context, _ any) {
-		_, ok := ctx.Deadline()
-		deadlineSeen <- ok
-		<-ctx.Done()
-		errSeen <- ctx.Err()
-	}
-
-	started := time.Now()
-	m.eventHandlerFor(ms)(struct{}{})
-	if !<-deadlineSeen {
-		t.Fatal("inbound callback context has no deadline")
-	}
-	if err := <-errSeen; !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("callback context error = %v, want deadline exceeded", err)
-	}
-	if elapsed := time.Since(started); elapsed > time.Second {
-		t.Fatalf("bounded callback took %s", elapsed)
-	}
-}
-
-// TestEventHandler_ConnectedResetsBackoff first advances retry state and then delivers a connected
-// event. The session becomes working and its attempt counter returns to zero so later disconnects
-// start at the shortest delay.
-func TestEventHandler_ConnectedResetsBackoff(t *testing.T) {
-	m, _, _, fc := newTestManagerParts(t, Config{})
-	ms := &ManagedSession{SessionID: "sess_1", OrganizationID: "ten_1", status: domain.SessionStarting, attempt: 5, client: fc}
-	m.mu.Lock()
-	m.sessions["sess_1"] = ms
-	m.mu.Unlock()
-
-	m.eventHandlerFor(ms)(&events.Connected{})
-
-	ms.mu.Lock()
-	defer ms.mu.Unlock()
-	if ms.attempt != 0 {
-		t.Fatalf("attempt should reset to 0 on Connected, got %d", ms.attempt)
-	}
-	if ms.status != domain.SessionWorking {
-		t.Fatalf("status should be working, got %s", ms.status)
-	}
-
-	deadline := time.After(500 * time.Millisecond)
-	tick := time.NewTicker(10 * time.Millisecond)
-	defer tick.Stop()
-	for {
-		fc.mu.Lock()
-		got := append([]types.Presence(nil), fc.presence...)
-		fc.mu.Unlock()
-		if len(got) > 0 {
-			if got[0] != types.PresenceAvailable {
-				t.Fatalf("presence = %v, want available", got)
-			}
-			break
-		}
-		select {
-		case <-deadline:
-			t.Fatal("timed out waiting for online presence")
-		case <-tick.C:
-		}
-	}
-}
 
 func newTestManager(t *testing.T, cfg Config) (*Manager, *fakeSink) {
 	t.Helper()
@@ -299,40 +236,482 @@ func newTestManagerParts(t *testing.T, cfg Config) (*Manager, *fakeSink, *fakeIn
 	fc := &fakeClient{}
 	m := NewManager(ks, sink, inboundFake, fixedClock{ms: 1000}, quietLogger(), cfg)
 	m.SetClientFactory(func(*store.Device) waClient { return fc })
+	t.Cleanup(func() { _ = m.Shutdown(context.Background()) })
 	return m, sink, inboundFake, fc
 }
 
+// attachRun installs client as the session's current run without starting a
+// reconnect driver, so a test can deliver events by hand.
+func attachRun(m *Manager, ms *ManagedSession, client waClient) *connection {
+	ms.mu.Lock()
+	ms.nextGen++
+	c := newConnection(ms.nextGen, client)
+	ms.conn = c
+	ms.mu.Unlock()
+	c.handlerID = client.AddEventHandler(m.eventHandlerFor(ms, c))
+	return c
+}
+
+func register(m *Manager, ms *ManagedSession) *ManagedSession {
+	m.mu.Lock()
+	m.sessions[ms.SessionID] = ms
+	m.mu.Unlock()
+	return ms
+}
+
+func currentRun(ms *ManagedSession) *connection {
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+	return ms.conn
+}
+
+func statusPayloads(sink *fakeSink) []map[string]any {
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+	var out []map[string]any
+	for _, e := range sink.events {
+		if e.Type == domain.EventSessionStatus {
+			out = append(out, e.Payload.(map[string]any))
+		}
+	}
+	return out
+}
+
+func pairedDevice(user string) *store.Device {
+	jid := types.NewJID(user, types.DefaultUserServer)
+	return &store.Device{ID: &jid}
+}
+
+// ----------------------------------------------------------------------------
+// Event handling
+// ----------------------------------------------------------------------------
+
+func TestEventHandler_TerminalEventEndsRun(t *testing.T) {
+	m, sink, inbound, fc := newTestManagerParts(t, Config{})
+	ms := register(m, &ManagedSession{SessionID: "sess_1", OrganizationID: "ten_1", status: domain.SessionWorking, device: pairedDevice("628111")})
+	attachRun(m, ms, fc)
+
+	fc.emit(&events.LoggedOut{})
+
+	if ms.Status() != domain.SessionLoggedOut {
+		t.Fatalf("status = %s, want logged_out", ms.Status())
+	}
+	if currentRun(ms) != nil {
+		t.Fatal("run should end after LoggedOut")
+	}
+	if ms.device == nil || ms.device.ID != nil {
+		t.Fatal("logged-out session should receive a fresh unpaired device")
+	}
+	// The handler cannot unregister itself while whatsmeow dispatches, so the
+	// client closes right after the callback returns.
+	waitFor(t, fc.handlerRemoved)
+	waitFor(t, func() bool { fc.mu.Lock(); defer fc.mu.Unlock(); return fc.disconnects > 0 })
+	if got := sink.typeCount(domain.EventSessionStatus); got != 1 {
+		t.Fatalf("session.status events = %d, want 1", got)
+	}
+	// Every event of the current run is forwarded to inbound, terminal ones too.
+	if inbound.countValue() != 1 {
+		t.Fatalf("expected event forwarded to inbound, got %d", inbound.countValue())
+	}
+}
+
+// TestEventHandler_BoundsBackgroundWork proves a stalled inbound dependency
+// cannot hold a database connection or whatsmeow callback forever.
+func TestEventHandler_BoundsBackgroundWork(t *testing.T) {
+	m, _, inbound, fc := newTestManagerParts(t, Config{InboundEventTimeout: 20 * time.Millisecond})
+	ms := register(m, &ManagedSession{SessionID: "sess_1", OrganizationID: "ten_1"})
+	c := attachRun(m, ms, fc)
+	deadlineSeen := make(chan bool, 1)
+	errSeen := make(chan error, 1)
+	inbound.handle = func(ctx context.Context, _ any) {
+		_, ok := ctx.Deadline()
+		deadlineSeen <- ok
+		<-ctx.Done()
+		errSeen <- ctx.Err()
+	}
+
+	started := time.Now()
+	m.eventHandlerFor(ms, c)(struct{}{})
+	if !<-deadlineSeen {
+		t.Fatal("inbound callback context has no deadline")
+	}
+	if err := <-errSeen; !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("callback context error = %v, want deadline exceeded", err)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("bounded callback took %s", elapsed)
+	}
+}
+
+// TestEventHandler_ConnectedResetsAttempts: a Connected event makes the run
+// working, clears its failure count and announces online presence.
+func TestEventHandler_ConnectedResetsAttempts(t *testing.T) {
+	m, _, _, fc := newTestManagerParts(t, Config{})
+	ms := register(m, &ManagedSession{SessionID: "sess_1", OrganizationID: "ten_1", status: domain.SessionStarting, attempt: 5})
+	attachRun(m, ms, fc)
+
+	fc.emit(&events.Connected{})
+
+	ms.mu.Lock()
+	attempt, status := ms.attempt, ms.status
+	ms.mu.Unlock()
+	if attempt != 0 || status != domain.SessionWorking {
+		t.Fatalf("attempt = %d, status = %s; want 0, working", attempt, status)
+	}
+	waitFor(t, func() bool {
+		fc.mu.Lock()
+		defer fc.mu.Unlock()
+		return len(fc.presence) > 0 && fc.presence[0] == types.PresenceAvailable
+	})
+}
+
+// TestStaleRunEventsAreDropped pins the connection generation: once a run is
+// replaced, a late Connected or LoggedOut from the old client changes nothing
+// about the new run.
+func TestStaleRunEventsAreDropped(t *testing.T) {
+	m, sink, inbound, _ := newTestManagerParts(t, Config{})
+	ms := register(m, &ManagedSession{SessionID: "sess_1", OrganizationID: "ten_1", status: domain.SessionStopped, device: pairedDevice("628111")})
+	old := &fakeClient{}
+	oldRun := attachRun(m, ms, old)
+	staleHandler := m.eventHandlerFor(ms, oldRun)
+
+	m.stopRun(ms)
+	m.setState(context.Background(), ms, nil, domain.SessionStopped, "")
+	if !old.handlerRemoved() {
+		t.Fatal("stopping a run must unregister its event handler")
+	}
+	fresh := &fakeClient{}
+	newRun := attachRun(m, ms, fresh)
+	before := sink.typeCount(domain.EventSessionStatus)
+
+	// whatsmeow may still be dispatching an event it read before the stop.
+	staleHandler(&events.Connected{})
+	staleHandler(&events.LoggedOut{})
+	staleHandler(&events.StreamReplaced{})
+
+	if currentRun(ms) != newRun || ms.Status() != domain.SessionStopped {
+		t.Fatalf("stale events changed the session: run=%v status=%s", currentRun(ms) == newRun, ms.Status())
+	}
+	if ms.device == nil || ms.device.ID == nil {
+		t.Fatal("a stale LoggedOut reset the device")
+	}
+	if got := sink.typeCount(domain.EventSessionStatus); got != before {
+		t.Fatalf("stale events published %d status events", got-before)
+	}
+	if inbound.countValue() != 0 {
+		t.Fatal("stale lifecycle events reached the inbound pipeline")
+	}
+	fresh.mu.Lock()
+	disconnects := fresh.disconnects
+	fresh.mu.Unlock()
+	if disconnects != 0 {
+		t.Fatal("a stale terminal event tore down the new client")
+	}
+}
+
+// ----------------------------------------------------------------------------
+// Reconnect driver
+// ----------------------------------------------------------------------------
+
+// TestBuildClientDisablesWhatsmeowAutoReconnect: the manager is the only
+// reconnect driver, so whatsmeow's own must be off on every client.
+func TestBuildClientDisablesWhatsmeowAutoReconnect(t *testing.T) {
+	m, _ := newTestManager(t, Config{})
+	m.newClient = func(d *store.Device) waClient { return whatsmeow.NewClient(d, nil) }
+	cli := m.buildClient(&store.Device{}).(*whatsmeow.Client)
+	if cli.EnableAutoReconnect {
+		t.Fatal("whatsmeow auto-reconnect would compete with the manager's driver")
+	}
+}
+
+// TestAlreadyConnectedIsSuccess: ErrAlreadyConnected means the socket is up
+// (whatsmeow reconnected it itself after pairing); it must not count as a
+// failed attempt or loop.
+func TestAlreadyConnectedIsSuccess(t *testing.T) {
+	m, _, _, fc := newTestManagerParts(t, Config{MaxConnectAttempts: 1, Backoff: backoffConfig{base: time.Millisecond, max: time.Millisecond, factor: 1}})
+	fc.connectErr = whatsmeow.ErrAlreadyConnected
+	fc.connected = true
+	ms := register(m, &ManagedSession{SessionID: "sess_1", OrganizationID: "ten_1", device: pairedDevice("628111")})
+	ms.op.Lock()
+	c := m.beginRun(ms)
+	ms.op.Unlock()
+	select {
+	case <-c.ready:
+	case <-time.After(2 * time.Second):
+		t.Fatal("run never became ready")
+	}
+	time.Sleep(20 * time.Millisecond)
+	ms.mu.Lock()
+	attempt, status := ms.attempt, ms.status
+	ms.mu.Unlock()
+	if attempt != 0 || status == domain.SessionFailed || currentRun(ms) != c {
+		t.Fatalf("attempt = %d, status = %s; ErrAlreadyConnected was treated as a failure", attempt, status)
+	}
+	fc.mu.Lock()
+	connects := fc.connects
+	fc.mu.Unlock()
+	if connects != 1 {
+		t.Fatalf("connects = %d; the driver looped on ErrAlreadyConnected", connects)
+	}
+}
+
+// TestConnectAttemptsExhaustedFailsSession: the driver stops retrying after
+// MaxConnectAttempts and reports failed{connect_error} instead of retrying
+// silently forever.
+func TestConnectAttemptsExhaustedFailsSession(t *testing.T) {
+	m, sink, _, fc := newTestManagerParts(t, Config{
+		MaxConnectAttempts: 3,
+		Backoff:            backoffConfig{base: time.Millisecond, max: time.Millisecond, factor: 1},
+	})
+	fc.connectErr = errors.New("dial tcp: connection refused")
+	ms := register(m, &ManagedSession{SessionID: "sess_1", OrganizationID: "ten_1", device: pairedDevice("628111")})
+	ms.op.Lock()
+	m.beginRun(ms)
+	ms.op.Unlock()
+
+	waitFor(t, func() bool { return ms.Status() == domain.SessionFailed })
+	ms.mu.Lock()
+	reason, attempt := ms.failure, ms.attempt
+	ms.mu.Unlock()
+	if reason != domain.FailureConnectError || attempt != 3 || currentRun(ms) != nil {
+		t.Fatalf("reason = %q, attempts = %d, running = %v", reason, attempt, currentRun(ms) != nil)
+	}
+	last := statusPayloads(sink)
+	if got := last[len(last)-1]; got["status"] != "failed" || got["failureReason"] != "connect_error" {
+		t.Fatalf("last status event = %+v", got)
+	}
+}
+
+// TestRetryableConnectError: HTTP statuses WhatsApp will keep answering (not
+// a timeout or server error) and a deleted device are not retried.
+func TestRetryableConnectError(t *testing.T) {
+	for code, want := range map[int]bool{403: false, 401: false, 408: true, 503: true} {
+		if got := retryableConnectError(socket.ErrWithStatusCode{StatusCode: code}); got != want {
+			t.Errorf("status %d retryable = %v, want %v", code, got, want)
+		}
+	}
+	if retryableConnectError(store.ErrDeviceDeleted) || !retryableConnectError(errors.New("dial tcp: timeout")) {
+		t.Error("device-deleted must not retry; network errors must")
+	}
+}
+
+// TestRefusedConnectionFailsAtOnce: a refusal is not retried.
+func TestRefusedConnectionFailsAtOnce(t *testing.T) {
+	m, _, _, fc := newTestManagerParts(t, Config{MaxConnectAttempts: 5})
+	fc.connectErr = store.ErrDeviceDeleted
+	ms := register(m, &ManagedSession{SessionID: "sess_1", OrganizationID: "ten_1", device: pairedDevice("628111")})
+	ms.op.Lock()
+	m.beginRun(ms)
+	ms.op.Unlock()
+	waitFor(t, func() bool { return ms.Status() == domain.SessionFailed })
+	ms.mu.Lock()
+	reason, attempt := ms.failure, ms.attempt
+	ms.mu.Unlock()
+	if reason != domain.FailureConnectRejected || attempt != 1 {
+		t.Fatalf("reason = %q after %d attempts", reason, attempt)
+	}
+}
+
+// TestTransientDisconnectWithinGraceIsNotPublished: a drop that recovers
+// within the grace period publishes nothing; WhatsApp drops connections
+// several times a day and each one would look like an outage.
+func TestTransientDisconnectWithinGraceIsNotPublished(t *testing.T) {
+	m, sink, _, fc := newTestManagerParts(t, Config{
+		ReconnectGrace: 200 * time.Millisecond,
+		Backoff:        backoffConfig{base: time.Millisecond, max: time.Millisecond, factor: 1},
+	})
+	ms := register(m, &ManagedSession{SessionID: "sess_1", OrganizationID: "ten_1", device: pairedDevice("628111")})
+	ms.op.Lock()
+	c := m.beginRun(ms)
+	ms.op.Unlock()
+	<-c.ready
+	fc.emit(&events.Connected{})
+	before := len(statusPayloads(sink))
+
+	fc.mu.Lock()
+	fc.connected = false
+	fc.mu.Unlock()
+	fc.emit(&events.Disconnected{})
+	waitFor(t, func() bool { fc.mu.Lock(); defer fc.mu.Unlock(); return fc.connects >= 2 })
+	fc.emit(&events.Connected{})
+	time.Sleep(300 * time.Millisecond)
+
+	if got := statusPayloads(sink)[before:]; len(got) != 0 {
+		t.Fatalf("a drop that recovered within the grace period published %+v", got)
+	}
+	if ms.Status() != domain.SessionWorking {
+		t.Fatalf("status = %s", ms.Status())
+	}
+}
+
+// TestDisconnectBeyondGraceIsPublished: a drop that outlasts the grace period
+// is reported once, then the recovery is reported as working.
+func TestDisconnectBeyondGraceIsPublished(t *testing.T) {
+	m, sink, _, fc := newTestManagerParts(t, Config{
+		ReconnectGrace: 30 * time.Millisecond,
+		Backoff:        backoffConfig{base: 50 * time.Millisecond, max: 50 * time.Millisecond, factor: 1},
+	})
+	ms := register(m, &ManagedSession{SessionID: "sess_1", OrganizationID: "ten_1", device: pairedDevice("628111")})
+	ms.op.Lock()
+	c := m.beginRun(ms)
+	ms.op.Unlock()
+	<-c.ready
+	fc.emit(&events.Connected{})
+	before := len(statusPayloads(sink))
+
+	fc.mu.Lock()
+	fc.connected = false
+	fc.connectErr = errors.New("network is unreachable")
+	fc.mu.Unlock()
+	fc.emit(&events.Disconnected{})
+	waitFor(t, func() bool { return ms.Status() == domain.SessionStarting })
+
+	fc.mu.Lock()
+	fc.connectErr = nil
+	fc.mu.Unlock()
+	waitFor(t, func() bool { fc.mu.Lock(); defer fc.mu.Unlock(); return fc.connected })
+	fc.emit(&events.Connected{})
+	got := statusPayloads(sink)[before:]
+	if len(got) != 2 || got[0]["status"] != "starting" || got[1]["status"] != "working" {
+		t.Fatalf("status events after a long drop = %+v", got)
+	}
+}
+
+// ----------------------------------------------------------------------------
+// Lifecycle operations
+// ----------------------------------------------------------------------------
+
+// TestLifecycleOperationsAreSerialized: a second operation waits for the first
+// one to finish instead of interleaving its read-then-act steps (here: a
+// QR start must not run while a phone pairing is still connecting).
+func TestLifecycleOperationsAreSerialized(t *testing.T) {
+	m, _, _, fc := newTestManagerParts(t, Config{})
+	fc.pairCode = "ABCD1234"
+	gate := make(chan struct{})
+	fc.connectGate = gate
+	m.EnsureDevice("session", "org")
+
+	pairDone := make(chan error, 1)
+	go func() {
+		_, err := m.StartPairingCode(context.Background(), "session", "6281234567890")
+		pairDone <- err
+	}()
+	waitFor(t, func() bool { return currentRun(m.Get("session")) != nil })
+
+	qrDone := make(chan error, 1)
+	go func() { qrDone <- m.StartQR(context.Background(), "session") }()
+	select {
+	case <-qrDone:
+		t.Fatal("StartQR ran while StartPairingCode held the session")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(gate)
+	if err := <-pairDone; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-qrDone; err != nil {
+		t.Fatal(err)
+	}
+	fc.mu.Lock()
+	connects := fc.connects
+	fc.mu.Unlock()
+	if connects != 1 {
+		t.Fatalf("connects = %d; the QR start opened a second connection", connects)
+	}
+}
+
+// TestLogoutReportsUnlinkFailure: when WhatsApp does not confirm the unlink,
+// Logout fails and keeps the device, so the caller can retry.
+func TestLogoutReportsUnlinkFailure(t *testing.T) {
+	m, _, _, fc := newTestManagerParts(t, Config{})
+	ks := m.keystore.(*fakeKeystore)
+	fc.logoutErr = errors.New("server returned 500")
+	ms := register(m, &ManagedSession{SessionID: "sess_1", OrganizationID: "ten_1", device: pairedDevice("628111")})
+	c := attachRun(m, ms, fc)
+	c.markLoggedIn()
+
+	if err := m.Logout(context.Background(), "sess_1"); err == nil {
+		t.Fatal("logout reported success although WhatsApp did not unlink the device")
+	}
+	if len(ks.deleted) != 0 || ms.Status() == domain.SessionLoggedOut || ms.device.ID == nil {
+		t.Fatalf("failed logout cleared the device: deleted=%d status=%s", len(ks.deleted), ms.Status())
+	}
+
+	fc.logoutErr = nil
+	if err := m.Logout(context.Background(), "sess_1"); err != nil {
+		t.Fatal(err)
+	}
+	if len(ks.deleted) != 1 || ms.Status() != domain.SessionLoggedOut || ms.device.ID != nil || currentRun(ms) != nil {
+		t.Fatalf("logout did not clear the session: deleted=%d status=%s", len(ks.deleted), ms.Status())
+	}
+}
+
+// TestLogoutConnectsStoppedSession: unlinking a stopped session first
+// connects it, since the unlink is a request to WhatsApp.
+func TestLogoutConnectsStoppedSession(t *testing.T) {
+	m, _, _, fc := newTestManagerParts(t, Config{})
+	ms := register(m, &ManagedSession{SessionID: "sess_1", OrganizationID: "ten_1", device: pairedDevice("628111"), status: domain.SessionStopped})
+	done := make(chan error, 1)
+	go func() { done <- m.Logout(context.Background(), "sess_1") }()
+	waitFor(t, func() bool { fc.mu.Lock(); defer fc.mu.Unlock(); return fc.handler != nil && fc.connected })
+	fc.emit(&events.Connected{})
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	fc.mu.Lock()
+	loggedOut := fc.loggedOut
+	fc.mu.Unlock()
+	if !loggedOut || ms.Status() != domain.SessionLoggedOut {
+		t.Fatalf("logged out = %v, status = %s", loggedOut, ms.Status())
+	}
+}
+
+// TestLiveOpsRequireWorkingSession: live operations on a session that is not
+// working answer 503 session_not_ready, not 501.
+func TestLiveOpsRequireWorkingSession(t *testing.T) {
+	m, _, _, fc := newTestManagerParts(t, Config{})
+	ms := register(m, &ManagedSession{SessionID: "sess_1", OrganizationID: "ten_1", status: domain.SessionStarting})
+	attachRun(m, ms, fc)
+	_, err := m.readyClient("sess_1")
+	var apiErr *domain.APIError
+	if !errors.As(err, &apiErr) || apiErr.Code != domain.CodeUnavailable || apiErr.Details["reason"] != "session_not_ready" {
+		t.Fatalf("not-ready error = %v", err)
+	}
+	fc.emit(&events.Connected{})
+	if _, err := m.readyClient("sess_1"); err != nil {
+		t.Fatalf("working session rejected: %v", err)
+	}
+}
+
+// ----------------------------------------------------------------------------
+// Pairing
+// ----------------------------------------------------------------------------
+
 func TestQRTimeoutReleasesRuntimeAndCachedCode(t *testing.T) {
-	client := &fakeClient{}
-	manager := NewManager(&fakeKeystore{}, &fakeSink{}, nil, nil, quietLogger(), Config{})
+	manager, _, _, client := newTestManagerParts(t, Config{})
 	manager.EnsureDevice("session", "org")
 	ms := manager.Get("session")
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ms.client, ms.cancel, ms.reconnect = client, cancel, true
+	c := attachRun(manager, ms, client)
 	ms.lastQR, ms.lastQRExpires = "expired-code", time.Now().Add(time.Minute).UnixMilli()
 	// No codes left: the emitter reaches the end of the run at once.
-	manager.emitQRCodes(ctx, ms, nil, nil, nil)
-	if ms.client != nil || ms.reconnect || ms.lastQR != "" || ms.lastQRExpires != 0 {
-		t.Fatal("timed-out pairing retained its client, reconnect loop, or QR code")
-	}
-	if ms.Status() != domain.SessionFailed || ctx.Err() == nil {
-		t.Fatal("timeout did not fail the session and cancel its loop")
+	manager.emitQRCodes(c.ctx, ms, c, nil)
+	if currentRun(ms) != nil || ms.lastQR != "" || ms.lastQRExpires != 0 || c.ctx.Err() == nil {
+		t.Fatal("timed-out pairing retained its run or QR code")
 	}
 	ms.mu.Lock()
-	reason := ms.failure
+	status, reason := ms.status, ms.failure
 	ms.mu.Unlock()
-	if reason != domain.FailureQRTimeout {
-		t.Fatalf("failure reason = %q, want qr_timeout", reason)
+	if status != domain.SessionFailed || reason != domain.FailureQRTimeout {
+		t.Fatalf("status = %s, reason = %q; want failed qr_timeout", status, reason)
 	}
-	// A new request must start a fresh client, rather than reporting an
-	// idempotent success for the timed-out client.
+	// A new request starts a fresh run rather than reporting an idempotent
+	// success for the timed-out one.
 	fresh := &fakeClient{}
 	manager.SetClientFactory(func(*store.Device) waClient { return fresh })
 	if err := manager.StartQR(context.Background(), "session"); err != nil {
 		t.Fatal(err)
 	}
-	if ms.client != fresh {
+	if run := currentRun(ms); run == nil || run.client != fresh {
 		t.Fatal("pairing retry did not start a fresh client")
 	}
 }
@@ -347,14 +726,14 @@ func TestManagerLatestQRDoesNotReturnExpiredCode(t *testing.T) {
 	}
 }
 
-// The process E2E cannot deterministically keep a real QR client running while
-// replaying BeginPairing before any status transition or QR refresh.
+// A repeated QR start while the pairing runs replays the observed status
+// instead of opening a second connection.
 func TestStartQRRunningUnpairedClientRepublishesStatus(t *testing.T) {
 	manager, sink, _, client := newTestManagerParts(t, Config{})
 	manager.EnsureDevice("session", "org")
 	ms := manager.Get("session")
-	ms.client = client
-	manager.setStatus(context.Background(), ms, domain.SessionScanQR)
+	c := attachRun(manager, ms, client)
+	manager.setState(context.Background(), ms, c, domain.SessionScanQR, "")
 
 	if err := manager.StartQR(context.Background(), "session"); err != nil {
 		t.Fatal(err)
@@ -367,7 +746,7 @@ func TestStartQRRunningUnpairedClientRepublishesStatus(t *testing.T) {
 	if !ok || payload["status"] != string(domain.SessionScanQR) || event.Session != "session" {
 		t.Fatalf("replayed status = %+v", event)
 	}
-	if ms.client != client || client.disconnects != 0 {
+	if currentRun(ms) != c || client.disconnects != 0 {
 		t.Fatal("repeated pairing replaced or disconnected the running client")
 	}
 }
@@ -379,7 +758,8 @@ func TestStartPairingCodeReusesRunningQRClient(t *testing.T) {
 	client.pairCode = "ABCD1234"
 	manager.EnsureDevice("session", "org")
 	ms := manager.Get("session")
-	ms.client = client
+	c := attachRun(manager, ms, client)
+	c.markReady()
 
 	code, err := manager.StartPairingCode(context.Background(), "session", "6281234567890")
 	if err != nil {
@@ -388,7 +768,7 @@ func TestStartPairingCodeReusesRunningQRClient(t *testing.T) {
 	if code != "ABCD1234" || client.pairDisplay != "Chrome (Linux)" {
 		t.Fatalf("code = %q, display = %q", code, client.pairDisplay)
 	}
-	if ms.client != client || client.disconnects != 0 {
+	if currentRun(ms) != c || client.disconnects != 0 {
 		t.Fatal("phone pairing replaced or disconnected the running QR client")
 	}
 	if sink.typeCount(domain.EventAuthCode) != 1 || ms.Status() != domain.SessionScanQR {
@@ -400,7 +780,7 @@ func TestStartPairingCodeReusesRunningQRClient(t *testing.T) {
 	if _, err := manager.StartPairingCode(context.Background(), "session", "6281234567890"); err == nil {
 		t.Fatal("pair error was not returned")
 	}
-	if ms.client != client || ms.Status() == domain.SessionFailed {
+	if currentRun(ms) != c || ms.Status() == domain.SessionFailed {
 		t.Fatal("a failed code request tore down the QR flow")
 	}
 }

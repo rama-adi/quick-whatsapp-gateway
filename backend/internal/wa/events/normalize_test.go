@@ -10,40 +10,14 @@ import (
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 )
 
-// TestNormalizeSessionStatusEvents maps connected, disconnected, logged-out, and stream-replaced events
-// onto public session-status records. The cases pin their payload status and non-persistent disposition so
-// transport lifecycle notifications never create message rows.
-func TestNormalizeSessionStatusEvents(t *testing.T) {
-	tests := []struct {
-		name       string
-		evt        any
-		wantType   string
-		wantStatus domain.SessionStatus
-	}{
-		{"connected", &events.Connected{}, domain.EventSessionStatus, domain.SessionWorking},
-		{"disconnected", &events.Disconnected{}, domain.EventSessionStatus, domain.SessionStarting},
-		{"logged out", &events.LoggedOut{}, domain.EventSessionStatus, domain.SessionLoggedOut},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ev, pr, ok := Normalize(tt.evt, testSession, testOrganization)
-			if !ok {
-				t.Fatalf("ok=false")
-			}
-			if ev.Type != tt.wantType {
-				t.Errorf("type = %q", ev.Type)
-			}
-			if pr.Kind != PersistSessionStatus {
-				t.Errorf("kind = %d", pr.Kind)
-			}
-			if pr.SessionStatus != tt.wantStatus {
-				t.Errorf("status = %q, want %q", pr.SessionStatus, tt.wantStatus)
-			}
-			p, ok := ev.Payload.(SessionStatusPayload)
-			if !ok || p.Status != string(tt.wantStatus) {
-				t.Errorf("payload = %+v", ev.Payload)
-			}
-		})
+// TestNormalizeLeavesConnectionLifecycleToManager pins that connection
+// lifecycle events produce no session.status event here: the session manager
+// is their only producer, so a second, undebounced status cannot race it.
+func TestNormalizeLeavesConnectionLifecycleToManager(t *testing.T) {
+	for _, evt := range []any{&events.Connected{}, &events.Disconnected{}, &events.LoggedOut{}, &events.StreamReplaced{}} {
+		if ev, _, ok := Normalize(evt, testSession, testOrganization); ok {
+			t.Fatalf("%T normalized to %q; lifecycle belongs to the session manager", evt, ev.Type)
+		}
 	}
 }
 

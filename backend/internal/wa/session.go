@@ -77,6 +77,10 @@ type waClient interface {
 	IsLoggedIn() bool
 	Logout(ctx context.Context) error
 	AddEventHandler(handler whatsmeow.EventHandler) uint32
+	// RemoveEventHandler unregisters a handler. It must not be called from
+	// inside an event handler (whatsmeow holds the handler list's read lock
+	// while dispatching).
+	RemoveEventHandler(id uint32) bool
 	SendPasskeyResponse(ctx context.Context, response *types.WebAuthnResponse) error
 	SendPasskeyConfirmation(ctx context.Context) error
 	PairPhone(
@@ -102,48 +106,108 @@ type waClient interface {
 var _ waClient = (*whatsmeow.Client)(nil)
 
 // ----------------------------------------------------------------------------
-// ManagedSession — one whatsmeow client + its lifecycle state.
+// connection — one run of a session.
 // ----------------------------------------------------------------------------
 
-// ManagedSession is the lifecycle capsule for exactly one app session and one
-// whatsmeow client. SessionID and OrganizationID are immutable after registration;
-// the remaining mutable lifecycle fields are guarded by mu and must not be read
-// directly from event callbacks or manager operations without holding it.
+// connection is one run of a session: one whatsmeow client, its registered
+// event handler and the goroutines that serve it (reconnect driver, QR emitter,
+// passkey deadline). gen identifies the run within its session. Every callback
+// carries the connection it belongs to, and a callback whose connection is no
+// longer the session's current one is dropped, so a late event from a torn
+// down client can never change the state of a newer run.
+type connection struct {
+	gen       uint64
+	client    waClient
+	handlerID uint32
+	// ctx ends when the run ends (stop, terminal event, shutdown).
+	ctx    context.Context
+	cancel context.CancelFunc
+	// wake tells the reconnect driver that the transport dropped.
+	wake chan struct{}
+	// ready is closed after the first successful Connect of this run, so a
+	// phone-number pairing request can wait until the socket is up.
+	ready     chan struct{}
+	readyOnce sync.Once
+	// loggedIn is closed on the first Connected event (the device is
+	// authenticated), so a logout of a stopped session can wait for it.
+	loggedIn     chan struct{}
+	loggedInOnce sync.Once
+	// qrRotate carries ADV-secret rotations to the running QR emitter.
+	qrRotate chan *events.RotateADVSecret
+
+	// Guarded by the owning ManagedSession's mu.
+	qrCancel context.CancelFunc // stops the current QR emitter
+	down     bool               // transport dropped and not yet reconnected
+	downSeq  uint64             // counts drops, so a grace timer only acts on its own drop
+}
+
+// newConnection builds run gen of a session around client. The caller
+// registers the event handler and starts the reconnect driver.
+func newConnection(gen uint64, client waClient) *connection {
+	ctx, cancel := context.WithCancel(context.Background())
+	return &connection{
+		gen:      gen,
+		client:   client,
+		ctx:      ctx,
+		cancel:   cancel,
+		wake:     make(chan struct{}, 1),
+		ready:    make(chan struct{}),
+		loggedIn: make(chan struct{}),
+		qrRotate: make(chan *events.RotateADVSecret, 4),
+	}
+}
+
+func (c *connection) markReady()    { c.readyOnce.Do(func() { close(c.ready) }) }
+func (c *connection) markLoggedIn() { c.loggedInOnce.Do(func() { close(c.loggedIn) }) }
+
+// signalDrop wakes the reconnect driver without blocking.
+func (c *connection) signalDrop() {
+	select {
+	case c.wake <- struct{}{}:
+	default:
+	}
+}
+
+// ----------------------------------------------------------------------------
+// ManagedSession — one app session and its lifecycle state.
+// ----------------------------------------------------------------------------
+
+// ManagedSession is the lifecycle capsule for exactly one app session.
+// SessionID and OrganizationID are immutable after registration.
 //
-// reconnect grants ownership of retry work to the session's background loop,
-// attempt counts consecutive failures and resets on Connected, and cancel ends
-// the loop during Stop, Logout, or terminal classification. The latest QR is only
-// an in-memory pairing aid with an expiry, not durable authentication state; the
-// device keystore remains the source of truth after PairSuccess.
+// Two locks with different jobs guard it:
+//
+//   - op serializes lifecycle operations (start, stop, pairing, logout,
+//     forget). An operation holds it for its whole duration, so two operations
+//     never interleave their read-then-act steps. Event callbacks never take
+//     it; they identify their run through its connection instead.
+//   - mu guards every field below it and is held only for short reads and
+//     writes, never across network calls.
+//
+// The latest QR is only an in-memory pairing aid with an expiry, not durable
+// authentication state; the device keystore remains the source of truth after
+// PairSuccess.
 type ManagedSession struct {
 	SessionID      string
 	OrganizationID string
 	IsAdmin        bool
+
+	op sync.Mutex
+
+	mu             sync.Mutex
 	assignedConfig *desiredstate.Config
+	device         *store.Device
+	conn           *connection // the current run; nil when not running
+	nextGen        uint64      // last connection generation issued
 
-	device *store.Device
-	client waClient
-
-	mu        sync.Mutex
-	status    domain.SessionStatus
-	failure   domain.SessionFailureReason // set only while status is failed
-	attempt   int                         // consecutive reconnect attempts (resets on Connected)
-	reconnect bool                        // whether the reconnect loop should keep running
-	cancel    context.CancelFunc          // cancels the per-session goroutine context
-	handlerID uint32                      // whatsmeow event-handler registration id
+	status  domain.SessionStatus
+	failure domain.SessionFailureReason // set only while status is failed
+	attempt int                         // consecutive failed connection attempts in this run
+	lastErr string                      // the last connection error of this run
 
 	lastQR        string // most recent QR code streamed during pairing (for GET /qr)
 	lastQRExpires int64  // epoch-ms when lastQR stops being valid (0 = unknown)
 
-	// pairCtx is the context of the current pairing run (cancelled by teardown).
-	// The QR emitter and passkey deadline run under it.
-	pairCtx context.Context
-	// qrRotate carries ADV-secret rotations to the running QR emitter.
-	qrRotate chan *events.RotateADVSecret
-	// qrStop is closed when this run's QR codes must stop for good: a passkey
-	// verification took over or pairing succeeded. qrStopped records the close.
-	qrStop    chan struct{}
-	qrStopped bool
 	// passkey is non-nil while WhatsApp waits for passkey verification of this
 	// pairing. QR codes stop while it is pending; the connection stays open
 	// until it completes, fails, or passes its deadline.
@@ -168,6 +232,24 @@ func (s *ManagedSession) LatestQR() (code string, expiresAt int64) {
 	return s.lastQR, s.lastQRExpires
 }
 
+// runningClient returns the client of the current run (nil when not running)
+// and the session's device.
+func (s *ManagedSession) runningClient() (waClient, *store.Device) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.conn == nil {
+		return nil, s.device
+	}
+	return s.conn.client, s.device
+}
+
+// current reports whether c is still the session's running connection.
+func (s *ManagedSession) current(c *connection) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return c != nil && s.conn == c
+}
+
 // ----------------------------------------------------------------------------
 // Status state machine (pure). Maps whatsmeow events to a status + whether the
 // reconnect loop should continue. This is the heart of §3 and is unit-tested
@@ -182,18 +264,16 @@ type transition struct {
 	changed bool
 	// reason says why, when status is failed. It is "" for every other status.
 	reason domain.SessionFailureReason
-	// keepReconnect reports whether the reconnect loop should continue after this
-	// event. It is only consulted when terminal is true.
-	keepReconnect bool
-	// terminal reports whether this event decides the reconnect-loop fate
-	// (LoggedOut / StreamReplaced / ban / fatal connect-failure stop it).
+	// terminal reports whether this event ends the run (LoggedOut,
+	// StreamReplaced, ban, fatal connect failure, pairing failure).
 	terminal bool
 }
 
 // classifyEvent maps a whatsmeow event to a status transition per §3:
 //
 //   - Connected            -> WORKING, reset backoff, keep running.
-//   - Disconnected         -> (transient) no status change; reconnect loop drives retries.
+//   - Disconnected         -> (transient) no status change; the reconnect driver
+//     retries and reports reconnecting only after a grace period.
 //   - LoggedOut            -> LOGGED_OUT, STOP reconnect (terminal).
 //   - StreamReplaced       -> FAILED, STOP reconnect (terminal).
 //   - TemporaryBan         -> FAILED, STOP reconnect (terminal).
@@ -215,7 +295,7 @@ func classifyEvent(evt any) transition {
 		// Pairing handshake completed; the lib reconnects and a Connected follows.
 		return transition{status: domain.SessionStarting, changed: true}
 	case *events.LoggedOut:
-		return transition{status: domain.SessionLoggedOut, changed: true, terminal: true, keepReconnect: false}
+		return transition{status: domain.SessionLoggedOut, changed: true, terminal: true}
 	case *events.StreamReplaced:
 		return failedTransition(domain.FailureStreamReplaced)
 	case *events.TemporaryBan:
@@ -239,7 +319,7 @@ func classifyEvent(evt any) transition {
 
 // failedTransition is the terminal FAILED transition for reason.
 func failedTransition(reason domain.SessionFailureReason) transition {
-	return transition{status: domain.SessionFailed, reason: reason, changed: true, terminal: true, keepReconnect: false}
+	return transition{status: domain.SessionFailed, reason: reason, changed: true, terminal: true}
 }
 
 // connectFailureReason maps a fatal ConnectFailure onto the failure reason the

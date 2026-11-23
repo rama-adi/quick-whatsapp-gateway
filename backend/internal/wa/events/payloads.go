@@ -46,7 +46,6 @@ const (
 	PersistMessageRevoke                       // a revoke (delete-for-everyone)
 	PersistPollVote                            // a poll vote (poll_votes row)
 	PersistMessageStatus                       // a receipt -> messages.status/ack_level
-	PersistSessionStatus                       // wa_sessions.status change
 	PersistGroupUpdate                         // whatsapp_groups upsert
 	PersistGroupParticipant                    // whatsapp_group_members change
 	PersistContactUpdate                       // whatsapp_identities/contacts upsert
@@ -69,9 +68,6 @@ type PersistResult struct {
 	// PersistMessageStatus (receipts):
 	MessageStatus domain.MessageStatus
 	MessageIDs    []string
-
-	// PersistSessionStatus:
-	SessionStatus domain.SessionStatus
 
 	// PersistContactUpdate:
 	ContactJID  string

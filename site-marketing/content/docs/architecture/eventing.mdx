@@ -58,13 +58,13 @@ func Normalize(evt any, sessionID, organizationID string) (domain.Event, Persist
 | `*events.Message` native-flow / button / list selection | `message.interactive_reply` | `PersistMessage` |
 | timed poll close (`PollRecapWorker`) | `poll.recap` | synthetic / no inbound persist |
 | `*events.Receipt` (delivered/read/played) | `message.status` | `PersistMessageStatus` |
-| `*events.Connected` | `session.status` (working) | `PersistSessionStatus` |
-| `*events.Disconnected` | `session.status` (starting) | `PersistSessionStatus` |
-| `*events.LoggedOut` | `session.status` (logged_out) | `PersistSessionStatus` |
-| `*events.StreamReplaced` | `session.status` (failed, `failureReason: stream_replaced`) | `PersistSessionStatus` |
+| `*events.Connected` | `session.status` (working), published by the session manager | none |
+| `*events.Disconnected` | `session.status` (starting) only if still down after the reconnect grace period, published by the session manager | none |
+| `*events.LoggedOut` | `session.status` (logged_out), published by the session manager | none |
+| `*events.StreamReplaced` | `session.status` (failed, `failureReason: stream_replaced`), published by the session manager | none |
 | `*events.PairPasskeyRequest` | `auth.passkey` (`step: verify`, WebAuthn options), published by the session manager | none |
 | `*events.PairPasskeyConfirmation` | `auth.passkey` (`step: confirm`, code), unless WhatsApp lets the gateway confirm by itself | none |
-| `*events.PairPasskeyError` | `session.status` (failed, `failureReason: passkey_failed`) | `PersistSessionStatus` |
+| `*events.PairPasskeyError` | `session.status` (failed, `failureReason: passkey_failed`), published by the session manager | none |
 | `*events.QR` | `auth.qr` | `PersistNone` |
 | `*events.PairSuccess` | `auth.code` | `PersistNone` |
 | `*events.Presence` / `*events.ChatPresence` | `presence.update` | `PersistNone` |
@@ -167,8 +167,10 @@ unclassifiable data is worse than persisting an odd JID downstream can still rec
 - **`PersistResult` is the pipeline contract**, not the wire payload. It tags a
   `PersistKind` so the inbound pipeline dispatches without re-inspecting the event, and
   carries the parsed `*NormalizedMessage` for message-bearing kinds.
-- **`Disconnected` is non-terminal** (manager reconnects) → reported as `starting`;
-  `LoggedOut`/`StreamReplaced` are terminal → `logged_out`/`failed`.
+- **The session manager is the only `session.status` producer.** `Normalize` returns `ok=false`
+  for connection lifecycle events. The manager reports a `Disconnected` as `starting` only when
+  the connection is still down after its grace period; `LoggedOut`/`StreamReplaced` are terminal
+  → `logged_out`/`failed`.
 - **Non-lifecycle receipts** (sender/retry/server-error/etc.) → `ok=false`.
 - Poll **votes**: `events.Normalize` produces the target poll id only (the vote is still
   encrypted). The composition-layer `InboundNormalizer` then decrypts it via the live

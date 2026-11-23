@@ -199,13 +199,74 @@ Phone-number pairing sends the fixed companion name `Chrome (Linux)`. WhatsApp v
 configured device name (shown in the phone's Linked devices list through `store.SetOSInfo`)
 cannot be used there.
 
-The failed status is published with a context that teardown cannot cancel, because failure
-paths tear the run down before they record the status.
+The failed status is published with a context that ending the run cannot cancel, because failure
+paths end the run before they record the status.
 
-QR timeout marks the session failed, cancels its reconnect loop, releases the expired client,
-and clears the cached QR. A subsequent pairing request creates a fresh flow instead of reusing
+QR timeout marks the session failed, ends its run (reconnect driver, event handler and client),
+and clears the cached QR. A subsequent pairing request creates a fresh run instead of reusing
 an exhausted QR channel. Stopping a flow and successful QR pairing also clear its cache, and
-QR reads never return a code after its expiry.
+QR reads never return a code after its expiry. A reconnect of an unpaired run receives a new set
+of QR codes; their emitter replaces the previous one.
+
+## Connection runs and reconnects
+
+Each start of a session creates one **run** (`connection` in `internal/wa/session.go`): one
+whatsmeow client, its registered event handler, one reconnect driver goroutine, and the run's
+QR emitter and passkey deadline. A run has a generation number within its session, and every
+callback carries the run it belongs to:
+
+- The event handler skips lifecycle handling for events of a run that is no longer current. A
+  late `Connected`, `LoggedOut` or `StreamReplaced` from a torn-down client therefore cannot mark
+  a stopped session working or end the newer run. Data events of an old run (messages that arrived
+  just before a stop) still reach the inbound pipeline, whose sink checks ownership.
+- Ending a run cancels its context, unregisters its event handler (`RemoveEventHandler`, part of
+  the client interface) and disconnects the client. whatsmeow forbids removing a handler from
+  inside a handler, so a terminal event closes the client on a separate goroutine; the context
+  is cancelled first, which already stops the run's goroutines.
+- QR emitter, passkey deadline and automatic passkey confirmation end the run they were started
+  for and do nothing if that run is already over.
+
+**One reconnect driver.** The manager drives every reconnect; `buildClient` turns whatsmeow's
+`EnableAutoReconnect` off for every client, because two drivers race each other's `Connect`
+calls. The driver connects, then waits for the transport to drop: a `Disconnected` event, a
+keepalive failing for more than three minutes (whatsmeow only forces that reconnect when its own
+reconnect is on, so the manager does it), or a liveness check every 5 seconds that finds no socket
+(drops that emit no event, such as a failed reconnect after the post-pairing `515` restart).
+`ErrAlreadyConnected` from `Connect` means the socket is up and counts as success. Retries use
+`backoffFor` (1s base, ×2, cap 2m, full jitter).
+
+**Bounded retries.** Consecutive failed attempts without a `Connected` event in between are
+counted. After `MaxConnectAttempts` (default 10) the run ends as `failed` with
+`failureReason: connect_error`. A connection WhatsApp will keep refusing (an HTTP status other
+than 408 or 5xx, or a deleted device) ends the run at once as `failed` with `connect_rejected`.
+
+**Reconnect grace period.** WhatsApp drops connections several times a day and they come back
+within one or two seconds. The status stays `working` while the transport is down; only when it
+is still down after `ReconnectGrace` (default 10 seconds) does the session report `starting`.
+A drop that recovers within the grace period publishes nothing, so users and webhooks do not
+see an outage that did not happen. The session reports `working` again on the next `Connected`.
+
+**Serialized lifecycle operations.** Every lifecycle operation on a session (start, stop,
+QR and phone pairing, logout, forget, assignment start/stop) holds the session's operation lock
+for its whole duration, so two operations never interleave their read-then-act steps (for
+example a logout racing a QR start). Event callbacks never take that lock; they identify their
+run instead. The state lock is held only for short reads and writes, never across network calls.
+
+**Logout reports failure.** Unlinking is a request to WhatsApp, so it needs a logged-in
+connection: logging out a stopped paired session connects it for the duration of the call. When
+WhatsApp does not confirm the unlink, `Logout` returns the error and keeps the device paired, so
+the caller can retry; it no longer reports success while the device stays linked on the phone.
+An unpaired session has nothing to unlink and is marked logged out.
+
+**Live operations need a working session.** Live operations (groups, contacts, presence, read
+receipts) read readiness from the session's status, not from the presence of a client. A session
+that is not `working` answers `503 gateway_unavailable` with `details.reason: session_not_ready`
+and the current status; the engine RPC carries it as gRPC `Unavailable` and the API keeps the
+message. `501 not_implemented` is reserved for client types that cannot perform the operation.
+
+**Single status producer.** Only the manager publishes `session.status`. The inbound normalizer
+no longer turns `Connected`, `Disconnected` or `LoggedOut` into status events; a second,
+undebounced producer contradicted the manager (for example a `starting` for every transient drop).
 
 ## Desired-state assignment foundation
 
@@ -394,9 +455,9 @@ Core types:
   deprecated plumbing that must be nil (the gateway owns no rows). `StartAssigned`
   materializes one assignment; `StartAssignedBoot` is the store-free boot hook;
   `StopAssigned` stops a locally materialized assignment.
-- `ManagedSession` — wraps the device + client + status + reconnect bookkeeping +
-  per-session `context.CancelFunc`, plus the JID/LID observed at `PairSuccess`.
-  All mutable state guarded by its own mutex.
+- `ManagedSession` — wraps the device, the current run (`connection`), status and failure
+  reason, the attempt count of the current run, plus the JID/LID observed at `PairSuccess`.
+  An operation lock serializes lifecycle operations; a state lock guards the fields.
 - `Config` — `GatewayID`, device display name, rate/auto-read defaults, optional
   backoff.
 
@@ -405,29 +466,26 @@ Core types:
 - **Pure cores for testability.** Three pure functions carry the load-bearing
   logic and are unit-tested directly:
   - `classifyEvent(evt any) transition` — maps a whatsmeow event to
-    `(status, changed, terminal, keepReconnect)`. `Connected→WORKING`,
-    `PairSuccess→STARTING`, terminal events→`FAILED`/`LOGGED_OUT` with reconnect
-    stopped. A `FAILED` transition carries its reason (`stream_replaced`,
+    `(status, changed, terminal)`. `Connected→WORKING`,
+    `PairSuccess→STARTING`, terminal events→`FAILED`/`LOGGED_OUT` and end the run. A `FAILED` transition carries its reason (`stream_replaced`,
     `temporary_ban`, `client_outdated`, `pairing_error`, `passkey_failed`, `connect_rejected`); `Disconnected` and transient `ConnectFailure` cause no status change
-    (the reconnect loop retries).
+    (the reconnect driver retries and reports after the grace period).
   - `isFatalConnectFailure(reason)` — distinguishes permanent
     (logged-out/banned/locked/outdated/bad-UA) from transient connect failures.
   - `backoffFor(cfg, attempt, *rand.Rand)` — exponential `base*factor^n` clamped
     to `max`, then **full jitter** (`uniform[0, ceiling]`). Deterministic given a
     seeded `*rand.Rand`. Production default: 1s base, ×2, cap 2m.
-- **Status ownership is single-writer.** `teardown` clears runtime state but does
-  NOT touch status; `setStatus` is the sole owner of the status field and its
-  `session.status` emission, and it **dedups** (no event when the status is
-  unchanged). Persistence is derived API-side from committed events. Logout is
-  the intentional specialized path: `setLoggedOut` swaps in a fresh unpaired
-  device, clears the QR cache, and **always emits** `session.status=logged_out`
-  — even when the in-memory status was already logged_out — because that event
-  is the durable signal the API projection uses to repeat its row clear.
-- **Goroutine lifecycle.** Each running session gets a context derived via
-  `context.WithoutCancel(parent)` + a `CancelFunc`. Stop/Logout/Shutdown cancel
-  it; the reconnect loop and QR pump select on `ctx.Done()` and exit cleanly. The
-  loop polls connection state on a 500ms ticker rather than threading extra
-  channels through whatsmeow's event model.
+- **Status ownership is single-writer.** `setState` (and `endRun` for terminal outcomes) is the
+  sole owner of the status field and its `session.status` emission, and it **dedups** (no event
+  when the status and failure reason are unchanged). A state change for a run that is no longer
+  current is ignored. Persistence is derived API-side from committed events. Logout is the
+  intentional specialized path: ending a run as logged out swaps in a fresh unpaired device,
+  clears the QR cache, and **always emits** `session.status=logged_out` — even when the
+  in-memory status was already logged_out — because that event is the durable signal the API
+  projection uses to repeat its row clear.
+- **Goroutine lifecycle.** Each run owns a context. Stop, Logout, Forget, Shutdown and terminal
+  outcomes cancel it; the reconnect driver, QR emitter and passkey deadline select on it and
+  exit cleanly.
 - **Pairing / linked-device display name** defaults to `"Chrome (Linux - <GATEWAY_ID>)"` and can
   override the OS/app portion with `WHATSAPP_DEVICE_NAME`. The phone-code pairing string is still
   formatted as `"Chrome (<device name>)"` because whatsmeow validates the `"Browser (OS)"` format.
@@ -442,19 +500,25 @@ Core types:
   `ConnectFailure`; `isFatalConnectFailure` matrix.
 - `backoffFor`: determinism (same seed → same schedule), full-jitter bounds
   per attempt, cap never exceeded, negative attempt clamped.
-- `setStatus` dedup; event handler terminal-stops-reconnect + tears down + emits
-  + still forwards to inbound; `Connected` resets backoff; `PairSuccess` records
+- Status dedup; a terminal event ends the run (handler unregistered, client closed), emits,
+  and still forwards to inbound; `Connected` resets the attempt count; `PairSuccess` records
   the JID/LID onto the managed session.
+- Runs: events of a replaced run change nothing (`TestStaleRunEventsAreDropped`); whatsmeow
+  auto-reconnect is off on built clients; `ErrAlreadyConnected` is success; exhausted attempts
+  fail with `connect_error`; a refusal fails at once with `connect_rejected`; a drop within the
+  grace period publishes nothing and a longer one publishes `starting` then `working`; lifecycle
+  operations wait for each other; a failed unlink fails `Logout` and keeps the device; live
+  operations on a non-working session answer `session_not_ready`.
 - Online presence: the manager announces `PresenceAvailable` on `Connected`, but
   whatsmeow's `SendPresence` requires a push name that only arrives via app-state
   sync (after `Connected`) — so it re-announces on `AppStateSyncComplete`, which is
   when presence actually sticks on a freshly-paired session. A missing push name is
   benign (debug-logged, retried), not a warning.
 - Lifecycle: `StartAssigned` uses control config without any session lookup;
-  `Start` connects paired sessions, starts QR for unpaired ones, and repeats are
-  idempotent; `Stop` tears down + emits STOPPED; `Logout` calls `client.Logout`,
-  deletes the keystore device, installs a fresh unpaired device, re-emits
-  `logged_out` on repeat, and can immediately begin a new pairing-code flow;
+  QR starts are idempotent while the pairing runs; `StopAssigned` ends the run and emits
+  STOPPED; `Logout` calls `client.Logout` (connecting a stopped session first), deletes the
+  keystore device, installs a fresh unpaired device, and can immediately begin a new
+  pairing-code flow;
   external `LoggedOut` performs the same reset; not-found errors;
   `StartAssignedBoot` is store-free; the manager accepts no session repository.
 

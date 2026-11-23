@@ -22,7 +22,8 @@ import (
 //
 //   - events.QR starts emitQRCodes, which publishes each code as auth.qr
 //     (60s for the first, 20s for the rest, like whatsmeow) and fails the
-//     session with qr_timeout once they run out.
+//     session with qr_timeout once they run out. A reconnect of the pairing
+//     run brings new codes and replaces the emitter.
 //   - events.PairPasskeyRequest stops the QR codes (WhatsApp rotates the ADV
 //     secret, so the old codes are dead) and publishes auth.passkey with the
 //     WebAuthn request options. The user signs them on web.whatsapp.com and
@@ -41,58 +42,38 @@ const (
 	maxPasskeyWindow = 10 * time.Minute
 )
 
-// beginPairingRun records the context of a new pairing run. Call with ms.mu held.
-func (ms *ManagedSession) beginPairingRun(ctx context.Context) {
-	ms.pairCtx = ctx
-	ms.qrRotate = make(chan *events.RotateADVSecret, 4)
-	ms.qrStop = make(chan struct{})
-	ms.qrStopped = false
-	ms.passkey = nil
-	ms.lastQR = ""
-	ms.lastQRExpires = 0
-}
-
-// stopQRCodes ends this run's QR codes for good. Call with ms.mu held. The QR
-// emitter must not outlive a passkey verification or a successful pairing:
-// it would publish scan_qr_code over a working session and, once its codes ran
-// out, tear the paired client down with qr_timeout.
-func (ms *ManagedSession) stopQRCodes() {
-	if ms.qrStop != nil && !ms.qrStopped {
-		close(ms.qrStop)
-		ms.qrStopped = true
-	}
-	ms.lastQR, ms.lastQRExpires = "", 0
-}
-
-// handlePairingEvent drives QR rotation and the passkey flow. It reports
-// whether evt was a pairing event it consumed.
-func (m *Manager) handlePairingEvent(ms *ManagedSession, evt any) bool {
+// handlePairingEvent drives QR rotation and the passkey flow for run c. It
+// reports whether evt was a pairing event it consumed.
+func (m *Manager) handlePairingEvent(ms *ManagedSession, c *connection, evt any) bool {
 	switch e := evt.(type) {
 	case *events.QR:
+		// A reconnect of an unpaired run brings a new set of codes; the
+		// emitter of the previous set stops.
+		ctx, cancel := context.WithCancel(c.ctx)
 		ms.mu.Lock()
-		ctx, rotate, stop, stopped := ms.pairCtx, ms.qrRotate, ms.qrStop, ms.qrStopped
-		ms.mu.Unlock()
-		if ctx == nil || ctx.Err() != nil || stopped {
+		if ms.conn != c {
+			ms.mu.Unlock()
+			cancel()
 			return true
 		}
-		go m.emitQRCodes(ctx, ms, append([]string(nil), e.Codes...), rotate, stop)
+		if c.qrCancel != nil {
+			c.qrCancel()
+		}
+		c.qrCancel = cancel
+		ms.mu.Unlock()
+		go m.emitQRCodes(ctx, ms, c, append([]string(nil), e.Codes...))
 		return true
 	case *events.RotateADVSecret:
-		ms.mu.Lock()
-		rotate := ms.qrRotate
-		ms.mu.Unlock()
-		if rotate != nil {
-			select {
-			case rotate <- e:
-			default:
-			}
+		select {
+		case c.qrRotate <- e:
+		default:
 		}
 		return true
 	case *events.PairPasskeyRequest:
-		m.startPasskey(ms, e.PublicKey)
+		m.startPasskey(ms, c, e.PublicKey)
 		return true
 	case *events.PairPasskeyConfirmation:
-		m.passkeyConfirmation(ms, e)
+		m.passkeyConfirmation(ms, c, e)
 		return true
 	case *events.QRScannedWithoutMultidevice:
 		m.log.Warn("qr scanned by a phone without multi-device; the same code can be scanned again", "session", ms.SessionID)
@@ -101,16 +82,17 @@ func (m *Manager) handlePairingEvent(ms *ManagedSession, evt any) bool {
 	return false
 }
 
-// emitQRCodes publishes the codes of one events.QR in turn. It stops when the
-// run ends, when a passkey verification starts, or when the codes run out; in
-// the last case the session fails with qr_timeout.
-func (m *Manager) emitQRCodes(ctx context.Context, ms *ManagedSession, codes []string, rotate <-chan *events.RotateADVSecret, stop <-chan struct{}) {
+// emitQRCodes publishes the codes of one events.QR in turn. It stops when ctx
+// ends (the run ended or a newer set of codes arrived), when a passkey
+// verification starts, or when the codes run out; in the last case the run
+// fails with qr_timeout.
+func (m *Manager) emitQRCodes(ctx context.Context, ms *ManagedSession, c *connection, codes []string) {
 	for i := 0; i < len(codes); i++ {
 		timeout := nextQRTimeout
 		if i == 0 && len(codes) == 6 {
 			timeout = firstQRTimeout
 		}
-		if !m.publishQR(ctx, ms, codes[i], timeout) {
+		if !m.publishQR(ctx, ms, c, codes[i], timeout) {
 			return
 		}
 		timer := time.NewTimer(timeout)
@@ -120,14 +102,11 @@ func (m *Manager) emitQRCodes(ctx context.Context, ms *ManagedSession, codes []s
 			case <-ctx.Done():
 				timer.Stop()
 				return
-			case <-stop:
-				timer.Stop()
-				return
-			case rot := <-rotate:
+			case rot := <-c.qrRotate:
 				for j := i; j < len(codes); j++ {
 					codes[j] = strings.Replace(codes[j], rot.OldSecret, rot.NewSecret, 1)
 				}
-				if !m.publishQR(ctx, ms, codes[i], timeout) {
+				if !m.publishQR(ctx, ms, c, codes[i], timeout) {
 					timer.Stop()
 					return
 				}
@@ -137,23 +116,25 @@ func (m *Manager) emitQRCodes(ctx context.Context, ms *ManagedSession, codes []s
 		}
 	}
 	ms.mu.Lock()
-	ended := ms.passkey != nil || ms.qrStopped || ms.pairedJID != "" || (ms.device != nil && ms.device.ID != nil)
+	// A passkey verification or a successful pairing owns the run now. Left
+	// unchecked, running out of codes after PairSuccess tore the working client
+	// down with qr_timeout (live, 2026-11-23).
+	ended := ms.passkey != nil || ms.pairedJID != "" || (ms.device != nil && ms.device.ID != nil)
 	ms.mu.Unlock()
 	if ended || ctx.Err() != nil {
-		// A passkey verification or a successful pairing owns the run now.
 		return
 	}
-	m.log.Warn("qr pairing timed out", "session", ms.SessionID)
-	m.teardown(ms)
-	m.setFailed(ctx, ms, domain.FailureQRTimeout)
+	if m.endRun(c.ctx, ms, c, domain.SessionFailed, domain.FailureQRTimeout, false) {
+		m.log.Warn("qr pairing timed out", "session", ms.SessionID)
+	}
 }
 
 // publishQR stores code for GET /qr, moves the status to scan_qr_code and
 // publishes auth.qr. It returns false when the run is over or a passkey
 // verification has taken over.
-func (m *Manager) publishQR(ctx context.Context, ms *ManagedSession, code string, timeout time.Duration) bool {
+func (m *Manager) publishQR(ctx context.Context, ms *ManagedSession, c *connection, code string, timeout time.Duration) bool {
 	ms.mu.Lock()
-	if ctx.Err() != nil || ms.passkey != nil || ms.qrStopped {
+	if ctx.Err() != nil || ms.conn != c || ms.passkey != nil {
 		ms.mu.Unlock()
 		return false
 	}
@@ -162,13 +143,13 @@ func (m *Manager) publishQR(ctx context.Context, ms *ManagedSession, code string
 	ms.mu.Unlock()
 	// scan_qr_code means "a code exists to scan": publish it only after the
 	// code is stored, so GET /qr answers with it.
-	m.setStatus(ctx, ms, domain.SessionScanQR)
-	if m.sink != nil {
-		m.sink.Publish(ctx, domain.NewEvent(domain.EventAuthQR, ms.SessionID, ms.OrganizationID, map[string]any{
-			"code":      code,
-			"timeoutMs": timeout.Milliseconds(),
-		}))
+	if !m.setState(ctx, ms, c, domain.SessionScanQR, "") {
+		return false
 	}
+	m.publish(ctx, domain.NewEvent(domain.EventAuthQR, ms.SessionID, ms.OrganizationID, map[string]any{
+		"code":      code,
+		"timeoutMs": timeout.Milliseconds(),
+	}))
 	return true
 }
 
@@ -185,17 +166,21 @@ func passkeyWindow(options *types.WebAuthnPublicKey) time.Duration {
 
 // startPasskey records WhatsApp's passkey request, stops the QR codes and
 // publishes the WebAuthn options for the user to sign.
-func (m *Manager) startPasskey(ms *ManagedSession, options *types.WebAuthnPublicKey) {
+func (m *Manager) startPasskey(ms *ManagedSession, c *connection, options *types.WebAuthnPublicKey) {
 	window := passkeyWindow(options)
 	pending := &pendingPasskey{options: options, expiresAt: m.clock.NowMs() + window.Milliseconds()}
+	ctx := c.ctx
 	ms.mu.Lock()
-	ctx := ms.pairCtx
-	if ctx == nil || ctx.Err() != nil {
+	if ms.conn != c || ctx.Err() != nil {
 		ms.mu.Unlock()
 		return
 	}
 	ms.passkey = pending
-	ms.stopQRCodes()
+	ms.lastQR, ms.lastQRExpires = "", 0
+	if c.qrCancel != nil {
+		c.qrCancel()
+		c.qrCancel = nil
+	}
 	ms.mu.Unlock()
 
 	m.log.Info("passkey verification requested", "session", ms.SessionID, "rp_id", rpID(options), "window", window.String())
@@ -204,7 +189,7 @@ func (m *Manager) startPasskey(ms *ManagedSession, options *types.WebAuthnPublic
 		"publicKey": options,
 		"expiresAt": pending.expiresAt,
 	})
-	go m.expirePasskey(ctx, ms, pending, window)
+	go m.expirePasskey(ms, c, pending, window)
 }
 
 func rpID(options *types.WebAuthnPublicKey) string {
@@ -216,35 +201,38 @@ func rpID(options *types.WebAuthnPublicKey) string {
 
 // expirePasskey fails the pairing if this verification is still pending at
 // its deadline.
-func (m *Manager) expirePasskey(ctx context.Context, ms *ManagedSession, pending *pendingPasskey, window time.Duration) {
+func (m *Manager) expirePasskey(ms *ManagedSession, c *connection, pending *pendingPasskey, window time.Duration) {
 	timer := time.NewTimer(window)
 	defer timer.Stop()
 	select {
-	case <-ctx.Done():
+	case <-c.ctx.Done():
 		return
 	case <-timer.C:
 	}
 	ms.mu.Lock()
-	still := ms.passkey == pending
+	still := ms.conn == c && ms.passkey == pending
 	ms.mu.Unlock()
 	if !still {
 		return
 	}
 	m.log.Warn("passkey verification timed out", "session", ms.SessionID)
-	m.teardown(ms)
-	m.setFailed(ctx, ms, domain.FailurePasskeyFailed)
+	m.endRun(c.ctx, ms, c, domain.SessionFailed, domain.FailurePasskeyFailed, false)
 }
 
 // passkeyConfirmation handles WhatsApp's request to compare a code with the
 // phone after the assertion was accepted.
-func (m *Manager) passkeyConfirmation(ms *ManagedSession, evt *events.PairPasskeyConfirmation) {
+func (m *Manager) passkeyConfirmation(ms *ManagedSession, c *connection, evt *events.PairPasskeyConfirmation) {
+	ctx, client := c.ctx, c.client
 	ms.mu.Lock()
-	ctx, client, pending := ms.pairCtx, ms.client, ms.passkey
+	pending := ms.passkey
+	if ms.conn != c {
+		pending = nil
+	}
 	if pending != nil {
 		pending.confirmCode = evt.Code
 	}
 	ms.mu.Unlock()
-	if ctx == nil || ctx.Err() != nil || client == nil || pending == nil {
+	if ctx.Err() != nil || pending == nil {
 		return
 	}
 	if evt.SkipHandoffUX {
@@ -254,8 +242,7 @@ func (m *Manager) passkeyConfirmation(ms *ManagedSession, evt *events.PairPasske
 		go func() {
 			if err := client.SendPasskeyConfirmation(ctx); err != nil && ctx.Err() == nil {
 				m.log.Warn("automatic passkey confirmation failed", "session", ms.SessionID, "err", err)
-				m.teardown(ms)
-				m.setFailed(ctx, ms, domain.FailurePasskeyFailed)
+				m.endRun(ctx, ms, c, domain.SessionFailed, domain.FailurePasskeyFailed, false)
 			}
 		}()
 		return
@@ -268,9 +255,18 @@ func (m *Manager) passkeyConfirmation(ms *ManagedSession, evt *events.PairPasske
 }
 
 func (m *Manager) publishPasskey(ctx context.Context, ms *ManagedSession, payload map[string]any) {
-	if m.sink != nil {
-		m.sink.Publish(context.WithoutCancel(ctx), domain.NewEvent(domain.EventAuthPasskey, ms.SessionID, ms.OrganizationID, payload))
+	m.publish(ctx, domain.NewEvent(domain.EventAuthPasskey, ms.SessionID, ms.OrganizationID, payload))
+}
+
+// pairingClient returns the client of the running pairing and its pending
+// passkey verification, if any.
+func (ms *ManagedSession) pairingClient() (waClient, *pendingPasskey) {
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+	if ms.conn == nil {
+		return nil, nil
 	}
+	return ms.conn.client, ms.passkey
 }
 
 // SubmitPasskey forwards the user's WebAuthn assertion for the pending passkey
@@ -290,9 +286,7 @@ func (m *Manager) SubmitPasskey(ctx context.Context, id string, response []byte)
 	if len(assertion.RawID) == 0 || len(assertion.Response.Signature) == 0 || len(assertion.Response.ClientDataJSON) == 0 {
 		return domain.ErrValidation("passkey response is missing rawId, signature or clientDataJSON")
 	}
-	ms.mu.Lock()
-	client, pending := ms.client, ms.passkey
-	ms.mu.Unlock()
+	client, pending := ms.pairingClient()
 	if client == nil || pending == nil {
 		return domain.ErrConflict("no passkey verification is pending for this session")
 	}
@@ -310,13 +304,13 @@ func (m *Manager) ConfirmPasskey(ctx context.Context, id string) error {
 	if ms == nil {
 		return domain.ErrNotFound("session not found")
 	}
-	ms.mu.Lock()
-	client, pending := ms.client, ms.passkey
+	client, pending := ms.pairingClient()
 	code := ""
 	if pending != nil {
+		ms.mu.Lock()
 		code = pending.confirmCode
+		ms.mu.Unlock()
 	}
-	ms.mu.Unlock()
 	if client == nil || pending == nil || code == "" {
 		return domain.ErrConflict("no passkey code is waiting for confirmation")
 	}
