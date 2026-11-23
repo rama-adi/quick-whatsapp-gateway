@@ -1,11 +1,11 @@
-// Admin-surface local helpers: the live-stream chip, tone badges, org-name
-// lookup and live status bridging. The `-` prefix keeps TanStack Start from
-// treating this as a route. All deps (event stream/bus, ui, types) are the
-// FROZEN foundation libs — reused, not rewritten.
+// Admin-surface local helpers: the live-stream chip, tone badges and org-name
+// lookup. The `-` prefix keeps TanStack Start from treating this as a route.
+//
+// Live session status is not tracked here. cacheBridge patches the
+// qk.adminSessions() rows from session.status events, so pages read the cache.
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useEventStream } from "~/lib/events/useEventStream";
-import { subscribeEvents } from "~/lib/events/eventBus";
 import { cn } from "~/lib/utils";
 import { middleTruncate } from "~/lib/format";
 import { Badge } from "~/components/ui/badge";
@@ -17,7 +17,6 @@ import {
 } from "~/components/ui/tooltip";
 import { useOrgs } from "./-admin-client";
 import type { StatusMeta, Tone } from "./-gateway-reconciliation";
-import type { EventEnvelope, SessionStatus, WASession } from "~/lib/api/types";
 
 /**
  * Stream-connection chip shared by admin pages. It reads as a status while the
@@ -119,51 +118,4 @@ export function OrgLabel({ id, names }: { id?: string; names: Map<string, string
   ) : (
     <span title={id} className="truncate font-mono text-xs text-muted-foreground">{middleTruncate(id)}</span>
   );
-}
-
-/**
- * Overlay live session statuses from the firehose onto an immutable base map.
- * The auth/session events carry a status in their payload; we apply the latest
- * per-session value client-side so the admin table reflects reality without a
- * second socket. Returns a map of sessionId → latest status seen.
- */
-export function useLiveSessionStatus(): Record<string, SessionStatus> {
-  const [overrides, setOverrides] = useState<Record<string, SessionStatus>>({});
-  useEffect(() => {
-    return subscribeEvents((e: EventEnvelope) => {
-      const status = extractStatus(e);
-      if (!status || !e.session) return;
-      setOverrides((prev) =>
-        prev[e.session] === status ? prev : { ...prev, [e.session]: status },
-      );
-    });
-  }, []);
-  return overrides;
-}
-
-const SESSION_STATUSES: ReadonlySet<string> = new Set<SessionStatus>([
-  "starting",
-  "scan_qr_code",
-  "working",
-  "failed",
-  "stopped",
-  "logged_out",
-]);
-
-/** Best-effort pull of a session status out of an event payload. */
-function extractStatus(e: EventEnvelope): SessionStatus | null {
-  const p = e.payload as Record<string, unknown> | undefined;
-  const candidate = p?.["status"] ?? p?.["state"];
-  if (typeof candidate === "string" && SESSION_STATUSES.has(candidate)) {
-    return candidate as SessionStatus;
-  }
-  return null;
-}
-
-/** Merge live status overrides into a session row. */
-export function withLiveStatus(
-  s: WASession,
-  overrides: Record<string, SessionStatus>,
-): SessionStatus | undefined {
-  return overrides[s.id] ?? s.status;
 }

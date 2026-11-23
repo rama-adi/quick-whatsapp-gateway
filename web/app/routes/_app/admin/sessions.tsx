@@ -7,7 +7,7 @@
 import { useMemo, useState } from "react";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { DatabaseBackupIcon, LayersIcon, RefreshCwIcon, SearchIcon, XIcon } from "lucide-react";
-import { StreamIndicator, useLiveSessionStatus, withLiveStatus, OrgLabel, useOrgNames } from "./-shared";
+import { StreamIndicator, OrgLabel, useOrgNames } from "./-shared";
 import { useOrgs } from "./-admin-client";
 import {
   useAdminSessionBackfill,
@@ -72,7 +72,6 @@ const STATUS_ORDER: SessionStatus[] = ["working", "scan_qr_code", "starting", "s
 function AdminSessions() {
   useEventStreamSubscription();
   const q = useAdminSessions();
-  const overrides = useLiveSessionStatus();
   const orgNames = useOrgNames();
   const orgs = useOrgs();
   const { org } = Route.useSearch();
@@ -89,13 +88,13 @@ function AdminSessions() {
     const needle = search.trim().toLowerCase();
     return rows.filter((s) => {
       if (org && s.organizationId !== org) return false;
-      if (status !== "all" && withLiveStatus(s, overrides) !== status) return false;
+      if (status !== "all" && s.status !== status) return false;
       if (!needle) return true;
       return [s.label, s.id, s.phoneNumber, s.organizationId && orgNames.get(s.organizationId), s.gatewayId]
         .filter((v): v is string => typeof v === "string")
         .some((v) => v.toLowerCase().includes(needle));
     });
-  }, [rows, org, status, search, overrides, orgNames]);
+  }, [rows, org, status, search, orgNames]);
 
   const setOrg = (next: string | undefined) =>
     void navigate({ search: (prev) => ({ ...prev, org: next }), replace: true });
@@ -227,7 +226,7 @@ function AdminSessions() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <SessionStatusBadge status={withLiveStatus(s, overrides)} />
+                    <SessionStatusBadge status={s.status} />
                   </TableCell>
                   <TableCell className="max-w-48">
                     {s.organizationId ? (

@@ -12,7 +12,7 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { CheckCircle2Icon, QrCodeIcon, RefreshCwIcon, SmartphoneIcon } from "lucide-react";
 import { qk } from "~/lib/query";
-import { StreamIndicator, useLiveSessionStatus, withLiveStatus, OrgLabel, useOrgNames } from "./-shared";
+import { StreamIndicator, OrgLabel, useOrgNames } from "./-shared";
 import { useAdminSessions } from "~/lib/api/hooks/admin";
 import { useEventStreamSubscription } from "~/lib/events/useEventStream";
 import {
@@ -60,7 +60,6 @@ function AdminPairing() {
   // refresh the QR, the pairing code and the badge live.
   useEventStreamSubscription();
   const q = useAdminSessions();
-  const overrides = useLiveSessionStatus();
   const orgNames = useOrgNames();
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -121,7 +120,6 @@ function AdminPairing() {
           {adminSessions.length > 1 ? (
             <SessionPicker
               sessions={adminSessions}
-              overrides={overrides}
               orgNames={orgNames}
               selectedId={selectedId}
               onSelect={setSelectedId}
@@ -131,7 +129,7 @@ function AdminPairing() {
             <PairingPanel
               key={selected.id}
               session={selected}
-              liveStatus={withLiveStatus(selected, overrides)}
+              liveStatus={selected.status}
               orgNames={orgNames}
             />
           ) : null}
@@ -143,13 +141,11 @@ function AdminPairing() {
 
 function SessionPicker({
   sessions,
-  overrides,
   orgNames,
   selectedId,
   onSelect,
 }: {
   sessions: WASession[];
-  overrides: Record<string, SessionStatus>;
   orgNames: Map<string, string>;
   selectedId: string | null;
   onSelect: (id: string) => void;
@@ -174,7 +170,7 @@ function SessionPicker({
               <OrgLabel id={s.organizationId} names={orgNames} />
             </span>
           </span>
-          <SessionStatusBadge status={withLiveStatus(s, overrides)} />
+          <SessionStatusBadge status={s.status} />
         </button>
       ))}
     </div>

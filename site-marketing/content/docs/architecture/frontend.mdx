@@ -246,6 +246,10 @@ surface can read connection status, but it stays **idle** until a surface opts i
 - **Fallback recovery** — after repeated stream failures switch live surfaces to polling, the
   first healthy WebSocket frame atomically restores `open` status and disables polling, so the
   temporary refetch intervals do not continue alongside the recovered stream.
+- **Admin session status** — the admin `sessions` and `pairing` pages read status from the cached
+  `qk.adminSessions()` rows, which the cache bridge patches only from `session.status` events. They
+  do not scan other events for a `status` field: `message.status` carries `status: "failed"` for a
+  failed send, which says nothing about the session.
 - **Malformed and reordered input** — only complete v1 event envelopes reach the cache bridge;
   partial JSON cannot advance the replay cursor. Message delivery receipts project monotonically,
   so a delayed `delivered` frame cannot regress a message already shown as `read`. Invalid ticket
