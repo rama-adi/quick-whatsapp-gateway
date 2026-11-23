@@ -1264,11 +1264,12 @@ func AllMessagesStatusValues() []MessagesStatus {
 type OutboxStatus string
 
 const (
-	OutboxStatusQueued  OutboxStatus = "queued"
-	OutboxStatusSending OutboxStatus = "sending"
-	OutboxStatusSent    OutboxStatus = "sent"
-	OutboxStatusFailed  OutboxStatus = "failed"
-	OutboxStatusUnknown OutboxStatus = "unknown"
+	OutboxStatusQueued       OutboxStatus = "queued"
+	OutboxStatusSending      OutboxStatus = "sending"
+	OutboxStatusSent         OutboxStatus = "sent"
+	OutboxStatusFailed       OutboxStatus = "failed"
+	OutboxStatusUnknown      OutboxStatus = "unknown"
+	OutboxStatusAcknowledged OutboxStatus = "acknowledged"
 )
 
 func (e *OutboxStatus) Scan(src interface{}) error {
@@ -1312,7 +1313,8 @@ func (e OutboxStatus) Valid() bool {
 		OutboxStatusSending,
 		OutboxStatusSent,
 		OutboxStatusFailed,
-		OutboxStatusUnknown:
+		OutboxStatusUnknown,
+		OutboxStatusAcknowledged:
 		return true
 	}
 	return false
@@ -1325,6 +1327,7 @@ func AllOutboxStatusValues() []OutboxStatus {
 		OutboxStatusSent,
 		OutboxStatusFailed,
 		OutboxStatusUnknown,
+		OutboxStatusAcknowledged,
 	}
 }
 
@@ -2099,22 +2102,26 @@ type Organization struct {
 }
 
 type Outbox struct {
-	ID             string          `db:"id" json:"id"`
-	OrganizationID string          `db:"organization_id" json:"organization_id"`
-	SessionID      string          `db:"session_id" json:"session_id"`
-	IdempotencyKey sql.NullString  `db:"idempotency_key" json:"idempotency_key"`
-	Payload        json.RawMessage `db:"payload" json:"payload"`
-	Attempts       int32           `db:"attempts" json:"attempts"`
-	WaMessageID    sql.NullString  `db:"wa_message_id" json:"wa_message_id"`
-	Error          sql.NullString  `db:"error" json:"error"`
-	CreatedAt      int64           `db:"created_at" json:"created_at"`
-	UpdatedAt      int64           `db:"updated_at" json:"updated_at"`
-	NextAttemptAt  int64           `db:"next_attempt_at" json:"next_attempt_at"`
-	TerminalAt     sql.NullInt64   `db:"terminal_at" json:"terminal_at"`
-	Status         OutboxStatus    `db:"status" json:"status"`
-	ExpiresAt      sql.NullInt64   `db:"expires_at" json:"expires_at"`
-	AcknowledgedAt sql.NullInt64   `db:"acknowledged_at" json:"acknowledged_at"`
-	EffectPossible bool            `db:"effect_possible" json:"effect_possible"`
+	ID                 string          `db:"id" json:"id"`
+	OrganizationID     string          `db:"organization_id" json:"organization_id"`
+	SessionID          string          `db:"session_id" json:"session_id"`
+	IdempotencyKey     sql.NullString  `db:"idempotency_key" json:"idempotency_key"`
+	Payload            json.RawMessage `db:"payload" json:"payload"`
+	DispatchAttempts   int32           `db:"dispatch_attempts" json:"dispatch_attempts"`
+	WaMessageID        sql.NullString  `db:"wa_message_id" json:"wa_message_id"`
+	Error              sql.NullString  `db:"error" json:"error"`
+	CreatedAt          int64           `db:"created_at" json:"created_at"`
+	UpdatedAt          int64           `db:"updated_at" json:"updated_at"`
+	NextAttemptAt      int64           `db:"next_attempt_at" json:"next_attempt_at"`
+	TerminalAt         sql.NullInt64   `db:"terminal_at" json:"terminal_at"`
+	ExpiresAt          sql.NullInt64   `db:"expires_at" json:"expires_at"`
+	AcknowledgedAt     sql.NullInt64   `db:"acknowledged_at" json:"acknowledged_at"`
+	EffectPossible     bool            `db:"effect_possible" json:"effect_possible"`
+	Status             OutboxStatus    `db:"status" json:"status"`
+	Deferrals          int32           `db:"deferrals" json:"deferrals"`
+	ProjectionAttempts int32           `db:"projection_attempts" json:"projection_attempts"`
+	ClaimToken         sql.NullString  `db:"claim_token" json:"claim_token"`
+	LeaseUntil         sql.NullInt64   `db:"lease_until" json:"lease_until"`
 }
 
 type PkiAuthority struct {

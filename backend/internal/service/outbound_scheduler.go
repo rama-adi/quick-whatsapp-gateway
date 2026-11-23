@@ -13,6 +13,7 @@ import (
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/apitypes"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/application"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
+	"github.com/rama-adi/quick-whatsapp-gateway/internal/store"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/wa/outbound"
 )
 
@@ -22,22 +23,20 @@ type outboundSessionSource interface {
 }
 
 // outboundCommandStore is the durable command-row boundary the scheduler owns.
+// Every method after a claim is fenced by the command's claim token and fails
+// with store.ErrOutboxClaimLost when a newer claim owns the row.
 type outboundCommandStore interface {
 	Insert(ctx context.Context, o domain.OutboxEntry) error
 	GetByIdempotency(ctx context.Context, organizationID, idempotencyKey string) (domain.OutboxEntry, error)
-	UpdateStatus(
-		ctx context.Context,
-		id string,
-		status domain.OutboxStatus,
-		waMessageID, errMsg *string,
-		updatedAt int64,
-	) error
-	ClaimDue(ctx context.Context, limit int, dueBefore, staleBefore, updatedAt int64) ([]domain.OutboxEntry, error)
-	Reschedule(ctx context.Context, id string, ownerStamp int64, note string, nextAttemptAt, updatedAt int64) (bool, error)
-	MarkDispatchPossible(ctx context.Context, id string, ownerStamp int64) (bool, error)
-	ClearDispatchPossible(ctx context.Context, id string, ownerStamp int64) (bool, error)
-	RecordAcknowledgement(ctx context.Context, id string, ownerStamp int64, waID string, acknowledgedAt int64) (bool, error)
-	CompleteOwned(ctx context.Context, id string, ownerStamp int64, status domain.OutboxStatus, waID, note *string, updatedAt int64) (bool, error)
+	ClaimDue(ctx context.Context, claim store.OutboxClaim) ([]domain.OutboxEntry, error)
+	RenewLease(ctx context.Context, id, token string, leaseUntil int64) error
+	MarkDispatch(ctx context.Context, id, token string, leaseUntil int64) error
+	ClearDispatchPossible(ctx context.Context, id, token string) error
+	RecordAcknowledgement(ctx context.Context, id, token, waID string, acknowledgedAt int64) error
+	Defer(ctx context.Context, id, token, note string, nextAttemptAt, now int64) error
+	Retry(ctx context.Context, id, token, note string, nextAttemptAt, now int64) error
+	DeferProjection(ctx context.Context, id, token, note string, nextAttemptAt, now int64) error
+	CompleteOwned(ctx context.Context, id, token string, status domain.OutboxStatus, waID, note *string, updatedAt int64) error
 }
 
 // OutboundScheduler is the API-owned send pipeline (Increment 6): it owns
@@ -77,13 +76,17 @@ type OutboundScheduler struct {
 // implicit defaults because lease sizing must exceed the engine send deadline
 // and batch/poll sizing must agree with the deployment's replica count.
 type OutboundSchedulerConfig struct {
-	Lease       time.Duration // stale-'sending' reclaim window; must exceed the engine send deadline
+	Lease       time.Duration // claim lease; renewed before each dispatch; must exceed the engine send deadline
 	Batch       int
 	Poll        time.Duration
-	MaxAttempts int
-	BackoffBase time.Duration
-	BackoffCap  time.Duration
-	Now         func() time.Time
+	MaxAttempts int // dispatch attempts before an ambiguous command ends unknown/failed
+	// MaxProjectionAttempts caps retries of an acknowledged send's projection
+	// (messages row, sent event). The command then ends sent with the
+	// projection error recorded, because WhatsApp already accepted it.
+	MaxProjectionAttempts int
+	BackoffBase           time.Duration
+	BackoffCap            time.Duration
+	Now                   func() time.Time
 }
 
 func (c *OutboundSchedulerConfig) normalize() error {
@@ -94,7 +97,7 @@ func (c *OutboundSchedulerConfig) normalize() error {
 		return fmt.Errorf("outbound scheduler batch must be positive")
 	case c.Poll <= 0:
 		return fmt.Errorf("outbound scheduler poll must be positive")
-	case c.MaxAttempts <= 0:
+	case c.MaxAttempts <= 0 || c.MaxProjectionAttempts <= 0:
 		return fmt.Errorf("outbound scheduler max attempts must be positive")
 	case c.BackoffBase <= 0 || c.BackoffCap < c.BackoffBase:
 		return fmt.Errorf("outbound scheduler backoff base/cap invalid")
@@ -274,7 +277,6 @@ func (s *OutboundScheduler) sendSync(
 
 	now := s.now()
 	entry := s.newCommand(sess, opts.IdempotencyKey, domain.OutboxSending, now, req.ExpiresAt)
-	entry.Attempts = 1 // this call is attempt one; the lease is stamped by updated_at
 	if err := s.insertCommand(ctx, entry, req); err != nil {
 		if opts.IdempotencyKey != "" {
 			if prior, found, gerr := s.priorByIdempotency(ctx, sess.OrganizationID, opts.IdempotencyKey); gerr == nil && found {
@@ -303,7 +305,7 @@ func (s *OutboundScheduler) newCommand(
 	now time.Time,
 	expiresAt *int64,
 ) domain.OutboxEntry {
-	return domain.OutboxEntry{
+	entry := domain.OutboxEntry{
 		ID:             domain.NewULID(),
 		OrganizationID: sess.OrganizationID,
 		SessionID:      sess.ID,
@@ -313,6 +315,12 @@ func (s *OutboundScheduler) newCommand(
 		UpdatedAt:      now.UnixMilli(),
 		ExpiresAt:      expiresAt,
 	}
+	if status == domain.OutboxSending {
+		// A sync front-door command is inserted already leased to this call.
+		entry.ClaimToken = domain.NewULID()
+		entry.LeaseUntil = now.Add(s.cfg.Lease).UnixMilli()
+	}
+	return entry
 }
 
 func (s *OutboundScheduler) insertCommand(ctx context.Context, entry domain.OutboxEntry, req domain.SendRequest) error {
@@ -341,13 +349,21 @@ func (s *OutboundScheduler) Run(ctx context.Context) error {
 }
 
 func (s *OutboundScheduler) processDue(ctx context.Context) {
-	now := s.now().UnixMilli()
-	entries, err := s.outbox.ClaimDue(ctx, s.cfg.Batch, now, now-s.cfg.Lease.Milliseconds(), now)
+	now := s.now()
+	entries, err := s.outbox.ClaimDue(ctx, store.OutboxClaim{
+		Token: domain.NewULID(), Now: now.UnixMilli(), LeaseUntil: now.Add(s.cfg.Lease).UnixMilli(), Limit: s.cfg.Batch,
+	})
 	if err != nil {
 		s.log.WarnContext(ctx, "claim due outbound commands failed", "err", err)
 		return
 	}
 	for _, entry := range entries {
+		// One claim covers the batch; renew per command so a slow batch never
+		// works on a row whose lease another scheduler may already reclaim.
+		if err := s.renew(ctx, entry); err != nil {
+			s.log.InfoContext(ctx, "outbound command claim lost before processing", "command", entry.ID, "err", err)
+			continue
+		}
 		var req domain.SendRequest
 		if err := json.Unmarshal(entry.Payload, &req); err != nil {
 			// A malformed payload can never succeed; recording it terminal keeps
@@ -390,30 +406,22 @@ func (s *OutboundScheduler) dispatchClaimed(
 		}
 		return s.dispatchOp(ctx, entry, payload)
 	}
-	now := s.now()
-
 	if checkLimit && entry.AcknowledgedAt == nil && !s.expired(entry) {
 		sess, err := s.sessions.Get(ctx, entry.SessionID)
 		if err != nil {
-			return outbound.SendResult{}, s.ambiguous(ctx, entry, fmt.Sprintf("session lookup: %v", err))
+			return outbound.SendResult{}, s.deferred(ctx, entry, fmt.Sprintf("session lookup: %v", err))
 		}
 		ok, retryAfter, err := s.limiter.Allow(ctx, entry.SessionID, sess.RatePerMin, sess.RatePerHour)
 		if err != nil {
-			return outbound.SendResult{}, s.ambiguous(ctx, entry, fmt.Sprintf("rate check: %v", err))
+			// Nothing was dispatched: a deferral, not a dispatch attempt.
+			return outbound.SendResult{}, s.deferred(ctx, entry, fmt.Sprintf("rate check: %v", err))
 		}
 		if !ok {
 			if s.expired(entry) && !entry.EffectPossible {
 				return outbound.SendResult{}, s.expireClaim(ctx, entry)
 			}
-			if _, rerr := s.outbox.Reschedule(
-				ctx,
-				entry.ID,
-				entry.UpdatedAt,
-				"rate limited",
-				now.Add(retryAfter).UnixMilli(),
-				now.UnixMilli(),
-			); rerr != nil {
-				return outbound.SendResult{}, rerr
+			if derr := s.deferDispatch(ctx, entry, "rate limited", retryAfter); derr != nil {
+				return outbound.SendResult{}, derr
 			}
 			return outbound.SendResult{}, domain.ErrRateLimited("send deferred: rate limit").
 				WithDetails(map[string]any{"retryAfterSeconds": int(retryAfter.Seconds())})
@@ -430,12 +438,11 @@ func (s *OutboundScheduler) dispatchClaimed(
 		result.WAMessageID = *entry.WAMessageID
 		result.SentAt = time.UnixMilli(*entry.AcknowledgedAt).UTC()
 	} else {
-		if !entry.EffectPossible {
-			if err := s.markPossible(ctx, entry); err != nil {
-				return outbound.SendResult{}, err
-			}
+		// Every dispatch, including a retry of a command whose effect was
+		// already possible, is fenced by the claim token and counted.
+		if err := s.markDispatch(ctx, &entry); err != nil {
+			return outbound.SendResult{}, err
 		}
-		entry.EffectPossible = true
 		result, err = s.engine.SendMessage(ctx, application.SendCommand{
 			CommandID:       entry.ID,
 			OrganizationID:  entry.OrganizationID,
@@ -476,7 +483,7 @@ func (s *OutboundScheduler) dispatchClaimed(
 
 	waID := result.WAMessageID
 	if entry.AcknowledgedAt == nil {
-		if err := s.recordAck(ctx, entry, waID, timestamp); err != nil {
+		if err := s.recordAck(ctx, &entry, waID, timestamp); err != nil {
 			return outbound.SendResult{}, err
 		}
 	}
@@ -506,15 +513,24 @@ func (s *OutboundScheduler) dispatchClaimed(
 	}, nil
 }
 
+// deferProjection parks an acknowledged send whose projection failed. It is
+// retried with backoff; after MaxProjectionAttempts the command ends sent
+// (WhatsApp accepted it) with the projection error recorded.
 func (s *OutboundScheduler) deferProjection(ctx context.Context, entry domain.OutboxEntry, cause error) (outbound.SendResult, error) {
-	note := "acknowledged send awaiting projection: " + cause.Error()
-	owned, err := s.outbox.Reschedule(ctx, entry.ID, entry.UpdatedAt, note,
-		s.now().Add(s.cfg.BackoffBase).UnixMilli(), s.now().UnixMilli())
-	if err != nil {
-		return outbound.SendResult{}, err
+	attempt := entry.ProjectionAttempts + 1
+	if attempt >= s.cfg.MaxProjectionAttempts {
+		note := fmt.Sprintf("sent; message projection gave up after %d attempts: %v", attempt, cause)
+		s.log.ErrorContext(ctx, "outbound projection abandoned; command recorded as sent",
+			"command", entry.ID, "session", entry.SessionID, "attempts", attempt, "err", cause)
+		if err := s.complete(ctx, entry, domain.OutboxSent, entry.WAMessageID, &note, s.now().UnixMilli()); err != nil {
+			return outbound.SendResult{}, err
+		}
+		return outbound.SendResult{Mode: outbound.ModeAsync, OutboxID: entry.ID}, nil
 	}
-	if !owned {
-		return outbound.SendResult{}, domain.ErrConflict("outbox dispatch lease changed")
+	note := fmt.Sprintf("acknowledged send awaiting projection (attempt %d): %v", attempt, cause)
+	next := s.now().Add(s.backoff(attempt)).UnixMilli()
+	if err := s.outbox.DeferProjection(ctx, entry.ID, entry.ClaimToken, note, next, s.now().UnixMilli()); err != nil {
+		return outbound.SendResult{}, s.leaseErr(err)
 	}
 	return outbound.SendResult{Mode: outbound.ModeAsync, OutboxID: entry.ID}, nil
 }
@@ -525,16 +541,15 @@ func (s *OutboundScheduler) SetMediaCapture(capture func(context.Context, string
 	s.captureMedia = capture
 }
 
-// ambiguous reschedules one leased command for a later attempt under the same
-// command id. Exhaustion preserves an explicitly unknown remote outcome.
+// ambiguous reschedules one leased command after a dispatch attempt under the
+// same command id. Exhausting MaxAttempts dispatch attempts preserves an
+// explicitly unknown remote outcome (or a definite failure when nothing was
+// ever dispatched).
 func (s *OutboundScheduler) ambiguous(ctx context.Context, entry domain.OutboxEntry, cause string) error {
 	if s.expired(entry) {
 		return s.expireClaim(ctx, entry)
 	}
-	attempt := entry.Attempts
-	if attempt <= 0 {
-		attempt = 1
-	}
+	attempt := max(entry.Attempts, 1)
 	note := fmt.Sprintf("%s (attempt %d)", cause, attempt)
 	if attempt >= s.cfg.MaxAttempts {
 		status := domain.OutboxUnknown
@@ -548,15 +563,39 @@ func (s *OutboundScheduler) ambiguous(ctx context.Context, entry domain.OutboxEn
 		}
 		return errors.New(note)
 	}
-	backoff := s.cfg.BackoffBase << (attempt - 1)
-	if backoff > s.cfg.BackoffCap || backoff <= 0 {
-		backoff = s.cfg.BackoffCap
-	}
-	next := s.now().Add(backoff)
-	if _, err := s.outbox.Reschedule(ctx, entry.ID, entry.UpdatedAt, note, next.UnixMilli(), s.now().UnixMilli()); err != nil {
-		return err
+	next := s.now().Add(s.backoff(attempt))
+	if err := s.outbox.Retry(ctx, entry.ID, entry.ClaimToken, note, next.UnixMilli(), s.now().UnixMilli()); err != nil {
+		return s.leaseErr(err)
 	}
 	return errors.New(note)
+}
+
+// deferDispatch returns a command to queued without a dispatch attempt. The
+// returned error is only a bookkeeping failure.
+func (s *OutboundScheduler) deferDispatch(ctx context.Context, entry domain.OutboxEntry, cause string, delay time.Duration) error {
+	note := fmt.Sprintf("%s (deferral %d)", cause, entry.Deferrals+1)
+	return s.leaseErr(s.outbox.Defer(ctx, entry.ID, entry.ClaimToken, note, s.now().Add(delay).UnixMilli(), s.now().UnixMilli()))
+}
+
+// deferred defers a command for an infrastructure check that failed before
+// dispatch and reports that cause.
+func (s *OutboundScheduler) deferred(ctx context.Context, entry domain.OutboxEntry, cause string) error {
+	if err := s.deferDispatch(ctx, entry, cause, s.backoff(entry.Deferrals+1)); err != nil {
+		return err
+	}
+	return errors.New(cause)
+}
+
+// backoff is BackoffBase doubled per attempt, capped at BackoffCap.
+func (s *OutboundScheduler) backoff(attempt int) time.Duration {
+	if attempt < 1 {
+		attempt = 1
+	}
+	d := s.cfg.BackoffBase << (attempt - 1)
+	if d > s.cfg.BackoffCap || d <= 0 {
+		d = s.cfg.BackoffCap
+	}
+	return d
 }
 
 func (s *OutboundScheduler) expired(entry domain.OutboxEntry) bool {
@@ -580,47 +619,43 @@ func (s *OutboundScheduler) expireClaim(ctx context.Context, entry domain.Outbox
 }
 
 func (s *OutboundScheduler) complete(ctx context.Context, entry domain.OutboxEntry, status domain.OutboxStatus, waID, note *string, at int64) error {
-	owned, err := s.outbox.CompleteOwned(ctx, entry.ID, entry.UpdatedAt, status, waID, note, at)
-	if err != nil {
-		return err
-	}
-	if !owned {
-		return domain.ErrConflict("outbox dispatch lease changed")
-	}
-	return nil
+	return s.leaseErr(s.outbox.CompleteOwned(ctx, entry.ID, entry.ClaimToken, status, waID, note, at))
 }
 
-func (s *OutboundScheduler) markPossible(ctx context.Context, entry domain.OutboxEntry) error {
-	owned, err := s.outbox.MarkDispatchPossible(ctx, entry.ID, entry.UpdatedAt)
-	if err != nil {
-		return err
+// renew extends a claimed command's lease before it is processed.
+func (s *OutboundScheduler) renew(ctx context.Context, entry domain.OutboxEntry) error {
+	return s.leaseErr(s.outbox.RenewLease(ctx, entry.ID, entry.ClaimToken, s.now().Add(s.cfg.Lease).UnixMilli()))
+}
+
+// markDispatch records a possible remote effect and counts the dispatch
+// attempt immediately before the engine call; it also renews the lease.
+func (s *OutboundScheduler) markDispatch(ctx context.Context, entry *domain.OutboxEntry) error {
+	if err := s.outbox.MarkDispatch(ctx, entry.ID, entry.ClaimToken, s.now().Add(s.cfg.Lease).UnixMilli()); err != nil {
+		return s.leaseErr(err)
 	}
-	if !owned {
-		return domain.ErrConflict("outbox dispatch lease changed")
-	}
+	entry.EffectPossible = true
+	entry.Attempts++
 	return nil
 }
 
 func (s *OutboundScheduler) clearPossible(ctx context.Context, entry domain.OutboxEntry) error {
-	owned, err := s.outbox.ClearDispatchPossible(ctx, entry.ID, entry.UpdatedAt)
-	if err != nil {
-		return err
+	return s.leaseErr(s.outbox.ClearDispatchPossible(ctx, entry.ID, entry.ClaimToken))
+}
+
+func (s *OutboundScheduler) recordAck(ctx context.Context, entry *domain.OutboxEntry, waID string, at int64) error {
+	if err := s.outbox.RecordAcknowledgement(ctx, entry.ID, entry.ClaimToken, waID, at); err != nil {
+		return s.leaseErr(err)
 	}
-	if !owned {
-		return domain.ErrConflict("outbox dispatch lease changed")
-	}
+	entry.WAMessageID, entry.AcknowledgedAt = &waID, &at
 	return nil
 }
 
-func (s *OutboundScheduler) recordAck(ctx context.Context, entry domain.OutboxEntry, waID string, at int64) error {
-	owned, err := s.outbox.RecordAcknowledgement(ctx, entry.ID, entry.UpdatedAt, waID, at)
-	if err != nil {
-		return err
-	}
-	if !owned {
+// leaseErr maps a lost claim to the conflict callers already handle.
+func (s *OutboundScheduler) leaseErr(err error) error {
+	if errors.Is(err, store.ErrOutboxClaimLost) {
 		return domain.ErrConflict("outbox dispatch lease changed")
 	}
-	return nil
+	return err
 }
 
 // replayOutboxResult reconstructs a SendResult from a stored row so an
@@ -633,7 +668,8 @@ func replayOutboxResult(e *domain.OutboxEntry) outbound.SendResult {
 		r.ReservedMessageIDs = outbound.ReservedMessageIDs(e.ID, req)
 	}
 	switch e.Status {
-	case domain.OutboxSent:
+	case domain.OutboxSent, domain.OutboxAcknowledged:
+		// Acknowledged: WhatsApp accepted it; only the local projection is pending.
 		r.Mode = outbound.ModeSync
 		r.Status = domain.MessageSent
 		if e.WAMessageID != nil {
@@ -913,7 +949,6 @@ func (s *OutboundScheduler) ExecuteOp(
 	}
 	now := s.now()
 	entry := s.newCommand(sess, req.IdempotencyKey, domain.OutboxSending, now, req.ExpiresAt)
-	entry.Attempts = 1
 	payload, err := json.Marshal(opRequestToPayload(req))
 	if err != nil {
 		return outbound.SendResult{}, fmt.Errorf("encode op payload: %w", err)
@@ -949,12 +984,9 @@ func (s *OutboundScheduler) dispatchOp(
 		result.WAMessageID = *entry.WAMessageID
 		result.SentAt = time.UnixMilli(*entry.AcknowledgedAt).UTC()
 	} else {
-		if !entry.EffectPossible {
-			if err := s.markPossible(ctx, entry); err != nil {
-				return outbound.SendResult{}, err
-			}
+		if err := s.markDispatch(ctx, &entry); err != nil {
+			return outbound.SendResult{}, err
 		}
-		entry.EffectPossible = true
 		result, err = s.engine.ExecuteOp(ctx, application.MessageOpCommand{
 			CommandID:      entry.ID,
 			OrganizationID: entry.OrganizationID,
@@ -997,7 +1029,7 @@ func (s *OutboundScheduler) dispatchOp(
 	}
 	waID := result.WAMessageID
 	if entry.AcknowledgedAt == nil {
-		if err := s.recordAck(ctx, entry, waID, timestamp); err != nil {
+		if err := s.recordAck(ctx, &entry, waID, timestamp); err != nil {
 			return outbound.SendResult{}, err
 		}
 	}

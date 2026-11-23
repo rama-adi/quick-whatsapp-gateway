@@ -386,9 +386,12 @@ func runWithStorageTransport(storageTransport http.RoundTripper) error {
 				Batch:       32,
 				Poll:        2 * time.Second,
 				MaxAttempts: outboundSchedulerMaxAttempts,
-				BackoffBase: 5 * time.Second,
-				BackoffCap:  10 * time.Minute,
-				Now:         time.Now,
+				// About a day of capped backoff before an acknowledged send is
+				// recorded sent with its projection error.
+				MaxProjectionAttempts: 150,
+				BackoffBase:           5 * time.Second,
+				BackoffCap:            10 * time.Minute,
+				Now:                   time.Now,
 			},
 			log,
 		)

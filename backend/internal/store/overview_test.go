@@ -123,8 +123,8 @@ func TestOverviewMySQL(t *testing.T) {
 	msg(s3, "c9", "in", 1500)  // other org
 
 	outbox := func(id, org, session, status string, created int64) {
-		exec(`INSERT INTO outbox (id, organization_id, session_id, payload, status, created_at, updated_at)
-			VALUES (?,?,?, '{}', ?, ?, ?)`, id+suffix, org, session, status, created, created)
+		exec(`INSERT INTO outbox (id, organization_id, session_id, payload, status, created_at, updated_at, terminal_at)
+			VALUES (?,?,?, '{}', ?, ?, ?, ?)`, id+suffix, org, session, status, created, created, created)
 	}
 	outbox("o1", orgA, s1, "failed", 1500)
 	outbox("o2", orgA, s2, "failed", 3000)

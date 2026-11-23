@@ -146,13 +146,9 @@ All collaborators are small interfaces owned by this package — no sibling
   the matching protobuf message), `SendAlbum` (album container + associated
   children), `React`, `Edit`, `Revoke`, `Vote`, `Forward`. Each
   returns `(waMessageID string, ts int64, err error)`, `ts` in epoch-ms.
-- `OutboxRepo` — `Insert`, `GetByIdempotencyKey`, `UpdateStatus`, `ClaimByID`, `ClaimQueued`.
-  `Insert` MUST enforce `(organization_id, idempotency_key)` uniqueness and return a
-  conflict-coded error on duplicates (the pipeline falls back to a replay).
 - `RateLimiter` — `Allow(ctx, sessionID, perMin, perHour) (ok, retryAfter, err)`.
-- `Clock` — `NowMs() int64`. `SystemClock()` is the production impl.
 - `MessageRecorder` — `RecordSent(ctx, SentMessage) error`. Optional (wired via
-  `WithMessageRecorder`; nil disables recording). The `service`-package adapter
+  `OutboundScheduler.SetMessageRecorder`; nil disables recording). The `service`-package adapter
   (`MessageRecorderAdapter`) upserts the chat then the message via the store
   repos, keyed by `(session_id, wa_message_id)` — the **same** idempotent key the
   inbound pipeline uses, so a later echo or receipt reconciles onto the row
@@ -178,7 +174,10 @@ The append enqueues durable fan-out (`event_fanout`, `source='api'`) in the same
 transaction, so realtime publication and webhook enqueue no longer run on the send path
 and a Redis outage cannot hold a sent command open.
 A projection failure after WhatsApp acknowledgement returns the pending outbox
-identity and reschedules using the configured base backoff. Retrying uses the
+identity and parks the command as `acknowledged` with `projection_attempts + 1` and
+exponential backoff (base doubling, capped). After `MaxProjectionAttempts` (150 in the
+API, about a day) the command ends `sent` (WhatsApp accepted it) with the projection
+error in `error`, logged at error level, instead of retrying forever. Retrying uses the
 same command ID, so the gateway replays its durable result without sending again.
 The sent event uses that command ID and acknowledgement timestamp; event-log
 append and webhook enqueue deduplicate it. Realtime delivery remains at least
@@ -335,38 +334,49 @@ atomic op.
   `200` and `mode:"sync"` with the current durable `status`. The key is unique
   within an organization, but it cannot replay an entry through another
   session. Reuse cannot extend or change the first saved expiry.
-- **Async worker ownership is leased and at-least-once**: a database CAS admits
-  one scheduler for nonterminal `queued|failed → sending`; a fresh `sending` row is left to its
-  owner, while a claim older than the lease (exceeding the engine send deadline) is
-  recoverable after a scheduler crash. The gateway result ledger closes the
-  acknowledgement gap the note below describes:
-  a recovered ambiguous claim re-issues its `command_id` and replays the stored
-  outcome instead of re-sending. Dispatch
-  is bounded by the engine send deadline so a healthy owner finishes before its
-  lease expires.
-  Settlement, rescheduling, the dispatch-possible marker, and the saved
-  acknowledgement compare the current lease stamp before changing a row. A
-  first-attempt engine-client error proven to precede a private RPC clears
-  the conservative marker under that same lease; errors after the RPC begins
-  never do. A
-  validated engine acknowledgement is stored as `wa_message_id` and
-  `acknowledged_at` before the API captures outbound media or projects
-  history/events. A fresh engine response carries the already prepared media
-  bytes into capture, so an accepted URL or button header is not fetched a
-  second time after WhatsApp acknowledgement. A media or history projection
-  failure reschedules only that projection. The retry uses the saved
-  acknowledgement and can complete `sent` after expiry without another
-  engine call. A stale owner
-  cannot overwrite that result.
-- **Worker ownership is a database CAS**: before dispatching a queued task, a worker calls
-  `ClaimByID`, which atomically changes `queued` (first attempt), `failed` (retry), or a
-  lease-expired `sending` row to `sending`, increments attempts, and reports whether it won.
-  The worker supplies a stale cutoff based on a lease longer than the maximum dispatch timeout:
-  duplicate tasks see a fresh lease and skip, while a crash-stranded row eventually becomes
-  reclaimable. All claim selectors and the CAS exclude rows with `terminal_at` set, including
-  deterministic `failed` and unresolved `unknown` outcomes, so settled commands never re-enter the retry loop. Batch recovery uses
-  `FOR UPDATE SKIP LOCKED` plus the same CAS inside one transaction, so replicas receive disjoint
-  pages and a failure rolls back the whole claim.
+- **Explicit command states (migration 0036).** `queued` → `sending` (leased) →
+  `acknowledged` (WhatsApp accepted; projection pending) → `sent`, or `failed` /
+  `unknown`. A `sending` row always carries `claim_token` and `lease_until`; terminal
+  rows always carry `terminal_at`, and `acknowledged` rows `acknowledged_at` (CHECK
+  constraints). `sending` keeps its historical name for the leased state: renaming the
+  ENUM value would rewrite the outbox table twice for no behavioral gain.
+- **Claims are leased and token-fenced.** `ClaimDue` selects due `queued` commands and
+  due `acknowledged` projections (or rows past their expiry) plus `sending` rows whose
+  lease expired, with `FOR UPDATE SKIP LOCKED`, and leases each with one claim token per
+  batch. The scheduler renews each command's lease before processing it, so a slow batch
+  never works on a row another scheduler may already reclaim. A sync front-door command
+  is inserted already leased to its call. Every later write — `MarkDispatch`,
+  `ClearDispatchPossible`, `RecordAcknowledgement`, `Defer`, `Retry`,
+  `DeferProjection`, `CompleteOwned` — updates only `WHERE id AND claim_token AND
+  status='sending'`; a stale owner gets `store.ErrOutboxClaimLost` (surfaced as a
+  conflict) and can neither dispatch nor overwrite a result. All selectors exclude rows
+  with `terminal_at`, so settled commands never re-enter the loop.
+- **Attempts are counted by kind.** `MarkDispatch` runs before **every** engine call —
+  including a retry whose effect was already possible — and atomically sets
+  `effect_possible`, increments `dispatch_attempts` and renews the lease.
+  `dispatch_attempts` alone feeds the ambiguous-send budget (`MaxAttempts`). A rate-limit
+  deferral, or a session lookup / rate check that fails before dispatch, returns the
+  command to `queued` with `deferrals + 1` and never consumes that budget; deferrals are
+  uncapped but visible (the command's own `expires_at` bounds them when set). Projection
+  retries count `projection_attempts` and are capped (above).
+- **At-least-once across the acknowledgement gap.** A recovered ambiguous claim re-issues
+  its `command_id`; the gateway result ledger replays a stored outcome instead of
+  re-sending. Dispatch is bounded by the engine send deadline, shorter than the lease. A
+  first-attempt engine-client error proven to precede a private RPC clears the
+  conservative marker under the same claim; errors after the RPC begins never do. A
+  validated acknowledgement is stored as `wa_message_id` and `acknowledged_at` before
+  the API captures outbound media or projects history/events; a projection retry uses
+  the saved acknowledgement and can complete `sent` after expiry without another engine
+  call.
+- **Gateway in-flight guard.** The gateway's `inFlight` map only coalesces concurrent
+  calls with one command id inside one process; it is deliberately not journaled.
+  After a gateway crash mid-dispatch the ledger has no result, the API's retry
+  re-issues the same command id, and the gateway sends again with the **same**
+  deterministic WhatsApp message id(s) derived from the command id and ordinal
+  (`outbound.WithCommandMessageIDs`), which WhatsApp recipients deduplicate. A
+  journaled `in_flight` row could only make the gateway refuse that retry, turning a
+  recoverable resend into `unknown`; the API's `effect_possible` marker already
+  records the uncertainty durably.
 - **Media is data-or-URL and never retained as bytes**: the API engine client resolves URLs
   and data URIs into canonical base64 before issuing the private byte-only gateway RPC. It preserves
   media metadata and applies the existing per-item and album aggregate limits without modifying
@@ -375,8 +385,8 @@ atomic op.
   exactly one of `media.data` or `media.url` and enforces `MaxMediaBytes`.
   `dispatch` decodes base64 (a data: URI is accepted) or downloads the HTTP(S)
   URL, then hands the bytes to `SendMedia`. Inline bytes ride the `outbox`
-  payload only until dispatch — `store.OutboxRepo.UpdateStatus` strips
-  `$.media.data` once the row is `sent` (kept on `failed` for retry). URL sends
+  payload only until dispatch — `store.OutboxRepo.CompleteOwned` strips
+  `$.media.data` once the row is `sent`. URL sends
   retain the URL in the request payload for retry. A fresh acknowledgement
   captures the prepared bytes without another URL request; if capture fails,
   a later projection retry needs that URL to remain fetchable. The saved

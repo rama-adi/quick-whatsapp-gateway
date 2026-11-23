@@ -213,9 +213,14 @@ const (
 type OutboxStatus string
 
 const (
-	OutboxQueued  OutboxStatus = "queued"
+	OutboxQueued OutboxStatus = "queued"
+	// OutboxSending is the leased state: a claim token and lease name the
+	// scheduler that owns the command.
 	OutboxSending OutboxStatus = "sending"
-	OutboxSent    OutboxStatus = "sent"
-	OutboxFailed  OutboxStatus = "failed"
-	OutboxUnknown OutboxStatus = "unknown"
+	// OutboxAcknowledged means WhatsApp accepted the send and its projection
+	// (messages row, sent event) is waiting for a retry.
+	OutboxAcknowledged OutboxStatus = "acknowledged"
+	OutboxSent         OutboxStatus = "sent"
+	OutboxFailed       OutboxStatus = "failed"
+	OutboxUnknown      OutboxStatus = "unknown"
 )

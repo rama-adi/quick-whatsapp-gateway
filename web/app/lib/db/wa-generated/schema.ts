@@ -1,4 +1,4 @@
-import { mysqlTable, mysqlSchema, index, primaryKey, check, varchar, mysqlEnum, bigint, int, text, unique, json, mediumtext, smallint, char, tinyint } from "drizzle-orm/mysql-core"
+import { mysqlTable, mysqlSchema, index, primaryKey, check, varchar, mysqlEnum, bigint, int, text, unique, json, mediumtext, char, smallint, tinyint } from "drizzle-orm/mysql-core"
 import { sql } from "drizzle-orm"
 
 export const backfillImports = mysqlTable("backfill_imports", {
@@ -144,8 +144,8 @@ export const outbox = mysqlTable("outbox", {
 	sessionId: varchar("session_id", { length: 64 }).notNull(),
 	idempotencyKey: varchar("idempotency_key", { length: 255 }),
 	payload: json().notNull(),
-	status: mysqlEnum(['queued','sending','sent','failed','unknown']).default('queued').notNull(),
-	attempts: int().default(0).notNull(),
+	status: mysqlEnum(['queued','sending','sent','failed','unknown','acknowledged']).default('queued').notNull(),
+	dispatchAttempts: int("dispatch_attempts").default(0).notNull(),
 	nextAttemptAt: bigint("next_attempt_at", { mode: "number" }).notNull(),
 	expiresAt: bigint("expires_at", { mode: "number" }),
 	waMessageId: varchar("wa_message_id", { length: 255 }),
@@ -155,12 +155,20 @@ export const outbox = mysqlTable("outbox", {
 	terminalAt: bigint("terminal_at", { mode: "number" }),
 	createdAt: bigint("created_at", { mode: "number" }).notNull(),
 	updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+	deferrals: int().default(0).notNull(),
+	projectionAttempts: int("projection_attempts").default(0).notNull(),
+	claimToken: char("claim_token", { length: 26 }),
+	leaseUntil: bigint("lease_until", { mode: "number" }),
 },
 (table) => [
 	index("idx_outbox_activity").on(table.organizationId, table.status, table.createdAt, table.sessionId),
 	index("idx_outbox_due").on(table.status, table.nextAttemptAt),
+	index("idx_outbox_lease").on(table.status, table.leaseUntil),
 	primaryKey({ columns: [table.id], name: "outbox_id"}),
 	unique("uq_idem").on(table.organizationId, table.idempotencyKey),
+	check("chk_outbox_terminal", sql`((\`status\` in (_utf8mb4\'sent\',_utf8mb4\'failed\',_utf8mb4\'unknown\')) = (\`terminal_at\` is not null))`),
+	check("chk_outbox_lease", sql`((\`status\` = _utf8mb4\'sending\') = ((\`claim_token\` is not null) and (\`lease_until\` is not null)))`),
+	check("chk_outbox_acknowledged", sql`((\`status\` <> _utf8mb4\'acknowledged\') or (\`acknowledged_at\` is not null))`),
 ]);
 
 export const pollVotes = mysqlTable("poll_votes", {

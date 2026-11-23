@@ -11,89 +11,18 @@ import (
 	"encoding/json"
 )
 
-const claimOutboxByID = `-- name: ClaimOutboxByID :execrows
-UPDATE outbox
-SET status = ?, attempts = attempts + 1, updated_at = ?
-WHERE id = ?
-  AND terminal_at IS NULL
-  AND (
-    status IN (?, ?)
-    OR (status = ? AND updated_at <= ?)
-  )
-`
-
-type ClaimOutboxByIDParams struct {
-	ClaimedStatus OutboxStatus `db:"claimed_status" json:"claimed_status"`
-	UpdatedAt     int64        `db:"updated_at" json:"updated_at"`
-	ID            string       `db:"id" json:"id"`
-	QueuedStatus  OutboxStatus `db:"queued_status" json:"queued_status"`
-	FailedStatus  OutboxStatus `db:"failed_status" json:"failed_status"`
-	SendingStatus OutboxStatus `db:"sending_status" json:"sending_status"`
-	StaleBefore   int64        `db:"stale_before" json:"stale_before"`
-}
-
-func (q *Queries) ClaimOutboxByID(ctx context.Context, arg ClaimOutboxByIDParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, claimOutboxByID,
-		arg.ClaimedStatus,
-		arg.UpdatedAt,
-		arg.ID,
-		arg.QueuedStatus,
-		arg.FailedStatus,
-		arg.SendingStatus,
-		arg.StaleBefore,
-	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
 const clearOutboxDispatchPossible = `-- name: ClearOutboxDispatchPossible :execrows
 UPDATE outbox SET effect_possible = FALSE
-WHERE id = ? AND status = 'sending' AND updated_at = ?
-  AND terminal_at IS NULL AND acknowledged_at IS NULL
+WHERE id = ? AND claim_token = ? AND status = 'sending' AND acknowledged_at IS NULL
 `
 
 type ClearOutboxDispatchPossibleParams struct {
-	ID         string `db:"id" json:"id"`
-	OwnerStamp int64  `db:"owner_stamp" json:"owner_stamp"`
+	ID         string         `db:"id" json:"id"`
+	ClaimToken sql.NullString `db:"claim_token" json:"claim_token"`
 }
 
 func (q *Queries) ClearOutboxDispatchPossible(ctx context.Context, arg ClearOutboxDispatchPossibleParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, clearOutboxDispatchPossible, arg.ID, arg.OwnerStamp)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
-const completeOutbox = `-- name: CompleteOutbox :execrows
-UPDATE outbox
-SET status = ?, wa_message_id = ?, error = ?,
-    terminal_at = ?, updated_at = ?
-WHERE id = ? AND status = ?
-`
-
-type CompleteOutboxParams struct {
-	FinalStatus   OutboxStatus   `db:"final_status" json:"final_status"`
-	WaMessageID   sql.NullString `db:"wa_message_id" json:"wa_message_id"`
-	Error         sql.NullString `db:"error" json:"error"`
-	TerminalAt    sql.NullInt64  `db:"terminal_at" json:"terminal_at"`
-	UpdatedAt     int64          `db:"updated_at" json:"updated_at"`
-	ID            string         `db:"id" json:"id"`
-	SendingStatus OutboxStatus   `db:"sending_status" json:"sending_status"`
-}
-
-func (q *Queries) CompleteOutbox(ctx context.Context, arg CompleteOutboxParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, completeOutbox,
-		arg.FinalStatus,
-		arg.WaMessageID,
-		arg.Error,
-		arg.TerminalAt,
-		arg.UpdatedAt,
-		arg.ID,
-		arg.SendingStatus,
-	)
+	result, err := q.db.ExecContext(ctx, clearOutboxDispatchPossible, arg.ID, arg.ClaimToken)
 	if err != nil {
 		return 0, err
 	}
@@ -103,10 +32,11 @@ func (q *Queries) CompleteOutbox(ctx context.Context, arg CompleteOutboxParams) 
 const completeOwnedOutbox = `-- name: CompleteOwnedOutbox :execrows
 UPDATE outbox SET status = ?, wa_message_id = COALESCE(?, wa_message_id),
   error = ?, terminal_at = ?, updated_at = ?,
+  claim_token = NULL, lease_until = NULL,
   payload = CASE WHEN ? = 'sent' THEN
     JSON_REMOVE(payload, '$.media.data', '$.medias[0].data', '$.medias[1].data', '$.medias[2].data', '$.medias[3].data', '$.medias[4].data', '$.medias[5].data', '$.medias[6].data', '$.medias[7].data', '$.medias[8].data', '$.medias[9].data')
     ELSE payload END
-WHERE id = ? AND status = 'sending' AND updated_at = ? AND terminal_at IS NULL
+WHERE id = ? AND claim_token = ? AND status = 'sending' AND terminal_at IS NULL
 `
 
 type CompleteOwnedOutboxParams struct {
@@ -116,7 +46,7 @@ type CompleteOwnedOutboxParams struct {
 	TerminalAt  sql.NullInt64  `db:"terminal_at" json:"terminal_at"`
 	UpdatedAt   int64          `db:"updated_at" json:"updated_at"`
 	ID          string         `db:"id" json:"id"`
-	OwnerStamp  int64          `db:"owner_stamp" json:"owner_stamp"`
+	ClaimToken  sql.NullString `db:"claim_token" json:"claim_token"`
 }
 
 func (q *Queries) CompleteOwnedOutbox(ctx context.Context, arg CompleteOwnedOutboxParams) (int64, error) {
@@ -128,7 +58,68 @@ func (q *Queries) CompleteOwnedOutbox(ctx context.Context, arg CompleteOwnedOutb
 		arg.UpdatedAt,
 		arg.FinalStatus,
 		arg.ID,
-		arg.OwnerStamp,
+		arg.ClaimToken,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deferOutbox = `-- name: DeferOutbox :execrows
+UPDATE outbox
+SET status = 'queued', deferrals = deferrals + 1, error = ?, next_attempt_at = ?, updated_at = ?,
+    claim_token = NULL, lease_until = NULL
+WHERE id = ? AND claim_token = ? AND status = 'sending' AND acknowledged_at IS NULL
+`
+
+type DeferOutboxParams struct {
+	Error         sql.NullString `db:"error" json:"error"`
+	NextAttemptAt int64          `db:"next_attempt_at" json:"next_attempt_at"`
+	UpdatedAt     int64          `db:"updated_at" json:"updated_at"`
+	ID            string         `db:"id" json:"id"`
+	ClaimToken    sql.NullString `db:"claim_token" json:"claim_token"`
+}
+
+// DeferOutbox returns a command to queued without a dispatch attempt
+// (rate limit, or an infrastructure check that failed before dispatch).
+func (q *Queries) DeferOutbox(ctx context.Context, arg DeferOutboxParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deferOutbox,
+		arg.Error,
+		arg.NextAttemptAt,
+		arg.UpdatedAt,
+		arg.ID,
+		arg.ClaimToken,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deferOutboxProjection = `-- name: DeferOutboxProjection :execrows
+UPDATE outbox
+SET status = 'acknowledged', projection_attempts = projection_attempts + 1, error = ?,
+    next_attempt_at = ?, updated_at = ?, claim_token = NULL, lease_until = NULL
+WHERE id = ? AND claim_token = ? AND status = 'sending' AND acknowledged_at IS NOT NULL
+`
+
+type DeferOutboxProjectionParams struct {
+	Error         sql.NullString `db:"error" json:"error"`
+	NextAttemptAt int64          `db:"next_attempt_at" json:"next_attempt_at"`
+	UpdatedAt     int64          `db:"updated_at" json:"updated_at"`
+	ID            string         `db:"id" json:"id"`
+	ClaimToken    sql.NullString `db:"claim_token" json:"claim_token"`
+}
+
+// DeferOutboxProjection parks an acknowledged send whose projection failed.
+func (q *Queries) DeferOutboxProjection(ctx context.Context, arg DeferOutboxProjectionParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deferOutboxProjection,
+		arg.Error,
+		arg.NextAttemptAt,
+		arg.UpdatedAt,
+		arg.ID,
+		arg.ClaimToken,
 	)
 	if err != nil {
 		return 0, err
@@ -138,8 +129,9 @@ func (q *Queries) CompleteOwnedOutbox(ctx context.Context, arg CompleteOwnedOutb
 
 const getOutbox = `-- name: GetOutbox :one
 SELECT id, organization_id, session_id, idempotency_key, payload, status,
-	attempts, next_attempt_at, wa_message_id, error, terminal_at, created_at, updated_at,
-	expires_at, acknowledged_at, effect_possible
+	dispatch_attempts, deferrals, projection_attempts, next_attempt_at, wa_message_id, error,
+	terminal_at, created_at, updated_at, expires_at, acknowledged_at, effect_possible,
+	claim_token, lease_until
 FROM outbox
 WHERE id = ?
 `
@@ -149,22 +141,26 @@ type GetOutboxParams struct {
 }
 
 type GetOutboxRow struct {
-	ID             string          `db:"id" json:"id"`
-	OrganizationID string          `db:"organization_id" json:"organization_id"`
-	SessionID      string          `db:"session_id" json:"session_id"`
-	IdempotencyKey sql.NullString  `db:"idempotency_key" json:"idempotency_key"`
-	Payload        json.RawMessage `db:"payload" json:"payload"`
-	Status         OutboxStatus    `db:"status" json:"status"`
-	Attempts       int32           `db:"attempts" json:"attempts"`
-	NextAttemptAt  int64           `db:"next_attempt_at" json:"next_attempt_at"`
-	WaMessageID    sql.NullString  `db:"wa_message_id" json:"wa_message_id"`
-	Error          sql.NullString  `db:"error" json:"error"`
-	TerminalAt     sql.NullInt64   `db:"terminal_at" json:"terminal_at"`
-	CreatedAt      int64           `db:"created_at" json:"created_at"`
-	UpdatedAt      int64           `db:"updated_at" json:"updated_at"`
-	ExpiresAt      sql.NullInt64   `db:"expires_at" json:"expires_at"`
-	AcknowledgedAt sql.NullInt64   `db:"acknowledged_at" json:"acknowledged_at"`
-	EffectPossible bool            `db:"effect_possible" json:"effect_possible"`
+	ID                 string          `db:"id" json:"id"`
+	OrganizationID     string          `db:"organization_id" json:"organization_id"`
+	SessionID          string          `db:"session_id" json:"session_id"`
+	IdempotencyKey     sql.NullString  `db:"idempotency_key" json:"idempotency_key"`
+	Payload            json.RawMessage `db:"payload" json:"payload"`
+	Status             OutboxStatus    `db:"status" json:"status"`
+	DispatchAttempts   int32           `db:"dispatch_attempts" json:"dispatch_attempts"`
+	Deferrals          int32           `db:"deferrals" json:"deferrals"`
+	ProjectionAttempts int32           `db:"projection_attempts" json:"projection_attempts"`
+	NextAttemptAt      int64           `db:"next_attempt_at" json:"next_attempt_at"`
+	WaMessageID        sql.NullString  `db:"wa_message_id" json:"wa_message_id"`
+	Error              sql.NullString  `db:"error" json:"error"`
+	TerminalAt         sql.NullInt64   `db:"terminal_at" json:"terminal_at"`
+	CreatedAt          int64           `db:"created_at" json:"created_at"`
+	UpdatedAt          int64           `db:"updated_at" json:"updated_at"`
+	ExpiresAt          sql.NullInt64   `db:"expires_at" json:"expires_at"`
+	AcknowledgedAt     sql.NullInt64   `db:"acknowledged_at" json:"acknowledged_at"`
+	EffectPossible     bool            `db:"effect_possible" json:"effect_possible"`
+	ClaimToken         sql.NullString  `db:"claim_token" json:"claim_token"`
+	LeaseUntil         sql.NullInt64   `db:"lease_until" json:"lease_until"`
 }
 
 func (q *Queries) GetOutbox(ctx context.Context, arg GetOutboxParams) (GetOutboxRow, error) {
@@ -177,7 +173,9 @@ func (q *Queries) GetOutbox(ctx context.Context, arg GetOutboxParams) (GetOutbox
 		&i.IdempotencyKey,
 		&i.Payload,
 		&i.Status,
-		&i.Attempts,
+		&i.DispatchAttempts,
+		&i.Deferrals,
+		&i.ProjectionAttempts,
 		&i.NextAttemptAt,
 		&i.WaMessageID,
 		&i.Error,
@@ -187,14 +185,17 @@ func (q *Queries) GetOutbox(ctx context.Context, arg GetOutboxParams) (GetOutbox
 		&i.ExpiresAt,
 		&i.AcknowledgedAt,
 		&i.EffectPossible,
+		&i.ClaimToken,
+		&i.LeaseUntil,
 	)
 	return i, err
 }
 
 const getOutboxByIdempotency = `-- name: GetOutboxByIdempotency :one
 SELECT id, organization_id, session_id, idempotency_key, payload, status,
-	attempts, next_attempt_at, wa_message_id, error, terminal_at, created_at, updated_at,
-	expires_at, acknowledged_at, effect_possible
+	dispatch_attempts, deferrals, projection_attempts, next_attempt_at, wa_message_id, error,
+	terminal_at, created_at, updated_at, expires_at, acknowledged_at, effect_possible,
+	claim_token, lease_until
 FROM outbox
 WHERE organization_id = ? AND idempotency_key = ?
 `
@@ -205,22 +206,26 @@ type GetOutboxByIdempotencyParams struct {
 }
 
 type GetOutboxByIdempotencyRow struct {
-	ID             string          `db:"id" json:"id"`
-	OrganizationID string          `db:"organization_id" json:"organization_id"`
-	SessionID      string          `db:"session_id" json:"session_id"`
-	IdempotencyKey sql.NullString  `db:"idempotency_key" json:"idempotency_key"`
-	Payload        json.RawMessage `db:"payload" json:"payload"`
-	Status         OutboxStatus    `db:"status" json:"status"`
-	Attempts       int32           `db:"attempts" json:"attempts"`
-	NextAttemptAt  int64           `db:"next_attempt_at" json:"next_attempt_at"`
-	WaMessageID    sql.NullString  `db:"wa_message_id" json:"wa_message_id"`
-	Error          sql.NullString  `db:"error" json:"error"`
-	TerminalAt     sql.NullInt64   `db:"terminal_at" json:"terminal_at"`
-	CreatedAt      int64           `db:"created_at" json:"created_at"`
-	UpdatedAt      int64           `db:"updated_at" json:"updated_at"`
-	ExpiresAt      sql.NullInt64   `db:"expires_at" json:"expires_at"`
-	AcknowledgedAt sql.NullInt64   `db:"acknowledged_at" json:"acknowledged_at"`
-	EffectPossible bool            `db:"effect_possible" json:"effect_possible"`
+	ID                 string          `db:"id" json:"id"`
+	OrganizationID     string          `db:"organization_id" json:"organization_id"`
+	SessionID          string          `db:"session_id" json:"session_id"`
+	IdempotencyKey     sql.NullString  `db:"idempotency_key" json:"idempotency_key"`
+	Payload            json.RawMessage `db:"payload" json:"payload"`
+	Status             OutboxStatus    `db:"status" json:"status"`
+	DispatchAttempts   int32           `db:"dispatch_attempts" json:"dispatch_attempts"`
+	Deferrals          int32           `db:"deferrals" json:"deferrals"`
+	ProjectionAttempts int32           `db:"projection_attempts" json:"projection_attempts"`
+	NextAttemptAt      int64           `db:"next_attempt_at" json:"next_attempt_at"`
+	WaMessageID        sql.NullString  `db:"wa_message_id" json:"wa_message_id"`
+	Error              sql.NullString  `db:"error" json:"error"`
+	TerminalAt         sql.NullInt64   `db:"terminal_at" json:"terminal_at"`
+	CreatedAt          int64           `db:"created_at" json:"created_at"`
+	UpdatedAt          int64           `db:"updated_at" json:"updated_at"`
+	ExpiresAt          sql.NullInt64   `db:"expires_at" json:"expires_at"`
+	AcknowledgedAt     sql.NullInt64   `db:"acknowledged_at" json:"acknowledged_at"`
+	EffectPossible     bool            `db:"effect_possible" json:"effect_possible"`
+	ClaimToken         sql.NullString  `db:"claim_token" json:"claim_token"`
+	LeaseUntil         sql.NullInt64   `db:"lease_until" json:"lease_until"`
 }
 
 func (q *Queries) GetOutboxByIdempotency(ctx context.Context, arg GetOutboxByIdempotencyParams) (GetOutboxByIdempotencyRow, error) {
@@ -233,7 +238,9 @@ func (q *Queries) GetOutboxByIdempotency(ctx context.Context, arg GetOutboxByIde
 		&i.IdempotencyKey,
 		&i.Payload,
 		&i.Status,
-		&i.Attempts,
+		&i.DispatchAttempts,
+		&i.Deferrals,
+		&i.ProjectionAttempts,
 		&i.NextAttemptAt,
 		&i.WaMessageID,
 		&i.Error,
@@ -243,32 +250,37 @@ func (q *Queries) GetOutboxByIdempotency(ctx context.Context, arg GetOutboxByIde
 		&i.ExpiresAt,
 		&i.AcknowledgedAt,
 		&i.EffectPossible,
+		&i.ClaimToken,
+		&i.LeaseUntil,
 	)
 	return i, err
 }
 
 const insertOutbox = `-- name: InsertOutbox :exec
 INSERT INTO outbox
-(id, organization_id, session_id, idempotency_key, payload, status, attempts,
- next_attempt_at, wa_message_id, error, terminal_at, created_at, updated_at, expires_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+(id, organization_id, session_id, idempotency_key, payload, status, dispatch_attempts,
+ next_attempt_at, wa_message_id, error, terminal_at, created_at, updated_at, expires_at,
+ claim_token, lease_until)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertOutboxParams struct {
-	ID             string          `db:"id" json:"id"`
-	OrganizationID string          `db:"organization_id" json:"organization_id"`
-	SessionID      string          `db:"session_id" json:"session_id"`
-	IdempotencyKey sql.NullString  `db:"idempotency_key" json:"idempotency_key"`
-	Payload        json.RawMessage `db:"payload" json:"payload"`
-	Status         OutboxStatus    `db:"status" json:"status"`
-	Attempts       int32           `db:"attempts" json:"attempts"`
-	NextAttemptAt  int64           `db:"next_attempt_at" json:"next_attempt_at"`
-	WaMessageID    sql.NullString  `db:"wa_message_id" json:"wa_message_id"`
-	Error          sql.NullString  `db:"error" json:"error"`
-	TerminalAt     sql.NullInt64   `db:"terminal_at" json:"terminal_at"`
-	CreatedAt      int64           `db:"created_at" json:"created_at"`
-	UpdatedAt      int64           `db:"updated_at" json:"updated_at"`
-	ExpiresAt      sql.NullInt64   `db:"expires_at" json:"expires_at"`
+	ID               string          `db:"id" json:"id"`
+	OrganizationID   string          `db:"organization_id" json:"organization_id"`
+	SessionID        string          `db:"session_id" json:"session_id"`
+	IdempotencyKey   sql.NullString  `db:"idempotency_key" json:"idempotency_key"`
+	Payload          json.RawMessage `db:"payload" json:"payload"`
+	Status           OutboxStatus    `db:"status" json:"status"`
+	DispatchAttempts int32           `db:"dispatch_attempts" json:"dispatch_attempts"`
+	NextAttemptAt    int64           `db:"next_attempt_at" json:"next_attempt_at"`
+	WaMessageID      sql.NullString  `db:"wa_message_id" json:"wa_message_id"`
+	Error            sql.NullString  `db:"error" json:"error"`
+	TerminalAt       sql.NullInt64   `db:"terminal_at" json:"terminal_at"`
+	CreatedAt        int64           `db:"created_at" json:"created_at"`
+	UpdatedAt        int64           `db:"updated_at" json:"updated_at"`
+	ExpiresAt        sql.NullInt64   `db:"expires_at" json:"expires_at"`
+	ClaimToken       sql.NullString  `db:"claim_token" json:"claim_token"`
+	LeaseUntil       sql.NullInt64   `db:"lease_until" json:"lease_until"`
 }
 
 func (q *Queries) InsertOutbox(ctx context.Context, arg InsertOutboxParams) error {
@@ -279,7 +291,7 @@ func (q *Queries) InsertOutbox(ctx context.Context, arg InsertOutboxParams) erro
 		arg.IdempotencyKey,
 		arg.Payload,
 		arg.Status,
-		arg.Attempts,
+		arg.DispatchAttempts,
 		arg.NextAttemptAt,
 		arg.WaMessageID,
 		arg.Error,
@@ -287,22 +299,58 @@ func (q *Queries) InsertOutbox(ctx context.Context, arg InsertOutboxParams) erro
 		arg.CreatedAt,
 		arg.UpdatedAt,
 		arg.ExpiresAt,
+		arg.ClaimToken,
+		arg.LeaseUntil,
 	)
 	return err
 }
 
-const markOutboxDispatchPossible = `-- name: MarkOutboxDispatchPossible :execrows
-UPDATE outbox SET effect_possible = TRUE
-WHERE id = ? AND status = 'sending' AND updated_at = ? AND terminal_at IS NULL
+const leaseOutbox = `-- name: LeaseOutbox :execrows
+UPDATE outbox
+SET status = 'sending', claim_token = ?, lease_until = ?,
+    updated_at = ?
+WHERE id = ? AND terminal_at IS NULL AND (
+  status IN ('queued', 'acknowledged') OR (status = 'sending' AND lease_until <= ?)
+)
 `
 
-type MarkOutboxDispatchPossibleParams struct {
-	ID         string `db:"id" json:"id"`
-	OwnerStamp int64  `db:"owner_stamp" json:"owner_stamp"`
+type LeaseOutboxParams struct {
+	ClaimToken  sql.NullString `db:"claim_token" json:"claim_token"`
+	LeaseUntil  sql.NullInt64  `db:"lease_until" json:"lease_until"`
+	Now         int64          `db:"now" json:"now"`
+	ID          string         `db:"id" json:"id"`
+	LeaseBefore sql.NullInt64  `db:"lease_before" json:"lease_before"`
 }
 
-func (q *Queries) MarkOutboxDispatchPossible(ctx context.Context, arg MarkOutboxDispatchPossibleParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, markOutboxDispatchPossible, arg.ID, arg.OwnerStamp)
+func (q *Queries) LeaseOutbox(ctx context.Context, arg LeaseOutboxParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, leaseOutbox,
+		arg.ClaimToken,
+		arg.LeaseUntil,
+		arg.Now,
+		arg.ID,
+		arg.LeaseBefore,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const markOutboxDispatch = `-- name: MarkOutboxDispatch :execrows
+UPDATE outbox SET effect_possible = TRUE, dispatch_attempts = dispatch_attempts + 1, lease_until = ?
+WHERE id = ? AND claim_token = ? AND status = 'sending' AND acknowledged_at IS NULL
+`
+
+type MarkOutboxDispatchParams struct {
+	LeaseUntil sql.NullInt64  `db:"lease_until" json:"lease_until"`
+	ID         string         `db:"id" json:"id"`
+	ClaimToken sql.NullString `db:"claim_token" json:"claim_token"`
+}
+
+// MarkOutboxDispatch runs before every engine dispatch: it records that a
+// remote effect may happen, counts the dispatch attempt and renews the lease.
+func (q *Queries) MarkOutboxDispatch(ctx context.Context, arg MarkOutboxDispatchParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, markOutboxDispatch, arg.LeaseUntil, arg.ID, arg.ClaimToken)
 	if err != nil {
 		return 0, err
 	}
@@ -311,14 +359,14 @@ func (q *Queries) MarkOutboxDispatchPossible(ctx context.Context, arg MarkOutbox
 
 const recordOutboxAcknowledgement = `-- name: RecordOutboxAcknowledgement :execrows
 UPDATE outbox SET wa_message_id = ?, acknowledged_at = ?
-WHERE id = ? AND status = 'sending' AND updated_at = ? AND terminal_at IS NULL
+WHERE id = ? AND claim_token = ? AND status = 'sending'
 `
 
 type RecordOutboxAcknowledgementParams struct {
 	WaMessageID    sql.NullString `db:"wa_message_id" json:"wa_message_id"`
 	AcknowledgedAt sql.NullInt64  `db:"acknowledged_at" json:"acknowledged_at"`
 	ID             string         `db:"id" json:"id"`
-	OwnerStamp     int64          `db:"owner_stamp" json:"owner_stamp"`
+	ClaimToken     sql.NullString `db:"claim_token" json:"claim_token"`
 }
 
 func (q *Queries) RecordOutboxAcknowledgement(ctx context.Context, arg RecordOutboxAcknowledgementParams) (int64, error) {
@@ -326,7 +374,7 @@ func (q *Queries) RecordOutboxAcknowledgement(ctx context.Context, arg RecordOut
 		arg.WaMessageID,
 		arg.AcknowledgedAt,
 		arg.ID,
-		arg.OwnerStamp,
+		arg.ClaimToken,
 	)
 	if err != nil {
 		return 0, err
@@ -334,32 +382,48 @@ func (q *Queries) RecordOutboxAcknowledgement(ctx context.Context, arg RecordOut
 	return result.RowsAffected()
 }
 
-const rescheduleOutbox = `-- name: RescheduleOutbox :execrows
-UPDATE outbox
-SET status = ?, error = ?, next_attempt_at = ?,
-    updated_at = ?
-WHERE id = ? AND status = ? AND updated_at = ? AND terminal_at IS NULL
+const renewOutboxLease = `-- name: RenewOutboxLease :execrows
+UPDATE outbox SET lease_until = ?
+WHERE id = ? AND claim_token = ? AND status = 'sending'
 `
 
-type RescheduleOutboxParams struct {
-	QueuedStatus  OutboxStatus   `db:"queued_status" json:"queued_status"`
+type RenewOutboxLeaseParams struct {
+	LeaseUntil sql.NullInt64  `db:"lease_until" json:"lease_until"`
+	ID         string         `db:"id" json:"id"`
+	ClaimToken sql.NullString `db:"claim_token" json:"claim_token"`
+}
+
+func (q *Queries) RenewOutboxLease(ctx context.Context, arg RenewOutboxLeaseParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, renewOutboxLease, arg.LeaseUntil, arg.ID, arg.ClaimToken)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const retryOutbox = `-- name: RetryOutbox :execrows
+UPDATE outbox
+SET status = 'queued', error = ?, next_attempt_at = ?, updated_at = ?,
+    claim_token = NULL, lease_until = NULL
+WHERE id = ? AND claim_token = ? AND status = 'sending' AND acknowledged_at IS NULL
+`
+
+type RetryOutboxParams struct {
 	Error         sql.NullString `db:"error" json:"error"`
 	NextAttemptAt int64          `db:"next_attempt_at" json:"next_attempt_at"`
 	UpdatedAt     int64          `db:"updated_at" json:"updated_at"`
 	ID            string         `db:"id" json:"id"`
-	SendingStatus OutboxStatus   `db:"sending_status" json:"sending_status"`
-	OwnerStamp    int64          `db:"owner_stamp" json:"owner_stamp"`
+	ClaimToken    sql.NullString `db:"claim_token" json:"claim_token"`
 }
 
-func (q *Queries) RescheduleOutbox(ctx context.Context, arg RescheduleOutboxParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, rescheduleOutbox,
-		arg.QueuedStatus,
+// RetryOutbox returns a command to queued after an ambiguous dispatch attempt.
+func (q *Queries) RetryOutbox(ctx context.Context, arg RetryOutboxParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, retryOutbox,
 		arg.Error,
 		arg.NextAttemptAt,
 		arg.UpdatedAt,
 		arg.ID,
-		arg.SendingStatus,
-		arg.OwnerStamp,
+		arg.ClaimToken,
 	)
 	if err != nil {
 		return 0, err
@@ -369,16 +433,14 @@ func (q *Queries) RescheduleOutbox(ctx context.Context, arg RescheduleOutboxPara
 
 const selectDueOutboxForClaim = `-- name: SelectDueOutboxForClaim :many
 SELECT id, organization_id, session_id, idempotency_key, payload, status,
-	attempts, next_attempt_at, wa_message_id, error, terminal_at, created_at, updated_at,
-	expires_at, acknowledged_at, effect_possible
+	dispatch_attempts, deferrals, projection_attempts, next_attempt_at, wa_message_id, error,
+	terminal_at, created_at, updated_at, expires_at, acknowledged_at, effect_possible,
+	claim_token, lease_until
 FROM outbox
 WHERE terminal_at IS NULL AND (
-  (
-    (status = ? OR status = ?)
-    AND (next_attempt_at <= ?
-      OR (expires_at IS NOT NULL AND expires_at <= ?))
-  )
-  OR (status = ? AND updated_at <= ?)
+  (status IN ('queued', 'acknowledged')
+    AND (next_attempt_at <= ? OR (expires_at IS NOT NULL AND expires_at <= ?)))
+  OR (status = 'sending' AND lease_until <= ?)
 )
 ORDER BY next_attempt_at ASC, created_at ASC, id ASC
 LIMIT ?
@@ -386,45 +448,43 @@ FOR UPDATE SKIP LOCKED
 `
 
 type SelectDueOutboxForClaimParams struct {
-	QueuedStatus  OutboxStatus  `db:"queued_status" json:"queued_status"`
-	FailedStatus  OutboxStatus  `db:"failed_status" json:"failed_status"`
-	DueBefore     int64         `db:"due_before" json:"due_before"`
-	ExpiryBefore  sql.NullInt64 `db:"expiry_before" json:"expiry_before"`
-	SendingStatus OutboxStatus  `db:"sending_status" json:"sending_status"`
-	StaleBefore   int64         `db:"stale_before" json:"stale_before"`
-	Limit         int32         `db:"limit" json:"limit"`
+	Now          int64         `db:"now" json:"now"`
+	ExpiryBefore sql.NullInt64 `db:"expiry_before" json:"expiry_before"`
+	LeaseBefore  sql.NullInt64 `db:"lease_before" json:"lease_before"`
+	Limit        int32         `db:"limit" json:"limit"`
 }
 
 type SelectDueOutboxForClaimRow struct {
-	ID             string          `db:"id" json:"id"`
-	OrganizationID string          `db:"organization_id" json:"organization_id"`
-	SessionID      string          `db:"session_id" json:"session_id"`
-	IdempotencyKey sql.NullString  `db:"idempotency_key" json:"idempotency_key"`
-	Payload        json.RawMessage `db:"payload" json:"payload"`
-	Status         OutboxStatus    `db:"status" json:"status"`
-	Attempts       int32           `db:"attempts" json:"attempts"`
-	NextAttemptAt  int64           `db:"next_attempt_at" json:"next_attempt_at"`
-	WaMessageID    sql.NullString  `db:"wa_message_id" json:"wa_message_id"`
-	Error          sql.NullString  `db:"error" json:"error"`
-	TerminalAt     sql.NullInt64   `db:"terminal_at" json:"terminal_at"`
-	CreatedAt      int64           `db:"created_at" json:"created_at"`
-	UpdatedAt      int64           `db:"updated_at" json:"updated_at"`
-	ExpiresAt      sql.NullInt64   `db:"expires_at" json:"expires_at"`
-	AcknowledgedAt sql.NullInt64   `db:"acknowledged_at" json:"acknowledged_at"`
-	EffectPossible bool            `db:"effect_possible" json:"effect_possible"`
+	ID                 string          `db:"id" json:"id"`
+	OrganizationID     string          `db:"organization_id" json:"organization_id"`
+	SessionID          string          `db:"session_id" json:"session_id"`
+	IdempotencyKey     sql.NullString  `db:"idempotency_key" json:"idempotency_key"`
+	Payload            json.RawMessage `db:"payload" json:"payload"`
+	Status             OutboxStatus    `db:"status" json:"status"`
+	DispatchAttempts   int32           `db:"dispatch_attempts" json:"dispatch_attempts"`
+	Deferrals          int32           `db:"deferrals" json:"deferrals"`
+	ProjectionAttempts int32           `db:"projection_attempts" json:"projection_attempts"`
+	NextAttemptAt      int64           `db:"next_attempt_at" json:"next_attempt_at"`
+	WaMessageID        sql.NullString  `db:"wa_message_id" json:"wa_message_id"`
+	Error              sql.NullString  `db:"error" json:"error"`
+	TerminalAt         sql.NullInt64   `db:"terminal_at" json:"terminal_at"`
+	CreatedAt          int64           `db:"created_at" json:"created_at"`
+	UpdatedAt          int64           `db:"updated_at" json:"updated_at"`
+	ExpiresAt          sql.NullInt64   `db:"expires_at" json:"expires_at"`
+	AcknowledgedAt     sql.NullInt64   `db:"acknowledged_at" json:"acknowledged_at"`
+	EffectPossible     bool            `db:"effect_possible" json:"effect_possible"`
+	ClaimToken         sql.NullString  `db:"claim_token" json:"claim_token"`
+	LeaseUntil         sql.NullInt64   `db:"lease_until" json:"lease_until"`
 }
 
-// SelectDueOutboxForClaim returns retryable work: fresh commands whose
-// next_attempt_at is due, plus stale 'sending' rows whose dispatch lease has
-// expired. Ordering is by scheduled attempt time so the oldest-due fire first.
+// SelectDueOutboxForClaim returns claimable work: queued commands and
+// acknowledged projections that are due (or past their expiry), plus leased
+// ('sending') commands whose lease expired.
 func (q *Queries) SelectDueOutboxForClaim(ctx context.Context, arg SelectDueOutboxForClaimParams) ([]SelectDueOutboxForClaimRow, error) {
 	rows, err := q.db.QueryContext(ctx, selectDueOutboxForClaim,
-		arg.QueuedStatus,
-		arg.FailedStatus,
-		arg.DueBefore,
+		arg.Now,
 		arg.ExpiryBefore,
-		arg.SendingStatus,
-		arg.StaleBefore,
+		arg.LeaseBefore,
 		arg.Limit,
 	)
 	if err != nil {
@@ -441,7 +501,9 @@ func (q *Queries) SelectDueOutboxForClaim(ctx context.Context, arg SelectDueOutb
 			&i.IdempotencyKey,
 			&i.Payload,
 			&i.Status,
-			&i.Attempts,
+			&i.DispatchAttempts,
+			&i.Deferrals,
+			&i.ProjectionAttempts,
 			&i.NextAttemptAt,
 			&i.WaMessageID,
 			&i.Error,
@@ -451,6 +513,8 @@ func (q *Queries) SelectDueOutboxForClaim(ctx context.Context, arg SelectDueOutb
 			&i.ExpiresAt,
 			&i.AcknowledgedAt,
 			&i.EffectPossible,
+			&i.ClaimToken,
+			&i.LeaseUntil,
 		); err != nil {
 			return nil, err
 		}
@@ -463,147 +527,4 @@ func (q *Queries) SelectDueOutboxForClaim(ctx context.Context, arg SelectDueOutb
 		return nil, err
 	}
 	return items, nil
-}
-
-const selectQueuedOutboxForClaim = `-- name: SelectQueuedOutboxForClaim :many
-SELECT id, organization_id, session_id, idempotency_key, payload, status,
-	attempts, next_attempt_at, wa_message_id, error, terminal_at, created_at, updated_at,
-	expires_at, acknowledged_at, effect_possible
-FROM outbox
-WHERE status = ?
-  AND terminal_at IS NULL
-  AND (? = '' OR session_id = ?)
-ORDER BY created_at ASC, id ASC
-LIMIT ?
-FOR UPDATE SKIP LOCKED
-`
-
-type SelectQueuedOutboxForClaimParams struct {
-	QueuedStatus  OutboxStatus `db:"queued_status" json:"queued_status"`
-	SessionFilter string       `db:"session_filter" json:"session_filter"`
-	Limit         int32        `db:"limit" json:"limit"`
-}
-
-type SelectQueuedOutboxForClaimRow struct {
-	ID             string          `db:"id" json:"id"`
-	OrganizationID string          `db:"organization_id" json:"organization_id"`
-	SessionID      string          `db:"session_id" json:"session_id"`
-	IdempotencyKey sql.NullString  `db:"idempotency_key" json:"idempotency_key"`
-	Payload        json.RawMessage `db:"payload" json:"payload"`
-	Status         OutboxStatus    `db:"status" json:"status"`
-	Attempts       int32           `db:"attempts" json:"attempts"`
-	NextAttemptAt  int64           `db:"next_attempt_at" json:"next_attempt_at"`
-	WaMessageID    sql.NullString  `db:"wa_message_id" json:"wa_message_id"`
-	Error          sql.NullString  `db:"error" json:"error"`
-	TerminalAt     sql.NullInt64   `db:"terminal_at" json:"terminal_at"`
-	CreatedAt      int64           `db:"created_at" json:"created_at"`
-	UpdatedAt      int64           `db:"updated_at" json:"updated_at"`
-	ExpiresAt      sql.NullInt64   `db:"expires_at" json:"expires_at"`
-	AcknowledgedAt sql.NullInt64   `db:"acknowledged_at" json:"acknowledged_at"`
-	EffectPossible bool            `db:"effect_possible" json:"effect_possible"`
-}
-
-func (q *Queries) SelectQueuedOutboxForClaim(ctx context.Context, arg SelectQueuedOutboxForClaimParams) ([]SelectQueuedOutboxForClaimRow, error) {
-	rows, err := q.db.QueryContext(ctx, selectQueuedOutboxForClaim,
-		arg.QueuedStatus,
-		arg.SessionFilter,
-		arg.SessionFilter,
-		arg.Limit,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []SelectQueuedOutboxForClaimRow{}
-	for rows.Next() {
-		var i SelectQueuedOutboxForClaimRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.OrganizationID,
-			&i.SessionID,
-			&i.IdempotencyKey,
-			&i.Payload,
-			&i.Status,
-			&i.Attempts,
-			&i.NextAttemptAt,
-			&i.WaMessageID,
-			&i.Error,
-			&i.TerminalAt,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.ExpiresAt,
-			&i.AcknowledgedAt,
-			&i.EffectPossible,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const updateOutboxStatus = `-- name: UpdateOutboxStatus :execrows
-UPDATE outbox
-SET status = ?, wa_message_id = ?, error = ?, updated_at = ?
-WHERE id = ?
-`
-
-type UpdateOutboxStatusParams struct {
-	Status      OutboxStatus   `db:"status" json:"status"`
-	WaMessageID sql.NullString `db:"wa_message_id" json:"wa_message_id"`
-	Error       sql.NullString `db:"error" json:"error"`
-	UpdatedAt   int64          `db:"updated_at" json:"updated_at"`
-	ID          string         `db:"id" json:"id"`
-}
-
-func (q *Queries) UpdateOutboxStatus(ctx context.Context, arg UpdateOutboxStatusParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, updateOutboxStatus,
-		arg.Status,
-		arg.WaMessageID,
-		arg.Error,
-		arg.UpdatedAt,
-		arg.ID,
-	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
-const updateOutboxStatusAndStripMedia = `-- name: UpdateOutboxStatusAndStripMedia :execrows
-UPDATE outbox
-SET status = ?, wa_message_id = ?, error = ?, updated_at = ?,
-	payload = JSON_REMOVE(payload, '$.media.data', '$.medias[0].data', '$.medias[1].data', '$.medias[2].data', '$.medias[3].data', '$.medias[4].data', '$.medias[5].data', '$.medias[6].data', '$.medias[7].data', '$.medias[8].data', '$.medias[9].data'),
-	terminal_at = ?
-WHERE id = ?
-`
-
-type UpdateOutboxStatusAndStripMediaParams struct {
-	Status      OutboxStatus   `db:"status" json:"status"`
-	WaMessageID sql.NullString `db:"wa_message_id" json:"wa_message_id"`
-	Error       sql.NullString `db:"error" json:"error"`
-	UpdatedAt   int64          `db:"updated_at" json:"updated_at"`
-	TerminalAt  sql.NullInt64  `db:"terminal_at" json:"terminal_at"`
-	ID          string         `db:"id" json:"id"`
-}
-
-func (q *Queries) UpdateOutboxStatusAndStripMedia(ctx context.Context, arg UpdateOutboxStatusAndStripMediaParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, updateOutboxStatusAndStripMedia,
-		arg.Status,
-		arg.WaMessageID,
-		arg.Error,
-		arg.UpdatedAt,
-		arg.TerminalAt,
-		arg.ID,
-	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
 }

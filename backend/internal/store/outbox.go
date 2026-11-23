@@ -4,103 +4,123 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/store/storedb"
 )
 
-// OutboxRepo is the repository for outbox (async send queue, §5/§8). Idempotency
-// is enforced by the unique (organization_id, idempotency_key).
+// OutboxRepo is the repository for outbox (the API's durable send-command
+// table, §5/§8). Idempotency is enforced by the unique
+// (organization_id, idempotency_key).
+//
+// State machine: queued → sending (leased: claim_token + lease_until) →
+// acknowledged (WhatsApp accepted; projection pending) → sent, or failed /
+// unknown. Every write after a claim is fenced by its claim token; a token is
+// only replaced by a new claim after the lease expired, so a matching token
+// proves no other scheduler took the command.
 type OutboxRepo struct {
 	db storedb.DBTX
 	q  *storedb.Queries
 }
 
+// ErrOutboxClaimLost reports a fenced write whose claim token no longer owns
+// the command.
+var ErrOutboxClaimLost = errors.New("outbox claim lost")
+
 // NewOutboxRepo constructs an OutboxRepo. Batch claims require a concrete
 // *sql.DB or caller-owned *sql.Tx so row-lock ownership cannot be ambiguous.
 func NewOutboxRepo(db storedb.DBTX) *OutboxRepo { return &OutboxRepo{db: db, q: storedb.New(db)} }
 
-// outboxFromColumns maps one selected outbox row; every outbox query returns
-// the same column list, so each generated Row type delegates here.
-func outboxFromColumns(
-	id, organizationID, sessionID string, idempotencyKey sql.NullString,
-	payload json.RawMessage, status storedb.OutboxStatus, attempts int32, nextAttemptAt int64,
-	waMessageID, errText sql.NullString, terminalAt sql.NullInt64, createdAt, updatedAt int64,
-	expiresAt, acknowledgedAt sql.NullInt64, effectPossible bool,
-) domain.OutboxEntry {
+// outboxColumns is the shared shape of every selected outbox row.
+type outboxColumns struct {
+	ID, OrganizationID, SessionID              string
+	IdempotencyKey                             sql.NullString
+	Payload                                    json.RawMessage
+	Status                                     storedb.OutboxStatus
+	DispatchAttempts, Deferrals, ProjectionAtt int32
+	NextAttemptAt                              int64
+	WaMessageID, Error                         sql.NullString
+	TerminalAt                                 sql.NullInt64
+	CreatedAt, UpdatedAt                       int64
+	ExpiresAt, AcknowledgedAt                  sql.NullInt64
+	EffectPossible                             bool
+	ClaimToken                                 sql.NullString
+	LeaseUntil                                 sql.NullInt64
+}
+
+func (c outboxColumns) entry() domain.OutboxEntry {
 	o := domain.OutboxEntry{
-		ID:             id,
-		OrganizationID: organizationID,
-		SessionID:      sessionID,
-		IdempotencyKey: stringPtrFromNull(idempotencyKey),
-		Status:         domain.OutboxStatus(status),
-		Attempts:       int(attempts),
-		NextAttemptAt:  nextAttemptAt,
-		ExpiresAt:      int64PtrFromNull(expiresAt),
-		AcknowledgedAt: int64PtrFromNull(acknowledgedAt),
-		EffectPossible: effectPossible,
-		WAMessageID:    stringPtrFromNull(waMessageID),
-		Error:          stringPtrFromNull(errText),
-		TerminalAt:     int64PtrFromNull(terminalAt),
-		CreatedAt:      createdAt,
-		UpdatedAt:      updatedAt,
+		ID:                 c.ID,
+		OrganizationID:     c.OrganizationID,
+		SessionID:          c.SessionID,
+		IdempotencyKey:     stringPtrFromNull(c.IdempotencyKey),
+		Status:             domain.OutboxStatus(c.Status),
+		Attempts:           int(c.DispatchAttempts),
+		Deferrals:          int(c.Deferrals),
+		ProjectionAttempts: int(c.ProjectionAtt),
+		NextAttemptAt:      c.NextAttemptAt,
+		ExpiresAt:          int64PtrFromNull(c.ExpiresAt),
+		AcknowledgedAt:     int64PtrFromNull(c.AcknowledgedAt),
+		EffectPossible:     c.EffectPossible,
+		WAMessageID:        stringPtrFromNull(c.WaMessageID),
+		Error:              stringPtrFromNull(c.Error),
+		TerminalAt:         int64PtrFromNull(c.TerminalAt),
+		CreatedAt:          c.CreatedAt,
+		UpdatedAt:          c.UpdatedAt,
+		ClaimToken:         c.ClaimToken.String,
+		LeaseUntil:         c.LeaseUntil.Int64,
 	}
-	if len(payload) > 0 {
-		o.Payload = append([]byte(nil), payload...)
+	if len(c.Payload) > 0 {
+		o.Payload = append([]byte(nil), c.Payload...)
 	}
 	return o
 }
 
-func outboxFromRow(row storedb.Outbox) domain.OutboxEntry {
-	return outboxFromColumns(row.ID, row.OrganizationID, row.SessionID, row.IdempotencyKey,
-		row.Payload, row.Status, row.Attempts, row.NextAttemptAt, row.WaMessageID, row.Error,
-		row.TerminalAt, row.CreatedAt, row.UpdatedAt, row.ExpiresAt, row.AcknowledgedAt, row.EffectPossible)
+func outboxRowFromGet(r storedb.GetOutboxRow) domain.OutboxEntry {
+	return outboxColumns{r.ID, r.OrganizationID, r.SessionID, r.IdempotencyKey, r.Payload, r.Status,
+		r.DispatchAttempts, r.Deferrals, r.ProjectionAttempts, r.NextAttemptAt, r.WaMessageID, r.Error,
+		r.TerminalAt, r.CreatedAt, r.UpdatedAt, r.ExpiresAt, r.AcknowledgedAt, r.EffectPossible,
+		r.ClaimToken, r.LeaseUntil}.entry()
 }
 
-func outboxRowFromGet(row storedb.GetOutboxRow) domain.OutboxEntry {
-	return outboxFromColumns(row.ID, row.OrganizationID, row.SessionID, row.IdempotencyKey,
-		row.Payload, row.Status, row.Attempts, row.NextAttemptAt, row.WaMessageID, row.Error,
-		row.TerminalAt, row.CreatedAt, row.UpdatedAt, row.ExpiresAt, row.AcknowledgedAt, row.EffectPossible)
+func outboxRowFromIdempotency(r storedb.GetOutboxByIdempotencyRow) domain.OutboxEntry {
+	return outboxColumns{r.ID, r.OrganizationID, r.SessionID, r.IdempotencyKey, r.Payload, r.Status,
+		r.DispatchAttempts, r.Deferrals, r.ProjectionAttempts, r.NextAttemptAt, r.WaMessageID, r.Error,
+		r.TerminalAt, r.CreatedAt, r.UpdatedAt, r.ExpiresAt, r.AcknowledgedAt, r.EffectPossible,
+		r.ClaimToken, r.LeaseUntil}.entry()
 }
 
-func outboxRowFromIdempotency(row storedb.GetOutboxByIdempotencyRow) domain.OutboxEntry {
-	return outboxFromColumns(row.ID, row.OrganizationID, row.SessionID, row.IdempotencyKey,
-		row.Payload, row.Status, row.Attempts, row.NextAttemptAt, row.WaMessageID, row.Error,
-		row.TerminalAt, row.CreatedAt, row.UpdatedAt, row.ExpiresAt, row.AcknowledgedAt, row.EffectPossible)
+func outboxRowFromDueClaim(r storedb.SelectDueOutboxForClaimRow) domain.OutboxEntry {
+	return outboxColumns{r.ID, r.OrganizationID, r.SessionID, r.IdempotencyKey, r.Payload, r.Status,
+		r.DispatchAttempts, r.Deferrals, r.ProjectionAttempts, r.NextAttemptAt, r.WaMessageID, r.Error,
+		r.TerminalAt, r.CreatedAt, r.UpdatedAt, r.ExpiresAt, r.AcknowledgedAt, r.EffectPossible,
+		r.ClaimToken, r.LeaseUntil}.entry()
 }
 
-func outboxRowFromQueuedClaim(row storedb.SelectQueuedOutboxForClaimRow) domain.OutboxEntry {
-	return outboxFromColumns(row.ID, row.OrganizationID, row.SessionID, row.IdempotencyKey,
-		row.Payload, row.Status, row.Attempts, row.NextAttemptAt, row.WaMessageID, row.Error,
-		row.TerminalAt, row.CreatedAt, row.UpdatedAt, row.ExpiresAt, row.AcknowledgedAt, row.EffectPossible)
-}
-
-func outboxRowFromDueClaim(row storedb.SelectDueOutboxForClaimRow) domain.OutboxEntry {
-	return outboxFromColumns(row.ID, row.OrganizationID, row.SessionID, row.IdempotencyKey,
-		row.Payload, row.Status, row.Attempts, row.NextAttemptAt, row.WaMessageID, row.Error,
-		row.TerminalAt, row.CreatedAt, row.UpdatedAt, row.ExpiresAt, row.AcknowledgedAt, row.EffectPossible)
-}
-
-// Insert appends a queued outbox entry. The unique (organization_id, idempotency_key)
-// makes a duplicate idempotency key a conflict the caller resolves via
-// GetByIdempotency (§8 replay semantics).
+// Insert appends a command. A sync send inserts it already leased (status
+// sending with ClaimToken and LeaseUntil); an async send inserts it queued.
+// The unique (organization_id, idempotency_key) makes a duplicate key a
+// conflict the caller resolves via GetByIdempotency (§8 replay semantics).
 func (r *OutboxRepo) Insert(ctx context.Context, o domain.OutboxEntry) error {
 	err := r.q.InsertOutbox(ctx, storedb.InsertOutboxParams{
-		ID:             o.ID,
-		OrganizationID: o.OrganizationID,
-		SessionID:      o.SessionID,
-		IdempotencyKey: nullString(o.IdempotencyKey),
-		Payload:        o.Payload,
-		Status:         storedb.OutboxStatus(o.Status),
-		Attempts:       int32(o.Attempts),
-		NextAttemptAt:  o.NextAttemptAt,
-		WaMessageID:    nullString(o.WAMessageID),
-		Error:          nullString(o.Error),
-		TerminalAt:     nullInt64(o.TerminalAt),
-		CreatedAt:      o.CreatedAt,
-		UpdatedAt:      o.UpdatedAt,
-		ExpiresAt:      nullInt64(o.ExpiresAt),
+		ID:               o.ID,
+		OrganizationID:   o.OrganizationID,
+		SessionID:        o.SessionID,
+		IdempotencyKey:   nullString(o.IdempotencyKey),
+		Payload:          o.Payload,
+		Status:           storedb.OutboxStatus(o.Status),
+		DispatchAttempts: int32(o.Attempts),
+		NextAttemptAt:    o.NextAttemptAt,
+		WaMessageID:      nullString(o.WAMessageID),
+		Error:            nullString(o.Error),
+		TerminalAt:       nullInt64(o.TerminalAt),
+		CreatedAt:        o.CreatedAt,
+		UpdatedAt:        o.UpdatedAt,
+		ExpiresAt:        nullInt64(o.ExpiresAt),
+		ClaimToken:       sql.NullString{String: o.ClaimToken, Valid: o.ClaimToken != ""},
+		LeaseUntil:       sql.NullInt64{Int64: o.LeaseUntil, Valid: o.ClaimToken != ""},
 	})
 	if err != nil {
 		return fmt.Errorf("store: insert outbox: %w", err)
@@ -131,308 +151,175 @@ func (r *OutboxRepo) GetByIdempotency(ctx context.Context, organizationID, idemp
 	return outboxRowFromIdempotency(row), nil
 }
 
-// UpdateStatus transitions an entry's status and stamps the result fields
-// (wa_message_id on success, error on failure), bumping updated_at. waMessageID
-// and errMsg may be nil.
-func (r *OutboxRepo) UpdateStatus(ctx context.Context, id string, status domain.OutboxStatus, waMessageID, errMsg *string, updatedAt int64) error {
-	// Once a send has succeeded, strip any inline media bytes from the stored
-	// payload — the file content is only needed until the row is dispatched and
-	// must not be retained afterward. JSON_REMOVE is a no-op for non-media
-	// payloads (the media paths simply aren't present). This covers the single
-	// '$.media.data' field and all ten possible '$.medias[n].data' album fields.
-	// The bytes are kept
-	// on a failed row so the async worker can still retry it.
-	var (
-		n   int64
-		err error
-	)
-	switch status {
-	case domain.OutboxSent:
-		n, err = r.q.UpdateOutboxStatusAndStripMedia(ctx, storedb.UpdateOutboxStatusAndStripMediaParams{
-			Status:      storedb.OutboxStatus(status),
-			WaMessageID: nullString(waMessageID),
-			Error:       nullString(errMsg),
-			UpdatedAt:   updatedAt,
-			TerminalAt:  sql.NullInt64{Int64: updatedAt, Valid: true},
-			ID:          id,
-		})
-	case domain.OutboxFailed, domain.OutboxUnknown:
-		n, err = r.q.CompleteOutbox(ctx, storedb.CompleteOutboxParams{
-			FinalStatus:   storedb.OutboxStatus(status),
-			WaMessageID:   nullString(waMessageID),
-			Error:         nullString(errMsg),
-			TerminalAt:    sql.NullInt64{Int64: updatedAt, Valid: true},
-			UpdatedAt:     updatedAt,
-			ID:            id,
-			SendingStatus: storedb.OutboxStatus(domain.OutboxSending),
-		})
-		if n == 0 && status == domain.OutboxFailed {
-			// The row may already be terminal from a concurrent path; fall back
-			// to the unconditional update so legacy callers keep their contract.
-			n, err = r.q.UpdateOutboxStatus(ctx, storedb.UpdateOutboxStatusParams{
-				Status:      storedb.OutboxStatus(status),
-				WaMessageID: nullString(waMessageID),
-				Error:       nullString(errMsg),
-				UpdatedAt:   updatedAt,
-				ID:          id,
-			})
-		}
-	default:
-		n, err = r.q.UpdateOutboxStatus(ctx, storedb.UpdateOutboxStatusParams{
-			Status:      storedb.OutboxStatus(status),
-			WaMessageID: nullString(waMessageID),
-			Error:       nullString(errMsg),
-			UpdatedAt:   updatedAt,
-			ID:          id,
-		})
-	}
-	if err != nil {
-		return fmt.Errorf("store: update outbox status: %w", err)
-	}
-	return rowsAffectedOrNotFound(n, "outbox entry")
+// OutboxClaim is one claim attempt: every claimed row gets Token and a lease
+// until LeaseUntil. Now is the eligibility cutoff.
+type OutboxClaim struct {
+	Token      string
+	Now        int64
+	LeaseUntil int64
+	Limit      int
 }
 
-// ClaimByID atomically transfers one dispatchable row to a worker by changing
-// queued (initial attempt), failed (Asynq retry), or a sending row whose lease
-// timestamp is at/before staleBefore to sending. It increments attempts and
-// stamps updatedAt in the same CAS. claimed is true only for the process that
-// changed the row; false includes an active sending lease, terminal sent row,
-// missing row, or concurrent winner. The caller chooses staleBefore from a
-// lease duration longer than its maximum dispatch operation.
-func (r *OutboxRepo) ClaimByID(ctx context.Context, id string, updatedAt, staleBefore int64) (claimed bool, err error) {
-	n, err := r.q.ClaimOutboxByID(ctx, storedb.ClaimOutboxByIDParams{
-		ClaimedStatus: storedb.OutboxStatus(domain.OutboxSending),
-		UpdatedAt:     updatedAt,
-		ID:            id,
-		QueuedStatus:  storedb.OutboxStatus(domain.OutboxQueued),
-		FailedStatus:  storedb.OutboxStatus(domain.OutboxFailed),
-		SendingStatus: storedb.OutboxStatus(domain.OutboxSending),
-		StaleBefore:   staleBefore,
-	})
-	if err != nil {
-		return false, fmt.Errorf("store: claim outbox %s: %w", id, err)
+// ClaimDue leases up to Limit due commands: queued commands and acknowledged
+// projections that are due (or past expiry), plus sending commands whose lease
+// expired. Selection uses FOR UPDATE SKIP LOCKED and every row is leased in
+// the same transaction, so concurrent schedulers receive disjoint batches.
+// Rows are returned in scheduled order (oldest-due first).
+func (r *OutboxRepo) ClaimDue(ctx context.Context, c OutboxClaim) ([]domain.OutboxEntry, error) {
+	if c.Token == "" || c.LeaseUntil <= c.Now {
+		return nil, fmt.Errorf("store: outbox claim needs a token and a lease after now")
 	}
-	switch n {
-	case 0:
-		return false, nil
-	case 1:
-		return true, nil
-	default:
-		return false, fmt.Errorf("store: claim outbox %s affected %d rows", id, n)
-	}
-}
-
-// ClaimQueued atomically moves up to limit queued entries to 'sending',
-// returning the claimed rows so an async worker can process them. Selection uses
-// FOR UPDATE SKIP LOCKED and every row is transitioned with the same CAS used by
-// ClaimByID before commit, so worker replicas receive disjoint batches. Any
-// statement or commit failure rolls back the complete batch.
-func (r *OutboxRepo) ClaimQueued(ctx context.Context, limit int, updatedAt int64) ([]domain.OutboxEntry, error) {
-	return r.claimQueuedForSession(ctx, "", limit, updatedAt)
-}
-
-// ClaimQueuedForSession is ClaimQueued constrained to one session. The filter
-// is applied inside the locking SELECT—not after rows become sending—so a
-// session-specific consumer cannot claim and then discard another session's
-// work. An empty sessionID intentionally selects across all sessions.
-func (r *OutboxRepo) ClaimQueuedForSession(ctx context.Context, sessionID string, limit int, updatedAt int64) ([]domain.OutboxEntry, error) {
-	return r.claimQueuedForSession(ctx, sessionID, limit, updatedAt)
-}
-
-func (r *OutboxRepo) claimQueuedForSession(ctx context.Context, sessionID string, limit int, updatedAt int64) ([]domain.OutboxEntry, error) {
-	limit = normLimit(limit)
-	if _, ok := r.db.(*sql.Tx); ok {
-		return r.claimQueued(ctx, r.q, sessionID, limit, updatedAt)
-	}
-	db, ok := r.db.(*sql.DB)
-	if !ok {
-		return nil, fmt.Errorf("store: claim queued outbox requires *sql.DB or *sql.Tx")
-	}
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, fmt.Errorf("store: begin claim queued outbox: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-	rows, err := r.claimQueued(ctx, storedb.New(tx), sessionID, limit, updatedAt)
-	if err != nil {
-		return nil, err
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("store: commit claim queued outbox: %w", err)
-	}
-	return rows, nil
-}
-
-// claimQueued assumes q is transaction-bound. Rows remain locked from selection
-// through every CAS; a zero-row CAS is skipped defensively rather than returned
-// as owned work.
-func (r *OutboxRepo) claimQueued(ctx context.Context, q *storedb.Queries, sessionID string, limit int, updatedAt int64) ([]domain.OutboxEntry, error) {
-	rows, err := q.SelectQueuedOutboxForClaim(ctx, storedb.SelectQueuedOutboxForClaimParams{
-		QueuedStatus:  storedb.OutboxStatus(domain.OutboxQueued),
-		SessionFilter: sessionID,
-		Limit:         int32(limit),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("store: select queued outbox: %w", err)
-	}
-	out := make([]domain.OutboxEntry, 0, len(rows))
-	for _, row := range rows {
-		n, err := q.ClaimOutboxByID(ctx, storedb.ClaimOutboxByIDParams{
-			ClaimedStatus: storedb.OutboxStatus(domain.OutboxSending),
-			UpdatedAt:     updatedAt,
-			ID:            row.ID,
-			QueuedStatus:  storedb.OutboxStatus(domain.OutboxQueued),
-			FailedStatus:  storedb.OutboxStatus(domain.OutboxFailed),
-			SendingStatus: storedb.OutboxStatus(domain.OutboxSending),
-			StaleBefore:   updatedAt,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("store: claim outbox %s: %w", row.ID, err)
-		}
-		if n != 1 {
-			continue
-		}
-		entry := outboxRowFromQueuedClaim(row)
-		entry.Status = domain.OutboxSending
-		entry.Attempts++
-		entry.UpdatedAt = updatedAt
-		out = append(out, entry)
-	}
-	return out, nil
-}
-
-// ClaimDue leases up to limit retryable commands: queued/failed rows whose
-// next_attempt_at is due, plus stale 'sending' rows whose dispatch lease has
-// expired. Selection uses FOR UPDATE SKIP LOCKED and every row transitions with
-// the ClaimByID CAS before commit, so concurrent schedulers receive disjoint
-// batches. Rows are returned in scheduled order (oldest-due first).
-func (r *OutboxRepo) ClaimDue(ctx context.Context, limit int, dueBefore, staleBefore, updatedAt int64) ([]domain.OutboxEntry, error) {
-	limit = normLimit(limit)
-	if _, ok := r.db.(*sql.Tx); ok {
-		return r.claimDue(ctx, r.q, limit, dueBefore, staleBefore, updatedAt)
-	}
-	db, ok := r.db.(*sql.DB)
-	if !ok {
-		return nil, fmt.Errorf("store: claim due outbox requires *sql.DB or *sql.Tx")
-	}
-	tx, err := db.BeginTx(ctx, nil)
+	tx, commit, rollback, err := r.begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("store: begin claim due outbox: %w", err)
 	}
-	defer func() { _ = tx.Rollback() }()
-	rows, err := r.claimDue(ctx, storedb.New(tx), limit, dueBefore, staleBefore, updatedAt)
-	if err != nil {
-		return nil, err
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("store: commit claim due outbox: %w", err)
-	}
-	return rows, nil
-}
-
-func (r *OutboxRepo) claimDue(ctx context.Context, q *storedb.Queries, limit int, dueBefore, staleBefore, updatedAt int64) ([]domain.OutboxEntry, error) {
+	defer func() { _ = rollback() }()
+	q := storedb.New(tx)
 	rows, err := q.SelectDueOutboxForClaim(ctx, storedb.SelectDueOutboxForClaimParams{
-		QueuedStatus:  storedb.OutboxStatus(domain.OutboxQueued),
-		FailedStatus:  storedb.OutboxStatus(domain.OutboxFailed),
-		SendingStatus: storedb.OutboxStatus(domain.OutboxSending),
-		DueBefore:     dueBefore,
-		ExpiryBefore:  sql.NullInt64{Int64: dueBefore, Valid: true},
-		StaleBefore:   staleBefore,
-		Limit:         int32(limit),
+		Now:          c.Now,
+		ExpiryBefore: sql.NullInt64{Int64: c.Now, Valid: true},
+		LeaseBefore:  sql.NullInt64{Int64: c.Now, Valid: true},
+		Limit:        int32(normLimit(c.Limit)),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("store: select due outbox: %w", err)
 	}
 	out := make([]domain.OutboxEntry, 0, len(rows))
 	for _, row := range rows {
-		claimed, err := q.ClaimOutboxByID(ctx, storedb.ClaimOutboxByIDParams{
-			ClaimedStatus: storedb.OutboxStatus(domain.OutboxSending),
-			UpdatedAt:     updatedAt,
-			ID:            row.ID,
-			QueuedStatus:  storedb.OutboxStatus(domain.OutboxQueued),
-			FailedStatus:  storedb.OutboxStatus(domain.OutboxFailed),
-			SendingStatus: storedb.OutboxStatus(domain.OutboxSending),
-			StaleBefore:   staleBefore,
-		})
+		entry := outboxRowFromDueClaim(row)
+		leased, err := r.lease(ctx, q, entry.ID, c)
 		if err != nil {
-			return nil, fmt.Errorf("store: claim outbox %s: %w", row.ID, err)
+			return nil, err
 		}
-		if claimed == 1 {
-			entry := outboxRowFromDueClaim(row)
+		if leased {
 			entry.Status = domain.OutboxSending
-			entry.Attempts++
-			entry.UpdatedAt = updatedAt
+			entry.ClaimToken, entry.LeaseUntil, entry.UpdatedAt = c.Token, c.LeaseUntil, c.Now
 			out = append(out, entry)
 		}
+	}
+	if err := commit(); err != nil {
+		return nil, fmt.Errorf("store: commit claim due outbox: %w", err)
 	}
 	return out, nil
 }
 
-// Reschedule returns one claimed command to 'queued' with a future attempt time,
-// clearing any partial result. It only touches 'sending' rows the caller owns by
-// lease; a false result means the lease was lost and another scheduler now owns
-// the command.
-func (r *OutboxRepo) Reschedule(ctx context.Context, id string, ownerStamp int64, note string, nextAttemptAt, updatedAt int64) (bool, error) {
-	n, err := r.q.RescheduleOutbox(ctx, storedb.RescheduleOutboxParams{
-		QueuedStatus:  storedb.OutboxStatus(domain.OutboxQueued),
-		SendingStatus: storedb.OutboxStatus(domain.OutboxSending),
-		Error:         sql.NullString{String: note, Valid: note != ""},
-		NextAttemptAt: nextAttemptAt,
-		UpdatedAt:     updatedAt,
-		ID:            id,
-		OwnerStamp:    ownerStamp,
+// ClaimByID leases one command if it is claimable (queued, acknowledged, or
+// sending with an expired lease), regardless of its due time.
+func (r *OutboxRepo) ClaimByID(ctx context.Context, id string, c OutboxClaim) (bool, error) {
+	return r.lease(ctx, r.q, id, c)
+}
+
+func (r *OutboxRepo) lease(ctx context.Context, q *storedb.Queries, id string, c OutboxClaim) (bool, error) {
+	n, err := q.LeaseOutbox(ctx, storedb.LeaseOutboxParams{
+		ClaimToken:  sqlString(c.Token),
+		LeaseUntil:  sql.NullInt64{Int64: c.LeaseUntil, Valid: true},
+		Now:         c.Now,
+		ID:          id,
+		LeaseBefore: sql.NullInt64{Int64: c.Now, Valid: true},
 	})
 	if err != nil {
-		return false, fmt.Errorf("store: reschedule outbox %s: %w", id, err)
+		return false, fmt.Errorf("store: lease outbox %s: %w", id, err)
 	}
 	return n == 1, nil
 }
 
-// MarkDispatchPossible records uncertainty before crossing the private engine
-// boundary. A later expiry can only be called a definite failure when this was
-// never reached and no acknowledgement has been recorded.
-func (r *OutboxRepo) MarkDispatchPossible(ctx context.Context, id string, ownerStamp int64) (bool, error) {
-	n, err := r.q.MarkOutboxDispatchPossible(ctx, storedb.MarkOutboxDispatchPossibleParams{ID: id, OwnerStamp: ownerStamp})
-	if err != nil {
-		return false, fmt.Errorf("store: mark outbox dispatch %s: %w", id, err)
+func (r *OutboxRepo) begin(ctx context.Context) (storedb.DBTX, func() error, func() error, error) {
+	if tx, ok := r.db.(*sql.Tx); ok {
+		return tx, func() error { return nil }, func() error { return nil }, nil
 	}
-	return n == 1, nil
+	db, ok := r.db.(*sql.DB)
+	if !ok {
+		return nil, nil, nil, fmt.Errorf("store: claim due outbox requires *sql.DB or *sql.Tx")
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return tx, tx.Commit, tx.Rollback, nil
+}
+
+func fencedOutbox(n int64, err error, what, id string) error {
+	if err != nil {
+		return fmt.Errorf("store: %s outbox %s: %w", what, id, err)
+	}
+	if n != 1 {
+		return ErrOutboxClaimLost
+	}
+	return nil
+}
+
+// RenewLease extends the lease of a sending command this claim owns.
+func (r *OutboxRepo) RenewLease(ctx context.Context, id, token string, leaseUntil int64) error {
+	n, err := r.q.RenewOutboxLease(ctx, storedb.RenewOutboxLeaseParams{
+		LeaseUntil: sql.NullInt64{Int64: leaseUntil, Valid: true}, ID: id, ClaimToken: sqlString(token),
+	})
+	return fencedOutbox(n, err, "renew lease of", id)
+}
+
+// MarkDispatch runs before every engine dispatch of a command that has no
+// acknowledgement yet: it records that a remote effect may happen, counts the
+// dispatch attempt and renews the lease.
+func (r *OutboxRepo) MarkDispatch(ctx context.Context, id, token string, leaseUntil int64) error {
+	n, err := r.q.MarkOutboxDispatch(ctx, storedb.MarkOutboxDispatchParams{
+		LeaseUntil: sql.NullInt64{Int64: leaseUntil, Valid: true}, ID: id, ClaimToken: sqlString(token),
+	})
+	return fencedOutbox(n, err, "mark dispatch of", id)
 }
 
 // ClearDispatchPossible is valid only after the engine client proves it
 // returned before issuing an RPC and the row had no earlier possible effect.
-func (r *OutboxRepo) ClearDispatchPossible(ctx context.Context, id string, ownerStamp int64) (bool, error) {
+func (r *OutboxRepo) ClearDispatchPossible(ctx context.Context, id, token string) error {
 	n, err := r.q.ClearOutboxDispatchPossible(ctx, storedb.ClearOutboxDispatchPossibleParams{
-		ID: id, OwnerStamp: ownerStamp,
+		ID: id, ClaimToken: sqlString(token),
 	})
-	if err != nil {
-		return false, fmt.Errorf("store: clear outbox dispatch %s: %w", id, err)
-	}
-	return n == 1, nil
+	return fencedOutbox(n, err, "clear dispatch of", id)
 }
 
 // RecordAcknowledgement persists a definite remote commit before any local
 // projection. Recovery therefore never lets a later expiry erase success.
-func (r *OutboxRepo) RecordAcknowledgement(ctx context.Context, id string, ownerStamp int64, waID string, acknowledgedAt int64) (bool, error) {
+func (r *OutboxRepo) RecordAcknowledgement(ctx context.Context, id, token, waID string, acknowledgedAt int64) error {
 	n, err := r.q.RecordOutboxAcknowledgement(ctx, storedb.RecordOutboxAcknowledgementParams{
-		ID: id, OwnerStamp: ownerStamp, WaMessageID: sqlString(waID),
+		WaMessageID:    sqlString(waID),
 		AcknowledgedAt: sql.NullInt64{Int64: acknowledgedAt, Valid: true},
+		ID:             id, ClaimToken: sqlString(token),
 	})
-	if err != nil {
-		return false, fmt.Errorf("store: acknowledge outbox %s: %w", id, err)
-	}
-	return n == 1, nil
+	return fencedOutbox(n, err, "acknowledge", id)
 }
 
-// CompleteOwned fences terminal settlement by the current sending lease.
-func (r *OutboxRepo) CompleteOwned(ctx context.Context, id string, ownerStamp int64, status domain.OutboxStatus, waID, note *string, updatedAt int64) (bool, error) {
+// Defer returns an unacknowledged command to queued without counting a
+// dispatch attempt (rate limit, or a pre-dispatch infrastructure check).
+func (r *OutboxRepo) Defer(ctx context.Context, id, token, note string, nextAttemptAt, now int64) error {
+	n, err := r.q.DeferOutbox(ctx, storedb.DeferOutboxParams{
+		Error: sqlString(note), NextAttemptAt: nextAttemptAt, UpdatedAt: now, ID: id, ClaimToken: sqlString(token),
+	})
+	return fencedOutbox(n, err, "defer", id)
+}
+
+// Retry returns an unacknowledged command to queued after an ambiguous
+// dispatch attempt (already counted by MarkDispatch).
+func (r *OutboxRepo) Retry(ctx context.Context, id, token, note string, nextAttemptAt, now int64) error {
+	n, err := r.q.RetryOutbox(ctx, storedb.RetryOutboxParams{
+		Error: sqlString(note), NextAttemptAt: nextAttemptAt, UpdatedAt: now, ID: id, ClaimToken: sqlString(token),
+	})
+	return fencedOutbox(n, err, "retry", id)
+}
+
+// DeferProjection parks an acknowledged command whose projection failed and
+// counts the projection attempt.
+func (r *OutboxRepo) DeferProjection(ctx context.Context, id, token, note string, nextAttemptAt, now int64) error {
+	n, err := r.q.DeferOutboxProjection(ctx, storedb.DeferOutboxProjectionParams{
+		Error: sqlString(note), NextAttemptAt: nextAttemptAt, UpdatedAt: now, ID: id, ClaimToken: sqlString(token),
+	})
+	return fencedOutbox(n, err, "defer projection of", id)
+}
+
+// CompleteOwned settles a command terminally (sent, failed or unknown), fenced
+// by its claim token. A sent command's inline media bytes are stripped.
+func (r *OutboxRepo) CompleteOwned(ctx context.Context, id, token string, status domain.OutboxStatus, waID, note *string, updatedAt int64) error {
 	n, err := r.q.CompleteOwnedOutbox(ctx, storedb.CompleteOwnedOutboxParams{
-		ID: id, OwnerStamp: ownerStamp, FinalStatus: storedb.OutboxStatus(status),
+		ID: id, ClaimToken: sqlString(token), FinalStatus: storedb.OutboxStatus(status),
 		WaMessageID: nullString(waID), Error: nullString(note),
 		TerminalAt: sql.NullInt64{Int64: updatedAt, Valid: true}, UpdatedAt: updatedAt,
 	})
-	if err != nil {
-		return false, fmt.Errorf("store: complete outbox %s: %w", id, err)
-	}
-	return n == 1, nil
+	return fencedOutbox(n, err, "complete", id)
 }

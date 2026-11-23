@@ -563,17 +563,24 @@ type OutboxEntry struct {
 	SessionID      string          `json:"sessionId" doc:"Id of the session the message is sent from." example:"01J9ZX8K2QHV0M3T6R7P4N5W8C"`
 	IdempotencyKey *string         `json:"idempotencyKey,omitempty" doc:"Caller-supplied idempotency key: a repeat send with the same key returns the original result instead of sending again. Optional; null when the caller did not supply one." example:"order-4821-confirm"`
 	Payload        json.RawMessage `json:"payload" doc:"The original send request payload (a SendRequest), stored verbatim as JSON."`
-	Status         OutboxStatus    `json:"status" enum:"queued,sending,sent,failed,unknown" doc:"Current durable state: queued, sending, sent, failed before dispatch, or unknown when a remote effect may have happened." example:"sent"`
-	Attempts       int             `json:"attempts" doc:"How many delivery attempts have been made." example:"1"`
+	Status         OutboxStatus    `json:"status" enum:"queued,sending,acknowledged,sent,failed,unknown" doc:"Current durable state: queued, sending (a scheduler holds it), acknowledged (WhatsApp accepted it and the message record is still being stored), sent, failed before dispatch, or unknown when a remote effect may have happened." example:"sent"`
+	Attempts       int             `json:"attempts" doc:"How many times the send was dispatched to the gateway. Rate-limit deferrals are not counted." example:"1"`
 	NextAttemptAt  int64           `json:"nextAttemptAt,omitempty" doc:"Earliest epoch-ms (UTC) the next retry may run; zero means immediately due. Ambiguous attempts are rescheduled here with backoff instead of reporting a definite failure." example:"1719662405000"`
 	ExpiresAt      *int64          `json:"expiresAt,omitempty" doc:"Immutable optional absolute UTC epoch-ms deadline accepted with the command. A new WhatsApp dispatch does not start at or after this instant." example:"1791158400000"`
 	AcknowledgedAt *int64          `json:"-"`
 	EffectPossible bool            `json:"-"`
-	WAMessageID    *string         `json:"waMessageId,omitempty" doc:"The WhatsApp message id assigned once the send succeeded. Optional; null until status is sent." example:"3EB0C431C26A1916E07A"`
-	Error          *string         `json:"error,omitempty" doc:"Failure reason when status is failed. Optional; null otherwise." example:"rate limited"`
-	TerminalAt     *int64          `json:"terminalAt,omitempty" doc:"When the entry reached sent or failed, in epoch milliseconds (UTC). Optional until terminal." example:"1719662401000"`
-	CreatedAt      int64           `json:"createdAt" doc:"When the entry was enqueued, in epoch milliseconds (UTC)." example:"1719662400000"`
-	UpdatedAt      int64           `json:"updatedAt" doc:"When the entry was last updated, in epoch milliseconds (UTC)." example:"1719662400000"`
+	// Deferrals counts rate-limit (and pre-dispatch infrastructure) deferrals;
+	// ProjectionAttempts counts retries of an acknowledged send's projection.
+	// ClaimToken and LeaseUntil name the scheduler that holds a sending row.
+	Deferrals          int     `json:"-"`
+	ProjectionAttempts int     `json:"-"`
+	ClaimToken         string  `json:"-"`
+	LeaseUntil         int64   `json:"-"`
+	WAMessageID        *string `json:"waMessageId,omitempty" doc:"The WhatsApp message id assigned once the send succeeded. Optional; null until status is sent." example:"3EB0C431C26A1916E07A"`
+	Error              *string `json:"error,omitempty" doc:"Failure reason when status is failed. Optional; null otherwise." example:"rate limited"`
+	TerminalAt         *int64  `json:"terminalAt,omitempty" doc:"When the entry reached sent or failed, in epoch milliseconds (UTC). Optional until terminal." example:"1719662401000"`
+	CreatedAt          int64   `json:"createdAt" doc:"When the entry was enqueued, in epoch milliseconds (UTC)." example:"1719662400000"`
+	UpdatedAt          int64   `json:"updatedAt" doc:"When the entry was last updated, in epoch milliseconds (UTC)." example:"1719662400000"`
 }
 
 // EventLogEntry mirrors the event_log table. ID is the monotonic DB cursor used

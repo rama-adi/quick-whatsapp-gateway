@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -481,17 +482,17 @@ func runE2EOutboxContract(t *testing.T, infra *e2eInfra, gateway *e2eGateway) {
 		if status != http.StatusOK || sent.OutboxID == "" {
 			t.Fatalf("sent source = %d %+v", status, sent)
 		}
-		state, waID, ack, stamp := e2eOutboxStatus(t, infra, sent.OutboxID)
+		state, waID, ack, _ := e2eOutboxStatus(t, infra, sent.OutboxID)
 		if state != string(domain.OutboxSent) || !waID.Valid || !ack.Valid {
 			t.Fatalf("sent row = %s %+v %+v", state, waID, ack)
 		}
 		failedNote := "stale owner falsely failed"
 		ctx, cancel := e2eContext(t)
 		defer cancel()
-		owned, err := store.NewOutboxRepo(infra.db).CompleteOwned(
-			ctx, sent.OutboxID, stamp, domain.OutboxFailed, nil, &failedNote, time.Now().UnixMilli())
-		if err != nil || owned {
-			t.Fatalf("stale completion = %t %v", owned, err)
+		err := store.NewOutboxRepo(infra.db).CompleteOwned(
+			ctx, sent.OutboxID, "stale-claim-token", domain.OutboxFailed, nil, &failedNote, time.Now().UnixMilli())
+		if !errors.Is(err, store.ErrOutboxClaimLost) {
+			t.Fatalf("stale completion = %v", err)
 		}
 		state, waID, ack, _ = e2eOutboxStatus(t, infra, sent.OutboxID)
 		if state != string(domain.OutboxSent) || waID.String != sent.WAMessageID || !ack.Valid {
