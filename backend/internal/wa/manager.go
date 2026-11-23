@@ -654,9 +654,10 @@ func (m *Manager) pumpQR(ctx context.Context, ms *ManagedSession, qrChan <-chan 
 				m.teardown(ms)
 				return
 			default:
-				if item.Error != nil {
-					m.log.Warn("qr pairing error", "session", ms.SessionID, "event", item.Event, "err", item.Error)
-				}
+				// err-client-outdated, err-unexpected-state, err-scanned-without-multidevice
+				// and error end the QR flow without a code. Log every one: a nil
+				// item.Error (as with err-client-outdated) still means pairing stopped.
+				m.log.Warn("qr pairing error", "session", ms.SessionID, "event", item.Event, "err", item.Error)
 			}
 		}
 	}
@@ -787,6 +788,7 @@ func (m *Manager) applyEvent(ctx context.Context, ms *ManagedSession, evt any) {
 	}
 
 	if t.terminal {
+		m.log.Warn("whatsapp session terminated", "session", ms.SessionID, "event", fmt.Sprintf("%T", evt), "detail", fmt.Sprintf("%+v", evt), "status", string(t.status))
 		// LoggedOut / StreamReplaced / ban / fatal connect-failure: stop reconnect.
 		// teardown clears runtime state; the transition below records + emits the
 		// new status.

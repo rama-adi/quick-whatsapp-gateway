@@ -67,10 +67,16 @@ func (s *Server) performResource(se *session, req OperationRequest) (OperationRe
 		default:
 			return OperationResponse{Error: "unsupported blocklist action"}, true
 		}
-		result := types.Blocklist{JIDs: []types.JID{}}
+		result := types.Blocklist{Items: []types.BlocklistItem{}}
 		for value := range s.blocklists[se.number] {
 			parsed, _ := types.ParseJID(value)
-			result.JIDs = append(result.JIDs, parsed)
+			item := types.BlocklistItem{Active: true}
+			if parsed.Server == types.HiddenUserServer {
+				item.LID = parsed
+			} else {
+				item.PN = parsed
+			}
+			result.Items = append(result.Items, item)
 		}
 		return asResult(result), true
 	case "joined-groups":
