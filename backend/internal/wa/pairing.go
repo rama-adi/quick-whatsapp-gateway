@@ -60,6 +60,10 @@ func (m *Manager) handlePairingEvent(ms *ManagedSession, c *connection, evt any)
 			c.qrCancel()
 		}
 		c.qrCancel = cancel
+		// New codes prove the pairing connection is up again; an unpaired
+		// run gets no Connected event to say so.
+		c.down = false
+		ms.attempt, ms.lastErr = 0, ""
 		ms.mu.Unlock()
 		go m.emitQRCodes(ctx, ms, c, append([]string(nil), e.Codes...))
 		return true

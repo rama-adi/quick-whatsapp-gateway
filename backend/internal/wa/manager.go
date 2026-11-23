@@ -674,6 +674,12 @@ func (m *Manager) drive(ms *ManagedSession, c *connection) {
 	liveness := time.NewTicker(m.cfg.LivenessInterval)
 	defer liveness.Stop()
 	for c.ctx.Err() == nil {
+		// A drop signal from before this attempt (the old socket's late
+		// Disconnected) says nothing about the connection about to open.
+		select {
+		case <-c.wake:
+		default:
+		}
 		err := c.client.Connect()
 		if c.ctx.Err() != nil {
 			return

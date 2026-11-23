@@ -203,7 +203,8 @@ QR timeout marks the session failed, ends its run (reconnect driver, event handl
 and clears the cached QR. A subsequent pairing request creates a fresh run instead of reusing
 an exhausted QR channel. Stopping a flow and successful QR pairing also clear its cache, and
 QR reads never return a code after its expiry. A reconnect of an unpaired run receives a new set
-of QR codes; their emitter replaces the previous one.
+of QR codes; their emitter replaces the previous one, and the new codes count as recovery (an
+unpaired run gets no `Connected` event), so the grace timer does not report `reconnecting`.
 
 ## Connection runs and reconnects
 
@@ -229,7 +230,9 @@ calls. The driver connects, then waits for the transport to drop: a `Disconnecte
 keepalive failing for more than three minutes (whatsmeow only forces that reconnect when its own
 reconnect is on, so the manager does it), or a liveness check every 5 seconds that finds no socket
 (drops that emit no event, such as a failed reconnect after the post-pairing `515` restart).
-`ErrAlreadyConnected` from `Connect` means the socket is up and counts as success. Retries use
+`ErrAlreadyConnected` from `Connect` means the socket is up and counts as success. A drop signal
+left over from before an attempt (an old socket's late `Disconnected`) is discarded before
+`Connect`. Retries use
 `backoffFor` (1s base, ×2, cap 2m, full jitter).
 
 **Bounded retries.** Consecutive failed attempts without a `Connected` event in between are

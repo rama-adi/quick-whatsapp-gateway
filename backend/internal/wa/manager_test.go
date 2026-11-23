@@ -887,3 +887,37 @@ func TestStatusSequenceIsMonotonic(t *testing.T) {
 		t.Fatalf("restarted runtime = %+v, want stopped above %d", got, last)
 	}
 }
+
+// TestPairingReconnectIsNotReportedAsReconnecting: a pairing connection that
+// dropped and came back delivers new QR codes but no Connected event; the new
+// codes count as recovery, so the grace timer does not report reconnecting.
+func TestPairingReconnectIsNotReportedAsReconnecting(t *testing.T) {
+	m, sink, _, fc := newTestManagerParts(t, Config{
+		ReconnectGrace: 100 * time.Millisecond,
+		Backoff:        backoffConfig{base: time.Millisecond, max: time.Millisecond, factor: 1},
+	})
+	if err := m.StartAssigned(context.Background(), runAssignment("sess_1", "", 1)); err != nil {
+		t.Fatal(err)
+	}
+	ms := m.Get("sess_1")
+	<-currentRun(ms).ready
+	fc.emit(&events.QR{Codes: []string{"a1", "a2", "a3", "a4", "a5", "a6"}})
+	waitFor(t, func() bool { return ms.Status() == domain.SessionScanQR })
+
+	fc.mu.Lock()
+	fc.connected = false
+	fc.mu.Unlock()
+	fc.emit(&events.Disconnected{})
+	waitFor(t, func() bool { fc.mu.Lock(); defer fc.mu.Unlock(); return fc.connects >= 2 })
+	fc.emit(&events.QR{Codes: []string{"b1", "b2", "b3", "b4", "b5", "b6"}})
+	time.Sleep(200 * time.Millisecond)
+
+	for _, payload := range statusPayloads(sink) {
+		if payload["status"] == "reconnecting" {
+			t.Fatalf("a recovered pairing connection was reported as reconnecting: %+v", statusPayloads(sink))
+		}
+	}
+	if code, _ := m.LatestQR("sess_1"); code != "b1" {
+		t.Fatalf("latest QR = %q, want the new set", code)
+	}
+}
