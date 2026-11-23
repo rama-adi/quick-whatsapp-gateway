@@ -13,13 +13,9 @@ import { CheckCircle2Icon, QrCodeIcon, RefreshCwIcon, SmartphoneIcon } from "luc
 import { StreamIndicator, OrgLabel, useOrgNames } from "./-shared";
 import { useAdminSessions } from "~/lib/api/hooks/admin";
 import { useEventStreamSubscription, usePollingInterval } from "~/lib/events/useEventStream";
-import {
-  useSessionQR,
-  useSessionLifecycle,
-  usePairingCode,
-  useSessionPairingCode,
-  useSessionPasskey,
-} from "~/lib/api/hooks/sessions";
+import { useSessionQR, useSessionLifecycle, usePairingCode } from "~/lib/api/hooks/sessions";
+import { isAwaitingPairing, viewArtifacts } from "~/lib/sessions/view";
+import { useSessionViewFromRow } from "~/lib/sessions/useSessionView";
 import type { SessionAction, SessionStatus, WASession } from "~/lib/api/types";
 import { isApiError } from "~/lib/api/envelope";
 import { Button } from "~/components/ui/button";
@@ -63,7 +59,11 @@ function AdminPairing() {
   // on an event that will not arrive.
   const poll = usePollingInterval();
   const q = useAdminSessions((data) =>
-    data?.pages.some((p) => p.data.some((s) => s.isAdminSession && s.status === "starting"))
+    data?.pages.some((p) =>
+      p.data.some(
+        (s) => s.isAdminSession && (s.status === "starting" || (s.status === "working" && !s.waJid)),
+      ),
+    )
       ? 3000
       : poll,
   );
@@ -136,7 +136,6 @@ function AdminPairing() {
             <PairingPanel
               key={selected.id}
               session={selected}
-              liveStatus={selected.status}
               orgNames={orgNames}
             />
           ) : null}
@@ -210,19 +209,20 @@ function actionsFor(status: SessionStatus | undefined, paired: boolean): Session
 
 function PairingPanel({
   session,
-  liveStatus,
   orgNames,
 }: {
   session: WASession;
-  liveStatus?: SessionStatus;
   orgNames: Map<string, string>;
 }) {
   const lifecycle = useSessionLifecycle();
   const confirm = useConfirm();
-  const [pending, setPending] = useState<SessionAction | null>(null);
-  const needsScan = liveStatus === "scan_qr_code";
-  const passkey = useSessionPasskey(session.id);
-  const connected = liveStatus === "working";
+  // One view of the session (lib/sessions/view.ts); `pending` is an overlay
+  // for the buttons and never decides what the panel shows.
+  const { view, pending } = useSessionViewFromRow(session.id, session);
+  const liveStatus = session.status;
+  // Linking (working, identity still loading) already counts as connected:
+  // the row refetch fills in the phone number.
+  const connected = view.kind === "working" || view.kind === "linking";
   const paired = connected || Boolean(session.waJid);
   const phone = phoneLabel(session.phoneNumber);
 
@@ -236,7 +236,6 @@ function PairingPanel({
       });
       if (!ok) return;
     }
-    setPending(action);
     lifecycle.mutate(
       { sessionId: session.id, action },
       {
@@ -245,7 +244,6 @@ function PairingPanel({
             action === "logout" ? "Logged out" : action === "stop" ? "Stopped" : action === "start" ? "Starting…" : "Restarting…",
           ),
         onError: (err) => toast.error(isApiError(err) ? err.message : "Action failed"),
-        onSettled: () => setPending(null),
       },
     );
   };
@@ -269,7 +267,7 @@ function PairingPanel({
               key={action}
               size="sm"
               variant={action === "logout" ? "destructive" : "outline"}
-              disabled={lifecycle.isPending}
+              disabled={Boolean(pending)}
               onClick={() => void runAction(action)}
             >
               {pending === action ? `${ACTION_LABEL[action]}…` : ACTION_LABEL[action]}
@@ -291,7 +289,7 @@ function PairingPanel({
               </p>
             </div>
           </div>
-        ) : passkey ? (
+        ) : view.kind === "passkey" ? (
           <div className="mx-auto max-w-2xl">
             <PasskeyPanel sessionId={session.id} />
           </div>
@@ -300,14 +298,19 @@ function PairingPanel({
             <div className="md:pr-8">
               <QrPanel
                 sessionId={session.id}
-                needsScan={needsScan}
+                needsScan={isAwaitingPairing(view)}
+                liveCode={viewArtifacts(view).qr?.code}
                 canStart={actionsFor(liveStatus, paired).includes("start")}
-                starting={pending === "start" || liveStatus === "starting"}
+                starting={view.kind === "connecting" || pending === "start" || pending === "restart"}
                 onStart={() => void runAction("start")}
               />
             </div>
             <div className="md:pl-8">
-              <PairingCodePanel sessionId={session.id} adminPhone={session.phoneNumber} />
+              <PairingCodePanel
+                sessionId={session.id}
+                adminPhone={session.phoneNumber}
+                code={viewArtifacts(view).pairingCode?.code}
+              />
             </div>
           </div>
         )}
@@ -333,18 +336,29 @@ function PanelHeading({ icon, title, text }: { icon: React.ReactNode; title: str
 function QrPanel({
   sessionId,
   needsScan,
+  liveCode,
   canStart,
   starting,
   onStart,
 }: {
   sessionId: string;
   needsScan: boolean;
+  /** The current, unexpired QR code from the session view. */
+  liveCode: string | undefined;
   canStart: boolean;
   starting: boolean;
   onStart: () => void;
 }) {
   const qr = useSessionQR(sessionId, needsScan);
-  const code = qr.data?.code;
+  const code = liveCode;
+  const poll = usePollingInterval();
+
+  // Without the stream, auth.qr events never arrive; poll the QR instead.
+  useEffect(() => {
+    if (!poll || !needsScan) return;
+    const t = window.setInterval(() => void qr.refetch(), poll);
+    return () => window.clearInterval(t);
+  }, [poll, qr, needsScan]);
 
   return (
     <section>
@@ -362,9 +376,9 @@ function QrPanel({
             </Button>
           ) : null}
         </div>
-      ) : qr.isLoading ? (
+      ) : !code && qr.isLoading ? (
         <Skeleton className="mx-auto size-56 rounded-xl" />
-      ) : qr.isError ? (
+      ) : !code && qr.isError ? (
         <div className="flex flex-col items-center gap-3 py-6 text-center">
           <p className="text-sm text-destructive">{isApiError(qr.error) ? qr.error.message : "QR code unavailable"}</p>
           <Button variant="outline" size="sm" onClick={() => void qr.refetch()}>
@@ -379,7 +393,16 @@ function QrPanel({
   );
 }
 
-function PairingCodePanel({ sessionId, adminPhone }: { sessionId: string; adminPhone?: string }) {
+function PairingCodePanel({
+  sessionId,
+  adminPhone,
+  code,
+}: {
+  sessionId: string;
+  adminPhone?: string;
+  /** The current phone pairing code from the session view (cache only). */
+  code: string | undefined;
+}) {
   const pairing = usePairingCode();
   const [phone, setPhone] = useState(adminPhone ?? "");
 
@@ -390,9 +413,8 @@ function PairingCodePanel({ sessionId, adminPhone }: { sessionId: string; adminP
 
   // The code the gateway prints to its console on boot is also pushed as an
   // `auth.code` event; cacheBridge writes it to the cache. A manually requested
-  // code lands in the same place (usePairingCode's onSuccess). Read only the
-  // cache, so a newer event or a status that ends the attempt always wins.
-  const code = useSessionPairingCode(sessionId)?.code;
+  // code lands in the same place (usePairingCode's onSuccess). The view reads
+  // only the cache, so a newer event or a status that ends the attempt wins.
   const digits = digitsOnly(phone);
 
   const submit = (e: React.FormEvent): void => {

@@ -156,8 +156,25 @@ the work Redis. API processes subscribe and revoke cached authorization and live
   backend files at the time. A pairing artifact never
   changes the session status: the gateway publishes `session.status` `scan_qr_code` before every
   code, and a reconnect refetches session rows, so the old "an artifact implies `scan_qr_code`"
-  guess is gone. The overview polls every three seconds while starting or an action is pending,
-  independently of degraded-stream fallback polling.
+  guess is gone. The overview polls every three seconds while starting, while linking, or while
+  an action is pending, independently of degraded-stream fallback polling.
+- **Session view model** — `web/app/lib/sessions/view.ts` (`deriveSessionView`) and
+  `useSessionView.ts`. Pages render one explicit state per session instead of reading status,
+  artifacts, and mutation flags separately: `loading | unreachable | stopped | connecting |
+  awaiting_pairing | qr | pairing_code | passkey | linking | working | failed | logged_out`. The
+  input is the merged session row plus the cached artifacts (QR, phone pairing code, passkey step,
+  failure reason). Rules: artifacts count only in `scan_qr_code` and only before their `expiresAt`
+  (the hook re-renders at the next expiry); a passkey step outranks a phone code, which outranks
+  the QR the same attempt keeps rotating; a cached row wins over a failed refetch (`unreachable`
+  only when nothing is cached); `working` without `waJid` is `linking`, which reports `stalled`
+  after ten seconds so the page offers a retry instead of a spinner that never ends. A pending
+  action is returned next to the view as `pending` and never changes `kind`. It also covers the
+  gap after a response: `:start` answers with the row as it was (the gateway reports `starting`
+  later), so the action stays pending until the row shows its effect, a newer row arrives, or 15
+  seconds pass, and the UI does not flash back to "Start the session". The user overview uses
+  `useSessionView(id)`; the admin pairing page uses `useSessionViewFromRow(id, row)` with the row
+  from the admin list. To swap inputs (a REST `failureReason`, a side-effect-free `GET /qr`, a
+  status sequence), change `SessionViewInput` and its builder; the derivation rules stay.
   Shared lifecycle controls disable logout for unpaired sessions and confirm before unlinking a
   paired device; list and detail views use the same labels, pending state, and destructive styling.
   Lifecycle and delete mutations carry `sessionMutationKeys`, and `usePendingSessionActions` reads

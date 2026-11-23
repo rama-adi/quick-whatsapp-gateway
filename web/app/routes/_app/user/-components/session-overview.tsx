@@ -25,15 +25,12 @@ import {
   WebhookIcon,
   XIcon,
 } from "lucide-react";
-import {
-  useSession,
-  useSessionFailure,
-  useSessionMe,
-  useSessionPasskey,
-  useSessionQR,
-  usePairingCode,
-  useSessionPairingCode,
-} from "~/lib/api/hooks/sessions";
+import { useQueryClient } from "@tanstack/react-query";
+import { useSessionMe, useSessionQR, usePairingCode } from "~/lib/api/hooks/sessions";
+import { qk } from "~/lib/query";
+import { refreshSessionRows } from "~/lib/sessions/merge";
+import { isAwaitingPairing, viewArtifacts, type SessionView } from "~/lib/sessions/view";
+import { useSessionView, type SessionActionOverlay } from "~/lib/sessions/useSessionView";
 import { isApiError } from "~/lib/api/envelope";
 import type { WASession } from "~/lib/api/types";
 import { usePollingInterval } from "~/lib/events/useEventStream";
@@ -78,7 +75,6 @@ import {
   QrImage,
   SessionActions,
   formatPhone,
-  isRunning,
   normalizePhone,
   sessionName,
   useSessionActions,
@@ -90,10 +86,15 @@ import { PasskeyPanel, failureMessage } from "./passkey-panel";
 export function SessionOverview({ sessionId }: { sessionId: string }) {
   const poll = usePollingInterval();
   const actions = useSessionActions();
-  const pending = actions.pendingFor(sessionId);
-  const session = useSession(sessionId, (query) =>
-    query.state.data?.status === "starting" || pending ? 3000 : poll,
-  );
+  const inFlight = actions.pendingFor(sessionId);
+  // Poll while the next state usually comes within seconds (connecting,
+  // linking, an action in flight), and whenever the stream is down.
+  const { view, pending, query: session } = useSessionView(sessionId, (query) => {
+    const row = query.state.data;
+    return row?.status === "starting" || (row?.status === "working" && !row.waJid) || inFlight
+      ? 3000
+      : poll;
+  });
   const me = useSessionMe(sessionId);
   const navigate = useNavigate();
   const app = useAppSession();
@@ -109,7 +110,7 @@ export function SessionOverview({ sessionId }: { sessionId: string }) {
     else if (sawUnpaired.current) setJustConnected(true);
   }, [paired, session.data]);
 
-  if (session.isLoading) {
+  if (view.kind === "loading") {
     return (
       <Page>
         <div className="space-y-2">
@@ -121,7 +122,7 @@ export function SessionOverview({ sessionId }: { sessionId: string }) {
     );
   }
 
-  if (session.isError) {
+  if (view.kind === "unreachable") {
     const notFound = isApiError(session.error) && session.error.code === "not_found";
     return (
       <Empty className="min-h-[50svh]">
@@ -198,10 +199,10 @@ export function SessionOverview({ sessionId }: { sessionId: string }) {
       />
 
       {!paired ? (
-        <PairingCard session={s} actions={actions} />
+        <PairingCard session={s} view={view} pending={pending} actions={actions} />
       ) : (
         <>
-          <StatusBanner session={s} actions={actions} />
+          <StatusBanner session={s} view={view} pending={pending} actions={actions} />
           <NextSteps session={s} justConnected={justConnected} />
           <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_20rem]">
             <div className="grid min-w-0 gap-6">
@@ -219,35 +220,57 @@ export function SessionOverview({ sessionId }: { sessionId: string }) {
 
 // --- Linked: status banner -------------------------------------------------------
 
+type BannerEntry = { text: string; action?: "start" | "restart"; busy?: boolean };
+
+/** The banner for a linked session's view; a start/restart in flight reads as connecting. */
+function bannerFor(view: SessionView, pending: SessionActionOverlay): BannerEntry | undefined {
+  if (pending === "start" || pending === "restart") {
+    return { text: "Reconnecting to WhatsApp…", busy: true };
+  }
+  switch (view.kind) {
+    case "stopped":
+      return {
+        text: "This session is stopped, so it isn't receiving new messages. Start it to reconnect.",
+        action: "start",
+      };
+    case "failed":
+      return {
+        text: "The connection failed and the gateway stopped retrying. Restart the session to try again.",
+        action: "restart",
+      };
+    case "connecting":
+      return { text: "Reconnecting to WhatsApp…", busy: true };
+    case "awaiting_pairing":
+    case "qr":
+    case "pairing_code":
+    case "passkey":
+      return { text: "Waiting for the phone to confirm the link…", busy: true };
+    case "logged_out":
+      return {
+        text: "The phone unlinked this session. Link it again to reconnect.",
+        action: "start",
+      };
+    default:
+      return undefined;
+  }
+}
+
 /** A slim notice when a linked session isn't connected right now. */
 function StatusBanner({
   session,
+  view,
+  pending,
   actions,
 }: {
   session: WASession;
+  view: SessionView;
+  pending: SessionActionOverlay;
   actions: ReturnType<typeof useSessionActions>;
 }) {
-  const pending = actions.pendingFor(session.id);
-  const copy: Record<string, { text: string; action?: "start" | "restart" }> = {
-    stopped: {
-      text: "This session is stopped, so it isn't receiving new messages. Start it to reconnect.",
-      action: "start",
-    },
-    failed: {
-      text: "The connection failed and the gateway stopped retrying. Restart the session to try again.",
-      action: "restart",
-    },
-    starting: { text: "Reconnecting to WhatsApp…" },
-    scan_qr_code: { text: "Waiting for the phone to confirm the link…" },
-    logged_out: {
-      text: "The phone unlinked this session. Link it again to reconnect.",
-      action: "start",
-    },
-  };
-  const entry = copy[session.status];
+  const entry = bannerFor(view, pending);
   if (!entry) return null;
   const tone =
-    session.status === "failed"
+    view.kind === "failed" && !entry.busy
       ? "border-destructive/30 bg-destructive/5"
       : "border-border bg-muted/40";
 
@@ -636,13 +659,16 @@ const STEPS: Record<PairMode, ReactNode[]> = {
 
 function PairingCard({
   session,
+  view,
+  pending,
   actions,
 }: {
   session: WASession;
+  view: SessionView;
+  pending: SessionActionOverlay;
   actions: ReturnType<typeof useSessionActions>;
 }) {
   const [mode, setMode] = useState<PairMode>("qr");
-  const passkey = useSessionPasskey(session.id);
 
   return (
     <Card>
@@ -677,7 +703,7 @@ function PairingCard({
         </Tabs>
       </CardHeader>
       <CardContent>
-        {passkey ? (
+        {view.kind === "passkey" ? (
           <div className="mx-auto max-w-2xl">
             <PasskeyPanel sessionId={session.id} />
           </div>
@@ -692,7 +718,7 @@ function PairingCard({
                 <span className="pt-0.5 text-pretty">{step}</span>
               </li>
             ))}
-            {session.status === "scan_qr_code" && (
+            {isAwaitingPairing(view) && (
               <li className="flex items-center gap-2 pt-1 text-xs text-muted-foreground">
                 <Spinner className="size-3.5" />
                 This page updates by itself once the phone is linked.
@@ -701,9 +727,12 @@ function PairingCard({
           </ol>
           <div className="flex justify-center">
             {mode === "qr" ? (
-              <QrPanel session={session} actions={actions} />
+              <QrPanel session={session} view={view} pending={pending} actions={actions} />
             ) : (
-              <PairingCodePanel sessionId={session.id} />
+              <PairingCodePanel
+                sessionId={session.id}
+                code={viewArtifacts(view).pairingCode?.code}
+              />
             )}
           </div>
         </div>
@@ -757,11 +786,48 @@ function ConnectingFrame({
   );
 }
 
+/**
+ * The phone linked (status working) but the attached identity has not loaded
+ * yet. Bounded: once the view reports it stalled, offer a retry instead of a
+ * spinner that never ends.
+ */
+function LinkingFrame({ sessionId, stalled }: { sessionId: string; stalled: boolean }) {
+  const qc = useQueryClient();
+  const retry = (): void => {
+    refreshSessionRows(qc, sessionId);
+    void qc.invalidateQueries({ queryKey: qk.sessionMe(sessionId), exact: true });
+  };
+  return (
+    <QrFrame>
+      {stalled ? (
+        <TriangleAlertIcon className="size-6 text-muted-foreground" aria-hidden />
+      ) : (
+        <Spinner className="size-5 text-muted-foreground" />
+      )}
+      <p className="text-sm text-pretty text-muted-foreground">
+        {stalled
+          ? "The phone is linked, but loading the account is taking longer than usual."
+          : "Linked. Loading the account…"}
+      </p>
+      {stalled ? (
+        <Button variant="outline" size="sm" onClick={retry}>
+          <RefreshCwIcon aria-hidden data-icon="inline-start" />
+          Retry
+        </Button>
+      ) : null}
+    </QrFrame>
+  );
+}
+
 function QrPanel({
   session,
+  view,
+  pending,
   actions,
 }: {
   session: WASession;
+  view: SessionView;
+  pending: SessionActionOverlay;
   actions: ReturnType<typeof useSessionActions>;
 }) {
   const ready = session.status === "scan_qr_code";
@@ -770,8 +836,10 @@ function QrPanel({
   // without an accidental QR client competing with PairPhone.
   const qr = useSessionQR(session.id, ready);
   const poll = usePollingInterval();
-  const pending = actions.pendingFor(session.id);
-  const failure = failureMessage(useSessionFailure(session.id));
+  const failure = view.kind === "failed" ? failureMessage(view.reason) : undefined;
+  // The live QR code from the view: present only while awaiting pairing and
+  // before the code's expiry.
+  const liveQr = viewArtifacts(view).qr;
 
   useEffect(() => {
     if (!poll || !ready) return;
@@ -779,7 +847,7 @@ function QrPanel({
     return () => window.clearInterval(t);
   }, [poll, qr, ready]);
 
-  if (session.status === "starting" || pending === "start" || pending === "restart") {
+  if (view.kind === "connecting" || pending === "start" || pending === "restart") {
     return (
       <ConnectingFrame
         // Remount on each new attempt so the slow-start timer starts over.
@@ -790,18 +858,20 @@ function QrPanel({
     );
   }
 
-  if (!isRunning(session.status)) {
+  if (view.kind === "linking" || view.kind === "working") {
+    return <LinkingFrame sessionId={session.id} stalled={view.kind === "linking" && view.stalled} />;
+  }
+
+  if (view.kind === "stopped" || view.kind === "failed" || view.kind === "logged_out") {
     return (
       <QrFrame>
-        {session.status === "failed" && failure ? (
+        {failure ? (
           <TriangleAlertIcon className="size-6 text-destructive" aria-hidden />
         ) : (
           <QrCodeIcon className="size-8 text-muted-foreground/60" aria-hidden />
         )}
         <p className="text-sm text-pretty text-muted-foreground">
-          {session.status === "failed" && failure
-            ? failure
-            : "Start the session to show a QR code."}
+          {failure ?? "Start the session to show a QR code."}
         </p>
         <Button onClick={() => void actions.run(session, "start")}>
           <PlayIcon aria-hidden data-icon="inline-start" />
@@ -811,12 +881,12 @@ function QrPanel({
     );
   }
 
-  if (!ready || qr.isLoading) {
+  if (!liveQr && qr.isLoading) {
     return <Skeleton className="size-56 rounded-xl" />;
   }
 
   // A code from an auth.qr event wins over a fetch that failed around it.
-  if (!qr.data?.code) {
+  if (!liveQr) {
     // 404 means "no code yet"; the next auth.qr event brings it.
     const notYet = !qr.isError || (isApiError(qr.error) && qr.error.status === 404);
     return (
@@ -834,7 +904,7 @@ function QrPanel({
 
   return (
     <div className="flex flex-col items-center gap-2">
-      <QrImage code={qr.data.code} hint={false} />
+      <QrImage code={liveQr.code} hint={false} />
       <p className="text-xs text-muted-foreground">Refreshes automatically</p>
     </div>
   );
@@ -846,7 +916,7 @@ function formatPairingCode(code: string): string {
   return raw.length === 8 ? `${raw.slice(0, 4)}-${raw.slice(4)}` : code;
 }
 
-function PairingCodePanel({ sessionId }: { sessionId: string }) {
+function PairingCodePanel({ sessionId, code }: { sessionId: string; code: string | undefined }) {
   const [phone, setPhone] = useState("");
   const [touched, setTouched] = useState(false);
   const pairing = usePairingCode();
@@ -866,8 +936,6 @@ function PairingCodePanel({ sessionId }: { sessionId: string }) {
       },
     );
   };
-
-  const code = useSessionPairingCode(sessionId)?.code;
 
   return (
     <div className="grid w-full max-w-72 gap-4">
