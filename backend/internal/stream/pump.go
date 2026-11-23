@@ -83,8 +83,9 @@ func NewPump(cfg PumpConfig) *Pump {
 }
 
 // Run subscribes per scope, emits a connected frame, replays from the durable log
-// when since is set (org/session scopes only — firehose is live-tail), then tails
-// live events until ctx is cancelled or the Sink errors. events is the type
+// when since is set (org/session scopes only — firehose is live-tail), emits a
+// resync frame when that replay hit resumeReplayLimit, then tails live events
+// until ctx is cancelled or the Sink errors. events is the type
 // allow-list ("*"/empty = all).
 func (p *Pump) Run(ctx context.Context, sink Sink, scope Scope, events []string, since string) error {
 	if scope.Organization == "" && scope.Session != "" {
@@ -105,8 +106,11 @@ func (p *Pump) Run(ctx context.Context, sink Sink, scope Scope, events []string,
 
 	lastReplayed := ""
 	if since != "" && p.logReader != nil && scope.Organization != "" {
-		var err error
-		lastReplayed, err = p.replay(ctx, sink, scope, since, filter)
+		var (
+			truncated bool
+			err       error
+		)
+		lastReplayed, truncated, err = p.replay(ctx, sink, scope, since, filter)
 		if err != nil {
 			p.log.Error(
 				"stream replay failed",
@@ -117,6 +121,13 @@ func (p *Pump) Run(ctx context.Context, sink Sink, scope Scope, events []string,
 			)
 			_ = p.send(ctx, sink, map[string]any{"event": "error", "error": "replay_failed"})
 			return err
+		}
+		if truncated {
+			// Events between the replay cap and the live tail are not sent. Tell
+			// the client to refetch its state instead of trusting the stream.
+			if err := p.send(ctx, sink, resyncEnvelope(resyncReplayTruncated)); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -136,23 +147,38 @@ func (p *Pump) subscribe(ctx context.Context, scope Scope) *redis.PubSub {
 	}
 }
 
-func (p *Pump) replay(ctx context.Context, sink Sink, scope Scope, since string, filter eventFilter) (string, error) {
-	entries, err := p.logReader.ListSince(ctx, scope.Organization, scope.Session, since, resumeReplayLimit)
-	if err != nil {
-		return "", fmt.Errorf("list since %q: %w", since, err)
-	}
+// replay sends the event-log entries after since, oldest first, reading page by
+// page (the log reader may return fewer entries than asked for) until the log
+// is drained or resumeReplayLimit entries were read. It returns the id of the
+// last entry read and whether more entries remained past the cap.
+func (p *Pump) replay(ctx context.Context, sink Sink, scope Scope, since string, filter eventFilter) (string, bool, error) {
 	last := since
-	for i := range entries {
-		e := &entries[i]
-		last = e.EventID
-		if !filter.allows(e.Type) {
-			continue
+	read := 0
+	for read < resumeReplayLimit {
+		entries, err := p.logReader.ListSince(ctx, scope.Organization, scope.Session, last, resumeReplayLimit-read)
+		if err != nil {
+			return last, false, fmt.Errorf("list since %q: %w", last, err)
 		}
-		if err := p.send(ctx, sink, logEntryEnvelope(e)); err != nil {
-			return last, err
+		if len(entries) == 0 {
+			return last, false, nil
+		}
+		for i := range entries {
+			e := &entries[i]
+			read++
+			last = e.EventID
+			if !filter.allows(e.Type) {
+				continue
+			}
+			if err := p.send(ctx, sink, logEntryEnvelope(e)); err != nil {
+				return last, false, err
+			}
 		}
 	}
-	return last, nil
+	more, err := p.logReader.ListSince(ctx, scope.Organization, scope.Session, last, 1)
+	if err != nil {
+		return last, false, fmt.Errorf("list since %q: %w", last, err)
+	}
+	return last, len(more) > 0, nil
 }
 
 func (p *Pump) tail(

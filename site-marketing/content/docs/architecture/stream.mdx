@@ -34,8 +34,8 @@ and serves client WebSockets. Gateways have no Redis connection.
    revocation** (api-key revoked, user banned, org membership removed). The router
    wires this; the control-bus subscriber lives on the router.
 
-Each message the Pump emits is exactly one JSON value (a `connected`/`ping` frame or a
-full event envelope). The Sink decides the wire framing — the router writes one
+Each message the Pump emits is exactly one JSON value (a `connected`/`ping`/`resync`/`error`
+frame or a full event envelope). The Sink decides the wire framing — the router writes one
 WebSocket text frame per message.
 
 ## Channel naming
@@ -90,9 +90,14 @@ Constructors: `NewPublisher(RedisClient, *slog.Logger)`, `NewPump(PumpConfig)`, 
    size its own dead-stream timeout.
 4. **Replay** (only if `since` is set, a `LogReader` is wired, and the scope is
    org/session) — stream matching `event_log` entries oldest-first, capped at
-   `resumeReplayLimit` (1000). The id of the last entry read is remembered as the
-   **boundary**.
-5. **Tail** — copy live events from the subscription; write the raw published bytes as
+   `resumeReplayLimit` (1000). The pump reads page by page until the log is drained or
+   the cap is reached, because the MySQL reader clamps one call to 200 rows. The id of
+   the last entry read is remembered as the **boundary**.
+5. **Resync** — if entries remain past the cap, emit
+   `{"event":"resync","reason":"replay_truncated","timestamp":…}`. Events between the
+   boundary and the live tail are never sent, so the client must refetch its state
+   over REST. The stream continues with the tail.
+6. **Tail** — copy live events from the subscription; write the raw published bytes as
    one message. The boundary id (if any) is skipped exactly once to dedup the
    replay/tail overlap. A `ping` is emitted on every heartbeat tick. The loop exits on
    context cancel (client disconnect / shutdown / control-bus drop), subscription
@@ -107,11 +112,20 @@ tell a replayed event from a live one.
 A dashboard JWT expires in ~5 min, but the realtime authz happens **only at ticket
 mint**. The client refreshes its JWT, mints a new ticket with `since={lastEventId}`,
 and reopens the WebSocket; the router's Pump replays from `event_log` then tails, so retained events can be recovered. Replay is bounded by the implementation's
-`resumeReplayLimit`; this is not an unlimited catch-up guarantee. A control-bus drop forces the same reconnect, which
+`resumeReplayLimit`; this is not an unlimited catch-up guarantee, and a truncated replay
+ends with a `resync` frame instead of silently dropping the gap. An unknown `since` id
+replays from the start of the retained log (the event-log reader's rule), so it also
+ends in `resync` once the log holds more than the cap. The dashboard refetches its
+session state on every `connected` frame anyway (see `frontend.mdx`), which covers a first
+connect with no `since` and a replay that ended before the cap. A control-bus drop forces the same reconnect, which
 re-validates and fails closed if access is gone.
 
 ## Decisions
 
+- **Signal a truncated replay instead of paging forever.** The cap bounds the work one
+  reconnect can cost. Past it, a `resync` frame hands catch-up to REST, which already
+  returns current state; a client that kept a since cursor through a long outage would
+  otherwise act on a stream with a silent gap.
 - **Fan-out only in the Publisher.** Durable `event_log` persistence (for `since`) is
   owned by API ingestion; the Publisher runs only after that transaction commits.
 - **Publish raw bytes on the tail.** Live events are forwarded as the exact published
@@ -142,6 +156,10 @@ behind a real `*redis.Client`, fake `Clock`/`Ticker` and fake `EventLogReader`:
 - **Registry** — `ConnRegistry` registers/deregisters and drops matching connections by
   `keyId` / `userId` / `(userId, organizationId)`; cancellation callbacks run outside
   the registry lock so callback re-entry cannot deadlock revocation.
+
+- **Replay paging and resync** — `pump_test.go` replays a log larger than the reader's
+  page size, and checks that a resync frame follows a truncated replay and is absent when
+  the log ends at or before the cap.
 
 (The Pump's replay/tail/heartbeat behavior is exercised end-to-end through the router's
 realtime tests in `backend/internal/router`.)

@@ -95,6 +95,7 @@ The server sends discrete JSON text frames (not NDJSON lines):
 - First frame: `{"event":"connected","heartbeatSeconds":20,"timestamp":...}`
 - Heartbeat: `{"event":"ping","timestamp":...}` about every 20 seconds. If pings stop, reconnect.
 - Error: `{"event":"error","error":"..."}`
+- Resync: `{"event":"resync","reason":"replay_truncated","timestamp":...}` when a `since` resume had more than 1000 events waiting. The stream continues, but some events were skipped; reload state over REST.
 - Data: the full event envelope with `schema`, `id`, `event`, `session`, `organization`, `timestamp`, `payload`.
 
 ## Event catalog

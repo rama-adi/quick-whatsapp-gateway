@@ -16,8 +16,9 @@ import (
 
 // resumeReplayLimit caps how many event-log entries a single ?since= resume
 // replays before switching to the live tail, bounding memory/latency on a client
-// that has been disconnected for a long time. Older history beyond this is the
-// concern of the REST event-log endpoints, not the live stream.
+// that has been disconnected for a long time. When more entries remain, the
+// pump sends a resync frame so the client refetches its state; older history is
+// the concern of the REST event-log endpoints, not the live stream.
 const resumeReplayLimit = 1000
 
 // connectedEnvelope is the first frame emitted on a freshly-opened stream, before
@@ -29,6 +30,21 @@ func connectedEnvelope(heartbeatSecs int) map[string]any {
 		"event":            "connected",
 		"timestamp":        domain.NowMs(),
 		"heartbeatSeconds": heartbeatSecs,
+	}
+}
+
+// resyncReplayTruncated is the resync reason sent when a ?since= resume had
+// more event-log entries than resumeReplayLimit.
+const resyncReplayTruncated = "replay_truncated"
+
+// resyncEnvelope tells the client that the stream skipped events it should
+// have seen, so it must refetch its state (REST) rather than rely on the
+// stream to bring it up to date. The live tail continues after this frame.
+func resyncEnvelope(reason string) map[string]any {
+	return map[string]any{
+		"event":     "resync",
+		"reason":    reason,
+		"timestamp": domain.NowMs(),
 	}
 }
 

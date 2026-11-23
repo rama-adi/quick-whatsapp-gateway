@@ -93,11 +93,14 @@ Over the socket the server sends **discrete JSON text frames** — one JSON obje
 - **First frame:** `{"event":"connected","heartbeatSeconds":20,"timestamp":<epoch-ms>}` — the connection is ready.
 - **Heartbeat:** `{"event":"ping","timestamp":<epoch-ms>}` — sent about every 20 seconds. If pings stop, the connection is dead; reconnect.
 - **Error:** `{"event":"error","error":"<error message>"}` — something went wrong.
+- **Resync:** `{"event":"resync","reason":"replay_truncated","timestamp":<epoch-ms>}` — the server skipped events you missed (see below). The stream continues; reload your state over REST.
 - **Data frame:** The full event envelope (schema, id, event, session, organization, timestamp, payload).
 
 ### Reconnect after a drop
 
 To resume after a disconnect and get the events you missed, mint a new ticket with `since` set to the `id` of the last event you processed. The server replays everything after that id from its durable log (up to 1000 events), then resumes tailing live events. Replayed events are identical to live ones, so you must deduplicate on the event `id`.
+
+If more than 1000 events are waiting, the server replays the oldest 1000, sends a `resync` frame, and then tails live events. The events between the replay and the live tail are not sent. When you get `resync`, reload the state you keep (sessions, chats) over REST.
 
 <Callout type="info">
 A login JWT expires after about 5 minutes, but the ticket carries the connection — your token only needs to be valid when you mint the ticket. Each reconnect mints a fresh ticket with a new token, so expiry never interrupts your stream as long as you reconnect with `since`.
