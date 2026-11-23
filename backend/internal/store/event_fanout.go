@@ -360,27 +360,3 @@ func (r *EventFanoutRepo) Backlog(ctx context.Context) (FanoutBacklog, error) {
 	b.OldestLastError = lastErr.String
 	return b, nil
 }
-
-// Prune deletes done fan-out rows finished before cutoffMs, and dead rows
-// finished before deadCutoffMs, in bounded batches.
-func (r *EventFanoutRepo) Prune(ctx context.Context, cutoffMs, deadCutoffMs int64) (int64, error) {
-	var total int64
-	for _, step := range []struct {
-		status string
-		cutoff int64
-	}{{FanoutDone, cutoffMs}, {FanoutDead, deadCutoffMs}} {
-		n, err := deleteBatches(func() (int64, error) {
-			res, err := r.db.ExecContext(ctx, `DELETE FROM event_fanout WHERE status = ? AND finished_at < ?
-				ORDER BY finished_at LIMIT ?`, step.status, step.cutoff, retentionDeleteBatchSize)
-			if err != nil {
-				return 0, fmt.Errorf("store: prune event fan-out: %w", err)
-			}
-			return res.RowsAffected()
-		})
-		total += n
-		if err != nil {
-			return total, err
-		}
-	}
-	return total, nil
-}

@@ -183,7 +183,7 @@ func (r *GatewayEventIngestRepo) ingestOne(ctx context.Context, tx storedb.DBTX,
 			claimedID, claimedOwner, err := claimOutgoingEvent(ctx, tx, outgoingEventIdentity{
 				organizationID: event.OrganizationID, sessionID: event.SessionID,
 				chatJID: identity.ChatJID, waMessageID: identity.WAMessageID,
-			}, event.EventID, "gateway")
+			}, event.EventID, "gateway", committedAt)
 			if err != nil {
 				return err
 			}

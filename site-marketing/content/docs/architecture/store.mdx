@@ -524,15 +524,28 @@ read queries can compile without making the API a writer or migration owner for 
   a supplied `ack_level`. Duplicate/stale receipts and unknown message IDs are
   successful no-ops; the latter are expected for pre-capture history and traffic
   from other linked devices.
+- **Work-table retention (migration 0037).** The API maintenance loop
+  (`work-retention`, at boot and hourly on every replica) deletes, in bounded batches,
+  `done` fan-out older than 7 days, `dead` fan-out older than 30 days, and
+  `gateway_ingested_events` (journal dedupe), `history_sync_batches` (history ledger),
+  `outgoing_message_event_claims` (sent-event owner, now with `created_at`) and
+  `gateway_event_rejections` older than 30 days (`store.RetentionRepo.PruneWork`).
+  These windows are operational and independent of `RETENTION_DAYS`: each ledger only
+  has to outlive the replays that can reach it, which happen within minutes or hours.
+  Unfinished (`pending`/`leased`) fan-out is never deleted. A gateway journal replay
+  older than the dedupe window finds its event already in `event_log` and is a no-op.
 - **Retention is an API-owned maintenance write.** When `RETENTION_DAYS > 0`,
-  the API schedules one shared-Redis-database, deduplicated daily `retention:prune`
-  task. The worker uses the cutoff stored in that task and deletes in bounded
+  the `RetentionRepo.Prune` + `queue.RetentionScheduler` components schedule one
+  shared-Redis-database, deduplicated daily `retention:prune` task. **No command
+  wires that scheduler today**, so this `RETENTION_DAYS` prune does not run in
+  production; wiring it starts deleting old messages and event-log rows on the next
+  daily run, which is a separate operational decision. The worker uses the cutoff stored in that task and deletes in bounded
   batches, so it neither locks a large historical range nor competes indefinitely
   with foreground writes. `RETENTION_DAYS=0` disables scheduling (keep forever);
   negative values are invalid configuration. The prune targets are old
   `messages`, `event_log`, and terminal (`delivered` / `dead`) rows in
-  `webhook_deliveries`. It intentionally preserves `pending` and retryable
-  `failed` delivery rows regardless of age because their payload, attempts, and
+  `webhook_deliveries`. It intentionally preserves `pending`, in-flight `delivering`
+  and retryable `failed` delivery rows regardless of age because their payload, attempts, and
   retry time remain operational state, and retains their referenced event-log
   rows until those deliveries are terminal. Unfinished fan-out work
   (`event_fanout` rows in `pending` or `leased`) also retains its event-log payload,

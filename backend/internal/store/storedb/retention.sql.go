@@ -7,7 +7,89 @@ package storedb
 
 import (
 	"context"
+	"database/sql"
 )
+
+const deleteFinishedEventFanoutBefore = `-- name: DeleteFinishedEventFanoutBefore :execrows
+DELETE FROM event_fanout
+WHERE status = ? AND finished_at < ?
+ORDER BY finished_at
+LIMIT ?
+`
+
+type DeleteFinishedEventFanoutBeforeParams struct {
+	Status     EventFanoutStatus `db:"status" json:"status"`
+	FinishedAt sql.NullInt64     `db:"finished_at" json:"finished_at"`
+	Limit      int32             `db:"limit" json:"limit"`
+}
+
+func (q *Queries) DeleteFinishedEventFanoutBefore(ctx context.Context, arg DeleteFinishedEventFanoutBeforeParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteFinishedEventFanoutBefore, arg.Status, arg.FinishedAt, arg.Limit)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deleteGatewayEventRejectionsBefore = `-- name: DeleteGatewayEventRejectionsBefore :execrows
+DELETE FROM gateway_event_rejections
+WHERE rejected_at < ?
+ORDER BY rejected_at
+LIMIT ?
+`
+
+type DeleteGatewayEventRejectionsBeforeParams struct {
+	RejectedAt int64 `db:"rejected_at" json:"rejected_at"`
+	Limit      int32 `db:"limit" json:"limit"`
+}
+
+func (q *Queries) DeleteGatewayEventRejectionsBefore(ctx context.Context, arg DeleteGatewayEventRejectionsBeforeParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteGatewayEventRejectionsBefore, arg.RejectedAt, arg.Limit)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deleteGatewayIngestedEventsBefore = `-- name: DeleteGatewayIngestedEventsBefore :execrows
+DELETE FROM gateway_ingested_events
+WHERE committed_at < ?
+ORDER BY committed_at
+LIMIT ?
+`
+
+type DeleteGatewayIngestedEventsBeforeParams struct {
+	CommittedAt int64 `db:"committed_at" json:"committed_at"`
+	Limit       int32 `db:"limit" json:"limit"`
+}
+
+func (q *Queries) DeleteGatewayIngestedEventsBefore(ctx context.Context, arg DeleteGatewayIngestedEventsBeforeParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteGatewayIngestedEventsBefore, arg.CommittedAt, arg.Limit)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deleteHistorySyncBatchesBefore = `-- name: DeleteHistorySyncBatchesBefore :execrows
+DELETE FROM history_sync_batches
+WHERE applied_at < ?
+ORDER BY applied_at
+LIMIT ?
+`
+
+type DeleteHistorySyncBatchesBeforeParams struct {
+	AppliedAt int64 `db:"applied_at" json:"applied_at"`
+	Limit     int32 `db:"limit" json:"limit"`
+}
+
+func (q *Queries) DeleteHistorySyncBatchesBefore(ctx context.Context, arg DeleteHistorySyncBatchesBeforeParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteHistorySyncBatchesBefore, arg.AppliedAt, arg.Limit)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
 
 const deleteMessagesBefore = `-- name: DeleteMessagesBefore :execrows
 DELETE FROM messages
@@ -23,6 +105,26 @@ type DeleteMessagesBeforeParams struct {
 
 func (q *Queries) DeleteMessagesBefore(ctx context.Context, arg DeleteMessagesBeforeParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, deleteMessagesBefore, arg.Timestamp, arg.Limit)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deleteOutgoingMessageEventClaimsBefore = `-- name: DeleteOutgoingMessageEventClaimsBefore :execrows
+DELETE FROM outgoing_message_event_claims
+WHERE created_at < ?
+ORDER BY created_at
+LIMIT ?
+`
+
+type DeleteOutgoingMessageEventClaimsBeforeParams struct {
+	CreatedAt int64 `db:"created_at" json:"created_at"`
+	Limit     int32 `db:"limit" json:"limit"`
+}
+
+func (q *Queries) DeleteOutgoingMessageEventClaimsBefore(ctx context.Context, arg DeleteOutgoingMessageEventClaimsBeforeParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteOutgoingMessageEventClaimsBefore, arg.CreatedAt, arg.Limit)
 	if err != nil {
 		return 0, err
 	}

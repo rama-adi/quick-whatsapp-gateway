@@ -53,7 +53,7 @@ func (r *EventLogRepo) AppendOwnSentOnce(
 	claimedID, claimedOwner, err := claimOutgoingEvent(ctx, tx, outgoingEventIdentity{
 		organizationID: e.OrganizationID, sessionID: e.SessionID,
 		chatJID: chatJID, waMessageID: waMessageID,
-	}, e.EventID, "api")
+	}, e.EventID, "api", e.CreatedAt)
 	if err != nil {
 		return false, err
 	}

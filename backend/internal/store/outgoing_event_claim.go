@@ -22,11 +22,12 @@ func claimOutgoingEvent(
 	tx storedb.DBTX,
 	identity outgoingEventIdentity,
 	eventID, owner string,
+	createdAt int64,
 ) (claimedEventID, claimedOwner string, err error) {
 	_, err = tx.ExecContext(ctx, `INSERT IGNORE INTO outgoing_message_event_claims
-		(organization_id,session_id,chat_jid,wa_message_id,event_id,owner)
-		VALUES (?,?,?,?,?,?)`, identity.organizationID, identity.sessionID,
-		identity.chatJID, identity.waMessageID, eventID, owner)
+		(organization_id,session_id,chat_jid,wa_message_id,event_id,owner,created_at)
+		VALUES (?,?,?,?,?,?,?)`, identity.organizationID, identity.sessionID,
+		identity.chatJID, identity.waMessageID, eventID, owner, createdAt)
 	if err != nil {
 		return "", "", fmt.Errorf("store: claim outgoing message event: %w", err)
 	}

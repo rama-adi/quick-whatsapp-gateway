@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/domain"
 	"github.com/rama-adi/quick-whatsapp-gateway/internal/store/storedb"
@@ -29,6 +30,75 @@ type RetentionRepo struct {
 
 // NewRetentionRepo constructs a RetentionRepo over a database or transaction.
 func NewRetentionRepo(db storedb.DBTX) *RetentionRepo { return &RetentionRepo{q: storedb.New(db)} }
+
+// Work-table retention windows. They are operational, independent of
+// RETENTION_DAYS: finished work and dedupe ledgers only need to outlive any
+// replay that could still reach them (gateway journal replays, committed-event
+// redelivery, API/gateway sent-event races), which happen within minutes or
+// hours. Dead-lettered fan-out stays longer so operators can inspect it.
+const (
+	FanoutDoneRetention   = 7 * 24 * time.Hour
+	WorkLedgerRetention   = 30 * 24 * time.Hour
+	DeadLetterRetention   = 30 * 24 * time.Hour
+	RejectionLogRetention = 30 * 24 * time.Hour
+)
+
+// WorkPruneResult reports rows deleted by one work-retention pass.
+type WorkPruneResult struct {
+	FanoutDone, FanoutDead, IngestedEvents, HistoryBatches, OutgoingClaims, Rejections int64
+}
+
+// PruneWork deletes finished fan-out work, dedupe ledgers and rejection
+// records older than their windows, in short separately committed batches.
+// Unfinished fan-out (pending/leased) is never deleted.
+func (r *RetentionRepo) PruneWork(ctx context.Context, nowMs int64) (WorkPruneResult, error) {
+	var out WorkPruneResult
+	before := func(d time.Duration) int64 { return nowMs - d.Milliseconds() }
+	steps := []struct {
+		name  string
+		dst   *int64
+		apply func() (int64, error)
+	}{
+		{"done event fan-out", &out.FanoutDone, func() (int64, error) {
+			return r.q.DeleteFinishedEventFanoutBefore(ctx, storedb.DeleteFinishedEventFanoutBeforeParams{
+				Status: storedb.EventFanoutStatusDone, FinishedAt: sqlNullInt64(before(FanoutDoneRetention)), Limit: retentionDeleteBatchSize,
+			})
+		}},
+		{"dead event fan-out", &out.FanoutDead, func() (int64, error) {
+			return r.q.DeleteFinishedEventFanoutBefore(ctx, storedb.DeleteFinishedEventFanoutBeforeParams{
+				Status: storedb.EventFanoutStatusDead, FinishedAt: sqlNullInt64(before(DeadLetterRetention)), Limit: retentionDeleteBatchSize,
+			})
+		}},
+		{"gateway ingested events", &out.IngestedEvents, func() (int64, error) {
+			return r.q.DeleteGatewayIngestedEventsBefore(ctx, storedb.DeleteGatewayIngestedEventsBeforeParams{
+				CommittedAt: before(WorkLedgerRetention), Limit: retentionDeleteBatchSize,
+			})
+		}},
+		{"history sync batches", &out.HistoryBatches, func() (int64, error) {
+			return r.q.DeleteHistorySyncBatchesBefore(ctx, storedb.DeleteHistorySyncBatchesBeforeParams{
+				AppliedAt: before(WorkLedgerRetention), Limit: retentionDeleteBatchSize,
+			})
+		}},
+		{"outgoing message event claims", &out.OutgoingClaims, func() (int64, error) {
+			return r.q.DeleteOutgoingMessageEventClaimsBefore(ctx, storedb.DeleteOutgoingMessageEventClaimsBeforeParams{
+				CreatedAt: before(WorkLedgerRetention), Limit: retentionDeleteBatchSize,
+			})
+		}},
+		{"gateway event rejections", &out.Rejections, func() (int64, error) {
+			return r.q.DeleteGatewayEventRejectionsBefore(ctx, storedb.DeleteGatewayEventRejectionsBeforeParams{
+				RejectedAt: before(RejectionLogRetention), Limit: retentionDeleteBatchSize,
+			})
+		}},
+	}
+	for _, step := range steps {
+		n, err := deleteBatches(step.apply)
+		*step.dst = n
+		if err != nil {
+			return out, fmt.Errorf("store: prune %s: %w", step.name, err)
+		}
+	}
+	return out, nil
+}
 
 // Prune deletes rows older than cutoffMs in short, separately committed
 // statements. Terminal webhook delivery history is removed first. Messages are

@@ -81,6 +81,19 @@ e2e smoke against a live WhatsApp number.
   manager's per-run driver reconnects, fails with `connect_error` after 10 failed
   attempts, and reports `reconnecting` only after a 10s grace period. Each run is
   a generation-tagged connection whose late events are dropped.
+- **Durable pipelines have explicit work state (migrations 0030–0037).** Every
+  background work item carries a status, an owner/claim token, a lease, attempt
+  counters, the last error and a terminal or dead-letter state: committed-event
+  fan-out (`event_fanout`, per-session `session_seq`, head-of-line claims, dead
+  after 20 attempts or a permanent error), gateway journal entries (per-entry
+  verdicts: `gateway_event_rejections` API-side, `journal_quarantine` gateway-side),
+  history sync (gateway inbox `waiting_session`/`retrying` with `give_up_at`; API
+  runs `abandoned` after `expected_by`), backup imports (owner + heartbeat lease,
+  reaped to `interrupted`), webhook deliveries (`delivering` + token-fenced marks),
+  media assets (claim lease, attempt cap, 404/410 terminal), and the outbox
+  (`acknowledged`, claim token, `dispatch_attempts` separate from `deferrals`,
+  capped `projection_attempts`). An API maintenance loop repairs ownerless state at
+  boot and periodically, and prunes finished work on fixed windows.
 
 - **Durable outbound status and deadline:** An authenticated, send-capable
   caller can read an accepted outbox row by organization/session-scoped
@@ -238,6 +251,18 @@ e2e smoke against a live WhatsApp number.
   away; dashboards learn `unavailable` from REST reads. The deprecated
   `PrepareSession`/`BeginPairing` RPCs can be deleted once a breaking proto
   change is accepted.
+- **`RETENTION_DAYS` prune is not wired.** `RetentionRepo.Prune` and
+  `queue.RetentionScheduler` exist, but no command starts them, so old `messages`,
+  `event_log` and terminal webhook deliveries are never deleted. Wiring it deletes
+  data on the next daily run; decide deliberately.
+- **Poll recap events bypass durable fan-out.** `PollRecapWorker` marks the recap
+  emitted, appends the event and publishes/enqueues inline, logging failures. A
+  crash or Redis/webhook failure after the mark loses that recap's delivery. Route
+  it through `event_fanout` (source api) like sent and media events.
+- **Heavy migrations in 0030–0037.** 0036 rebuilds `outbox` with ALGORITHM=COPY
+  (CHECK constraints; blocks outbox writes for the copy), 0035 rebuilds
+  `media_assets` in place (nullable `next_attempt_at`), 0037 builds indexes on
+  `gateway_ingested_events` and updates every `outgoing_message_event_claims` row.
 
 - **Dashboards/alerts for the control plane (deployment work, deferred from Increment 10).**
   The plan's observability targets still need operator-facing dashboards and alerts: control-stream

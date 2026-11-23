@@ -726,6 +726,19 @@ func durableMaintenanceTasks(st *store.Store, services *service.Services, log *s
 		Name: "backup-imports-reap", Every: time.Minute,
 		Run: services.Backup.ReapInterrupted,
 	}, {
+		Name: "work-retention", Every: time.Hour,
+		Run: func(ctx context.Context) error {
+			res, err := st.Retention.PruneWork(ctx, time.Now().UnixMilli())
+			if total := res.FanoutDone + res.FanoutDead + res.IngestedEvents + res.HistoryBatches +
+				res.OutgoingClaims + res.Rejections; total > 0 {
+				log.InfoContext(ctx, "work retention pruned", "fanout_done", res.FanoutDone,
+					"fanout_dead", res.FanoutDead, "ingested_events", res.IngestedEvents,
+					"history_batches", res.HistoryBatches, "outgoing_claims", res.OutgoingClaims,
+					"rejections", res.Rejections)
+			}
+			return err
+		},
+	}, {
 		Name: "history-runs-abandon", Every: 5 * time.Minute,
 		Run: func(ctx context.Context) error {
 			n, err := st.History.AbandonOverdueRuns(ctx, time.Now().UnixMilli())

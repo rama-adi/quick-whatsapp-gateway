@@ -1331,6 +1331,64 @@ func AllOutboxStatusValues() []OutboxStatus {
 	}
 }
 
+type OutgoingMessageEventClaimsOwner string
+
+const (
+	OutgoingMessageEventClaimsOwnerApi     OutgoingMessageEventClaimsOwner = "api"
+	OutgoingMessageEventClaimsOwnerGateway OutgoingMessageEventClaimsOwner = "gateway"
+)
+
+func (e *OutgoingMessageEventClaimsOwner) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = OutgoingMessageEventClaimsOwner(s)
+	case string:
+		*e = OutgoingMessageEventClaimsOwner(s)
+	default:
+		return fmt.Errorf("unsupported scan type for OutgoingMessageEventClaimsOwner: %T", src)
+	}
+	return nil
+}
+
+type NullOutgoingMessageEventClaimsOwner struct {
+	OutgoingMessageEventClaimsOwner OutgoingMessageEventClaimsOwner `json:"outgoing_message_event_claims_owner"`
+	Valid                           bool                            `json:"valid"` // Valid is true if OutgoingMessageEventClaimsOwner is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullOutgoingMessageEventClaimsOwner) Scan(value interface{}) error {
+	if value == nil {
+		ns.OutgoingMessageEventClaimsOwner, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.OutgoingMessageEventClaimsOwner.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullOutgoingMessageEventClaimsOwner) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.OutgoingMessageEventClaimsOwner), nil
+}
+
+func (e OutgoingMessageEventClaimsOwner) Valid() bool {
+	switch e {
+	case OutgoingMessageEventClaimsOwnerApi,
+		OutgoingMessageEventClaimsOwnerGateway:
+		return true
+	}
+	return false
+}
+
+func AllOutgoingMessageEventClaimsOwnerValues() []OutgoingMessageEventClaimsOwner {
+	return []OutgoingMessageEventClaimsOwner{
+		OutgoingMessageEventClaimsOwnerApi,
+		OutgoingMessageEventClaimsOwnerGateway,
+	}
+}
+
 type PkiAuthoritiesKind string
 
 const (
@@ -2005,6 +2063,19 @@ type GatewayEnrollmentToken struct {
 	UpdatedAt       int64                         `db:"updated_at" json:"updated_at"`
 }
 
+type GatewayEventRejection struct {
+	GatewayEventID  string `db:"gateway_event_id" json:"gateway_event_id"`
+	GatewayID       string `db:"gateway_id" json:"gateway_id"`
+	ConnectionEpoch uint64 `db:"connection_epoch" json:"connection_epoch"`
+	JournalSequence uint64 `db:"journal_sequence" json:"journal_sequence"`
+	SessionID       string `db:"session_id" json:"session_id"`
+	OrganizationID  string `db:"organization_id" json:"organization_id"`
+	EventType       string `db:"event_type" json:"event_type"`
+	Reason          string `db:"reason" json:"reason"`
+	PayloadBytes    uint32 `db:"payload_bytes" json:"payload_bytes"`
+	RejectedAt      int64  `db:"rejected_at" json:"rejected_at"`
+}
+
 type GatewayIngestedEvent struct {
 	GatewayEventID  string `db:"gateway_event_id" json:"gateway_event_id"`
 	GatewayID       string `db:"gateway_id" json:"gateway_id"`
@@ -2122,6 +2193,16 @@ type Outbox struct {
 	ProjectionAttempts int32           `db:"projection_attempts" json:"projection_attempts"`
 	ClaimToken         sql.NullString  `db:"claim_token" json:"claim_token"`
 	LeaseUntil         sql.NullInt64   `db:"lease_until" json:"lease_until"`
+}
+
+type OutgoingMessageEventClaim struct {
+	OrganizationID string                          `db:"organization_id" json:"organization_id"`
+	SessionID      string                          `db:"session_id" json:"session_id"`
+	ChatJid        string                          `db:"chat_jid" json:"chat_jid"`
+	WaMessageID    string                          `db:"wa_message_id" json:"wa_message_id"`
+	EventID        string                          `db:"event_id" json:"event_id"`
+	Owner          OutgoingMessageEventClaimsOwner `db:"owner" json:"owner"`
+	CreatedAt      int64                           `db:"created_at" json:"created_at"`
 }
 
 type PkiAuthority struct {

@@ -28,3 +28,33 @@ WHERE event_log.created_at < ?
   )
 ORDER BY created_at, id
 LIMIT ?;
+
+-- name: DeleteFinishedEventFanoutBefore :execrows
+DELETE FROM event_fanout
+WHERE status = ? AND finished_at < ?
+ORDER BY finished_at
+LIMIT ?;
+
+-- name: DeleteGatewayIngestedEventsBefore :execrows
+DELETE FROM gateway_ingested_events
+WHERE committed_at < ?
+ORDER BY committed_at
+LIMIT ?;
+
+-- name: DeleteHistorySyncBatchesBefore :execrows
+DELETE FROM history_sync_batches
+WHERE applied_at < ?
+ORDER BY applied_at
+LIMIT ?;
+
+-- name: DeleteOutgoingMessageEventClaimsBefore :execrows
+DELETE FROM outgoing_message_event_claims
+WHERE created_at < ?
+ORDER BY created_at
+LIMIT ?;
+
+-- name: DeleteGatewayEventRejectionsBefore :execrows
+DELETE FROM gateway_event_rejections
+WHERE rejected_at < ?
+ORDER BY rejected_at
+LIMIT ?;
