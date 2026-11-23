@@ -64,7 +64,7 @@ type SendOptions struct {
 
 // WAClient is the narrow slice of whatsmeow the send pipeline needs. Each method
 // returns the assigned WhatsApp message id and the server timestamp in epoch-ms.
-// The Sender never touches whatsmeow protobufs directly — it speaks this
+// The send pipeline never touches whatsmeow protobufs directly — it speaks this
 // interface, and waclient.go provides the real adapter over *whatsmeow.Client
 // using the recon §7 Build* helpers + SendMessage.
 type WAClient interface {
@@ -176,33 +176,14 @@ type QuoteInfo struct {
 // Empty reports whether no quote was requested.
 func (q QuoteInfo) Empty() bool { return q.ID == "" }
 
-// OutboxRepo is the persistence boundary for the async outbox table (§5). The
-// MySQL implementation in the store package satisfies it.
-type OutboxRepo interface {
-	// Insert persists a queued outbox row. Implementations MUST enforce the
-	// (organization_id, idempotency_key) uniqueness constraint and return an error
-	// wrapping domain.CodeConflict (or *domain.APIError with that code) on a
-	// duplicate so the caller can fall back to GetByIdempotencyKey.
-	Insert(ctx context.Context, e *domain.OutboxEntry) error
-	// GetByIdempotencyKey returns the existing outbox row for (organizationID, key),
-	// or (nil, nil) when none exists.
-	GetByIdempotencyKey(ctx context.Context, organizationID, key string) (*domain.OutboxEntry, error)
-	// UpdateStatus transitions an outbox row and records the wa_message_id and
-	// error (both optional). It bumps updated_at.
-	UpdateStatus(ctx context.Context, id string, status domain.OutboxStatus, waMessageID, errMsg string) error
-	// ClaimQueued atomically claims up to limit queued rows for a session,
-	// flipping them to 'sending', for the async worker to drain.
-	ClaimQueued(ctx context.Context, sessionID string, limit int) ([]*domain.OutboxEntry, error)
-}
-
 // MessageRecorder persists a row in the messages table for a successfully
 // dispatched outbound send, so the gateway's own sends ("bot messages") show up
 // in chat history alongside inbound messages. whatsmeow does NOT echo a
 // self-authored send back as an events.Message on the same device, so without
 // this the inbound pipeline never sees it and the only trace is the transient
-// outbox row. Recording is best-effort (the Sender logs and swallows errors —
-// the WhatsApp send already succeeded) and optional (wired via
-// WithMessageRecorder; nil disables it). The store implementation upserts keyed
+// outbox row. The API's OutboundScheduler records it after WhatsApp acknowledges
+// the send and keeps the command retryable until the projection succeeds
+// (optional: nil disables it). The store implementation upserts keyed
 // by (session_id, wa_message_id), the same key the inbound pipeline uses, so a
 // later echo or receipt reconciles onto the same row instead of duplicating it.
 type MessageRecorder interface {
@@ -216,9 +197,8 @@ type QuoteResolver interface {
 }
 
 // SentMessage is the content-bearing slice of a successful send the recorder
-// needs to write a from_me/direction=out/status=sent messages row. Sender/ack
-// fields (session id, wa message id, timestamp) are filled by the Sender from
-// the dispatch result and request context.
+// needs to write a from_me/direction=out/status=sent messages row. Ack fields
+// (session id, wa message id, timestamp) come from the dispatch result.
 type SentMessage struct {
 	SessionID           string
 	WAMessageID         string
@@ -243,17 +223,3 @@ type SentMessage struct {
 type RateLimiter interface {
 	Allow(ctx context.Context, sessionID string, perMin, perHour int) (ok bool, retryAfter time.Duration, err error)
 }
-
-// Clock is the time boundary, injected so tests are deterministic. NowMs returns
-// epoch-ms (domain.NowMs in production).
-type Clock interface {
-	NowMs() int64
-}
-
-// systemClock is the production Clock.
-type systemClock struct{}
-
-func (systemClock) NowMs() int64 { return domain.NowMs() }
-
-// SystemClock returns the real wall-clock Clock.
-func SystemClock() Clock { return systemClock{} }

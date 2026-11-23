@@ -29,7 +29,7 @@ import (
 // This file is the package's protocol boundary. Parsing or local payload-building
 // failures occur before SendMessage and return no message ID; after WhatsApp
 // acknowledges, send normalizes the assigned ID and server timestamp for durable
-// idempotency and history recording by Sender.
+// idempotency and history recording by the API outbound scheduler.
 type whatsmeowAdapter struct {
 	cli       *whatsmeow.Client
 	transport WhatsAppTransport

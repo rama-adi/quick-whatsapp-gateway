@@ -32,11 +32,7 @@ type Server struct {
 func NewServer(redisOpt asynq.RedisClientOpt, cfg ServerConfig, handlers Handlers) *Server {
 	queues := cfg.Queues
 	if queues == nil {
-		queues = map[string]int{
-			QueueOutbox:    6,
-			QueueWebhooks:  3,
-			QueueRetention: 1,
-		}
+		queues = map[string]int{QueueRetention: 1}
 	}
 	srv := asynq.NewServer(redisOpt, asynq.Config{
 		Concurrency: cfg.Concurrency,

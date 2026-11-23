@@ -9,28 +9,12 @@ import (
 	"github.com/hibiken/asynq"
 )
 
-// fakeConsumers records what the handlers delegated to it, and can be made to
+// fakeConsumers records what the handler delegated to it, and can be made to
 // return an error to exercise the failure path.
 type fakeConsumers struct {
-	outboxID   string
-	deliveryID uint64
-	cutoffMs   int64
-	outboxN    int
-	webhookN   int
-	pruneN     int
-	failErr    error
-}
-
-func (f *fakeConsumers) ProcessOutbox(_ context.Context, outboxID string) error {
-	f.outboxN++
-	f.outboxID = outboxID
-	return f.failErr
-}
-
-func (f *fakeConsumers) DeliverWebhook(_ context.Context, deliveryID uint64) error {
-	f.webhookN++
-	f.deliveryID = deliveryID
-	return f.failErr
+	cutoffMs int64
+	pruneN   int
+	failErr  error
 }
 
 func (f *fakeConsumers) Prune(_ context.Context, cutoffMs int64) error {
@@ -46,29 +30,11 @@ func dispatch(mux *asynq.ServeMux, task *asynq.Task) error {
 	return h.ProcessTask(context.Background(), task)
 }
 
-// TestHandlerDispatch registers all three recording consumers and resolves one task of each type through
-// the ServeMux. Each payload must reach only its corresponding consumer with the decoded id or cutoff.
-// This pins handler registration and argument routing without a live Redis worker.
+// TestHandlerDispatch resolves a retention task through the ServeMux; the
+// decoded cutoff must reach the consumer.
 func TestHandlerDispatch(t *testing.T) {
 	fake := &fakeConsumers{}
-	mux := Handlers{Outbox: fake, Webhooks: fake, Retention: fake}.Mux()
-
-	outboxTask, _ := NewOutboxSendTask("out_xyz")
-	if err := dispatch(mux, outboxTask); err != nil {
-		t.Fatalf("outbox dispatch: %v", err)
-	}
-	if fake.outboxN != 1 || fake.outboxID != "out_xyz" {
-		t.Fatalf("outbox not delegated: n=%d id=%q", fake.outboxN, fake.outboxID)
-	}
-
-	webhookTask, _ := NewWebhookDeliverTask(99)
-	if err := dispatch(mux, webhookTask); err != nil {
-		t.Fatalf("webhook dispatch: %v", err)
-	}
-	if fake.webhookN != 1 || fake.deliveryID != 99 {
-		t.Fatalf("webhook not delegated: n=%d id=%d", fake.webhookN, fake.deliveryID)
-	}
-
+	mux := Handlers{Retention: fake}.Mux()
 	pruneTask, _ := NewRetentionPruneTask(555)
 	if err := dispatch(mux, pruneTask); err != nil {
 		t.Fatalf("prune dispatch: %v", err)
@@ -78,39 +44,25 @@ func TestHandlerDispatch(t *testing.T) {
 	}
 }
 
-// TestHandlerMalformedPayloadSkipsRetry dispatches malformed tasks for each registered job type. Every
-// handler must wrap the parse failure with asynq.SkipRetry and avoid invoking its consumer. Retrying
-// immutable bad JSON would waste worker capacity forever.
+// TestHandlerMalformedPayloadSkipsRetry: a malformed payload is wrapped with
+// asynq.SkipRetry and never reaches the consumer.
 func TestHandlerMalformedPayloadSkipsRetry(t *testing.T) {
 	fake := &fakeConsumers{}
-	mux := Handlers{Outbox: fake}.Mux()
-
-	// Build a task of the right type but with a payload that fails validation.
-	bad := asynq.NewTask(TypeOutboxSend, []byte(`{"outboxId":""}`))
+	mux := Handlers{Retention: fake}.Mux()
+	bad := asynq.NewTask(TypeRetentionPrune, []byte(`{"cutoffMs":0}`))
 	err := dispatch(mux, bad)
-	if err == nil {
-		t.Fatal("expected error for empty outboxId")
-	}
-	if !errors.Is(err, asynq.SkipRetry) {
+	if err == nil || !errors.Is(err, asynq.SkipRetry) {
 		t.Fatalf("malformed payload should SkipRetry, got %v", err)
 	}
-	if fake.outboxN != 0 {
+	if fake.pruneN != 0 {
 		t.Fatal("consumer should not be called on bad payload")
 	}
 }
 
-// TestMuxOnlyRegistersProvidedConsumers builds a handler bundle with only the outbox consumer present. The
-// mux must resolve outbox tasks and leave webhook and retention types unregistered. This allows
-// specialized worker processes without nil dereferences or accidental job ownership.
+// TestMuxOnlyRegistersProvidedConsumers: without a retention consumer the
+// task type is unregistered.
 func TestMuxOnlyRegistersProvidedConsumers(t *testing.T) {
-	// Only outbox is provided; webhook/retention tasks must hit NotFoundHandler.
-	mux := Handlers{Outbox: &fakeConsumers{}}.Mux()
-
-	webhookTask, _ := NewWebhookDeliverTask(1)
-	if err := dispatch(mux, webhookTask); err == nil {
-		t.Fatal("expected not-found error for unregistered webhook handler")
-	}
-
+	mux := Handlers{}.Mux()
 	pruneTask, _ := NewRetentionPruneTask(1)
 	if err := dispatch(mux, pruneTask); err == nil {
 		t.Fatal("expected not-found error for unregistered retention handler")

@@ -9,8 +9,8 @@ Production sends enter `service.MessageService` on the API and pass through
 `service.OutboundScheduler`. The scheduler owns durable outbox commands, idempotency,
 rate limiting, sync/async behavior, and retries. It dispatches over the private engine
 RPC to the gateway's fenced executor, which uses the protocol builders in
-`backend/internal/wa/outbound`. The reusable `outbound.Sender` and its pacing option
-remain in the package; production composition uses the durable scheduler.
+`backend/internal/wa/outbound`. The scheduler is the only send pipeline: the former
+in-process `outbound.Sender` (with its own outbox state machine) was removed.
 
 The package interfaces below describe those reusable helpers as well as the live
 protocol adapter; the final decisions section describes current scheduler semantics.
@@ -115,17 +115,8 @@ by account or client; do not infer rendering from a successful send. Images
 remain separate media sends; carousels and automatic text fallback are outside
 this endpoint's contract.
 
-## Reusable sender types
+## Shared send types
 
-- `Sender` (sender.go) — the pipeline. `NewSender(wa, outbox, limits, clock,
-  opts...)`. Options: `WithPacing(max)`, `WithLogger(l)`,
-  `WithMessageRecorder(r)`.
-  - `Send(ctx, sess, req, opts) (SendResult, error)` — validate → idempotency
-    replay → async-persist OR sync-dispatch.
-  - `SendOp(ctx, sess, OpRequest) (SendResult, error)` — synchronous message ops,
-    rate-limited like sends.
-  - `Dispatch(ctx, req)` — exported, rate-limit/idempotency-free router the async
-    outbox worker reuses to drive a persisted request to whatsmeow.
 - `SendResult` — `{Mode, WAMessageID, ReservedMessageIDs, Status, Timestamp, OutboxID, Replayed}`.
 
 The API returns `reservedMessageIds` for a durably accepted send, including async,

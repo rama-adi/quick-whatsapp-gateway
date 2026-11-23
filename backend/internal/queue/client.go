@@ -29,44 +29,6 @@ func (c *Client) Close() error {
 	return c.inner.Close()
 }
 
-// EnqueueOutboxSend queues an async outbound send for the given outbox row.
-// Routed to QueueOutbox. Callers may pass extra options (e.g. asynq.MaxRetry,
-// asynq.ProcessIn for rate-limit deferral, asynq.TaskID for dedup).
-func (c *Client) EnqueueOutboxSend(
-	ctx context.Context,
-	outboxID string,
-	opts ...asynq.Option,
-) (*asynq.TaskInfo, error) {
-	task, err := NewOutboxSendTask(outboxID)
-	if err != nil {
-		return nil, err
-	}
-	info, err := c.inner.EnqueueContext(ctx, task, withDefaultQueue(QueueOutbox, opts)...)
-	if err != nil {
-		return nil, fmt.Errorf("enqueue outbox-send %s: %w", outboxID, err)
-	}
-	return info, nil
-}
-
-// EnqueueWebhookDeliver queues a webhook delivery attempt for the given delivery
-// row. Routed to QueueWebhooks. Pass asynq.ProcessIn to schedule a retry per the
-// webhook's retry_policy.
-func (c *Client) EnqueueWebhookDeliver(
-	ctx context.Context,
-	deliveryID uint64,
-	opts ...asynq.Option,
-) (*asynq.TaskInfo, error) {
-	task, err := NewWebhookDeliverTask(deliveryID)
-	if err != nil {
-		return nil, err
-	}
-	info, err := c.inner.EnqueueContext(ctx, task, withDefaultQueue(QueueWebhooks, opts)...)
-	if err != nil {
-		return nil, fmt.Errorf("enqueue webhook-deliver %d: %w", deliveryID, err)
-	}
-	return info, nil
-}
-
 // EnqueueRetentionPrune queues a one-off prune with the given epoch-ms cutoff.
 // Routed to QueueRetention. The recurring daily prune (§5) registers this type
 // with asynq's PeriodicTaskManager / Scheduler.

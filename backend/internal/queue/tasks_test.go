@@ -18,36 +18,6 @@ func TestParsePayloadValidation(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name:    "outbox empty id",
-			parse:   func(t *asynq.Task) error { _, err := parseOutboxSend(t); return err },
-			payload: `{"outboxId":""}`,
-			wantErr: true,
-		},
-		{
-			name:    "outbox ok",
-			parse:   func(t *asynq.Task) error { _, err := parseOutboxSend(t); return err },
-			payload: `{"outboxId":"out_1"}`,
-			wantErr: false,
-		},
-		{
-			name:    "outbox malformed json",
-			parse:   func(t *asynq.Task) error { _, err := parseOutboxSend(t); return err },
-			payload: `{not json`,
-			wantErr: true,
-		},
-		{
-			name:    "webhook zero id",
-			parse:   func(t *asynq.Task) error { _, err := parseWebhookDeliver(t); return err },
-			payload: `{"deliveryId":0}`,
-			wantErr: true,
-		},
-		{
-			name:    "webhook ok",
-			parse:   func(t *asynq.Task) error { _, err := parseWebhookDeliver(t); return err },
-			payload: `{"deliveryId":7}`,
-			wantErr: false,
-		},
-		{
 			name:    "retention zero cutoff",
 			parse:   func(t *asynq.Task) error { _, err := parseRetentionPrune(t); return err },
 			payload: `{"cutoffMs":0}`,

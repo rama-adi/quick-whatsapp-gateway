@@ -24,9 +24,13 @@ and the local event journal.
 
 | Job | Type name | Queue | Masterplan |
 |---|---|---|---|
-| Async outbound send | `outbox:send` (retired: no enqueue sites since gRPC Increment 6; the API's `OutboundScheduler` drains `outbox` directly over the private engine) | `outbox` | §10 (async outbox) |
-| Webhook delivery + retry (available task type; production uses the API dispatcher ticker) | `webhook:deliver` | `webhooks` | §11 (webhook retries) |
 | Retention prune (available component; production scheduler unwired) | `retention:prune` | `retention` | §7 (daily prune) |
+
+Outbound sends and webhook deliveries are **not** asynq jobs: the API's durable MySQL
+work tables own them (`OutboundScheduler` drains `outbox`, the webhook dispatcher
+ticker drains `webhook_deliveries`). The former `outbox:send` / `webhook:deliver`
+task types, their handlers and the asynq-era `service.OutboxWorker` (which encoded a
+conflicting outbox state machine) were removed because nothing enqueued them.
 
 The package owns: typed task constructors + JSON payloads, an enqueue `Client`,
 a worker `Server`/mux, and a `REDIS_URL` parser. It performs **no** real work

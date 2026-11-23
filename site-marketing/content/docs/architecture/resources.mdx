@@ -97,7 +97,7 @@ live client via `Manager.Get(id)` → `ManagedSession.client` (type-asserted to 
 narrow `liveClient` interface that the real `*whatsmeow.Client` satisfies) and
 translates between the string-JID API surface and whatsmeow's typed calls
 (recon §8/§9). When a session has no connected client it returns
-`not_implemented` — consistent with the outbound Sender's session-routing client
+`not_implemented` — consistent with the outbound session-routing client
 for a session without a live connection (outbound-pipeline.md).
 
 `backend/cmd/api` wires the API-side facades. Gateway composition owns `wa.LiveOps`;
